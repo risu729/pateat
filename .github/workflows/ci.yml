@@ -37,6 +37,9 @@ jobs:
       - name: Install isolated browser runtime
         run: mise run browser:install --with-deps
       - name: Run the complete local verification graph
+        env:
+          # Use the read-only job token for upstream action-pin verification.
+          GITHUB_TOKEN: ${{ github.token }}
         run: mise run check
       - name: Prepare tested server artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
