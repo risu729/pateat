@@ -10,4 +10,6 @@
   scripts or download-on-demand tool commands.
 - Keep vault secrets local, recipes declarative, and login execution scoped to
   the configured account, origin, tab, frame, and document.
+- Preserve the plan's initial/later boundaries and independently granted provider
+  capabilities; adding an adapter or interface must not expand permissions.
 - Have an independent reviewer verify each PR. State what was actually tested.

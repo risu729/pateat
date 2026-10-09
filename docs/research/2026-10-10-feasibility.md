@@ -27,6 +27,62 @@ account login was executed for the documentation PR.
   flags have normative ceremony semantics; a valid signature alone does not
   establish that verification occurred. [WebAuthn authenticator data](https://www.w3.org/TR/webauthn-3/#sctn-authenticator-data)
 
+### Settings and future inline UI
+
+The installed Enhancer for YouTube 3.0.19 manifest identified its options page.
+Opening that `chrome-extension://` URL through the current Chrome use connection
+was rejected before page access: only HTTP and HTTPS protocols were allowed.
+This verifies that route's URL policy, not a debugger failure inside the options
+page. Human use of an extension settings page remains distinct from AI browser
+access. Initial Pateat settings are human-operated; inline account choice is
+deferred, and neither alternative has passed a Pateat coexistence test.
+
+Read-only inspection of mature upstream projects found useful patterns, not
+feature code to copy:
+
+- [KeePassXC-Browser autocomplete](https://github.com/keepassxreboot/keepassxc-browser/blob/8b0b2c4347126f4983f59ea7dd6ca2a2a667cf48/keepassxc-browser/content/autocomplete.js)
+  uses ordinary elements in closed Shadow DOM and a manual popover where
+  available, without an extension-origin iframe on this menu path. Its keyboard
+  handling and [selection handlers](https://github.com/keepassxreboot/keepassxc-browser/blob/8b0b2c4347126f4983f59ea7dd6ca2a2a667cf48/keepassxc-browser/content/credential-autocomplete.js)
+  check `isTrusted`. That rejects page-generated events; it does not prove
+  rejection of browser/CDP input or establish human-only approval. Candidates
+  expose title, username and group, including tooltip data. Closed Shadow DOM is
+  not a confidentiality boundary. The inspected menu lacked ARIA listbox/option
+  semantics, so its accessibility should not be copied uncritically.
+- [Proton Pass inline UI](https://github.com/ProtonMail/WebClients/blob/02d43d96401eaed7e815d096612840efabdca7e6/applications/pass-extension/src/app/content/services/inline/inline.app.ts)
+  embeds an iframe inside its popover shadow root, preserving the frame-origin
+  issue above. Its [dropdown lifecycle](https://github.com/ProtonMail/WebClients/blob/02d43d96401eaed7e815d096612840efabdca7e6/applications/pass-extension/src/app/content/services/inline/dropdown/dropdown.handler.ts)
+  cancels stale openings and closes/cleans up on navigation, anchor and layout
+  changes. Its [worker](https://github.com/ProtonMail/WebClients/blob/02d43d96401eaed7e815d096612840efabdca7e6/applications/pass-extension/src/app/worker/services/autofill.ts)
+  resolves the focused frame's URL for credential matching. These lifecycle and
+  frame-scoping ideas are useful independently of its embedding choice.
+
+For a future Pateat inline UI, the design deduction is iframe-free rendering,
+minimal candidate labels, selected-secret retrieval only after worker-side
+document/origin/policy checks, and explicit keyboard/accessibility tests.
+[WAI-ARIA guidance](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/) distinguishes
+focus from selection; moving among candidates must not itself fill or submit.
+
+### Provider authentication, vault unlock and OTP
+
+[Bitwarden passkey login](https://bitwarden.com/help/login-with-passkeys/)
+distinguishes authentication alone from vault decryption using PRF. Decryption
+requires the passkey's vault-encryption option and compatible browser and
+authenticator PRF support. A successful provider login therefore does not prove
+an unlocked vault. Official-client support also does not establish that an
+existing credential works from a custom extension origin; RP ID, origin and
+server acceptance remain a future interoperability gate. This provider-login
+flow is separate from using a stored site passkey to create an assertion.
+
+The [integrated authenticator documentation](https://bitwarden.com/help/integrated-authenticator/)
+and [upstream TOTP implementation](https://github.com/bitwarden/sdk-internal/blob/main/crates/bitwarden-vault/src/totp.rs)
+cover raw Base32 secrets, `otpauth://totp/` parameters, SHA-1/256/512,
+digits/period, and `steam://` codes. Preserve the saved format and test vectors;
+parsing an arbitrary OTP URI is not evidence of HOTP support. Generating a code
+from a vault secret is separate from retrieving email/SMS codes or following a
+magic link. Those external-channel flows remain deferred. Upstream `main` links
+describe the inspected date, not a pinned future compatibility guarantee.
+
 ## Similar projects: references only
 
 The owner's later instruction supersedes the earlier reuse proposal: do not
@@ -133,3 +189,53 @@ is another decision-model option, not a reason to add a second provider now.
 First evaluate sanitized synthetic Japanese/English forms with no paid account
 requests required. Claim support and latency only after the relevant benchmark
 and integrated acceptance gates pass.
+
+Ordinary [Claude Messages](https://platform.claude.com/docs/en/api/messages/create),
+[Jev](https://docs.typesafe.ai/api), and OpenAI response usage documented in the
+[prompt caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
+report token usage; the inspected schemas do not provide a universal final-price
+field. Prefer explicit monetary data where a provider defines it; otherwise
+estimate from usage and versioned rates, accounting for cache token categories.
+Keep estimates distinct from billed charges. The selected monthly spending
+threshold stops subsequent inference after usage accounting; concurrent or
+in-flight calls can overshoot it. It is not a hard billing ceiling and must not
+disable cached local recipes. No billing reconciliation was tested.
+
+## Optional service authentication and MCP
+
+[Cloudflare Access email OTP](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/)
+can admit permitted users without their own Cloudflare account or WARP. It must
+be explicitly configured; new organizations do not automatically enable it.
+Access is the initial service setup/admin identity gate, not a permanent product
+dependency or the vault's authentication system. A future alternate identity
+provider can replace that gate without moving vault authentication off-device.
+
+[Worker Access identity](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
+is available only when Access authenticates the invocation; the documented
+context does not propagate over service bindings/RPC or the Static Assets
+internal router. Other paths need appropriate
+[JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
+An Access login cookie is not a permanent unattended device credential. A
+separate revocable device protocol must be paired with compatible route
+protection; a Pateat token cannot satisfy an unconditional Access gate by itself.
+Never package a shared [Access service token](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
+in the extension. Authentication and client-side encryption-key recovery are
+separate: identity alone does not supply an end-to-end encryption key.
+
+Future remote MCP uses the versioned
+[authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)
+and [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http),
+with human identity, MCP authorization and local vault execution kept separate.
+MCP is deferred and must not be required for core autofill. Its candidate
+operations return allowed metadata/status or request scoped local execution,
+never vault secret values. Cloudflare's
+[remote MCP guide](https://developers.cloudflare.com/agents/model-context-protocol/guides/remote-mcp-server/)
+is an integration reference, not proof that Access supplies the complete MCP
+authorization flow.
+
+The [OpenAI API MCP guide](https://developers.openai.com/api/docs/guides/tools-connectors-mcp)
+allows `require_approval: never` or tool-specific approval configuration. Thus
+per-call human confirmation is not inherent to MCP; this does not establish
+Dots/Grok UI behavior or bypass any client's action policy. A synthetic
+target-client test must verify authorized autonomous calls before claiming this
+integration is useful for unattended operation. No such test was run.

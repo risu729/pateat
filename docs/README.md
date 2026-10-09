@@ -4,6 +4,11 @@ This repository is in design: there is no extension, backend, CI, or deployment
 yet. The initial PR contains documentation only. Merging it adopts a plan, not
 evidence that any login works.
 
+The architecture describes the agreed product boundaries; the plan separates
+initial delivery from later capabilities. In particular, initial read-only vault
+use and login-only execution are delivery limits, not permanent product limits.
+Settings and local recipe execution do not depend on the optional service.
+
 ## Reading order and ownership
 
 | Document                                       | Owns                                                            | Update rule                                                        |

@@ -1,7 +1,8 @@
 # Proposed CI and server delivery
 
 Status: plan only. This PR adds no workflow or deployment configuration. Extension
-store publishing and extension CD are deliberately excluded.
+store publishing and extension CD are deliberately excluded. The server is an
+optional deployment; local execution with saved recipes does not require it.
 
 ## Repository configuration
 
@@ -38,9 +39,17 @@ are created for this PR.
   Run the hk/mise verification graph, documentation links, lint, formatting,
   type checks, unit/runtime tests, extension packaging and relevant browser
   acceptance tests. CodeQL/Code Quality requirements are configured explicitly.
-- Test Worker contracts, authorization and D1 locally. Mock providers and use
-  dummy accounts; PR CI needs no production, vault or inference secrets. Untrusted
+- Test Worker contracts, Access identity validation, device enrollment/revocation,
+  owner-scoped settings/recipe access and D1 locally. Verify that service login
+  cannot authenticate or unlock a vault. Mock providers and use dummy accounts;
+  PR CI needs no production, vault or inference secrets. Untrusted
   PR code is never run under a credential-bearing pull_request_target workflow.
+- Test spending accumulation and refusal of new inference at the configured
+  monthly limit, including missing usage, failed calls and concurrent in-flight
+  requests. Document possible overshoot; strict cost reservations are not a
+  release requirement. Provider/model failures must not trigger automatic
+  fallback. Verify local saved-recipe execution with an unavailable service or
+  exhausted inference budget.
 - Run cf under Node; use the committed typed config and Vite build. Credential-
   free build/dry-run verifies generated output. Do not allow automatic project
   detection to create config or install dependencies in CI.
@@ -69,6 +78,10 @@ for the typed-config/test-harness compatibility gate.
    Provision the Worker/D1/routing and scoped credentials in a distinct initial
    bootstrap operation. Keep bootstrap permissions separate from routine code
    releases; resource names, account/database IDs and enrollment are M6 inputs.
+   The initial service bootstrap includes Access identity configuration and a
+   verified device enrollment/revocation flow. Do not distribute a universal
+   service credential with the extension. D1 initially stores private settings
+   in server-readable form; vault credentials and decryption keys remain local.
 3. Apply additive, backward-compatible D1 migrations using the caller's task and
    a separately scoped credential. cf migrations take a database ID and default
    to remote execution; use explicit local mode in tests. Verify target identity
@@ -78,9 +91,12 @@ for the typed-config/test-harness compatibility gate.
    and the normal versions strategy. Routine releases do not update routing or
    triggers implicitly. The action already supports cf; no action PR is planned.
 5. Require the action's exact deployment-ID readback plus hosted smoke tests:
-   expected source revision, invalid-auth rejection, tenant separation, D1 access,
-   synthetic recipe round trip, and cleanup. A version upload alone is not a
-   successful release. Keep inference mocked during routine smoke checks.
+   expected source revision, invalid-identity/device rejection, revoked-device
+   rejection, tenant separation, D1 access, synthetic settings/recipe round trip,
+   and cleanup. Exercise Access and device authorization through their intended
+   entry points; an internal handler test does not establish deployed Access
+   behavior. A version upload alone is not a successful release. Keep inference
+   mocked during routine smoke checks.
 
 As of research, reuse
 [wrangler-deploy-action v2.2.1](https://github.com/risu729/wrangler-deploy-action/releases/tag/v2.2.1),
@@ -102,3 +118,7 @@ and does not require replacing the whole Worker.
 Document actual deployed IDs, schema version and smoke result in release output,
 not a manually maintained duplicate state file. Real-model checks and spending
 are separately controlled with bounded requests and explicit budget configuration.
+The configured monthly spending threshold uses accumulated reported or estimated
+cost; it does not promise an exact invoice ceiling. Direct extension inference,
+Access-free service authentication, E2EE settings sync and remote MCP are later
+options with their own acceptance gates, not dependencies of the initial release.

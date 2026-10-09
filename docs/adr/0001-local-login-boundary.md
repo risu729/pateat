@@ -14,23 +14,50 @@ and passkeys without requiring a native companion.
 
 1. Drive the official Bitwarden extension UI: inherits focus/pop-up dependencies.
 2. Use a desktop/native bridge: violates the extension-only client requirement.
-3. Build a local MV3 executor with a narrow vault adapter and optional recipe API.
+3. Build a local MV3 executor with capability-based vault adapters and an optional
+   settings/recipe service.
 
 ## Decision
 
 Choose option 3. Bitwarden is the first adapter, not a product-wide assumption.
+Adapters ship with the extension; they are not remotely loaded plugins. Model
+multiple connections and distinguish provider authentication from vault unlock
+and from Pateat service authentication. Do not assume every provider login uses
+or yields a master password.
 Keep vault secrets and signing local. Use explicit tab/frame/document identity,
 no extension-origin page iframes, and no debugger attachment of our own. Accept
 persistent local unlock material as a deliberate product requirement. Execute
 validated data recipes through packaged code; AI never receives vault values.
 
-Existing software passkeys are planned but subject to honest UV/UP, counter and
-interoperability gates. Do not turn a desire for unattended authentication into
-a claim that every passkey ceremony can be silently satisfied.
+Provide human-operated extension settings from the start. Apply connection,
+item, field and site policy before execution; a matched, eligible login can run
+without a new prompt each time. The local core and cached recipes do not depend
+on service availability. Server AI and Access-authenticated, server-readable
+private settings sync are the initial service configuration. Direct AI,
+alternative service authentication and E2EE settings sync remain later options.
+
+Initial vault use is read-only, with existing zero-counter site passkey
+assertions. This is a delivery limit, not a permanent read-only product contract.
+Future read/create/update permissions are independent for each connection;
+adding write support must not grant it to existing connections. Authorized future
+write automation need not require confirmation for every operation. Provider
+passkey login/unlock is a separate later capability from using a saved site
+passkey. External email/SMS OTP, magic links and post-login actions are also
+deferred, not excluded. Action/transaction permissions are separate from
+credential-use permissions and scoped by site and action.
+
+Existing software passkeys are planned but subject to truthful UV/UP and
+interoperability gates. Nonzero counter synchronization/writeback is deferred.
+Do not turn a desire for unattended authentication into a claim that every
+passkey ceremony can be silently satisfied.
 
 ## Consequences and verification
 
-We own login behavior and provider compatibility. An adapter boundary permits
-future vaults without speculative implementations. MV3 recovery, origin binding,
+We own login behavior and provider compatibility. Shared internal operations
+separate policy and execution from settings, future page/HTTPS UI and low-priority
+MCP. These surfaces do not expand permissions merely by being added. A future
+action executor must preserve the distinction between login completion and
+authorized post-login effects. Adapter boundaries permit future capabilities
+without speculative implementations. MV3 recovery, origin binding,
 Chrome use coexistence and correct secret handling require the acceptance matrix
 in [the plan](../plan.md). No runtime is implemented by accepting this ADR.
