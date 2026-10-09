@@ -1,0 +1,17 @@
+node_modules/
+.mise/*
+!.mise/locks/
+!.mise/locks/**
+.env
+.env.*
+!.env.example
+**/.wxt/
+**/.output/
+**/.cloudflare/
+**/.wrangler/
+**/worker-configuration.d.ts
+test-results/
+playwright-report/
+coverage/
+work/
+*.tsbuildinfo

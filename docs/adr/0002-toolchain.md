@@ -1,6 +1,6 @@
 # ADR 0002: Maintained infrastructure libraries and independent feature code
 
-Status: proposed until the documentation PR merges; accepted upon merge.
+Status: accepted in PR #1; implementation follows the milestone plan.
 Date: 2026-10-10
 
 ## Context and options

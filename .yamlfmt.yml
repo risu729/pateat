@@ -1,0 +1,4 @@
+line_ending: lf
+formatter:
+  type: basic
+  indent: 2

@@ -1,8 +1,9 @@
 # Documentation
 
-This repository is in design: there is no extension, backend, CI, or deployment
-yet. The initial PR contains documentation only. Merging it adopts a plan, not
-evidence that any login works.
+The repository contains an extension shell, shared contracts, a health-only
+Worker and CI/manual-delivery foundations. No vault connection, automatic login,
+inference or passkey execution is implemented. The service is not deployed.
+The initial design was adopted in [PR #1](https://github.com/risu729/pateat/pull/1).
 
 The architecture describes the agreed product boundaries; the plan separates
 initial delivery from later capabilities. In particular, initial read-only vault
@@ -20,7 +21,7 @@ Settings and local recipe execution do not depend on the optional service.
 | [ADRs](adr/0001-local-login-boundary.md)       | Decision rationale and alternatives                             | Amend explicitly or supersede; preserve history                    |
 | [Research](research/2026-10-10-feasibility.md) | Dated observations and primary sources                          | Append new evidence or supersede; never imply current verification |
 
-ADRs in this initial PR are proposed until merge and accepted by that merge.
+The initial ADRs were accepted by merging PR #1.
 Acceptance does not mean implementation. A later replacement links the old and
 new ADRs. A narrow implementation detail does not need another ADR.
 

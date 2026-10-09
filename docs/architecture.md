@@ -1,7 +1,8 @@
 # Proposed architecture
 
-Status: agreed design, not implemented. ADRs remain proposed until merge.
-See [the plan](plan.md) for implementation order and acceptance gates.
+Status: accepted reference design. The foundation implements only the extension
+shell, status contracts and health-only Worker. The capabilities below remain
+planned unless [the plan](plan.md) records their implementation and evidence.
 
 ## Product boundary
 

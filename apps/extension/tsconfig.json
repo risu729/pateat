@@ -1,0 +1,7 @@
+{
+  "extends": ["@risu729/tsconfigs/bundler", "./.wxt/tsconfig.json"],
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true
+  }
+}

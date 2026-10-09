@@ -1,0 +1,84 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #172b3a;
+  background: #f4f7f9;
+  color-scheme: light;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 44rem;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+}
+h1 {
+  font-size: 2.5rem;
+  margin: 0.4rem 0 1rem;
+}
+h2 {
+  font-size: 1.2rem;
+}
+p {
+  line-height: 1.6;
+}
+.eyebrow {
+  color: #416275;
+  font-weight: 600;
+}
+.intro {
+  font-size: 1.1rem;
+}
+section {
+  padding: 1.5rem;
+  margin: 2rem 0;
+  border: 1px solid #cad6df;
+  border-radius: 0.8rem;
+  background: white;
+}
+dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid #e2e8ee;
+}
+dt {
+  font-weight: 600;
+}
+dd {
+  margin: 0;
+  text-align: right;
+}
+button {
+  font: inherit;
+  padding: 0.7rem 1rem;
+  border: 1px solid #0a607d;
+  border-radius: 0.4rem;
+  color: white;
+  background: #0a607d;
+  cursor: pointer;
+}
+button:focus-visible {
+  outline: 3px solid #dd9b29;
+  outline-offset: 3px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.note {
+  color: #416275;
+}
+@media (max-width: 36rem) {
+  main {
+    margin: 2rem auto;
+  }
+  dl > div {
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  dd {
+    text-align: left;
+  }
+}

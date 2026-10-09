@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>risu729/renovate-config#3.19.0"],
+  "packageRules": [
+    {
+      "description": "Keep the cf build and Workers test runtimes together, including prereleases.",
+      "matchPackageNames": ["cf", "miniflare", "@cloudflare/**"],
+      "groupName": "cloudflare workers",
+      "ignoreUnstable": false
+    },
+    {
+      "description": "Review compiler upgrades alongside the shared preset's peer requirements.",
+      "matchPackageNames": ["typescript", "@risu729/tsconfigs", "@types/**"],
+      "groupName": "typescript"
+    }
+  ]
+}

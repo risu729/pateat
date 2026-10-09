@@ -1,0 +1,25 @@
+amends "https://raw.githubusercontent.com/risu729/hk-config/1a70e0cc3e04254c9c7c9c1d066bbe019cb1055e/presets.pkl"
+
+import "https://raw.githubusercontent.com/risu729/hk-config/1a70e0cc3e04254c9c7c9c1d066bbe019cb1055e/helpers.pkl"
+
+steps = (helpers.pick(new Listing {
+  "oxlint"
+  "oxfmt"
+  "github-actions"
+  "tombi"
+  "rumdl"
+  "yaml"
+  "typos"
+  "hygiene"
+})) {
+  ["typos"] {
+    // The builtin diff wrapper uses POSIX shell syntax; checks/fixes work on Windows.
+    check_diff = null
+  }
+  ["runtime"] {
+    check = "mise run check:runtime"
+  }
+  ["docs-links"] {
+    check = "mise run check:docs"
+  }
+}
