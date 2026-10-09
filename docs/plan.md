@@ -16,12 +16,16 @@ and disabled-by-default manual delivery of a verified main-build artifact.
 Mise and Bun dependencies are locked; no native helper or production secrets are
 required to build or test.
 
-Local source/Worker tests, typechecks, builds, prebuilt dry-run and emitted-bundle
-smoke checks have passed. Linux CI must verify the actual browser probes; the
-downloaded Windows Chromium failed before launch with a missing SideBySide
-assembly. Installed Chrome/Chrome use coexistence remains a separate M1 gate.
-Do not replace that gate with the synthetic Playwright result. Code Quality setup
-must be rechecked after language detection; its existing required rule is retained.
+Local source/Worker tests, typechecks, builds, prebuilt dry-run and emitted-bundle smoke
+checks have passed. At head `c24d82a`,
+[Linux CI](https://github.com/risu729/pateat/actions/runs/37969704501) passed the
+complete check graph, including all three Playwright tests for the production package,
+installed shell status, and document-start/inactive-tab identity probe;
+[CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
+downloaded Windows Chromium still fails before launch with a missing SideBySide
+assembly. Installed Chrome/Chrome use coexistence remains a separate, untested M1 gate;
+the synthetic Playwright result does not replace it. Code Quality setup must be
+rechecked after language detection; its existing required rule is retained.
 
 ## Initial delivery and later scope
 

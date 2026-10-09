@@ -205,14 +205,20 @@ stable 1.63.1. Also, the pinned workerd build rejects compatibility date
 both use its supported `2026-10-06` date. This is a tested runtime constraint,
 not a decision to disable compatibility checking.
 
-The Worker only implements `/health`; this work does not verify Access, devices,
-D1, tenant isolation, settings/recipes, inference, or hosted readback. The build
-uses `PATEAT_REVISION` when supplied and `development` locally otherwise.
-Deployment credentials, routing and initial provisioning were not exercised.
-Extension browser acceptance on this Windows host still has two failing cases
-awaiting CI confirmation; packaging or source checks alone do not satisfy that
-gate or establish installed Chrome use coexistence. Complete M1 and deployed
-service acceptance remain separate gates in [the plan](../plan.md).
+The Worker only implements `/health`; this work does not verify Access, devices, D1,
+tenant isolation, settings/recipes, inference, or hosted readback. The build uses
+`PATEAT_REVISION` when supplied and `development` locally otherwise. Deployment
+credentials, routing and initial provisioning were not exercised. At head `c24d82a`,
+[Linux CI](https://github.com/risu729/pateat/actions/runs/37969704501) passed the full
+check graph, including all three Playwright tests: production package permissions, the
+installed shell's status/message validation, and the document-start bridge running in an
+inactive tab with identity checked across navigation.
+[CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
+two Windows browser cases remain blocked before Chromium launch by a missing SideBySide
+assembly; Linux success does not resolve that host issue. These isolated synthetic tests
+do not establish actual installed Chrome use coexistence, which remains untested.
+Complete M1 and deployed service acceptance remain separate gates in
+[the plan](../plan.md).
 
 ## Inference and Anthropic credit
 

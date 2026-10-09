@@ -76,6 +76,19 @@ acceptance results are recorded in [dated research](research/2026-10-10-feasibil
 
 ## Dependency policy
 
+Renovate inherits the pinned `risu729/renovate-config` preset, matching the other
+owner repositories. Its GitHub App covers this repository; scanning the package
+files starts after `renovate.json` reaches the default branch. Cloudflare build
+and test dependencies are grouped and allow prereleases. TypeScript, its shared
+preset and type packages are grouped so peer requirements can be reviewed
+together. Updates still have to pass the repository's required checks.
+
+The current commit-pinned hk-config imports and typed Cloudflare compatibility
+date are reviewed manually: the shared preset's managers cover release-tagged
+hk imports and Wrangler TOML/JSON dates, not these forms. Do not claim automatic
+updates for them. Regenerate and commit the mise lockfiles whenever tool pins
+change.
+
 | Area                 | Choice                                                                              |
 | -------------------- | ----------------------------------------------------------------------------------- |
 | Extension            | WXT + TypeScript; no replacement framework                                          |
