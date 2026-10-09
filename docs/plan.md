@@ -1,0 +1,114 @@
+# Implementation plan
+
+Status: proposed. M0 repository setup and independent documentation review are
+complete; the PR awaits the owner's separate merge. M1-M6 are unstarted.
+This plan becomes the single work tracker until an issue is needed for a concrete
+slice.
+Issues and PRs link to these gates rather than maintaining a second roadmap.
+
+## Initial delivery and later scope
+
+The [architecture](architecture.md) owns the product contracts. These boundaries
+order delivery; deferred capabilities remain product scope, without requiring
+their implementation in M1-M6.
+
+Initial delivery includes a human-operated extension settings page, multiple
+vault connections, connection/item/field/site policies, saved site account
+defaults, local cached-recipe execution, Bitwarden password/custom-field/TOTP
+use, and existing zero-counter software passkey assertions. The first server
+configuration uses Cloudflare Access, server-readable private settings sync and
+server-side AI. The local core must remain usable without the Pateat service.
+
+Later work includes independently permitted vault create/update operations,
+nonzero passkey counter writeback and passkey creation; Bitwarden provider login
+with passkeys, API keys, SSO or device approval; external email/SMS OTP and magic
+links; and separately authorized post-login actions, including transactions and
+approvals. UI extensions, account switching, direct AI, additional service auth,
+E2EE settings sync and MCP are also deferred. They are extension points, not
+implicit permissions or initial acceptance requirements.
+
+## Ordered milestones
+
+| Milestone                                     | Deliverable                                                                                              | Acceptance evidence                                                                                                                                                                                                            |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| M0: Documentation bootstrap                   | Empty main root, repository settings, this docs PR                                                       | Empty tree/root verified; rules read back; independent docs review. Owner merges separately                                                                                                                                    |
+| M1: Tooling and runtime probes                | WXT skeleton, shared Valibot contracts, mise/hk, mandatory CI                                            | Frozen installation; full checks; packaged extension build; early injection/background execution in isolated Chromium and a small installed-Chrome/Chrome-use dummy-page coexistence probe; compatible cf/Workers test harness |
+| M2: Local login engine and settings           | Dummy vault adapter, settings page, multi-connection policies, saved site defaults, declarative executor | Multi-field/multi-page fixtures; policy precedence, excluded-site pass-through, background, navigation, interruption and concurrency tests; no automatic extension UI                                                          |
+| M3: Bitwarden passwords                       | First real adapter, local sync/crypto, persistent unlock, custom fields and TOTP                         | Synthetic protocol/crypto vectors; supported environment/authentication and TOTP cases below; restart/unlock; no vault writes; explicit unsupported cases; controlled account test only when authorized                        |
+| M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe sync, role-specific AI adapters, optional Jev evaluation   | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, retry and monthly spend-stop tests; provider selection evidence                                                         |
+| M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, truthful UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
+| M6: Integrated acceptance and server delivery | Chrome use coexistence, operational docs, hosted service release                                         | Installed Chrome dummy-account tests plus artifact-verified deployment and hosted synthetic smoke checks; measured limits documented                                                                                           |
+
+M1's small cf compatibility probe may precede a backend skeleton; it must not
+provision resources. M2 starts with a dummy adapter so login correctness does not
+depend on account secrets. Bring the WebAuthn document-start probe forward into
+M1; defer full signing to M5. Each milestone can be several focused PRs.
+
+M3 initially targets Bitwarden Cloud US/EU and official self-hosted servers at
+ordinary HTTPS URLs. Use email/master-password authentication, with human-entered
+two-step/new-device verification in settings. Probe individual MFA methods before
+claiming compatibility. This provider setup is separate from website OTP
+automation. Preserve supported Bitwarden TOTP forms, including raw Base32,
+`otpauth://totp/` parameters and Steam form; verify algorithms, digits, periods
+and clock boundaries. Do not imply HOTP support from URI parsing alone.
+
+## Mandatory acceptance matrix
+
+| Area                  | Minimum cases                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tab/document identity | Inactive live tab, active-tab switch during inference, two tabs, nested/cross-origin permitted frames, navigation invalidating a late response, frozen/discarded tab classification                                                                                                                                                                            |
+| Login execution       | Branch/account/password, username then password/passkey, dynamic React inputs, delayed render, explicit field mappings before AI, ambiguity without guessing, credential rejection versus layout mismatch versus unknown outcome, no duplicated click after restart                                                                                            |
+| MV3 and coexistence   | Worker suspension/restart, browser restart, no page extension iframe, official BW coexistence, actual Chrome use attach and concurrent input                                                                                                                                                                                                                   |
+| Secret boundary       | Malicious page messages, origin mismatch, redirects, unauthorized frames, storage access level, redacted observations/logs, no secrets in server/provider payloads                                                                                                                                                                                             |
+| Vault and settings    | PBKDF2 and Argon2id, authenticated ciphertext corruption, encoding, multiple connections, deny precedence and field exclusion, organization/custom fields capability, duplicate/linked fields and leading zeros, supported TOTP forms, sync expiry, persistent unlock and revocation                                                                           |
+| Passkeys              | Existing zero-counter software key, nonzero-counter rejection, secure context, RP ID/public suffix, challenge, ancestor/topOrigin/crossOrigin, denied iframe Permissions Policy, allowCredentials/userHandle, signature encoding, truthful UV/UP, abort/timeout, competing provider/conditional mediation                                                      |
+| Service/AI            | Service auth separate from vault unlock, device ownership, replay/revocation, schema compatibility, settings revision conflicts, offline cache, separate generation/repair and finite-choice settings, injection text, nonexistent targets, refusal/truncation/timeout/rate-limit, no automatic provider/model fallback, monthly spend stop and attempt limits |
+
+Fixtures use synthetic sites and credentials. A bundled Chromium pass is not
+proof for installed Chrome or Chrome use. A single successful login is not
+support for every site or vault format. Keep observed limitations explicit.
+
+## Decisions still requiring evidence
+
+- Pick and pin the compatible WXT/Vite/Node/Bun/Vitest/cf combination during M1.
+  Valibot and WXT are fixed choices, not open framework comparisons.
+- Establish the Chrome use ownership/wait mechanism before integrated automation
+  claims. If no integration hook exists, document the tested wait protocol and
+  remaining races rather than inventing support.
+- Choose Argon2id implementation after interoperability, memory/time, browser
+  lifecycle and maintenance checks. Use native crypto where it matches the
+  protocol; do not implement cryptographic primitives ourselves.
+- Establish truthful UV/UP behavior before M5. Initial assertions use existing
+  zero-counter keys; nonzero-counter synchronization is deferred. Fully unattended
+  operation is not guaranteed for all requested ceremonies.
+- Settle device enrollment/recovery, credential lifetime, AI pricing sources and
+  the monthly monetary budget default before service deployment. Initial spending
+  control aggregates usage and stops later inference after the limit is reached;
+  in-flight/concurrent requests can overshoot. Atomic maximum-cost reservation is
+  not required. Verify actual Anthropic Console credit before paid inference.
+- Benchmark Claude and Jev on the same Japanese/English synthetic login corpus:
+  semantic correctness, false-submit count, abstentions, p50/p95 latency and
+  cost. Models remain unselected; there is no latency promise. Use only the
+  configured provider/model for each role; its failure is an error, not an
+  automatic fallback. Existing local recipes continue after an AI/budget failure.
+
+Before implementing deferred features, add their concrete slice and evidence to
+this plan: write capabilities need independent connection permissions and no
+automatic permission upgrade; post-login actions need site/action authorization
+separate from credential use; provider passkey login needs authentication versus
+vault-unlock and PRF/RP/origin checks; external challenge adapters need explicit
+channel permissions. None requires a blanket prompt on every operation once a
+user has authorized its supported scope.
+
+Future page UI must avoid extension iframes, preserve accessible keyboard/focus
+behavior and recheck policy locally. HTTPS management UI and MCP must share the
+internal operation contracts. Before implementing MCP, verify that the target
+client can autonomously invoke allowed dummy operations after connection approval;
+MCP does not bypass client rules. One-time account overrides and automatic
+logout/re-login require shared-session/race tests. Direct AI requires trusted
+extension key storage and provider compatibility tests. Alternative service auth,
+E2EE sync and Vaultwarden require their own interoperability/recovery evidence.
+
+Extension publishing/CD, public recipe sharing and hosted browser installation
+are outside the current delivery plan. Extension build and automated tests remain
+in CI scope. Native helpers are not required by the product.
