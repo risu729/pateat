@@ -1,7 +1,9 @@
 # Implementation plan
 
-Status: proposed; all milestones are unstarted. This plan becomes the single
-work tracker in the repository until an issue is needed for a concrete slice.
+Status: proposed. M0 repository setup and documentation review are complete;
+the documentation PR awaits the owner's merge. M1-M6 are unstarted.
+This plan becomes the single work tracker until an issue is needed for a concrete
+slice.
 Issues and PRs link to these gates rather than maintaining a second roadmap.
 
 ## Ordered milestones
