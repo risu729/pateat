@@ -1,0 +1,107 @@
+name: Deploy server
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful main-push CI run for the current main revision
+        type: string
+        required: true
+permissions: {}
+# Disabled until the owner has bootstrapped routing and scoped credentials.
+
+# Each release/retry is manual; keep this lock through activation and smoke.
+concurrency:
+  group: server-production
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  deploy:
+    name: Deploy tested server
+    if: vars.SERVER_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      actions: read # Verify the CI run and download its immutable artifact.
+      contents: read
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      SERVER_WORKER: ${{ vars.SERVER_WORKER }}
+      SERVER_HEALTH_URL: ${{ vars.SERVER_HEALTH_URL }}
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - name: Require successful CI for this exact main revision
+        id: source
+        env:
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "${CI_RUN_ID}" =~ ^[0-9]+$ ]]
+          run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CI_RUN_ID}")"
+          workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
+          jq -e --arg repository "${GITHUB_REPOSITORY}" --arg revision "${GITHUB_SHA}" \
+            --argjson workflow "${workflow_id}" '
+            .event == "push" and .head_branch == "main" and
+            .head_repository.full_name == $repository and .head_sha == $revision and
+            .workflow_id == $workflow and .status == "completed" and .conclusion == "success"
+          ' <<< "${run}"
+          revision="$(jq -r .head_sha <<< "${run}")"
+          attempt="$(jq -r .run_attempt <<< "${run}")"
+          [[ "${revision}" =~ ^[0-9a-f]{40}$ && "${attempt}" =~ ^[0-9]+$ ]]
+          echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "RELEASE_REVISION=${revision}"
+            echo "RELEASE_RUN_ID=${CI_RUN_ID}"
+            echo "RELEASE_RUN_ATTEMPT=${attempt}"
+          } >> "${GITHUB_ENV}"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.revision }}
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          version: 2026.10.6
+          install_args: --locked
+      - name: Install deployment tools from the tested lockfile
+        run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-${{ env.RELEASE_REVISION }}-${{ env.RELEASE_RUN_ID }}-${{ env.RELEASE_RUN_ATTEMPT }}
+          path: work/server-release/
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.ci_run_id }}
+      - name: Verify artifact provenance, digests and deployment configuration
+        run: mise exec -- node .github/scripts/server-artifact.mjs restore
+      - name: Skip superseded revisions before the first mutation
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+          if [[ "${current}" = "${RELEASE_REVISION}" ]]; then
+            echo "deploy=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "deploy=false" >> "${GITHUB_OUTPUT}"
+            echo "Superseded by main revision ${current}; dispatch again with its CI run." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+      - name: Activate the exact prebuilt server
+        if: steps.current.outputs.deploy == 'true'
+        id: deploy
+        uses: risu729/wrangler-deploy-action@6a93154ef1c550b760d8582bcf59d8d4a0710788 # v2.2.1
+        with:
+          mode: production
+          working-directory: services/api
+          worker: ${{ vars.SERVER_WORKER }}
+          build-mode: production
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          production-strategy: versions
+          deploy-triggers: "false"
+      - name: Verify deployment readback and hosted revision
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment-id }}
+          VERSION_ID: ${{ steps.deploy.outputs.version-id }}
+        run: mise exec -- node .github/scripts/server-health.mjs

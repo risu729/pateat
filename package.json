@@ -1,0 +1,24 @@
+{
+  "name": "pateat",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "type": "module",
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "2.0.0-beta.sha-91c870c02",
+    "@cloudflare/vitest-plugin": "1.4.0",
+    "@playwright/test": "1.64.0",
+    "@risu729/tsconfigs": "3.0.0",
+    "@types/node": "26.6.4",
+    "cf": "1.0.0-beta.14",
+    "miniflare": "5.20261006.1-alpha",
+    "typescript": "6.0.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.3",
+    "wxt": "0.21.4"
+  },
+  "packageManager": "bun@1.4.2"
+}

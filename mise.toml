@@ -1,0 +1,103 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+min_version = "2026.10.4"
+
+[tools]
+bun = "1.4.2"
+node = "26.11.1"
+python = "3.13.16"
+hk = "2.5.0"
+"npm:oxlint" = "1.87.0"
+oxfmt = "0.72.0"
+actionlint = "1.7.12"
+shellcheck = "0.11.0"
+ghalint = "1.5.6"
+pinact = "5.0.0"
+zizmor = "1.30.1"
+tombi = "1.7.3"
+rumdl = "v0.2.79"
+yamlfmt = "0.21.0"
+uv = "0.12.24"
+yamllint = "1.38.0"
+typos = "1.51.1"
+
+[settings]
+experimental = true
+lockfile_platforms = ["linux-x64", "windows-x64"]
+
+[settings.npm]
+package_manager = "bun"
+
+[env]
+_.path = ["node_modules/.bin"]
+
+[tasks.install]
+description = "Install the frozen workspace dependencies."
+run = "bun install --frozen-lockfile"
+
+[tasks.check]
+description = "Run all static, runtime and browser checks through hk."
+run = "hk check --all --no-fail-fast"
+
+[tasks.fix]
+description = "Apply repository formatting and lint fixes."
+run = "hk fix --all --no-fail-fast"
+
+[tasks."prepare:extension"]
+dir = "apps/extension"
+run = "node ../../node_modules/wxt/bin/wxt.mjs prepare"
+
+[tasks."build:extension"]
+dir = "apps/extension"
+run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome"
+
+[tasks."build:probe"]
+dir = "apps/extension"
+depends = ["build:extension"]
+run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome --mode probe"
+
+[tasks."build:server"]
+dir = "services/api"
+run = "node ../../node_modules/cf/bin/cf build --mode production"
+
+[tasks."typecheck:extension"]
+depends = ["prepare:extension"]
+run = "node node_modules/typescript/bin/tsc --noEmit -p apps/extension/tsconfig.json"
+
+[tasks."test:contracts"]
+run = "node node_modules/vitest/vitest.mjs run packages/contracts"
+
+[tasks."test:server"]
+dir = "services/api"
+run = "node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts"
+
+[tasks."browser:install"]
+usage = 'flag "--with-deps" help="Install Linux system dependencies as well."'
+run = "node node_modules/@playwright/test/cli.js install {% if usage.with_deps %}--with-deps{% endif %} chromium"
+
+[tasks."test:browser"]
+depends = ["build:probe"]
+run = "node node_modules/@playwright/test/cli.js test --config tests/extension/playwright.config.ts"
+
+[tasks."check:runtime"]
+description = "Run implementation checks without recursing into hk."
+run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run test:contracts", "mise run test:tools", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:browser"]
+
+[tasks."test:tools"]
+run = "node --test .github/scripts/*.test.mjs"
+
+[tasks."typecheck:browser"]
+run = "node node_modules/typescript/bin/tsc --noEmit -p tests/extension/tsconfig.json"
+
+[tasks."typecheck:server"]
+run = "node node_modules/typescript/bin/tsc -p services/api/tsconfig.json"
+
+[tasks."check:server-output"]
+dir = "services/api"
+run = "node ../../node_modules/cf/bin/cf deploy --prebuilt --mode production --dry-run"
+
+[tasks."check:server-artifact"]
+run = "node scripts/server/smoke.mjs"
+
+[tasks."check:docs"]
+run = "node scripts/check-docs.mjs"

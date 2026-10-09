@@ -1,10 +1,27 @@
 # Implementation plan
 
-Status: proposed. M0 repository setup and independent documentation review are
-complete; the PR awaits the owner's separate merge. M1-M6 are unstarted.
+Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1).
+M1 is in progress; M2-M6 are unstarted. The current foundation is not a working
+autologin product or a completed M1 acceptance claim.
 This plan becomes the single work tracker until an issue is needed for a concrete
 slice.
 Issues and PRs link to these gates rather than maintaining a second roadmap.
+
+## Foundation progress
+
+Implemented: WXT production shell with no site permissions, human-operated status
+page, strict Valibot status contracts, isolated localhost-only probe build,
+health-only Worker with typed cf configuration, shared mise/hk checks, CI/CodeQL,
+and disabled-by-default manual delivery of a verified main-build artifact.
+Mise and Bun dependencies are locked; no native helper or production secrets are
+required to build or test.
+
+Local source/Worker tests, typechecks, builds, prebuilt dry-run and emitted-bundle
+smoke checks have passed. Linux CI must verify the actual browser probes; the
+downloaded Windows Chromium failed before launch with a missing SideBySide
+assembly. Installed Chrome/Chrome use coexistence remains a separate M1 gate.
+Do not replace that gate with the synthetic Playwright result. Code Quality setup
+must be rechecked after language detection; its existing required rule is retained.
 
 ## Initial delivery and later scope
 

@@ -1,8 +1,36 @@
-# Proposed CI and server delivery
+# CI and server delivery
 
-Status: plan only. This PR adds no workflow or deployment configuration. Extension
-store publishing and extension CD are deliberately excluded. The server is an
-optional deployment; local execution with saved recipes does not require it.
+Status: foundation CI and guarded manual server delivery are implemented.
+Deployment has not been enabled or executed. Extension store publishing and CD
+are excluded. The server remains optional for the eventual local login core.
+
+## Current foundation workflows
+
+`ci.yml` runs the complete mise/hk graph, including isolated browser tests, on
+every PR and main push. `CI Check` requires successful verification, including
+when an upstream job failed, skipped or was cancelled. `codeql.yml` analyzes
+TypeScript/JavaScript and Actions separately. Native Code Quality still needs
+language detection/setup; preserve its required rule rather than treating an
+early setup error from a documentation-only repository as product ineligibility.
+
+Successful main-push CI packages the exact tested production Worker output with
+repository, revision, run/attempt, tool versions and per-file hashes. This health-
+only foundation has no D1 migrations or authentication endpoints. Artifact tests
+reject tampering and mismatched provenance.
+
+`deploy-server.yml` is manual and disabled until `SERVER_DEPLOY_ENABLED=true`.
+Before enabling it, provision the Worker/routing and set repository variables
+`CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api`, and `SERVER_HEALTH_URL` to its
+HTTPS `/health` URL. Put the scoped `CLOUDFLARE_API_TOKEN` secret in the
+`production` environment. This repository does not supply or provision them.
+
+Dispatch on main with `ci_run_id` identifying successful main-push CI for the
+current revision. The workflow verifies the run's identity, event and conclusion,
+restores only its hashed artifact, rechecks main within a non-cancelling release
+lock, deploys through the pinned action without rebuilding, and verifies returned
+deployment IDs and the hosted revision. Failed delivery stays failed; each retry
+or later release requires an explicit dispatch. The complete service release
+gates below remain planned, including automatic promotion/failure acknowledgement.
 
 ## Repository configuration
 
@@ -15,9 +43,9 @@ signatures and PRs, zero required approvals, required `CI Check` from GitHub
 Actions, CodeQL errors/high security alerts, and Code Quality errors. Preserve
 administrator bypass; do not weaken rules just because the first PR has no CI.
 
-The initial main commit has an empty tree. The owner will separately decide when
-to bypass-merge the documentation PR. Missing required checks at this stage are
-expected, not passing checks. Normal implementation merges must use real checks;
+The initial main commit has an empty tree. The owner authorized the documentation
+PR's bypass merge. Missing required checks are not passing checks.
+Normal implementation merges must use real checks;
 M1 must configure the aggregate job and scanning/quality services or explicitly
 resolve unavailable integrations before normal merges. Required checks must not
 remain permanent bypass requirements.
@@ -30,7 +58,7 @@ scanning/push protection and security updates consistently
 with existing repositories where GitHub supports them. No deployment credentials
 are created for this PR.
 
-## PR CI
+## Complete-service CI requirements
 
 - Trigger on every PR and main push; no top-level path filter may leave the
   required check pending. A final aggregate job named exactly `CI Check` always
@@ -57,7 +85,7 @@ are created for this PR.
   tokens, authenticated browser profiles or private captures. Bound diagnostic
   artifacts and scrub page values. Verify package/action updates through Renovate.
 
-## Server build and release
+## Complete-service build and release requirements
 
 Use cloudflare.config.ts as the maintained configuration. Pin cf and the
 Cloudflare Vite plugin together. cf requires Node >=22.18; Bun remains the
