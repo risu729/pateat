@@ -1,7 +1,7 @@
 # ADR 0014: Claude Opus 5.5 for recipe generation
 
-Status: accepted by the owner on 2026-10-10. No adapter is implemented and no paid
-inference has run yet.
+Status: accepted by the owner on 2026-10-10. The adapter and the benchmark runner are
+implemented in `packages/inference`; no paid inference has run yet.
 
 Date: 2026-10-10
 
@@ -34,6 +34,8 @@ monthly Claude API credit and chose the model. The offline harness in
   corpus.
 - The owner approved one paid benchmark run of the synthetic corpus with this
   configuration. Further paid runs and the service route need their own approval.
+  The benchmark runs outside the service, so it reads the key from `ANTHROPIC_API_KEY`
+  in the environment of the session that runs it.
 
 Estimated cost per generation call, assuming about 3,000 input tokens and about 1,000
 output tokens including thinking, at $4 and $20 per million: about $0.03, or about

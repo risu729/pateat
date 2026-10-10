@@ -68,6 +68,7 @@ Focused tasks are available for diagnosis:
 | `mise run test:service` | Test sync service pairing and transport with synthetic responses |
 | `mise run test:inference` | Score AI role adapters on the synthetic corpus with fake providers |
 | `mise run typecheck:inference` | Check AI adapter, corpus and harness types |
+| `mise run bench:inference --paid` | Run the paid Claude benchmark on the synthetic corpus; needs `ANTHROPIC_API_KEY` and owner approval for each run |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run generate:server-migrations` | Generate D1 migration SQL from the Drizzle schema |
 | `mise run check:server-migrations` | Fail when committed migrations differ from the schema |
@@ -252,7 +253,7 @@ use.
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
-| Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; no provider package is installed | M4 provider integration |
+| Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)) | M4 service route |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
@@ -316,7 +317,10 @@ role uses `experimental_decide` from the approved AI SDK (no added dependency or
 provider); its contract may change in patch releases, so the
 `ai` version stays exact and its tests guard answer validation. A Clef or Jev adapter
 implements that `doDecide` contract or replaces it with a direct typed adapter if the
-contract loses provider semantics.
+contract loses provider semantics. `createClaudeGenerationModel` passes the key
+explicitly and pins the API host, so `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` in
+the environment are never read by the adapter. `@ai-sdk/anthropic` stays exact and
+version-matched to `ai`.
 
 Use the approved fast-check for invariants such as stronger exclusions never expanding
 eligibility and stale events never authorizing a new document. Component tests

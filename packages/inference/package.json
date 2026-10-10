@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.78",
     "@ai-sdk/valibot": "3.0.58",
     "@pateat/contracts": "workspace:*",
     "@valibot/to-json-schema": "1.8.0",
