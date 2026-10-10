@@ -262,7 +262,7 @@ export function createLoginRuntime(
   async function liveScope(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
-  ): Promise<{ catalog: VaultCatalog } | { reason: "vault-unavailable" }> {
+  ): Promise<{ catalog: VaultCatalog } | { reason: "vault-unavailable" | "item-uri-unevaluated" }> {
     const { catalog } = snapshot;
     const selected = snapshot.snapshot.settings.siteDefaults.find(
       (entry) => entry.origin === live.document.origin,
@@ -272,6 +272,8 @@ export function createLoginRuntime(
     if (!uris || !selected || !connection?.snapshotId || connection.provider !== "bitwarden")
       return { catalog };
     if (!item || item.allowedOrigins.includes(live.document.origin)) return { catalog };
+    // An item awaiting field review is unavailable; do not report it as a URI mismatch.
+    if (connection.quarantinedItemIds?.includes(item.id)) return { reason: "vault-unavailable" };
     const cached = live.uriMatch;
     if (
       !cached ||
@@ -292,10 +294,10 @@ export function createLoginRuntime(
       );
       if (!matched) {
         // Unevaluated rules may still cover this page; never treat them as a mismatch.
-        const unknown =
-          scope.unavailableConnections.length > 0 ||
-          scope.incompleteItems.some((entry) => entry.itemId === selected.itemId);
-        return unknown ? { reason: "vault-unavailable" } : { catalog };
+        if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
+        return scope.incompleteItems.some((entry) => entry.itemId === selected.itemId)
+          ? { reason: "item-uri-unevaluated" }
+          : { catalog };
       }
       live.uriMatch = {
         connectionId: selected.connectionId,

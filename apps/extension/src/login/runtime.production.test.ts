@@ -120,8 +120,9 @@ const uriMatch = (overrides: Partial<UriCandidates> = {}): UriCandidates => ({
 
 function harness(
   overrides: Partial<LocalSettings> = {},
-  live: { allowedOrigins?: string[]; uris?: LiveUriMatcher } = {},
+  live: { allowedOrigins?: string[]; uris?: LiveUriMatcher; quarantined?: boolean } = {},
 ) {
+  const current = { current: snapshotId };
   const settings: LocalSettings = {
     connections: [
       {
@@ -149,8 +150,9 @@ function harness(
             id: connectionId,
             label: "Synthetic live vault",
             provider: "bitwarden",
-            snapshotId,
+            snapshotId: current.current,
             state: "ready",
+            ...(live.quarantined ? { quarantinedItemIds: [itemId] } : {}),
             groups: [],
             items: [
               {
@@ -184,7 +186,7 @@ function harness(
       { version: 1, type: "login.document.ready", token: "synthetic-token" },
       sender(from),
     );
-  return { login, store, fields, recipes, hello };
+  return { login, store, fields, recipes, hello, snapshot: current };
 }
 
 describe("production login document admission", () => {
@@ -321,7 +323,12 @@ describe("production login document admission", () => {
       [
         "the item's rules could not be evaluated",
         { ok: true, data: uriMatch({ candidates: [], unavailableItemIds: [itemId] }) },
-        "vault-unavailable",
+        "item-uri-unevaluated",
+      ],
+      [
+        "only another item's rules could not be evaluated",
+        { ok: true, data: uriMatch({ candidates: [], unavailableItemIds: [otherItemId] }) },
+        "item-origin-mismatch",
       ],
       [
         "a different snapshot answered",
@@ -338,7 +345,38 @@ describe("production login document admission", () => {
       expect(h.fields).not.toHaveBeenCalled();
       expect(executes()).toEqual([]);
     });
-    it("are not consulted for an excluded site or without a saved default", async () => {
+    it("refuse when the matcher throws", async () => {
+      const h = harness(
+        {},
+        {
+          allowedOrigins: [],
+          uris: async () => {
+            throw new Error("synthetic host failure");
+          },
+        },
+      );
+      expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
+      expect(h.fields).not.toHaveBeenCalled();
+    });
+    it("report a default awaiting field review as unavailable without matching", async () => {
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      const h = harness({}, { allowedOrigins: [], uris, quarantined: true });
+      expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
+      expect(uris).not.toHaveBeenCalled();
+    });
+    it("ask again after the connection's snapshot is replaced", async () => {
+      const replaced = "60000000-0000-4000-8000-000000000002";
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      const h = harness({}, { allowedOrigins: [], uris });
+      fake.state.onExecute = async () => {
+        h.snapshot.current = replaced;
+        uris.mockResolvedValue({ ok: true, data: uriMatch({ snapshotId: replaced }) });
+        fake.state.onExecute = undefined;
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(uris).toHaveBeenCalledTimes(2));
+    });
+    it("are not consulted for a page that is never admitted", async () => {
       const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
       fake.state.pageUrl = "https://other.example/signin";
       expect(await harness({}, { allowedOrigins: [], uris }).hello()).toEqual({
