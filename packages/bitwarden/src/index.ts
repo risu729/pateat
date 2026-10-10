@@ -47,3 +47,9 @@ export {
 } from "./transport";
 export * from "./catalog";
 export { bitwardenEndpoints } from "./environment";
+export {
+  decodeBitwardenCredentialId,
+  decodeLocalPasskeyPrivateKey,
+  mapLocalPasskeyCredentials,
+  type LocalPasskeyCredential,
+} from "./passkeys";

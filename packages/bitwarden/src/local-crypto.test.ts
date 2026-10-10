@@ -838,7 +838,7 @@ describe("strict cipher isolation and disposal", () => {
     ["8.ABC", "unsupported-crypto"],
     ["2.AAECAw==|Y3Q=|AAECAw==", "unsupported-crypto"],
     ["2.!!!!|Y3Q=|!!!!", "unsupported-crypto"],
-  ])("rejects unparseable or unknown encrypted data %s", async (name, code) => {
+  ])("rejects unparsable or unknown encrypted data %s", async (name, code) => {
     const active = await session();
     expect(
       await active.decryptCipher({ connectionId, cipher: { ...legacyCipher(), name } }),
