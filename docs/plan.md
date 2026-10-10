@@ -490,8 +490,8 @@ remain open; a navigation during signing relies on Chrome dropping the response 
 replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
-property with a different `length` and source text), which real-site testing must
-evaluate.
+accessor property returning a function with a different `length` and source text), which
+real-site testing must evaluate.
 
 Evidence, 2026-10-10, synthetic relying party only:
 
@@ -505,8 +505,19 @@ Evidence, 2026-10-10, synthetic relying party only:
   UV-required and page-load requests reported `error Error`. Bitwarden's page script
   had replaced `navigator.credentials.get` outside Pateat's wrapper. For the
   UV-required request it showed its "No passkeys found" window and, when that closed,
-  rejected instead of falling back. Coexistence with that extension is unresolved
-  pending an owner decision.
+  rejected instead of falling back.
+- The owner then chose to keep Pateat's wrapper outermost
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md#bridge-topology)). In cloud
+  Chromium, a synthetic page script shaped like Bitwarden's (`/provider` on the
+  synthetic relying party) reproduced `error Error` before that change; after it, both
+  buttons returned Pateat assertions, also after the script restored its saved `get`,
+  and an unclaimed request reached that script once. While the script held an unclaimed
+  request, as Bitwarden's "Your vault is locked" window does, a new request still got a
+  Pateat assertion and the held one ended with the script's own `Error`. A conditional
+  request that the script passed on as a shallow copy reached it once, and a later
+  modal request still got a Pateat assertion. Real-site testing must also check pages
+  that wrap `get` themselves, which no longer see claimed requests. This is not yet
+  confirmed with the real extension in the owner's Chrome.
 
 ## AI evaluation harness progress
 

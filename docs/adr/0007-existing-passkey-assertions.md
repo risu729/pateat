@@ -6,7 +6,10 @@ ceremony; this amends the truthful UV/UP condition in
 [ADR 0001](0001-local-login-boundary.md). A per-site setting is planned later.
 Also on 2026-10-10 the owner chose the official Bitwarden client's item rule:
 search every live login item by RP ID, and use the site default only to choose
-among several matches (see [Item selection](#item-selection)).
+among several matches (see [Item selection](#item-selection)). After the official
+Bitwarden extension was found wrapping `get` outside Pateat, the owner chose on the same
+day to keep Pateat's wrapper outermost whatever the extension order (see
+[Bridge topology](#bridge-topology)).
 
 Date: 2026-10-10
 
@@ -30,6 +33,31 @@ browser's original `get` with the original arguments. Delegation is the default
 for every case Pateat does not claim, so excluded or unsupported requests keep
 ordinary browser behavior, including other installed passkey providers.
 `navigator.credentials.create` is not wrapped.
+
+Pateat stays outside other passkey providers' wrappers. Chromium decides the order in
+which different extensions' MAIN-world document-start scripts run, and Pateat cannot
+choose it. The official Bitwarden extension (browser-v2026.6.1 `fido2-page-script.ts`)
+saves the current `get` and then assigns its own. When it runs after Pateat, its wrapper
+sits outside and answers first: for public-key requests it rejects with `Error`, or
+holds the request while its vault is locked, instead of delegating, so Pateat never sees
+them. Pateat therefore installs `get` as an accessor property on `navigator.credentials`
+whose getter always returns Pateat's wrapper. Assigning another function, such as that
+provider's wrapper or its later restore of the function it saved, only replaces the
+function Pateat delegates to; assigning a non-function or Pateat's own wrapper is
+ignored. A provider that redefines or deletes the property, or patches
+`CredentialsContainer.prototype.get`, is not covered.
+
+A provider that falls back calls the function it saved, which is Pateat's wrapper. A
+call with the same `mediation` as a request Pateat is still delegating, and either the
+same options object or the same `publicKey` object, is treated as such a fallback and
+goes straight to the function present when Pateat installed itself, normally the
+browser's original. The `publicKey` match covers shallow copies such as
+`{ ...options, signal }`, which Bitwarden passes for conditional requests. A provider
+that copies deeper is cut off once four delegations with the same `mediation` and
+challenge are in flight. Other calls are handled normally, including a new modal request
+while a provider holds a conditional or unclaimed one. If a provider injected before
+Pateat, the install-time function is that provider's wrapper, even after it restores the
+browser's own.
 
 The page and MAIN world are untrusted. The isolated script independently checks
 `window.top === window`, `isSecureContext` and the `publickey-credentials-get`
@@ -141,16 +169,28 @@ assertion code; until then every claimed request uses the initial policy.
   tested against the WebAuthn vectors. No dependency is added.
 - Show a Pateat chooser or prompt: conflicts with the no-page-UI rule until an
   explicit later UI design exists.
+- Rely on extension injection order: the order follows extension IDs, which Pateat
+  does not control for the owner's unpacked or store builds.
+- Let the outer provider answer and claim the request only after it rejects:
+  Bitwarden first shows its own "No passkeys found" window, and its generic `Error`
+  cannot be told apart from a refusal the page should see.
 
 ## Consequences and verification
 
 Pateat never blocks a WebAuthn request it does not claim, so failures surface as the
-browser's ordinary passkey UI. Claimed requests complete unattended, and relying parties
-receive UV that no authenticator performed; any script running in a top-level page of a
-site with a stored passkey, including injected script, can obtain a verified assertion
-for that site without any Pateat site setting. Registration, nonzero-counter writeback,
-conditional mediation, cross-origin frames, related origins and extensions remain later
-work.
+browser's ordinary passkey UI, or as another installed provider's UI or rejection.
+Because Pateat answers first, a claimed request never reaches another provider such as
+the official Bitwarden extension. A page's own assignment to `get`, such as a polyfill
+or telemetry wrapper, likewise sees only requests Pateat does not claim, and reading
+`get` back does not return it. Page script and other extensions can detect the accessor.
+A page call that reuses the options or `publicKey` object of a request still being
+delegated with the same `mediation` goes to the browser's original `get`, skipping later
+providers. Claimed requests
+complete unattended, and relying parties receive UV that no authenticator performed; any
+script running in a top-level page of a site with a stored passkey, including injected
+script, can obtain a verified assertion for that site without any Pateat site setting.
+Registration, nonzero-counter writeback, conditional mediation, cross-origin frames,
+related origins and extensions remain later work.
 
 Verify with the WebAuthn Level 3 ES256 vectors, HTML registrable-suffix cases,
 credential mapping vectors, signature verification by an independent verifier,

@@ -13,6 +13,8 @@ import type { PasskeyAssertion } from "./assertion";
 type PageScope = Window & typeof globalThis;
 const MAX_ALLOW_CREDENTIALS = 64;
 const MAX_BUFFER_BYTES = 4096;
+// Delegations of one challenge that may be in flight before a copying provider is cut short.
+const MAX_CHAIN_DELEGATIONS = 4;
 const OTHER_CREDENTIAL_TYPES = ["password", "federated", "identity", "otp", "digital"] as const;
 
 function toBase64Url(input: Uint8Array): string {
@@ -29,6 +31,40 @@ function copyBufferSource(value: unknown): Uint8Array | undefined {
     view = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   else return undefined;
   return view.byteLength <= MAX_BUFFER_BYTES ? view.slice() : undefined;
+}
+
+/** What ties a provider's fallback call to the delegated request it came from. */
+interface Delegation {
+  readonly options: unknown;
+  readonly publicKey: unknown;
+  readonly mediation: unknown;
+  readonly challenge: string;
+}
+
+/**
+ * Reads the caller's options once more than `snapshotGetOptions` does; a page can observe that,
+ * but a match only ever sends a call to the install-time function. Requests without a public-key
+ * challenge share one chain, so a fifth concurrent one skips later providers, never Pateat.
+ */
+function describeDelegation(options: unknown): Delegation {
+  let publicKey: unknown;
+  let mediation: unknown;
+  let challenge = "";
+  try {
+    if (options !== null && typeof options === "object") {
+      const record = options as Record<string, unknown>;
+      mediation = record["mediation"];
+      const value = record["publicKey"];
+      if (value !== null && typeof value === "object") {
+        publicKey = value;
+        const bytes = copyBufferSource((value as Record<string, unknown>)["challenge"]);
+        if (bytes) challenge = toBase64Url(bytes);
+      }
+    }
+  } catch {
+    // A throwing getter leaves only the options object to match.
+  }
+  return { options, publicKey, mediation, challenge };
 }
 
 /** Bounded plain snapshot of supported options; anything else is left to the browser. */
@@ -121,8 +157,20 @@ function toCredential(
 
 /**
  * Wrap `navigator.credentials.get` in a top-level document at document start. Every request this
- * bridge does not answer with an assertion goes to the browser's original implementation with
- * the caller's original arguments.
+ * bridge does not answer with an assertion goes, with the caller's original arguments, to the
+ * implementation it wraps.
+ *
+ * Pateat stays outside wrappers that later scripts install by assigning `get`: such an assignment,
+ * including another provider's restore of a saved function, becomes the delegation target instead
+ * of replacing Pateat. A provider that redefines or deletes the property still replaces it.
+ *
+ * A provider that falls back calls the function it saved, which is Pateat's wrapper. A call with
+ * the same mediation as a request Pateat is still delegating, and either the same options object
+ * or the same `publicKey` object (a shallow copy, as Bitwarden's conditional path makes), is such
+ * a fallback and goes to the function present at install time. So does a call once
+ * `MAX_CHAIN_DELEGATIONS` delegations of its mediation and challenge are in flight, which stops a
+ * provider that copies deeper from looping. If a provider injected before Pateat, that function is
+ * its wrapper even after it restores the browser's own.
  */
 export function installPasskeyPage(scope: PageScope = window): void {
   const container = scope.navigator.credentials as CredentialsContainer | undefined;
@@ -131,7 +179,9 @@ export function installPasskeyPage(scope: PageScope = window): void {
     | typeof AuthenticatorAssertionResponse
     | undefined;
   if (scope.top !== scope || !container || !credentialClass || !responseClass) return;
-  const nativeGet: CredentialsContainer["get"] = container.get;
+  const installedGet: CredentialsContainer["get"] = container.get;
+  let innerGet: CredentialsContainer["get"] = installedGet;
+  const delegations: Delegation[] = [];
   const credentialPrototype = credentialClass.prototype;
   const responsePrototype = responseClass.prototype;
   const origin = scope.location.origin;
@@ -155,9 +205,26 @@ export function installPasskeyPage(scope: PageScope = window): void {
     this: unknown,
     options?: CredentialRequestOptions,
   ): Promise<Credential | null> {
-    const callNative = () =>
-      Reflect.apply(nativeGet, this, [options]) as Promise<Credential | null>;
-    if (this !== container) return callNative();
+    const call = describeDelegation(options);
+    const related = delegations.filter((entry) => entry.mediation === call.mediation);
+    if (
+      related.some(
+        (entry) =>
+          entry.options === call.options ||
+          (call.publicKey !== undefined && entry.publicKey === call.publicKey),
+      ) ||
+      related.filter((entry) => entry.challenge === call.challenge).length >= MAX_CHAIN_DELEGATIONS
+    )
+      return Reflect.apply(installedGet, this, [options]) as Promise<Credential | null>;
+    const delegate = async () => {
+      delegations.push(call);
+      try {
+        return await (Reflect.apply(innerGet, this, [options]) as Promise<Credential | null>);
+      } finally {
+        delegations.splice(delegations.indexOf(call), 1);
+      }
+    };
+    if (this !== container) return delegate();
     let request: BridgedGetRequest | undefined;
     try {
       request = snapshotGetOptions(options);
@@ -167,8 +234,8 @@ export function installPasskeyPage(scope: PageScope = window): void {
     const signal = options?.signal;
     // Anything but a genuine signal gets the browser's own handling, including its TypeError.
     if (!request || (signal !== undefined && !(signal instanceof AbortSignalClass)))
-      return callNative();
-    if (signal?.aborted) return callNative();
+      return delegate();
+    if (signal?.aborted) return delegate();
     const id = crypto.randomUUID();
     const result = await new Promise<RuntimeResult | { kind: "aborted" }>((resolve) => {
       const finish = (outcome: RuntimeResult | { kind: "aborted" }) => {
@@ -196,12 +263,15 @@ export function installPasskeyPage(scope: PageScope = window): void {
         // A malformed relay result is not a credential; let the browser answer instead.
       }
     }
-    return callNative();
+    return delegate();
   }
 
   Object.defineProperty(container, "get", {
-    value: get,
-    writable: true,
+    get: () => get,
+    set(value: unknown) {
+      if (typeof value === "function" && value !== get)
+        innerGet = value as CredentialsContainer["get"];
+    },
     enumerable: true,
     configurable: true,
   });

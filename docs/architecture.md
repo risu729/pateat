@@ -470,8 +470,10 @@ construction possible, but setting UV/UP without the required ceremony is not
 standards-compliant verification. The owner nevertheless chose to set both flags on
 every claimed request; describe this as a deliberate deviation, never as verification,
 and keep the flags behind a policy a later per-site setting can change. Hardware-bound
-keys cannot be unlocked merely by changing flags. Conditional mediation and simultaneous
-official-Bitwarden interception require separate compatibility tests.
+keys cannot be unlocked merely by changing flags. Pateat's wrapper stays outside
+wrappers that other providers, including the official Bitwarden extension, install by
+assigning `get`, so it answers claimed requests first. Conditional mediation and
+real-extension coexistence require separate compatibility tests.
 
 The bridge, admission rules, assertion format and unattended presence and
 verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md).
