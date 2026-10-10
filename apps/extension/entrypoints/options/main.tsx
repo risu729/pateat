@@ -4,6 +4,7 @@ import { browser } from "wxt/browser";
 import { SettingsApp } from "../../src/options/settings-app";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createConnectionClient } from "../../src/options/connection-client";
+import { createServiceClient } from "../../src/options/service-client";
 // oxlint-disable-next-line import/no-unassigned-import -- Bundle the options page stylesheet.
 import "./style.css";
 
@@ -19,6 +20,13 @@ createRoot(root).render(
     <SettingsApp
       client={createSettingsClient((message) => browser.runtime.sendMessage(message))}
       connectionClient={connectionClient}
+      serviceClient={createServiceClient({
+        send: (message) => browser.runtime.sendMessage(message),
+        openTab: (url) => browser.tabs.create({ url }),
+        // Chrome match patterns do not carry ports; site access is granted per host.
+        requestSiteAccess: (origin) =>
+          browser.permissions.request({ origins: [`https://${new URL(origin).hostname}/*`] }),
+      })}
     />
   </QueryClientProvider>,
 );

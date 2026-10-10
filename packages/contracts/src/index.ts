@@ -5,6 +5,7 @@ export * from "./settings";
 export * from "./settings-store";
 export * from "./login";
 export * from "./login-attempt";
+export * from "./service-connection";
 export * from "./sync";
 
 // Only the implemented, read-only boundary is shared. Future adapters add

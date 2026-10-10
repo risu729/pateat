@@ -17,6 +17,9 @@ import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
+import { createServiceRuntime } from "../src/service/runtime";
+import { createBrowserServiceStorage } from "../src/service/storage";
+import { createServiceTransport } from "../src/service/transport";
 
 export default defineBackground(() => {
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
@@ -57,6 +60,14 @@ export default defineBackground(() => {
         policy: passkeyProbe.policy,
       })
     : undefined;
+
+  const service = createServiceRuntime({
+    storage: createBrowserServiceStorage(),
+    transport: createServiceTransport(),
+    // Chrome match patterns do not carry ports; site access is granted per host.
+    hasSiteAccess: (origin) =>
+      browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
+  });
 
   browser.runtime.onConnect.addListener((port) => {
     connections.attach(port);
@@ -118,6 +129,19 @@ export default defineBackground(() => {
         }
         return sendResponse(response);
       });
+      return true;
+    }
+    if (
+      sender.id === browser.runtime.id &&
+      sender.url === browser.runtime.getURL("/options.html") &&
+      message !== null &&
+      typeof message === "object" &&
+      typeof message.type === "string" &&
+      message.type.startsWith("service.")
+    ) {
+      void service
+        .handle(message)
+        .then(sendResponse, () => sendResponse({ ok: false, error: "storage-unavailable" }));
       return true;
     }
     if (

@@ -382,13 +382,33 @@ configuration, CSRF, code mismatch and retyping, approval by an account that onl
 the link, replay, concurrent redemption, expiry, cleanup, rate limits and cross-owner
 revocation.
 
+The extension side of pairing is the third slice. The settings page has an optional sync
+service panel: it accepts only an exact HTTPS origin, asks the background to start
+pairing, and shows the short code with a button that opens the approval page in an
+ordinary tab. The background keeps the verifier and, after redemption, the device
+credential in trusted extension storage; neither crosses the runtime message boundary.
+Pairing asks Chrome for site access to the service host when the user has withheld it,
+and a pending pairing offers to ask again instead of being cancelled. The page polls
+redemption every ten seconds only while it stays open and a pairing is pending; the
+background allows at most one redemption every six seconds and waits a minute after a
+rate limit. A pairing is abandoned on the first request after 15 minutes, and an issued
+credential whose write failed is kept in memory and saved on the next request. An
+unreadable stored connection fails closed until the owner forgets it. Disconnecting
+revokes the device with its own credential and forgets it locally even when the service
+cannot confirm, in which case the page points to the management page. Requests refuse
+redirects, send no cookies and bound response bodies. Unit tests use synthetic responses
+and in-memory storage; component tests cover address validation, polling, code mismatch,
+expiry, cancellation, site access requests, forgetting an unreadable connection and an
+unconfirmed disconnect. Pairing has not been tried against a running service.
+
 ### Remaining M4 service gaps
 
 - Device enrollment has not been tried against a real Access application; that probe
   needs the owner's approval, as do the credential idle-expiry decision and the
   optional `launchWebAuthFlow` variant.
-- The extension does not yet call the service, keep a last-known-good sync cache or
-  map synced connection identifiers to a new device's local connections.
+- The extension pairs with the service but does not yet sync settings or recipes, keep
+  a last-known-good sync cache, handle a revoked credential during sync, or map synced
+  connection identifiers to a new device's local connections.
 - Inference adapters, spending accounting and the release artifact's migration SQL
   remain separate slices.
 

@@ -8,6 +8,8 @@ import { Connections } from "./connections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
+import type { ServiceClient } from "./service-client";
+import { ServiceConnection } from "./service-connection";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = { connections: [], excludedSites: [], siteDefaults: [] };
@@ -92,9 +94,11 @@ function RuntimeStatus({
 export function SettingsApp({
   client,
   connectionClient,
+  serviceClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
+  serviceClient?: ServiceClient;
 }) {
   const queryClient = useQueryClient();
   const [accepted, setAccepted] = useState<AcceptedSettings>();
@@ -384,6 +388,7 @@ export function SettingsApp({
           draft.
         </p>
       </form>
+      {serviceClient && <ServiceConnection client={serviceClient} />}
       <RuntimeStatus client={client} hasConnections={!!connectionClient} />
       <p className="note">
         <a href="legal.html" target="_blank" rel="noreferrer">

@@ -3,9 +3,10 @@
 The foundation has a Bun workspace, pinned tools, local policy settings, shared
 contracts, and a settings/recipe sync Worker skeleton. A separate localhost probe
 exercises the declarative login executor with synthetic values. Manual Bitwarden setup
-and local vault caching are implemented; production login activation, service
-enrollment and provider inference remain unimplemented; AI roles are evaluated offline
-only. M1 is not complete until its required checks and acceptance gates pass.
+and local vault caching are implemented, and the settings page can pair with a sync
+service; production login activation, settings/recipe sync in the extension and
+provider inference remain unimplemented; AI roles are evaluated offline only. M1
+is not complete until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
@@ -64,6 +65,7 @@ Focused tasks are available for diagnosis:
 | `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
 | `mise run typecheck:bitwarden` | Check provider source and test types |
 | `mise run test:login` | Test login executor sources with synthetic vault results |
+| `mise run test:service` | Test sync service pairing and transport with synthetic responses |
 | `mise run test:inference` | Score AI role adapters on the synthetic corpus with fake providers |
 | `mise run typecheck:inference` | Check AI adapter, corpus and harness types |
 | `mise run test:tools` | Test artifact/provenance helpers |

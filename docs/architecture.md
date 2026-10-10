@@ -529,10 +529,10 @@ diagnostics remain necessary.
 
 ### Device enrollment
 
-Status: the service side is implemented and tested locally with synthetic Access keys;
-the extension side, a real Access probe and the open decisions below remain. Nothing is
-configured or deployed. It satisfies the separation above without a cookie on
-steady-state API calls.
+Status: the service side and the extension's pairing flow are implemented and tested
+locally with synthetic Access keys and responses; a real Access probe and the open
+decisions below remain. Nothing is configured or deployed. It satisfies the separation
+above without a cookie on steady-state API calls.
 
 - Route families. One Access application covers only the `/enroll` and `/manage` paths.
   The `/v1` sync routes are outside it and accept only device credentials, and `/redeem`
@@ -544,16 +544,16 @@ steady-state API calls.
   library would need its own owner decision. Tokens without an expiry or a user subject,
   such as service tokens, are refused. The public keys are edge-cached for five
   minutes, so a rotated key may be refused briefly.
-- Pairing. The settings page generates a 256-bit verifier, keeps it in trusted extension
-  storage, and opens the enrollment page in an ordinary tab with only its SHA-256
-  challenge and a device label. It also shows a short code: 40 bits of a tagged SHA-256
-  of the verifier in Crockford base32, so anyone who sees the link still cannot compute
-  it. After Access login, the owner types that code and confirms. The confirmation is a
-  same-origin form POST (Origin or `Sec-Fetch-Site` checked) on a page that cannot be
-  framed, and records an approval with the typed code for that owner, valid for 10
-  minutes; the same owner may retype the code until redemption without extending that
-  time. A redeemed challenge, or one with another owner's unexpired approval, cannot be
-  approved again, and the page says which.
+- Pairing. The extension background generates a 256-bit verifier and keeps it in trusted
+  extension storage. The settings page opens the enrollment page in an ordinary tab with
+  only its SHA-256 challenge and a device label. It also shows a short code: 40 bits of
+  a tagged SHA-256 of the verifier in Crockford base32, so anyone who sees the link
+  still cannot compute it. After Access login, the owner types that code and confirms.
+  The confirmation is a same-origin form POST (Origin or `Sec-Fetch-Site` checked) on a
+  page that cannot be framed, and records an approval with the typed code for that
+  owner, valid for 10 minutes; the same owner may retype the code until redemption
+  without extending that time. A redeemed challenge, or one with another owner's
+  unexpired approval, cannot be approved again, and the page says which.
 - Redemption. The extension polls an unauthenticated redemption route with the verifier,
   rate limited per client address. A matching, approved, unexpired and unredeemed
   enrollment whose typed code equals the verifier's code creates the device and returns
