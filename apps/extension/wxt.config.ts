@@ -11,8 +11,11 @@ export default defineConfig({
     minimum_chrome_version: "120",
     action: { default_title: "Open Pateat settings" },
     permissions: ["storage", "offscreen"],
-    // Self-hosted provider origins are selected at setup. Only that connection's
-    // canonical HTTPS hosts are requested from the user's setup gesture.
+    // Owner-approved install-time HTTPS site access (ADR 0009). The login content script
+    // runs on every HTTPS page; only saved-default origins are admitted for execution.
+    host_permissions: ["https://*/*"],
+    // Kept so provider setup's explicit permission request remains valid if the user
+    // withholds site access in Chrome.
     optional_host_permissions: ["https://*/*"],
     content_security_policy: {
       extension_pages:
@@ -22,7 +25,7 @@ export default defineConfig({
     // coordinator needs that browser-provided URL for its fail-closed recheck.
     ...(mode === "probe"
       ? {
-          host_permissions: ["http://127.0.0.1/*"],
+          host_permissions: ["https://*/*", "http://127.0.0.1/*"],
         }
       : {}),
   }),

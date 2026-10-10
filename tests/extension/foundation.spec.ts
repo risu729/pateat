@@ -71,13 +71,16 @@ async function startFixture(): Promise<{ server: Server; url: string }> {
   return { server, url: `http://127.0.0.1:${address.port}/fixture` };
 }
 
-test("production package permits local storage and the crypto host with no site scripts", async () => {
+test("production package permits local storage, the crypto host and one HTTPS login script", async () => {
   const manifest = JSON.parse(await readFile(resolve(extensionDirectory, "manifest.json"), "utf8"));
   expect(manifest.manifest_version).toBe(3);
   expect(manifest.options_ui).toMatchObject({ page: "options.html", open_in_tab: true });
-  expect(manifest.content_scripts ?? []).toEqual([]);
+  // Owner-approved install-time HTTPS access (ADR 0009): top-level, isolated world only.
+  expect(manifest.content_scripts).toEqual([
+    { matches: ["https://*/*"], run_at: "document_idle", js: ["content-scripts/login.js"] },
+  ]);
   expect(manifest.permissions).toEqual(["storage", "offscreen"]);
-  expect(manifest.host_permissions ?? []).toEqual([]);
+  expect(manifest.host_permissions).toEqual(["https://*/*"]);
   expect(manifest.optional_host_permissions).toEqual(["https://*/*"]);
   expect(manifest.web_accessible_resources ?? []).toEqual([]);
   const background = await readFile(
@@ -92,13 +95,16 @@ test("production package permits local storage and the crypto host with no site 
     await readFile(resolve(probeDirectory, "manifest.json"), "utf8"),
   );
   // URL rechecks and worker reconnect require host access in addition to script
-  // matches. It belongs only to the synthetic build and only to loopback HTTP.
+  // matches. Loopback HTTP belongs only to the synthetic build.
   expect(probeManifest.permissions).toEqual(["storage", "offscreen"]);
-  expect(probeManifest.host_permissions).toEqual(["http://127.0.0.1/*"]);
+  expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toEqual(["https://*/*"]);
   expect(
-    probeManifest.content_scripts.every((script: { matches: string[] }) =>
-      script.matches.every((match) => match === "http://127.0.0.1/*"),
+    probeManifest.content_scripts.every(
+      (script: { matches: string[]; js: string[] }) =>
+        script.matches.every((match) => match === "http://127.0.0.1/*") ||
+        (script.js.join() === "content-scripts/login.js" &&
+          script.matches.join() === "https://*/*"),
     ),
   ).toBe(true);
 });

@@ -291,10 +291,12 @@ Chrome yet.
   custom-field references are snapshot-scoped. An unavailable connection or an item
   awaiting field review is refused before an attempt starts. A denied, locked or failed
   field read, or a replacement snapshot before delivery, blocks the attempt as
-  `policy-changed` without filling. Only the localhost probe admits documents, grants
-  its loopback origin to the configured probe item and supplies recipes and bindings.
-  Production document admission, local recipe and binding storage, and provider-derived
-  origins remain open.
+  `policy-changed` without filling. Production admits only top-level HTTPS documents
+  whose exact origin has a saved, non-excluded site default and granted host access
+  ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a local recipe they
+  stop with `recipe-not-found` before any vault read. Only the probe build grants its
+  loopback origin to the probe item and supplies recipes and bindings. Local recipe and
+  binding storage and provider-derived origins remain open.
 - Real Bitwarden connections, individual MFA methods and optional host-permission
   prompts in installed Chrome remain separate gates.
 

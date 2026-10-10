@@ -53,6 +53,8 @@ const fake = vi.hoisted(() => {
   return { state, browser, pageUrl };
 });
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
+// The loopback adapter and its controls exist only in the probe build.
+vi.stubEnv("MODE", "probe");
 const { createLoginRuntime } = await import("./runtime");
 
 const origin = "http://127.0.0.1:3847";
@@ -125,7 +127,7 @@ function settingsFor({ snapshot = () => first, state = "ready", quarantined = []
   };
 }
 async function start(fields: LoginFieldSource, catalog: Catalog = {}) {
-  const login = createLoginRuntime(settingsFor(catalog), fields);
+  const login = createLoginRuntime(settingsFor(catalog), { fields });
   expect(
     await login.handle(
       {
