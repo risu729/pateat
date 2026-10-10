@@ -22,7 +22,7 @@ test("crypto host packages native WASM under MV3 CSP while its synthetic probe s
       expect(manifest.content_security_policy.extension_pages).toContain(
         "connect-src 'self' https:",
       );
-      expect(manifest.optional_host_permissions).toEqual(["https://*/*"]);
+      expect(manifest.optional_host_permissions).toBeUndefined();
       expect(manifest.host_permissions).toEqual(
         directory === probe ? ["https://*/*", "http://127.0.0.1/*"] : ["https://*/*"],
       );
