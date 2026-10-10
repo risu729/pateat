@@ -14,6 +14,7 @@ The workspace uses one Bun lockfile:
 apps/extension/       WXT entrypoints and extension shell
 services/api/         Health-only Cloudflare Worker
 packages/contracts/  Shared Valibot schemas and inferred types
+packages/bitwarden/  Provider-specific endpoint and transport boundary
 tests/extension/      Isolated synthetic browser fixtures and tests
 tests/options/        React component tests in isolated Chromium
 ```
@@ -55,6 +56,8 @@ Focused tasks are available for diagnosis:
 | `mise run probe:login` | Serve the synthetic login site on loopback port 3847 |
 | `mise run typecheck:extension` | Check extension source after WXT preparation |
 | `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
+| `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
+| `mise run typecheck:bitwarden` | Check provider source and test types |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run test:server` | Run Worker tests in the Cloudflare Vitest runtime |
 | `mise run build:server` | Generate production Build Output and Worker types |

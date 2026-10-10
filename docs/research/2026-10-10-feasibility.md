@@ -91,6 +91,26 @@ separate from retrieving email/SMS codes or following a magic link. Those
 external-channel flows remain deferred. Upstream `main` links describe the inspected
 date, not a pinned future compatibility guarantee.
 
+### Bitwarden transport compatibility baseline
+
+The isolated transport targets the prelogin and encrypted sync routes observed
+in server v2026.9.2 at
+[`9ee4e0e`](https://github.com/bitwarden/server/tree/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc)
+and browser v2026.9.3 at
+[`8246ae9`](https://github.com/bitwarden/clients/tree/8246ae9c9a484a0a69f8b27203034555fb872523).
+Synthetic response fixtures establish transport handling, not server login,
+decryption or complete-vault compatibility.
+
+The pinned server's
+[sync filtering](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/src/Api/Vault/Controllers/SyncController.cs#L160-L195)
+uses client version and device type to omit unsupported item types and
+leasing-gated partial ciphers. This transport does not yet advertise those
+capabilities. A valid response envelope therefore cannot establish snapshot
+completeness or authorize cache replacement. Before integrating the full adapter,
+choose and test truthful protocol capability headers, validate encrypted
+records and account ownership, and distinguish partial or unavailable records.
+This gate preserves the planned full-sync scope.
+
 ## Similar projects: references only
 
 The owner's later instruction supersedes the earlier reuse proposal: do not

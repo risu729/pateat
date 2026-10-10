@@ -1,7 +1,7 @@
 # Implementation plan
 
 Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1).
-M1 and M2 are in progress; M3-M6 are unstarted. The current foundation is not a working
+M1-M3 are in progress; M4-M6 are unstarted. The current foundation is not a working
 autologin product or a completed M1 acceptance claim.
 This plan becomes the single work tracker until an issue is needed for a concrete
 slice.
@@ -69,6 +69,22 @@ describes the early installed-Chrome acceptance procedure. Production activation
 arbitrary saved recipe configuration, real provider protocol, broader frame and
 dynamic-page support and actual Chrome use coexistence remain outstanding.
 Neither M1 nor M2 is complete.
+
+## Bitwarden transport progress
+
+The first M3 slice isolates provider endpoints and transport in
+`packages/bitwarden`. It covers official US/EU environments and standard HTTPS
+self-hosted service paths, with fixed prelogin and encrypted-sync operations.
+Redirects, browser cookies, automatic retries and arbitrary caller-supplied
+request destinations are excluded. Response size, cancellation and parsing
+boundaries have synthetic tests; errors do not expose request or response bodies.
+
+This library is not connected to extension settings or a real vault. Token
+acquisition, supported MFA, local cryptography, authoritative cache reconciliation,
+field resolution, TOTP and persistent unlock remain outstanding. Synthetic fetch
+tests do not establish real-server compatibility or installed-Chrome permissions.
+SDK integration and cryptographic compatibility require a separate implementation
+slice; this transport change adds no SDK or cryptographic dependency.
 
 ## Initial delivery and later scope
 
