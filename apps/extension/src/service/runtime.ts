@@ -175,7 +175,6 @@ export function createServiceRuntime(options: {
       case "service.pair.start": {
         if (record?.kind === "connected") return fail("wrong-state", record);
         if (!(await hasSiteAccess(request.origin))) return fail("site-access-needed", record);
-        lastFailure = undefined;
         // Starting again replaces an unfinished pairing and its verifier.
         const pairing: ServiceRecord = {
           version: 1,
@@ -186,6 +185,7 @@ export function createServiceRuntime(options: {
           startedAt: now(),
         };
         await save(pairing);
+        lastFailure = undefined;
         return ok(pairing);
       }
       case "service.pair.check": {

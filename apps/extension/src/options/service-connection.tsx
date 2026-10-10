@@ -56,9 +56,18 @@ export function ServiceConnection({
   // Acquire synchronously: React state alone cannot stop a double click.
   const acting = useRef(false);
 
+  /** The status line after a check: a failure keeps its own message. */
+  const checked = (response: ServiceResponse) =>
+    !response.ok
+      ? undefined
+      : response.state.kind === "connected"
+        ? "This device is paired."
+        : "Waiting for approval on the service.";
+
   function receive(response: ServiceResponse, success?: string) {
     if (!mounted.current) return;
-    if (response.ok) setCorrupt(false);
+    // Any response carrying a state proves the stored record is readable.
+    if (response.ok || response.state) setCorrupt(false);
     else if (response.error === "storage-corrupt") setCorrupt(true);
     setSiteAccessNeeded(!response.ok && response.error === "site-access-needed");
     if (response.ok) {
@@ -107,15 +116,7 @@ export function ServiceConnection({
       void client
         .check()
         .then(
-          (response) =>
-            receive(
-              response,
-              !response.ok
-                ? undefined
-                : response.state.kind === "connected"
-                  ? "This device is paired."
-                  : "Waiting for approval on the service.",
-            ),
+          (response) => receive(response, checked(response)),
           () => undefined,
         )
         .finally(() => {
@@ -254,7 +255,10 @@ export function ServiceConnection({
                 onClick={() =>
                   void act(async () => {
                     // Requested before any other await so Chrome still sees the click.
-                    if (await client.requestSiteAccess(state.origin)) receive(await client.check());
+                    if (await client.requestSiteAccess(state.origin)) {
+                      const response = await client.check();
+                      receive(response, checked(response));
+                    }
                   })
                 }
               >

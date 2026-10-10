@@ -82,19 +82,34 @@ test("does not start pairing when site access is declined", async () => {
 
 test("asks for site access again without abandoning a pairing", async () => {
   const client = mockClient(pairing);
-  let granted = false;
-  client.check.mockImplementation(async () =>
-    granted ? ok(connected) : { ok: false, error: "site-access-needed", state: pairing },
-  );
-  client.requestSiteAccess.mockImplementation(async () => {
-    granted = true;
-    return true;
-  });
-  await render(<ServiceConnection client={client} pollMs={50} />);
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await expect.element(page.getByText("ABCD-EFGH", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Allow site access" }))
+    .not.toBeInTheDocument();
+  await cleanup();
+
+  const blocked = mockClient();
+  blocked.get.mockResolvedValue({ ok: false, error: "site-access-needed", state: pairing });
+  blocked.check.mockResolvedValue(ok(connected));
+  await render(<ServiceConnection client={blocked} pollMs={60_000} />);
   await page.getByRole("button", { name: "Allow site access", exact: true }).click();
-  expect(client.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
-  expect(client.cancel).not.toHaveBeenCalled();
-  await expect.element(page.getByText(/is paired with/)).toBeVisible();
+  expect(blocked.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
+  expect(blocked.check).toHaveBeenCalledOnce();
+  expect(blocked.cancel).not.toHaveBeenCalled();
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+});
+
+test("keeps the way out while forgetting fails", async () => {
+  const client = mockClient();
+  client.get.mockResolvedValue({ ok: false, error: "storage-corrupt" });
+  client.forget.mockResolvedValue({ ok: false, error: "storage-unavailable" });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await page.getByRole("button", { name: "Forget saved connection", exact: true }).click();
+  await expect.element(page.getByText(/could not read or save/)).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Forget saved connection", exact: true }))
+    .toBeVisible();
 });
 
 test("forgets an unreadable saved connection", async () => {

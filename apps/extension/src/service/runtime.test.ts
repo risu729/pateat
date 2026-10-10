@@ -215,6 +215,20 @@ describe("pairing", () => {
     expect(transport.redeem).toHaveBeenCalledTimes(3);
   });
 
+  it("repeats a held-back failure only within the same pairing", async () => {
+    let time = 1_000;
+    const transport = fakeTransport({ kind: "code-mismatch" });
+    const { runtime } = setup({ transport, now: () => time });
+    await runtime.handle(start);
+    await runtime.handle(check);
+    time += 1;
+    expect(await runtime.handle(check)).toMatchObject({ ok: false, error: "code-mismatch" });
+    await runtime.handle({ version: 1, type: "service.pair.cancel" });
+    await runtime.handle(start);
+    expect(await runtime.handle(check)).toMatchObject({ ok: true, state: { kind: "pairing" } });
+    expect(transport.redeem).toHaveBeenCalledTimes(1);
+  });
+
   it("needs Chrome site access to the service before contacting it", async () => {
     let allowed = false;
     const transport = fakeTransport();
@@ -388,6 +402,46 @@ describe("storage failures", () => {
     });
     expect(storage.value()).toBeUndefined();
     expect(transport.revoke).not.toHaveBeenCalled();
+  });
+
+  it("never forgets an issued credential that is waiting to be saved", async () => {
+    const storage = memoryStorage();
+    const { runtime } = setup({
+      storage,
+      transport: fakeTransport({ kind: "issued", result: ISSUED }),
+    });
+    await runtime.handle(start);
+    const write = storage.write;
+    storage.write = vi.fn(async () => {
+      throw new Error("quota");
+    });
+    await runtime.handle(check);
+    storage.write = write;
+    expect(await runtime.handle({ version: 1, type: "service.forget" })).toMatchObject({
+      ok: false,
+      error: "wrong-state",
+      state: { kind: "connected" },
+    });
+    expect(stored(storage)["credential"]).toBe(CREDENTIAL);
+  });
+
+  it("does not forget when storage cannot be read or holds a pairing", async () => {
+    const storage = memoryStorage();
+    const { runtime } = setup({ storage });
+    await runtime.handle(start);
+    expect(await runtime.handle({ version: 1, type: "service.forget" })).toMatchObject({
+      ok: false,
+      error: "wrong-state",
+      state: { kind: "pairing" },
+    });
+    storage.read = vi.fn(async () => {
+      throw new Error("denied");
+    });
+    expect(await runtime.handle({ version: 1, type: "service.forget" })).toEqual({
+      ok: false,
+      error: "storage-unavailable",
+    });
+    expect(storage.clear).not.toHaveBeenCalled();
   });
 
   it("never forgets a readable connection", async () => {
