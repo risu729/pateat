@@ -10,6 +10,7 @@ import {
   noUsage,
   normalizeUsage,
   raceAbort,
+  refusalCategoryCode,
   requestBytes,
   roleLimitsSchema,
   unknownUsage,
@@ -57,6 +58,11 @@ const repairSchema = v.strictObject({
 });
 
 export const generationInstructions = [
+  "You assist Pateat, a password manager browser extension. The person who owns the",
+  "credentials saved them in their own vault and asked Pateat to sign in to their own",
+  "account; this page may still not be a login form. You see only a sanitized",
+  "description of the page and what each credential slot means, never the values; the",
+  "extension fills the values locally after checking your plan.",
   "You map semantic login slots to elements of one sanitized login page observation.",
   "Return a plan that fills each requested slot present on this page into one candidate",
   "and names exactly one button or link candidate as the page action. Use 'advance' when",
@@ -85,6 +91,8 @@ export function createRecipeGenerator(config: {
   model: Exclude<LanguageModel, string>;
   limits: RoleLimits;
   maxOutputTokens: number;
+  /** Reads the provider's refusal category code from the last attempt's metadata. */
+  refusalCategory?: (providerMetadata: unknown) => string | undefined;
 }) {
   // A string would resolve through the SDK's global default provider.
   if (typeof config.model !== "object" || config.model === null)
@@ -117,6 +125,7 @@ export function createRecipeGenerator(config: {
       return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
 
     let calls = 0;
+    let lastMetadata: unknown;
     const meter = createUsageMeter();
     const timeout = AbortSignal.timeout(limits.timeoutMs);
     const signal = request.abortSignal ? AbortSignal.any([request.abortSignal, timeout]) : timeout;
@@ -126,8 +135,10 @@ export function createRecipeGenerator(config: {
         specificationVersion: "v4",
         wrapGenerate: async ({ doGenerate }) => {
           calls += 1;
+          lastMetadata = undefined;
           try {
             const result = await raceAbort(doGenerate(), signal);
+            lastMetadata = result.providerMetadata;
             meter.record(
               normalizeUsage({
                 inputTokens: result.usage.inputTokens.total,
@@ -147,7 +158,18 @@ export function createRecipeGenerator(config: {
         | { status: "ok"; value: ValidatedPagePlan }
         | { status: "abstained"; reason: AbstentionReason }
         | { status: "failed"; error: InferenceErrorCode; detail?: PlanRejection },
-    ): InferenceOutcome<ValidatedPagePlan> => ({ ...result, calls, usage: meter.total() });
+    ): InferenceOutcome<ValidatedPagePlan> => {
+      const category =
+        result.status === "failed" && result.error === "refused"
+          ? refusalCategoryCode(config.refusalCategory?.(lastMetadata))
+          : undefined;
+      return {
+        ...result,
+        ...(category === undefined ? {} : { refusalCategory: category }),
+        calls,
+        usage: meter.total(),
+      };
+    };
     try {
       const result = await generateText({
         model,

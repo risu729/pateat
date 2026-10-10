@@ -4,6 +4,7 @@ import { evaluateRole, type EvaluationReport } from "./evaluate";
 import { createRecipeGenerator } from "./generation";
 import {
   claudeGeneration,
+  claudeRefusalCategory,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
 } from "./providers/claude";
@@ -59,7 +60,12 @@ export async function runClaudeBenchmark(options: {
       },
     },
   });
-  const generate = createRecipeGenerator({ model, limits, maxOutputTokens });
+  const generate = createRecipeGenerator({
+    model,
+    limits,
+    maxOutputTokens,
+    refusalCategory: claudeRefusalCategory,
+  });
   let spent = 0;
   const report = await evaluateRole({
     cases: options.cases ?? evaluationCorpus,

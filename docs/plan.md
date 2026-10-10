@@ -696,7 +696,16 @@ The one failure is a model refusal: the API ended the call with a refusal
 (`finishReason` `content-filter`) on the unlabeled Japanese bank page that has only
 `maxLength` 7/3/4 numeric fields. As ADR 0014 requires, there is no fallback model, so
 such a page gets no generated recipe. Measured usage per call is well below the ADR
-0014 estimate of about 3,000 input and 1,000 output tokens. Remaining M4 AI work:
+0014 estimate of about 3,000 input and 1,000 output tokens.
+
+After that run the owner chose two changes and one more run of all 16 cases. The
+generation instructions now open by saying that Pateat is a password manager, that the
+credentials' owner asked it to sign in to their own account (the page may still not be a
+login form), and that the model sees only the page structure and slot meanings while the
+extension fills values locally. A `refused` outcome now carries `refusalCategory`, the
+provider's refusal category code (for Claude, `stop_details.category`, such as `cyber`),
+when it is a short code; free-text explanations are dropped. The benchmark lists it per
+case. Remaining M4 AI work:
 
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
