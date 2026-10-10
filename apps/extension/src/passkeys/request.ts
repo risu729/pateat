@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { fromBase64Url, toBase64Url } from "./encoding";
+import type { PasskeyPolicy } from "./policy";
 import { resolveRpId } from "./rp-id";
 
 const MIN_CHALLENGE_BYTES = 16;
@@ -62,6 +63,8 @@ export interface AdmittedGetRequest {
   readonly challenge: Uint8Array;
   /** Allowed public-key credential IDs as unpadded base64url; empty for discoverable requests. */
   readonly allowCredentialIds: readonly string[];
+  /** Whether the assertion sets UV, as the policy decided at admission. */
+  readonly userVerified: boolean;
 }
 
 export type Admission =
@@ -71,18 +74,20 @@ export type Admission =
 /**
  * Decide whether Pateat may answer a request. Origin is browser-supplied; every other input is
  * page data. Anything not explicitly supported delegates to the browser's own implementation.
+ * The policy decides whether a gesture or UV requirement limits admission.
  */
 export function admitGetRequest(input: {
   readonly origin: string;
   readonly request: unknown;
   readonly userActivation: boolean;
+  readonly policy: PasskeyPolicy;
 }): Admission {
   const parsed = v.safeParse(bridgedGetRequestSchema, input.request);
   if (!parsed.success) return { kind: "delegate", reason: "invalid-request" };
   const request = parsed.output;
   if (request.mediation !== undefined && request.mediation !== "optional")
     return { kind: "delegate", reason: "unsupported-mediation" };
-  if (request.userVerification === "required")
+  if (request.userVerification === "required" && input.policy.verification === "never")
     return { kind: "delegate", reason: "user-verification-required" };
   const rpId = resolveRpId(input.origin, request.rpId);
   if (!rpId.ok) return { kind: "delegate", reason: rpId.reason };
@@ -103,7 +108,8 @@ export function admitGetRequest(input: {
     )
   )
     return { kind: "delegate", reason: "external-transports-only" };
-  if (!input.userActivation) return { kind: "delegate", reason: "no-user-activation" };
+  if (input.policy.presence === "activation" && !input.userActivation)
+    return { kind: "delegate", reason: "no-user-activation" };
   return {
     kind: "claim",
     request: Object.freeze({
@@ -111,6 +117,7 @@ export function admitGetRequest(input: {
       rpId: rpId.rpId,
       challenge: request.challenge,
       allowCredentialIds: Object.freeze(allowed.map((entry) => toBase64Url(entry.id))),
+      userVerified: input.policy.verification === "always",
     }),
   };
 }

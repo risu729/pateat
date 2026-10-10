@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest } from "./request";
 import { effectiveDomain, resolveRpId } from "./rp-id";
 import { selectPasskey } from "./select";
@@ -63,8 +64,14 @@ describe("RP ID admission", () => {
 
 const challenge = "AAECAwQFBgcICQoLDA0ODw";
 const base = { challenge, allowCredentials: [] };
-const admit = (request: unknown, userActivation = true, origin = "https://login.example.com") =>
-  admitGetRequest({ origin, request, userActivation });
+// A future per-site policy that follows the ceremony; the initial policy asserts both flags.
+const ceremony: PasskeyPolicy = { presence: "activation", verification: "never" };
+const admit = (
+  request: unknown,
+  userActivation = true,
+  origin = "https://login.example.com",
+  policy: PasskeyPolicy = INITIAL_PASSKEY_POLICY,
+) => admitGetRequest({ origin, request, userActivation, policy });
 
 describe("request admission", () => {
   it("claims an activated, optional, discoverable request", () => {
@@ -75,10 +82,33 @@ describe("request admission", () => {
         rpId: "example.com",
         challenge: Uint8Array.from({ length: 16 }, (_, index) => index),
         allowCredentialIds: [],
+        userVerified: true,
       },
     });
     expect(admit({ ...base, userVerification: "preferred" }).kind).toBe("claim");
     expect(admit({ ...base, userVerification: "discouraged" }).kind).toBe("claim");
+  });
+
+  it("asserts UP and UV without a gesture under the initial policy", () => {
+    expect(admit({ ...base, userVerification: "required" }, false)).toMatchObject({
+      kind: "claim",
+      request: { userVerified: true },
+    });
+  });
+
+  it("lets a ceremony policy require a gesture and leave UV clear", () => {
+    expect(admit(base, false, undefined, ceremony)).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+    expect(admit({ ...base, userVerification: "required" }, true, undefined, ceremony)).toEqual({
+      kind: "delegate",
+      reason: "user-verification-required",
+    });
+    expect(admit(base, true, undefined, ceremony)).toMatchObject({
+      kind: "claim",
+      request: { userVerified: false },
+    });
   });
 
   it("keeps only public-key allow-list IDs in canonical base64url", () => {
@@ -117,11 +147,9 @@ describe("request admission", () => {
   });
 
   it.each([
-    ["missing activation", base, false, "no-user-activation"],
     ["conditional mediation", { ...base, mediation: "conditional" }, true, "unsupported-mediation"],
     ["silent mediation", { ...base, mediation: "silent" }, true, "unsupported-mediation"],
     ["required mediation", { ...base, mediation: "required" }, true, "unsupported-mediation"],
-    ["required UV", { ...base, userVerification: "required" }, true, "user-verification-required"],
     ["foreign RP ID", { ...base, rpId: "example.net" }, true, "rp-id-mismatch"],
     ["public-suffix RP ID", { ...base, rpId: "com" }, true, "rp-id-mismatch"],
     ["short challenge", { ...base, challenge: "AAECAwQFBgcICQoLDA0O" }, true, "invalid-request"],

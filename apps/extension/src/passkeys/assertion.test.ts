@@ -76,6 +76,8 @@ describe("WebAuthn L3 ES256 authentication vector", () => {
         rpId: vector.rpId,
         challenge,
         allowCredentialIds: [toBase64Url(hex(vector.credentialId))],
+        // The published vector leaves UV clear.
+        userVerified: false,
       },
       {
         credentialId: toBase64Url(hex(vector.credentialId)),
@@ -103,13 +105,53 @@ describe("WebAuthn L3 ES256 authentication vector", () => {
     ).toBe(true);
   });
 
+  it("sets UV when the admitted policy asserts verification", async () => {
+    const key = await importAssertionKey(await privatePkcs8());
+    const assertion = await createPasskeyAssertion(
+      {
+        origin: vector.origin,
+        rpId: vector.rpId,
+        challenge,
+        allowCredentialIds: [],
+        userVerified: true,
+      },
+      {
+        credentialId: toBase64Url(hex(vector.credentialId)),
+        rpId: vector.rpId,
+        userHandle: "dXNlcg",
+        discoverable: true,
+        counter: 0,
+      },
+      (authenticatorData, clientDataHash) => signAssertion(key, authenticatorData, clientDataHash),
+    );
+    const authenticatorData = fromBase64Url(assertion.authenticatorData)!;
+    // UP, UV, BE and BS; the RP ID hash and zero counter match the vector.
+    expect(authenticatorData[32]).toBe(0x1d);
+    expect(toHex(authenticatorData.subarray(0, 32))).toBe(
+      vector.authentication.authenticatorData.slice(0, 64),
+    );
+    expect(
+      await verify(
+        fromBase64Url(assertion.signature)!,
+        authenticatorData,
+        hex(vector.authentication.clientDataJSON),
+      ),
+    ).toBe(true);
+  });
+
   it("refuses ineligible credentials before signing", async () => {
     let signed = false;
     const sign = async () => {
       signed = true;
       return new Uint8Array();
     };
-    const request = { origin: vector.origin, rpId: vector.rpId, challenge, allowCredentialIds: [] };
+    const request = {
+      origin: vector.origin,
+      rpId: vector.rpId,
+      challenge,
+      allowCredentialIds: [],
+      userVerified: true,
+    };
     const credential = {
       credentialId: "AA",
       rpId: vector.rpId,

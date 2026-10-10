@@ -372,12 +372,13 @@ import validates its structure. Unit tests cover malformed and unsupported views
 an SDK round trip through the synthetic legacy account fixture.
 
 The extension's assertion core admits only requests with mediation absent or `optional`
-that do not require UV, carry user activation and pass WebAuthn RP ID validation with
-tldts private suffixes; everything else is a delegation result. It selects exactly one
-eligible credential, refuses nonzero counters, serializes `clientDataJSON`, builds
-authenticator data with UP, BE and BS and a zero counter, and returns DER ECDSA
-signatures from a non-extractable sign-only key. Unit tests reproduce the WebAuthn Level
-3 ES256 client data and authenticator data byte for byte, verify the published and
+that pass WebAuthn RP ID validation with tldts private suffixes; everything else is a
+delegation result. A `PasskeyPolicy` decides whether a missing gesture or a UV
+requirement also delegates; the initial policy sets UP and UV unattended. It selects
+exactly one eligible credential, refuses nonzero counters, serializes `clientDataJSON`,
+builds authenticator data with UP, UV, BE and BS and a zero counter, and returns DER
+ECDSA signatures from a non-extractable sign-only key. Unit tests reproduce the WebAuthn
+Level 3 ES256 client data and authenticator data byte for byte, verify the published and
 produced signatures, and cover the HTML registrable-suffix examples. The core is not yet
 connected to the vault, the crypto host or a page bridge.
 
@@ -411,7 +412,7 @@ implicit permissions or initial acceptance requirements.
 | M2: Local login engine and settings           | Dummy vault adapter, settings page, multi-connection policies, saved site defaults, declarative executor | Multi-field/multi-page fixtures; policy precedence, excluded-site pass-through, background, navigation, interruption and concurrency tests; no automatic extension UI                                                          |
 | M3: Bitwarden passwords                       | First real adapter, local sync/crypto, persistent unlock, custom fields and TOTP                         | Synthetic protocol/crypto vectors; supported environment/authentication and TOTP cases below; restart/unlock; no vault writes; explicit unsupported cases; controlled account test only when authorized                        |
 | M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe sync, role-specific AI adapters, Clef/Jev evaluation | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; provider selection evidence |
-| M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, truthful UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
+| M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, configured UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
 | M6: Integrated acceptance and server delivery | Chrome use coexistence, operational docs, hosted service release                                         | Installed Chrome dummy-account tests plus artifact-verified deployment and hosted synthetic smoke checks; measured limits documented                                                                                           |
 
 M1's small cf compatibility probe may precede a backend skeleton; it must not
@@ -484,7 +485,7 @@ and clock boundaries. Do not imply HOTP support from URI parsing alone.
 | MV3 and coexistence   | Worker suspension/restart, browser restart, no page extension iframe, official BW coexistence, actual Chrome use attach and concurrent input                                                                                                                                                                                                                   |
 | Secret boundary       | Malicious page messages, origin mismatch, redirects, unauthorized frames, storage access level, redacted observations/logs, no secrets in server/provider payloads                                                                                                                                                                                             |
 | Vault and settings    | PBKDF2 and Argon2id, authenticated ciphertext corruption, encoding, multiple connections, deny precedence and field exclusion, organization/custom fields capability, duplicate/linked fields and leading zeros, supported TOTP forms, sync expiry, persistent unlock and revocation                                                                           |
-| Passkeys              | Existing zero-counter software key, nonzero-counter rejection, secure context, RP ID/public suffix, challenge, ancestor/topOrigin/crossOrigin, denied iframe Permissions Policy, allowCredentials/userHandle, signature encoding, truthful UV/UP, abort/timeout, competing provider/conditional mediation                                                      |
+| Passkeys              | Existing zero-counter software key, nonzero-counter rejection, secure context, RP ID/public suffix, challenge, ancestor/topOrigin/crossOrigin, denied iframe Permissions Policy, allowCredentials/userHandle, signature encoding, configured UV/UP, abort/timeout, competing provider/conditional mediation                                                      |
 | Service/AI            | Service auth separate from vault unlock, device ownership, replay/revocation, schema compatibility, settings revision conflicts, offline cache, separate generation/repair and finite-choice settings, injection text, nonexistent targets, refusal/truncation/timeout/rate-limit, no automatic provider/model fallback, monthly spend stop and attempt limits |
 
 Fixtures use synthetic sites and credentials. A bundled Chromium pass is not
@@ -503,12 +504,10 @@ support for every site or vault format. Keep observed limitations explicit.
   distribution, memory/time and browser lifecycle. See
   [ADR 0005](adr/0005-bitwarden-local-crypto.md); do not implement cryptographic
   primitives ourselves or treat library adoption as compatibility proof.
-- [ADR 0007](adr/0007-existing-passkey-assertions.md) sets the initial UV/UP
-  policy: UV clear, UP only with transient user activation and a preconfigured
-  account, and delegation to the browser otherwise. Nonzero-counter
-  synchronization is deferred. The owner must decide whether a per-site unattended
-  presence mode is acceptable before page-load or executor-triggered passkey login
-  can complete without a gesture.
+- [ADR 0007](adr/0007-existing-passkey-assertions.md) records the owner's choice
+  to set UP and UV on every claimed assertion without a gesture. A per-site
+  setting over the existing policy shape is later work. Nonzero-counter
+  synchronization is deferred.
 - Settle device enrollment/recovery, credential lifetime, AI pricing sources and
   the monthly monetary budget default before service deployment. Initial spending
   control aggregates usage and stops later inference after the limit is reached;
