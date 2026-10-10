@@ -2,7 +2,8 @@
 
 Status: accepted reference design. The foundation implements local metadata-only policy
 settings, status contracts, a localhost-only synthetic executor probe and a
-device-authenticated settings/recipe sync Worker skeleton without enrollment. The
+device-authenticated settings/recipe sync Worker with Access-verified device enrollment
+that has not been tried against a real Access application. The
 capabilities below remain planned unless [the plan](plan.md) records their
 implementation and evidence.
 
@@ -447,8 +448,8 @@ vector search, or an agent framework without a demonstrated need. Use bound SQL
 parameters through the approved Drizzle integration, with Hono for API routing
 and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
-sync routes and schema described in [its README](../services/api/README.md);
-enrollment and inference remain planned.
+sync, enrollment and device management routes described in
+[its README](../services/api/README.md); inference remains planned.
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
@@ -493,30 +494,38 @@ Use a monthly USD limit initially; select the default amount during service
 implementation. Timeouts, request limits, bounded retries and sanitized
 diagnostics remain necessary.
 
-### Proposed device enrollment
+### Device enrollment
 
-Status: proposal for owner review; nothing here is implemented or configured. It
-satisfies the separation above without a cookie on steady-state API calls.
+Status: the service side is implemented and tested locally with synthetic Access keys;
+the extension side, a real Access probe and the open decisions below remain. Nothing is
+configured or deployed. It satisfies the separation above without a cookie on
+steady-state API calls.
 
-- Route families. One Access application covers only `/enroll` and later `/manage`
-  paths; `/v1` sync routes are outside it and accept only device credentials. The
-  Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself: signature against the
-  team JWKS, configured audience tag and issuer, and expiry. It never trusts the
-  plain identity headers. The owner key is the issuer plus the token subject, not
-  the email address. Hono's JWK middleware is the preferred verifier because Hono
-  is approved; a dedicated JWT library would need its own owner decision.
+- Route families. One Access application covers only the `/enroll` and `/manage` paths.
+  The `/v1` sync routes are outside it and accept only device credentials, and `/redeem`
+  is anonymous. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself: signature
+  against the team JWKS, configured audience tag and issuer, and expiry. It never trusts
+  the plain identity headers. The owner key is the issuer plus the token subject, not
+  the email address. Verification uses Hono's JWT utility with the team JWKS, allowing
+  only RS256; Hono's JWK middleware reads only `Bearer` values, and a dedicated JWT
+  library would need its own owner decision. Tokens without an expiry or a user subject,
+  such as service tokens, are refused.
 - Pairing. The settings page generates a 256-bit verifier, keeps it in trusted
   extension storage, and opens the enrollment page in an ordinary tab with only its
-  SHA-256 challenge and a device label. It also shows a short code derived from the
-  challenge. After Access login, the owner types that code and confirms; the page
-  rejects a mismatch, so a link carrying someone else's challenge cannot be
-  approved by mistake. The confirmation is a same-origin POST with CSRF protection
-  and records a pending enrollment for that owner, valid for a few minutes.
-- Redemption. The extension polls an unauthenticated, rate-limited redemption route
-  with the verifier. A matching, approved, unexpired and unredeemed enrollment
-  creates the device and returns its credential once; only its hash is stored, as
-  today. `chrome.identity.launchWebAuthFlow` would avoid typing a code but adds
-  the `identity` permission, so it remains an alternative for the owner to choose.
+  SHA-256 challenge and a device label. It also shows a short code: the first 40 bits
+  of the challenge in Crockford base32. After Access login, the owner types that code
+  and confirms; the page rejects a mismatch, so a link carrying someone else's
+  challenge cannot be approved by mistake. The confirmation is a same-origin form POST
+  (Origin or `Sec-Fetch-Site` checked) on a page that cannot be framed, and records an
+  approval for that owner, valid for 10 minutes. A challenge is single-use: once
+  redeemed or approved by another owner it cannot be approved again.
+- Redemption. The extension polls an unauthenticated redemption route with the
+  verifier, rate limited per client address. A matching, approved, unexpired and
+  unredeemed enrollment creates the device and returns its credential once; only its
+  hash is stored, as today. Pending, expired, redeemed and unknown verifiers return
+  the same response. `chrome.identity.launchWebAuthFlow` would avoid typing a code
+  but adds the `identity` permission, so it remains an alternative for the owner to
+  choose.
 - Lifetime and recovery. Credentials stay valid until revoked; an idle expiry is
   an open decision. The Access-protected management page lists and revokes the
   owner's devices, and a device can revoke itself on sign-out. A lost device is
@@ -524,9 +533,11 @@ satisfies the separation above without a cookie on steady-state API calls.
   later requests; a request already authenticated may still complete. It stops
   service access only and neither erases offline caches nor touches any vault.
 
-Before implementation, probe JWT verification against a real Access application
-with the owner's approval, and test approval CSRF, redemption rate limits, replay
-and expiry, and cleanup of stale pending enrollments.
+Local tests cover signature, issuer, audience, expiry and subject checks, approval
+CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
+cleanup of stale approvals, cross-owner management and self-revocation. Still open:
+probing JWT verification against a real Access application with the owner's approval,
+the credential idle-expiry decision, and the optional `launchWebAuthFlow` variant.
 
 ## Deferred interfaces and challenges
 

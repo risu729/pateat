@@ -1,5 +1,6 @@
 import * as v from "valibot";
 
+export * from "./enrollment";
 export * from "./settings";
 export * from "./settings-store";
 export * from "./login";

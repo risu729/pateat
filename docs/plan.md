@@ -376,11 +376,22 @@ stored documents. Concurrent cases interleave within one local runtime, not host
 D1. A migration check regenerates SQL from the Drizzle schema. The D1 database is
 not provisioned, and nothing is deployed.
 
+The second slice adds the service side of
+[device enrollment](architecture.md#device-enrollment). The Worker verifies Cloudflare
+Access tokens itself (RS256 signature against the team keys, issuer, audience, expiry
+and a user subject) and maps the issuer and subject to an owner. An Access-protected
+page approves a device's SHA-256 challenge only when the owner types the code derived
+from it, an anonymous rate-limited route exchanges the matching verifier for a
+single-use device credential, and the owner can list and revoke devices; a device can
+revoke itself. Local tests use synthetic signing keys and cover forged, expired,
+wrong-audience and service tokens, missing configuration, CSRF, code mismatch, replay,
+concurrent redemption, expiry, cleanup, rate limits and cross-owner revocation.
+
 ### Remaining M4 service gaps
 
-- Access-backed device enrollment, owner management and revocation routes follow the
-  [proposed enrollment design](architecture.md#proposed-device-enrollment); tests seed
-  synthetic owners and devices directly until then.
+- Device enrollment has not been tried against a real Access application; that probe
+  needs the owner's approval, as do the credential idle-expiry decision and the
+  optional `launchWebAuthFlow` variant.
 - The extension does not yet call the service, keep a last-known-good sync cache or
   map synced connection identifiers to a new device's local connections.
 - Inference adapters, spending accounting and the release artifact's migration SQL

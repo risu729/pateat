@@ -111,6 +111,8 @@ export const syncErrorCodeSchema = v.picklist([
   "method_not_allowed",
   "payload_too_large",
   "unsupported_media_type",
+  "rate_limited",
+  "enrollment_not_found",
   "internal_error",
 ]);
 export const syncErrorSchema = v.variant("error", [

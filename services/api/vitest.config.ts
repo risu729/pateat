@@ -14,7 +14,13 @@ export default defineConfig({
         compatibilityFlags,
         // Local Miniflare storage only; tests never touch a provisioned database.
         d1Databases: ["DB"],
-        bindings: { TEST_MIGRATIONS: migrations },
+        // Synthetic Access settings; tests serve their own signing keys.
+        bindings: {
+          TEST_MIGRATIONS: migrations,
+          ACCESS_TEAM_DOMAIN: "pateat-test.cloudflareaccess.com",
+          ACCESS_AUD: "pateat-test-audience",
+        },
+        ratelimits: { REDEEM_LIMITER: { namespace_id: "1001", simple: { limit: 10, period: 60 } } },
       },
     }),
   ],
