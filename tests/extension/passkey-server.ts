@@ -40,7 +40,8 @@ window.request = (spec) => {
     json: JSON.parse(JSON.stringify(credential)),
   }), (error) => ({ error: error === window.abortReason ? 'caller-reason' : error.name }))
     .then(async (result) => {
-      document.getElementById('result').textContent = await describe(result);
+      // The manual status line must never change what the caller receives.
+      document.getElementById('result').textContent = await describe(result).catch((error) => 'status error: ' + error);
       return result;
     });
 };

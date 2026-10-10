@@ -58,6 +58,7 @@ Focused tasks are available for diagnosis:
 | `mise run build:extension` | Package the Chrome extension shell |
 | `mise run build:probe` | Build the isolated synthetic browser-test variant |
 | `mise run probe:login` | Serve the synthetic login site on loopback port 3847 |
+| `mise run probe:passkeys` | Serve the synthetic passkey relying party on loopback port 3848 |
 | `mise run typecheck:extension` | Check extension source after WXT preparation |
 | `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
 | `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
@@ -149,14 +150,16 @@ that installed Chrome has passed. The probe's passkey scripts run only on
 with the public WebAuthn Level 3 test-vector key. No vault, real passkey or
 provider is involved.
 
-1. Run `mise run build:probe` and `mise run probe:passkeys`. The latter serves
-   `http://localhost:3848` and stops with Ctrl+C.
+1. Run `mise run build:probe` and `mise run probe:passkeys`. The latter listens
+   only on loopback `127.0.0.1:3848`, is opened as `http://localhost:3848`, and
+   stops with Ctrl+C.
 2. With the owner's installation approval, load
    `apps/extension/.output/chrome-mv3-probe/` as an unpacked extension. Record the
    source commit, Chrome version and other extensions, especially any passkey
    provider such as the official Bitwarden extension.
-3. Open `http://localhost:3848/`. The page must report that the wrapper was
-   installed at document start.
+3. Open `http://localhost:3848/`. **Wrapped at document start** must read
+   `true`. Another passkey provider's wrapper also reads `true`; only the next
+   steps show that Pateat answered.
 4. Click **Sign in with a passkey** and **Sign in requiring UV**. Each must report
    `Pateat, flags 0x1d, signature verified` without any browser or provider
    prompt.
