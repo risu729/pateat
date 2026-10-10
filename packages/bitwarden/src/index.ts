@@ -5,6 +5,7 @@ export {
 } from "./environment";
 export {
   createBitwardenAccountMapper,
+  admitPreparedBitwardenAccount,
   type BitwardenAccountMapper,
   type BitwardenAccountBinding,
   type PreparedBitwardenAccount,

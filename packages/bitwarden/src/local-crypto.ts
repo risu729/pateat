@@ -16,6 +16,11 @@ export interface LocalCryptoSession {
     accountVersion: "v1" | "v2";
     securityVersion: 1 | 2;
   }>;
+  /** Existing SDK-verified key only. The vault host separately gates export on item verification. */
+  exportUnlockMaterial(): BitwardenResult<{
+    userKey: string;
+    metadata: LocalCryptoSession["metadata"];
+  }>;
   decryptCipher(input: unknown): Promise<BitwardenResult<Sdk.CipherView>>;
   decryptFido2Credentials(input: unknown): Promise<BitwardenResult<Sdk.Fido2CredentialView[]>>;
   decryptFido2PrivateKey(input: unknown): Promise<BitwardenResult<string>>;
@@ -60,6 +65,17 @@ const masterUnlockSchema = v.strictObject({
       v.transform((value) => value.toLowerCase()),
     ),
   ),
+});
+/** Shared structural admission for offline encrypted context; grants no cryptographic trust. */
+export const localCryptoAccountContextSchema = v.strictObject({
+  kdf: kdfSchema,
+  accountCryptographicState: accountSchema,
+  masterPasswordUnlock: masterUnlockSchema,
+  organizationKeys: v.pipe(
+    v.array(v.strictObject({ organizationId: uuid, key: text })),
+    v.maxLength(1_000),
+  ),
+  minimumSecurityVersion: v.picklist([1, 2]),
 });
 const sessionSchema = v.strictObject({
   connectionId: identifier,
@@ -696,6 +712,14 @@ export async function createLocalCryptoSession(
       ok: true,
       data: Object.freeze({
         metadata,
+        exportUnlockMaterial: () => {
+          if (locked) return failure("crypto-locked");
+          const userKey = memory.values.get("user_key");
+          if (typeof userKey !== "string" || userKey.length === 0) return failure("crypto-failed");
+          // The bridge value is the pinned SDK's unchanged serialized user key.
+          // No password, master key, private key bundle or network API is exported.
+          return { ok: true as const, data: { userKey, metadata } };
+        },
         decryptCipher: decrypt,
         decryptFido2Credentials: async (
           request: unknown,

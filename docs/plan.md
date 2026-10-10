@@ -92,8 +92,8 @@ approved in [ADR 0005](adr/0005-bitwarden-local-crypto.md). It introduces isolat
 local sessions, bounded PBKDF2/Argon2id admission, V1/V2 account initialization,
 strict cipher and stored-passkey decryption, and verified security-version
 checks. The account mapper below prepares encrypted sync responses for these
-sessions; extension connection setup and persistent cache acceptance remain
-unimplemented.
+sessions; extension connection setup remains unimplemented. The persistent cache
+layer has a separate progress section below.
 
 The pinned SDK's V2 version export also rewraps and re-signs an in-memory copy of
 verified key state. Pateat keeps only its version and does not send or persist
@@ -111,8 +111,8 @@ work, not a claim of zero-copy secrets or cancellation of synchronous WASM.
 Disposal invalidates results immediately but defers native object cleanup until
 pending operations settle. Hard cancellation requires termination of the owning
 Worker. A separate synthetic extension page exercises packaged native WASM,
-real vectors and Worker termination; this host is not production activation or
-an established persistent background-vault host. See the
+real vectors and Worker termination. The reusable background host is described
+below; neither probe activates production login. See the
 [source/distribution requirements](sdk-source.md) before conveying its binary.
 
 An earlier synthetic executor artifact was manually installed in the owner's
@@ -187,8 +187,8 @@ Production catalog/settings integration remains separate. In particular,
 snapshot-scoped custom references do not automatically reconcile persistent
 exclusions when fields are edited or reordered. Rebinding/invalidation must
 preserve denies before any live resolver is connected to settings or the executor.
-Persistent unlock, authenticated cache acceptance and live URI eligibility remain
-unfinished M3 gates.
+End-to-end connection setup, cache adoption and live URI eligibility remain
+unfinished M3 gates; the cache component is described below.
 
 ## URI candidate matching progress
 
@@ -222,11 +222,28 @@ A new background incarnation must replace old hosts and reject
 old handles without replaying requests. Production artifacts now package the
 host and WASM, but only the synthetic probe calls it in this slice.
 
-Persistent unlock and encrypted-cache acceptance follow this host slice; they
-are not proven by in-memory restart fencing. Production connection setup, real
+[PR #18](https://github.com/risu729/pateat/pull/18) passed the complete Linux
+verification graph with 46 host tests and 42 extension tests. Its actual browser
+tests verify native Worker creation/destruction, hard cancellation, fresh
+offscreen recreation and service-worker restart. This is synthetic runtime
+evidence; it does not establish real-provider or installed-Chrome compatibility.
+
+The persistent-unlock layer below adds encrypted-cache acceptance; that behavior
+is not proven by the host's in-memory restart fencing. Production connection setup, real
 provider authentication and settings/catalog integration remain unfinished.
 Conveying a new artifact still requires its matching
 [Corresponding Source](sdk-source.md).
+
+## Persistent unlock and cache progress
+
+The next focused slice implements
+[atomic local cache records](adr/0006-atomic-local-vault-cache.md), verified SDK
+unlock-key retention, offline restoration and durable local disable. It has no provider
+HTTP or production setup UI. Acceptance requires real IndexedDB revision conflicts and
+aborts, disable versus stale acceptance, full browser restart with the same isolated
+profile, fresh SDK verification, preserved snapshot identity, and proof that unavailable
+items cannot reuse older secrets. Implementation and these acceptance tests remain in
+progress.
 
 ## Initial delivery and later scope
 

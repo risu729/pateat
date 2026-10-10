@@ -4,6 +4,7 @@ import type {
   LocalFieldMetadata,
   LocalFieldReference,
   LocalFieldValue,
+  LocalCryptoSession,
   PreparedBitwardenAccount,
 } from "@pateat/bitwarden";
 import {
@@ -280,6 +281,36 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         finish(parsed.output.requestId, fail("crypto-failed"));
         return;
       }
+      if (job.operation.kind === "verify-received-ciphers") {
+        const checked = v.safeParse(
+          v.strictObject({
+            verifiedCipherCount: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(10_000)),
+          }),
+          result.data,
+        );
+        if (!checked.success) {
+          cancelOwned(parsed.output.requestId, "crypto-locked");
+          return;
+        }
+      }
+      if (job.operation.kind === "export-unlock") {
+        const exported = result.data as {
+          userKey?: unknown;
+          metadata?: LocalCryptoSession["metadata"];
+        };
+        if (
+          typeof exported?.userKey !== "string" ||
+          exported.userKey.length === 0 ||
+          exported.userKey.length > 1_048_576 ||
+          exported.metadata?.connectionId !== job.connectionId ||
+          exported.metadata.userId !== job.operation.session.userId ||
+          !["v1", "v2"].includes(exported.metadata.accountVersion) ||
+          ![1, 2].includes(exported.metadata.securityVersion)
+        ) {
+          cancelOwned(parsed.output.requestId, "crypto-locked");
+          return;
+        }
+      }
       if (job.operation.kind === "open") {
         const opened = result.data as OpenedHostSession;
         const ref = v.safeParse(sessionSchema, opened?.session);
@@ -546,6 +577,20 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     },
     decryptCipher(session: HostSessionRef, itemId: string, signal?: AbortSignal) {
       return request<unknown>(session.connectionId, { kind: "decrypt", session, itemId }, signal);
+    },
+    verifyReceivedCiphers(session: HostSessionRef, signal?: AbortSignal) {
+      return request<{ verifiedCipherCount: number }>(
+        session.connectionId,
+        { kind: "verify-received-ciphers", session },
+        signal,
+      );
+    },
+    exportUnlockMaterial(session: HostSessionRef, signal?: AbortSignal) {
+      return request<{ userKey: string; metadata: LocalCryptoSession["metadata"] }>(
+        session.connectionId,
+        { kind: "export-unlock", session },
+        signal,
+      );
     },
     listFields(session: HostSessionRef, itemId: string, signal?: AbortSignal) {
       return request<readonly LocalFieldMetadata[]>(

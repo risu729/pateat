@@ -6,6 +6,7 @@ import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
 import { createBrowserCryptoHost } from "../src/crypto/browser";
 import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/probe";
+import { createVaultProbe } from "../src/vault/probe";
 
 export default defineBackground(() => {
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
@@ -18,11 +19,23 @@ export default defineBackground(() => {
       : {},
   );
   const cryptoProbe = cryptoControls ? createCryptoProbe(cryptoHost, cryptoControls) : undefined;
+  const vaultProbe = import.meta.env.MODE === "probe" ? createVaultProbe(cryptoHost) : undefined;
   browser.action.onClicked.addListener(() => {
     void browser.runtime.openOptionsPage();
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (
+      vaultProbe &&
+      sender.id === browser.runtime.id &&
+      sender.url === new URL("crypto-probe.html", browser.runtime.getURL("/options.html")).href &&
+      message !== null &&
+      typeof message === "object" &&
+      message.type === "vault.probe"
+    ) {
+      void vaultProbe(message).then(sendResponse);
+      return true;
+    }
     if (
       cryptoProbe &&
       sender.id === browser.runtime.id &&

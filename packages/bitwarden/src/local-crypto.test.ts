@@ -260,7 +260,7 @@ describe("strict account initialization and metadata", () => {
     ).toEqual({ ok: false, error: { code: "security-downgrade" } });
   });
 
-  it("does not expose SDK networking or key export capabilities", async () => {
+  it("exposes only the narrow verified unlock export without SDK networking or broad key APIs", async () => {
     const active = await session();
     expect(Object.keys(active).sort()).toEqual(
       [
@@ -268,6 +268,7 @@ describe("strict account initialization and metadata", () => {
         "decryptFido2Credentials",
         "decryptFido2PrivateKey",
         "dispose",
+        "exportUnlockMaterial",
         "metadata",
       ].sort(),
     );

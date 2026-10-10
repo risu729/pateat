@@ -27,6 +27,7 @@ let owned:
       session: LocalCryptoSession;
       ciphers: Map<string, unknown>;
       fields: Map<string, LocalFieldSnapshot>;
+      verified: boolean;
     }
   | undefined;
 let busy = false;
@@ -111,13 +112,33 @@ async function execute(command: HostCommand) {
       sessionId: crypto.randomUUID(),
       snapshotId: op.snapshotId,
     };
-    owned = { ref, session: session.data, ciphers, fields: new Map() };
+    owned = { ref, session: session.data, ciphers, fields: new Map(), verified: false };
     return { ok: true as const, data: { session: ref, metadata: session.data.metadata } };
   }
   if (op.kind === "close") return fail("invalid-request"); // Supervisor handles termination.
   if (!exactSession(op.session) || !owned || command.connectionId !== owned.ref.connectionId)
     return fail("crypto-locked");
   if (op.kind === "lock") return fail("invalid-request");
+  if (op.kind === "verify-received-ciphers") {
+    owned.verified = false;
+    // Validate every received supported item, without building a plaintext field
+    // cache or forwarding bulk CipherViews across the extension Port.
+    for (const cipher of owned.ciphers.values()) {
+      // eslint-disable-next-line no-await-in-loop
+      const checked = await owned.session.decryptCipher({
+        connectionId: command.connectionId,
+        cipher,
+      });
+      if (!checked.ok) return checked;
+    }
+    owned.verified = true;
+    return { ok: true as const, data: { verifiedCipherCount: owned.ciphers.size } };
+  }
+  if (op.kind === "export-unlock") {
+    if (!owned.verified) return fail("invalid-request");
+    return owned.session.exportUnlockMaterial();
+  }
+  if (op.kind !== "resolve" && !("itemId" in op)) return fail("invalid-request");
   const itemId = (op.kind === "resolve" ? op.ref.itemId : op.itemId).toLowerCase();
   const cipher = owned.ciphers.get(itemId);
   if (!cipher) return fail("field-missing");
