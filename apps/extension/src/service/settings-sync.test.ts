@@ -109,17 +109,31 @@ function setup(
       base = undefined;
     }),
   };
+  let since: unknown;
+  const hold = {
+    read: vi.fn(async () => since),
+    write: vi.fn(async (value: number) => {
+      since = value;
+    }),
+    clear: vi.fn(async () => {
+      since = undefined;
+    }),
+  };
   const applied = vi.fn();
-  const sync = createSettingsSync({
-    transport,
-    settings: store,
-    storage,
-    applied,
-    ...(options.deferred ? { deferred: options.deferred } : {}),
-    ...(options.now ? { now: options.now } : {}),
-  });
+  // A new instance over the same storage stands for a restarted service worker.
+  const start = () =>
+    createSettingsSync({
+      transport,
+      settings: store,
+      storage,
+      hold,
+      applied,
+      ...(options.deferred ? { deferred: options.deferred } : {}),
+      ...(options.now ? { now: options.now } : {}),
+    });
   return {
-    sync,
+    sync: start(),
+    restart: start,
     store,
     transport,
     storage,
@@ -593,6 +607,26 @@ describe("settings sync after the first", () => {
     expect(transport.saveSettings).not.toHaveBeenCalled();
   });
 
+  it("applies a service document over the upload limit when nothing needs uploading", async () => {
+    const long = "x".repeat(150);
+    const bindings = Array.from({ length: 400 }, (_, index) => ({
+      ...binding(`https://site-${index}.example`),
+      itemName: long,
+      slots: [{ slot: "password", field: { custom: long } }],
+    }));
+    const {
+      sync,
+      transport,
+      local: after,
+    } = setup({
+      local: settingsOf(),
+      service: state(4, settingsOf({ bindings })),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+    expect(after()?.settings.bindings).toHaveLength(400);
+  });
+
   it("waits to change local settings while a login is running", async () => {
     let running = true;
     const {
@@ -642,6 +676,34 @@ describe("settings sync after the first", () => {
     expect(service().settings?.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
   });
 
+  it("keeps a local edit to an entry the service changed while the write waited", async () => {
+    let running = true;
+    const {
+      sync,
+      store,
+      service,
+      base,
+      local: after,
+    } = setup({
+      local: { ...agreed, excludedSites: [] },
+      service: state(5, { ...agreed, siteDefaults: [account("https://bank.example", "item-s")] }),
+      base: baseOf(4, agreed),
+      deferred: () => running,
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("busy");
+    expect(base()).toMatchObject({ revision: 6 });
+    expect(service().settings?.siteDefaults).toEqual([account("https://bank.example", "item-s")]);
+    await store.update(undefined, (current) => ({
+      ...current,
+      settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
+    }));
+    running = false;
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(after()?.settings.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
+    expect(service().settings?.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
+    expect(service().settings?.excludedSites).toEqual([]);
+  });
+
   it("stops waiting for a login left unfinished", async () => {
     let time = 0;
     const { sync, local: after } = setup({
@@ -655,6 +717,48 @@ describe("settings sync after the first", () => {
     time += MAX_SETTINGS_DEFER_MS;
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(after()?.settings.excludedSites).toEqual([]);
+  });
+
+  it("counts the wait for a login across service worker restarts", async () => {
+    let time = 0;
+    const { restart, local: after } = setup({
+      local: agreed,
+      service: state(5, { ...agreed, excludedSites: [] }),
+      base: baseOf(4, agreed),
+      deferred: () => true,
+      now: () => time,
+    });
+    expect(await restart().run(CONNECTION, never)).toBe("busy");
+    time += MAX_SETTINGS_DEFER_MS / 2;
+    expect(await restart().run(CONNECTION, never)).toBe("busy");
+    time += MAX_SETTINGS_DEFER_MS / 2;
+    expect(await restart().run(CONNECTION, never)).toBe("synced");
+    expect(after()?.settings.excludedSites).toEqual([]);
+  });
+
+  it("waits the full time again for a later login", async () => {
+    let time = 0;
+    let running = true;
+    const {
+      sync,
+      transport,
+      local: after,
+    } = setup({
+      local: agreed,
+      service: state(5, { ...agreed, excludedSites: [] }),
+      base: baseOf(4, agreed),
+      deferred: () => running,
+      now: () => time,
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("busy");
+    // The login ends, but the next sync cannot reach the service.
+    running = false;
+    transport.settings.mockResolvedValueOnce({ kind: "failed", error: "unreachable" });
+    expect(await sync.run(CONNECTION, never)).toBe("unreachable");
+    time += MAX_SETTINGS_DEFER_MS;
+    running = true;
+    expect(await sync.run(CONNECTION, never)).toBe("busy");
+    expect(after()?.revision).toBe(7);
   });
 
   it("does not upload for a device disconnected before the merge", async () => {

@@ -489,25 +489,31 @@ still the one the merge started from, so a merged entry the device has not writt
 is not read as a local removal, and a local edit made meanwhile still wins. The base is
 used only when the service revision is newer than the stored one, or equal with the same
 content. Without a base (a new pairing, a device paired before this sync existed, or a
-service restored to an older state) both sides' entries are kept, the service wins where
-they differ, and nothing is removed. Disconnecting forgets the base but keeps local
-settings, so pairing with another owner's service uploads this device's synced settings
-there. The merge is written back with a conditional `PUT /v1/settings`, and a stale
-service or local revision merges again, in up to three attempts per sync. A merge over
-the settings limits (1,000 entries per list, or an uploaded document over 120 KiB of the
-service's 128 KiB body limit) is not applied, and the settings page says the settings no
-longer fit; when a later attempt in the same sync goes over, an earlier upload stays.
-Local settings change through the settings store's revision check, only when the merge
-differs from them, so an unchanged sync does not stop running login attempts. While a
-login is running, including one between pages, the upload still happens but the local
-write waits for a later sync, for at most two minutes after the first wait; a later sync
-starts when the recipe schedule is due again. A local legacy default is replaced when
-the service names an account for its origin. Saving settings on the extension's page or
-saving an automatic account choice starts a sync at once. A recipe sync that cannot
-reach the service skips settings, a 401 from either request marks the device rejected,
-and the settings page shows a complete sync only when both finished.
-Unit tests use a synthetic service and the real settings store over in-memory storage;
-no running service has been tried.
+service whose revision went back below the stored one or matches it with other content)
+both sides' entries are kept, the service wins where they differ, and nothing is
+removed. A service restored to an older state whose revision has since passed the stored
+one is merged against the stored base, so its removals apply. Writing the base is best
+effort; when that write fails, the next sync uses the older base, which can drop a local
+edit that sets an entry back to its value in that older base. Disconnecting forgets the
+base but keeps local settings, so pairing with another owner's service uploads this
+device's synced settings there. The merge is written back with a conditional
+`PUT /v1/settings`, and a stale service or local revision merges again, in up to three
+attempts per sync. A merge over the settings limits (1,000 entries per list, or an
+uploaded document over 120 KiB of the service's 128 KiB body limit) is not applied, and
+the settings page says the settings no longer fit; when a later attempt in the same sync
+goes over, an earlier upload stays. Local settings change through the settings store's
+revision check, only when the merge differs from them, so an unchanged sync does not
+stop running login attempts. While a login is running, including one between pages, the
+upload still happens but the local write waits for a later sync, for at most two minutes
+after the first wait. The time of the first wait is stored under
+`pateat.sync-settings-hold.v1`, so the limit holds across service worker restarts, and
+it is cleared when a sync finds no login running. A later sync starts when the recipe
+schedule is due again. A local legacy default is replaced when the service names an
+account for its origin. Saving settings on the extension's page or saving an automatic
+account choice starts a sync at once. A recipe sync that cannot reach the service skips
+settings, a 401 from either request marks the device rejected, and the settings page
+shows a complete sync only when both finished. Unit tests use a synthetic service and
+the real settings store over in-memory storage; no running service has been tried.
 
 ### Remaining M4 service gaps
 

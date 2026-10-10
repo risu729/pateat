@@ -25,6 +25,7 @@ import {
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
   createBrowserSettingsBaseStorage,
+  createBrowserSettingsHoldStorage,
 } from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
 
@@ -62,6 +63,7 @@ export default defineBackground(() => {
     transport: serviceTransport,
     settings,
     storage: createBrowserSettingsBaseStorage(),
+    hold: createBrowserSettingsHoldStorage(),
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
       login.settingsChanged();

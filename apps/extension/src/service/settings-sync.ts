@@ -71,6 +71,28 @@ export interface SettingsBaseStorage {
   clear(): Promise<void>;
 }
 
+/** When a local write first waited for a login, kept across service worker restarts. */
+export interface SettingsHoldStorage {
+  read(): Promise<unknown>;
+  write(since: number): Promise<void>;
+  clear(): Promise<void>;
+}
+
+const holdSchema = v.pipe(v.number(), v.integer(), v.minValue(0));
+
+function memoryHold(): SettingsHoldStorage {
+  let since: number | undefined;
+  return {
+    read: async () => since,
+    write: async (next) => {
+      since = next;
+    },
+    clear: async () => {
+      since = undefined;
+    },
+  };
+}
+
 export type SettingsSyncOutcome =
   | "synced"
   | "rejected"
@@ -183,15 +205,17 @@ export function createSettingsSync(options: {
     ): Promise<SettingsSnapshot>;
   };
   storage: SettingsBaseStorage;
+  /** Without it, the wait for a login is bounded only within one service worker. */
+  hold?: SettingsHoldStorage;
   /** Called after synced changes are written to the local settings. */
   applied?: () => void;
   /** Whether a local settings write must wait, for example while a login runs. */
-  deferred?: () => boolean;
+  deferred?: () => boolean | Promise<boolean>;
   now?: () => number;
 }) {
   const { transport, settings, storage } = options;
   const now = options.now ?? Date.now;
-  let deferredSince: number | undefined;
+  const hold = options.hold ?? memoryHold();
 
   async function loadBase(connection: ServiceConnection): Promise<SettingsBase | undefined> {
     let stored: unknown;
@@ -217,6 +241,8 @@ export function createSettingsSync(options: {
     stale: () => boolean,
   ): Promise<SettingsSyncOutcome> {
     const { origin, credential, deviceId } = connection;
+    // A wait that started for an earlier login does not shorten the wait for a later one.
+    if (!(await options.deferred?.())) await release();
     const stored = await loadBase(connection);
     const fetched = await transport.settings(origin, credential);
     if (fetched.kind === "rejected") return "rejected";
@@ -292,7 +318,8 @@ export function createSettingsSync(options: {
       if (stale()) return "busy";
       if (!equalSynced(merged, localSynced)) {
         // A policy write now would stop a login in progress; a later sync applies it.
-        if (holdForLogin()) return "busy";
+        // oxlint-disable-next-line no-await-in-loop -- decides this attempt's write
+        if (await holdForLogin()) return "busy";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
           await settings.update(local.revision, (snapshot) => ({
@@ -306,23 +333,43 @@ export function createSettingsSync(options: {
         }
         options.applied?.();
       }
-      deferredSince = undefined;
       // oxlint-disable-next-line no-await-in-loop -- both sides now hold the merge
-      await record({ service: merged, local: merged });
+      await Promise.all([record({ service: merged, local: merged }), release()]);
       return "synced";
     }
     return "busy";
   }
 
   /** Waits for a running login, but not longer than the limit since the first wait. */
-  function holdForLogin(): boolean {
-    if (!options.deferred?.()) return false;
-    deferredSince ??= now();
-    return now() - deferredSince < MAX_SETTINGS_DEFER_MS;
+  async function holdForLogin(): Promise<boolean> {
+    if (!(await options.deferred?.())) return false;
+    const at = now();
+    let since: number | undefined;
+    try {
+      const parsed = v.safeParse(holdSchema, await hold.read());
+      // A start in the future, for example after a clock change, starts the wait again.
+      if (parsed.success && parsed.output <= at) since = parsed.output;
+    } catch {
+      // Unreadable: the write goes ahead rather than waiting without a bound.
+      return false;
+    }
+    if (since === undefined) {
+      since = at;
+      try {
+        await hold.write(since);
+      } catch {
+        return false;
+      }
+    }
+    return at - since < MAX_SETTINGS_DEFER_MS;
+  }
+
+  async function release() {
+    await hold.clear().catch(() => undefined);
   }
 
   async function clear() {
-    await storage.clear().catch(() => undefined);
+    await Promise.all([storage.clear().catch(() => undefined), release()]);
   }
 
   return { run, clear };

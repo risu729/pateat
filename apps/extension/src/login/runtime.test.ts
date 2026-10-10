@@ -224,16 +224,16 @@ describe("login runtime with a live vault field source", () => {
     const run = await start(fields);
     expect(run.ready).toEqual({ ok: true });
     await vi.waitFor(() => expect(fields).toHaveBeenCalled());
-    expect(run.login.active()).toBe(true);
+    expect(await run.login.active()).toBe(true);
     // A restarted worker has no live document yet; the saved attempt still counts.
     const restarted = createLoginRuntime(settingsFor({}), { fields: async () => undefined });
-    await restarted.handle({ version: 1, type: "login.probe.status" }, trusted as never);
-    expect(restarted.active()).toBe(true);
+    // Read before anything else, the saved attempts are loaded first.
+    expect(await restarted.active()).toBe(true);
     release("synthetic-secret");
     await vi.waitFor(async () =>
       expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
     );
-    expect(run.login.active()).toBe(false);
+    expect(await run.login.active()).toBe(false);
   });
   it("still uses an unrelated item while another item in the connection awaits review", async () => {
     const run = await start(async () => "synthetic-secret", {
