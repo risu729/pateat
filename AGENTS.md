@@ -19,6 +19,8 @@
   independent base branches where possible and state any real PR dependencies.
 - Use mise tasks and the shared hk checks once bootstrapped; do not add package
   scripts or download-on-demand tool commands.
+- Follow the [merge procedure](docs/delivery.md#merging) and the
+  [Windows notes](docs/development.md#windows-notes).
 - Keep vault secrets local, recipes declarative, and login execution scoped to
   the configured account, origin, tab, frame, and document.
 - Preserve the plan's initial/later boundaries and independently granted provider

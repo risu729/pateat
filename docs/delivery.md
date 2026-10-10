@@ -9,9 +9,10 @@ are excluded. The server remains optional for the eventual local login core.
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on
 every PR and main push. `CI Check` requires successful verification, including
 when an upstream job failed, skipped or was cancelled. `codeql.yml` analyzes
-TypeScript/JavaScript and Actions separately. Native Code Quality still needs
-language detection/setup; preserve its required rule rather than treating an
-early setup error from a documentation-only repository as product ineligibility.
+TypeScript/JavaScript and Actions separately. GitHub now detects the repository
+languages, but native Code Quality setup still reports the feature as unavailable;
+preserve its required rule rather than treating that as permanent ineligibility.
+See [merging](#merging).
 
 Successful main-push CI packages the exact tested production Worker output with
 repository, revision, run/attempt, tool versions and per-file hashes. This health-
@@ -57,6 +58,17 @@ Kogane currently requires approval only for first-time contributors. Enable secr
 scanning/push protection and security updates consistently
 with existing repositories where GitHub supports them. No deployment credentials
 are created for this PR.
+
+### Merging
+
+Try an ordinary squash merge first. As of 2026-10-10, the required Code Quality
+rule blocks ordinary merges while the repository's Code Quality setup endpoint
+reports that the feature is unavailable. Earlier authorized implementation PRs,
+through PR #20, were merged with the administrator squash bypass only after CI,
+CodeQL and independent review passed. Recheck the live setup state before each
+bypass; do not delete or weaken the rule. The standing merge authorization in
+[AGENTS.md](../AGENTS.md) does not cover deployment or new library/provider
+choices.
 
 ## Complete-service CI requirements
 
