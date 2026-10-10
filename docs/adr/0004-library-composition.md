@@ -1,7 +1,9 @@
 # ADR 0004: Compose maintained libraries around explicit domain boundaries
 
-Status: UI/form, Query, XState and messaging approved; other choices pending. PR
-unmerged. Date: 2026-10-10
+Status: UI, lifecycle, transport/storage and service/database choices approved;
+other choices pending. PR unmerged.
+
+Date: 2026-10-10
 
 ## Context
 
@@ -22,17 +24,19 @@ update the plan is not approval to adopt a candidate. Implementation PRs may
 introduce only approved choices; approval of one does not approve the remainder.
 
 The owner approved React, Tailwind + Base UI + selected shadcn/ui components, TanStack
-Form + Valibot, TanStack Query, XState and `@webext-core/messaging` on 2026-10-10. Keep
+Form + Valibot, TanStack Query, XState, `@webext-core/messaging`, WXT storage,
+Hono and Drizzle on 2026-10-10. Keep
 React in human-operated extension pages and preserve the settings operation contracts
 and draft/conflict behavior.
 
 The owner selected XState after comparing it with a custom TypeScript state
 machine. Login policy, interruption recovery and duplicate-submit prevention
-remain application responsibilities. Approval of messaging does not approve
-storage helpers.
+remain application responsibilities. WXT storage and Hono/Drizzle were separately
+approved; their convenience APIs do not replace trusted-context restrictions,
+revision checks or owner authorization.
 
-Still recommend, pending decision: WXT storage, tldts,
-OTPAuth, Hono/Drizzle and compatible AI SDK adapters for their specified
+Still recommend, pending decision: tldts,
+OTPAuth and compatible AI SDK adapters for their specified
 responsibilities. Keep Valibot application contracts and the existing Vitest/Playwright
 test layers, supplemented with browser component, accessibility and property-based test
 candidates. These additional choices remain pending. Native APIs remain appropriate

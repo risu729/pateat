@@ -86,8 +86,14 @@ separate from refreshed data, configure retry/refetch behavior explicitly and
 retain runtime payload/sender authorization. Use the approved XState for the M2
 executor; verify navigation cancellation, timeout handling and interrupted-submit
 reconciliation before expanding execution. Persist allowlisted resumable metadata
-only; restoring state must not blindly replay submission. WXT storage helpers
-remain unapproved.
+only; restoring state must not blindly replay submission. Integrate approved WXT
+storage helpers with trusted-access initialization before migrations, existing
+single-writer revision checks and fail-closed handling of corrupt settings.
+
+Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
+Valibot boundary validation, verify generated SQL and migrations, and test owner
+isolation, conditional revision writes and D1 batch behavior. Neither dependency
+automatically supplies those application guarantees.
 
 Potential integration points, subject to those decisions, are M2 settings UI,
 forms, async state, attempt lifecycle and verification; M3/M5 protocol libraries;

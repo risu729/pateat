@@ -97,7 +97,8 @@ quality guarantee. Prereleases are allowed when their required APIs and upgrade
 costs are understood and the compatibility checks pass.
 
 The owner approved React, Tailwind + Base UI + selected shadcn/ui components, TanStack
-Form + Valibot, TanStack Query, XState and `@webext-core/messaging` on 2026-10-10. These
+Form + Valibot, TanStack Query, XState, `@webext-core/messaging`, WXT storage,
+Hono and Drizzle on 2026-10-10. These
 are planned integrations, not installed packages. Other new recommendations below remain
 pending; obtain the owner's decision before adopting each major addition/replacement.
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
@@ -111,10 +112,10 @@ use.
 | Async UI state | **Approved:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Approved:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
-| Storage | WXT storage helpers (pending separately) | M2 persistence integration |
+| Storage | **Approved:** WXT storage helpers | M2 persistence integration |
 | Destination matching | WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
 | Crypto and OTP | WebCrypto and OTPAuth; evaluated Argon2 implementation | M3 Bitwarden adapter |
-| Service and database | Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
+| Service and database | **Approved:** Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
 | Inference transport | AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; fast-check for policy/state invariants | M2 onward |
 | Component tests | Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
@@ -160,7 +161,7 @@ supports it. Evaluate `@scure/base`, `@noble/hashes` and `cbor-x` for actual pro
 gaps. Do not write crypto/CBOR primitives ourselves, assume all primitives in a
 package are audited, or substitute a different KDF for Bitwarden Argon2id.
 
-If approved, Hono and Drizzle fit the first substantive service routes and
+Use the approved Hono and Drizzle for the first substantive service routes and
 schema. Verify generated SQL/migrations, explicit owner predicates, conditional
 revision writes and D1 batch behavior; an ORM does not supply authorization or
 cross-request atomicity. Use Valibot at application boundaries, including the
