@@ -85,9 +85,11 @@ export function installLoginContent(): () => void {
     }
     void (async () => {
       const operation = command.operation;
+      let mutated = false;
       const fail = (reason: "structural-mismatch" | "timeout" | "cancelled") => ({
         ok: false,
         reason,
+        mutation: mutated ? "possible" : "none",
       });
       const authorized: unknown = await browser.runtime.sendMessage({
         version: 1,
@@ -136,12 +138,18 @@ export function installLoginContent(): () => void {
           )
             return fail("cancelled");
           const value = command.values.find((entry) => entry.slot === field.slot)!;
+          // Mark uncertainty before calling into DOM/page code, including a throwing setter.
+          mutated = true;
           setter.call(input, value.value);
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          input.dispatchEvent(new Event("change", { bubbles: true }));
+          if (step.effect === "prepare") {
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+          } else {
+            input.dispatchEvent(new Event(step.event!, { bubbles: true }));
+          }
           value.value = "";
         }
-        return { ok: true };
+        return { ok: true, mutation: "possible" };
       }
       if (command.values.length) return fail("structural-mismatch");
       if (step.kind === "click") {
@@ -156,26 +164,44 @@ export function installLoginContent(): () => void {
           element.disabled
         )
           return fail("structural-mismatch");
+        mutated = true;
         element.click();
-        return { ok: true };
+        return { ok: true, mutation: "possible" };
       }
       const satisfied = () => {
         const count = matches(step.target).length;
         return step.present ? count === 1 : count === 0;
       };
-      if (step.kind === "assert") return satisfied() ? { ok: true } : fail("structural-mismatch");
+      if (step.kind === "assert")
+        return satisfied() ? { ok: true, mutation: "none" } : fail("structural-mismatch");
       const until = Math.min(operation.expiresAt, Date.now() + step.timeoutMs);
       // Cancellation is set by the independent background message listener.
       // eslint-disable-next-line no-unmodified-loop-condition
       while (!cancelled && Date.now() < until && location.pathname === step.path) {
-        if (satisfied()) return { ok: true };
+        if (satisfied()) return { ok: true, mutation: "none" };
         // Poll the current DOM serially; parallel polls cannot observe later render states.
         // eslint-disable-next-line no-await-in-loop
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
       }
       return fail(cancelled ? "cancelled" : "timeout");
     })()
-      .then(respond, () => respond({ ok: false, reason: "cancelled" }))
+      // A thrown execution may already have mutated the page. Never advertise a safe retry.
+      .then(
+        (result) =>
+          respond({
+            ...result,
+            operationId: command.operation.operationId,
+            documentId: command.operation.document.documentId,
+          }),
+        () =>
+          respond({
+            ok: false,
+            reason: "cancelled",
+            mutation: "possible",
+            operationId: command.operation.operationId,
+            documentId: command.operation.document.documentId,
+          }),
+      )
       .finally(() => {
         for (const entry of command.values) entry.value = "";
       });

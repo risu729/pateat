@@ -2,6 +2,7 @@ import * as v from "valibot";
 import {
   createAttemptMetadata,
   nextLoginOperation,
+  loginStepEffect,
   parseAttemptMetadata,
   recoverLoginAttempt,
   resolveLoginPlan,
@@ -26,6 +27,7 @@ import {
   helloSchema,
   observationSchema,
   statusSchema,
+  probeControlSchema,
 } from "./wire";
 import { DEFAULT_PROBE_ORIGIN, probeBinding, probeRecipe, resolveDummyField } from "./dummy";
 
@@ -58,6 +60,29 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
   const persisted = new Map<number, LoginAttemptMetadata>();
   let storageQueue: Promise<void> = Promise.resolve();
   let storageHealthy = true;
+  let checkpoint: "before-delivery" | "before-ack" | undefined;
+  let armed: "before-delivery" | "before-ack" | "intent-write-failure" | undefined;
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
+  let releaseCheckpoint: (() => void) | undefined;
+  async function pause(at: "before-delivery" | "before-ack"): Promise<void> {
+    if (import.meta.env.MODE !== "probe" || armed !== at) return;
+    clearTimeout(armTimer);
+    armed = undefined;
+    checkpoint = at;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        releaseCheckpoint = undefined;
+        checkpoint = undefined;
+        reject(new Error("Synthetic checkpoint expired"));
+      }, 5000);
+      releaseCheckpoint = () => {
+        clearTimeout(timer);
+        checkpoint = undefined;
+        releaseCheckpoint = undefined;
+        resolve();
+      };
+    });
+  }
   const loaded = (async () => {
     try {
       await browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
@@ -141,6 +166,16 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
   async function change(run: Execution, event: LoginAttemptEvent): Promise<void> {
     if (!current(run)) return;
     run.metadata = transitionLoginAttempt(run.metadata, event);
+    if (
+      import.meta.env.MODE === "probe" &&
+      armed === "intent-write-failure" &&
+      (event.type === "MUTATION_INTENT" || event.type === "SUBMIT_INTENT")
+    ) {
+      armed = undefined;
+      clearTimeout(armTimer);
+      storageHealthy = false;
+      throw new Error("Synthetic intent write failed");
+    }
     await save(run);
     await publish(run.live, run.metadata);
   }
@@ -195,7 +230,9 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
   }
   async function reconcile(run: Execution, settleUnknown = false): Promise<void> {
     const nextIndex =
-      run.metadata.operationKind === "click" ? run.metadata.stepIndex + 1 : run.metadata.stepIndex;
+      run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance"
+        ? run.metadata.stepIndex + 1
+        : run.metadata.stepIndex;
     const next = run.recipe.steps[nextIndex];
     const nextTargets =
       next?.kind === "fill" ? next.fields.map((field) => field.target) : next ? [next.target] : [];
@@ -225,11 +262,20 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
       nextTargets.length &&
       observed.targets.slice(offset).every((state) => state === "unique") &&
       // A pending click advances only after evidence of its configured next page.
-      (run.metadata.operationKind !== "click" ||
+      (!(run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance") ||
         run.recipe.steps[run.metadata.stepIndex]?.path !== next.path)
     ) {
-      await change(run, { type: "OBSERVED", result: "continue", document: run.live.document });
-      return;
+      const continuation: LoginAttemptEvent = {
+        type: "OBSERVED",
+        result: "continue",
+        document: run.live.document,
+      };
+      // Remaining fields alone do not prove that an uncertain input effect finished.
+      const candidate = transitionLoginAttempt(run.metadata, continuation);
+      if (candidate.state === "ready" || candidate.state === "retryable") {
+        await change(run, continuation);
+        return;
+      }
     }
     if (settleUnknown)
       await change(run, { type: "OBSERVED", result: "unknown", document: run.live.document });
@@ -269,9 +315,12 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
           type: "PREPARE",
           operationId: operation.operationId,
           kind: operation.step.kind,
+          effect: loginStepEffect(operation.step),
         });
         if (operation.step.kind === "click")
           await change(run, { type: "SUBMIT_INTENT", operationId: operation.operationId });
+        else if (operation.step.kind === "fill")
+          await change(run, { type: "MUTATION_INTENT", operationId: operation.operationId });
         run.operation = operation;
         if (!(await allowed(run))) return;
         if (
@@ -300,29 +349,45 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
         }
         let response: unknown;
         try {
+          if (operation.step.kind === "fill" || operation.step.kind === "click")
+            await pause("before-delivery");
+          if (!current(run) || !(await allowed(run))) return;
           response = await send(run.live, { type: "login.execute", operation, values });
         } finally {
           for (const entry of values) entry.value = "";
         }
         if (!current(run)) return;
+        if (operation.step.kind === "fill" || operation.step.kind === "click")
+          await pause("before-ack");
+        if (!current(run)) return;
         delete run.operation;
         const result = v.safeParse(executionResultSchema, response);
-        if (!result.success || !result.output.ok) {
+        const matchedResult =
+          result.success &&
+          result.output.operationId === operation.operationId &&
+          result.output.documentId === run.live.document.documentId;
+        if (!matchedResult || !result.output.ok) {
           await change(
             run,
-            result.success && result.output.reason === "cancelled"
+            matchedResult && result.output.reason === "cancelled"
               ? { type: "CANCEL" }
               : {
                   type: "FAILED",
                   reason:
-                    result.success && result.output.reason === "timeout"
+                    matchedResult && result.output.reason === "timeout"
                       ? "timeout"
                       : "structural-mismatch",
+                  mutation: matchedResult ? result.output.mutation : "possible",
+                  operationId: operation.operationId,
+                  document: run.live.document,
                 },
           );
           return;
         }
-        if (operation.step.kind !== "click") {
+        if (
+          operation.step.kind !== "click" &&
+          !(operation.step.kind === "fill" && operation.step.effect !== "prepare")
+        ) {
           await change(run, { type: "OPERATION_OK", operationId: operation.operationId });
           continue;
         }
@@ -425,6 +490,20 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
   }
   async function handle(message: unknown, sender: Sender): Promise<unknown> {
     if (trusted(sender)) {
+      const control = v.safeParse(probeControlSchema, message);
+      if (control.success && import.meta.env.MODE === "probe") {
+        if (control.output.action === "release") {
+          if (!releaseCheckpoint) return { ok: false, reason: "checkpoint-not-paused" };
+          releaseCheckpoint();
+          return { ok: true };
+        }
+        if (armed || checkpoint) return { ok: false, reason: "checkpoint-busy" };
+        armed = control.output.checkpoint;
+        armTimer = setTimeout(() => {
+          armed = undefined;
+        }, 30000);
+        return { ok: true };
+      }
       const config = v.safeParse(configureSchema, message);
       if (config.success) {
         await loaded;
@@ -440,6 +519,7 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
         return {
           version: 1,
           ok: true,
+          ...(checkpoint ? { checkpoint } : {}),
           attempts: [...persisted.values()],
           documents: [...documents.values()].map((live) => ({
             ...live.document,

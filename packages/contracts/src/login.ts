@@ -51,7 +51,22 @@ const fields = v.pipe(
   ),
 );
 export const loginStepSchema = v.variant("kind", [
-  v.strictObject({ kind: v.literal("fill"), path, fields }),
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("fill"),
+      path,
+      fields,
+      effect: v.optional(v.picklist(["prepare", "advance", "submit"]), "prepare"),
+      event: v.optional(v.picklist(["input", "change"])),
+    }),
+    v.check(
+      (step) =>
+        step.effect === "prepare"
+          ? step.event === undefined
+          : step.fields.length === 1 && step.event !== undefined,
+      "Effectful fill requires one field and one trigger event",
+    ),
+  ),
   v.strictObject({
     kind: v.literal("click"),
     path,
@@ -99,8 +114,22 @@ export const loginRecipeSchema = v.pipe(
   ),
   v.check(
     (recipe) =>
-      recipe.steps.filter((step) => step.kind === "click").length <= recipe.maxSubmissions,
-    "Click budget is too small",
+      recipe.steps.filter(
+        (step) => step.kind === "click" || (step.kind === "fill" && step.effect !== "prepare"),
+      ).length <= recipe.maxSubmissions,
+    "Effect attempt budget is too small",
+  ),
+  v.check(
+    (recipe) =>
+      recipe.steps.every(
+        (step, index) =>
+          step.kind !== "fill" ||
+          step.effect === "prepare" ||
+          !recipe.steps
+            .slice(index + 1)
+            .find((next) => next.path === step.path && next.kind === "click"),
+      ),
+    "Input-triggered effects cannot have a fallback click on the same path",
   ),
 );
 export const loginAccountSchema = v.strictObject({
@@ -149,6 +178,10 @@ export const loginOutcomeSchema = v.picklist([
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;
 export type LoginStep = v.InferOutput<typeof loginStepSchema>;
+export type LoginEffect = "prepare" | "advance" | "submit";
+export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
+  return step.kind === "fill" ? step.effect : step.kind === "click" ? step.purpose : undefined;
+}
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
 export type LoginAccount = v.InferOutput<typeof loginAccountSchema>;
 export type LoginAccountBinding = v.InferOutput<typeof loginAccountBindingSchema>;

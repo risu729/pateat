@@ -19,6 +19,7 @@ function recipe(): LoginRecipe {
     steps: [
       {
         kind: "fill",
+        effect: "prepare",
         path: "/identity",
         fields: [
           { slot: "branch", target: { by: "id", value: "branch" } },
@@ -28,6 +29,7 @@ function recipe(): LoginRecipe {
       { kind: "click", path: "/identity", target: { by: "id", value: "next" }, purpose: "advance" },
       {
         kind: "fill",
+        effect: "prepare",
         path: "/password",
         fields: [{ slot: "password", target: { by: "id", value: "password" } }],
       },
@@ -64,6 +66,73 @@ describe("declarative login boundaries", () => {
   it("accepts separate multi-page field mappings without containing values", () => {
     expect(parseLoginRecipe(recipe())).toEqual(recipe());
     expect(parseLoginAccountBinding(binding())).toEqual(binding());
+  });
+
+  it("requires one explicit event and one field for an input-triggered submission", () => {
+    const valid = {
+      ...recipe(),
+      slots: ["password"],
+      maxSubmissions: 1,
+      steps: [
+        {
+          kind: "fill",
+          effect: "submit",
+          event: "input",
+          path: "/login",
+          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+        },
+      ],
+    };
+    expect(parseLoginRecipe(valid)).toEqual(valid);
+    const step = valid.steps[0]!;
+    for (const malformed of [
+      { ...valid, steps: [{ ...step, event: undefined }] },
+      { ...valid, steps: [{ ...step, event: "blur" }] },
+      { ...valid, steps: [{ ...step, effect: "prepare" }] },
+      {
+        ...valid,
+        slots: ["password", "account"],
+        steps: [
+          {
+            ...step,
+            fields: [...step.fields, { slot: "account", target: { by: "id", value: "account" } }],
+          },
+        ],
+      },
+      {
+        ...valid,
+        maxSubmissions: 2,
+        steps: [
+          step,
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "id", value: "login" },
+            purpose: "submit",
+          },
+        ],
+      },
+    ])
+      expect(() => parseLoginRecipe(malformed)).toThrow();
+  });
+
+  it("counts both input advancement and a later click against the effect budget", () => {
+    const valid = {
+      ...recipe(),
+      steps: [
+        {
+          kind: "fill",
+          effect: "advance",
+          event: "change",
+          path: "/identity",
+          fields: [{ slot: "account", target: { by: "id", value: "account" } }],
+        },
+        recipe().steps[2]!,
+        recipe().steps[3]!,
+      ],
+    };
+    expect(parseLoginRecipe(valid)).toEqual(valid);
+    expect(() => parseLoginRecipe({ ...valid, maxSubmissions: 1 })).toThrow();
   });
 
   it("rejects executable, secret-bearing and ambiguous recipe input", () => {

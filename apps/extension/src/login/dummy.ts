@@ -25,28 +25,34 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
       "/unknown",
       "/ambiguous",
       "/delayed",
+      "/input-submit",
+      "/change-submit",
+      "/input-advance",
     ].includes(path)
   )
     return undefined;
   const multi = path === "/identity";
+  const inputAdvance = path === "/input-advance";
+  const inputSubmit = path === "/input-submit" || path === "/change-submit";
   return parseLoginRecipe({
     version: 1,
     id: `demo-${path.slice(1)}`,
     revision: 1,
     origin,
-    slots: multi ? ["branch", "account", "password"] : ["password"],
-    steps: multi
+    slots: multi
+      ? ["branch", "account", "password"]
+      : inputAdvance
+        ? ["account", "password"]
+        : ["password"],
+    steps: inputAdvance
       ? [
           {
             kind: "fill",
             path,
-            fields: [
-              { slot: "branch", target: target("branch") },
-              { slot: "account", target: target("account") },
-            ],
+            fields: [{ slot: "account", target: target("account") }],
+            effect: "advance",
+            event: "input",
           },
-          { kind: "assert", path, target: target("next"), present: true },
-          { kind: "click", path, target: target("next"), purpose: "advance" },
           {
             kind: "wait",
             path: "/password",
@@ -61,26 +67,75 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
           },
           { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
         ]
-      : [
-          ...(path === "/delayed"
-            ? [{ kind: "wait", path, target: target("password"), present: true, timeoutMs: 5000 }]
-            : []),
-          {
-            kind: "fill",
-            path,
-            fields: [
+      : inputSubmit
+        ? [
+            {
+              kind: "fill",
+              path,
+              fields: [{ slot: "password", target: target("password") }],
+              effect: "submit",
+              event: path === "/change-submit" ? "change" : "input",
+            },
+          ]
+        : multi
+          ? [
               {
-                slot: "password",
-                target:
-                  path === "/ambiguous" ? { by: "name", value: "password" } : target("password"),
+                kind: "fill",
+                path,
+                fields: [
+                  { slot: "branch", target: target("branch") },
+                  { slot: "account", target: target("account") },
+                ],
               },
+              { kind: "assert", path, target: target("next"), present: true },
+              { kind: "click", path, target: target("next"), purpose: "advance" },
+              {
+                kind: "wait",
+                path: "/password",
+                target: target("password"),
+                present: true,
+                timeoutMs: 3000,
+              },
+              {
+                kind: "fill",
+                path: "/password",
+                fields: [{ slot: "password", target: target("password") }],
+              },
+              { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
+            ]
+          : [
+              ...(path === "/delayed"
+                ? [
+                    {
+                      kind: "wait",
+                      path,
+                      target: target("password"),
+                      present: true,
+                      timeoutMs: 5000,
+                    },
+                  ]
+                : []),
+              {
+                kind: "fill",
+                path,
+                fields: [
+                  {
+                    slot: "password",
+                    target:
+                      path === "/ambiguous"
+                        ? { by: "name", value: "password" }
+                        : target("password"),
+                  },
+                ],
+              },
+              { kind: "click", path, target: target("login"), purpose: "submit" },
             ],
-          },
-          { kind: "click", path, target: target("login"), purpose: "submit" },
-        ],
-    completion: { path: multi ? "/authenticated" : path, target: target("authenticated") },
+    completion: {
+      path: multi || inputAdvance ? "/authenticated" : path,
+      target: target("authenticated"),
+    },
     rejection: target("rejected"),
-    maxSubmissions: multi ? 2 : 1,
+    maxSubmissions: multi || inputAdvance ? 2 : 1,
   });
 }
 export function probeBinding(recipe: LoginRecipe): LoginAccountBinding {
