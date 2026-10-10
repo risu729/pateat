@@ -3,6 +3,7 @@ import type { ConnectionRuntime } from "../connections/runtime";
 import type { LiveUriMatcher } from "../vault/site-candidates";
 import { vaultFailure } from "../vault/record";
 import { resolveDummyField } from "./dummy";
+import type { LoginSecretKind } from "./wire";
 
 export type LoginFieldRequest = {
   account: LoginAccount;
@@ -62,20 +63,25 @@ export function createVaultUriMatcher(
   };
 }
 
-export type LoginSecretKind = "password" | "otp";
 /**
- * Which values may only fill password or one-time-code inputs. Hidden and Linked custom
- * fields are not classified yet.
+ * Which inputs a value may fill (`acceptsSecret`). A Bitwarden Linked custom field follows
+ * the field it reads, and a Hidden custom field fills only password or short numeric
+ * inputs; other values fill any writable input.
  */
 export function loginSecretKind(
-  connection: Pick<VaultConnectionMetadata, "provider">,
+  connection: Pick<VaultConnectionMetadata, "provider" | "items">,
+  itemId: string,
   fieldId: string,
 ): LoginSecretKind | undefined {
-  if (connection.provider === "bitwarden") {
-    if (fieldId === "login.password") return "password";
-    if (fieldId === "login.totp-code") return "otp";
-  }
-  if (connection.provider === "dummy" && fieldId === "password") return "password";
+  if (connection.provider === "dummy") return fieldId === "password" ? "password" : undefined;
+  if (connection.provider !== "bitwarden") return undefined;
+  const field = connection.items
+    .find((item) => item.id === itemId)
+    ?.fields.find((entry) => entry.id === fieldId);
+  const source = field?.kind === "linked" ? field.linkedFieldId : fieldId;
+  if (source === "login.password") return "password";
+  if (source === "login.totp-code") return "otp";
+  if (field?.kind === "hidden") return "hidden";
   return undefined;
 }
 

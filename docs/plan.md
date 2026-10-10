@@ -370,10 +370,13 @@ Chrome yet.
   `password`) fills only `type="password"` inputs or inputs whose `autocomplete`
   includes `current-password`. A `login.totp-code` fills `autocomplete="one-time-code"`
   inputs, or `inputmode="numeric"`, `type="tel"` or `type="number"` inputs with a
-  `maxlength` from 1 to 10. Each write rechecks the same conditions. Usernames and
-  custom fields fill any writable input; Hidden and Linked custom fields are not
-  classified yet, so a Linked field pointing at the password fills any writable input.
-  There is no per-binding exception, so a bank PIN rendered as `<input type="tel">` and
+  `maxlength` from 1 to 10. A Hidden custom field fills the password inputs above or
+  those short numeric inputs (a PIN), never a plain `type="text"` input such as a
+  passphrase field. A Linked custom field follows the rule of the built-in field it
+  reads, so one linked to `login.password` fills only password inputs. The owner chose
+  this rule on 2026-10-10. Each write rechecks the same conditions. Usernames, Text
+  custom fields and other values fill any writable input. There is no per-binding
+  exception, so a bank PIN rendered as `<input type="tel">` and
   bound to `login.password` is refused; revisit if such sites are common.
 - Real Bitwarden connections, individual MFA methods, the install-time site-access
   warning and the setup prompt after withheld site access in installed Chrome remain
@@ -751,8 +754,7 @@ support for every site or vault format. Keep observed limitations explicit.
   setting over the existing policy shape is later work. Nonzero-counter
   synchronization is deferred.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
-  among several URI-matched items, whether Hidden custom fields and Linked fields
-  resolving to the password get the password input rule, how synced field exclusions
+  among several URI-matched items, how synced field exclusions
   move to device-independent references, and where custom-field review happens.
 - Settle device enrollment/recovery, credential lifetime, AI pricing sources and
   the monthly monetary budget default before service deployment. Initial spending

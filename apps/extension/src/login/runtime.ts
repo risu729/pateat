@@ -37,6 +37,7 @@ import {
   observationSchema,
   statusSchema,
   probeControlSchema,
+  type LoginSecretKind,
 } from "./wire";
 import {
   DEFAULT_PROBE_ORIGIN,
@@ -48,7 +49,7 @@ import {
 } from "./dummy";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import type { LoginSites } from "./sites";
-import { loginSecretKind, type LoginFieldSource, type LoginSecretKind } from "./vault";
+import { loginSecretKind, type LoginFieldSource } from "./vault";
 
 const STORAGE_KEY = "pateat.login-attempts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
@@ -668,7 +669,11 @@ export function createLoginRuntime(
                 await change(run, { type: "POLICY_CHANGED" });
                 return;
               }
-              const secret = loginSecretKind(authorized.connection, reference.fieldId);
+              const secret = loginSecretKind(
+                authorized.connection,
+                run.metadata.account.itemId,
+                reference.fieldId,
+              );
               values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
             }
           }

@@ -101,8 +101,12 @@ step detection can replace the selector later without changing the stored format
 The executor enforces these regardless of where a recipe came from:
 
 - The login password fills only `type=password` or `autocomplete=current-password`
-  inputs. Whether Hidden custom fields, and Linked fields that resolve to the
-  password, follow the same rule is still open; the recommendation is yes for both.
+  inputs.
+- A Hidden custom field fills those password inputs or short numeric inputs
+  (`inputmode=numeric`, `type=tel` or `type=number` with `maxlength` 1 to 10), so a
+  `type=tel` PIN works but a `type=text` passphrase input is refused. A Linked custom
+  field follows the rule of the field it reads; one linked to the login password gets
+  the password rule. The owner chose this on 2026-10-10.
 - TOTP fills only `autocomplete=one-time-code` or short numeric inputs; the length
   limit is set at implementation.
 - All fills of one step share one form owner, or all have none.

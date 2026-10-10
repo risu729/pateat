@@ -172,16 +172,66 @@ describe("live vault URI matcher", () => {
 });
 
 describe("login secret kinds", () => {
+  const custom = (index: number) => `custom.${snapshotId}.${index}`;
+  const bitwarden = connection({
+    items: [
+      {
+        id: itemId,
+        label: "Synthetic item",
+        allowedOrigins: [],
+        groupIds: [],
+        fields: [
+          { id: "login.username", label: "Username", name: null, kind: "text" },
+          { id: "login.password", label: "Password", name: null, kind: "hidden" },
+          { id: "login.totp-code", label: "Verification code", name: null, kind: "otp" },
+          { id: custom(0), label: "Branch", name: "Branch", kind: "text" },
+          { id: custom(1), label: "PIN", name: "PIN", kind: "hidden" },
+          {
+            id: custom(2),
+            label: "Linked password",
+            name: "Linked password",
+            kind: "linked",
+            linkedFieldId: "login.password",
+          },
+          {
+            id: custom(3),
+            label: "Linked username",
+            name: "Linked username",
+            kind: "linked",
+            linkedFieldId: "login.username",
+          },
+          { id: custom(4), label: "Unlinked", name: "Unlinked", kind: "linked" },
+        ],
+      },
+    ],
+  });
   it.each([
-    ["bitwarden", "login.password", "password"],
-    ["bitwarden", "login.totp-code", "otp"],
-    ["bitwarden", "login.username", undefined],
-    // Hidden and Linked custom fields stay unclassified for now.
-    ["bitwarden", "custom.60000000-0000-4000-8000-000000000001.0", undefined],
-    ["dummy", "password", "password"],
-    ["dummy", "username", undefined],
-    ["dummy", "login.password", undefined],
-  ] as const)("classifies %s %s as %s", (provider, fieldId, kind) => {
-    expect(loginSecretKind({ provider }, fieldId)).toBe(kind);
+    ["login.password", "password"],
+    ["login.totp-code", "otp"],
+    ["login.username", undefined],
+    [custom(0), undefined],
+    // A Hidden custom field fills password or short numeric inputs only.
+    [custom(1), "hidden"],
+    // A Linked custom field follows the field it reads.
+    [custom(2), "password"],
+    [custom(3), undefined],
+    [custom(4), undefined],
+  ] as const)("classifies the Bitwarden field %s as %s", (fieldId, kind) => {
+    expect(loginSecretKind(bitwarden, itemId, fieldId)).toBe(kind);
+  });
+  it("classifies only the item the attempt uses", () => {
+    expect(loginSecretKind(bitwarden, "80000000-0000-4000-8000-000000000002", custom(1))).toBe(
+      undefined,
+    );
+    expect(
+      loginSecretKind(bitwarden, "80000000-0000-4000-8000-000000000002", "login.password"),
+    ).toBe("password");
+  });
+  it.each([
+    ["password", "password"],
+    ["username", undefined],
+    ["login.password", undefined],
+  ] as const)("classifies the dummy field %s as %s", (fieldId, kind) => {
+    expect(loginSecretKind({ provider: "dummy", items: [] }, "primary", fieldId)).toBe(kind);
   });
 });

@@ -393,8 +393,8 @@ handler can itself issue more than one request.
 Each fill step writes only inputs inside one form (or only inputs outside any
 form). A provider password goes only into a password input, and a TOTP code only
 into a one-time-code or short numeric input, so a recipe cannot place them in a
-search box. Hidden and Linked custom fields are not classified yet; a Linked field
-can carry the password value to any input.
+search box. A Hidden custom field goes only into a password or short numeric input,
+and a Linked custom field follows the field it reads.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.
