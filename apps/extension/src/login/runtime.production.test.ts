@@ -131,7 +131,13 @@ const uriMatch = (overrides: Partial<UriCandidates> = {}): UriCandidates => ({
 
 function harness(
   overrides: Partial<LocalSettings> = {},
-  live: { allowedOrigins?: string[]; uris?: LiveUriMatcher; quarantined?: boolean } = {},
+  live: {
+    allowedOrigins?: string[];
+    uris?: LiveUriMatcher;
+    quarantined?: boolean;
+    /** Replaces the item's custom fields. */
+    custom?: { name: string | null; kind: "text" | "hidden" }[];
+  } = {},
 ) {
   const current = { current: snapshotId, userId: userId as string | undefined };
   const settings: LocalSettings = {
@@ -187,12 +193,13 @@ function harness(
                 groupIds: [],
                 fields: [
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
-                  {
-                    id: `custom.${current.current}.0`,
-                    label: "Branch",
-                    name: "Branch",
-                    kind: "text" as const,
-                  },
+                  ...(live.custom ?? [{ name: "Branch", kind: "text" as const }]).map(
+                    (field, index) => ({
+                      id: `custom.${current.current}.${index}`,
+                      label: field.name ?? "",
+                      ...field,
+                    }),
+                  ),
                 ],
               },
               {
@@ -588,33 +595,30 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
       expect(h.fields).not.toHaveBeenCalled();
     });
+    const branchRecipe = parseLoginRecipe({
+      ...recipe,
+      slots: ["branch", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "branch", target: target("branch") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        recipe.steps[1],
+      ],
+    });
+    const branchBinding: SavedLoginBinding = {
+      ...savedBinding,
+      slots: [
+        { slot: "branch", field: { custom: "Branch" } },
+        { slot: "password", field: "password" },
+      ],
+    };
     it("fills a custom field through the synced binding's field name", async () => {
-      const branchRecipe = parseLoginRecipe({
-        ...recipe,
-        slots: ["branch", "password"],
-        steps: [
-          {
-            kind: "fill",
-            path: "/signin",
-            fields: [
-              { slot: "branch", target: target("branch") },
-              { slot: "password", target: target("password") },
-            ],
-          },
-          recipe.steps[1],
-        ],
-      });
-      const h = harness({
-        bindings: [
-          {
-            ...savedBinding,
-            slots: [
-              { slot: "branch", field: { custom: "Branch" } },
-              { slot: "password", field: "password" },
-            ],
-          },
-        ],
-      });
+      const h = harness({ bindings: [branchBinding] });
       h.recipes.recipe.mockResolvedValue(branchRecipe);
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(h.fields).toHaveBeenCalledTimes(2));
@@ -623,6 +627,58 @@ describe("production login document admission", () => {
         "login.password",
       ]);
       expect(h.store.update).not.toHaveBeenCalled();
+    });
+    it.each<[string, Parameters<typeof harness>[1], Partial<LocalSettings>, string]>([
+      [
+        "two custom fields share the bound name",
+        {
+          custom: [
+            { name: "Branch", kind: "text" },
+            { name: "Branch", kind: "text" },
+          ],
+        },
+        {},
+        "field-ambiguous",
+      ],
+      [
+        "no custom field has the bound name",
+        { custom: [{ name: "Region", kind: "text" }] },
+        {},
+        "field-missing",
+      ],
+      [
+        "the bound custom field is excluded",
+        {},
+        {
+          connections: [
+            {
+              connectionId,
+              enabled: true,
+              selection: { mode: "all", groupIds: [], itemIds: [] },
+              excludedItemIds: [],
+              excludedFields: [{ itemId, fieldId: `custom.${snapshotId}.0` }],
+            },
+          ],
+        },
+        "binding-field-excluded",
+      ],
+    ])(
+      "refuses a synced binding before any field read when %s",
+      async (_name, live, overrides, reason) => {
+        const h = harness({ bindings: [branchBinding], ...overrides }, live);
+        h.recipes.recipe.mockResolvedValue(branchRecipe);
+        expect(await h.hello()).toEqual({ ok: false, reason });
+        expect(h.fields).not.toHaveBeenCalled();
+        expect(executes()).toEqual([]);
+      },
+    );
+    it("ignores a binding saved for another vault account", async () => {
+      const h = harness({
+        bindings: [{ ...branchBinding, userId: "70000000-0000-4000-8000-000000000002" }],
+      });
+      h.recipes.recipe.mockResolvedValue(branchRecipe);
+      expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
+      expect(h.fields).not.toHaveBeenCalled();
     });
     it("does not choose while the vault account is unknown", async () => {
       const h = harness(unsaved, {
