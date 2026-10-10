@@ -4,6 +4,13 @@
 - Read [docs/README.md](docs/README.md) and the relevant design before editing.
 - Keep current behavior, proposed work, and dated evidence distinct. Update the
   owning document in the same PR; record material decisions in an ADR.
+- Record every design decision the owner makes in the repository: larger ones in
+  an ADR, others in the owning `docs/` page. Land the record with the
+  implementation PR or as its own docs PR. A decision that exists only in a chat
+  or thread is not recorded.
+- While a design is still being discussed with the owner, write no ADR, code or
+  PR for it until the owner explicitly approves the decisions. Work on decisions
+  already approved continues.
 - Use WXT, TypeScript, and Valibot. Prefer maintained, established dependencies;
   do not copy feature code from small similar projects.
 - The owner chooses major libraries, frameworks and providers. Present the
