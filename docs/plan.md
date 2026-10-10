@@ -216,6 +216,10 @@ domain data, mark that part unavailable; affected URIs report unavailable rather
 falling back. Caches accepted before this change keep working for fields but report
 URI matching unavailable until the next accepted sync.
 
+The owner asked for official-client URI rules. The remaining differences (Regex, no
+Domain fallback on unavailable context, no access to the local default setting) are
+recorded in the [architecture](architecture.md) for later reconsideration.
+
 The crypto Worker captures login URI rules while verifying every received item,
 skipping deleted and archived items, and answers fixed snapshot-bound match requests
 with item IDs and URI indices only. A settings bridge queries enabled connections
