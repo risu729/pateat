@@ -46,6 +46,13 @@
         "tailwindcss": "4.3.3",
       },
     },
+    "packages/bitwarden": {
+      "name": "@pateat/bitwarden",
+      "version": "0.1.0",
+      "dependencies": {
+        "valibot": "1.5.0",
+      },
+    },
     "packages/contracts": {
       "name": "@pateat/contracts",
       "version": "0.1.0",
@@ -243,6 +250,8 @@
     "@oxc-project/types": ["@oxc-project/types@0.153.0", "", {}, "sha512-jSNrRIyvPVLL5E1z/tS5zLAprosGz/FuI1PWwEOz59j3E4TTTzSpqKb/RDGqJhhW0QHYISGXxq582wGx6T11Tw=="],
 
     "@pateat/api": ["@pateat/api@workspace:services/api"],
+
+    "@pateat/bitwarden": ["@pateat/bitwarden@workspace:packages/bitwarden"],
 
     "@pateat/contracts": ["@pateat/contracts@workspace:packages/contracts"],
 

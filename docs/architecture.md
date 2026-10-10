@@ -74,6 +74,21 @@ verification/MFA through settings; record tested methods instead of claiming all
 methods work. Vaultwarden and special endpoint/certificate configurations are
 later compatibility work.
 
+The initial transport library fixes service paths for each selected environment.
+Reject endpoint credentials, query/fragment components and unsupported custom
+service layouts. Do not follow redirects or send browser cookies. Each provider
+operation owns its method, path and request shape; no generic authenticated
+request function is exposed. Bound response bytes while reading, support explicit
+cancellation and report sanitized errors without request bodies or tokens.
+Prelogin and encrypted sync are currently isolated library operations, not an
+authenticated extension connection. Preserve unknown encrypted format metadata
+for later crypto validation; successful HTTP parsing does not prove decryptability
+or authorize use of a newly fetched snapshot.
+The server can filter sync data according to client version and device capability
+headers. Record the protocol profile and validate completeness in the later
+adapter before replacing a usable cache; an intact outer envelope alone is not
+evidence that every vault item was returned.
+
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and
 decryption are independent states: a connection may be authenticated but locked.
