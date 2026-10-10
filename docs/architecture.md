@@ -450,7 +450,9 @@ official-Bitwarden interception require separate compatibility tests.
 The bridge, admission rules, assertion format and unattended presence and
 verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Only
 the probe build connects the core to pages, through the bridge with a synthetic
-credential source; the vault is not yet connected.
+credential source. The crypto Worker can sign with a stored vault passkey, keeping the
+private key inside the Worker and signing only zero-counter assertion data for that
+credential's RP ID, but the bridge does not use it yet.
 
 ## Minimal service
 

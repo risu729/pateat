@@ -6,6 +6,7 @@ import {
   type PreparedBitwardenAccount,
 } from "@pateat/bitwarden";
 import type { CryptoHost, OpenedHostSession } from "../crypto/host";
+import type { PasskeySignRequest } from "../crypto/passkey";
 import type { HostUnlock } from "../crypto/wire";
 import {
   admitVaultEntry,
@@ -27,6 +28,8 @@ export type VaultCryptoHost = Pick<
   | "resolveField"
   | "catalog"
   | "matchUris"
+  | "passkeyCandidates"
+  | "signPasskey"
 >;
 export type LocalVaultHandle = {
   managerGeneration: string;
@@ -539,6 +542,46 @@ export function createLocalVaultManager(options: {
       if (!before.ok || !validHandle(handle))
         return before.ok ? vaultFailure("stale-vault-handle") : before;
       const result = await options.host.matchUris(owner.opened.session, targetUrl, signal);
+      const after = await checkDurable(owner);
+      if (!after.ok) return after;
+      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+    },
+    /** Secret-free passkey metadata for one item of the live accepted snapshot. */
+    async passkeyCandidates(handle: LocalVaultHandle, itemId: string, signal?: AbortSignal) {
+      try {
+        handle = structuredClone(handle);
+      } catch {
+        return vaultFailure("invalid-request");
+      }
+      if (typeof itemId !== "string") return vaultFailure("invalid-request");
+      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
+      const owner = live;
+      const before = await checkDurable(owner);
+      if (!before.ok || !validHandle(handle))
+        return before.ok ? vaultFailure("stale-vault-handle") : before;
+      const result = await options.host.passkeyCandidates(owner.opened.session, itemId, signal);
+      const after = await checkDurable(owner);
+      if (!after.ok) return after;
+      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+    },
+    /** One assertion signature from the live snapshot's stored key for that item. */
+    async signPasskey(
+      handle: LocalVaultHandle,
+      input: { itemId: string } & PasskeySignRequest,
+      signal?: AbortSignal,
+    ) {
+      try {
+        handle = structuredClone(handle);
+        input = structuredClone(input);
+      } catch {
+        return vaultFailure("invalid-request");
+      }
+      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
+      const owner = live;
+      const before = await checkDurable(owner);
+      if (!before.ok || !validHandle(handle))
+        return before.ok ? vaultFailure("stale-vault-handle") : before;
+      const result = await options.host.signPasskey(owner.opened.session, input, signal);
       const after = await checkDurable(owner);
       if (!after.ok) return after;
       return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");

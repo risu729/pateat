@@ -472,6 +472,89 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(await matched).toEqual({ ok: false, error: { code: "uri-context-unavailable" } });
   });
 
+  const passkeyBinding = { connectionId, userId: accountUserId, snapshotId, itemId };
+  const storedPasskey = {
+    ...passkeyBinding,
+    credentialId: "EjRWeBI0QjSCNBI0VniavA",
+    rpId: "example.com",
+    userHandle: "c3ludGhldGljLXVzZXI",
+    discoverable: true,
+    counter: 0,
+  };
+  const signInput = {
+    itemId,
+    credentialId: storedPasskey.credentialId,
+    rpId: storedPasskey.rpId,
+    authenticatorData: "A".repeat(50),
+    clientDataHash: "B".repeat(43),
+  };
+  const passkeySignature = {
+    ...passkeyBinding,
+    credentialId: storedPasskey.credentialId,
+    signature: "MAYCAQECAQE",
+  };
+  it("lists snapshot-bound passkey metadata and signs by item ID inside the Worker", async () => {
+    const h = harness();
+    const session = await h.open();
+    const listed = h.host.passkeyCandidates(session, itemId);
+    const listing = await h.command(1);
+    expect(listing.operation).toEqual({ kind: "passkey-candidates", session, itemId });
+    h.reply(listing, { ok: true, data: [storedPasskey] });
+    expect(await listed).toEqual({ ok: true, data: [storedPasskey] });
+    const signed = h.host.signPasskey(session, signInput);
+    const signing = await h.command(2);
+    expect(signing.operation).toEqual({ kind: "passkey-sign", session, ...signInput });
+    h.reply(signing, { ok: true, data: passkeySignature });
+    expect(await signed).toEqual({ ok: true, data: passkeySignature });
+  });
+
+  it("forwards a per-item passkey failure without locking the session", async () => {
+    const h = harness();
+    const session = await h.open();
+    const signed = h.host.signPasskey(session, signInput);
+    h.reply(await h.command(1), { ok: false, error: { code: "unsupported-crypto" } });
+    expect(await signed).toEqual({ ok: false, error: { code: "unsupported-crypto" } });
+    const listed = h.host.passkeyCandidates(session, itemId);
+    h.reply(await h.command(2), { ok: true, data: [] });
+    expect(await listed).toEqual({ ok: true, data: [] });
+  });
+
+  it.each([
+    { kind: "list", data: [{ ...storedPasskey, snapshotId: crypto.randomUUID() }] },
+    { kind: "list", data: [{ ...storedPasskey, itemId: crypto.randomUUID() }] },
+    { kind: "list", data: [storedPasskey, storedPasskey] },
+    { kind: "list", data: [{ ...storedPasskey, keyValue: "synthetic-key" }] },
+    { kind: "sign", data: { ...passkeySignature, userId: crypto.randomUUID() } },
+    { kind: "sign", data: { ...passkeySignature, credentialId: "AQID" } },
+    { kind: "sign", data: { ...passkeySignature, signature: "MAYC" } },
+    { kind: "sign", data: { ...passkeySignature, privateKey: "synthetic-key" } },
+  ])("locks the session on a passkey reply for another scope or shape case %#", async (reply) => {
+    const h = harness();
+    const session = await h.open();
+    const pending =
+      reply.kind === "list"
+        ? h.host.passkeyCandidates(session, itemId)
+        : h.host.signPasskey(session, signInput);
+    h.reply(await h.command(1), { ok: true, data: reply.data });
+    expect(await pending).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(await h.host.catalog(session)).toEqual({ ok: false, error: { code: "crypto-locked" } });
+  });
+
+  it.each([
+    { ...signInput, authenticatorData: "A".repeat(49) },
+    { ...signInput, clientDataHash: "B".repeat(42) + "=" },
+    { ...signInput, credentialId: "" },
+    { ...signInput, rpId: "x".repeat(254) },
+  ])("rejects a malformed signing request before dispatch case %#", async (input) => {
+    const h = harness();
+    const session = await h.open();
+    expect(await h.host.signPasskey(session, input)).toEqual({
+      ok: false,
+      error: { code: "invalid-request" },
+    });
+    expect(h.commands).toHaveLength(1);
+  });
+
   it("lock immediately invalidates access and withholds a pending plaintext reply", async () => {
     const h = harness({ timeoutMs: 200 });
     const session = await h.open();
