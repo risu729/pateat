@@ -25,7 +25,8 @@ export type BitwardenErrorCode =
   | "field-missing"
   | "unsupported-field"
   | "invalid-totp"
-  | "unsupported-totp";
+  | "unsupported-totp"
+  | "invalid-uri-input";
 
 export type BitwardenResult<T> =
   | { ok: true; data: T }

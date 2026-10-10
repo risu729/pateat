@@ -19,6 +19,7 @@ export {
   type LocalFieldValue,
 } from "./fields";
 export { generateLocalTotp, type LocalOtpValue, type LocalTotpOptions } from "./totp";
+export { matchBitwardenLoginUris, type UriMatchEvaluation, type UriMatchOptions } from "./uri";
 export type { EncryptedSyncEnvelope, PreloginResponse } from "./models";
 export { derivePasswordAuthentication } from "./auth-crypto";
 export type {

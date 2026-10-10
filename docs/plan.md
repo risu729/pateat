@@ -187,8 +187,25 @@ Production catalog/settings integration remains separate. In particular,
 snapshot-scoped custom references do not automatically reconcile persistent
 exclusions when fields are edited or reordered. Rebinding/invalidation must
 preserve denies before any live resolver is connected to settings or the executor.
-Persistent unlock, authenticated cache acceptance and URI eligibility remain
+Persistent unlock, authenticated cache acceptance and live URI eligibility remain
 unfinished M3 gates.
+
+## URI candidate matching progress
+
+The isolated provider matcher uses the approved tldts dependency for public and
+private suffix handling after WHATWG URL normalization. It implements ordinary
+Domain/Host/Exact/StartsWith/Never modes and direct equivalent-domain groups;
+Regex remains explicitly unsupported. Output contains candidate indices, modes,
+a descriptive target origin and per-URI unavailable reasons, without raw URLs.
+The trusted host must supply URIs and effective settings from the same selected
+account/snapshot.
+
+Raw prefix/equality behavior follows the pinned provider. Matching is not a fill
+grant or a change to the automatic candidate-scope contract. The current executor
+still has its existing account/origin/document checks, and live settings/catalog
+integration must derive authorization separately. Synthetic tests cover private
+suffix isolation, IDN, localhost/IP, equivalent groups and malformed destinations;
+the MV3 probe passes a real SDK-decrypted, checksum-validated URI to this matcher.
 
 ## Initial delivery and later scope
 

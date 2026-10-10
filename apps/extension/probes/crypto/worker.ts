@@ -2,6 +2,7 @@ import { createLocalCryptoSession } from "../../../../packages/bitwarden/src/loc
 import { initializeSyntheticCryptoHost } from "./host";
 import { mappedAccountVectors } from "./account-vectors";
 import { localFieldVectors } from "./field-vectors";
+import { localUriVectors } from "./uri-vectors";
 import { derivePasswordAuthentication } from "../../../../packages/bitwarden/src/auth-crypto";
 import {
   authPassword,
@@ -14,6 +15,7 @@ import {
   kdfSalt,
   pbkdf2Expected,
   legacyCipher,
+  uriCiphertexts,
   v1Email,
   v1Kdf,
   v1Password,
@@ -66,8 +68,16 @@ void (async () => {
     let loginMatches = false;
     let corruptionRejected = false;
     let fieldChecks = { localFields: false, localTotp: false, localSteam: false };
+    let uriMatches = false;
     try {
-      const cipher = legacyCipher();
+      const original = legacyCipher();
+      const cipher = {
+        ...original,
+        login: {
+          ...original.login,
+          uris: [{ uri: uriCiphertexts.uri, match: null, uriChecksum: uriCiphertexts.checksum }],
+        },
+      };
       const decrypted = await first.data.decryptCipher({ connectionId: base.connectionId, cipher });
       loginMatches =
         decrypted.ok &&
@@ -75,6 +85,7 @@ void (async () => {
         decrypted.data.login?.username === "test_username" &&
         decrypted.data.login?.password === "test_password";
       if (decrypted.ok) fieldChecks = localFieldVectors(decrypted.data);
+      if (decrypted.ok) uriMatches = localUriVectors(decrypted.data.login?.uris);
       const corrupt = { ...cipher, name: cipher.name.replace("JOw", "KOw") };
       const result = await first.data.decryptCipher({
         connectionId: base.connectionId,
@@ -130,6 +141,7 @@ void (async () => {
       sdk,
     );
     const checks = {
+      uriMatches,
       ...fieldChecks,
       ...(await mappedAccountVectors(sdk)),
       pbkdf2: pbkdf.every((value, index) => value === pbkdf2Expected[index]),
