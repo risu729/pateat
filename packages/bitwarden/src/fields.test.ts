@@ -331,6 +331,12 @@ describe("custom field value semantics", () => {
         ok: false,
         error: { code: "unsupported-field" },
       });
+      expect(active.list().find((field) => field.ref.fieldId === customFieldId(0))).toMatchObject({
+        kind: "linked",
+      });
+      expect(
+        active.list().find((field) => field.ref.fieldId === customFieldId(0))?.linkedFieldId,
+      ).toBeUndefined();
     },
   );
 

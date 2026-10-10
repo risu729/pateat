@@ -14,7 +14,10 @@ export interface LocalFieldReference {
 export interface LocalFieldMetadata {
   readonly ref: Readonly<LocalFieldReference>;
   readonly label: string;
-  /** A custom field's own vault name; `null` for built-in and unnamed fields. */
+  /**
+   * A custom field's own vault name, unbounded here; `null` for built-in and unnamed
+   * fields. The settings catalog withholds names it cannot carry exactly.
+   */
   readonly name: string | null;
   readonly kind: "text" | "hidden" | "boolean" | "linked" | "otp" | "unsupported";
   /** The built-in field a Linked field reads, when the provider defines it. */
@@ -207,10 +210,13 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
       const id = `custom.${scopeValue.snapshotId}.${index}`;
       custom.set(id, index);
       const kind = (["text", "hidden", "boolean", "linked"] as const)[field.type] ?? "unsupported";
+      const source =
+        kind === "linked" && field.linkedId != null ? linkedSources[field.linkedId] : undefined;
       add(id, field.name ?? `Custom field ${index + 1}`, kind, {
         name: field.name || null,
+        // Built-ins are listed first; a link to a field this item lacks names no source.
         linkedFieldId:
-          kind === "linked" && field.linkedId != null ? linkedSources[field.linkedId] : undefined,
+          source && metadata.some((entry) => entry.ref.fieldId === source) ? source : undefined,
       });
     });
     let catalog: readonly LocalFieldMetadata[] = Object.freeze(metadata);
