@@ -13,7 +13,15 @@ export default defineConfig({
     permissions: ["storage"],
     // Content-script matches do not grant access to tabs.Tab.url. The synthetic
     // coordinator needs that browser-provided URL for its fail-closed recheck.
-    ...(mode === "probe" ? { host_permissions: ["http://127.0.0.1/*"] } : {}),
+    ...(mode === "probe"
+      ? {
+          host_permissions: ["http://127.0.0.1/*"],
+          content_security_policy: {
+            extension_pages:
+              "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self'",
+          },
+        }
+      : {}),
   }),
   hooks: {
     "entrypoints:found"(wxt, entrypoints) {
@@ -28,6 +36,11 @@ export default defineConfig({
           type: "content-script",
         });
       }
+      entrypoints.push({
+        name: "crypto-probe",
+        inputPath: fileURLToPath(new URL("./probes/crypto/index.html", import.meta.url)),
+        type: "unlisted-page",
+      });
     },
   },
 });

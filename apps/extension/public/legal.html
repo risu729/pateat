@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pateat licenses and source</title>
+  </head>
+  <body>
+    <main>
+      <h1>Licenses and source</h1>
+      <p>Copyright (c) 2026 Pateat contributors.</p>
+      <p>
+        Pateat's extension is free software licensed under the GNU General Public License version 3.
+        You may modify and redistribute it under that license. It is provided without warranty,
+        including merchantability or fitness for a particular purpose.
+      </p>
+      <ul>
+        <li><a href="LICENSE-GPL-3.0.txt">Full GPLv3 license</a></li>
+        <li><a href="THIRD-PARTY-NOTICES.md">Third-party notices</a></li>
+        <li><a href="https://github.com/risu729/pateat">Pateat source repository</a></li>
+        <li>
+          <a href="https://github.com/risu729/pateat/blob/main/docs/sdk-source.md"
+            >Build and source distribution instructions</a
+          >
+        </li>
+      </ul>
+      <h2>Bitwarden OSS SDK</h2>
+      <p>
+        The synthetic cryptography probe uses the unmodified GPL edition of @bitwarden/sdk-internal
+        0.2.0-main.1034, with source revision 7de8f13a14b56068167160f88d55231f916cf16a. Pateat's
+        integration was added on 2026-10-10. Bitwarden does not support this third-party
+        integration.
+      </p>
+      <p>
+        <a
+          href="https://github.com/bitwarden/sdk-internal/archive/7de8f13a14b56068167160f88d55231f916cf16a.tar.gz"
+          >Matching SDK source archive</a
+        >
+        ·
+        <a
+          href="https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/crates/bitwarden-wasm-internal/README.md"
+          >Upstream build instructions</a
+        >
+      </p>
+      <p>
+        A distributed extension binary must be accompanied by its matching Pateat and dependency
+        source with build/install instructions. The download location must identify that exact
+        revision; the repository homepage alone is not that source offer. A local development build
+        uses the accompanying working source tree.
+      </p>
+    </main>
+  </body>
+</html>

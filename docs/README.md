@@ -1,8 +1,9 @@
 # Documentation
 
 The repository contains local policy settings backed by synthetic vault metadata,
-shared contracts, a localhost-only synthetic login executor probe, a health-only
-Worker and CI/manual-delivery foundations. Production login activation, real
+shared contracts, isolated Bitwarden transport/local-crypto libraries, a
+localhost-only synthetic login executor probe, a health-only Worker and
+CI/manual-delivery foundations. Production login activation, real
 vault connections, inference and passkey execution remain unimplemented.
 The service is not deployed.
 The initial design was adopted in [PR #1](https://github.com/risu729/pateat/pull/1).
@@ -44,7 +45,8 @@ private page captures, or raw model requests.
 - [0001: Local login execution and vault adapters](adr/0001-local-login-boundary.md)
 - [0002: Maintained tools and independent feature implementation](adr/0002-toolchain.md)
 - [0003: Minimal Cloudflare service and provider-neutral inference](adr/0003-service-and-ai.md)
-- [0004: Maintained library composition (proposed amendment)](adr/0004-library-composition.md)
+- [0004: Maintained library composition](adr/0004-library-composition.md)
+- [0005: Official OSS SDK for local Bitwarden cryptography](adr/0005-bitwarden-local-crypto.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

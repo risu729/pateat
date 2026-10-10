@@ -89,6 +89,15 @@ headers. Record the protocol profile and validate completeness in the later
 adapter before replacing a usable cache; an intact outer envelope alone is not
 evidence that every vault item was returned.
 
+The isolated local-crypto library uses the owner-approved official OSS SDK,
+with no SDK HTTP/token provider. It validates supported input shapes, rejects
+partial decryption and binds each session to one connection. V2 initialization
+verifies signed state before a security-version floor is checked. Disposal
+withholds stale results; native cleanup waits for in-flight operations, while
+Worker termination is the hard cancellation boundary. The current browser host
+is synthetic-only. Provider authentication, cache reconciliation and persistent
+unlock still need their own integration and acceptance tests.
+
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and
 decryption are independent states: a connection may be authenticated but locked.

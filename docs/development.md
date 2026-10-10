@@ -151,9 +151,10 @@ selection by maintenance and freshness; that review selected OTPAuth and tldts.
 React, Tailwind/Base UI, the selected shadcn/ui Button, TanStack Form/Query,
 browser component testing and axe are implemented for the settings UI. The remaining
 approved choices enter with their owning features and compatibility checks; approval
-does not claim that they are installed. Protocol-specific crypto and encoding choices
-remain pending; obtain the owner's decision before adopting each major addition or
-replacement.
+does not claim that they are installed. The owner subsequently approved the official
+OSS Bitwarden SDK for local cryptography with GPL compliance in
+[ADR 0005](adr/0005-bitwarden-local-crypto.md). Further major additions or
+replacements still require the owner's decision.
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
 use.
@@ -167,7 +168,7 @@ use.
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
 | Storage | **Approved:** WXT storage helpers | M2 persistence integration |
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
-| Crypto and OTP | WebCrypto; **selected under delegated authority:** OTPAuth. Argon2 implementation still requires evaluation | M3 Bitwarden adapter |
+| Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved:** Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
 | Inference transport | **Approved:** AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
