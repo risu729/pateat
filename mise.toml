@@ -79,9 +79,15 @@ run = "node node_modules/@playwright/test/cli.js install {% if usage.with_deps %
 depends = ["build:probe"]
 run = "node node_modules/@playwright/test/cli.js test --config tests/extension/playwright.config.ts"
 
+[tasks."test:options"]
+run = "node node_modules/vitest/vitest.mjs run --config tests/options/vitest.config.ts"
+
+[tasks."typecheck:options"]
+run = "node node_modules/typescript/bin/tsc --noEmit -p tests/options/tsconfig.json"
+
 [tasks."check:runtime"]
 description = "Run implementation checks without recursing into hk."
-run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run test:contracts", "mise run test:tools", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:browser"]
+run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run typecheck:options", "mise run test:contracts", "mise run test:tools", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:options", "mise run test:browser"]
 
 [tasks."test:tools"]
 run = "node --test .github/scripts/*.test.mjs"

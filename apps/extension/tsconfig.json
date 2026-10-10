@@ -1,6 +1,7 @@
 {
   "extends": ["@risu729/tsconfigs/bundler", "./.wxt/tsconfig.json"],
   "compilerOptions": {
+    "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true
   }

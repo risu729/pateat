@@ -46,6 +46,11 @@ executor, not evidence of automatic filling or current-session switching.
 
 Policy/storage unit tests and isolated browser tests cover these boundaries,
 including browser restart, stale settings pages and content-script denial.
+The settings UI uses the approved React, Tailwind/Base UI and TanStack Form/Query
+composition. The draft is independent of the metadata query cache; automatic
+refetch/retry is disabled. Browser component tests cover error recovery and
+keyboard behavior, while extension tests retain the worker/storage boundary
+checks and add automated accessibility inspection.
 The declarative executor, real provider protocol and actual Chrome use coexistence
 remain unimplemented or unverified; neither M1 nor M2 is complete.
 

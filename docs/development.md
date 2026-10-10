@@ -14,6 +14,7 @@ apps/extension/       WXT entrypoints and extension shell
 services/api/         Health-only Cloudflare Worker
 packages/contracts/  Shared Valibot schemas and inferred types
 tests/extension/      Isolated synthetic browser fixtures and tests
+tests/options/        React component tests in isolated Chromium
 ```
 
 Keep feature code inside its owner until an actual shared boundary warrants
@@ -60,6 +61,8 @@ Focused tasks are available for diagnosis:
 | `mise run check:server-artifact` | Execute that emitted bundle in a fresh local runtime |
 | `mise run browser:install` | Install the pinned isolated Chromium browser |
 | `mise run test:browser` | Exercise the extension against synthetic local pages |
+| `mise run test:options` | Exercise settings components with a synthetic client in Chromium |
+| `mise run typecheck:options` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's
@@ -100,18 +103,22 @@ The owner approved React, Tailwind + Base UI + selected shadcn/ui components, Ta
 Form + Valibot, TanStack Query, XState, `@webext-core/messaging`, WXT storage,
 Hono, Drizzle, AI SDK with Valibot, Vitest Browser Mode with `vitest-browser-react`,
 `@axe-core/playwright`, Knip and fast-check on 2026-10-10. The owner delegated OTP/PSL
-selection by maintenance and freshness; that review selected OTPAuth and tldts. These
-are planned integrations, not installed packages. Other new recommendations below remain
-pending; obtain the owner's decision before adopting each major addition/replacement.
+selection by maintenance and freshness; that review selected OTPAuth and tldts.
+React, Tailwind/Base UI, the selected shadcn/ui Button, TanStack Form/Query,
+browser component testing and axe are implemented for the settings UI. The remaining
+approved choices enter with their owning features and compatibility checks; approval
+does not claim that they are installed. Protocol-specific crypto and encoding choices
+remain pending; obtain the owner's decision before adopting each major addition or
+replacement.
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
 use.
 
-| Area | Choice or candidate (new choices pending unless marked approved) | Owning slice |
+| Area | Choice and integration status | Owning slice |
 | --- | --- | --- |
-| Extension UI | **Approved:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with selected shadcn/ui components | M2 settings UI migration |
-| Form state | **Approved:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
-| Async UI state | **Approved:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
+| Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
+| Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
+| Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Approved:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
 | Storage | **Approved:** WXT storage helpers | M2 persistence integration |
@@ -120,8 +127,8 @@ use.
 | Service and database | **Approved:** Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
 | Inference transport | **Approved:** AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
-| Component tests | **Approved:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
-| Integration/accessibility | Existing Playwright; **approved:** `@axe-core/playwright` | M2 settings and executor fixtures |
+| Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
+| Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
@@ -137,7 +144,7 @@ Do not install a second form-state layer alongside it.
 
 Form drafts, Query caches and authoritative settings have different lifetimes.
 Keep dirty drafts separate from query refreshes, preserve revision conflicts,
-and invalidate metadata after successful writes. Query caches must not contain
+and update the metadata cache after successful writes. Query caches must not contain
 vault values, unlock material or provider secrets. Explicitly configure retry,
 staleness and refetch behavior; a focus/reconnect event must never replay login
 or silently discard an edit. The extension worker remains the settings authority.
@@ -189,7 +196,18 @@ code from Fenko, auto-filler, Superfill, Boltwarden or bronzewarden. Extra globa
 state stores, routing systems or agent frameworks need a distinct responsibility
 instead of duplicating tools the owner selects. Exact pins are established in each
 implementation PR, with peer, MV3 CSP and bundled-output checks. See
-[ADR 0004](adr/0004-library-composition.md) for the proposal and its sources.
+[ADR 0004](adr/0004-library-composition.md) for the approved composition and its
+sources.
+
+The settings form owns its draft separately from the metadata query cache.
+Queries never refetch on focus/reconnect and neither reads nor saves automatically
+retry. Only an explicit successful reload replaces edits after a failed save or
+revision conflict. A failed or ambiguous save retains the draft, and an unknown
+outcome blocks saving until reload. The background worker remains the settings
+authority and validates both messages and senders; the UI migration does not
+change storage permissions. Component tests use a synthetic client; extension
+tests separately cover real runtime messaging and trusted storage. Accessibility
+checks combine axe with keyboard/focus scenarios, not a full compliance claim.
 
 The Worker uses the pinned beta Cloudflare Vite plugin required by cf's typed
 configuration and Build Output workflow. Its manifest declares that plugin

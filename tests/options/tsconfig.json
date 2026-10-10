@@ -1,0 +1,15 @@
+{
+  "extends": "@risu729/tsconfigs/bundler",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "types": ["node", "react", "react-dom", "@vitest/browser-playwright"]
+  },
+  "include": ["*.ts", "*.tsx"]
+}

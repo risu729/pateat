@@ -1,4 +1,5 @@
 import { test, expect, chromium, type BrowserContext, type Worker } from "@playwright/test";
+import { AxeBuilder } from "@axe-core/playwright";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -83,6 +84,57 @@ test("production package only permits local storage with no site scripts", async
     "utf8",
   );
   expect(background).not.toContain("pateat.test.document");
+  const notices = await readFile(resolve(extensionDirectory, "THIRD-PARTY-NOTICES.md"), "utf8");
+  expect(notices).toContain("Copyright (c) 2023 shadcn");
+  expect(notices).toContain("MIT License");
+});
+
+test("the built options page supports keyboard validation and passes accessibility checks", async () => {
+  await withExtension(extensionDirectory, async (context, _worker, id) => {
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.goto(`chrome-extension://${id}/options.html`);
+    await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
+    const initial = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+      .analyze();
+    expect(initial.violations).toEqual([]);
+
+    await page.locator("#site-hostname").fill("https://invalid.example/path");
+    await page.locator("#site-hostname").press("Enter");
+    await expect(page.locator("#site-hostname")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.locator("#site-hostname")).toBeFocused();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await page.locator("#site-hostname").fill("keyboard.example");
+    await page.locator("#site-hostname").press("Enter");
+    await expect(page.locator("#excluded-sites")).toContainText("keyboard.example");
+    await expect(page.locator("#site-hostname")).toHaveValue("");
+    await expect(page.locator("#site-hostname")).toBeFocused();
+    await page.getByRole("button", { name: /Remove.*keyboard.example/i }).click();
+    await expect(page.locator("#site-hostname")).toBeFocused();
+
+    await page
+      .getByLabel("Demo personal vault: Item access", { exact: true })
+      .selectOption("selected");
+    await page.getByLabel("Demo personal vault: Include group Everyday", { exact: true }).check();
+    await page.locator("#default-origin").fill("https://bank.example/path");
+    await page
+      .locator("#default-account")
+      .selectOption(JSON.stringify(["demo-personal", "primary"]));
+    await page.locator("#default-origin").press("Enter");
+    await expect(page.locator("#default-origin")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.locator("#default-origin")).toBeFocused();
+    const invalid = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+      .analyze();
+    expect(invalid.violations).toEqual([]);
+    await page.locator("#default-origin").fill("https://bank.example");
+    await page.locator("#default-origin").press("Enter");
+    await expect(page.locator("#site-defaults")).toContainText("https://bank.example");
+    await expect(page.locator("#default-origin")).toBeFocused();
+    expect(pageErrors).toEqual([]);
+  });
 });
 
 test("installed foundation reports truthful status and rejects extra request fields", async () => {
