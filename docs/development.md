@@ -61,6 +61,7 @@ Focused tasks are available for diagnosis:
 | `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
 | `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
 | `mise run typecheck:bitwarden` | Check provider source and test types |
+| `mise run test:login` | Test login executor sources with synthetic vault results |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run generate:server-migrations` | Generate D1 migration SQL from the Drizzle schema |
 | `mise run check:server-migrations` | Fail when committed migrations differ from the schema |

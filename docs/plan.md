@@ -1,10 +1,10 @@
 # Implementation plan
 
 Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1). M1-M4 are in
-progress; M5 has a proposed design and M6 is unstarted. The current foundation is not a
-working autologin product or a completed M1 acceptance claim. This plan becomes the
-single work tracker until an issue is needed for a concrete slice. Issues and PRs link
-to these gates rather than maintaining a second roadmap.
+progress; M5 has a proposed design and its first slice; M6 is unstarted. The current
+foundation is not a working autologin product or a completed M1 acceptance claim. This
+plan becomes the single work tracker until an issue is needed for a concrete slice.
+Issues and PRs link to these gates rather than maintaining a second roadmap.
 
 ## Foundation progress
 
@@ -285,7 +285,16 @@ Chrome yet.
 - The URI matcher is not yet connected to live vault data and site execution.
   Prepared accounts do not yet retain domain or equivalent-domain context; do not
   derive `allowedOrigins` from URIs without it.
-- The live vault is not yet connected to the declarative executor.
+- The declarative executor reads account metadata from the live settings catalog on
+  every policy check and resolves each bound field through the connection runtime
+  immediately before a fill. Bindings are explicit slot-to-field references;
+  custom-field references are snapshot-scoped. An unavailable connection or an item
+  awaiting field review is refused before an attempt starts. A denied, locked or failed
+  field read, or a replacement snapshot before delivery, blocks the attempt as
+  `policy-changed` without filling. Only the localhost probe admits documents, grants
+  its loopback origin to the configured probe item and supplies recipes and bindings.
+  Production document admission, local recipe and binding storage, and provider-derived
+  origins remain open.
 - Real Bitwarden connections, individual MFA methods and optional host-permission
   prompts in installed Chrome remain separate gates.
 
@@ -376,6 +385,19 @@ not provisioned, and nothing is deployed.
   map synced connection identifiers to a new device's local connections.
 - Inference adapters, spending accounting and the release artifact's migration SQL
   remain separate slices.
+
+## Passkey progress
+
+[ADR 0007](adr/0007-existing-passkey-assertions.md) proposes the M5 bridge and
+presence policy. The Bitwarden package maps one decrypted FIDO2 credential view
+per item into secret-free metadata: ECDSA P-256 public-key credentials, GUID or
+`b64.` credential IDs, canonical user handles, lowercase ASCII domain RP IDs
+(no IP literals) and decimal counters. Items with several credentials are rejected
+instead of choosing one; a nonzero counter is preserved so selection can refuse it.
+The SDK-decrypted private key is decoded with a DER framing check only; WebCrypto
+import validates its structure. Unit tests cover malformed and unsupported views and
+an SDK round trip through the synthetic legacy account fixture. Selection, signing
+and the page bridge are not connected.
 
 ## Initial delivery and later scope
 
