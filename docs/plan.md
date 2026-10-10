@@ -452,6 +452,10 @@ unconfirmed disconnect. Pairing has not been tried against a running service.
   connection identifiers to a new device's local connections.
 - Inference adapters, spending accounting and the release artifact's migration SQL
   remain separate slices.
+- Every table is owner-scoped, and any identity the Access policy admits becomes an
+  owner on first approval. Before the service is offered to other people, it needs
+  per-owner storage and request limits; today only `/redeem` is rate limited (per
+  client address) and request bodies are size-capped.
 
 ## Passkey progress
 
