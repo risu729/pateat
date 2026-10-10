@@ -202,6 +202,24 @@ test("returns to the form when a pairing expires or is cancelled", async () => {
   await expect.element(page.getByText("Pairing cancelled.", { exact: true })).toBeVisible();
 });
 
+test("shows when recipes last synced and when the service rejects the device", async () => {
+  const synced = mockClient({ ...connected, syncedAt: Date.UTC(2026, 9, 10, 6, 0) });
+  await render(<ServiceConnection client={synced} pollMs={60_000} />);
+  await expect.element(page.getByText(/Recipes last synced at/)).toBeVisible();
+  await cleanup();
+
+  await render(<ServiceConnection client={mockClient(connected)} pollMs={60_000} />);
+  await expect
+    .element(page.getByText("Recipes have not finished syncing yet.", { exact: true }))
+    .toBeVisible();
+  await cleanup();
+
+  await render(
+    <ServiceConnection client={mockClient({ ...connected, rejected: true })} pollMs={60_000} />,
+  );
+  await expect.element(page.getByText(/no longer accepts this device/)).toBeVisible();
+});
+
 test("tells the owner when the service could not confirm a disconnect", async () => {
   const client = mockClient(connected);
   client.disconnect.mockResolvedValue(ok({ kind: "disconnected" }, false));

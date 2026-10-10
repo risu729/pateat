@@ -351,11 +351,11 @@ Chrome yet.
   (`defaultLoginBinding`), and maps it to this device's field IDs with
   `resolveBindingFields` over the catalog's raw field names. A recipe with another slot
   and no saved binding refuses as `binding-not-found`; a connection without a `userId`
-  refuses as `vault-unavailable`. The extension has no sync client
-  and production has no recipe cache, so bindings live only in local settings and
-  production attempts still stop at `recipe-not-found`. `/v1/settings` already accepts
-  and stores bindings. An extension or service build that predates `bindings` rejects
-  settings that contain them. Provider-derived origins remain open.
+  refuses as `vault-unavailable`. Production reads recipes from the synced recipe
+  cache described under [service sync progress](#service-sync-progress). Settings are
+  not synced yet, so bindings live only in local settings. `/v1/settings` already
+  accepts and stores bindings. An extension or service build that predates `bindings`
+  rejects settings that contain them. Provider-derived origins remain open.
 - A fill step refuses as `structural-mismatch` before writing anything unless all of its
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy
@@ -442,14 +442,28 @@ and in-memory storage; component tests cover address validation, polling, code m
 expiry, cancellation, site access requests, forgetting an unreadable connection and an
 unconfirmed disconnect. Pairing has not been tried against a running service.
 
+The fourth slice syncs recipes into a last-known-good cache that the login executor
+reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
+paired device's credential, applies active and revoked changes, and writes the cursor
+and recipes together, so a failed page or write leaves the previous consistent copy. It
+reads at most 50 pages per sync and refuses a page that moves the cursor backwards or
+does not advance it. The cache belongs to one paired device: a new pairing starts from
+an empty cache, and nothing is served while no device is paired. Sync runs when the
+worker starts, right after pairing completes, and in the background when a lookup or
+the settings page finds the last attempt more than five minutes old; a lookup never
+waits for the network. A 401 marks the device as rejected: syncing stops, login keeps
+using the cached recipes, and the settings page says to pair again. Lookup uses
+`selectLoginRecipe` for a new attempt and the recipe ID for a resumed one. Unit tests
+use synthetic pages and in-memory storage; no running service has been tried.
+
 ### Remaining M4 service gaps
 
 - Device enrollment has not been tried against a real Access application; that probe
   needs the owner's approval, as do the credential idle-expiry decision and the
   optional `launchWebAuthFlow` variant.
-- The extension pairs with the service but does not yet sync settings or recipes, keep
-  a last-known-good sync cache, handle a revoked credential during sync, or map synced
-  connection identifiers to a new device's local connections.
+- The extension syncs recipes but not settings yet: site defaults, bindings and
+  exclusions still live only in local settings, and settings that use device-local
+  connection IDs have no device-independent form yet (ADR 0013).
 - Inference adapters, spending accounting and the release artifact's migration SQL
   remain separate slices.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an

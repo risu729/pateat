@@ -40,9 +40,21 @@ const recordSchema = v.variant("kind", [
     label: deviceLabelSchema,
     deviceId: deviceIdSchema,
     credential: deviceCredentialSchema,
+    /** When recipes last synced completely. */
+    syncedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+    /** The service answered 401: it no longer accepts this credential. */
+    rejected: v.optional(v.literal(true)),
   }),
 ]);
 type ServiceRecord = v.InferOutput<typeof recordSchema>;
+
+/** What the background sync needs; never sent to the options page. */
+export type ServiceConnection = {
+  origin: string;
+  deviceId: string;
+  credential: string;
+  rejected: boolean;
+};
 
 export interface ServiceStorage {
   read(): Promise<unknown>;
@@ -55,7 +67,7 @@ class StorageCorrupt extends Error {}
 
 export function createServiceRuntime(options: {
   storage: ServiceStorage;
-  transport: ServiceTransport;
+  transport: Pick<ServiceTransport, "redeem" | "revoke">;
   /** Whether Chrome currently lets the extension reach this origin. */
   hasSiteAccess: (origin: string) => Promise<boolean>;
   now?: () => number;
@@ -108,6 +120,8 @@ export function createServiceRuntime(options: {
         origin: record.origin,
         label: record.label,
         deviceId: record.deviceId,
+        ...(record.syncedAt === undefined ? {} : { syncedAt: record.syncedAt }),
+        ...(record.rejected ? { rejected: true } : {}),
       };
     const challenge = await createEnrollmentChallenge(record.verifier);
     const enrollUrl = new URL("/enroll", record.origin);
@@ -244,9 +258,15 @@ export function createServiceRuntime(options: {
     }
   }
 
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const pending = queue.then(task);
+    queue = pending.catch(() => undefined);
+    return pending;
+  }
+
   return {
     handle(input: unknown): Promise<ServiceResponse> {
-      const pending = queue.then(() =>
+      return enqueue(() =>
         run(input).catch((error: unknown) => {
           if (error instanceof StorageUnavailable)
             return { ok: false, error: "storage-unavailable" } as const;
@@ -255,8 +275,31 @@ export function createServiceRuntime(options: {
           throw error;
         }),
       );
-      queue = pending.catch(() => undefined);
-      return pending;
+    },
+    /** The paired device for background sync, or nothing when unpaired or unreadable. */
+    connection(): Promise<ServiceConnection | undefined> {
+      return enqueue(async () => {
+        const { record } = await current();
+        return record?.kind === "connected"
+          ? {
+              origin: record.origin,
+              deviceId: record.deviceId,
+              credential: record.credential,
+              rejected: record.rejected === true,
+            }
+          : undefined;
+      }).catch(() => undefined);
+    },
+    /**
+     * Records a sync outcome for the device that ran it. A record replaced meanwhile,
+     * by disconnecting or pairing again, is left alone.
+     */
+    recordSync(deviceId: string, outcome: { syncedAt: number } | { rejected: true }) {
+      return enqueue(async () => {
+        const { record } = await current();
+        if (record?.kind !== "connected" || record.deviceId !== deviceId) return;
+        await save({ ...record, ...outcome });
+      });
     },
   };
 }

@@ -1,10 +1,9 @@
 import { browser } from "wxt/browser";
 import type { ServiceStorage } from "./runtime";
+import type { RecipeCacheStorage } from "./recipes";
 
-const STORAGE_KEY = "pateat.sync-service.v1";
-
-/** The service record holds a verifier or device credential: trusted contexts only. */
-export function createBrowserServiceStorage(): ServiceStorage {
+/** One storage.local key readable only by trusted extension contexts. */
+function trustedRecord<T>(key: string) {
   let access: Promise<void> | undefined;
   function restrictAccess(): Promise<void> {
     // Fail closed on unsupported APIs or rejected access changes. Retry on a later request.
@@ -17,17 +16,27 @@ export function createBrowserServiceStorage(): ServiceStorage {
     return access;
   }
   return {
-    async read() {
+    async read(): Promise<unknown> {
       await restrictAccess();
-      return (await browser.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+      return (await browser.storage.local.get(key))[key];
     },
-    async write(record) {
+    async write(record: T) {
       await restrictAccess();
-      await browser.storage.local.set({ [STORAGE_KEY]: record });
+      await browser.storage.local.set({ [key]: record });
     },
     async clear() {
       await restrictAccess();
-      await browser.storage.local.remove(STORAGE_KEY);
+      await browser.storage.local.remove(key);
     },
   };
+}
+
+/** The service record holds a verifier or device credential: trusted contexts only. */
+export function createBrowserServiceStorage(): ServiceStorage {
+  return trustedRecord("pateat.sync-service.v1");
+}
+
+/** Synced recipes are login policy; content scripts never read them directly. */
+export function createBrowserRecipeCacheStorage(): RecipeCacheStorage {
+  return trustedRecord("pateat.sync-recipes.v1");
 }

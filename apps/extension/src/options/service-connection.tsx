@@ -284,6 +284,13 @@ export function ServiceConnection({
           <p>
             <strong>{state.label}</strong> is paired with {state.origin}.
           </p>
+          <p id="sync-service-recipes" className="note">
+            {state.rejected
+              ? "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync."
+              : state.syncedAt === undefined
+                ? "Recipes have not finished syncing yet."
+                : `Recipes last synced at ${new Date(state.syncedAt).toLocaleString()}.`}
+          </p>
           <div>
             <Button
               id="sync-service-disconnect"
