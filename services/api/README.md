@@ -1,25 +1,56 @@
-# API foundation
+# API
 
-This Worker only exposes a deployment health probe. It has no authentication,
-vault, settings, recipe, database, or inference implementation.
+This Worker is the optional private settings/recipe sync service. It has no
+enrollment, vault, or inference implementation, and it is not deployed. The `DB`
+D1 binding is declared in `cloudflare.config.ts`, but no database is provisioned.
 
-`GET /health` returns JSON with `status: "ok"`, `service: "pateat-api"`, and
-`revision`. The revision is embedded at build time from `PATEAT_REVISION`, with
-`development` for local builds when it is absent. `HEAD /health` returns the same
-headers without a body. Other methods return 405; other paths return 404. The
-probe is not cached and does not enable cross-origin access.
+## Routes
 
-`cloudflare.config.ts` is the production configuration. Vite emits generated
-Worker types and production Build Output under `.cloudflare/`. The Vitest
-integration uses an explicit local entrypoint and Miniflare options derived from
-the same compatibility settings. It does not read a separate Wrangler config.
+All responses are JSON with `Cache-Control: no-store` and `nosniff`; no route sends
+CORS headers. Contracts live in `packages/contracts/src/sync.ts`.
 
-The credential-free build and prebuilt dry run validate the exact
-`.cloudflare/output/v0/` artifact. Local artifact smoke tests execute that bundle
-in workerd separately from Vitest's transformed test modules. Neither check
-demonstrates a deployed service or implements the later service acceptance
-gates in [the delivery plan](../../docs/delivery.md).
+| Route | Purpose |
+| --- | --- |
+| `GET`/`HEAD /health` | Build revision probe; other methods return 405 |
+| `GET /v1/settings` | Current synced settings; revision 0 with `settings: null` before the first write |
+| `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state |
+| `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
+| `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
 
-Worker routing, account selection, credentials and initial resource provisioning
-are intentionally absent. The server delivery workflow stays disabled until
-those deployment inputs and a reachable health endpoint are configured.
+`/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only
+the SHA-256 digest of each 256-bit device credential and derives the owner from it;
+paths and bodies never name an owner. Unknown credentials return 401 `unauthorized`
+and revoked ones 401 `device_revoked`, before any body is read. Bodies must be
+`application/json` and at most 128 KiB. Synced settings are server-readable policy
+metadata; device-local field policies, vault values and provider sessions are
+rejected by the strict schemas. Stored documents are revalidated on read and fail
+closed with a 500 `internal_error`.
+
+Recipe revisions are immutable. A write claims the head with a conditional statement
+and writes the history row in the same D1 batch, guarded by a per-request write ID,
+so a losing writer changes nothing. Each head write takes the owner's next sequence
+number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
+its revision, and only an explicit later write can republish the recipe.
+
+## Schema and tests
+
+`src/db/schema.ts` is the Drizzle schema. Run `mise run generate:server-migrations`
+after changing it and commit the generated `migrations/`; `check:server-migrations`
+fails when they drift. Vitest applies the committed migrations to a local Miniflare
+D1 database and seeds synthetic owners and devices directly, since enrollment does
+not exist yet.
+
+`cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds
+the compatibility settings it shares with Vitest. The credential-free build and
+prebuilt dry run validate the exact `.cloudflare/output/v0/` artifact, and the local
+artifact smoke test executes that bundle in workerd. None of this demonstrates a
+deployed service or the service acceptance gates in
+[the delivery plan](../../docs/delivery.md).
+
+The Worker bundles `packages/contracts`, which is GPL-3.0-only. Running it is not
+conveying it, but assess that combination as [LICENSING.md](../../LICENSING.md)
+requires before distributing a built Worker.
+
+Worker routing, account selection, credentials and resource provisioning are
+intentionally absent. The server delivery workflow stays disabled until those
+deployment inputs, enrollment and a reachable health endpoint exist.

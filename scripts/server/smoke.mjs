@@ -49,7 +49,7 @@ const runtime = new Miniflare({
         outboundService: {
           type: "fetcher",
           handler() {
-            throw new Error("The health-only Worker must not make outbound requests");
+            throw new Error("The API Worker must not make outbound requests");
           },
         },
       },
@@ -79,6 +79,11 @@ try {
   const missing = await runtime.dispatchFetch("https://pateat.invalid/recipes");
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error: "not_found" });
+  // Sync routes reject a missing device credential before any database access.
+  const sync = await runtime.dispatchFetch("https://pateat.invalid/v1/settings");
+  assert.equal(sync.status, 401);
+  assert.equal(sync.headers.get("Access-Control-Allow-Origin"), null);
+  assert.deepEqual(await sync.json(), { error: "unauthorized" });
   console.log(`Production artifact smoke passed: pateat-api @ ${expectedRevision}`);
 } finally {
   await runtime.dispose();

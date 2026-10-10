@@ -6,12 +6,13 @@ import {
   type VaultCatalog,
 } from "./settings";
 
-const identifier = v.pipe(
+export const loginIdentifierSchema = v.pipe(
   v.string(),
   v.minLength(1),
   v.maxLength(120),
   v.regex(/^[a-zA-Z0-9_.:-]+$/),
 );
+const identifier = loginIdentifierSchema;
 const revision = v.pipe(
   v.number(),
   v.integer(),

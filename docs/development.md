@@ -1,11 +1,11 @@
 # Development workflow
 
 The foundation has a Bun workspace, pinned tools, local policy settings, shared
-contracts, and a health-only Worker. A separate localhost probe exercises the
-declarative login executor with synthetic values. Manual Bitwarden setup and local
-vault caching are implemented; production login activation, service authentication
-and inference remain unimplemented.
-M1 is not complete until its required checks and acceptance gates pass.
+contracts, and a settings/recipe sync Worker skeleton. A separate localhost probe
+exercises the declarative login executor with synthetic values. Manual Bitwarden setup
+and local vault caching are implemented; production login activation, service
+enrollment and inference remain unimplemented. M1 is not complete until its required
+checks and acceptance gates pass.
 
 ## Workspace and tasks
 
@@ -13,7 +13,7 @@ The workspace uses one Bun lockfile:
 
 ```text
 apps/extension/       WXT entrypoints and extension shell
-services/api/         Health-only Cloudflare Worker
+services/api/         Cloudflare Worker sync API and D1 schema
 packages/contracts/  Shared Valibot schemas and inferred types
 packages/bitwarden/  Provider-specific endpoint and transport boundary
 tests/extension/      Isolated synthetic browser fixtures and tests
@@ -21,7 +21,9 @@ tests/options/        React component tests in isolated Chromium
 ```
 
 Keep feature code inside its owner until an actual shared boundary warrants
-another package. Add D1 migrations when the service first needs a schema.
+another package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1
+schema; `mise run generate:server-migrations` writes SQL to `services/api/migrations/`
+without contacting a database, and the check graph fails if committed migrations drift.
 
 `mise.toml` owns exact tool versions, installation, and task definitions. Use native
 workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
@@ -60,7 +62,9 @@ Focused tasks are available for diagnosis:
 | `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
 | `mise run typecheck:bitwarden` | Check provider source and test types |
 | `mise run test:tools` | Test artifact/provenance helpers |
-| `mise run test:server` | Run Worker tests in the Cloudflare Vitest runtime |
+| `mise run generate:server-migrations` | Generate D1 migration SQL from the Drizzle schema |
+| `mise run check:server-migrations` | Fail when committed migrations differ from the schema |
+| `mise run test:server` | Run Worker tests against local Miniflare D1 with committed migrations |
 | `mise run build:server` | Generate production Build Output and Worker types |
 | `mise run typecheck:server` | Check Worker/config/test types after a server build |
 | `mise run check:server-output` | Validate existing production output with cf's prebuilt dry run |
@@ -208,7 +212,7 @@ use.
 | Storage | **Approved:** WXT storage helpers | M2 persistence integration |
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
-| Service and database | **Approved:** Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
+| Service and database | **Implemented for sync:** Hono with Valibot validation and Drizzle for D1, including drizzle-kit migration generation | M4 enrollment, sync and schema |
 | Inference transport | **Approved:** AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |

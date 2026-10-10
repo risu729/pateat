@@ -15,9 +15,10 @@ preserve its required rule rather than treating that as permanent ineligibility.
 See [merging](#merging).
 
 Successful main-push CI packages the exact tested production Worker output with
-repository, revision, run/attempt, tool versions and per-file hashes. This health-
-only foundation has no D1 migrations or authentication endpoints. Artifact tests
-reject tampering and mismatched provenance.
+repository, revision, run/attempt, tool versions and per-file hashes. The artifact
+does not yet carry the committed D1 migrations, and enrollment is not implemented, so
+the sync API cannot be released yet. Artifact tests reject tampering and mismatched
+provenance.
 
 `deploy-server.yml` is manual and disabled until `SERVER_DEPLOY_ENABLED=true`.
 Before enabling it, provision the Worker/routing and set repository variables
