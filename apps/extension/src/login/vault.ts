@@ -1,5 +1,7 @@
 import type { LoginAccount, VaultConnectionMetadata } from "@pateat/contracts";
 import type { ConnectionRuntime } from "../connections/runtime";
+import type { LiveUriMatcher } from "../vault/site-candidates";
+import { vaultFailure } from "../vault/record";
 import { resolveDummyField } from "./dummy";
 
 export type LoginFieldRequest = {
@@ -41,6 +43,22 @@ export function createVaultFieldSource(
     return resolved.data.kind === "text" || resolved.data.kind === "otp"
       ? resolved.data.value
       : undefined;
+  };
+}
+
+/**
+ * Provider URI candidates from the connection's currently open snapshot. A locked or
+ * unconfigured connection answers as unavailable, never as "no match".
+ */
+export function createVaultUriMatcher(
+  connections: Pick<ConnectionRuntime, "registry" | "vaultFor">,
+): LiveUriMatcher {
+  return async (connectionId, targetUrl) => {
+    const configuration = await connections.registry.get(connectionId);
+    if (!configuration) return vaultFailure("invalid-request");
+    const { manager } = connections.vaultFor(configuration.profile);
+    const handle = manager.status().handle;
+    return handle ? manager.matchUris(handle, targetUrl) : vaultFailure("crypto-locked");
   };
 }
 

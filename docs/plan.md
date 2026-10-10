@@ -301,9 +301,18 @@ Chrome yet.
 
 ### Remaining M3 integration gaps
 
-- Live URI candidates are not yet used by site account resolution or execution.
-  Static `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
+- The executor asks the saved site default's connection for provider URI candidates for
+  each admitted document's own URL. A match of that item satisfies the item origin check
+  for that document only, and is reused while the connection's snapshot is unchanged. It
+  never selects an account, saves `allowedOrigins` or grants a field. Each new document
+  is matched again, so an Exact rule refuses a later page at another path. No match
+  refuses as `item-origin-mismatch`. Rules the matcher could not evaluate for that item
+  (including Regex rules) refuse as `item-uri-unevaluated`. A connection that cannot
+  answer (including for page URLs over 8192 characters), or answers from another
+  snapshot, and an item awaiting field review refuse as `vault-unavailable`. Static
+  `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
   StartsWith rules cannot be expressed as exact origins, so do not derive them.
+  Synthetic unit tests cover this path; a native browser run waits for local recipes.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. Bindings are explicit slot-to-field references;
