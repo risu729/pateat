@@ -634,10 +634,31 @@ has no provider yet. `createClaudeGenerationModel` in
 `mise run bench:inference --paid` runs the generation role over the corpus with the
 local value check. It stops before a case that could take the estimated spend past
 `--max-cost-usd` (default 2) and still prints the cases already run, the estimated cost
-and the model IDs the API reported serving. No paid inference has run. Remaining M4 AI
-work:
+and the model IDs the API reported serving. In cloud sessions the key is provided as
+the environment variable `PATEAT_ANTHROPIC_API_KEY`, because the name
+`ANTHROPIC_API_KEY` is withheld from sessions; run
+`ANTHROPIC_API_KEY="$PATEAT_ANTHROPIC_API_KEY" mise run bench:inference --paid`.
 
-- The one owner-approved benchmark run of the synthetic corpus and its report.
+The one owner-approved run (2026-10-10, main `29ab04c`, cap $2) gave:
+
+| Measure | Result |
+| --- | --- |
+| Served models | `claude-opus-5-5` only |
+| Verdicts (16 cases) | 13 correct, 2 correct abstentions, 0 missed, 0 false submits, 1 failed |
+| Semantic accuracy | 0.9375 (15/16) |
+| Abstentions | `ambiguous` 1 (`ja-unlabeled-ambiguous`), `no-login-form` 1 (`en-newsletter-only`) |
+| Errors | `refused` 1 (`ja-bank-unlabeled-lengths`) |
+| Joint-mapping rejections | 0 |
+| Latency | p50 2,285 ms, p95 6,727 ms (one call per case, no retries) |
+| Usage | 21,182 input and 1,146 output tokens over 16 calls |
+| Estimated cost | $0.108 at $4/$20 per million (about $0.0067 per call) |
+
+The one failure is a model refusal: the API ended the call with a refusal
+(`finishReason` `content-filter`) on the unlabeled Japanese bank page that has only
+`maxLength` 7/3/4 numeric fields. As ADR 0014 requires, there is no fallback model, so
+such a page gets no generated recipe. Measured usage per call is well below the ADR
+0014 estimate of about 3,000 input and 1,000 output tokens. Remaining M4 AI work:
+
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
 - The extension observation extractor with privacy fixtures. Expect Japanese pages to
