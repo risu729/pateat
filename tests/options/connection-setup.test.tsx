@@ -476,7 +476,11 @@ test("sync after automatic unlock was disabled explains how to restore it", asyn
   await mount(client);
   await page.getByRole("button", { name: "Saved vault: Sync", exact: true }).click();
   await expect
-    .element(page.getByText(/Automatic unlock is off, so Sync is unavailable\. Sign in again/))
+    .element(
+      page.getByText(
+        /Automatic unlock is off for this connection, and Sync needs it\. Sign in again/,
+      ),
+    )
     .toBeVisible();
   await expect.element(page.getByText(/Connection operation unavailable/)).not.toBeInTheDocument();
 });

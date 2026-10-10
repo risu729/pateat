@@ -17,7 +17,7 @@ function errorMessage(code: string): string {
     "setup-reauthentication-required":
       "Sign in again to sync. The saved local vault can still unlock independently.",
     "auto-unlock-disabled":
-      "Automatic unlock is off, so Sync is unavailable. Sign in again with Enable automatic unlock to restore it.",
+      "Automatic unlock is off for this connection, and Sync needs it. Sign in again and check Enable automatic unlock on this device to restore it.",
     "crypto-locked": "The vault is locked. Refresh connections to check recovery options.",
     "resource-limit":
       "The operation reached a resource limit. Refresh connections to check the current vault status before trying again.",
