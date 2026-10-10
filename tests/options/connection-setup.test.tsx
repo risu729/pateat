@@ -44,6 +44,9 @@ function mockClient() {
     disableAutoUnlock: vi
       .fn<ConnectionClient["disableAutoUnlock"]>()
       .mockResolvedValue({ ok: true, kind: "cancelled" }),
+    forgetProviderSession: vi
+      .fn<ConnectionClient["forgetProviderSession"]>()
+      .mockImplementation(async (connectionId) => ({ ok: true, kind: "forgotten", connectionId })),
     review: vi.fn<ConnectionClient["review"]>().mockImplementation(async () => ready()),
     close: vi.fn<ConnectionClient["close"]>(),
   };
@@ -231,6 +234,7 @@ test("existing disabled connections remain preserve-only unless enable is explic
     environment: { kind: "cloud" as const, region: "eu" as const },
     state: "disabled" as const,
     autoUnlock: "disabled" as const,
+    providerSession: "none" as const,
   };
   client.list.mockResolvedValue({ ...status(), connections: [saved] });
   await mount(client);
@@ -418,3 +422,33 @@ test.each([false, true])(
     }
   },
 );
+
+test("sync sign-in is shown separately from automatic unlock and forgetting it is local", async () => {
+  const client = mockClient();
+  const saved = {
+    connectionId: "saved-b",
+    label: "Saved vault",
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "ready" as const,
+    autoUnlock: "enabled" as const,
+    providerSession: "active" as const,
+  };
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [saved] })
+    .mockResolvedValue({ ...status(), connections: [{ ...saved, providerSession: "none" }] });
+  await mount(client);
+  await expect.element(page.getByText("Automatic unlock: enabled.")).toBeVisible();
+  await expect.element(page.getByText("Sync sign-in saved on this device.")).toBeVisible();
+  await page.getByRole("button", { name: "Saved vault: Forget sync sign-in", exact: true }).click();
+  expect(client.forgetProviderSession).toHaveBeenCalledWith("saved-b");
+  expect(client.requestProviderPermission).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByText(/Sync sign-in removed from this device\. This does not sign out/))
+    .toBeVisible();
+  await expect.element(page.getByText("Not signed in for sync.")).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Saved vault: Forget sync sign-in", exact: true }))
+    .toBeDisabled();
+  await expect.element(page.getByText("Automatic unlock: enabled.")).toBeVisible();
+});

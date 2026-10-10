@@ -17,6 +17,8 @@ import { createBrowserConnectionRegistry } from "./registry";
 import { createConnectionPolicy, quarantinedItems } from "./policy";
 import { providerPermissionOrigins } from "./permissions";
 import { createConnectionSetupService } from "./setup";
+import { createIndexedDbProviderSessionStore } from "./session-store";
+import { createProviderSessions } from "./sessions";
 import { SETUP_PORT, setupRequestSchema } from "./wire";
 import type { ConnectionRegistry, SetupReply } from "./types";
 
@@ -31,6 +33,17 @@ export function createConnectionRuntime(
 ) {
   const registry = options.registry ?? createBrowserConnectionRegistry();
   const vaults = new Map<string, ReturnType<typeof vaultFor>>();
+  const sessionStores = new Map<string, ReturnType<typeof createIndexedDbProviderSessionStore>>();
+  const sessions = createProviderSessions({
+    storeFor(profile) {
+      let store = sessionStores.get(profile.connectionId);
+      if (!store) {
+        store = createIndexedDbProviderSessionStore({ profile });
+        sessionStores.set(profile.connectionId, store);
+      }
+      return store;
+    },
+  });
   function vaultFor(profile: BitwardenProfile): {
     store: ReturnType<typeof createIndexedDbVaultStore>;
     manager: ReturnType<typeof createLocalVaultManager>;
@@ -116,6 +129,7 @@ export function createConnectionRuntime(
     registry,
     vaultFor,
     policy,
+    sessions,
     transportFor: (profile) => createBitwardenTransport(profile, options.transportOptions),
     permissions: {
       contains:
@@ -183,6 +197,9 @@ export function createConnectionRuntime(
           break;
         case "connection.disable":
           result = caller.disable(request.connectionId);
+          break;
+        case "connection.forget":
+          result = caller.forget(request.connectionId);
           break;
         case "connection.review":
           result = caller.review(request.input);
