@@ -276,7 +276,9 @@ export function createLoginRuntime(
       choice.binding.itemId !== used.itemId ||
       choice.binding.origin !== used.origin ||
       // Saving bumps the revision every attempt checks; never stop another login with it.
-      [...attempts.values()].some((other) => other !== run && !terminal(other.metadata))
+      [...attempts.values()].some(
+        (other) => other !== run && current(other) && !terminal(other.metadata),
+      )
     )
       return;
     // Writing bumps the policy revision for every attempt, so skip a choice already saved.
