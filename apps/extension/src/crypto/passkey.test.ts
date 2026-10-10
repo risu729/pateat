@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLocalCryptoSession, type LocalCryptoSession } from "@pateat/bitwarden";
 import {
   listStoredPasskeys,
+  findStoredPasskeys,
   selectPasskeyItem,
   signStoredPasskey,
   type PasskeySignRequest,
@@ -30,6 +31,22 @@ const itemId = "090c19ea-a61a-4df6-8963-262b97bc6266";
 const credentialId = "EjRWeBI0QjSCNBI0VniavA";
 const rpId = "synthetic.example.test";
 const sessions: LocalCryptoSession[] = [];
+/** A decrypted SDK passkey view, for stub sessions. */
+const decryptedView = {
+  credentialId: "12345678-1234-4234-8234-123456789abc",
+  keyType: "public-key",
+  keyAlgorithm: "ECDSA",
+  keyCurve: "P-256",
+  keyValue: "2.synthetic-unused",
+  rpId,
+  userHandle: "c3ludGhldGljLXVzZXI=",
+  userName: null,
+  counter: "0",
+  rpName: null,
+  userDisplayName: null,
+  discoverable: "true",
+  creationDate: "2024-01-30T17:55:36.150Z",
+};
 
 async function session() {
   const created = await createLocalCryptoSession(
@@ -199,6 +216,142 @@ describe("stored passkey listing", () => {
   });
 });
 
+describe("stored passkey search by RP ID", () => {
+  const ids = {
+    match: itemId,
+    plain: "10000000-0000-4000-8000-000000000001",
+    other: "10000000-0000-4000-8000-000000000002",
+    corrupt: "10000000-0000-4000-8000-000000000003",
+    deleted: "10000000-0000-4000-8000-000000000004",
+  };
+  const value = fidoCredential.keyValue;
+  const mac = value.slice(value.lastIndexOf("|") + 1);
+  const brokenRpId = {
+    ...fidoCredential,
+    rpId: fidoCredential.rpId.replace(/.=$/u, (end) => (end[0] === "A" ? "B=" : "A=")),
+  };
+  function vault() {
+    // Every live login item, as the Worker records them during verification.
+    const ciphers = new Map<string, unknown>([
+      [ids.corrupt, cipher([brokenRpId])],
+      [ids.match, cipher()],
+      [ids.plain, legacyCipher()],
+      [ids.other, cipher()],
+      [ids.deleted, cipher()],
+    ]);
+    // The unreadable item comes first: the scan must continue past it.
+    const loginUris = new Map([ids.corrupt, ids.match, ids.plain, ids.other].map((id) => [id, []]));
+    return { verified: true, ciphers, loginUris };
+  }
+
+  it("returns every live login item whose stored passkey has the RP ID, without URI matching", async () => {
+    const real = await session();
+    // The session is frozen, so count metadata decryption through a delegating view.
+    const decrypt = vi.fn<LocalCryptoSession["decryptFido2Credentials"]>((input) =>
+      real.decryptFido2Credentials(input),
+    );
+    const active = { decryptFido2Credentials: decrypt } as unknown as LocalCryptoSession;
+    const found = await findStoredPasskeys(active, binding, vault(), rpId);
+    expect(found).toEqual({
+      ok: true,
+      data: {
+        ...binding,
+        rpId,
+        candidates: [ids.match, ids.other].map((id) => ({
+          ...binding,
+          itemId: id,
+          credentialId,
+          rpId,
+          userHandle: "c3ludGhldGljLXVzZXItaWQ",
+          discoverable: true,
+          counter: 0,
+        })),
+        unavailableItemIds: [ids.corrupt],
+      },
+    });
+    expect(JSON.stringify(found)).not.toContain(mac);
+    // Only the three live items that store a passkey are decrypted.
+    expect(decrypt).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(["example.test", "www.synthetic.example.test", "SYNTHETIC.example.test"])(
+    "matches the RP ID exactly, so %s finds nothing",
+    async (other) => {
+      expect(await findStoredPasskeys(await session(), binding, vault(), other)).toMatchObject({
+        ok: true,
+        data: { rpId: other, candidates: [], unavailableItemIds: [ids.corrupt] },
+      });
+    },
+  );
+
+  describe("with decrypted views", () => {
+    const tagged = (tag: string) => ({ tag, login: { fido2Credentials: ["encrypted"] } });
+    const results: Record<string, unknown> = {
+      broken: { ok: false, error: { code: "crypto-failed" } },
+      locked: { ok: false, error: { code: "crypto-locked" } },
+      twoOther: {
+        ok: true,
+        data: [
+          { ...decryptedView, rpId: "other.example.test" },
+          { ...decryptedView, rpId: "other.example.test" },
+        ],
+      },
+      twoSame: { ok: true, data: [decryptedView, decryptedView] },
+      single: { ok: true, data: [decryptedView] },
+    };
+    const stub = {
+      decryptFido2Credentials: vi.fn(
+        async (input: { cipher: { tag: string } }) => results[input.cipher.tag],
+      ),
+    } as unknown as LocalCryptoSession;
+    const item = (index: number) => `20000000-0000-4000-8000-00000000000${index}`;
+    const source = (tags: readonly string[], missing = false) => {
+      const ciphers = new Map<string, unknown>(
+        tags.map((tag, index) => [item(index), tagged(tag)]),
+      );
+      const keys = tags.map((_, index) => item(index));
+      if (missing) keys.splice(1, 0, item(9));
+      return { verified: true, ciphers, loginUris: new Map(keys.map((id) => [id, []])) };
+    };
+
+    it("reports unreadable, missing and ambiguous items with this RP ID and keeps scanning", async () => {
+      expect(
+        await findStoredPasskeys(
+          stub,
+          binding,
+          source(["broken", "twoOther", "twoSame", "single"], true),
+          rpId,
+        ),
+      ).toMatchObject({
+        ok: true,
+        data: {
+          candidates: [{ itemId: item(3), rpId }],
+          unavailableItemIds: [item(0), item(9), item(2)],
+        },
+      });
+    });
+
+    it("stops at a lock even after other items were scanned", async () => {
+      expect(
+        await findStoredPasskeys(stub, binding, source(["broken", "single", "locked"]), rpId),
+      ).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    });
+  });
+
+  it("refuses to search before verification and keeps a locked session's code", async () => {
+    expect(
+      await findStoredPasskeys(await session(), binding, { ...vault(), verified: false }, rpId),
+    ).toEqual({ ok: false, error: { code: "invalid-request" } });
+    const locked = {
+      decryptFido2Credentials: vi.fn(async () => ({ ok: false, error: { code: "crypto-locked" } })),
+    } as unknown as LocalCryptoSession;
+    expect(await findStoredPasskeys(locked, binding, vault(), rpId)).toEqual({
+      ok: false,
+      error: { code: "crypto-locked" },
+    });
+  });
+});
+
 describe("stored passkey signing", () => {
   it.each([0x1d, 0x19])(
     "signs a zero-counter assertion with flags %#x that verifies against the stored key",
@@ -258,21 +411,7 @@ describe("stored passkey signing", () => {
   });
 
   it("refuses a stored nonzero counter instead of signing without incrementing it", async () => {
-    const view = {
-      credentialId: "12345678-1234-4234-8234-123456789abc",
-      keyType: "public-key",
-      keyAlgorithm: "ECDSA",
-      keyCurve: "P-256",
-      keyValue: "2.synthetic-unused",
-      rpId,
-      userHandle: "c3ludGhldGljLXVzZXI=",
-      userName: null,
-      counter: "1",
-      rpName: null,
-      userDisplayName: null,
-      discoverable: "true",
-      creationDate: "2024-01-30T17:55:36.150Z",
-    };
+    const view = { ...decryptedView, counter: "1" };
     const decryptFido2PrivateKey = vi.fn();
     const stub = {
       decryptFido2Credentials: vi.fn(async () => ({ ok: true, data: [view] })),

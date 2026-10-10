@@ -493,23 +493,27 @@ ceremony policy, for unattended and UV-required requests, keep the browser's rej
 for unknown allow-list credentials and a denied permissions policy, and cover abort and
 background timeout.
 
-The crypto Worker can list and sign with a stored passkey of one verified, live login
-item from the accepted snapshot. The host and vault manager expose these two operations
-with the same snapshot binding, durable-revision checks and late-result withholding as
-URL matching. Listing returns only the secret-free metadata above. Signing re-derives
-the item's single credential, requires the requested credential ID and RP ID to match
-it, refuses a nonzero stored counter, and signs only 37-byte zero-counter assertion data
+The crypto Worker can search the verified, live login items of the accepted snapshot for
+stored passkeys whose RP ID equals the requested one, and sign with the passkey of one
+such item. The host and vault manager expose these two operations with the same snapshot
+binding, durable-revision checks and late-result withholding as URL matching. The search
+decrypts credential metadata only for items whose encrypted `login.fido2Credentials` is
+non-empty and returns only the secret-free metadata above. Items whose metadata cannot
+be decrypted, and decrypted items with this RP ID that cannot be used (for example
+several stored passkeys), are listed in `unavailableItemIds` instead of failing the
+search; items whose passkeys all have other RP IDs are not. Signing re-derives the
+item's single credential, requires the requested credential ID and RP ID to match it,
+refuses a nonzero stored counter, and signs only 37-byte zero-counter assertion data
 whose RP ID hash matches and whose flags carry UP, BE and BS with no attested data,
 extension or reserved bits. The decoded key is imported non-extractable inside the
 Worker and only a DER signature crosses the Port. A reply bound to another snapshot,
 item or credential, or with any other shape, locks the session; an unreadable or
 ambiguous item fails on its own without retiring the session. Unit tests sign through
 the pinned SDK with the synthetic FIDO2 fixture and verify against its public key.
-Selecting vault items by RP ID with the site default as the tie-break, as
+Applying exclusions, connection state and the site default tie-break that
 [ADR 0007](adr/0007-existing-passkey-assertions.md#item-selection) records, production
-entrypoints and real-site interoperability
-remain open; a navigation during signing relies on Chrome dropping the response to the
-replaced document.
+entrypoints and real-site interoperability remain open; a navigation during signing
+relies on Chrome dropping the response to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
 accessor property returning a function with a different `length` and source text), which
