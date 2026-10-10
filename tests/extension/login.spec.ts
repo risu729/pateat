@@ -748,6 +748,23 @@ test("a password fills only a password input and one step stays inside one form"
       ).toBe(0);
       await split.close();
       await expect.poll(status).not.toContain("structural-mismatch");
+      const mixed = await context.newPage();
+      await mixed.goto(`${fixture.origin}/identity?account-form`);
+      await expect.poll(status).toContain("structural-mismatch");
+      await expect(mixed.locator("#branch")).toHaveValue("");
+      await mixed.close();
+      await expect.poll(status).not.toContain("structural-mismatch");
+      // A page handler that moves the next input into another form stops the remaining writes.
+      const moved = await context.newPage();
+      await moved.goto(`${fixture.origin}/identity?move-on-fill`);
+      await expect.poll(status).toContain("cancelled");
+      await expect(moved.locator("#branch")).toHaveValue("007");
+      await expect(moved.locator("#account")).toHaveValue("");
+      expect(
+        await moved.evaluate(() => Number(sessionStorage.getItem("identityClicks") || 0)),
+      ).toBe(0);
+      await moved.close();
+      await expect.poll(status).not.toContain("cancelled");
       const declared = await context.newPage();
       await declared.goto(`${fixture.origin}/single?password-input=text-current-password`);
       await expect(declared.locator("#authenticated")).toBeVisible();

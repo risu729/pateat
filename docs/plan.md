@@ -332,13 +332,14 @@ Chrome yet.
 - A fill step refuses as `structural-mismatch` before writing anything unless all of its
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy
-  `password`) fills only `type="password"` or `autocomplete="current-password"` inputs.
-  A `login.totp-code` fills `autocomplete="one-time-code"` inputs, or
-  `inputmode="numeric"`, `type="tel"` or `type="number"` inputs with a `maxlength` from
-  1 to 10. Each write rechecks the same conditions. Usernames and custom fields fill any
-  writable input; Hidden and Linked custom fields are not classified yet. There is no
-  per-binding exception, so a bank PIN rendered as `<input type="tel">` and bound to
-  `login.password` is refused; revisit if such sites are common.
+  `password`) fills only `type="password"` inputs or inputs whose `autocomplete`
+  includes `current-password`. A `login.totp-code` fills `autocomplete="one-time-code"`
+  inputs, or `inputmode="numeric"`, `type="tel"` or `type="number"` inputs with a
+  `maxlength` from 1 to 10. Each write rechecks the same conditions. Usernames and
+  custom fields fill any writable input; Hidden and Linked custom fields are not
+  classified yet, so a Linked field pointing at the password fills any writable input.
+  There is no per-binding exception, so a bank PIN rendered as `<input type="tel">` and
+  bound to `login.password` is refused; revisit if such sites are common.
 - Real Bitwarden connections, individual MFA methods, the install-time site-access
   warning and the setup prompt after withheld site access in installed Chrome remain
   separate gates.

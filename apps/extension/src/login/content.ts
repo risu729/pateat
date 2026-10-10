@@ -152,8 +152,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           return fail("structural-mismatch");
         // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
         const writableInputs = inputs as HTMLInputElement[];
+        const form = writableInputs[0]!.form;
         if (
-          writableInputs.some((input) => input.form !== writableInputs[0]!.form) ||
+          writableInputs.some((input) => input.form !== form) ||
           step.fields.some(
             (field, index) =>
               !accepts(
@@ -176,7 +177,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             current.length !== 1 ||
             current[0] !== input ||
             !writable(input) ||
-            input.form !== writableInputs[0]!.form ||
+            input.form !== form ||
             !accepts(input, value.secret)
           )
             return fail("cancelled");

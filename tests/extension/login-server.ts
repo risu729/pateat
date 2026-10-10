@@ -147,7 +147,9 @@ export async function startLoginFixture(
         html(
           fixtureUrl.searchParams.has("split-forms")
             ? '<h1>Synthetic identity step</h1><form><label>Branch<input id="branch"></label></form><form><label>Account<input id="account"></label></form><button id="next" type="button">Next</button>'
-            : '<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><label>Account<input id="account"></label><button id="next" type="button">Next</button>',
+            : fixtureUrl.searchParams.has("account-form")
+              ? '<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><form><label>Account<input id="account"></label></form><button id="next" type="button">Next</button>'
+              : '<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><label>Account<input id="account"></label><button id="next" type="button">Next</button>',
           `document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));
@@ -163,6 +165,15 @@ export async function startLoginFixture(
           const replacement = document.createElement('input');
           replacement.id = 'account';
           previous.after(replacement);
+        }, {once:true});`
+            : ""
+        }
+        ${
+          fixtureUrl.searchParams.has("move-on-fill")
+            ? `document.getElementById('branch').addEventListener('input', () => {
+          const form = document.createElement('form');
+          document.body.append(form);
+          form.append(document.getElementById('account'));
         }, {once:true});`
             : ""
         }`,
