@@ -705,7 +705,25 @@ login form), and that the model sees only the page structure and slot meanings w
 extension fills values locally. A `refused` outcome now carries `refusalCategory`, the
 provider's refusal category code (for Claude, `stop_details.category`, such as `cyber`),
 when it is a short code; free-text explanations are dropped. The benchmark lists it per
-case. Remaining M4 AI work:
+case.
+
+The second owner-approved run (2026-10-10, main `d105f76`, cap $2) gave:
+
+| Measure | Result |
+| --- | --- |
+| Served models | `claude-opus-5-5` only |
+| Verdicts (16 cases) | 14 correct, 2 correct abstentions, 0 missed, 0 false submits, 0 failed |
+| Semantic accuracy | 1.0 (16/16) |
+| Abstentions | `ambiguous` 1 (`ja-unlabeled-ambiguous`), `no-login-form` 1 (`en-newsletter-only`) |
+| Errors | none |
+| Joint-mapping rejections | 0 |
+| Latency | p50 2,129 ms, p95 4,746 ms (one call per case, no retries) |
+| Usage | 22,798 input and 1,402 output tokens over 16 calls |
+| Estimated cost | $0.119 at $4/$20 per million (about $0.0075 per call) |
+
+`ja-bank-unlabeled-lengths` now maps all three fields correctly, and the cases that
+must abstain still do. With one sample per case this cannot show that the refusal will
+not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
