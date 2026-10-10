@@ -590,10 +590,15 @@ oversized and incomplete inputs and the absence of fallback.
 
 [ADR 0014](adr/0014-claude-generation-provider.md) selects `claude-opus-5-5` at effort
 `low` through `@ai-sdk/anthropic` for the generation/repair role; the finite-choice role
-has no provider yet. No paid inference has run. Remaining M4 AI work:
+has no provider yet. `createClaudeGenerationModel` in
+`packages/inference/src/providers/claude.ts` builds that model, and
+`mise run bench:inference --paid` runs the generation role over the corpus with the
+local value check. It stops before a case that could take the estimated spend past
+`--max-cost-usd` (default 2) and still prints the cases already run, the estimated cost
+and the model IDs the API reported serving. No paid inference has run. Remaining M4 AI
+work:
 
-- The Claude adapter and the one owner-approved benchmark run of the synthetic corpus,
-  with its report.
+- The one owner-approved benchmark run of the synthetic corpus and its report.
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
 - The extension observation extractor with privacy fixtures. Expect Japanese pages to

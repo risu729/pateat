@@ -94,6 +94,14 @@ run = "node node_modules/vitest/vitest.mjs run packages/inference"
 [tasks."typecheck:inference"]
 run = "node node_modules/typescript/bin/tsc --noEmit -p packages/inference/tsconfig.json"
 
+[tasks."bench:inference"]
+description = "Run the paid Claude generation benchmark on the synthetic corpus (owner approval per run)."
+usage = '''
+flag "--paid" help="Confirm the owner approved this paid run."
+flag "--max-cost-usd <usd>" default="2" help="Stop before a call that could exceed this estimated spend."
+'''
+run = "bun scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }}"
+
 [tasks."typecheck:bitwarden"]
 run = "node node_modules/typescript/bin/tsc --noEmit -p packages/bitwarden/tsconfig.json"
 

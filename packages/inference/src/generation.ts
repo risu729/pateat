@@ -91,7 +91,7 @@ export function createRecipeGenerator(config: {
     throw new TypeError("Pass a configured model instance");
   const limits = v.parse(roleLimitsSchema, config.limits);
   const maxOutputTokens = v.parse(
-    v.pipe(v.number(), v.integer(), v.minValue(16), v.maxValue(4096)),
+    v.pipe(v.number(), v.integer(), v.minValue(16), v.maxValue(16_384)),
     config.maxOutputTokens,
   );
 
