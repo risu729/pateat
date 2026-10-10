@@ -127,9 +127,11 @@ describe("WebAuthn L3 ES256 authentication vector", () => {
     const authenticatorData = fromBase64Url(assertion.authenticatorData)!;
     // UP, UV, BE and BS; the RP ID hash and zero counter match the vector.
     expect(authenticatorData[32]).toBe(0x1d);
+    expect(authenticatorData.length).toBe(37);
     expect(toHex(authenticatorData.subarray(0, 32))).toBe(
       vector.authentication.authenticatorData.slice(0, 64),
     );
+    expect(toHex(authenticatorData.subarray(33))).toBe("00000000");
     expect(
       await verify(
         fromBase64Url(assertion.signature)!,

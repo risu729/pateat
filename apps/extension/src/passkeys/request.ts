@@ -82,12 +82,13 @@ export function admitGetRequest(input: {
   readonly userActivation: boolean;
   readonly policy: PasskeyPolicy;
 }): Admission {
+  // Gates compare against the permissive value so an unknown stored setting fails closed.
   const parsed = v.safeParse(bridgedGetRequestSchema, input.request);
   if (!parsed.success) return { kind: "delegate", reason: "invalid-request" };
   const request = parsed.output;
   if (request.mediation !== undefined && request.mediation !== "optional")
     return { kind: "delegate", reason: "unsupported-mediation" };
-  if (request.userVerification === "required" && input.policy.verification === "never")
+  if (request.userVerification === "required" && input.policy.verification !== "always")
     return { kind: "delegate", reason: "user-verification-required" };
   const rpId = resolveRpId(input.origin, request.rpId);
   if (!rpId.ok) return { kind: "delegate", reason: rpId.reason };
@@ -108,7 +109,7 @@ export function admitGetRequest(input: {
     )
   )
     return { kind: "delegate", reason: "external-transports-only" };
-  if (input.policy.presence === "activation" && !input.userActivation)
+  if (input.policy.presence !== "always" && !input.userActivation)
     return { kind: "delegate", reason: "no-user-activation" };
   return {
     kind: "claim",

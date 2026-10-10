@@ -109,6 +109,16 @@ describe("request admission", () => {
       kind: "claim",
       request: { userVerified: false },
     });
+    // An unknown stored value fails closed instead of asserting more.
+    const unknown = { presence: "maybe", verification: "maybe" } as unknown as PasskeyPolicy;
+    expect(admit(base, false, undefined, unknown)).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+    expect(admit(base, true, undefined, unknown)).toMatchObject({
+      kind: "claim",
+      request: { userVerified: false },
+    });
   });
 
   it("keeps only public-key allow-list IDs in canonical base64url", () => {
