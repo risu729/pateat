@@ -40,9 +40,26 @@ const recordSchema = v.variant("kind", [
     label: deviceLabelSchema,
     deviceId: deviceIdSchema,
     credential: deviceCredentialSchema,
+    /** When recipes last synced completely. */
+    syncedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+    /** The service answered 401: it no longer accepts this credential. */
+    rejected: v.optional(v.literal(true)),
+    /** The owner's recipes outgrew the local cache; cleared by the next complete sync. */
+    cacheFull: v.optional(v.literal(true)),
   }),
 ]);
 type ServiceRecord = v.InferOutput<typeof recordSchema>;
+
+/** A sync outcome kept on the connected record for the settings page. */
+export type RecipeSyncRecord = { syncedAt: number } | { rejected: true } | { cacheFull: true };
+
+/** What the background sync needs; never sent to the options page. */
+export type ServiceConnection = {
+  origin: string;
+  deviceId: string;
+  credential: string;
+  rejected: boolean;
+};
 
 export interface ServiceStorage {
   read(): Promise<unknown>;
@@ -55,7 +72,7 @@ class StorageCorrupt extends Error {}
 
 export function createServiceRuntime(options: {
   storage: ServiceStorage;
-  transport: ServiceTransport;
+  transport: Pick<ServiceTransport, "redeem" | "revoke">;
   /** Whether Chrome currently lets the extension reach this origin. */
   hasSiteAccess: (origin: string) => Promise<boolean>;
   now?: () => number;
@@ -108,6 +125,9 @@ export function createServiceRuntime(options: {
         origin: record.origin,
         label: record.label,
         deviceId: record.deviceId,
+        ...(record.syncedAt === undefined ? {} : { syncedAt: record.syncedAt }),
+        ...(record.rejected ? { rejected: true } : {}),
+        ...(record.cacheFull ? { cacheFull: true } : {}),
       };
     const challenge = await createEnrollmentChallenge(record.verifier);
     const enrollUrl = new URL("/enroll", record.origin);
@@ -244,9 +264,15 @@ export function createServiceRuntime(options: {
     }
   }
 
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const pending = queue.then(task);
+    queue = pending.catch(() => undefined);
+    return pending;
+  }
+
   return {
     handle(input: unknown): Promise<ServiceResponse> {
-      const pending = queue.then(() =>
+      return enqueue(() =>
         run(input).catch((error: unknown) => {
           if (error instanceof StorageUnavailable)
             return { ok: false, error: "storage-unavailable" } as const;
@@ -255,8 +281,36 @@ export function createServiceRuntime(options: {
           throw error;
         }),
       );
-      queue = pending.catch(() => undefined);
-      return pending;
+    },
+    /**
+     * The paired device for background sync, or nothing when unpaired. It rejects when
+     * the record cannot be read, so callers do not mistake that for a disconnect.
+     * It reads storage directly, so a login lookup never waits behind a redemption or
+     * revocation request in the queue; each storage read sees one whole record.
+     */
+    async connection(): Promise<ServiceConnection | undefined> {
+      const record = await load();
+      return record?.kind === "connected"
+        ? {
+            origin: record.origin,
+            deviceId: record.deviceId,
+            credential: record.credential,
+            rejected: record.rejected === true,
+          }
+        : undefined;
+    },
+    /**
+     * Records a sync outcome for the device that ran it. A record replaced meanwhile,
+     * by disconnecting or pairing again, is left alone.
+     */
+    recordSync(deviceId: string, outcome: RecipeSyncRecord) {
+      return enqueue(async () => {
+        const { record } = await current();
+        if (record?.kind !== "connected" || record.deviceId !== deviceId) return;
+        // A complete sync means the cache fits again.
+        const { cacheFull: _, ...rest } = record;
+        await save("syncedAt" in outcome ? { ...rest, ...outcome } : { ...record, ...outcome });
+      });
     },
   };
 }

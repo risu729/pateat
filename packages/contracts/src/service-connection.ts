@@ -55,6 +55,12 @@ export const serviceStateSchema = v.variant("kind", [
     origin: serviceOriginSchema,
     label: deviceLabelSchema,
     deviceId: deviceIdSchema,
+    /** When recipes last synced completely; absent before the first complete sync. */
+    syncedAt: v.optional(timestamp),
+    /** The service no longer accepts this device; cached recipes still apply. */
+    rejected: v.optional(v.literal(true)),
+    /** The owner's recipes outgrew the local cache; newer changes are not applied. */
+    cacheFull: v.optional(v.literal(true)),
   }),
 ]);
 

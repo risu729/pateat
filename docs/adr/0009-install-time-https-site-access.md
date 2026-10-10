@@ -20,9 +20,10 @@ saved site default is not required: since ADR 0013 an account can also be chosen
 single provider URI match. An admitted document still needs a cached recipe for its
 exact origin (scheme, host and port), looked up before the policy catalog is opened;
 without one it gets no attempt, observation, policy catalog or vault access. Every
-policy check of the declarative executor applies unchanged. Until the recipe cache
-exists, admitted documents stop with `recipe-not-found` without opening the catalog or
-vault.
+policy check of the declarative executor applies unchanged. The cache is the synced
+service copy ([ADR 0013](0013-service-held-recipes-and-settings.md)); without a paired
+service or a cached recipe, admitted documents stop with `recipe-not-found` without
+opening the catalog or vault.
 
 Probe-only behavior stays confined to the probe build: the loopback origin grant, the
 probe recipe and binding, probe control messages and attempt status echoed to the page.

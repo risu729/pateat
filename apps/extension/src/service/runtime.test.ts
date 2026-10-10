@@ -52,7 +52,7 @@ function fakeTransport(
 function setup(
   options: {
     storage?: ReturnType<typeof memoryStorage>;
-    transport?: ServiceTransport;
+    transport?: Pick<ServiceTransport, "redeem" | "revoke">;
     now?: () => number;
     hasSiteAccess?: (origin: string) => Promise<boolean>;
   } = {},
@@ -390,6 +390,103 @@ describe("connected device", () => {
       state: { kind: "disconnected" },
       revoked: false,
     });
+    expect(storage.value()).toBeUndefined();
+  });
+});
+
+describe("background sync access", () => {
+  const connected = {
+    version: 1,
+    kind: "connected",
+    origin: ORIGIN,
+    label: "Work laptop",
+    deviceId: ISSUED.deviceId,
+    credential: CREDENTIAL,
+  };
+
+  it("hands the credential only to the background sync", async () => {
+    const { runtime } = setup({ storage: memoryStorage(connected) });
+    expect(await runtime.connection()).toEqual({
+      origin: ORIGIN,
+      deviceId: ISSUED.deviceId,
+      credential: CREDENTIAL,
+      rejected: false,
+    });
+    expect(JSON.stringify(await runtime.handle({ version: 1, type: "service.get" }))).not.toContain(
+      CREDENTIAL,
+    );
+  });
+
+  it("has no connection while pairing, unpaired or unreadable", async () => {
+    const pairing = setup();
+    await pairing.runtime.handle(start);
+    expect(await pairing.runtime.connection()).toBeUndefined();
+    expect(await setup().runtime.connection()).toBeUndefined();
+    // Unreadable is not unpaired: the recipe cache must not be cleared for it.
+    await expect(
+      setup({
+        storage: memoryStorage({ version: 1, kind: "connected" }),
+      }).runtime.connection(),
+    ).rejects.toThrow();
+  });
+
+  it("shows sync outcomes for the same device only", async () => {
+    const { storage, runtime } = setup({ storage: memoryStorage(connected) });
+    await runtime.recordSync(ISSUED.deviceId, { syncedAt: 9_000 });
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: true,
+      state: {
+        kind: "connected",
+        origin: ORIGIN,
+        label: "Work laptop",
+        deviceId: ISSUED.deviceId,
+        syncedAt: 9_000,
+      },
+    });
+    await runtime.recordSync(ISSUED.deviceId, { rejected: true });
+    expect(await runtime.connection()).toMatchObject({ rejected: true });
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toMatchObject({
+      state: { syncedAt: 9_000, rejected: true },
+    });
+    const before = structuredClone(storage.value());
+    await runtime.recordSync("7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52", { syncedAt: 10_000 });
+    expect(storage.value()).toEqual(before);
+  });
+
+  it("shows a full cache until the next complete sync", async () => {
+    const { runtime } = setup({ storage: memoryStorage(connected) });
+    await runtime.recordSync(ISSUED.deviceId, { cacheFull: true });
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toMatchObject({
+      state: { cacheFull: true },
+    });
+    await runtime.recordSync(ISSUED.deviceId, { syncedAt: 9_000 });
+    const response = await runtime.handle({ version: 1, type: "service.get" });
+    expect(response).toMatchObject({ state: { syncedAt: 9_000 } });
+    expect(response.ok && response.state).not.toHaveProperty("cacheFull");
+  });
+
+  it("answers a lookup without waiting behind a slow revocation", async () => {
+    let finish: (result: RevokeResult) => void = () => undefined;
+    const transport = fakeTransport();
+    transport.revoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { runtime } = setup({ storage: memoryStorage(connected), transport });
+    const disconnecting = runtime.handle({ version: 1, type: "service.disconnect" });
+    await vi.waitFor(() => expect(transport.revoke).toHaveBeenCalledOnce());
+    expect(await runtime.connection()).toMatchObject({ deviceId: ISSUED.deviceId });
+    finish({ kind: "revoked" });
+    await disconnecting;
+    expect(await runtime.connection()).toBeUndefined();
+  });
+
+  it("ignores a sync outcome after disconnecting", async () => {
+    const { storage, runtime } = setup({ storage: memoryStorage(connected) });
+    await runtime.handle({ version: 1, type: "service.disconnect" });
+    await runtime.recordSync(ISSUED.deviceId, { syncedAt: 9_000 });
     expect(storage.value()).toBeUndefined();
   });
 });

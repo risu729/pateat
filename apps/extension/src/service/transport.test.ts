@@ -164,3 +164,64 @@ describe("revoke", () => {
     ).toEqual({ kind: "failed", error: "unexpected-response" });
   });
 });
+
+describe("recipe changes", () => {
+  const recipePage = {
+    version: 1,
+    changes: [{ recipeId: "bank-signin", revision: 2, state: "revoked" }],
+    cursor: 5,
+    complete: true,
+  };
+
+  it("reads one page with the device credential", async () => {
+    const fetch = respond(200, recipePage);
+    expect(await createServiceTransport({ fetch }).recipeChanges(ORIGIN, CREDENTIAL, 3)).toEqual({
+      kind: "page",
+      page: recipePage,
+    });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/recipes?after=3&limit=100`);
+    expect(init).toMatchObject({
+      method: "GET",
+      headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      redirect: "error",
+      credentials: "omit",
+    });
+  });
+
+  it("accepts a page larger than the pairing limit", async () => {
+    const body = `${" ".repeat(64 * 1024)}${JSON.stringify({ ...recipePage, cursor: 3 })}`;
+    expect(
+      await createServiceTransport({ fetch: respond(200, body) }).recipeChanges(
+        ORIGIN,
+        CREDENTIAL,
+        3,
+      ),
+    ).toMatchObject({ kind: "page" });
+  });
+
+  it.each([
+    ["a malformed page", 200, { ...recipePage, cursor: -1 }, "unexpected-response"],
+    ["a cursor that moves back", 200, { ...recipePage, cursor: 2 }, "unexpected-response"],
+    ["a rate limit", 429, { error: "rate_limited" }, "rate-limited"],
+    ["an unknown 401", 401, { error: "access_denied" }, "unexpected-response"],
+  ])("rejects %s", async (_, status, body, error) => {
+    expect(
+      await createServiceTransport({ fetch: respond(status, body) }).recipeChanges(
+        ORIGIN,
+        CREDENTIAL,
+        3,
+      ),
+    ).toEqual({ kind: "failed", error });
+  });
+
+  it.each(["device_revoked", "unauthorized"])("reports a rejected device: %s", async (error) => {
+    expect(
+      await createServiceTransport({ fetch: respond(401, { error }) }).recipeChanges(
+        ORIGIN,
+        CREDENTIAL,
+        0,
+      ),
+    ).toEqual({ kind: "rejected" });
+  });
+});

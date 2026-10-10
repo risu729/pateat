@@ -128,12 +128,38 @@ export function ServiceConnection({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [client, pairing, pollMs]);
 
+  // The first sync runs in the background after pairing; show when it finishes.
+  const awaitingSync =
+    state?.kind === "connected" &&
+    state.syncedAt === undefined &&
+    !state.rejected &&
+    !state.cacheFull;
+  useEffect(() => {
+    if (!awaitingSync) return;
+    const timer = setInterval(() => {
+      if (checking.current || acting.current) return;
+      checking.current = true;
+      void client
+        .get()
+        .then(
+          (response) => receive(response),
+          () => undefined,
+        )
+        .finally(() => {
+          checking.current = false;
+        });
+    }, pollMs);
+    return () => clearInterval(timer);
+    // `receive` touches only state setters and refs; restart only when waiting toggles.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [client, awaitingSync, pollMs]);
+
   return (
     <section className="panel" aria-labelledby="sync-service-heading">
       <h2 id="sync-service-heading">Sync service</h2>
       <p className="note">
-        Optional. Pair this device with your own Pateat service to sync settings and recipes later.
-        Pairing never sends vault values, passwords or keys.
+        Optional. Pair this device with your own Pateat service to sync recipes; settings sync comes
+        later. Pairing never sends vault values, passwords or keys.
       </p>
       <output
         id="sync-service-status"
@@ -283,6 +309,15 @@ export function ServiceConnection({
         <div className="grid gap-3">
           <p>
             <strong>{state.label}</strong> is paired with {state.origin}.
+          </p>
+          <p id="sync-service-recipes" className="note">
+            {state.rejected
+              ? "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync."
+              : state.cacheFull
+                ? "Your recipes no longer fit in this device's cache, so newer changes are not applied. Login keeps using the recipes synced before."
+                : state.syncedAt === undefined
+                  ? "Recipes have not finished syncing yet."
+                  : `Recipes last synced at ${new Date(state.syncedAt).toLocaleString()}.`}
           </p>
           <div>
             <Button

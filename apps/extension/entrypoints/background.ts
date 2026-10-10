@@ -17,8 +17,13 @@ import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
+import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
-import { createBrowserServiceStorage } from "../src/service/storage";
+import {
+  createBrowserRecipeCacheStorage,
+  createBrowserRecipeScheduleStorage,
+  createBrowserServiceStorage,
+} from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
 
 export default defineBackground(() => {
@@ -43,12 +48,29 @@ export default defineBackground(() => {
       : {}),
   });
   const settings = connections.settings;
+  const serviceTransport = createServiceTransport();
+  const service = createServiceRuntime({
+    storage: createBrowserServiceStorage(),
+    transport: serviceTransport,
+    // Chrome match patterns do not carry ports; site access is granted per host.
+    hasSiteAccess: (origin) =>
+      browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
+  });
+  const recipeSync = createRecipeSync({
+    service,
+    transport: serviceTransport,
+    storage: createBrowserRecipeCacheStorage(),
+    schedule: createBrowserRecipeScheduleStorage(),
+  });
+  // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
+  recipeSync.refreshIfStale();
   const login = createLoginRuntime(settings, {
     fields: combineFieldSources({
       bitwarden: createVaultFieldSource(connections),
       ...(catalog ? { dummy: dummyFieldSource } : {}),
     }),
     sites: createLoginSites(settings),
+    recipes: recipeSync.recipes,
     uris: createVaultUriMatcher(connections),
   });
   const setupProbe = syntheticSetup?.handler(connections);
@@ -60,14 +82,6 @@ export default defineBackground(() => {
         policy: passkeyProbe.policy,
       })
     : undefined;
-
-  const service = createServiceRuntime({
-    storage: createBrowserServiceStorage(),
-    transport: createServiceTransport(),
-    // Chrome match patterns do not carry ports; site access is granted per host.
-    hasSiteAccess: (origin) =>
-      browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
-  });
 
   browser.runtime.onConnect.addListener((port) => {
     connections.attach(port);
@@ -139,9 +153,23 @@ export default defineBackground(() => {
       typeof message.type === "string" &&
       message.type.startsWith("service.")
     ) {
-      void service
-        .handle(message)
-        .then(sendResponse, () => sendResponse({ ok: false, error: "storage-unavailable" }));
+      void service.handle(message).then(
+        (response) => {
+          // A completed pairing syncs at once; an open settings page keeps a stale cache moving.
+          if (response.ok && response.state.kind === "connected") {
+            if (message.type === "service.pair.check") void recipeSync.sync();
+            else recipeSync.refreshIfStale();
+          }
+          // The previous owner's recipes are not kept once their device is gone.
+          if (
+            (message.type === "service.disconnect" || message.type === "service.forget") &&
+            response.ok
+          )
+            void recipeSync.clear();
+          return sendResponse(response);
+        },
+        () => sendResponse({ ok: false, error: "storage-unavailable" }),
+      );
       return true;
     }
     if (

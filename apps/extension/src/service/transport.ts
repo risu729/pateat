@@ -1,4 +1,10 @@
-import { enrollmentRedeemResultSchema, type EnrollmentRedeemResult } from "@pateat/contracts";
+import {
+  enrollmentRedeemResultSchema,
+  SYNC_PAGE_LIMIT,
+  syncRecipeChangesSchema,
+  type EnrollmentRedeemResult,
+  type SyncRecipeChanges,
+} from "@pateat/contracts";
 import * as v from "valibot";
 
 export type TransportFailure = "unreachable" | "unexpected-response" | "rate-limited";
@@ -11,16 +17,26 @@ export type RedeemResult =
 
 export type RevokeResult = { kind: "revoked" } | { kind: "failed"; error: TransportFailure };
 
+export type RecipeChangesResult =
+  | { kind: "page"; page: SyncRecipeChanges }
+  /** The service no longer accepts this device's credential. */
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
+
 export interface ServiceTransport {
   redeem(origin: string, verifier: string): Promise<RedeemResult>;
   revoke(origin: string, credential: string): Promise<RevokeResult>;
+  /** One page of recipe changes after `after`, as returned by `GET /v1/recipes`. */
+  recipeChanges(origin: string, credential: string, after: number): Promise<RecipeChangesResult>;
 }
 
 const errorSchema = v.object({ error: v.string() });
 const MAX_RESPONSE_BYTES = 16 * 1024;
+/** A full page of recipes; the service accepts each recipe write up to 128 KiB. */
+const MAX_RECIPE_PAGE_BYTES = 16 * 1024 * 1024;
 
 /** Reads at most the byte limit, cancelling the stream instead of buffering more. */
-async function readBounded(response: Response): Promise<string | undefined> {
+async function readBounded(response: Response, limit: number): Promise<string | undefined> {
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -30,7 +46,7 @@ async function readBounded(response: Response): Promise<string | undefined> {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > MAX_RESPONSE_BYTES) {
+    if (size > limit) {
       void reader.cancel().catch(() => undefined);
       return undefined;
     }
@@ -59,7 +75,12 @@ export function createServiceTransport(
   const fetchResponse = options.fetch ?? globalThis.fetch.bind(globalThis);
   const timeoutMs = options.timeoutMs ?? 15_000;
 
-  async function call(origin: string, path: string, init: RequestInit) {
+  async function call(
+    origin: string,
+    path: string,
+    init: RequestInit,
+    limit: number = MAX_RESPONSE_BYTES,
+  ) {
     const url = new URL(path, origin).href;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -76,7 +97,7 @@ export function createServiceTransport(
         void response.body?.cancel().catch(() => undefined);
         return { failed: "unexpected-response" as const };
       }
-      const text = await readBounded(response);
+      const text = await readBounded(response, limit);
       if (text === undefined) return { failed: "unexpected-response" as const };
       let body: unknown;
       try {
@@ -95,6 +116,11 @@ export function createServiceTransport(
   function errorCode(body: unknown) {
     const parsed = v.safeParse(errorSchema, body);
     return parsed.success ? parsed.output.error : undefined;
+  }
+  /** Either 401 code means the service no longer accepts this credential. */
+  function rejected(response: { status: number; body: unknown }) {
+    const code = errorCode(response.body);
+    return response.status === 401 && (code === "unauthorized" || code === "device_revoked");
   }
 
   return {
@@ -125,10 +151,27 @@ export function createServiceTransport(
       });
       if ("failed" in response) return { kind: "failed", error: response.failed };
       if (response.status === 204) return { kind: "revoked" };
-      // Either 401 code means the service no longer accepts this credential.
-      const code = errorCode(response.body);
-      if (response.status === 401 && (code === "unauthorized" || code === "device_revoked"))
-        return { kind: "revoked" };
+      if (rejected(response)) return { kind: "revoked" };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+      return { kind: "failed", error: "unexpected-response" };
+    },
+    async recipeChanges(origin, credential, after) {
+      const query = new URLSearchParams({ after: String(after), limit: String(SYNC_PAGE_LIMIT) });
+      const response = await call(
+        origin,
+        `/v1/recipes?${query}`,
+        { method: "GET", headers: { Authorization: `Bearer ${credential}` } },
+        MAX_RECIPE_PAGE_BYTES,
+      );
+      if ("failed" in response) return { kind: "failed", error: response.failed };
+      if (response.status === 200) {
+        const parsed = v.safeParse(syncRecipeChangesSchema, response.body);
+        // A page that moves the cursor backwards would replay or skip changes.
+        return parsed.success && parsed.output.cursor >= after
+          ? { kind: "page", page: parsed.output }
+          : { kind: "failed", error: "unexpected-response" };
+      }
+      if (rejected(response)) return { kind: "rejected" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };
     },
