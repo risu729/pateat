@@ -4,8 +4,8 @@ The foundation has a Bun workspace, pinned tools, local policy settings, shared
 contracts, and a settings/recipe sync Worker skeleton. A separate localhost probe
 exercises the declarative login executor with synthetic values. Manual Bitwarden setup
 and local vault caching are implemented; production login activation, service
-enrollment and inference remain unimplemented. M1 is not complete until its required
-checks and acceptance gates pass.
+enrollment and provider inference remain unimplemented; AI roles are evaluated offline
+only. M1 is not complete until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
@@ -16,6 +16,7 @@ apps/extension/       WXT entrypoints and extension shell
 services/api/         Cloudflare Worker sync API and D1 schema
 packages/contracts/  Shared Valibot schemas and inferred types
 packages/bitwarden/  Provider-specific endpoint and transport boundary
+packages/inference/  Offline AI role adapters, synthetic corpus and evaluation harness
 tests/extension/      Isolated synthetic browser fixtures and tests
 tests/options/        React component tests in isolated Chromium
 ```
@@ -62,6 +63,8 @@ Focused tasks are available for diagnosis:
 | `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
 | `mise run typecheck:bitwarden` | Check provider source and test types |
 | `mise run test:login` | Test login executor sources with synthetic vault results |
+| `mise run test:inference` | Score AI role adapters on the synthetic corpus with fake providers |
+| `mise run typecheck:inference` | Check AI adapter, corpus and harness types |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run generate:server-migrations` | Generate D1 migration SQL from the Drizzle schema |
 | `mise run check:server-migrations` | Fail when committed migrations differ from the schema |
@@ -215,7 +218,7 @@ use.
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
-| Inference transport | **Approved:** AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
+| Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; no provider package is installed | M4 provider integration |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
@@ -272,6 +275,14 @@ provider adapter when that API is not represented faithfully by the SDK. Set
 retry/timeout limits explicitly and account for every attempt. Disable raw
 input/output/header telemetry and sanitize errors. No automatic model/provider
 fallback is introduced by a library.
+
+`packages/inference` passes configured model instances only; a model ID string would
+resolve through the SDK's global default provider and is rejected. The finite-choice
+role uses `experimental_decide` from the approved AI SDK (no added dependency or
+provider); its contract may change in patch releases, so the
+`ai` version stays exact and its tests guard answer validation. A Clef or Jev adapter
+implements that `doDecide` contract or replaces it with a direct typed adapter if the
+contract loses provider semantics.
 
 Use the approved fast-check for invariants such as stronger exclusions never expanding
 eligibility and stale events never authorizing a new document. Component tests
