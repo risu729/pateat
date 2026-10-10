@@ -7,3 +7,4 @@ export { buildFieldQuestions, createFieldMappingDecider, type FiniteChoiceModel 
 export { evaluationCorpus, type EvaluationCase, type ExpectedResult } from "./corpus/cases";
 export { slots as corpusSlots } from "./corpus/slots";
 export * from "./evaluate";
+export * from "./values";

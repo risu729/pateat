@@ -36,6 +36,8 @@ export const fillRoles = ["text", "email", "tel", "number", "password"] as const
 export const actionRoles = ["button", "link"] as const;
 export const candidateRoleSchema = v.picklist([...fillRoles, ...actionRoles, "checkbox"]);
 
+const textLength = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1024));
+
 /** One allowlisted, value-free page element. The ID is local to this observation. */
 export const observedCandidateSchema = v.strictObject({
   id: identifier,
@@ -47,6 +49,17 @@ export const observedCandidateSchema = v.strictObject({
     v.picklist(["username", "email", "current-password", "new-password", "one-time-code", "off"]),
   ),
   group: v.optional(identifier),
+  // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
+  // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
+  // values such as 524288), omits both when minlength exceeds maxlength, and omits
+  // lengths on number inputs, where browsers ignore them, so one odd attribute never
+  // rejects the whole observation. Constraints appear only on fill roles. `pattern` is deliberately absent:
+  // evaluating a page-supplied expression locally could hang the caller.
+  maxLength: v.optional(textLength),
+  minLength: v.optional(textLength),
+  inputMode: v.optional(
+    v.picklist(["none", "text", "decimal", "numeric", "tel", "search", "email", "url"]),
+  ),
 });
 
 /**
@@ -75,14 +88,81 @@ export const loginObservationSchema = v.pipe(
       unique(observation.candidates.map((candidate) => JSON.stringify(candidate.target))),
     "Duplicate candidate targets",
   ),
+  v.check(
+    (observation) =>
+      observation.candidates.every(
+        ({ minLength, maxLength }) =>
+          minLength === undefined || maxLength === undefined || minLength <= maxLength,
+      ),
+    "minLength exceeds maxLength",
+  ),
+  v.check(
+    (observation) =>
+      observation.candidates.every(
+        ({ role, maxLength, minLength }) =>
+          (maxLength === undefined && minLength === undefined) ||
+          (role !== "number" && (fillRoles as readonly string[]).includes(role)),
+      ) &&
+      observation.candidates.every(
+        ({ role, inputMode }) =>
+          inputMode === undefined || (fillRoles as readonly string[]).includes(role),
+      ),
+    "Input constraints apply only to fill roles; lengths not to number inputs",
+  ),
 );
 
-/** A semantic slot the caller wants mapped. Values and account bindings never enter inference. */
-export const semanticSlotSchema = v.strictObject({
-  id: identifier,
-  kind: v.picklist(["identifier", "secret", "one-time-code"]),
-  description: observedText,
+/** Character classes of a value shape, in their canonical order. */
+export const valueCharacterClasses = [
+  "ascii-digit",
+  "ascii-letter",
+  "ascii-symbol",
+  "fullwidth",
+  "space",
+  "other",
+] as const;
+
+/**
+ * Coarse shape of a visible identifier value (ADR 0010): its UTF-16 length, the
+ * character classes it contains in canonical order, and whether it is email-shaped.
+ * It never carries characters or their positions.
+ */
+export const valueShapeSchema = v.strictObject({
+  length: textLength,
+  classes: v.pipe(
+    v.array(v.picklist(valueCharacterClasses)),
+    v.minLength(1),
+    v.check(
+      (classes) =>
+        classes.every(
+          (entry, index) =>
+            index === 0 ||
+            valueCharacterClasses.indexOf(entry) >
+              valueCharacterClasses.indexOf(classes[index - 1]!),
+        ),
+      "Use unique classes in canonical order",
+    ),
+  ),
+  email: v.boolean(),
 });
+
+/**
+ * A semantic slot the caller wants mapped. Values and account bindings never enter
+ * inference. `fieldName` is the user's name for an allowed vault field; `valueShape`
+ * is allowed only on identifier slots backed by a visible value (ADR 0010).
+ */
+export const semanticSlotSchema = v.pipe(
+  v.strictObject({
+    id: identifier,
+    kind: v.picklist(["identifier", "secret", "one-time-code"]),
+    description: observedText,
+    fieldName: v.optional(observedText),
+    valueShape: v.optional(valueShapeSchema),
+  }),
+  v.check(
+    (slot) => slot.valueShape === undefined || slot.kind === "identifier",
+    "Only identifier slots may carry a value shape",
+  ),
+);
 export const semanticSlotsSchema = v.pipe(
   v.array(semanticSlotSchema),
   v.minLength(1),
@@ -93,3 +173,4 @@ export const semanticSlotsSchema = v.pipe(
 export type LoginObservation = v.InferOutput<typeof loginObservationSchema>;
 export type ObservedCandidate = v.InferOutput<typeof observedCandidateSchema>;
 export type SemanticSlot = v.InferOutput<typeof semanticSlotSchema>;
+export type ValueShape = v.InferOutput<typeof valueShapeSchema>;

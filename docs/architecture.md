@@ -49,7 +49,7 @@ compatibility claim or an alternative cloud-browser implementation.
 | Isolated content script | Extract sanitized form structure, validate document identity, execute fixed DOM operations | Only the specific values being filled, briefly                  |
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
 | Settings page           | Initial account/device setup, policy, status and recovery                                  | Deliberate user setup only; no auto-opening during login        |
-| Worker API + D1         | Private settings and recipe revisions, device authorization, bounded inference             | Service credentials only; no vault values or keys               |
+| Worker API + D1         | Private settings and recipe revisions, device authorization, bounded inference, request log | Service credentials only; no vault values or keys               |
 | AI provider             | Match observed elements and propose declarative steps                                      | No vault values, account bindings, cookies, or assertions       |
 
 Content/page messages are untrusted. Validate payloads with Valibot and bind
@@ -262,7 +262,12 @@ Handle all custom field types: Text, Hidden, Boolean and Linked. Preserve leadin
 zeros and duplicate names; use stable field references rather than a name-only
 map and resolve Linked fields to their source. Second passwords and card PINs
 are valid field roles. Prefer explicit mappings; abstain from ambiguous mappings
-instead of trying every candidate. Values never go to inference.
+instead of trying every candidate. Values never go to inference; allowed field names
+and the coarse shape of visible identifier values may
+([ADR 0010](adr/0010-inference-field-hints.md)), and a plan is checked against the real
+values locally before filling. After filling and before the click, the executor stops
+when the page marks a filled element invalid or shows a new alert. Neither check is
+wired into the executor yet.
 
 Local field snapshots detach supported decrypted items from caller mutation.
 References bind connection, user, item and snapshot identity; custom fields use
@@ -474,7 +479,8 @@ parameters through the approved Drizzle integration, with Hono for API routing
 and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
 sync, enrollment and device management routes described in
-[its README](../services/api/README.md); inference remains planned.
+[its README](../services/api/README.md); inference and its request log
+([ADR 0012](adr/0012-inference-request-log.md)) remain planned.
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free

@@ -462,10 +462,20 @@ one attempt without reported usage makes the total unknown. Retries default to n
 are bounded; timeouts, caller cancellation and byte limits on the sent instructions,
 input and output schema or questions are enforced locally (provider envelope overhead is
 not counted). SDK telemetry is disabled per call so prompts, page text and outputs never
-reach global integrations. The finite-choice state carries page context and slot
-meanings only; eligible elements appear solely as question options.
+reach global integrations. The finite-choice state carries page context and the slots
+(meanings plus any ADR 0010 hints); eligible elements appear solely as question options.
 
-A 15-page synthetic Japanese/English corpus covers bank branch/account/password,
+Per [ADR 0010](adr/0010-inference-field-hints.md), slots may name the allowed vault
+field and give the coarse shape (length, character classes, email form) of a login
+username or Text field value, and observations carry page `maxLength`, `minLength` and
+`inputMode`. `checkPlanValues` checks a plan against the real values before filling and
+turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
+carries synthetic values. The vault adapter and runtime do not supply these hints yet.
+`valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
+resolve Linked fields and never pass Hidden, password or TOTP values.
+
+A 16-page synthetic Japanese/English corpus covers bank branch/account/password
+(including an unlabeled page distinguishable only by length),
 identifier-first and password steps, one-time codes, decoy search/sign-up/SSO controls,
 label injection, unlabeled ambiguity and a page without a login form. The harness
 reports semantic accuracy, false submits, abstentions, joint-mapping rejections,
@@ -474,10 +484,36 @@ nonexistent targets, malformed probabilities, refusal, truncation, timeout, rate
 oversized and incomplete inputs and the absence of fallback.
 
 No provider or model is selected and no paid inference has run. Remaining M4 AI work:
-provider adapters after owner selection, real benchmark runs and their report, the
-service route and monthly spend stop, and the extension observation extractor with
-privacy fixtures. Move the observation contract to `packages/contracts` when the
-service shares it.
+
+- Provider adapters after owner selection, real benchmark runs and their report.
+- The service route, monthly spend stop and the
+  [request log](adr/0012-inference-request-log.md).
+- The extension observation extractor with privacy fixtures. Expect Japanese pages to
+  put labels in adjacent table cells, use image buttons labeled only by `alt`, and
+  offer software keyboards.
+- Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
+  the post-fill check before the click in the executor.
+- A real-page corpus per ADR 0012, then moving the observation contract to
+  `packages/contracts` when the service shares it.
+
+Evaluation data candidates, checked 2026-10-10 (terms are as published by each
+source; confirm before use):
+
+| Source                                                                                                           | Contents                                                                         | Use                                                            |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [Formasaurus](https://github.com/scrapinghub/Formasaurus)                                                        | 954 real pages, 274 login forms labeled by field type; 4 Japanese pages          | Derived observations with attribution (code MIT; page HTML unclear) |
+| [SSO-Monitor](https://sso-monitor.me)                                                                            | Login-page URLs and SSO elements for top sites                                   | Seed URLs for capture                                          |
+| [Chromium form classification tests](https://source.chromium.org/chromium/chromium/src/+/main:components/test/data/password_manager/form_classification_tests/) | 96 sign-in and 112 sign-up site scripts from 2016 with password selectors | Seed URLs (BSD); sites may have changed                        |
+| [WebUI](https://huggingface.co/datasets/biglab/webui-all)                                                        | About 400,000 pages with accessibility trees and screenshots; no login labels    | Private evaluation only (research terms)                       |
+| [Phish360](https://web.cs.hacettepe.edu.tr/~selman/phish360-dataset/)                                            | 10,748 samples incl. legitimate login pages in 27 languages; no field labels     | Private evaluation only; request form                          |
+| PILWD-134K                                                                                                       | Legitimate and phishing login pages, 2019-2020                                   | Private evaluation only; institutional request                 |
+
+No public source has meaningful Japanese or bank branch/account coverage, so those
+pages come from the request log and the owner's Chrome. Reusing per-site recipes from
+[Bitwarden map-the-web](https://github.com/bitwarden/map-the-web) (GPL-3.0, 32 hosts),
+[Apple password-manager-resources](https://github.com/apple/password-manager-resources)
+(MIT, shared credential backends) or
+[2fa.directory](https://github.com/2factorauth/twofactorauth) (MIT) is later scope.
 
 ## Initial delivery and later scope
 

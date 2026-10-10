@@ -1,6 +1,7 @@
 import type { EvaluationCase, ExpectedResult } from "./corpus/cases";
 import type { AbstentionReason, InferenceErrorCode, InferenceOutcome } from "./outcome";
 import type { ValidatedPagePlan } from "./plan";
+import { checkPlanValues } from "./values";
 
 export type Verdict = "correct" | "correct-abstention" | "missed" | "false-submit" | "failed";
 
@@ -60,6 +61,24 @@ export function percentile(values: readonly number[], fraction: number): number 
   return sorted[Math.max(0, Math.ceil(fraction * sorted.length) - 1)]!;
 }
 
+function withValueCheck(
+  testCase: EvaluationCase,
+  outcome: InferenceOutcome<ValidatedPagePlan>,
+  enabled: boolean | undefined,
+): InferenceOutcome<ValidatedPagePlan> {
+  // A mismatch on an expected-abstain case would score as a correct abstention; such
+  // cases should not carry values unless that is the point of the case.
+  if (!enabled || outcome.status !== "ok" || testCase.values === undefined) return outcome;
+  const values = new Map(Object.entries(testCase.values));
+  if (checkPlanValues(testCase.observation, outcome.value, values).ok) return outcome;
+  return {
+    status: "abstained",
+    reason: "value-mismatch",
+    calls: outcome.calls,
+    usage: outcome.usage,
+  };
+}
+
 /**
  * Runs one role over the corpus sequentially and scores it. The role closure owns
  * its configured model; the harness never selects or falls back between providers.
@@ -68,6 +87,11 @@ export async function evaluateRole(options: {
   cases: readonly EvaluationCase[];
   run: (testCase: EvaluationCase) => Promise<InferenceOutcome<ValidatedPagePlan>>;
   now?: () => number;
+  /**
+   * Apply the local value check to plans for cases that carry synthetic values, as the
+   * trusted side would before filling. A mismatch is scored as a value-mismatch abstention.
+   */
+  checkValues?: boolean;
 }): Promise<EvaluationReport> {
   const now = options.now ?? (() => performance.now());
   const results: CaseResult[] = [];
@@ -88,7 +112,7 @@ export async function evaluateRole(options: {
     const started = now();
     // Sequential on purpose: concurrent calls would distort latency and rate limits.
     // oxlint-disable-next-line no-await-in-loop
-    const outcome = await options.run(testCase);
+    const outcome = withValueCheck(testCase, await options.run(testCase), options.checkValues);
     const latencyMs = now() - started;
     const verdict = judge(testCase.expected, outcome);
     report.verdicts[verdict] += 1;

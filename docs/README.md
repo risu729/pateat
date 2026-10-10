@@ -42,7 +42,9 @@ Implementation PRs update the relevant reference and mark the corresponding
 plan gate complete only with linked evidence. Distinguish local tests, installed
 Chrome coexistence, deployed service behavior, and real-account compatibility.
 Use synthetic examples; never commit credentials, real account identifiers,
-private page captures, or raw model requests.
+private page captures, or raw model requests. Reviewed observations derived from real
+pages, with synthetic slot hints, may be committed as evaluation data
+([ADR 0012](adr/0012-inference-request-log.md)).
 
 ## Decision records
 
@@ -55,6 +57,8 @@ private page captures, or raw model requests.
 - [0007: Existing passkey assertions](adr/0007-existing-passkey-assertions.md)
 - [0008: Durable provider sync sessions](adr/0008-durable-provider-sessions.md)
 - [0009: Install-time HTTPS site access](adr/0009-install-time-https-site-access.md)
+- [0010: Inference field hints and local fill checks](adr/0010-inference-field-hints.md)
+- [0012: Inference request log and evaluation data](adr/0012-inference-request-log.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

@@ -1,6 +1,7 @@
 import type { LoginObservation, ObservedCandidate } from "../observation";
-import { slots } from "./slots";
 import type { SemanticSlot } from "../observation";
+import { valueShapeOf } from "../values";
+import { slots } from "./slots";
 
 export type ExpectedResult =
   | {
@@ -19,9 +20,16 @@ export type EvaluationCase = {
   observation: LoginObservation;
   slots: SemanticSlot[];
   expected: ExpectedResult;
+  /** Synthetic slot values for the local value check; never sent to a role. */
+  values?: Record<string, string>;
 };
 
-type Extra = Partial<Pick<ObservedCandidate, "label" | "placeholder" | "autocomplete" | "group">>;
+type Extra = Partial<
+  Pick<
+    ObservedCandidate,
+    "label" | "placeholder" | "autocomplete" | "group" | "maxLength" | "minLength" | "inputMode"
+  >
+>;
 const element =
   (role: ObservedCandidate["role"]) =>
   (id: string, label?: string, extra: Extra = {}): ObservedCandidate => ({
@@ -34,7 +42,6 @@ const element =
 const text = element("text");
 const email = element("email");
 const tel = element("tel");
-const number = element("number");
 const password = element("password");
 const button = element("button");
 const link = element("link");
@@ -54,6 +61,13 @@ const page = (
   complete: true,
   candidates,
   ...extra,
+});
+
+/** A custom-field slot as the trusted side would describe it: name and visible shape. */
+const customField = (slot: SemanticSlot, fieldName: string, value: string): SemanticSlot => ({
+  ...slot,
+  fieldName,
+  valueShape: valueShapeOf({ source: "text", value })!,
 });
 
 const submit = (fields: Record<string, string>, action: string): ExpectedResult => ({
@@ -87,6 +101,7 @@ export const evaluationCorpus: EvaluationCase[] = [
     ),
     slots: [slots.email, slots.password],
     expected: submit({ email: "email", password: "password" }, "sign-in"),
+    values: { email: "user@shop.example.test", password: "synthetic-pass" },
   },
   {
     id: "ja-basic",
@@ -117,8 +132,8 @@ export const evaluationCorpus: EvaluationCase[] = [
       "/ib/login",
       "ja",
       [
-        number("branch", "支店番号", { placeholder: "3桁" }),
-        number("account", "口座番号", { placeholder: "7桁" }),
+        tel("branch", "支店番号", { placeholder: "3桁", maxLength: 3, inputMode: "numeric" }),
+        tel("account", "口座番号", { placeholder: "7桁", maxLength: 7, inputMode: "numeric" }),
         password("pin", "ログインパスワード"),
         button("soft-keyboard", "ソフトウェアキーボードを使う"),
         button("login", "ログイン"),
@@ -126,11 +141,43 @@ export const evaluationCorpus: EvaluationCase[] = [
       ],
       { title: "インターネットバンキング ログイン" },
     ),
-    slots: [slots.branch, slots.account, slots.password],
+    slots: [
+      customField(slots.branch, "支店番号", "123"),
+      customField(slots.account, "口座番号", "1234567"),
+      slots.password,
+    ],
     expected: submit(
       { "branch-number": "branch", "account-number": "account", password: "pin" },
       "login",
     ),
+    values: { "branch-number": "123", "account-number": "1234567", password: "synthetic-pass" },
+  },
+  {
+    id: "ja-bank-unlabeled-lengths",
+    locale: "ja",
+    summary: "ラベルのない口座番号・支店番号欄を桁数だけで区別する",
+    observation: page(
+      "trust-bank",
+      "/login",
+      "ja",
+      [
+        tel("field-a", undefined, { maxLength: 7, inputMode: "numeric" }),
+        tel("field-b", undefined, { maxLength: 3, inputMode: "numeric" }),
+        password("field-c", undefined, { maxLength: 4, inputMode: "numeric" }),
+        button("enter", "ログイン"),
+      ],
+      { headings: ["インターネットバンキング", "ログイン情報を入力してください"] },
+    ),
+    slots: [
+      customField(slots.branch, "支店番号", "045"),
+      customField(slots.account, "口座番号", "7654321"),
+      slots.password,
+    ],
+    expected: submit(
+      { "branch-number": "field-b", "account-number": "field-a", password: "field-c" },
+      "enter",
+    ),
+    values: { "branch-number": "045", "account-number": "7654321", password: "4821" },
   },
   {
     id: "en-identifier-first",

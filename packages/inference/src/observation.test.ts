@@ -78,4 +78,42 @@ describe("observation contract", () => {
     expect(v.safeParse(semanticSlotsSchema, []).success).toBe(false);
     expect(v.safeParse(semanticSlotsSchema, [{ ...slot, kind: "cookie" }]).success).toBe(false);
   });
+
+  it("accepts value shapes only on identifier slots and in canonical form", () => {
+    const shape = { length: 3, classes: ["ascii-digit"], email: false };
+    const slot = { id: "branch", kind: "identifier", description: "bank branch number" };
+    const accepts = (value: object) => v.safeParse(semanticSlotsSchema, [value]).success;
+    expect(accepts({ ...slot, fieldName: "支店番号", valueShape: shape })).toBe(true);
+    for (const kind of ["secret", "one-time-code"])
+      expect(accepts({ ...slot, kind, valueShape: shape })).toBe(false);
+    // Canonical order keeps the shape from revealing which class appears first.
+    expect(
+      accepts({ ...slot, valueShape: { ...shape, classes: ["ascii-letter", "ascii-digit"] } }),
+    ).toBe(false);
+    expect(
+      accepts({ ...slot, valueShape: { ...shape, classes: ["ascii-digit", "ascii-digit"] } }),
+    ).toBe(false);
+    expect(accepts({ ...slot, valueShape: { ...shape, classes: [] } })).toBe(false);
+    expect(accepts({ ...slot, valueShape: { ...shape, sample: "045" } })).toBe(false);
+    expect(accepts({ ...slot, valueShape: { ...shape, length: 0 } })).toBe(false);
+    expect(accepts({ ...slot, fieldName: "支店\u200b番号" })).toBe(false);
+    expect(accepts({ ...slot, fieldName: "x".repeat(121) })).toBe(false);
+  });
+
+  it("bounds page input constraints", () => {
+    const candidate = base.candidates[0]!;
+    const withConstraints = (extra: object) =>
+      parse({ ...base, candidates: [{ ...candidate, ...extra }] });
+    expect(withConstraints({ maxLength: 7, minLength: 7, inputMode: "numeric" })).toBe(true);
+    expect(withConstraints({ maxLength: 3, minLength: 4 })).toBe(false);
+    expect(withConstraints({ maxLength: 0 })).toBe(false);
+    expect(withConstraints({ maxLength: 1.5 })).toBe(false);
+    expect(withConstraints({ inputMode: "kana" })).toBe(false);
+    expect(withConstraints({ pattern: "[0-9]{3}" })).toBe(false);
+    // Browsers ignore lengths on number inputs, and non-fill elements take no input.
+    expect(withConstraints({ role: "number", maxLength: 3 })).toBe(false);
+    expect(withConstraints({ role: "number", inputMode: "numeric" })).toBe(true);
+    expect(withConstraints({ role: "button", maxLength: 3 })).toBe(false);
+    expect(withConstraints({ role: "link", inputMode: "text" })).toBe(false);
+  });
 });
