@@ -10,16 +10,16 @@ export default defineConfig({
     description: "Local login assistant — foundation preview. Login is not implemented.",
     minimum_chrome_version: "120",
     action: { default_title: "Open Pateat settings" },
-    permissions: ["storage"],
+    permissions: ["storage", "offscreen"],
+    content_security_policy: {
+      extension_pages:
+        "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self'",
+    },
     // Content-script matches do not grant access to tabs.Tab.url. The synthetic
     // coordinator needs that browser-provided URL for its fail-closed recheck.
     ...(mode === "probe"
       ? {
           host_permissions: ["http://127.0.0.1/*"],
-          content_security_policy: {
-            extension_pages:
-              "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self'",
-          },
         }
       : {}),
   }),

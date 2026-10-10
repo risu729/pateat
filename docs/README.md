@@ -1,8 +1,9 @@
 # Documentation
 
 The repository contains local policy settings backed by synthetic vault metadata,
-shared contracts, isolated Bitwarden transport/local-crypto libraries, a
-localhost-only synthetic login executor probe, a health-only Worker and
+shared contracts, isolated Bitwarden transport/local-crypto libraries, a packaged
+offscreen crypto host with a synthetic caller, a localhost-only synthetic login
+executor probe, a health-only Worker and
 CI/manual-delivery foundations. Production login activation, real
 vault connections, inference and passkey execution remain unimplemented.
 The service is not deployed.
