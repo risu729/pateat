@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ServiceConnection } from "./runtime";
 import {
   createSettingsSync,
+  MAX_SETTINGS_DEFER_MS,
   MAX_SETTINGS_SYNC_ATTEMPTS,
   mergeSyncedSettings,
   syncedSettings,
@@ -70,6 +71,7 @@ function setup(
     service?: SyncSettingsState;
     base?: unknown;
     deferred?: () => boolean;
+    now?: () => number;
   } = {},
 ) {
   let stored: SettingsSnapshot | undefined = options.local
@@ -114,6 +116,7 @@ function setup(
     storage,
     applied,
     ...(options.deferred ? { deferred: options.deferred } : {}),
+    ...(options.now ? { now: options.now } : {}),
   });
   return {
     sync,
@@ -130,13 +133,12 @@ function setup(
   };
 }
 const never = () => false;
-const baseOf = (revision: number, settings: LocalSettings, deviceId = DEVICE) => ({
-  version: 1,
-  origin: SERVICE,
-  deviceId,
-  revision,
-  settings,
-});
+const baseOf = (
+  revision: number,
+  settings: LocalSettings,
+  deviceId = DEVICE,
+  local: LocalSettings = settings,
+) => ({ version: 1, origin: SERVICE, deviceId, revision, settings, local });
 
 describe("settings sync on a new pairing", () => {
   it("seeds a service that has never stored settings from this device", async () => {
@@ -312,7 +314,7 @@ describe("settings sync after the first", () => {
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
     });
-    expect(mergeSyncedSettings(base, local, service)).toEqual({
+    expect(mergeSyncedSettings({ service: base, local: base }, local, service)).toEqual({
       excludedSites: [site("intranet.example")],
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
@@ -454,7 +456,7 @@ describe("settings sync after the first", () => {
       local: after,
     } = setup({
       local: { ...agreed, siteDefaults: [] },
-      service: state(4, { ...agreed, excludedSites: [] }),
+      service: state(5, { ...agreed, excludedSites: [] }),
       base: baseOf(4, agreed),
     });
     const save = transport.saveSettings.getMockImplementation()!;
@@ -472,6 +474,47 @@ describe("settings sync after the first", () => {
     expect(service().settings?.excludedSites).toEqual([]);
     expect(after()?.settings.bindings).toEqual([]);
     expect(service().settings?.bindings).toEqual([]);
+  });
+
+  it("keeps a local edit to an entry made while its upload was in flight", async () => {
+    const {
+      sync,
+      store,
+      transport,
+      service,
+      local: after,
+    } = setup({
+      local: { ...agreed, siteDefaults: [account("https://bank.example", "item-b")] },
+      service: state(5, { ...agreed, excludedSites: [] }),
+      base: baseOf(4, agreed),
+    });
+    const save = transport.saveSettings.getMockImplementation()!;
+    transport.saveSettings.mockImplementationOnce(async (...args) => {
+      const result = await save(...args);
+      await store.update(undefined, (current) => ({
+        ...current,
+        settings: {
+          ...current.settings,
+          siteDefaults: [account("https://bank.example", "item-c")],
+        },
+      }));
+      return result;
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(after()?.settings.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
+    expect(after()?.settings.excludedSites).toEqual([]);
+    expect(service().settings?.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
+  });
+
+  it("starts over when the service holds other settings at the same revision", async () => {
+    const { sync, local: after } = setup({
+      local: agreed,
+      // Restored from elsewhere: same revision, without the entries this base has.
+      service: state(4, settingsOf()),
+      base: baseOf(4, agreed),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(syncedSettings(after()!.settings)).toEqual(syncedSettings(agreed));
   });
 
   it("gives up after repeated conflicts", async () => {
@@ -505,7 +548,7 @@ describe("settings sync after the first", () => {
     expect(storage.write).not.toHaveBeenCalled();
   });
 
-  it("changes neither side when the merge exceeds the settings limits", async () => {
+  it("changes neither side when the merge exceeds the entry limits", async () => {
     const sites = (prefix: string) =>
       Array.from({ length: 600 }, (_, index) => site(`${prefix}-${index}.example`));
     const {
@@ -519,6 +562,35 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("too-large");
     expect(transport.saveSettings).not.toHaveBeenCalled();
     expect(after()?.revision).toBe(7);
+  });
+
+  it("counts this device's legacy defaults against the local limit", async () => {
+    const legacy = Array.from({ length: 999 }, (_, index) => ({
+      origin: `https://legacy-${index}.example`,
+      connectionId: "connection-1",
+      itemId: "item-1",
+    }));
+    const { sync, transport } = setup({
+      local: settingsOf({ siteDefaults: legacy }),
+      service: state(
+        4,
+        settingsOf({ siteDefaults: [account("https://a.example"), account("https://b.example")] }),
+      ),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("too-large");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("refuses an upload over the service's body limit", async () => {
+    const long = "x".repeat(150);
+    const bindings = Array.from({ length: 400 }, (_, index) => ({
+      ...binding(`https://site-${index}.example`),
+      itemName: long,
+      slots: [{ slot: "password", field: { custom: long } }],
+    }));
+    const { sync, transport } = setup({ local: settingsOf({ bindings }) });
+    expect(await sync.run(CONNECTION, never)).toBe("too-large");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
   });
 
   it("waits to change local settings while a login is running", async () => {
@@ -543,6 +615,46 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(after()?.settings.excludedSites).toEqual([]);
     expect(after()?.settings.siteDefaults).toEqual([]);
+  });
+
+  it("keeps a local edit made while a merge waited for a login", async () => {
+    let running = true;
+    const {
+      sync,
+      store,
+      service,
+      local: after,
+    } = setup({
+      local: { ...agreed, siteDefaults: [account("https://bank.example", "item-b")] },
+      service: state(5, { ...agreed, excludedSites: [] }),
+      base: baseOf(4, agreed),
+      deferred: () => running,
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("busy");
+    await store.update(undefined, (current) => ({
+      ...current,
+      settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
+    }));
+    running = false;
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(after()?.settings.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
+    expect(after()?.settings.excludedSites).toEqual([]);
+    expect(service().settings?.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
+  });
+
+  it("stops waiting for a login left unfinished", async () => {
+    let time = 0;
+    const { sync, local: after } = setup({
+      local: agreed,
+      service: state(5, { ...agreed, excludedSites: [] }),
+      base: baseOf(4, agreed),
+      deferred: () => true,
+      now: () => time,
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("busy");
+    time += MAX_SETTINGS_DEFER_MS;
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(after()?.settings.excludedSites).toEqual([]);
   });
 
   it("does not upload for a device disconnected before the merge", async () => {

@@ -14,6 +14,11 @@ import type { ServiceTransport, TransportFailure } from "./transport";
 export const MAX_SETTINGS_SYNC_ATTEMPTS = 3;
 /** The service accepts request bodies up to 128 KiB; the document leaves room for the rest. */
 export const MAX_SETTINGS_DOCUMENT_BYTES = 120 * 1024;
+/**
+ * A local write waits for a running login at most this long; a login left unfinished on
+ * an open page must not hold synced settings back indefinitely.
+ */
+export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
 
 const encoder = new TextEncoder();
 
@@ -45,14 +50,18 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
 
 const emptySynced: SyncedSettings = { excludedSites: [], siteDefaults: [], bindings: [] };
 
-// What this device and the service last agreed on: the base of the next three-way merge.
+// The base of the next three-way merge. Normally both copies are the same; after an
+// upload whose local write has not happened yet, `local` is still the local copy the
+// merge started from, so the merged entries it lacks are not mistaken for local edits.
 const baseSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
   revision: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  /** The synced part as the service document holds it, with no connections. */
+  /** The service document at `revision`, which has no connections. */
   settings: localSettingsSchema,
+  /** The synced part of the local settings that `settings` already accounts for. */
+  local: localSettingsSchema,
 });
 type SettingsBase = v.InferOutput<typeof baseSchema>;
 
@@ -70,7 +79,7 @@ export type SettingsSyncOutcome =
    * merges again.
    */
   | "busy"
-  /** The merge exceeds the settings limits; neither side was changed. */
+  /** The merge exceeds the settings limits; it was not applied. */
   | "too-large"
   | "storage-unavailable"
   | TransportFailure;
@@ -81,40 +90,55 @@ const bindingKey = (entry: Binding) =>
   JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
+/** What each side last agreed to: the service's copy and the local copy it accounts for. */
+export type SyncBase = { service: SyncedSettings; local: SyncedSettings };
+
 /**
- * Per entry, a side that changed since the base wins; when both changed, the service
- * wins, because it is the source of truth (ADR 0013). Removing an entry is a change.
+ * Per entry, the service's copy wins when it changed since the base, because the service
+ * is the source of truth (ADR 0013); otherwise a local change wins; otherwise the
+ * service's copy stands, which also applies a merge not yet written locally. Removing
+ * an entry is a change.
  */
-function mergeEntries<T>(base: T[], local: T[], service: T[], key: (entry: T) => string): T[] {
+function mergeEntries<T>(
+  base: { service: T[]; local: T[] },
+  local: T[],
+  service: T[],
+  key: (entry: T) => string,
+): T[] {
   const index = (entries: T[]) => new Map(entries.map((entry) => [key(entry), entry]));
-  const [b, l, s] = [index(base), index(local), index(service)];
+  const [bs, bl, l, s] = [index(base.service), index(base.local), index(local), index(service)];
   const merged: T[] = [];
-  for (const id of new Set([...s.keys(), ...l.keys(), ...b.keys()])) {
-    const entry = same(s.get(id), b.get(id)) ? l.get(id) : s.get(id);
+  for (const id of new Set([...s.keys(), ...l.keys(), ...bs.keys(), ...bl.keys()])) {
+    const entry =
+      same(s.get(id), bs.get(id)) && !same(l.get(id), bl.get(id)) ? l.get(id) : s.get(id);
     if (entry !== undefined) merged.push(entry);
   }
   return merged;
 }
 
 export function mergeSyncedSettings(
-  base: SyncedSettings,
+  base: SyncBase,
   local: SyncedSettings,
   service: SyncedSettings,
 ): SyncedSettings {
+  const part = <K extends keyof SyncedSettings>(name: K) => ({
+    service: base.service[name],
+    local: base.local[name],
+  });
   return {
     excludedSites: mergeEntries(
-      base.excludedSites,
+      part("excludedSites"),
       local.excludedSites,
       service.excludedSites,
       siteKey,
     ),
     siteDefaults: mergeEntries(
-      base.siteDefaults,
+      part("siteDefaults"),
       local.siteDefaults,
       service.siteDefaults,
       defaultKey,
     ),
-    bindings: mergeEntries(base.bindings, local.bindings, service.bindings, bindingKey),
+    bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
   };
 }
 
@@ -163,8 +187,11 @@ export function createSettingsSync(options: {
   applied?: () => void;
   /** Whether a local settings write must wait, for example while a login runs. */
   deferred?: () => boolean;
+  now?: () => number;
 }) {
   const { transport, settings, storage } = options;
+  const now = options.now ?? Date.now;
+  let deferredSince: number | undefined;
 
   async function loadBase(connection: ServiceConnection): Promise<SettingsBase | undefined> {
     let stored: unknown;
@@ -189,17 +216,40 @@ export function createSettingsSync(options: {
     connection: ServiceConnection,
     stale: () => boolean,
   ): Promise<SettingsSyncOutcome> {
-    const { origin, credential } = connection;
+    const { origin, credential, deviceId } = connection;
     const stored = await loadBase(connection);
     const fetched = await transport.settings(origin, credential);
     if (fetched.kind === "rejected") return "rejected";
     if (fetched.kind === "failed") return fetched.error;
     if (fetched.kind !== "state") return "unexpected-response";
     let service: SyncSettingsState = fetched.state;
-    // Without a base, for a new pairing or a service restored to an older revision, both
+    const serviceCopy = (state: SyncSettingsState) =>
+      state.settings ? syncedSettings(state.settings) : emptySynced;
+    // Without a base, for a new pairing or a service restored to an older state, both
     // sides' entries are kept and the service wins where they differ; nothing is removed.
-    const base =
-      stored && service.revision >= stored.revision ? syncedSettings(stored.settings) : emptySynced;
+    let base: SyncBase = { service: emptySynced, local: emptySynced };
+    if (
+      stored &&
+      (service.revision > stored.revision ||
+        (service.revision === stored.revision &&
+          equalSynced(serviceCopy(service), syncedSettings(stored.settings))))
+    )
+      base = { service: syncedSettings(stored.settings), local: syncedSettings(stored.local) };
+    async function record(next: SyncBase) {
+      if (stale()) return;
+      // Best effort: a lost write leaves the older base, which merges to the same result
+      // unless this device edits the same entries again before the next sync.
+      await storage
+        .write({
+          version: 1,
+          origin,
+          deviceId,
+          revision: service.revision,
+          settings: serviceDocument(next.service),
+          local: serviceDocument(next.local),
+        })
+        .catch(() => undefined);
+    }
     for (let attempt = 0; attempt < MAX_SETTINGS_SYNC_ATTEMPTS; attempt += 1) {
       let local: SettingsSnapshot;
       try {
@@ -209,18 +259,18 @@ export function createSettingsSync(options: {
         return "storage-unavailable";
       }
       const localSynced = syncedSettings(local.settings);
-      const serviceSynced = service.settings ? syncedSettings(service.settings) : emptySynced;
+      const serviceSynced = serviceCopy(service);
       const merged = mergeSyncedSettings(base, localSynced, serviceSynced);
-      const next = v.safeParse(localSettingsSchema, applySynced(local.settings, merged));
+      const upload = !equalSynced(merged, serviceSynced);
       if (
-        !v.safeParse(localSettingsSchema, serviceDocument(merged)).success ||
-        encoder.encode(JSON.stringify(serviceDocument(merged))).byteLength >
-          MAX_SETTINGS_DOCUMENT_BYTES ||
-        !next.success
+        !v.safeParse(localSettingsSchema, applySynced(local.settings, merged)).success ||
+        (upload &&
+          encoder.encode(JSON.stringify(serviceDocument(merged))).byteLength >
+            MAX_SETTINGS_DOCUMENT_BYTES)
       )
         return "too-large";
       if (stale()) return "busy";
-      if (!equalSynced(merged, serviceSynced)) {
+      if (upload) {
         // oxlint-disable-next-line no-await-in-loop -- a conflict retries with its state
         const saved = await transport.saveSettings(origin, credential, {
           version: 1,
@@ -233,14 +283,16 @@ export function createSettingsSync(options: {
           service = saved.current;
           continue;
         }
-        // A retry below keeps the old base: local settings do not hold the merge yet, so
-        // their pre-merge entries are not edits.
         service = saved.state;
+        // The service holds the merge; local settings still hold `localSynced`.
+        base = { service: merged, local: localSynced };
+        // oxlint-disable-next-line no-await-in-loop -- recorded before the local write
+        await record(base);
       }
       if (stale()) return "busy";
       if (!equalSynced(merged, localSynced)) {
-        // A policy write now would stop a login in progress; the next sync applies it.
-        if (options.deferred?.()) return "busy";
+        // A policy write now would stop a login in progress; a later sync applies it.
+        if (holdForLogin()) return "busy";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
           await settings.update(local.revision, (snapshot) => ({
@@ -254,22 +306,19 @@ export function createSettingsSync(options: {
         }
         options.applied?.();
       }
-      if (stale()) return "busy";
-      try {
-        // oxlint-disable-next-line no-await-in-loop -- recorded only after both sides agree
-        await storage.write({
-          version: 1,
-          origin,
-          deviceId: connection.deviceId,
-          revision: service.revision,
-          settings: serviceDocument(merged),
-        });
-      } catch {
-        // The next sync merges from the older base; both sides already match.
-      }
+      deferredSince = undefined;
+      // oxlint-disable-next-line no-await-in-loop -- both sides now hold the merge
+      await record({ service: merged, local: merged });
       return "synced";
     }
     return "busy";
+  }
+
+  /** Waits for a running login, but not longer than the limit since the first wait. */
+  function holdForLogin(): boolean {
+    if (!options.deferred?.()) return false;
+    deferredSince ??= now();
+    return now() - deferredSince < MAX_SETTINGS_DEFER_MS;
   }
 
   async function clear() {

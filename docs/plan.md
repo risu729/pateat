@@ -480,25 +480,32 @@ bindings. Vault connections, item selection, field exclusions and legacy site de
 that name a device-local connection ID stay on the device; the service document always
 has an empty `connections` list. The background reads `GET /v1/settings` and merges
 three copies per entry (exclusions by hostname, defaults by origin, bindings by recipe,
-origin and account): the copy this device and the service last agreed on, stored under
-`pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
-entry since that base wins, and the service wins when both changed it; removing an entry
-counts as a change. Without a base (a new pairing, a device paired before this sync
-existed, or a service restored to an older revision) both sides' entries are kept, the
-service wins where they differ, and nothing is removed. Disconnecting forgets the base
-but keeps local settings, so pairing with another owner's service uploads this device's
-synced settings there. The merge is written back with a conditional `PUT /v1/settings`,
-and a stale revision merges again with the service's current state, up to three times. A
-merge over the settings limits (1,000 entries per list, or a document over 120 KiB of
-the service's 128 KiB body limit) changes neither side, and the settings page says the
-settings no longer fit. Local settings change through the settings store's revision
-check, only when the merge differs from them, so an unchanged sync does not stop running
-login attempts; while a login is running, the local write waits for a later sync. A
-local revision that moved during the merge merges again. A local legacy default is
-replaced when the service names an account for its origin. Saving settings on the
-extension's page or saving an automatic account choice starts a sync at once. A recipe
-sync that cannot reach the service skips settings, a 401 from either request marks the
-device rejected, and the settings page shows a complete sync only when both finished.
+origin and account): the last agreed base, stored under `pateat.sync-settings.v1`, the
+local settings and the service's. A side that changed an entry since that base wins, and
+the service wins when both changed it; removing an entry counts as a change. The base
+keeps the service's copy and the local copy it accounts for. Both are the same after a
+complete sync; after an upload whose local write has not happened yet, the local copy is
+still the one the merge started from, so a merged entry the device has not written yet
+is not read as a local removal, and a local edit made meanwhile still wins. The base is
+used only when the service revision is newer than the stored one, or equal with the same
+content. Without a base (a new pairing, a device paired before this sync existed, or a
+service restored to an older state) both sides' entries are kept, the service wins where
+they differ, and nothing is removed. Disconnecting forgets the base but keeps local
+settings, so pairing with another owner's service uploads this device's synced settings
+there. The merge is written back with a conditional `PUT /v1/settings`, and a stale
+service or local revision merges again, in up to three attempts per sync. A merge over
+the settings limits (1,000 entries per list, or an uploaded document over 120 KiB of the
+service's 128 KiB body limit) is not applied, and the settings page says the settings no
+longer fit; when a later attempt in the same sync goes over, an earlier upload stays.
+Local settings change through the settings store's revision check, only when the merge
+differs from them, so an unchanged sync does not stop running login attempts. While a
+login is running, including one between pages, the upload still happens but the local
+write waits for a later sync, for at most two minutes after the first wait; a later sync
+starts when the recipe schedule is due again. A local legacy default is replaced when
+the service names an account for its origin. Saving settings on the extension's page or
+saving an automatic account choice starts a sync at once. A recipe sync that cannot
+reach the service skips settings, a 401 from either request marks the device rejected,
+and the settings page shows a complete sync only when both finished.
 Unit tests use a synthetic service and the real settings store over in-memory storage;
 no running service has been tried.
 

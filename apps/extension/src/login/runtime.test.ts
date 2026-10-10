@@ -151,7 +151,7 @@ async function start(fields: LoginFieldSource, catalog: Catalog = {}) {
         attempts: { state: string; outcome?: string }[];
       }
     ).attempts[0];
-  return { ready, attempt };
+  return { login, ready, attempt };
 }
 const executions = () => fake.state.messages.filter((message) => message.type === "login.execute");
 
@@ -216,6 +216,24 @@ describe("login runtime with a live vault field source", () => {
     expect(run.ready).toEqual({ ok: false, reason: "vault-unavailable" });
     expect(await run.attempt()).toBeUndefined();
     expect(fields).not.toHaveBeenCalled();
+  });
+  it("reports a running login, also from its saved state after a restart", async () => {
+    let release!: (value: string) => void;
+    const pending = new Promise<string>((resolve) => (release = resolve));
+    const fields = vi.fn<LoginFieldSource>(() => pending);
+    const run = await start(fields);
+    expect(run.ready).toEqual({ ok: true });
+    await vi.waitFor(() => expect(fields).toHaveBeenCalled());
+    expect(run.login.active()).toBe(true);
+    // A restarted worker has no live document yet; the saved attempt still counts.
+    const restarted = createLoginRuntime(settingsFor({}), { fields: async () => undefined });
+    await restarted.handle({ version: 1, type: "login.probe.status" }, trusted as never);
+    expect(restarted.active()).toBe(true);
+    release("synthetic-secret");
+    await vi.waitFor(async () =>
+      expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
+    );
+    expect(run.login.active()).toBe(false);
   });
   it("still uses an unrelated item while another item in the connection awaits review", async () => {
     const run = await start(async () => "synthetic-secret", {

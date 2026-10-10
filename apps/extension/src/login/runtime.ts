@@ -978,9 +978,15 @@ export function createLoginRuntime(
       return undefined;
     })
     .catch(() => undefined);
-  /** Whether a login is in progress; a policy write now would stop it. */
+  /**
+   * Whether a login is in progress; a policy write now would stop it. An attempt between
+   * pages has no current document, so its saved state counts too.
+   */
   function active(): boolean {
-    return [...attempts.values()].some((run) => current(run) && !terminal(run.metadata));
+    return (
+      [...attempts.values()].some((run) => current(run) && !terminal(run.metadata)) ||
+      [...persisted.values()].some((metadata) => !terminal(metadata))
+    );
   }
   return { handle, settingsChanged, active };
 }
