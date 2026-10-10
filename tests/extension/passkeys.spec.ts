@@ -603,7 +603,10 @@ test("the production build installs the bridge on HTTPS pages and leaves unclaim
     await context.addInitScript(() => {
       const scope = window as unknown as { pageMessages: unknown[] };
       scope.pageMessages = [];
-      window.addEventListener("message", (event) => scope.pageMessages.push(event.data));
+      // Content-script posts to the page carry the page's own origin.
+      window.addEventListener("message", (event) => {
+        if (event.origin === location.origin) scope.pageMessages.push(event.data);
+      });
     });
     // No vault is connected, so the background claims nothing and the browser answers.
     const page = await openRelyingParty(context, vaultOrigin);
