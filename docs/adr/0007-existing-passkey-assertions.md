@@ -111,6 +111,14 @@ its single stored credential is eligible as below. Then:
    is one of them.
 3. Several matches and no such default: delegate. Pateat never picks one.
 
+Matches are counted after the request's allow list, or its discoverable-credential
+requirement, narrows them. A passkey-only item with no fields is eligible; an item whose
+fields the owner excluded is not. If an enabled connection could not
+be searched, or an eligible item's passkey could not be read, a single match is not
+used, since the unread item might also match; the site default is still used when it is
+among the matches. This mirrors how the login flow refuses an automatic account choice
+while any connection or item is unevaluated.
+
 For example, two items each store a credential with `rpId` `github.com`, and
 `https://github.com/login` requests `rpId` `github.com` without an allow list. With
 `siteDefaults: [{ origin: "https://github.com", connectionId, itemId }]` naming one

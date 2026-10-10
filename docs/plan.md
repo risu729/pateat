@@ -518,8 +518,13 @@ Worker and only a DER signature crosses the Port. A reply bound to another snaps
 item or credential, or with any other shape, locks the session; an unreadable or
 ambiguous item fails on its own without retiring the session. Unit tests sign through
 the pinned SDK with the synthetic FIDO2 fixture and verify against its public key.
-Applying exclusions, connection state and the site default tie-break that
-[ADR 0007](adr/0007-existing-passkey-assertions.md#item-selection) records, production
+`apps/extension/src/passkeys/vault.ts` applies the
+[ADR 0007 item selection](adr/0007-existing-passkey-assertions.md#item-selection) on top
+of that search: enabled connections only, excluded sites, excluded and quarantined
+items, the exact-origin site default as the tie-break, and no single-match choice while
+a connection or eligible item could not be searched. Signing through it requires the
+same settings revision, snapshot and item eligibility before and after the Worker signs.
+Unit tests cover it with fake vault managers; no build wires it to pages yet. Production
 entrypoints and real-site interoperability remain open; a navigation during signing
 relies on Chrome dropping the response to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the

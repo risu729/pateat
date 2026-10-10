@@ -31,7 +31,7 @@ const get = (operationId = crypto.randomUUID(), userActivation = true) => ({
 
 function source(overrides: Partial<PasskeySource> = {}): PasskeySource {
   return {
-    candidates: vi.fn(async () => [candidate]),
+    candidates: vi.fn(async () => ({ candidates: [candidate], complete: true })),
     sign: vi.fn(async () => Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01)),
     ...overrides,
   };
@@ -43,7 +43,7 @@ describe("passkey runtime sender binding", () => {
     const runtime = createPasskeyRuntime(backing, { extensionId });
     const result = await runtime.handle(get(), sender());
     expect(result).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
-    expect(backing.candidates).toHaveBeenCalledWith(origin, expect.any(AbortSignal));
+    expect(backing.candidates).toHaveBeenCalledWith(origin, "example.com", expect.any(AbortSignal));
     const clientData = JSON.parse(
       atob(
         (result as { assertion: { clientDataJSON: string } }).assertion.clientDataJSON
@@ -82,7 +82,12 @@ describe("passkey runtime sender binding", () => {
   });
 
   it("delegates a nonzero counter without signing", async () => {
-    const backing = source({ candidates: vi.fn(async () => [{ ...candidate, counter: 2 }]) });
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [{ ...candidate, counter: 2 }],
+        complete: true,
+      })),
+    });
     const runtime = createPasskeyRuntime(backing, { extensionId });
     expect(await runtime.handle(get(), sender())).toEqual({
       kind: "delegate",

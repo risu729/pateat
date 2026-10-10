@@ -2,7 +2,7 @@ import * as v from "valibot";
 import { createPasskeyAssertion } from "./assertion";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest } from "./request";
-import { selectPasskey, type PasskeyCandidate } from "./select";
+import { selectPasskey, type PasskeyCandidate, type PasskeyCandidates } from "./select";
 import { RUNTIME_TIMEOUT_MS, runtimeMessageSchema, type RuntimeResult } from "./wire";
 
 type Sender = {
@@ -16,8 +16,12 @@ type Sender = {
 
 /** Account-bound credential source. It owns site policy and keeps private keys out of this layer. */
 export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCandidate> {
-  /** Candidates for the account configured for exactly this origin, or none if not permitted. */
-  candidates(origin: string, signal: AbortSignal): Promise<readonly TCandidate[] | undefined>;
+  /** Stored passkeys with this RP ID that may answer this origin, or none if not permitted. */
+  candidates(
+    origin: string,
+    rpId: string,
+    signal: AbortSignal,
+  ): Promise<PasskeyCandidates<TCandidate> | undefined>;
   sign(
     candidate: TCandidate,
     authenticatorData: Uint8Array<ArrayBuffer>,
@@ -101,7 +105,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     );
     try {
       const signal = controller.signal;
-      const candidates = await abortable(source.candidates(origin, signal), signal);
+      const candidates = await abortable(
+        source.candidates(origin, admission.request.rpId, signal),
+        signal,
+      );
       if (!candidates) return { kind: "delegate", reason: "not-configured" };
       const selection = selectPasskey(admission.request, candidates);
       if (selection.kind === "delegate") return selection;
