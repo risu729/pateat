@@ -82,6 +82,17 @@ checks have passed locally; they do not establish production deployment or
 installed Chrome use compatibility. Current evidence and unresolved browser
 acceptance results are recorded in [dated research](research/2026-10-10-feasibility.md).
 
+Pass one task to each `mise run` invocation; listing several task names turns the
+later names into arguments of the first. To run every static check without the
+runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runtime`.
+
+### Windows notes
+
+Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. The downloaded Windows Chromium
+does not launch packaged-extension tests (see the
+[foundation progress](plan.md#foundation-progress)); Linux CI is the runtime
+acceptance environment for them. The options component tests do run on Windows.
+
 ### Installed Chrome synthetic login probe
 
 This procedure prepares a manual acceptance run; its availability is not evidence
