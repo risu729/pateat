@@ -1,5 +1,11 @@
 import { createLocalCryptoSession } from "../../../../packages/bitwarden/src/local-crypto";
 import { loadBrowserCryptoSdk } from "../../../../packages/bitwarden/src/browser-sdk";
+import { derivePasswordAuthentication } from "../../../../packages/bitwarden/src/auth-crypto";
+import {
+  authPassword,
+  pbkdf2Auth,
+  argon2Auth,
+} from "../../../../packages/bitwarden/src/__fixtures__/auth";
 import {
   argon2Expected,
   kdfPassword,
@@ -116,12 +122,44 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
     );
     const v2Verified = second.ok && second.data.metadata.securityVersion === 2;
     if (second.ok) second.data.dispose();
+    const authentication = await derivePasswordAuthentication(
+      {
+        connectionId: base.connectionId,
+        email: pbkdf2Auth.salt,
+        password: authPassword,
+        prelogin: {
+          mode: "legacy",
+          response: { kdf: 0, kdfIterations: pbkdf2Auth.kdf.pBKDF2.iterations },
+        },
+      },
+      sdk,
+    );
+    const argonAuthentication = await derivePasswordAuthentication(
+      {
+        connectionId: base.connectionId,
+        email: pbkdf2Auth.salt,
+        password: authPassword,
+        prelogin: {
+          mode: "password",
+          response: {
+            salt: argon2Auth.salt,
+            kdfSettings: { kdfType: 1, ...argon2Auth.kdf.argon2id },
+          },
+        },
+      },
+      sdk,
+    );
     const checks = {
       pbkdf2: pbkdf.every((value, index) => value === pbkdf2Expected[index]),
       argon2id: argon.every((value, index) => value === argon2Expected[index]),
       loginMatches,
       corruptionRejected,
       v2Verified,
+      authPbkdf2:
+        authentication.ok && authentication.data.masterPasswordHash === pbkdf2Auth.expected,
+      authArgon2id:
+        argonAuthentication.ok &&
+        argonAuthentication.data.masterPasswordHash === argon2Auth.expected,
     };
     pbkdf.fill(0);
     argon.fill(0);

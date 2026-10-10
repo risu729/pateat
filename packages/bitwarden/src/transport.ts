@@ -1,5 +1,13 @@
 import * as v from "valibot";
 
+import {
+  passwordTokenRequestSchema,
+  refreshTokenRequestSchema,
+  parsePasswordTokenOutcome,
+  parseRefreshTokenOutcome,
+  type PasswordTokenOutcome,
+  type RefreshTokenOutcome,
+} from "./auth-models";
 import { bitwardenEndpoints, normalizeBitwardenProfile } from "./environment";
 import { failure, type BitwardenErrorCode, type BitwardenResult } from "./errors";
 import {
@@ -41,7 +49,7 @@ const syncRequestSchema = v.strictObject({
   ),
 });
 
-/** A fixed, connection-scoped HTTP boundary; it performs no authentication or decryption. */
+/** Fixed connection-scoped provider requests. No retries, credential storage or decryption. */
 export function createBitwardenTransport(
   profileInput: unknown,
   options: BitwardenTransportOptions = {},
@@ -59,8 +67,9 @@ export function createBitwardenTransport(
   async function request<T>(
     url: string,
     init: RequestInit,
-    parse: (input: unknown) => T | undefined,
+    parse: (input: unknown, status: number) => T | undefined,
     signal?: AbortSignal,
+    acceptedStatuses: readonly number[] = [200],
   ): Promise<BitwardenResult<T>> {
     if (signal !== undefined && !(signal instanceof AbortSignal)) return failure("invalid-request");
     if (signal?.aborted) return failure("cancelled");
@@ -108,7 +117,8 @@ export function createBitwardenTransport(
         (response.url && response.url !== url)
       )
         return failure("redirect");
-      if (response.status !== 200) return failure("http-error", response.status);
+      if (!acceptedStatuses.includes(response.status))
+        return failure("http-error", response.status);
       const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
       if (!contentType || !/^application\/(?:json|[a-z0-9!#$&^_.+-]+\+json)$/.test(contentType))
         return failure("invalid-response");
@@ -157,7 +167,7 @@ export function createBitwardenTransport(
       } catch {
         return failure("invalid-response");
       }
-      const data = parse(decoded);
+      const data = parse(decoded, response.status);
       return data === undefined ? failure("invalid-response") : { ok: true, data };
     } catch {
       return failure(stopCode ?? "network");
@@ -175,6 +185,75 @@ export function createBitwardenTransport(
 
   const transport = Object.freeze({
     profile,
+    async passwordToken(
+      input: unknown,
+      signal?: AbortSignal,
+    ): Promise<BitwardenResult<PasswordTokenOutcome>> {
+      const parsed = v.safeParse(passwordTokenRequestSchema, input);
+      if (!parsed.success) return failure("invalid-request");
+      const value = parsed.output;
+      if (value.connectionId !== profile.connectionId) return failure("connection-mismatch");
+      const form = new URLSearchParams({
+        grant_type: "password",
+        username: value.email,
+        password: value.masterPasswordHash,
+        scope: "api offline_access",
+        client_id: "browser",
+        deviceType: "2",
+        deviceIdentifier: value.device.identifier,
+        deviceName: value.device.name,
+      });
+      if (value.twoFactor) {
+        form.set("twoFactorToken", value.twoFactor.token);
+        form.set("twoFactorProvider", String(value.twoFactor.provider));
+        form.set("twoFactorRemember", value.twoFactor.remember ? "1" : "0");
+      }
+      if (value.newDeviceOtp !== undefined) form.set("newDeviceOtp", value.newDeviceOtp);
+      // Chrome extension protocol category, never an official product/version identity.
+      return request(
+        `${endpoints.identityUrl}/connect/token`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+            "Device-Type": "2",
+          },
+          body: form.toString(),
+        },
+        parsePasswordTokenOutcome,
+        signal,
+        [200, 400],
+      );
+    },
+    async refreshToken(
+      input: unknown,
+      signal?: AbortSignal,
+    ): Promise<BitwardenResult<RefreshTokenOutcome>> {
+      const parsed = v.safeParse(refreshTokenRequestSchema, input);
+      if (!parsed.success) return failure("invalid-request");
+      if (parsed.output.connectionId !== profile.connectionId)
+        return failure("connection-mismatch");
+      return request(
+        `${endpoints.identityUrl}/connect/token`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+            "Device-Type": "2",
+          },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: "browser",
+            refresh_token: parsed.output.refreshToken,
+          }).toString(),
+        },
+        parseRefreshTokenOutcome,
+        signal,
+        [200, 400],
+      );
+    },
     async prelogin(
       input: unknown,
       signal?: AbortSignal,

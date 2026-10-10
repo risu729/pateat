@@ -121,6 +121,28 @@ Page-recorded visibility showed a successful inactive-tab run. This evidence
 does not cover the SDK slice, real vaults, actual-profile restart or coexistence
 with the official Bitwarden extension; M1-M3 remain incomplete.
 
+## Authentication progress
+
+The isolated authentication slice adds local authorization-hash derivation and fixed
+password/refresh-token requests. It uses the SDK for the original KDF and native
+WebCrypto for the protocol's one-iteration hash, with independent upstream
+answers and a synthetic MV3 probe. Authentication prelogin parameters remain
+separate from vault-unlock parameters. The pinned SDK's transitional missing/null
+prelogin-salt fallback uses normalized email; present-empty salt and unknown KDFs
+are rejected, and no alternate endpoint is tried automatically.
+
+The transport supports explicit manual authenticator/email codes and new-device
+OTP submission as request shapes. Challenge, rejection and interactive/unsupported
+results are distinguished without returning raw server messages or challenge
+URLs. No method is claimed compatible with a real account from synthetic HTTP
+tests. Settings integration, code-delivery initiation, interactive providers,
+token persistence and authoritative account/cache reconciliation remain separate
+gates; an authenticated transport result does not mean an unlocked vault.
+The isolated transport also omits `Bitwarden-Client-Version`; the pinned current
+server rejects existing-account authentication without it. A tested advertised
+protocol profile, including account/sync metadata completeness, is an integration
+gate before settings can enable provider login.
+
 ## Initial delivery and later scope
 
 The [architecture](architecture.md) owns the product contracts. These boundaries
