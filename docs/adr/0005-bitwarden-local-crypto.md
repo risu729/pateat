@@ -59,6 +59,20 @@ First establish the gap with the pinned package and the required acceptance
 case. The public Secrets Manager API and CLI-backed vault API do not substitute
 for this browser-local personal-vault integration.
 
+## Local authorization-hash composition
+
+The pinned SDK exposes primary KDF derivation but its public PBKDF2 helper
+rejects fewer than 5,000 iterations. The protocol's server-authorization hash
+requires a separate one-iteration PBKDF2 step. The high-level SDK login helper
+also performs HTTP and therefore crosses this decision's local-only boundary.
+
+Use the SDK for the primary KDF, then the existing browser-native WebCrypto
+PBKDF2-SHA256 operation for that single protocol step. This adds no cryptographic
+primitive implementation, dependency or Rust binding. Match the pinned protocol
+using independent upstream PBKDF2/Argon2id known answers, and keep authentication
+KDF/salt separate from vault-unlock data. The resulting hash is an authentication
+credential and remains within the trusted local authentication path.
+
 ## Sources
 
 - [Pinned SDK license selection](https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/LICENSE)
@@ -67,5 +81,8 @@ for this browser-local personal-vault integration.
 - [Published package metadata](https://registry.npmjs.org/@bitwarden/sdk-internal/0.2.0-main.1034)
   and
   [internal-package support notice](https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/crates/bitwarden-wasm-internal/npm/README.md).
+- [Server-authorization hash and independent test vectors](https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/crates/bitwarden-crypto/src/keys/master_key.rs)
+  and
+  [public KDF resource validation](https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/crates/bitwarden-crypto/src/keys/kdf.rs).
 
 Implementation status and the full acceptance scope remain in [the plan](../plan.md).

@@ -175,7 +175,13 @@ describe("read-only provider requests", () => {
       cache: "no-store",
       referrerPolicy: "no-referrer",
     });
-    expect(Object.keys(client).sort()).toEqual(["prelogin", "profile", "sync"]);
+    expect(Object.keys(client).sort()).toEqual([
+      "passwordToken",
+      "prelogin",
+      "profile",
+      "refreshToken",
+      "sync",
+    ]);
   });
 
   it("rejects a different connection and malformed credentials without sending anything", async () => {

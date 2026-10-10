@@ -1,5 +1,11 @@
 import { createLocalCryptoSession } from "../../../../packages/bitwarden/src/local-crypto";
-import { loadBrowserCryptoSdk } from "../../../../packages/bitwarden/src/browser-sdk";
+import { initializeSyntheticCryptoHost } from "./host";
+import { derivePasswordAuthentication } from "../../../../packages/bitwarden/src/auth-crypto";
+import {
+  authPassword,
+  pbkdf2Auth,
+  argon2Auth,
+} from "../../../../packages/bitwarden/src/__fixtures__/auth";
 import {
   argon2Expected,
   kdfPassword,
@@ -19,37 +25,13 @@ import {
   V2_SIGNING_KEY,
 } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
 
-// The SDK's Error log level still logs errors and panic details. This dedicated
-// synthetic host emits only boolean evidence, never raw SDK errors or values.
-for (const method of ["log", "info", "warn", "error", "debug", "trace"] as const)
-  console[method] = () => {};
-let busy = false;
-self.onmessage = async (event: MessageEvent<unknown>) => {
-  if (busy || !event.data || typeof event.data !== "object") return;
-  const request = event.data as { id?: unknown; operation?: unknown };
-  if (
-    typeof request.id !== "string" ||
-    request.id.length > 64 ||
-    (request.operation !== "vectors" && request.operation !== "kdf")
-  )
-    return;
-  busy = true;
-  const id = request.id;
+// One fixed synthetic job per Worker. No message or page data selects credentials
+// or controls a cryptographic operation inside this host.
+void (async () => {
   try {
-    const sdk = await loadBrowserCryptoSdk();
-    // The only permitted fetch was the packaged same-extension WASM above.
-    globalThis.fetch = () => Promise.reject(new Error("Network disabled in crypto host"));
-    sdk.init_sdk(sdk.LogLevel.Error, sdk.LogLevel.Error, 0);
-    self.postMessage({ id, type: "started" });
+    const sdk = await initializeSyntheticCryptoHost();
+    self.postMessage({ type: "started" });
     const encode = (value: string) => new TextEncoder().encode(value);
-    if (request.operation === "kdf") {
-      const value = sdk.PureCrypto.derive_kdf_material(encode(kdfPassword), encode(kdfSalt), {
-        argon2id: { iterations: 20, memory: 128, parallelism: 2 },
-      });
-      value.fill(0);
-      self.postMessage({ id, type: "complete", results: { finished: true } });
-      return;
-    }
     const pbkdf = sdk.PureCrypto.derive_kdf_material(encode(kdfPassword), encode(kdfSalt), {
       pBKDF2: { iterations: 10_000 },
     });
@@ -116,17 +98,49 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
     );
     const v2Verified = second.ok && second.data.metadata.securityVersion === 2;
     if (second.ok) second.data.dispose();
+    const authentication = await derivePasswordAuthentication(
+      {
+        connectionId: base.connectionId,
+        email: pbkdf2Auth.salt,
+        password: authPassword,
+        prelogin: {
+          mode: "legacy",
+          response: { kdf: 0, kdfIterations: pbkdf2Auth.kdf.pBKDF2.iterations },
+        },
+      },
+      sdk,
+    );
+    const argonAuthentication = await derivePasswordAuthentication(
+      {
+        connectionId: base.connectionId,
+        email: pbkdf2Auth.salt,
+        password: authPassword,
+        prelogin: {
+          mode: "password",
+          response: {
+            salt: argon2Auth.salt,
+            kdfSettings: { kdfType: 1, ...argon2Auth.kdf.argon2id },
+          },
+        },
+      },
+      sdk,
+    );
     const checks = {
       pbkdf2: pbkdf.every((value, index) => value === pbkdf2Expected[index]),
       argon2id: argon.every((value, index) => value === argon2Expected[index]),
       loginMatches,
       corruptionRejected,
       v2Verified,
+      authPbkdf2:
+        authentication.ok && authentication.data.masterPasswordHash === pbkdf2Auth.expected,
+      authArgon2id:
+        argonAuthentication.ok &&
+        argonAuthentication.data.masterPasswordHash === argon2Auth.expected,
     };
     pbkdf.fill(0);
     argon.fill(0);
-    self.postMessage({ id, type: "complete", results: checks });
+    self.postMessage({ type: "complete", results: checks });
   } catch {
-    self.postMessage({ id, type: "failed" });
+    self.postMessage({ type: "failed" });
   }
-};
+})();

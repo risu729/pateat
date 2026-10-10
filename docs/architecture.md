@@ -80,14 +80,26 @@ service layouts. Do not follow redirects or send browser cookies. Each provider
 operation owns its method, path and request shape; no generic authenticated
 request function is exposed. Bound response bytes while reading, support explicit
 cancellation and report sanitized errors without request bodies or tokens.
-Prelogin and encrypted sync are currently isolated library operations, not an
-authenticated extension connection. Preserve unknown encrypted format metadata
+Prelogin, password/refresh-token requests and encrypted sync are isolated library
+operations; settings does not yet create an authenticated extension connection.
+Password requests accept explicit manual authenticator/email codes and new-device
+OTP values. Return bounded challenge categories and provider IDs, never raw
+challenge parameters, server descriptions or URLs. Code delivery and interactive
+providers need separate integration. Keep successful token and encrypted-account
+results local; they do not establish account ownership or unlock a vault by
+themselves. Preserve unknown encrypted format metadata
 for later crypto validation; successful HTTP parsing does not prove decryptability
 or authorize use of a newly fetched snapshot.
 The server can filter sync data according to client version and device capability
 headers. Record the protocol profile and validate completeness in the later
 adapter before replacing a usable cache; an intact outer envelope alone is not
 evidence that every vault item was returned.
+The isolated requests do not yet advertise `Bitwarden-Client-Version`. The
+[pinned server validator](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/src/Identity/IdentityServer/RequestValidators/ClientVersionValidator.cs)
+rejects existing-account authentication without that
+header. Surface this as protocol incompatibility; a tested, explicit compatibility
+profile is required before enabling provider setup. Omitting the header is not a
+usable compatibility strategy.
 
 The isolated local-crypto library uses the owner-approved official OSS SDK,
 with no SDK HTTP/token provider. It validates supported input shapes, rejects
@@ -95,8 +107,12 @@ partial decryption and binds each session to one connection. V2 initialization
 verifies signed state before a security-version floor is checked. Disposal
 withholds stale results; native cleanup waits for in-flight operations, while
 Worker termination is the hard cancellation boundary. The current browser host
-is synthetic-only. Provider authentication, cache reconciliation and persistent
-unlock still need their own integration and acceptance tests.
+is synthetic-only. Local password-authorization hashing uses the SDK's primary
+KDF followed by native WebCrypto's protocol-specific single-iteration PBKDF2.
+Preserve the password exactly and normalize the authentication salt according to
+the pinned SDK, independently of vault-unlock parameters. Provider settings,
+cache reconciliation and persistent unlock still need their own integration and
+acceptance tests.
 
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and
