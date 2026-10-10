@@ -44,7 +44,7 @@ const recordSchema = v.variant("kind", [
     syncedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     /** The service answered 401: it no longer accepts this credential. */
     rejected: v.optional(v.literal(true)),
-    /** The owner's recipes outgrew the local cache; cleared by the next complete sync. */
+    /** Recipes outgrew the local cache or settings their limits; cleared by a complete sync. */
     cacheFull: v.optional(v.literal(true)),
   }),
 ]);

@@ -978,5 +978,9 @@ export function createLoginRuntime(
       return undefined;
     })
     .catch(() => undefined);
-  return { handle, settingsChanged };
+  /** Whether a login is in progress; a policy write now would stop it. */
+  function active(): boolean {
+    return [...attempts.values()].some((run) => current(run) && !terminal(run.metadata));
+  }
+  return { handle, settingsChanged, active };
 }

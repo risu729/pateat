@@ -359,11 +359,10 @@ Chrome yet.
   (`defaultLoginBinding`), and maps it to this device's field IDs with
   `resolveBindingFields` over the catalog's raw field names. A recipe with another slot
   and no saved binding refuses as `binding-not-found`; a connection without a `userId`
-  refuses as `vault-unavailable`. Production reads recipes from the synced recipe
-  cache described under [service sync progress](#service-sync-progress). Settings are
-  not synced yet, so bindings live only in local settings. `/v1/settings` already
-  accepts and stores bindings. An extension or service build that predates `bindings`
-  rejects settings that contain them. Provider-derived origins remain open.
+  refuses as `vault-unavailable`. Production reads recipes from the synced recipe cache
+  described under [service sync progress](#service-sync-progress), and bindings from the
+  synced settings described there. An extension or service build that predates
+  `bindings` rejects settings that contain them. Provider-derived origins remain open.
 - A fill step refuses as `structural-mismatch` before writing anything unless all of its
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy
@@ -484,18 +483,24 @@ three copies per entry (exclusions by hostname, defaults by origin, bindings by 
 origin and account): the copy this device and the service last agreed on, stored under
 `pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
 entry since that base wins, and the service wins when both changed it; removing an entry
-counts as a change. A new pairing has no base: the service's settings replace the local
-synced part, and a service that has never stored settings is seeded from this device.
-The merge is written back with a conditional `PUT /v1/settings`, and a stale revision
-merges again with the service's current state. Local settings change through the
-settings store's revision check, only when the merge differs from them, so an unchanged
-sync does not stop running login attempts. A local revision that moved during the merge
-merges again. A local legacy default is replaced when the service names an account for
-its origin. Saving settings on the extension's page or saving an automatic account
-choice starts a sync at once. A recipe sync that cannot reach the service skips
-settings, a 401 from either request marks the device rejected, and the settings page
-shows a complete sync only when both finished. Unit tests use a synthetic service and
-the real settings store over in-memory storage; no running service has been tried.
+counts as a change. Without a base (a new pairing, a device paired before this sync
+existed, or a service restored to an older revision) both sides' entries are kept, the
+service wins where they differ, and nothing is removed. Disconnecting forgets the base
+but keeps local settings, so pairing with another owner's service uploads this device's
+synced settings there. The merge is written back with a conditional `PUT /v1/settings`,
+and a stale revision merges again with the service's current state, up to three times. A
+merge over the settings limits (1,000 entries per list, or a document over 120 KiB of
+the service's 128 KiB body limit) changes neither side, and the settings page says the
+settings no longer fit. Local settings change through the settings store's revision
+check, only when the merge differs from them, so an unchanged sync does not stop running
+login attempts; while a login is running, the local write waits for a later sync. A
+local revision that moved during the merge merges again. A local legacy default is
+replaced when the service names an account for its origin. Saving settings on the
+extension's page or saving an automatic account choice starts a sync at once. A recipe
+sync that cannot reach the service skips settings, a 401 from either request marks the
+device rejected, and the settings page shows a complete sync only when both finished.
+Unit tests use a synthetic service and the real settings store over in-memory storage;
+no running service has been tried.
 
 ### Remaining M4 service gaps
 

@@ -436,6 +436,12 @@ describe("settings in the same sync", () => {
     expect(down.settingsSync.run).not.toHaveBeenCalled();
   });
 
+  it("shows settings that exceed their limits like a full cache", async () => {
+    const { sync, service } = setup({ settings: "too-large" });
+    expect(await sync.sync()).toBe("too-large");
+    expect(service.recordSync).toHaveBeenCalledExactlyOnceWith(DEVICE, { cacheFull: true });
+  });
+
   it("forgets the settings base with the recipe cache", async () => {
     const { sync, settingsSync } = setup({ settings: "synced" });
     await sync.clear();

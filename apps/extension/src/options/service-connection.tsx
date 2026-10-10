@@ -314,7 +314,7 @@ export function ServiceConnection({
             {state.rejected
               ? "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync."
               : state.cacheFull
-                ? "Your recipes no longer fit in this device's cache, so newer changes are not applied. Login keeps using the recipes synced before."
+                ? "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before."
                 : state.syncedAt === undefined
                   ? "Recipes and settings have not finished syncing yet."
                   : `Recipes and settings last synced at ${new Date(state.syncedAt).toLocaleString()}.`}

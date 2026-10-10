@@ -67,6 +67,7 @@ export default defineBackground(() => {
       login.settingsChanged();
       passkeys?.cancelAll();
     },
+    deferred: () => login.active(),
   });
   const recipeSync = createRecipeSync({
     service,

@@ -160,6 +160,8 @@ export function createRecipeSync(options: {
       await service.recordSync(connection.deviceId, { rejected: true });
       return "rejected";
     }
+    if (settingsOutcome === "too-large")
+      await service.recordSync(connection.deviceId, { cacheFull: true });
     const outcome = recipesOutcome === "synced" ? settingsOutcome : recipesOutcome;
     if (outcome === "synced") await service.recordSync(connection.deviceId, { syncedAt: now() });
     return outcome;

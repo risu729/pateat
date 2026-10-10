@@ -225,7 +225,7 @@ test("shows when recipes last synced and when the service rejects the device", a
   await render(
     <ServiceConnection client={mockClient({ ...connected, cacheFull: true })} pollMs={60_000} />,
   );
-  await expect.element(page.getByText(/no longer fit in this device's cache/)).toBeVisible();
+  await expect.element(page.getByText(/no longer fit/)).toBeVisible();
 });
 
 test("shows the first sync finishing without a reload", async () => {

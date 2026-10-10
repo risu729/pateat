@@ -271,12 +271,19 @@ describe("settings", () => {
   it.each([
     ["a malformed document", 200, { ...state, revision: 0 }, "unexpected-response"],
     ["a conflict without its state", 409, { error: "settings_conflict" }, "unexpected-response"],
-    ["an oversized write", 413, { error: "payload_too_large" }, "unexpected-response"],
     ["a rate limit", 429, { error: "rate_limited" }, "rate-limited"],
   ])("rejects %s", async (_, status, body, error) => {
     expect(
       await createServiceTransport({ fetch: respond(status, body) }).settings(ORIGIN, CREDENTIAL),
     ).toEqual({ kind: "failed", error });
+  });
+
+  it("rejects an oversized write", async () => {
+    expect(
+      await createServiceTransport({
+        fetch: respond(413, { error: "payload_too_large" }),
+      }).saveSettings(ORIGIN, CREDENTIAL, { version: 1, expectedRevision: 3, settings: document }),
+    ).toEqual({ kind: "failed", error: "unexpected-response" });
   });
 
   it("reports a rejected device", async () => {

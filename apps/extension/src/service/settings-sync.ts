@@ -12,6 +12,10 @@ import type { ServiceTransport, TransportFailure } from "./transport";
 
 /** Conflicting writes are retried this many times in one sync before giving up. */
 export const MAX_SETTINGS_SYNC_ATTEMPTS = 3;
+/** The service accepts request bodies up to 128 KiB; the document leaves room for the rest. */
+export const MAX_SETTINGS_DOCUMENT_BYTES = 120 * 1024;
+
+const encoder = new TextEncoder();
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
 type AccountDefault = Extract<SiteDefault, { provider: string }>;
@@ -61,8 +65,13 @@ export interface SettingsBaseStorage {
 export type SettingsSyncOutcome =
   | "synced"
   | "rejected"
-  /** Local or service settings kept changing during the sync; the next one merges again. */
+  /**
+   * Local or service settings kept changing, or a login was in progress; the next sync
+   * merges again.
+   */
   | "busy"
+  /** The merge exceeds the settings limits; neither side was changed. */
+  | "too-large"
   | "storage-unavailable"
   | TransportFailure;
 
@@ -152,6 +161,8 @@ export function createSettingsSync(options: {
   storage: SettingsBaseStorage;
   /** Called after synced changes are written to the local settings. */
   applied?: () => void;
+  /** Whether a local settings write must wait, for example while a login runs. */
+  deferred?: () => boolean;
 }) {
   const { transport, settings, storage } = options;
 
@@ -179,15 +190,16 @@ export function createSettingsSync(options: {
     stale: () => boolean,
   ): Promise<SettingsSyncOutcome> {
     const { origin, credential } = connection;
-    // A new pairing has no base: the service's settings replace the local synced part,
-    // and only a service that has never stored settings is seeded from this device.
     const stored = await loadBase(connection);
-    let base = stored ? syncedSettings(stored.settings) : undefined;
     const fetched = await transport.settings(origin, credential);
     if (fetched.kind === "rejected") return "rejected";
     if (fetched.kind === "failed") return fetched.error;
     if (fetched.kind !== "state") return "unexpected-response";
     let service: SyncSettingsState = fetched.state;
+    // Without a base, for a new pairing or a service restored to an older revision, both
+    // sides' entries are kept and the service wins where they differ; nothing is removed.
+    const base =
+      stored && service.revision >= stored.revision ? syncedSettings(stored.settings) : emptySynced;
     for (let attempt = 0; attempt < MAX_SETTINGS_SYNC_ATTEMPTS; attempt += 1) {
       let local: SettingsSnapshot;
       try {
@@ -198,17 +210,17 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = service.settings ? syncedSettings(service.settings) : emptySynced;
-      const merged = base
-        ? mergeSyncedSettings(base, localSynced, serviceSynced)
-        : service.revision === 0
-          ? localSynced
-          : serviceSynced;
+      const merged = mergeSyncedSettings(base, localSynced, serviceSynced);
+      const next = v.safeParse(localSettingsSchema, applySynced(local.settings, merged));
+      if (
+        !v.safeParse(localSettingsSchema, serviceDocument(merged)).success ||
+        encoder.encode(JSON.stringify(serviceDocument(merged))).byteLength >
+          MAX_SETTINGS_DOCUMENT_BYTES ||
+        !next.success
+      )
+        return "too-large";
       if (stale()) return "busy";
-      // The service has never stored settings and there is nothing to store yet.
-      const upload =
-        !equalSynced(merged, serviceSynced) &&
-        !(service.revision === 0 && equalSynced(merged, emptySynced));
-      if (upload) {
+      if (!equalSynced(merged, serviceSynced)) {
         // oxlint-disable-next-line no-await-in-loop -- a conflict retries with its state
         const saved = await transport.saveSettings(origin, credential, {
           version: 1,
@@ -221,12 +233,14 @@ export function createSettingsSync(options: {
           service = saved.current;
           continue;
         }
+        // A retry below keeps the old base: local settings do not hold the merge yet, so
+        // their pre-merge entries are not edits.
         service = saved.state;
-        // The service now holds the merge; a retry below merges later local edits on it.
-        base = merged;
       }
       if (stale()) return "busy";
       if (!equalSynced(merged, localSynced)) {
+        // A policy write now would stop a login in progress; the next sync applies it.
+        if (options.deferred?.()) return "busy";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
           await settings.update(local.revision, (snapshot) => ({
