@@ -105,7 +105,10 @@ export async function findLiveSiteCandidates(input: {
       reasons.add(reason);
       incomplete.set(itemId, reasons);
     };
-    for (const entry of result.data.unavailableUris) note(entry.itemId, entry.reason);
+    // Non-web schemes and malformed URIs can never match a page, as in the pinned clients.
+    for (const entry of result.data.unavailableUris)
+      if (entry.reason !== "unsupported-uri-scheme" && entry.reason !== "invalid-uri")
+        note(entry.itemId, entry.reason);
     for (const itemId of result.data.unavailableItemIds) note(itemId, "item-unavailable");
     for (const [itemId, reasons] of incomplete)
       incompleteItems.push({ connectionId: connection.id, itemId, reasons: [...reasons] });

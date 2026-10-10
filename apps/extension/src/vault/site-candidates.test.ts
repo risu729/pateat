@@ -175,6 +175,9 @@ describe("live provider URI candidates", () => {
           { itemId: loginId, uriIndex: 0, reason: "default-match-unavailable" },
           { itemId: loginId, uriIndex: 1, reason: "default-match-unavailable" },
           { itemId: excludedId, uriIndex: 0, reason: "equivalent-domains-unavailable" },
+          { itemId: loginId, uriIndex: 2, reason: "unsupported-uri-scheme" },
+          { itemId: loginId, uriIndex: 3, reason: "invalid-uri" },
+          { itemId: loginId, uriIndex: 4, reason: "unsupported-uri-match" },
         ],
         unavailableItemIds: [quarantinedId],
       }),
@@ -186,7 +189,11 @@ describe("live provider URI candidates", () => {
       origin: "https://auth.example.com",
       candidates: [],
       incompleteItems: [
-        { connectionId: "live", itemId: loginId, reasons: ["default-match-unavailable"] },
+        {
+          connectionId: "live",
+          itemId: loginId,
+          reasons: ["default-match-unavailable", "unsupported-uri-match"],
+        },
       ],
       unavailableConnections: [],
     });
