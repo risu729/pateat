@@ -1,6 +1,6 @@
 # ADR 0004: Compose maintained libraries around explicit domain boundaries
 
-Status: application libraries selected; additional verification tools and
+Status: application and selected verification libraries approved; property-based and
 protocol-specific crypto choices pending. PR unmerged.
 
 Date: 2026-10-10
@@ -37,8 +37,9 @@ approved; their convenience APIs do not replace trusted-context restrictions,
 revision checks or owner authorization.
 
 Keep Valibot application contracts and the existing Vitest/Playwright test layers.
-Additional browser component, accessibility, property-based and unused-code tools
-remain candidates awaiting the owner. Native APIs remain appropriate primitives;
+The owner approved Vitest Browser Mode with `vitest-browser-react`,
+`@axe-core/playwright` and Knip. Property-based tooling remains pending a comparison
+with alternatives. Native APIs remain appropriate primitives;
 they are not a reason to recreate useful higher-level infrastructure.
 
 ### Delegated OTP and public-suffix selection
@@ -73,6 +74,26 @@ Specialized finite-choice APIs keep direct adapters if SDK abstractions lose the
 semantics. Provider evaluation stays in [ADR 0003](0003-service-and-ai.md) and a
 separate PR. No agent loop, automatic fallback or additional hosted infrastructure is
 implied.
+
+### Property-based alternatives awaiting a decision
+
+Reviewed official documentation, repositories and npm metadata on 2026-10-10.
+Recommend fast-check for this Vitest/Valibot codebase, subject to the owner's choice.
+Its typed generators, shrinking, model commands and controlled async scheduling fit
+policy invariants, attempt transitions and stale-event ordering. The scheduler
+controls instrumented test operations; it does not simulate the browser lifecycle.
+
+| Candidate | Dated evidence and fit |
+| --- | --- |
+| fast-check | 4.10.2 published 2026-09-19 UTC; repository active in October. Direct fit for TypeScript and existing Vitest tests |
+| Effect 4 Arbitrary | Effect 4.0.2 published 2026-10-07 UTC. A current independent option with Schema-derived generators, shrinking and replay, but the Arbitrary API is marked unstable and uses Effect execution/Schema rather than our existing Valibot contracts |
+| JSVerify / testcheck-js | npm latest releases are 0.8.4 (2018-10-31 UTC) and 1.0.0-rc.2 (2017-04-26 UTC). Repositories are unarchived but neither offers a maintenance advantage for a new integration |
+| Jazzer.js | Core 4.0.0 published 2026-04-15 UTC; repository active in September. Coverage-guided Node.js fuzzing is a possible complement for parser/protocol input exploration, requiring its own harness and runtime validation |
+
+Newness alone does not establish superiority. Effect Arbitrary deserves evaluation
+if Effect becomes an independently justified dependency; this comparison does not
+approve adding Effect, replacing Valibot, or installing any property-testing tool.
+No candidate has been benchmarked against this project by this documentation PR.
 
 ## Alternatives and consequences
 
@@ -121,3 +142,9 @@ not claim any new library is installed.
   [fast-check](https://fast-check.dev/docs/introduction/),
   [Oxlint plugins](https://oxc.rs/docs/guide/usage/linter/plugins.html) and
   [Knip production analysis](https://knip.dev/features/production-mode).
+- [fast-check model-based testing](https://fast-check.dev/docs/advanced/model-based-testing/)
+  and [async scheduling](https://fast-check.dev/docs/advanced/race-conditions/),
+  [Effect 4 Arbitrary](https://effect.website/docs/v4/api/effect/Arbitrary),
+  [JSVerify](https://github.com/jsverify/jsverify),
+  [testcheck-js](https://github.com/leebyron/testcheck-js) and
+  [Jazzer.js](https://github.com/CodeIntelligenceTesting/jazzer.js).

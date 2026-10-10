@@ -77,8 +77,11 @@ Approved M2 slice: migrate the settings page to React, Tailwind + Base UI with
 selected shadcn/ui components, and TanStack Form + Valibot. Pin compatible versions
 with WXT/Vite, verify MV3 CSP and emitted bundles, and retain draft preservation,
 revision conflicts, validation and keyboard/focus behavior. Keep UI dependencies
-out of the background worker and content scripts. Use the existing test stack;
-new test libraries remain separate pending decisions.
+out of the background worker and content scripts. Add the approved Vitest Browser
+Mode with `vitest-browser-react`, `@axe-core/playwright` and Knip to the existing
+test stack. Keep real-extension Playwright tests and manual keyboard/focus checks;
+configure WXT entrypoints before acting on Knip findings. Property-based tooling
+remains pending the owner's comparison decision.
 
 Also approved for M2: TanStack Query for metadata loading/mutations and
 `@webext-core/messaging` for extension communication. Keep dirty form drafts
