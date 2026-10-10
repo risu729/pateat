@@ -84,6 +84,12 @@ try {
   assert.equal(sync.status, 401);
   assert.equal(sync.headers.get("Access-Control-Allow-Origin"), null);
   assert.deepEqual(await sync.json(), { error: "unauthorized" });
+  // Owner pages fail closed without Access settings, before fetching any keys.
+  const manage = await runtime.dispatchFetch("https://pateat.invalid/manage", {
+    headers: { "Cf-Access-Jwt-Assertion": "a.b.c" },
+  });
+  assert.equal(manage.status, 503);
+  assert.equal(manage.headers.get("X-Frame-Options"), "DENY");
   console.log(`Production artifact smoke passed: pateat-api @ ${expectedRevision}`);
 } finally {
   await runtime.dispose();

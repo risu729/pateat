@@ -5,7 +5,12 @@ import { devices } from "./db/schema";
 import { apiError } from "./http";
 
 export type DeviceScope = { ownerId: string; deviceId: string };
-export type ApiEnv = { Bindings: Env; Variables: { scope: DeviceScope } };
+/** A verified external identity; the owner is looked up from it, never from input. */
+export type AccessIdentity = { issuer: string; subject: string };
+export type ApiEnv = {
+  Bindings: Env;
+  Variables: { scope: DeviceScope; identity: AccessIdentity };
+};
 
 const TOKEN_PREFIX = "pateat_device_";
 const TOKEN_PATTERN = /^pateat_device_[A-Za-z0-9_-]{43}$/;
