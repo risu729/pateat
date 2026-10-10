@@ -117,6 +117,12 @@ for personal data, such as user IDs in paths, before they are shared.
 
 ## Alternatives
 
+- Putting vault field names, or a selector-to-field map, directly in the recipe
+  instead of slots (owner kept slots on 2026-10-10): the recipe could not be shared,
+  because field names are per user, and it would expose the owner's vault naming. Two
+  accounts on one site with differently named fields would need two copies of the
+  recipe, and a recipe revision with new selectors would invalidate every binding.
+  With slots, a revision keeps bindings valid while slot names are unchanged.
 - Extension-local storage as the source of truth: `storage.local` is cleared on
   uninstall and is not shared across machines.
 - `storage.sync`: the
