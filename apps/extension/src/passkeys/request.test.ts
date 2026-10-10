@@ -92,17 +92,55 @@ describe("request admission", () => {
     expect(result).toMatchObject({ kind: "claim", request: { allowCredentialIds: ["AQID"] } });
   });
 
+  it("claims at the WebAuthn size limits and with any internal-capable descriptor", () => {
+    const encode = (length: number) => btoa("x".repeat(length)).replace(/=+$/u, "");
+    expect(admit({ ...base, challenge: encode(1024) }).kind).toBe("claim");
+    expect(
+      admit({ ...base, allowCredentials: [{ type: "public-key", id: encode(1023) }] }).kind,
+    ).toBe("claim");
+    expect(
+      admit({
+        ...base,
+        allowCredentials: [{ type: "public-key", id: "AQID", transports: ["hybrid"] }],
+      }).kind,
+    ).toBe("claim");
+    // A descriptor without transports may name a vault credential.
+    expect(
+      admit({
+        ...base,
+        allowCredentials: [
+          { type: "public-key", id: "AQID", transports: ["usb"] },
+          { type: "public-key", id: "AQIE" },
+        ],
+      }),
+    ).toMatchObject({ kind: "claim", request: { allowCredentialIds: ["AQID", "AQIE"] } });
+  });
+
   it.each([
     ["missing activation", base, false, "no-user-activation"],
     ["conditional mediation", { ...base, mediation: "conditional" }, true, "unsupported-mediation"],
     ["silent mediation", { ...base, mediation: "silent" }, true, "unsupported-mediation"],
+    ["required mediation", { ...base, mediation: "required" }, true, "unsupported-mediation"],
     ["required UV", { ...base, userVerification: "required" }, true, "user-verification-required"],
     ["foreign RP ID", { ...base, rpId: "example.net" }, true, "rp-id-mismatch"],
     ["public-suffix RP ID", { ...base, rpId: "com" }, true, "rp-id-mismatch"],
     ["short challenge", { ...base, challenge: "AAECAwQFBgcICQoLDA0O" }, true, "invalid-request"],
     ["padded challenge", { ...base, challenge: `${challenge}==` }, true, "invalid-request"],
     ["oversized challenge", { ...base, challenge: "A".repeat(1400) }, true, "invalid-request"],
-    ["unknown member", { ...base, extensions: {} }, true, "invalid-request"],
+    [
+      "a challenge just over 1024 bytes",
+      { ...base, challenge: btoa("x".repeat(1025)).replace(/=+$/u, "") },
+      true,
+      "invalid-request",
+    ],
+    [
+      "non-canonical trailing bits",
+      { ...base, challenge: `${challenge.slice(0, -1)}x` },
+      true,
+      "invalid-request",
+    ],
+    // The bridge drops timeout, hints and extensions; any other member is a malformed snapshot.
+    ["a member outside the snapshot", { ...base, extensions: {} }, true, "invalid-request"],
     [
       "external transports only",
       {

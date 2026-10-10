@@ -362,7 +362,7 @@ The SDK-decrypted private key is decoded with a DER framing check only; WebCrypt
 import validates its structure. Unit tests cover malformed and unsupported views and
 an SDK round trip through the synthetic legacy account fixture.
 
-The extension's assertion core admits only optional-mediation requests that do not
+The extension's assertion core admits only requests with mediation absent or `optional` that do not
 require UV, carry user activation and pass WebAuthn RP ID validation with tldts
 private suffixes; everything else is a delegation result. It selects exactly one
 eligible credential, refuses nonzero counters, serializes `clientDataJSON`, builds

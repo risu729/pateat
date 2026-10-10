@@ -28,7 +28,12 @@ export async function createPasskeyAssertion(
   credential: PasskeyCandidate,
   sign: AssertionSigner,
 ): Promise<PasskeyAssertion> {
-  if (credential.counter !== 0 || credential.rpId !== request.rpId)
+  // Selection already enforces these; repeat them so no caller can sign an ineligible credential.
+  const listed =
+    request.allowCredentialIds.length === 0
+      ? credential.discoverable && credential.userHandle !== null
+      : request.allowCredentialIds.includes(credential.credentialId);
+  if (credential.counter !== 0 || credential.rpId !== request.rpId || !listed)
     throw new RangeError("Ineligible credential");
   const clientDataJSON = serializeGetClientData(request.challenge, request.origin);
   const authenticatorData = await buildAssertionAuthenticatorData(

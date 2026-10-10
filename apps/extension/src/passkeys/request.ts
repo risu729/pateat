@@ -22,7 +22,12 @@ const bytes = (minimum: number, maximum: number) =>
   );
 const shortText = v.pipe(v.string(), v.maxLength(64));
 
-/** Bounded, page-supplied snapshot of `navigator.credentials.get({ publicKey })` options. */
+/**
+ * Bounded, page-supplied snapshot of `navigator.credentials.get({ publicKey })` options. The bridge
+ * copies only these members: `timeout`, `hints` and `extensions` are dropped before relaying,
+ * because Pateat neither waits on the caller's timeout nor interprets hints or extensions. A
+ * snapshot with any other member is malformed and delegates.
+ */
 export const bridgedGetRequestSchema = v.strictObject({
   challenge: bytes(MIN_CHALLENGE_BYTES, MAX_CHALLENGE_BYTES),
   rpId: v.optional(v.pipe(v.string(), v.maxLength(253))),

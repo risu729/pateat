@@ -103,7 +103,7 @@ describe("WebAuthn L3 ES256 authentication vector", () => {
     ).toBe(true);
   });
 
-  it("refuses nonzero counters and RP ID mismatches before signing", async () => {
+  it("refuses ineligible credentials before signing", async () => {
     let signed = false;
     const sign = async () => {
       signed = true;
@@ -122,6 +122,16 @@ describe("WebAuthn L3 ES256 authentication vector", () => {
     ).rejects.toThrow();
     await expect(
       createPasskeyAssertion(request, { ...credential, rpId: "other.example.org" }, sign),
+    ).rejects.toThrow();
+    // Without an allow list the credential must be discoverable with a user handle.
+    await expect(
+      createPasskeyAssertion(request, { ...credential, discoverable: false }, sign),
+    ).rejects.toThrow();
+    await expect(
+      createPasskeyAssertion(request, { ...credential, userHandle: null }, sign),
+    ).rejects.toThrow();
+    await expect(
+      createPasskeyAssertion({ ...request, allowCredentialIds: ["AQ"] }, credential, sign),
     ).rejects.toThrow();
     expect(signed).toBe(false);
   });
@@ -193,7 +203,7 @@ describe("DER signature encoding", () => {
       valid.subarray(0, valid.length - 1),
       Uint8Array.of(...valid, 0),
       Uint8Array.of(0x31, ...valid.subarray(1)),
-      hex("3006020100020200ff".replace("0200ff", "02017f")).subarray(0, 4),
+      hex("30060201"), // truncated sequence
       hex("300802020001020101"), // non-minimal r
       hex("3006020180020101"), // negative r
     ])
