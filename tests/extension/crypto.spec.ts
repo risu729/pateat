@@ -8,21 +8,36 @@ const repository = fileURLToPath(new URL("../../", import.meta.url));
 const production = resolve(repository, "apps/extension/.output/chrome-mv3");
 const probe = resolve(repository, "apps/extension/.output/chrome-mv3-probe");
 
-test("crypto probe packages native WASM under MV3 CSP and stays out of production", async () => {
+test("crypto host packages native WASM under MV3 CSP while its synthetic probe stays out of production", async () => {
   const productionFiles = await readdir(production, { recursive: true });
   expect(productionFiles).not.toContain("crypto-probe.html");
-  expect(productionFiles.filter((file) => file.endsWith(".wasm"))).toEqual([]);
-  const manifest = JSON.parse(await readFile(resolve(probe, "manifest.json"), "utf8"));
-  expect(manifest.manifest_version).toBe(3);
-  expect(manifest.content_security_policy.extension_pages).toContain("'wasm-unsafe-eval'");
-  expect(manifest.content_security_policy.extension_pages).not.toContain("'unsafe-eval'");
-  expect(manifest.host_permissions).toEqual(["http://127.0.0.1/*"]);
-  const files = await readdir(probe, { recursive: true });
-  expect(files).toContain("crypto-probe.html");
-  const wasmFiles = files.filter((file) => file.endsWith(".wasm"));
-  expect(wasmFiles).toHaveLength(1);
-  const bytes = await readFile(resolve(probe, wasmFiles[0]!));
-  expect(Array.from(bytes.subarray(0, 8))).toEqual([0, 97, 115, 109, 1, 0, 0, 0]);
+  expect(await readdir(probe, { recursive: true })).toContain("crypto-probe.html");
+  await Promise.all(
+    [production, probe].map(async (directory) => {
+      const manifest = JSON.parse(await readFile(resolve(directory, "manifest.json"), "utf8"));
+      expect(manifest.manifest_version).toBe(3);
+      expect(manifest.permissions).toContain("offscreen");
+      expect(manifest.content_security_policy.extension_pages).toContain("'wasm-unsafe-eval'");
+      expect(manifest.content_security_policy.extension_pages).not.toContain("'unsafe-eval'");
+      expect(manifest.host_permissions ?? []).toEqual(
+        directory === probe ? ["http://127.0.0.1/*"] : [],
+      );
+      if (directory === production) {
+        const background = await readFile(
+          resolve(directory, manifest.background.service_worker),
+          "utf8",
+        );
+        expect(background).not.toContain("synthetic-host");
+        expect(background).not.toContain("crypto.probe");
+      }
+      const files = await readdir(directory, { recursive: true });
+      expect(files).toContain("crypto-offscreen.html");
+      const wasmFiles = files.filter((file) => file.endsWith(".wasm"));
+      expect(wasmFiles).toHaveLength(1);
+      const bytes = await readFile(resolve(directory, wasmFiles[0]!));
+      expect(Array.from(bytes.subarray(0, 8))).toEqual([0, 97, 115, 109, 1, 0, 0, 0]);
+    }),
+  );
 });
 
 test("packaged Dedicated Worker executes real SDK vectors without external requests", async () => {

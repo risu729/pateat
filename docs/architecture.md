@@ -42,7 +42,8 @@ compatibility claim or an alternative cloud-browser implementation.
 
 | Component               | Responsibilities                                                                           | May hold secrets?                                               |
 | ----------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| MV3 service worker      | Vault sync/decryption, account selection, recipe cache, attempt coordination, signing      | Yes, extension-owned contexts only                              |
+| MV3 service worker      | Vault sync, crypto-host coordination, account selection, recipe cache and attempts       | Yes, extension-owned contexts only                              |
+| Offscreen crypto host   | Own Dedicated Workers for local SDK operations and hard cancellation                     | Yes, private background channel only                            |
 | Isolated content script | Extract sanitized form structure, validate document identity, execute fixed DOM operations | Only the specific values being filled, briefly                  |
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
 | Settings page           | Initial account/device setup, policy, status and recovery                                  | Deliberate user setup only; no auto-opening during login        |
@@ -125,18 +126,39 @@ reason. Validate uniqueness across both sets. No secrets from unavailable record
 may be released. Mapping success is preparation only; native cryptographic
 verification and later cache acceptance remain separate gates.
 
-The isolated local-crypto library uses the owner-approved official OSS SDK,
-with no SDK HTTP/token provider. It validates supported input shapes, rejects
-partial decryption and binds each session to one connection. V2 initialization
-verifies signed state before a security-version floor is checked. Disposal
-withholds stale results; native cleanup waits for in-flight operations, while
-Worker termination is the hard cancellation boundary. The current browser host
-is synthetic-only. Local password-authorization hashing uses the SDK's primary
-KDF followed by native WebCrypto's protocol-specific single-iteration PBKDF2.
-Preserve the password exactly and normalize the authentication salt according to
-the pinned SDK, independently of vault-unlock parameters. Provider settings,
-cache reconciliation and persistent unlock still need their own integration and
-acceptance tests.
+The isolated local-crypto library uses the owner-approved official OSS SDK, with no SDK
+HTTP/token provider. It validates supported input shapes, rejects partial decryption and
+binds each session to one connection. V2 initialization verifies signed state before a
+security-version floor is checked. Disposal withholds stale results; native cleanup
+waits for in-flight operations, while Worker termination is the hard cancellation
+boundary. Local password-authorization hashing uses the SDK's primary KDF followed by
+native WebCrypto's protocol-specific single-iteration PBKDF2. Preserve the password
+exactly and normalize the authentication salt according to the pinned SDK, independently
+of vault-unlock parameters. Provider settings, cache reconciliation and persistent
+unlock still need their own integration and acceptance tests.
+
+The background host uses a packaged offscreen document with the `WORKERS`
+reason to construct Dedicated Workers. A private runtime Port starts in that
+document; the background validates its browser-supplied extension identity and
+exact URL against the single live offscreen context from `runtime.getContexts`.
+Each host uses a fresh URL query to reject connections from a previous host.
+Chrome may omit the Port sender's document ID for this non-tab context; the live
+context supplies the authoritative opaque document ID, and any sender document
+ID that is present must match. Tab, frame and native-application senders are
+rejected. Secret operations do not use broadcast messages.
+The host exposes fixed authentication, session and field operations only to
+trusted background code, with no generic page-facing SDK API.
+
+Every background incarnation replaces any surviving offscreen document before
+accepting secret work. Request and session identities include fresh generation
+bindings. Disconnect, cancellation and deadlines invalidate pending results and
+terminate the affected Workers; a fresh host never replays old operations.
+The initial caller remains a synthetic compatibility probe. Durable cache,
+retained unlock material and production connection setup are separate gates.
+More than one staged session may exist for a connection. Opening a new snapshot
+does not itself accept it or retire older sessions. The future cache manager must
+explicitly retire superseded handles and invalidate affected policy/recipe
+references before accepting a replacement snapshot for credential release.
 
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and

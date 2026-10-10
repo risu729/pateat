@@ -207,6 +207,27 @@ integration must derive authorization separately. Synthetic tests cover private
 suffix isolation, IDN, localhost/IP, equivalent groups and malformed destinations;
 the MV3 probe passes a real SDK-decrypted, checksum-validated URI to this matcher.
 
+## Background cryptographic host progress
+
+The offscreen host slice connects trusted background operations to packaged
+Dedicated Workers running the approved SDK. Its private runtime Port is bound
+to the browser-reported offscreen document context. Fixed operations support
+authorization hashing before a user ID is known, scoped account sessions and
+local field access; they do not expose SDK dispatch to pages.
+
+The verification graph includes actual MV3 sender/context checks, real SDK vectors
+through the host, connection isolation, lock and hard cancellation, bounded
+deadlines, and fresh recovery after service-worker or offscreen-document loss.
+A new background incarnation must replace old hosts and reject
+old handles without replaying requests. Production artifacts now package the
+host and WASM, but only the synthetic probe calls it in this slice.
+
+Persistent unlock and encrypted-cache acceptance follow this host slice; they
+are not proven by in-memory restart fencing. Production connection setup, real
+provider authentication and settings/catalog integration remain unfinished.
+Conveying a new artifact still requires its matching
+[Corresponding Source](sdk-source.md).
+
 ## Initial delivery and later scope
 
 The [architecture](architecture.md) owns the product contracts. These boundaries

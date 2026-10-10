@@ -2,7 +2,7 @@
 
 ## Official Bitwarden OSS SDK
 
-The synthetic crypto probe bundles the unmodified GPL edition of
+The local cryptographic host and synthetic probe bundle the unmodified GPL edition of
 `@bitwarden/sdk-internal@0.2.0-main.1034`, source revision
 `7de8f13a14b56068167160f88d55231f916cf16a`, by the Bitwarden SDK contributors.
 Public synthetic vectors copied from that revision retain their source
@@ -51,7 +51,7 @@ SOFTWARE.
 
 ## OTPAuth
 
-The synthetic local TOTP probe bundles OTPAuth 9.5.2.
+Local TOTP support uses OTPAuth 9.5.2.
 [Pinned source](https://github.com/hectorm/otpauth/tree/v9.5.2).
 
 The MIT License (MIT)
@@ -105,7 +105,7 @@ THE SOFTWARE.
 
 ## tldts and tldts-core
 
-The synthetic URI-matching probe bundles tldts 7.4.18 and tldts-core 7.4.18.
+URI matching uses tldts 7.4.18 and tldts-core 7.4.18.
 Both packages use the following MIT license.
 [Pinned source](https://github.com/remusao/tldts/tree/v7.4.18).
 

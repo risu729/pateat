@@ -73,8 +73,41 @@ using independent upstream PBKDF2/Argon2id known answers, and keep authenticatio
 KDF/salt separate from vault-unlock data. The resulting hash is an authentication
 credential and remains within the trusted local authentication path.
 
+## Background cryptographic host
+
+Use a packaged offscreen document with Chrome's `WORKERS` reason to own the
+Dedicated Workers that load the approved native SDK. The existing synthetic
+browser probe demonstrated native WASM execution and termination of a computing
+Worker. The Worker constructor is not exposed to service workers, so the MV3
+background cannot construct that host directly. This uses existing browser
+facilities and does not add a framework or native helper.
+
+The offscreen document initiates a private runtime Port. Only the background registers
+the reserved channel listener and it validates the browser-reported sender against the
+actual offscreen document context. Use a fresh URL query per host and require exactly
+one live context at that URL. Chrome's non-tab Port sender can omit its document ID;
+bind to the opaque ID from `runtime.getContexts` and require equality if the sender also
+supplies an ID. Browser-supplied extension identity and URL, rejection of
+tab/frame/native senders, and the live context remain required; the query alone is not
+authority. Enumerate all offscreen contexts when replacing an older host, including
+those with its previous query. The
+[2026-10-10 diagnostic run](https://github.com/risu729/pateat/actions/runs/38040268757)
+observed the omitted sender ID and the live context's opaque ID; it diagnosed a failed
+bootstrap and is not host acceptance evidence. Do not broadcast secret requests through
+runtime messages. Expose fixed cryptographic operations, never generic SDK dispatch. A
+new background incarnation replaces any previous offscreen host; disconnect,
+cancellation and deadlines fence results and terminate affected Workers. Reconnection
+must not replay secret operations.
+
+This host is a prerequisite for persistent unlock, not its implementation.
+Durable cache acceptance, verified key retention and fresh operation grants
+after restoration remain separate integration gates. The browser tests must
+verify actual sender identity and restart behavior before the host is accepted.
+
 ## Sources
 
+- [Chrome offscreen documents and WORKERS reason](https://developer.chrome.com/docs/extensions/reference/api/offscreen).
+- [Worker constructor exposure](https://html.spec.whatwg.org/multipage/workers.html#the-worker-interface).
 - [Pinned SDK license selection](https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/LICENSE)
   and
   [GPLv3](https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/LICENSE_GPL.txt).
