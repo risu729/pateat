@@ -30,7 +30,7 @@ const challenge = { "WWW-Authenticate": 'Bearer realm="pateat"' };
  * scope; request bodies and paths never select an owner or device.
  */
 export const requireDevice = createMiddleware<ApiEnv>(async (c, next) => {
-  const match = /^Bearer (\S+)$/.exec(c.req.header("Authorization") ?? "");
+  const match = /^Bearer (\S+)$/i.exec(c.req.header("Authorization") ?? "");
   const token = match?.[1];
   if (!token || !TOKEN_PATTERN.test(token))
     return apiError(c, 401, { error: "unauthorized" }, challenge);

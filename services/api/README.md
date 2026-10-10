@@ -3,6 +3,9 @@
 This Worker is the optional private settings/recipe sync service. It has no
 enrollment, vault, or inference implementation, and it is not deployed. The `DB`
 D1 binding is declared in `cloudflare.config.ts`, but no database is provisioned.
+cf deploy provisions declared bindings that lack an ID, so record the bootstrapped
+database ID there before enabling server delivery; a routine release must not
+create the database implicitly.
 
 ## Routes
 
@@ -38,7 +41,8 @@ its revision, and only an explicit later write can republish the recipe.
 after changing it and commit the generated `migrations/`; `check:server-migrations`
 fails when they drift. Vitest applies the committed migrations to a local Miniflare
 D1 database and seeds synthetic owners and devices directly, since enrollment does
-not exist yet.
+not exist yet. The concurrency cases interleave requests in one local runtime; they
+do not demonstrate hosted D1 behavior.
 
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds
 the compatibility settings it shares with Vitest. The credential-free build and

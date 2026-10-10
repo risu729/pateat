@@ -517,7 +517,8 @@ satisfies the separation above without a cookie on steady-state API calls.
   an open decision. The Access-protected management page lists and revokes the
   owner's devices, and a device can revoke itself on sign-out. A lost device is
   revoked from another Access login and a replacement re-enrolls. Revocation stops
-  service access only; it neither erases offline caches nor touches any vault.
+  later requests; a request already authenticated may still complete. It stops
+  service access only and neither erases offline caches nor touches any vault.
 
 Before implementation, probe JWT verification against a real Access application
 with the owner's approval, and test approval CSRF, redemption rate limits, replay

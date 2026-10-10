@@ -141,9 +141,13 @@ export const recipeRoutes = new Hono<ApiEnv>()
                   eq(recipeHeads.ownerId, scope.ownerId),
                   eq(recipeHeads.recipeId, recipeId),
                   eq(recipeHeads.revision, write.expectedRevision),
+                  // Re-revoking a tombstone would only add churn to every change feed.
+                  write.state === "revoked" ? eq(recipeHeads.state, "active") : undefined,
                 ),
               );
       // The history row is written only if this request's claim won the head.
+      // Drizzle fills INSERT ... SELECT positionally: keep these fields in the
+      // recipeRevisions column order (the stored-row test checks every column).
       const history = db.insert(recipeRevisions).select(
         db
           .select({

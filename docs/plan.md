@@ -303,8 +303,9 @@ is recorded in the same D1 batch only when that request won the head.
 Local Miniflare tests cover unknown, malformed and revoked credentials, owner and
 device isolation, stale and concurrent writes, tombstones, cursor paging, strict
 schema rejection, media type and body limits, and fail-closed handling of corrupt
-stored documents. A migration check regenerates SQL from the Drizzle schema. The
-D1 database is not provisioned, and nothing is deployed.
+stored documents. Concurrent cases interleave within one local runtime, not hosted
+D1. A migration check regenerates SQL from the Drizzle schema. The D1 database is
+not provisioned, and nothing is deployed.
 
 ### Remaining M4 service gaps
 

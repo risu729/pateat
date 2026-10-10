@@ -122,6 +122,14 @@ describe("device authentication", () => {
     expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
   });
 
+  it("accepts the bearer scheme case-insensitively", async () => {
+    const device = await enrollOwner();
+    const response = await exports.default.fetch("https://pateat.invalid/v1/settings", {
+      headers: { Authorization: `bearer ${device.token}` },
+    });
+    expect(response.status).toBe(200);
+  });
+
   it("authenticates before reading a request body", async () => {
     const response = await exports.default.fetch("https://pateat.invalid/v1/settings", {
       method: "PUT",
@@ -265,6 +273,13 @@ describe("settings sync", () => {
     expect(text.status).toBe(415);
     expect(await text.json()).toEqual({ error: "unsupported_media_type" });
 
+    const suffixed = await api(device, "/v1/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/synthetic+json" },
+      body: "{",
+    });
+    expect(suffixed.status).toBe(415);
+
     const malformed = await api(device, "/v1/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -331,14 +346,26 @@ describe("recipe sync", () => {
     });
 
     const history = await env.DB.prepare(
-      "SELECT revision, state FROM recipe_revisions WHERE owner_id = ? ORDER BY revision",
+      "SELECT * FROM recipe_revisions WHERE owner_id = ? ORDER BY revision",
     )
       .bind(device.ownerId)
       .all();
-    expect(history.results).toEqual([
-      { revision: 1, state: "active" },
-      { revision: 2, state: "active" },
-    ]);
+    // Every column, since the history row is filled positionally by INSERT ... SELECT.
+    expect(
+      history.results.map((row) => ({ ...row, document: JSON.parse(row["document"] as string) })),
+    ).toEqual(
+      [1, 2].map((revision) => ({
+        owner_id: device.ownerId,
+        recipe_id: "bank-login",
+        revision,
+        state: "active",
+        document: recipe("bank-login", revision),
+        created_at: expect.any(Number),
+        created_by_device_id: device.deviceId,
+      })),
+    );
+    for (const row of history.results)
+      expect(Math.abs((row["created_at"] as number) - Date.now())).toBeLessThan(60_000);
   });
 
   it("syncs tombstones and allows an explicit later republish", async () => {
@@ -367,6 +394,30 @@ describe("recipe sync", () => {
       changes: [{ recipeId: "bank-login", revision: 3, state: "active" }],
       cursor: 3,
     });
+  });
+
+  it("does not revoke a tombstone again", async () => {
+    const device = await enrollOwner();
+    await publish(device, "bank-login", 0);
+    const revoke = { version: 1, expectedRevision: 1, state: "revoked" };
+    expect((await put(device, "/v1/recipes/bank-login", revoke)).status).toBe(200);
+    const again = await put(device, "/v1/recipes/bank-login", { ...revoke, expectedRevision: 2 });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({
+      error: "recipe_conflict",
+      current: { recipeId: "bank-login", revision: 2, state: "revoked" },
+    });
+  });
+
+  it("fails closed without details when a stored recipe is corrupt", async () => {
+    const device = await enrollOwner();
+    await publish(device, "bank-login", 0);
+    await env.DB.prepare("UPDATE recipe_revisions SET document = ? WHERE owner_id = ?")
+      .bind(JSON.stringify({ synthetic: "corrupt" }), device.ownerId)
+      .run();
+    const response = await api(device, "/v1/recipes");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "internal_error" });
   });
 
   it("does not create a tombstone for a recipe that does not exist", async () => {

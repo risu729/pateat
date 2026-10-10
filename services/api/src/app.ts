@@ -5,6 +5,7 @@ import { requireDevice, type ApiEnv } from "./auth";
 import { API_HEADERS, apiError } from "./http";
 import { recipeRoutes } from "./routes/recipes";
 import { settingsRoutes } from "./routes/settings";
+import { requireJsonBody } from "./validation";
 
 const MAX_BODY_BYTES = 128 * 1024;
 
@@ -34,6 +35,7 @@ export const app = new Hono<ApiEnv>()
       onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
     }),
   )
+  .on("PUT", "/v1/*", requireJsonBody)
   .route("/v1/settings", settingsRoutes)
   .all("/v1/settings", methodNotAllowed("GET, PUT"))
   .route("/v1/recipes", recipeRoutes)
