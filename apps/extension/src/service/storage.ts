@@ -1,6 +1,7 @@
 import { browser } from "wxt/browser";
 import type { ServiceStorage } from "./runtime";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
+import type { SettingsBaseStorage } from "./settings-sync";
 
 /** One storage.local key readable only by trusted extension contexts. */
 function trustedRecord<T>(key: string) {
@@ -44,4 +45,9 @@ export function createBrowserRecipeCacheStorage(): RecipeCacheStorage {
 /** When the next background recipe sync is due, kept across service worker restarts. */
 export function createBrowserRecipeScheduleStorage(): RecipeScheduleStorage {
   return trustedRecord("pateat.sync-recipes-schedule.v1");
+}
+
+/** The settings this device and the service last agreed on, for the next merge. */
+export function createBrowserSettingsBaseStorage(): SettingsBaseStorage {
+  return trustedRecord("pateat.sync-settings.v1");
 }

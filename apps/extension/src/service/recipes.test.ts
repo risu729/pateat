@@ -8,6 +8,7 @@ import {
   RECIPE_SYNC_STALE_MS,
 } from "./recipes";
 import type { ServiceConnection } from "./runtime";
+import type { SettingsSyncOutcome } from "./settings-sync";
 import type { RecipeChangesResult, ServiceTransport } from "./transport";
 
 // Synthetic service, credential and recipes only.
@@ -62,6 +63,7 @@ function setup(
     stored?: unknown;
     scheduled?: unknown;
     now?: () => number;
+    settings?: SettingsSyncOutcome;
   } = {},
 ) {
   let value = options.stored;
@@ -95,15 +97,21 @@ function setup(
       async () => pages.shift() ?? page([], 0),
     ),
   };
+  const settingsSync = {
+    run: vi.fn(async () => options.settings ?? "synced"),
+    clear: vi.fn(async () => undefined),
+  };
   const sync = createRecipeSync({
     service,
     transport,
     storage,
     schedule,
     now: options.now ?? (() => 5_000),
+    ...(options.settings ? { settings: settingsSync } : {}),
   });
   return {
     sync,
+    settingsSync,
     service,
     transport,
     storage,
@@ -382,6 +390,56 @@ describe("recipe sync", () => {
     await sync.clear();
     expect(cache()).toBeUndefined();
     expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+  });
+});
+
+describe("settings in the same sync", () => {
+  it("syncs settings after recipes and records one complete sync", async () => {
+    const { sync, settingsSync, service } = setup({ settings: "synced" });
+    expect(await sync.sync()).toBe("synced");
+    expect(settingsSync.run).toHaveBeenCalledWith(
+      { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: false },
+      expect.any(Function),
+    );
+    expect(service.recordSync).toHaveBeenCalledExactlyOnceWith(DEVICE, { syncedAt: 5_000 });
+  });
+
+  it("does not record a complete sync when settings did not sync", async () => {
+    const { sync, service } = setup({ settings: "unreachable" });
+    expect(await sync.sync()).toBe("unreachable");
+    expect(service.recordSync).not.toHaveBeenCalled();
+  });
+
+  it("marks the device rejected when the settings request is refused", async () => {
+    const { sync, service } = setup({ settings: "rejected" });
+    expect(await sync.sync()).toBe("rejected");
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { rejected: true });
+  });
+
+  it("still syncs settings when recipes do not fit, but skips them when unreachable", async () => {
+    const full = setup({
+      settings: "synced",
+      pages: [
+        page(
+          Array.from({ length: 4000 }, (_, index) =>
+            active(recipe(`site-${index}`, "/login", 1, `https://site-${index}.example`)),
+          ),
+          1,
+        ),
+      ],
+    });
+    expect(await full.sync.sync()).toBe("cache-full");
+    expect(full.settingsSync.run).toHaveBeenCalledOnce();
+
+    const down = setup({ settings: "synced", pages: [{ kind: "failed", error: "unreachable" }] });
+    expect(await down.sync.sync()).toBe("unreachable");
+    expect(down.settingsSync.run).not.toHaveBeenCalled();
+  });
+
+  it("forgets the settings base with the recipe cache", async () => {
+    const { sync, settingsSync } = setup({ settings: "synced" });
+    await sync.clear();
+    expect(settingsSync.clear).toHaveBeenCalledOnce();
   });
 });
 

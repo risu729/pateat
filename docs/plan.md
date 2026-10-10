@@ -475,14 +475,35 @@ using the cached recipes, and the settings page says to pair again. Lookup uses
 starting on one page find no recipe. Unit tests use synthetic pages and in-memory
 storage; no running service has been tried.
 
+The fifth slice syncs the device-independent settings in the same run, after recipes:
+site exclusions, site defaults that name a provider account and item, and account
+bindings. Vault connections, item selection, field exclusions and legacy site defaults
+that name a device-local connection ID stay on the device; the service document always
+has an empty `connections` list. The background reads `GET /v1/settings` and merges
+three copies per entry (exclusions by hostname, defaults by origin, bindings by recipe,
+origin and account): the copy this device and the service last agreed on, stored under
+`pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
+entry since that base wins, and the service wins when both changed it; removing an entry
+counts as a change. A new pairing has no base: the service's settings replace the local
+synced part, and a service that has never stored settings is seeded from this device.
+The merge is written back with a conditional `PUT /v1/settings`, and a stale revision
+merges again with the service's current state. Local settings change through the
+settings store's revision check, only when the merge differs from them, so an unchanged
+sync does not stop running login attempts. A local revision that moved during the merge
+merges again. A local legacy default is replaced when the service names an account for
+its origin. Saving settings on the extension's page or saving an automatic account
+choice starts a sync at once. A recipe sync that cannot reach the service skips
+settings, a 401 from either request marks the device rejected, and the settings page
+shows a complete sync only when both finished. Unit tests use a synthetic service and
+the real settings store over in-memory storage; no running service has been tried.
+
 ### Remaining M4 service gaps
 
 - Device enrollment has not been tried against a real Access application; that probe
   needs the owner's approval, as do the credential idle-expiry decision and the
   optional `launchWebAuthFlow` variant.
-- The extension syncs recipes but not settings yet: site defaults, bindings and
-  exclusions still live only in local settings, and settings that use device-local
-  connection IDs have no device-independent form yet (ADR 0013).
+- Settings that use device-local connection IDs, such as item selection and field
+  exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - Inference adapters, spending accounting and the release artifact's migration SQL
   remain separate slices.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an

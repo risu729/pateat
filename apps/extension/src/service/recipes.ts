@@ -9,6 +9,7 @@ import {
 import * as v from "valibot";
 import type { LoginRecipes } from "../login/runtime";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
+import type { SettingsSyncOutcome } from "./settings-sync";
 import type { ServiceTransport, TransportFailure } from "./transport";
 
 /** A lookup this long after the last sync attempt starts a background sync. */
@@ -70,6 +71,7 @@ export type RecipeSyncOutcome =
   /** The next page would grow the cache past its size limit; it was not applied. */
   | "cache-full"
   | "storage-unavailable"
+  | SettingsSyncOutcome
   | TransportFailure;
 
 export function createRecipeSync(options: {
@@ -81,6 +83,11 @@ export function createRecipeSync(options: {
   transport: Pick<ServiceTransport, "recipeChanges">;
   storage: RecipeCacheStorage;
   schedule: RecipeScheduleStorage;
+  /** Settings sync for the same device, run after recipes in every sync. */
+  settings?: {
+    run(connection: ServiceConnection, stale: () => boolean): Promise<SettingsSyncOutcome>;
+    clear(): Promise<void>;
+  };
   now?: () => number;
 }) {
   const { service, transport, storage, schedule } = options;
@@ -142,6 +149,27 @@ export function createRecipeSync(options: {
       return "not-connected";
     }
     if (connection.rejected) return "rejected";
+    const recipesOutcome = await pullRecipes(connection, started);
+    if (["not-connected", "rejected", "unreachable", "rate-limited"].includes(recipesOutcome))
+      return recipesOutcome;
+    const settingsOutcome = options.settings
+      ? await options.settings.run(connection, () => generation !== started)
+      : "synced";
+    if (generation !== started) return "not-connected";
+    if (settingsOutcome === "rejected") {
+      await service.recordSync(connection.deviceId, { rejected: true });
+      return "rejected";
+    }
+    const outcome = recipesOutcome === "synced" ? settingsOutcome : recipesOutcome;
+    if (outcome === "synced") await service.recordSync(connection.deviceId, { syncedAt: now() });
+    return outcome;
+  }
+
+  /** Pulls recipe pages into the cache; recording a complete sync is left to `run`. */
+  async function pullRecipes(
+    connection: ServiceConnection,
+    started: number,
+  ): Promise<RecipeSyncOutcome> {
     // A new pairing starts from an empty cache, so another owner's recipes never linger.
     let cache: RecipeCache = (await load(connection)) ?? {
       version: 1,
@@ -190,11 +218,7 @@ export function createRecipeSync(options: {
       if (generation !== started) return "not-connected";
       memory = next;
       cache = next;
-      if (complete) {
-        // oxlint-disable-next-line no-await-in-loop -- ends the loop
-        await service.recordSync(connection.deviceId, { syncedAt: now() });
-        return "synced";
-      }
+      if (complete) return "synced";
     }
     return "incomplete";
   }
@@ -238,7 +262,7 @@ export function createRecipeSync(options: {
   async function clear() {
     generation += 1;
     memory = undefined;
-    await storage.clear().catch(() => undefined);
+    await Promise.all([storage.clear().catch(() => undefined), options.settings?.clear()]);
   }
 
   const recipes: LoginRecipes = {
