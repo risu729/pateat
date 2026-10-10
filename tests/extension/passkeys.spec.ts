@@ -1,8 +1,8 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { createHash, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
-import { createServer, type Server } from "node:http";
 import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
 import { withLoginExtension } from "./login-fixture";
+import { startPasskeyRelyingParty as startRelyingParty } from "./passkey-server";
 
 type Serialized =
   | { error: string }
@@ -20,57 +20,6 @@ type Serialized =
       extensions: unknown;
       json: unknown;
     };
-
-const pageHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Synthetic passkey relying party</title><script>
-const b64u = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)))
-  .replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-const fromHex = (hex) => Uint8Array.from(hex.match(/../g), (pair) => parseInt(pair, 16));
-window.wrappedAtStart = navigator.credentials.get !== CredentialsContainer.prototype.get;
-window.request = (spec) => {
-  window.controller = new AbortController();
-  const publicKey = { challenge: fromHex(spec.challenge), timeout: 5000 };
-  if (spec.rpId) publicKey.rpId = spec.rpId;
-  if (spec.userVerification) publicKey.userVerification = spec.userVerification;
-  if (spec.allow) publicKey.allowCredentials = spec.allow.map((id) => ({ type: 'public-key', id: fromHex(id) }));
-  return navigator.credentials.get({ publicKey, signal: window.controller.signal }).then((credential) => ({
-    instance: credential instanceof PublicKeyCredential,
-    responseInstance: credential.response instanceof AuthenticatorAssertionResponse,
-    id: credential.id,
-    rawId: b64u(credential.rawId),
-    type: credential.type,
-    attachment: credential.authenticatorAttachment,
-    clientDataJSON: b64u(credential.response.clientDataJSON),
-    authenticatorData: b64u(credential.response.authenticatorData),
-    signature: b64u(credential.response.signature),
-    userHandle: credential.response.userHandle && b64u(credential.response.userHandle),
-    extensions: credential.getClientExtensionResults(),
-    json: JSON.parse(JSON.stringify(credential)),
-  }), (error) => ({ error: error === window.abortReason ? 'caller-reason' : error.name }));
-};
-</script></head><body><main><h1>Synthetic passkey relying party</h1>
-<button id="sign-in" type="button">Sign in with a passkey</button></main><script>
-document.getElementById('sign-in').addEventListener('click', () => {
-  window.pending = window.request(window.nextSpec);
-});
-// A page-load request has no transient user activation.
-if (location.search === '?unattended') window.pending = window.request({ challenge: '00'.repeat(32) });
-</script></body></html>`;
-
-async function startRelyingParty(): Promise<{ server: Server; origin: string }> {
-  const server = createServer((request, response) => {
-    const headers: Record<string, string> = { "content-type": "text/html; charset=utf-8" };
-    if (request.url === "/denied") headers["permissions-policy"] = "publickey-credentials-get=()";
-    response.writeHead(200, headers);
-    response.end(pageHtml);
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("No relying-party port");
-  return { server, origin: `http://localhost:${address.port}` };
-}
 
 const virtualCredentialId = Buffer.from("synthetic-native-credential");
 const pateatCredentialId = Buffer.from(PROBE_PASSKEY.credentialId, "hex").toString("base64url");
@@ -241,6 +190,8 @@ test("discoverable, allow-listed, unattended and UV-required requests get UP and
         origin,
         discoverable,
       );
+      // The manual-run status agrees with the independent verifier.
+      await expect(page.locator("#result")).toHaveText("Pateat, flags 0x1d, signature verified");
       const allowListed = challengeHex();
       expectPateatAssertion(
         await clickRequest(page, {
@@ -290,6 +241,7 @@ test("unclaimed requests reach the browser's own authenticator unchanged", async
       expect(await clickRequest(page, { challenge: challengeHex(), allow: ["00112233"] })).toEqual({
         error: "NotAllowedError",
       });
+      await expect(page.locator("#result")).toHaveText("error NotAllowedError");
       expect(await probe.signatures()).toBe(0);
     });
   } finally {

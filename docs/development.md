@@ -141,6 +141,32 @@ setup messages are excluded from the production build. Chrome use may not be
 able to operate another extension's settings page; manual setup is a supported
 test prerequisite, not a reason to expose settings mutations to a web page.
 
+### Installed Chrome synthetic passkey probe
+
+This prepares a manual acceptance run of the passkey bridge; it is not evidence
+that installed Chrome has passed. The probe's passkey scripts run only on
+`http://localhost/*`, and its synthetic source signs only for RP ID `localhost`
+with the public WebAuthn Level 3 test-vector key. No vault, real passkey or
+provider is involved.
+
+1. Run `mise run build:probe` and `mise run probe:passkeys`. The latter serves
+   `http://localhost:3848` and stops with Ctrl+C.
+2. With the owner's installation approval, load
+   `apps/extension/.output/chrome-mv3-probe/` as an unpacked extension. Record the
+   source commit, Chrome version and other extensions, especially any passkey
+   provider such as the official Bitwarden extension.
+3. Open `http://localhost:3848/`. The page must report that the wrapper was
+   installed at document start.
+4. Click **Sign in with a passkey** and **Sign in requiring UV**. Each must report
+   `Pateat, flags 0x1d, signature verified` without any browser or provider
+   prompt.
+5. Open **Request on page load**. Without a gesture it must also report a
+   verified Pateat assertion.
+6. Open **Permissions Policy denies passkeys** and click the first button. The
+   page must report the browser's `NotAllowedError`, not a Pateat assertion.
+7. Record whether another installed passkey provider's UI appeared at any step.
+   Coexistence with such providers is an open interoperability question.
+
 ### Manual Bitwarden setup preview
 
 The connection setup slice is implemented and tested with synthetic responses. Its
