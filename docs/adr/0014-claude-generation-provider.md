@@ -1,9 +1,10 @@
 # ADR 0014: Claude Opus 5.5 for recipe generation
 
 Status: accepted by the owner on 2026-10-10. The adapter and the benchmark runner are
-implemented in `packages/inference`. The one approved benchmark run finished on
-2026-10-10 with semantic accuracy 0.9375, no false submits and one refusal; results are
-in [the plan](../plan.md#ai-evaluation-harness-progress).
+implemented in `packages/inference`. The first approved benchmark run on 2026-10-10
+had semantic accuracy 0.9375, no false submits and one refusal; after the instruction
+change below, the second run had 1.0 with no refusal. Results are in
+[the plan](../plan.md#ai-evaluation-harness-progress).
 
 Date: 2026-10-10
 
