@@ -272,7 +272,8 @@ fallback is introduced by a library.
 
 `packages/inference` passes configured model instances only; a model ID string would
 resolve through the SDK's global default provider and is rejected. The finite-choice
-role uses `experimental_decide`, whose contract may change in patch releases, so the
+role uses `experimental_decide` from the approved AI SDK (no added dependency or
+provider); its contract may change in patch releases, so the
 `ai` version stays exact and its tests guard answer validation. A Clef or Jev adapter
 implements that `doDecide` contract or replaces it with a direct typed adapter if the
 contract loses provider semantics.

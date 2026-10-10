@@ -40,6 +40,8 @@ export type InferenceOutcome<T> = { calls: number; usage: InferenceUsage } & (
 );
 
 export const unknownUsage: InferenceUsage = { inputTokens: null, outputTokens: null };
+/** Usage of an outcome decided locally before any model call. */
+export const noUsage: InferenceUsage = { inputTokens: 0, outputTokens: 0 };
 
 const count = (value: number | undefined) =>
   value !== undefined && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -48,6 +50,28 @@ export function normalizeUsage(
   usage: { inputTokens?: number | undefined; outputTokens?: number | undefined } | undefined,
 ): InferenceUsage {
   return { inputTokens: count(usage?.inputTokens), outputTokens: count(usage?.outputTokens) };
+}
+
+/**
+ * Accumulates usage for every model attempt, including failed retries. One attempt
+ * without reported usage makes the total unknown rather than undercounting it.
+ */
+export function createUsageMeter() {
+  const attempts: InferenceUsage[] = [];
+  const sum = (key: keyof InferenceUsage) =>
+    attempts.reduce<number | null>(
+      (total, attempt) => (total === null || attempt[key] === null ? null : total + attempt[key]),
+      0,
+    );
+  return {
+    record: (usage: InferenceUsage) => {
+      attempts.push(usage);
+    },
+    total: (): InferenceUsage => ({
+      inputTokens: sum("inputTokens"),
+      outputTokens: sum("outputTokens"),
+    }),
+  };
 }
 
 /** Explicit request limits shared by both roles. Retries are bounded and default to none. */
@@ -60,7 +84,10 @@ export type RoleLimits = v.InferInput<typeof roleLimitsSchema>;
 
 const encoder = new TextEncoder();
 
-/** Measures the complete serialized request, including instructions, questions and options. */
+/**
+ * Measures the serialized request content Pateat sends: instructions, input, output
+ * schema or questions and options. Provider envelope overhead is not included.
+ */
 export const requestBytes = (parts: readonly unknown[]): number =>
   parts.reduce<number>(
     (total, part) =>
@@ -70,6 +97,8 @@ export const requestBytes = (parts: readonly unknown[]): number =>
 
 /** Settles with the signal's reason once aborted, even when a transport ignores the signal. */
 export async function raceAbort<T>(work: PromiseLike<T>, signal: AbortSignal): Promise<T> {
+  // Observe a late rejection of abandoned work so it never becomes unhandled.
+  Promise.resolve(work).catch(() => {});
   signal.throwIfAborted();
   let abort = () => {};
   const aborted = new Promise<never>((_resolve, reject) => {

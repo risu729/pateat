@@ -77,7 +77,18 @@ describe("finite-choice decision role", () => {
       value: { action: { candidate: "sign-in", purpose: "submit" } },
     });
     expect(model.calls[0]!.state).toEqual([
-      { type: "json", value: { observation: page.observation, slots: page.slots } },
+      {
+        type: "json",
+        value: {
+          page: {
+            origin: page.observation.origin,
+            path: "/login",
+            language: "en",
+            title: "Sign in",
+          },
+          slots: page.slots,
+        },
+      },
     ]);
   });
 
@@ -205,5 +216,47 @@ describe("finite-choice decision role", () => {
     });
     expect(model.calls).toHaveLength(0);
     expect(() => createFieldMappingDecider({ model, limits, minProbability: 0.3 })).toThrow();
+  });
+});
+
+describe("finite-choice usage and telemetry", () => {
+  it("counts a retried attempt without usage as unknown", async () => {
+    let attempt = 0;
+    const model = decisionModel(async (options) => {
+      attempt += 1;
+      if (attempt === 1)
+        throw new APICallError({
+          message: "unavailable",
+          url: "https://fake.invalid",
+          requestBodyValues: {},
+          statusCode: 503,
+          responseHeaders: { "retry-after-ms": "1" },
+          isRetryable: true,
+        });
+      return answering(correct).doDecide(options);
+    });
+    const decide = createFieldMappingDecider({
+      model,
+      limits: { ...limits, maxRetries: 1 },
+      minProbability: 0.7,
+    });
+    expect(await decide(request)).toMatchObject({
+      status: "ok",
+      calls: 2,
+      usage: { inputTokens: null, outputTokens: null },
+    });
+  });
+
+  it("never reports state or answers to global telemetry integrations", async () => {
+    const seen: unknown[] = [];
+    const spy = new Proxy({}, { get: () => (event: unknown) => void seen.push(event) });
+    const global = globalThis as { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown };
+    global.AI_SDK_TELEMETRY_INTEGRATIONS = [spy];
+    try {
+      expect(await decider(answering(correct))(request)).toMatchObject({ status: "ok" });
+    } finally {
+      delete global.AI_SDK_TELEMETRY_INTEGRATIONS;
+    }
+    expect(seen).toEqual([]);
   });
 });

@@ -23,7 +23,7 @@ export type EvaluationReport = {
   falseSubmits: number;
   abstentions: Partial<Record<AbstentionReason, number>>;
   errors: Partial<Record<InferenceErrorCode, number>>;
-  /** Outputs rejected because two slots or the action shared one element. */
+  /** Outputs rejected because slots or the action shared one element or spanned forms. */
   jointMappingRejections: number;
   latencyMs: { p50: number; p95: number };
   calls: number;
@@ -106,7 +106,11 @@ export async function evaluateRole(options: {
     } else if (outcome.status === "failed") {
       reason = outcome.error;
       report.errors[reason] = (report.errors[reason] ?? 0) + 1;
-      if (outcome.detail === "duplicate-candidate" || outcome.detail === "duplicate-slot")
+      if (
+        outcome.detail === "duplicate-candidate" ||
+        outcome.detail === "duplicate-slot" ||
+        outcome.detail === "mixed-groups"
+      )
         report.jointMappingRejections += 1;
     }
     results.push({

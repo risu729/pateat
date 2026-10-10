@@ -42,7 +42,13 @@ describe("observation contract", () => {
     const candidate = base.candidates[0]!;
     expect(parse({ ...base, candidates: [{ ...candidate, value: "synthetic" }] })).toBe(false);
     expect(parse({ ...base, candidates: [{ ...candidate, label: "x".repeat(121) }] })).toBe(false);
-    expect(parse({ ...base, candidates: [{ ...candidate, label: "a\u0000b" }] })).toBe(false);
+    for (const character of ["\u0000", "\u0085", "\u202e", "\u2028", "\u2029", "\u200b"])
+      expect(parse({ ...base, candidates: [{ ...candidate, label: `a${character}b` }] })).toBe(
+        false,
+      );
+    expect(parse({ ...base, candidates: [{ ...candidate, label: "会員ＩＤ（半角）" }] })).toBe(
+      true,
+    );
     expect(
       parse({
         ...base,

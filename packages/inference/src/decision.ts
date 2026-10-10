@@ -9,6 +9,8 @@ import {
   type SemanticSlot,
 } from "./observation";
 import {
+  createUsageMeter,
+  noUsage,
   normalizeUsage,
   raceAbort,
   requestBytes,
@@ -87,7 +89,8 @@ export function createFieldMappingDecider(config: {
   limits: RoleLimits;
   minProbability: number;
 }) {
-  if (typeof config.model !== "object") throw new TypeError("Pass a configured model instance");
+  if (typeof config.model !== "object" || config.model === null)
+    throw new TypeError("Pass a configured model instance");
   const limits = v.parse(roleLimitsSchema, config.limits);
   const minProbability = v.parse(
     v.pipe(v.number(), v.minValue(0.5), v.maxValue(0.99)),
@@ -99,20 +102,34 @@ export function createFieldMappingDecider(config: {
     slots: unknown;
     abortSignal?: AbortSignal;
   }): Promise<InferenceOutcome<ValidatedPagePlan>> {
-    let calls = 0;
     const observation = v.safeParse(loginObservationSchema, request.observation);
     const slots = v.safeParse(semanticSlotsSchema, request.slots);
     if (!observation.success || !slots.success)
-      return { status: "failed", error: "invalid-request", calls, usage: unknownUsage };
+      return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
     if (!observation.output.complete)
-      return { status: "failed", error: "incomplete-observation", calls, usage: unknownUsage };
+      return { status: "failed", error: "incomplete-observation", calls: 0, usage: noUsage };
 
     const questions = buildFieldQuestions(observation.output, slots.output);
     if (questions["action"] === undefined || Object.keys(questions).length === 1)
-      return { status: "abstained", reason: "no-login-form", calls, usage: unknownUsage };
-    const state = { observation: observation.output, slots: slots.output };
+      return { status: "abstained", reason: "no-login-form", calls: 0, usage: noUsage };
+    // Selection sees page context and eligible options only; ineligible elements and
+    // locators stay local.
+    const { origin, path, language, title, headings } = observation.output;
+    const state = {
+      page: {
+        origin,
+        path,
+        language,
+        ...(title === undefined ? {} : { title }),
+        ...(headings === undefined ? {} : { headings }),
+      },
+      slots: slots.output,
+    };
     if (requestBytes([state, questions]) > limits.maxInputBytes)
-      return { status: "failed", error: "input-too-large", calls, usage: unknownUsage };
+      return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
+
+    let calls = 0;
+    const meter = createUsageMeter();
 
     const timeout = AbortSignal.timeout(limits.timeoutMs);
     const signal = request.abortSignal ? AbortSignal.any([request.abortSignal, timeout]) : timeout;
@@ -122,9 +139,16 @@ export function createFieldMappingDecider(config: {
       provider: source.provider,
       modelId: source.modelId,
       supportedQuestionTypes: source.supportedQuestionTypes,
-      doDecide: (options) => {
+      doDecide: async (options) => {
         calls += 1;
-        return raceAbort(source.doDecide(options), signal);
+        try {
+          const answer = await raceAbort(source.doDecide(options), signal);
+          meter.record(normalizeUsage(answer.usage));
+          return answer;
+        } catch (error) {
+          meter.record(unknownUsage);
+          throw error;
+        }
       },
     };
     let result;
@@ -135,16 +159,18 @@ export function createFieldMappingDecider(config: {
         questions,
         maxRetries: limits.maxRetries,
         abortSignal: signal,
+        // Page context and answers must never reach global telemetry integrations.
+        telemetry: { isEnabled: false },
       });
     } catch (error) {
       return {
         status: "failed",
         error: classifyInferenceError(error, { timeout, caller: request.abortSignal }),
         calls,
-        usage: unknownUsage,
+        usage: meter.total(),
       };
     }
-    const usage = normalizeUsage(result.usage);
+    const usage = meter.total();
 
     const chosen = new Map<string, string>();
     for (const [id, answer] of Object.entries(result.answers)) {

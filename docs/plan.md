@@ -1,7 +1,8 @@
 # Implementation plan
 
 Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1).
-M1-M3 are in progress; M4-M6 are unstarted. The current foundation is not a working
+M1-M3 are in progress; M4 has an offline AI harness slice; M5-M6 are unstarted. The
+current foundation is not a working
 autologin product or a completed M1 acceptance claim.
 This plan becomes the single work tracker until an issue is needed for a concrete
 slice.
@@ -297,10 +298,15 @@ contract carries bounded, value-free element roles, locators and labels; incompl
 observations are rejected before inference. The generation/repair role uses AI SDK
 structured output and the finite-choice role uses the SDK decision contract with an
 explicit none option per question. Both resolve observation-local candidate IDs, check
-slot/role compatibility, joint mapping uniqueness and the shared recipe step contract,
-and return explicit ok, abstained or failed outcomes with per-attempt usage where
-missing usage is unknown. Retries default to none and are bounded; timeouts, caller
-cancellation and complete-request byte limits are enforced locally.
+slot/role compatibility, joint mapping uniqueness and same-form grouping, refuse secrets
+in new-password fields, and apply the shared recipe step contract. They return explicit
+ok, abstained or failed outcomes. Usage sums every attempt, including failed retries;
+one attempt without reported usage makes the total unknown. Retries default to none and
+are bounded; timeouts, caller cancellation and byte limits on the sent instructions,
+input and output schema or questions are enforced locally (provider envelope overhead is
+not counted). SDK telemetry is disabled per call so prompts, page text and outputs never
+reach global integrations. The finite-choice state carries page context and slot
+meanings only; eligible elements appear solely as question options.
 
 A 15-page synthetic Japanese/English corpus covers bank branch/account/password,
 identifier-first and password steps, one-time codes, decoy search/sign-up/SSO controls,

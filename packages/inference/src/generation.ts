@@ -1,19 +1,24 @@
 import { loginStepSchema } from "@pateat/contracts";
 import { valibotSchema } from "@ai-sdk/valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import { generateText, Output, wrapLanguageModel, type LanguageModel } from "ai";
 import * as v from "valibot";
 import { classifyInferenceError } from "./errors";
 import { loginObservationSchema, semanticSlotsSchema } from "./observation";
 import {
+  createUsageMeter,
+  noUsage,
   normalizeUsage,
   raceAbort,
   requestBytes,
   roleLimitsSchema,
   unknownUsage,
+  type AbstentionReason,
+  type InferenceErrorCode,
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
-import { validatePagePlan, type ValidatedPagePlan } from "./plan";
+import { validatePagePlan, type PlanRejection, type ValidatedPagePlan } from "./plan";
 
 const reference = v.pipe(v.string(), v.maxLength(64));
 
@@ -42,6 +47,9 @@ export const generatedPlanSchema = v.strictObject({
     }),
   ]),
 });
+
+// Sent to the provider as the response format, so it counts toward the request bound.
+const outputSchemaJson = JSON.stringify(toJsonSchema(generatedPlanSchema));
 
 const repairSchema = v.strictObject({
   reason: v.picklist(["structural-mismatch", "recipe-failure"]),
@@ -77,7 +85,8 @@ export function createRecipeGenerator(config: {
   maxOutputTokens: number;
 }) {
   // A string would resolve through the SDK's global default provider.
-  if (typeof config.model !== "object") throw new TypeError("Pass a configured model instance");
+  if (typeof config.model !== "object" || config.model === null)
+    throw new TypeError("Pass a configured model instance");
   const limits = v.parse(roleLimitsSchema, config.limits);
   const maxOutputTokens = v.parse(
     v.pipe(v.number(), v.integer(), v.minValue(16), v.maxValue(4096)),
@@ -87,15 +96,14 @@ export function createRecipeGenerator(config: {
   return async function generate(
     request: GenerationRequest,
   ): Promise<InferenceOutcome<ValidatedPagePlan>> {
-    let calls = 0;
     const observation = v.safeParse(loginObservationSchema, request.observation);
     const slots = v.safeParse(semanticSlotsSchema, request.slots);
     const repair =
       request.repair === undefined ? undefined : v.safeParse(repairSchema, request.repair);
     if (!observation.success || !slots.success || (repair && !repair.success))
-      return { status: "failed", error: "invalid-request", calls, usage: unknownUsage };
+      return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
     if (!observation.output.complete)
-      return { status: "failed", error: "incomplete-observation", calls, usage: unknownUsage };
+      return { status: "failed", error: "incomplete-observation", calls: 0, usage: noUsage };
 
     const prompt = JSON.stringify({
       task: repair ? "repair" : "generate",
@@ -103,9 +111,11 @@ export function createRecipeGenerator(config: {
       observation: observation.output,
       ...(repair?.success ? { repair: repair.output } : {}),
     });
-    if (requestBytes([generationInstructions, prompt]) > limits.maxInputBytes)
-      return { status: "failed", error: "input-too-large", calls, usage: unknownUsage };
+    if (requestBytes([generationInstructions, prompt, outputSchemaJson]) > limits.maxInputBytes)
+      return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
 
+    let calls = 0;
+    const meter = createUsageMeter();
     const timeout = AbortSignal.timeout(limits.timeoutMs);
     const signal = request.abortSignal ? AbortSignal.any([request.abortSignal, timeout]) : timeout;
     const model = wrapLanguageModel({
@@ -114,11 +124,28 @@ export function createRecipeGenerator(config: {
         specificationVersion: "v4",
         wrapGenerate: async ({ doGenerate }) => {
           calls += 1;
-          return await raceAbort(doGenerate(), signal);
+          try {
+            const result = await raceAbort(doGenerate(), signal);
+            meter.record(
+              normalizeUsage({
+                inputTokens: result.usage.inputTokens.total,
+                outputTokens: result.usage.outputTokens.total,
+              }),
+            );
+            return result;
+          } catch (error) {
+            meter.record(unknownUsage);
+            throw error;
+          }
         },
       },
     });
-    let usage = unknownUsage;
+    const outcome = (
+      result:
+        | { status: "ok"; value: ValidatedPagePlan }
+        | { status: "abstained"; reason: AbstentionReason }
+        | { status: "failed"; error: InferenceErrorCode; detail?: PlanRejection },
+    ): InferenceOutcome<ValidatedPagePlan> => ({ ...result, calls, usage: meter.total() });
     try {
       const result = await generateText({
         model,
@@ -131,36 +158,25 @@ export function createRecipeGenerator(config: {
         maxRetries: limits.maxRetries,
         maxOutputTokens,
         abortSignal: signal,
+        // Prompts, page text and outputs must never reach global telemetry integrations.
+        telemetry: { isEnabled: false },
       });
-      usage = normalizeUsage(result.usage);
       if (result.finishReason === "length")
-        return { status: "failed", error: "truncated", calls, usage };
+        return outcome({ status: "failed", error: "truncated" });
       if (result.finishReason === "content-filter")
-        return { status: "failed", error: "refused", calls, usage };
+        return outcome({ status: "failed", error: "refused" });
       const draft = result.output.result;
       if (draft.decision === "abstain")
-        return { status: "abstained", reason: draft.reason, calls, usage };
+        return outcome({ status: "abstained", reason: draft.reason });
       const validated = validatePagePlan(observation.output, slots.output, draft);
       if (!validated.ok)
-        return {
-          status: "failed",
-          error: "invalid-output",
-          detail: validated.reason,
-          calls,
-          usage,
-        };
-      return { status: "ok", value: validated.plan, calls, usage };
+        return outcome({ status: "failed", error: "invalid-output", detail: validated.reason });
+      return outcome({ status: "ok", value: validated.plan });
     } catch (error) {
-      const reported =
-        error !== null && typeof error === "object" && "usage" in error
-          ? normalizeUsage(error.usage as Parameters<typeof normalizeUsage>[0])
-          : usage;
-      return {
+      return outcome({
         status: "failed",
         error: classifyInferenceError(error, { timeout, caller: request.abortSignal }),
-        calls,
-        usage: reported,
-      };
+      });
     }
   };
 }

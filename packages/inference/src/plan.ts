@@ -22,7 +22,8 @@ export type PlanRejection =
   | "unknown-candidate"
   | "duplicate-slot"
   | "duplicate-candidate"
-  | "incompatible-role";
+  | "incompatible-role"
+  | "mixed-groups";
 
 export type ValidatedPagePlan = PagePlan & { steps: LoginStep[] };
 
@@ -61,7 +62,8 @@ export function validatePagePlan(
     if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
     if (usedSlots.has(field.slot)) return { ok: false, reason: "duplicate-slot" };
     if (usedCandidates.has(field.candidate)) return { ok: false, reason: "duplicate-candidate" };
-    if (!slotFitsRole(kind, candidate.role)) return { ok: false, reason: "incompatible-role" };
+    if (!slotFitsRole(kind, candidate.role) || candidate.autocomplete === "new-password")
+      return { ok: false, reason: "incompatible-role" };
     usedSlots.add(field.slot);
     usedCandidates.add(field.candidate);
   }
@@ -69,6 +71,13 @@ export function validatePagePlan(
   if (action === undefined) return { ok: false, reason: "unknown-candidate" };
   if (usedCandidates.has(action.id)) return { ok: false, reason: "duplicate-candidate" };
   if (!isActionRole(action.role)) return { ok: false, reason: "incompatible-role" };
+  // When the page groups its elements, one plan must stay within a single form.
+  const groups = new Set(
+    [...plan.fields.map((field) => candidates.get(field.candidate)!), action].map(
+      (candidate) => candidate.group,
+    ),
+  );
+  if (groups.size > 1) return { ok: false, reason: "mixed-groups" };
 
   const steps = v.parse(v.array(loginStepSchema), [
     {

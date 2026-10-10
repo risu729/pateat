@@ -35,11 +35,13 @@ describe("evaluation harness", () => {
     });
     const byId = Object.fromEntries(report.cases.map((result) => [result.id, result.verdict]));
     expect(byId["en-basic"]).toBe("correct");
-    expect(byId["en-search-decoy"]).toBe("false-submit");
+    // Local same-form validation rejects the search box paired with the login password.
+    expect(byId["en-search-decoy"]).toBe("failed");
     expect(byId["en-label-injection"]).toBe("false-submit");
     expect(byId["ja-bank-branch-account"]).toBe("false-submit");
     expect(byId["en-newsletter-only"]).toBe("false-submit");
-    expect(report.falseSubmits).toBeGreaterThanOrEqual(4);
+    expect(report.falseSubmits).toBeGreaterThanOrEqual(3);
+    expect(report.jointMappingRejections).toBeGreaterThanOrEqual(1);
     expect(report.semanticAccuracy).toBeLessThan(1);
     expect(report.usage).toEqual({
       inputTokens: 10 * evaluationCorpus.length,

@@ -7,14 +7,14 @@ const identifier = v.pipe(
   v.maxLength(64),
   v.regex(/^[a-zA-Z0-9_.:-]+$/),
 );
-// Observed text is untrusted page content. Bound it and forbid control characters;
+// Observed text is untrusted page content. Bound it and forbid control, format
+// (including bidirectional overrides) and line/paragraph separator characters;
 // redacting private label text is the extractor's responsibility.
 const observedText = v.pipe(
   v.string(),
   v.minLength(1),
   v.maxLength(120),
-  // oxlint-disable-next-line no-control-regex
-  v.regex(/^[^\u0000-\u001f\u007f]+$/u),
+  v.regex(/^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u),
 );
 const path = v.pipe(
   v.string(),

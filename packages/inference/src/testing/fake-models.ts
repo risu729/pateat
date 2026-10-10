@@ -104,13 +104,13 @@ export function distribution(options: readonly string[], choice: string, confide
 export const decisionState = (options: DecideOptions) => {
   const part = options.state[0];
   if (part?.type !== "json") throw new Error("Expected JSON state");
-  return part.value as { observation: { origin: string; path: string } };
+  return part.value as { page: { origin: string; path: string } };
 };
 
 /** A decision fake that answers every corpus page with its ground truth. */
 export const oracleDecider = () =>
   decisionModel(async (options) => {
-    const expected = caseFor(decisionState(options).observation).expected;
+    const expected = caseFor(decisionState(options).page).expected;
     const answers: DecideResult["answers"] = {};
     for (const [id, question] of Object.entries(options.questions)) {
       if (question.type !== "choice") throw new Error("Unexpected question type");

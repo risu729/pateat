@@ -1,7 +1,6 @@
 import { APICallError } from "ai";
 import { describe, expect, it } from "vitest";
 import { evaluationCorpus } from "./corpus/cases";
-import { slots } from "./corpus/slots";
 import { evaluateRole } from "./evaluate";
 import { createRecipeGenerator } from "./generation";
 import {
@@ -119,6 +118,40 @@ describe("recipe generation role", () => {
     });
   });
 
+  it("rejects plans that cross forms or fill a registration password", async () => {
+    const signup = evaluationCorpus.find((entry) => entry.id === "ja-signup-adjacent")!;
+    const signupRequest = { observation: signup.observation, slots: signup.slots };
+    const check = async (fields: [string, string][], action: string, detail: string) => {
+      const model = textModel(async () => textResult(plan(fields, action)));
+      const generate = createRecipeGenerator({ model, limits, maxOutputTokens: 512 });
+      expect(await generate(signupRequest)).toMatchObject({ status: "failed", detail });
+    };
+    await check(
+      [
+        ["email", "login-email"],
+        ["password", "reg-pass"],
+      ],
+      "login-submit",
+      "incompatible-role",
+    );
+    await check(
+      [
+        ["email", "reg-email"],
+        ["password", "login-pass"],
+      ],
+      "login-submit",
+      "mixed-groups",
+    );
+    await check(
+      [
+        ["email", "login-email"],
+        ["password", "login-pass"],
+      ],
+      "reg-submit",
+      "mixed-groups",
+    );
+  });
+
   it.each([
     ["malformed JSON", '{"result":', undefined, "invalid-output"],
     [
@@ -197,14 +230,61 @@ describe("recipe generation role", () => {
         isRetryable: false,
       });
     });
-    const other = oracleGenerator();
-    const generate = createRecipeGenerator({ model: failing, limits, maxOutputTokens: 512 });
-    expect(await generate(request)).toMatchObject({
-      status: "failed",
-      error: "provider-error",
-      calls: 1,
+    const fallback = oracleGenerator();
+    const global = globalThis as { AI_SDK_DEFAULT_PROVIDER?: unknown };
+    global.AI_SDK_DEFAULT_PROVIDER = { languageModel: () => fallback };
+    try {
+      const generate = createRecipeGenerator({ model: failing, limits, maxOutputTokens: 512 });
+      expect(await generate(request)).toMatchObject({
+        status: "failed",
+        error: "provider-error",
+        calls: 1,
+      });
+    } finally {
+      delete global.AI_SDK_DEFAULT_PROVIDER;
+    }
+    expect(fallback.doGenerateCalls).toHaveLength(0);
+  });
+
+  it("counts a retried attempt without usage as unknown", async () => {
+    let attempt = 0;
+    const model = textModel(async () => {
+      attempt += 1;
+      if (attempt === 1)
+        throw new APICallError({
+          message: "unavailable",
+          url: "https://fake.invalid",
+          requestBodyValues: {},
+          statusCode: 503,
+          responseHeaders: { "retry-after-ms": "1" },
+          isRetryable: true,
+        });
+      return textResult(plan([["email", "email"]]));
     });
-    expect(other.doGenerateCalls).toHaveLength(0);
+    const generate = createRecipeGenerator({
+      model,
+      limits: { ...limits, maxRetries: 1 },
+      maxOutputTokens: 512,
+    });
+    expect(await generate(request)).toMatchObject({
+      status: "ok",
+      calls: 2,
+      usage: { inputTokens: null, outputTokens: null },
+    });
+  });
+
+  it("never reports prompts or outputs to global telemetry integrations", async () => {
+    const seen: unknown[] = [];
+    const spy = new Proxy({}, { get: () => (event: unknown) => void seen.push(event) });
+    const global = globalThis as { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown };
+    global.AI_SDK_TELEMETRY_INTEGRATIONS = [spy];
+    try {
+      const { generate } = generatorReturning(plan([["email", "email"]]));
+      expect(await generate(request)).toMatchObject({ status: "ok" });
+    } finally {
+      delete global.AI_SDK_TELEMETRY_INTEGRATIONS;
+    }
+    expect(seen).toEqual([]);
   });
 
   it("times out a transport that never answers and distinguishes cancellation", async () => {
@@ -267,6 +347,5 @@ describe("recipe generation role", () => {
         maxOutputTokens: 512,
       }),
     ).toThrow(TypeError);
-    expect(slots.password.kind).toBe("secret");
   });
 });
