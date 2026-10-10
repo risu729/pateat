@@ -602,11 +602,11 @@ export function createLoginRuntime(
           : probeRecipe(origin, live.path)
         : await recipes.recipe(document.origin, live.path, previous?.recipeId);
     if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
-    // A resumed attempt keeps its own recipe; a different saved recipe never takes it over.
+    // A resumed attempt keeps its own recipe revision; a replaced or different recipe never takes it over.
     if (
       !recipe ||
       recipe.origin !== document.origin ||
-      (previous && previous.recipeId !== recipe.id)
+      (previous && (previous.recipeId !== recipe.id || previous.recipeRevision !== recipe.revision))
     )
       return refuse("recipe-not-found");
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
