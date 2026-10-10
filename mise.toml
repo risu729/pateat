@@ -118,6 +118,10 @@ run = "node node_modules/@playwright/test/cli.js test --config tests/extension/p
 description = "Serve synthetic login fixtures for installed Chrome acceptance."
 run = "node scripts/login-fixture.mjs"
 
+[tasks."probe:passkeys"]
+description = "Serve the synthetic passkey relying party for installed Chrome acceptance."
+run = "node scripts/passkey-fixture.mjs"
+
 [tasks."test:options"]
 run = "node node_modules/vitest/vitest.mjs run --config tests/options/vitest.config.ts"
 
