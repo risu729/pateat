@@ -265,6 +265,19 @@ describe("production login document admission", () => {
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).toEqual(["login.status"]);
   });
+  it.each([
+    ["the same recipe revision resumes", 1, { ok: true }],
+    ["a replaced recipe revision is refused", 2, { ok: false, reason: "recipe-not-found" }],
+  ])("after navigation, %s", async (_name, revision, expected) => {
+    const h = harness();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
+    );
+    h.recipes.recipe.mockResolvedValue({ ...recipe, revision });
+    expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual(expected);
+    expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id);
+  });
   it("does not answer probe controls outside the probe build", async () => {
     const h = harness();
     expect(
