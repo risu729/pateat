@@ -456,6 +456,31 @@ test("sync sign-in is shown separately from automatic unlock and forgetting it i
   await expect.element(page.getByText("Automatic unlock: enabled.")).toBeVisible();
 });
 
+test("sync after automatic unlock was disabled explains how to restore it", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        connectionId: "saved-c",
+        label: "Saved vault",
+        email: "saved@example.test",
+        environment: { kind: "cloud" as const, region: "us" as const },
+        state: "ready" as const,
+        autoUnlock: "enabled" as const,
+        providerSession: "active" as const,
+      },
+    ],
+  });
+  client.sync.mockResolvedValue({ ok: false, error: { code: "auto-unlock-disabled" } });
+  await mount(client);
+  await page.getByRole("button", { name: "Saved vault: Sync", exact: true }).click();
+  await expect
+    .element(page.getByText(/Automatic unlock is off, so Sync is unavailable\. Sign in again/))
+    .toBeVisible();
+  await expect.element(page.getByText(/Connection operation unavailable/)).not.toBeInTheDocument();
+});
+
 test("a provider HTTP failure on sync shows an error instead of a lost connection", async () => {
   const saved = {
     connectionId: "saved-http",

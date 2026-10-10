@@ -16,6 +16,8 @@ function errorMessage(code: string): string {
       "Provider access was not granted. Use the connection button to grant access.",
     "setup-reauthentication-required":
       "Sign in again to sync. The saved local vault can still unlock independently.",
+    "auto-unlock-disabled":
+      "Automatic unlock is off, so Sync is unavailable. Sign in again with Enable automatic unlock to restore it.",
     "crypto-locked": "The vault is locked. Refresh connections to check recovery options.",
     "resource-limit":
       "The operation reached a resource limit. Refresh connections to check the current vault status before trying again.",
