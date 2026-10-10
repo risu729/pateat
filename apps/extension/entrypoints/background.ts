@@ -45,7 +45,7 @@ export default defineBackground(() => {
     connections.attach(port);
   });
   browser.permissions.onRemoved.addListener(() => {
-    connections.service.permissionsRemoved();
+    void connections.service.permissionsRemoved().catch(() => undefined);
   });
   browser.action.onClicked.addListener(() => {
     void browser.runtime.openOptionsPage();

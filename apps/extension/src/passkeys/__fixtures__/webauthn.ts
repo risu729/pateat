@@ -1,0 +1,24 @@
+// WebAuthn Level 3, section 16.2 "ES256 Credential with No Attestation" (non-normative test
+// vectors, https://www.w3.org/TR/webauthn-3/#sctn-test-vectors). Public synthetic values.
+export const es256Vector = {
+  rpId: "example.org",
+  origin: "https://example.org",
+  credentialPrivateKey: "6e68e7a58484a3264f66b77f5d6dc5bc36a47085b615c9727ab334e8c369c2ee",
+  // Credential public key coordinates from the registration attestationObject's COSE key.
+  publicKeyX: "afefa16f97ca9b2d23eb86ccb64098d20db90856062eb249c33a9b672f26df61",
+  publicKeyY: "930a56b87a2fca66334b03458abf879717c12cc68ed73290af2e2664796b9220",
+  credentialId: "f91f391db4c9b2fde0ea70189cba3fb63f579ba6122b33ad94ff3ec330084be4",
+  authentication: {
+    challenge: "39c0e7521417ba54d43e8dc95174f423dee9bf3cd804ff6d65c857c9abf4d408",
+    authenticatorData: "bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b51900000000",
+    clientDataJSON:
+      "7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a224f63446e55685158756c5455506f334a5558543049393770767a7a59425039745a63685879617630314167222c226f726967696e223a2268747470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73657d",
+    signature:
+      "3046022100f50a4e2e4409249c4a853ba361282f09841df4dd4547a13a87780218deffcd380221008480ac0f0b93538174f575bf11a1dd5d78c6e486013f937295ea13653e331e87",
+  },
+} as const;
+
+export const hex = (value: string) =>
+  Uint8Array.from(value.match(/../gu) ?? [], (pair) => Number.parseInt(pair, 16));
+export const toHex = (bytes: Uint8Array) =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");

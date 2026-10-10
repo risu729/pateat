@@ -1,10 +1,10 @@
 # Implementation plan
 
-Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1). M1-M3 are in
-progress; M5 has a proposed design and its first slice; M4 and M6 are unstarted. The
-current foundation is not a working autologin product or a completed M1 acceptance
-claim. This plan becomes the single work tracker until an issue is needed for a concrete
-slice. Issues and PRs link to these gates rather than maintaining a second roadmap.
+Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1). M1-M4 are in
+progress; M5 has a proposed design and its first slice; M6 is unstarted. The current
+foundation is not a working autologin product or a completed M1 acceptance claim. This
+plan becomes the single work tracker until an issue is needed for a concrete slice.
+Issues and PRs link to these gates rather than maintaining a second roadmap.
 
 ## Foundation progress
 
@@ -253,10 +253,8 @@ browser evidence, not an installed-profile or real-account compatibility claim.
 The connection setup slice connects manual options setup to the existing authentication,
 mapping and durable-cache components. It adds configured-provider host permissions,
 bounded manual challenges and a value-free catalog for local settings. Production site
-execution remains a separate integration gate. Provider authentication remains transient
-in this slice; service-worker restart can require sign-in again for remote sync, while
-the local cached vault restores independently. Durable provider sessions are the
-[next slice](#provider-session-progress-planned).
+execution remains a separate integration gate. Provider authentication was transient
+in this slice; [durable provider sessions](#provider-session-progress) followed.
 
 Catalog replacement preserves custom-field denies: exact unchanged encrypted field
 sequences can rebind snapshot-scoped references, while changed or ambiguous sequences
@@ -301,66 +299,51 @@ Chrome yet.
   warning and the setup prompt after withheld site access in installed Chrome remain
   separate gates.
 
-## Provider session progress (planned)
+## Provider session progress
 
-Planned, not implemented. Today the provider session lives only in background memory,
-so remote sync after a service-worker or browser restart requires signing in again.
-This slice persists bounded sync authentication without new dependencies. It is
-separate from offline unlock: neither state implies or clears the other.
+Implemented as [ADR 0008](adr/0008-durable-provider-sessions.md) describes. The native
+IndexedDB database is upgraded in place from version 1 to 2 and gains a
+`providerSessions` store; vault records still never contain tokens. A token-free refresh
+claim commits by compare-and-swap before HTTP, a restart or unknown outcome requires
+password sign-in instead of replaying it, rotation commits before sync, and an absent
+refresh token keeps the captured one. Local forget, permission loss for that provider,
+a rejected refresh or access token, and a mismatched account context clear only the
+sync session. Startup only reads state; the settings page shows sync sign-in and
+automatic unlock separately and labels forget as local.
 
-1. Centralize the native IndexedDB open and upgrade version 1 to 2, preserving the
-   `records` store and adding `providerSessions`. Handle blocked upgrades and
-   `versionchange`; test the upgrade from a real version 1 database in a native
-   browser.
-2. An active session record holds bounded tokens, the receipt time, the response's
-   `expires_in`, the canonical provider and subject binding, and a narrowly validated
-   encrypted authentication context. It is a separate store from the vault record,
-   which still never contains tokens.
-3. A refreshing claim records the binding, a claim ID and its time, never a token. The
-   previous token is captured only in the running worker's memory, and the claim
-   commits by compare-and-swap before any HTTP request. A restart or unknown network
-   outcome then requires re-authentication; a claim is never replayed. This is
-   single-flight on the client, not exactly-once on the server.
-4. Planned internal operations: retain an authenticated session, claim a refresh,
-   commit a refresh, sync, forget the provider session, and a value-free status. Each
-   compares the session revision and the current cache authority in one native
-   transaction, and no transaction waits for network or SDK work.
-5. Check that the refresh response's subject, client and provider match the session.
-   Decoding JWT claims is a consistency check, not signature verification. Commit a
-   rotated token before syncing; a later sync failure must not restore the old token.
-6. When the response omits a refresh token or returns null, keep the captured
-   previous token, as the official client does; replace it when a valid token is
-   returned. Use the response's expiry instead of assuming a server default.
-7. Refresh responses omit the original account-key data, so keep only a narrow
-   encrypted authentication context. Old organization claims do not authorize current
-   access. If new crypto state disagrees with the stored context, require password
-   re-authentication explicitly and keep the existing cache.
-8. Treat the cache revision as a per-operation guard, not a value the session is
-   pinned to, so a second sync after a successful first sync still works.
-9. Local forget, permission removal and server rejection clear sync authentication
-   but not offline unlock or the connection configuration. No verified server-wide
-   revocation endpoint is known, so remote revocation is explicitly unsupported; do
-   not guess a URL.
-10. Permission removal fences in-flight work immediately, rechecks each configured
-    provider's permission and forgets only connections that lost it.
-11. Startup only reads state; HTTP happens on an explicit Sync action. The UI shows
-    the provider session and offline unlock separately and never presents local
-    forget as a server logout.
+Unit tests cover claims, rotation, concurrent writers, forget and permission races,
+expiry from the token's own claims, and per-provider permission loss. Isolated Chromium
+tests cover the blocked and released version 1 upgrade, the native session store's
+guards and readback, two password-free syncs after a full profile reopen, and local
+forget and permission removal with offline unlock kept. These use synthetic providers.
+Refresh against a real account and installed Chrome remain unverified.
 
-Required tests: native version 1 upgrade; password-free explicit sync after a full
-profile reopen; consecutive successful syncs; rotated and omitted refresh tokens;
-corrupt or rejected sync after a committed rotation; independent compare-and-swap
-writers where only one may send HTTP; crashes before and after the claim, after the
-response and after the commit; forget and permission-removal races; one provider
-losing its session while another keeps it; offline-key independence; corrupt, quota
-and uncertain storage; and no token in options or status output.
+## Service sync progress
 
-Primary sources:
-[server refresh-token reuse and lifetime](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/src/Identity/IdentityServer/ApiClient.cs#L18-L35),
-[client retention of an absent refresh token](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/auth/services/token.service.ts#L190-L198),
-[refresh response model](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/auth/models/response/refresh-token.response.ts)
-and
-[refreshed membership claims](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/test/Identity.IntegrationTest/Grants/RefreshTokenGrantTests.cs#L69-L106).
+The first M4 slice turns the health-only Worker into a device-authenticated
+settings/recipe sync API with Hono, Drizzle and a D1 schema. Shared Valibot contracts
+cover synced settings, immutable recipe revisions with tombstones, cursor pages and
+conflict responses. Every query is scoped by the owner resolved from a hashed,
+revocable device credential; request paths and bodies never select an owner. Settings
+writes and recipe heads use conditional revision writes, and a recipe's history row
+is recorded in the same D1 batch only when that request won the head.
+
+Local Miniflare tests cover unknown, malformed and revoked credentials, owner and
+device isolation, stale and concurrent writes, tombstones, cursor paging, strict
+schema rejection, media type and body limits, and fail-closed handling of corrupt
+stored documents. Concurrent cases interleave within one local runtime, not hosted
+D1. A migration check regenerates SQL from the Drizzle schema. The D1 database is
+not provisioned, and nothing is deployed.
+
+### Remaining M4 service gaps
+
+- Access-backed device enrollment, owner management and revocation routes follow the
+  [proposed enrollment design](architecture.md#proposed-device-enrollment); tests seed
+  synthetic owners and devices directly until then.
+- The extension does not yet call the service, keep a last-known-good sync cache or
+  map synced connection identifiers to a new device's local connections.
+- Inference adapters, spending accounting and the release artifact's migration SQL
+  remain separate slices.
 
 ## Passkey progress
 
@@ -372,8 +355,18 @@ per item into secret-free metadata: ECDSA P-256 public-key credentials, GUID or
 instead of choosing one; a nonzero counter is preserved so selection can refuse it.
 The SDK-decrypted private key is decoded with a DER framing check only; WebCrypto
 import validates its structure. Unit tests cover malformed and unsupported views and
-an SDK round trip through the synthetic legacy account fixture. Selection, signing
-and the page bridge are not connected.
+an SDK round trip through the synthetic legacy account fixture.
+
+The extension's assertion core admits only requests with mediation absent or `optional`
+that pass WebAuthn RP ID validation with tldts private suffixes; everything else is a
+delegation result. A `PasskeyPolicy` decides whether a missing gesture or a UV
+requirement also delegates; the initial policy sets UP and UV unattended. It selects
+exactly one eligible credential, refuses nonzero counters, serializes `clientDataJSON`,
+builds authenticator data with UP, UV, BE and BS and a zero counter, and returns DER
+ECDSA signatures from a non-extractable sign-only key. Unit tests reproduce the WebAuthn
+Level 3 ES256 client data and authenticator data byte for byte, verify the published and
+produced signatures, and cover the HTML registrable-suffix examples. The core is not yet
+connected to the vault, the crypto host or a page bridge.
 
 ## Initial delivery and later scope
 
@@ -405,7 +398,7 @@ implicit permissions or initial acceptance requirements.
 | M2: Local login engine and settings           | Dummy vault adapter, settings page, multi-connection policies, saved site defaults, declarative executor | Multi-field/multi-page fixtures; policy precedence, excluded-site pass-through, background, navigation, interruption and concurrency tests; no automatic extension UI                                                          |
 | M3: Bitwarden passwords                       | First real adapter, local sync/crypto, persistent unlock, custom fields and TOTP                         | Synthetic protocol/crypto vectors; supported environment/authentication and TOTP cases below; restart/unlock; no vault writes; explicit unsupported cases; controlled account test only when authorized                        |
 | M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe sync, role-specific AI adapters, Clef/Jev evaluation | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; provider selection evidence |
-| M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, truthful UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
+| M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, configured UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
 | M6: Integrated acceptance and server delivery | Chrome use coexistence, operational docs, hosted service release                                         | Installed Chrome dummy-account tests plus artifact-verified deployment and hosted synthetic smoke checks; measured limits documented                                                                                           |
 
 M1's small cf compatibility probe may precede a backend skeleton; it must not
@@ -478,7 +471,7 @@ and clock boundaries. Do not imply HOTP support from URI parsing alone.
 | MV3 and coexistence   | Worker suspension/restart, browser restart, no page extension iframe, official BW coexistence, actual Chrome use attach and concurrent input                                                                                                                                                                                                                   |
 | Secret boundary       | Malicious page messages, origin mismatch, redirects, unauthorized frames, storage access level, redacted observations/logs, no secrets in server/provider payloads                                                                                                                                                                                             |
 | Vault and settings    | PBKDF2 and Argon2id, authenticated ciphertext corruption, encoding, multiple connections, deny precedence and field exclusion, organization/custom fields capability, duplicate/linked fields and leading zeros, supported TOTP forms, sync expiry, persistent unlock and revocation                                                                           |
-| Passkeys              | Existing zero-counter software key, nonzero-counter rejection, secure context, RP ID/public suffix, challenge, ancestor/topOrigin/crossOrigin, denied iframe Permissions Policy, allowCredentials/userHandle, signature encoding, truthful UV/UP, abort/timeout, competing provider/conditional mediation                                                      |
+| Passkeys              | Existing zero-counter software key, nonzero-counter rejection, secure context, RP ID/public suffix, challenge, ancestor/topOrigin/crossOrigin, denied iframe Permissions Policy, allowCredentials/userHandle, signature encoding, configured UV/UP, abort/timeout, competing provider/conditional mediation                                                      |
 | Service/AI            | Service auth separate from vault unlock, device ownership, replay/revocation, schema compatibility, settings revision conflicts, offline cache, separate generation/repair and finite-choice settings, injection text, nonexistent targets, refusal/truncation/timeout/rate-limit, no automatic provider/model fallback, monthly spend stop and attempt limits |
 
 Fixtures use synthetic sites and credentials. A bundled Chromium pass is not
@@ -497,12 +490,10 @@ support for every site or vault format. Keep observed limitations explicit.
   distribution, memory/time and browser lifecycle. See
   [ADR 0005](adr/0005-bitwarden-local-crypto.md); do not implement cryptographic
   primitives ourselves or treat library adoption as compatibility proof.
-- [ADR 0007](adr/0007-existing-passkey-assertions.md) sets the initial UV/UP
-  policy: UV clear, UP only with transient user activation and a preconfigured
-  account, and delegation to the browser otherwise. Nonzero-counter
-  synchronization is deferred. The owner must decide whether a per-site unattended
-  presence mode is acceptable before page-load or executor-triggered passkey login
-  can complete without a gesture.
+- [ADR 0007](adr/0007-existing-passkey-assertions.md) records the owner's choice
+  to set UP and UV on every claimed assertion without a gesture. A per-site
+  setting over the existing policy shape is later work. Nonzero-counter
+  synchronization is deferred.
 - Settle device enrollment/recovery, credential lifetime, AI pricing sources and
   the monthly monetary budget default before service deployment. Initial spending
   control aggregates usage and stops later inference after the limit is reached;

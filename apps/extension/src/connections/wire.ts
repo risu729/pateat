@@ -60,7 +60,7 @@ export const setupRequestSchema = v.variant("type", [
   v.strictObject({ requestId: v.pipe(v.string(), v.uuid()), type: v.literal("connection.status") }),
   v.strictObject({
     requestId: v.pipe(v.string(), v.uuid()),
-    type: v.picklist(["connection.sync", "connection.disable"]),
+    type: v.picklist(["connection.sync", "connection.disable", "connection.forget"]),
     connectionId: id,
   }),
   v.strictObject({
@@ -104,6 +104,7 @@ const replySchema = v.union([
   }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("cancelled") }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("disabled"), connectionId: id }),
+  v.strictObject({ ok: v.literal(true), kind: v.literal("forgotten"), connectionId: id }),
   v.strictObject({
     ok: v.literal(true),
     kind: v.literal("status"),
@@ -116,6 +117,13 @@ const replySchema = v.union([
           environment,
           autoUnlock: v.picklist(["enabled", "disabled", "unknown"]),
           state: v.picklist(["configured", "ready", "disabled", "review-required", "unavailable"]),
+          providerSession: v.picklist([
+            "none",
+            "active",
+            "refresh-required",
+            "reauthentication-required",
+            "unavailable",
+          ]),
           snapshotId: v.optional(v.pipe(v.string(), v.uuid())),
         }),
       ),
