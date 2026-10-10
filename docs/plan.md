@@ -361,7 +361,10 @@ expiry from the token's own claims, and per-provider permission loss. Isolated C
 tests cover the blocked and released version 1 upgrade, the native session store's
 guards and readback, two password-free syncs after a full profile reopen, and local
 forget and permission removal with offline unlock kept. These use synthetic providers.
-Refresh against a real account and installed Chrome remain unverified.
+An
+[installed-Chrome check](research/2026-10-10-feasibility.md#installed-chrome-provider-session-check-2026-10-10)
+confirmed a password-free Sync after a full browser restart with the synthetic probe.
+Refresh against a real account and real host-access revocation remain unverified.
 
 ## Service sync progress
 
