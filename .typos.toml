@@ -1,2 +1,5 @@
 [default.extend-identifiers]
 OTPs = "OTPs"
+
+[default.extend-words]
+COSE = "COSE"
