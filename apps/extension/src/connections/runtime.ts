@@ -77,6 +77,7 @@ export function createConnectionRuntime(
         id: connectionId,
         label: configuration.label,
         provider: "bitwarden",
+        userId: projected.data.userId,
         snapshotId: record.data.accepted.snapshotId,
         groups: projected.data.groups,
         items: projected.data.items.map((item) => ({

@@ -36,8 +36,11 @@ test("manual options setup accepts real SDK data and restores value-free catalog
       },
     ]);
     const saved = await settingsRequest(options);
-    const item = saved.catalog.connections.find((entry) => entry.id === accepted.connectionId)
-      ?.items[0];
+    const connection = saved.catalog.connections.find(
+      (entry) => entry.id === accepted.connectionId,
+    );
+    expect(connection?.userId).toMatch(/^[0-9a-f-]{36}$/);
+    const item = connection?.items[0];
     expect(item?.fields).toContainEqual({
       id: "login.password",
       label: "Password",

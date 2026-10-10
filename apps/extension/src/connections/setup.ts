@@ -170,6 +170,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       id: profile.connectionId,
       label: flow.configuration.label,
       provider: "bitwarden",
+      userId: metadata.data.userId,
       groups: metadata.data.groups,
       items: metadata.data.items.map((item) => ({
         id: item.id,

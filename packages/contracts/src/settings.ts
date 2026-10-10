@@ -214,6 +214,8 @@ export const vaultCatalogSchema = v.strictObject({
       id: identifier,
       label: identifier,
       provider: identifier,
+      /** The provider account ID that synced references name; absent while unavailable. */
+      userId: v.optional(identifier),
       snapshotId: v.optional(v.pipe(v.string(), v.uuid())),
       quarantinedItemIds: v.optional(identifiers),
       state: v.optional(v.picklist(["ready", "locked", "unavailable", "review-required"])),
