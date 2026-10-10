@@ -16,7 +16,8 @@ deployed. The initial design was adopted in
 The architecture describes the agreed product boundaries; the plan separates
 initial delivery from later capabilities. In particular, initial read-only vault
 use and login-only execution are delivery limits, not permanent product limits.
-Settings and local recipe execution do not depend on the optional service.
+The service is the source of truth for settings and recipes; the extension runs
+from a synced cache ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 ## Reading order and ownership
 
@@ -60,6 +61,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0009: Install-time HTTPS site access](adr/0009-install-time-https-site-access.md)
 - [0010: Inference field hints and local fill checks](adr/0010-inference-field-hints.md)
 - [0012: Inference request log and evaluation data](adr/0012-inference-request-log.md)
+- [0013: Service-held recipes, settings and account bindings](adr/0013-service-held-recipes-and-settings.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

@@ -15,12 +15,14 @@ adapter, not the product identity. Passwords, custom fields, TOTP, and existing
 exportable software passkeys belong in scope. Another vault can be added behind
 the same narrow capability boundary when there is a concrete second integration.
 
-The client works without a native helper, desktop daemon or Pateat account.
-Local settings, eligible vault material, explicit field mappings and compatible
-saved recipes remain usable without a Pateat server. Missing recipes produce an
-explicit result rather than guessing. Bitwarden sync still needs its own service.
-An optional self-hosted Worker provides the initial inference and settings/recipe
-sync path. Direct extension-to-AI calls with user-owned keys are a later option,
+The client works without a native helper or desktop daemon. Settings, recipes and
+account bindings live on the owner's self-hosted Pateat service and are edited on its
+web UI ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension
+keeps a last-known-good cache, so login keeps working while the service is offline,
+and a reinstalled extension restores the data by syncing. A mode without the service
+is later scope. Missing recipes produce an explicit result rather than guessing.
+Bitwarden sync still needs its own service. The same Worker provides the initial
+inference path. Direct extension-to-AI calls with user-owned keys are a later option,
 not the recommended initial setup.
 
 Configure accounts and site permissions once, then automatically fill and submit
@@ -48,8 +50,8 @@ compatibility claim or an alternative cloud-browser implementation.
 | Offscreen crypto host   | Own Dedicated Workers for local SDK operations and hard cancellation                     | Yes, private background channel only                            |
 | Isolated content script | Extract sanitized form structure, validate document identity, execute fixed DOM operations | Only the specific values being filled, briefly                  |
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
-| Settings page           | Initial account/device setup, policy, status and recovery                                  | Deliberate user setup only; no auto-opening during login        |
-| Worker API + D1         | Private settings and recipe revisions, device authorization, bounded inference, request log | Service credentials only; no vault values or keys               |
+| Settings page           | Vault connection, re-authentication, unlock and service pairing                            | Deliberate user setup only; no auto-opening during login        |
+| Worker API + D1         | Settings, recipes and account bindings, owner web UI, device authorization, inference, request log | Service credentials only; no vault values or keys               |
 | AI provider             | Match observed elements and propose declarative steps                                      | No vault values, account bindings, cookies, or assertions       |
 
 Content/page messages are untrusted. Validate payloads with Valibot and bind
@@ -258,16 +260,16 @@ connection. New capabilities do not automatically gain grants. Future automatic
 password saving can be enabled without confirmation on every save, within those
 grants and applicable policy. Read-only is an initial scope, not the provider API.
 
-Handle all custom field types: Text, Hidden, Boolean and Linked. Preserve leading
-zeros and duplicate names; use stable field references rather than a name-only
-map and resolve Linked fields to their source. Second passwords and card PINs
-are valid field roles. Prefer explicit mappings; abstain from ambiguous mappings
-instead of trying every candidate. Values never go to inference; allowed field names
-and the coarse shape of visible identifier values may
-([ADR 0010](adr/0010-inference-field-hints.md)), and a plan is checked against the real
-values locally before filling. After filling and before the click, the executor stops
-when the page marks a filled element invalid or shows a new alert. Neither check is
-wired into the executor yet.
+Handle all custom field types: Text, Hidden, Boolean and Linked. Preserve leading zeros
+and duplicate names. Synced references name a custom field and, for duplicate names, its
+position among them ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)); resolve
+Linked fields to their source. Second passwords and card PINs are valid field roles.
+Prefer explicit mappings; abstain from ambiguous mappings instead of trying every
+candidate. Values never go to inference; allowed field names and the coarse shape of
+visible identifier values may ([ADR 0010](adr/0010-inference-field-hints.md)), and a
+plan is checked against the real values locally before filling. After filling and before
+the click, the executor stops when the page marks a filled element invalid or shows a
+new alert. Neither check is wired into the executor yet.
 
 Local field snapshots detach supported decrypted items from caller mutation.
 References bind connection, user, item and snapshot identity; custom fields use
@@ -306,10 +308,12 @@ codes are distinct from future automatic email/SMS challenge retrieval.
 
 ## Settings, eligibility and operation grants
 
-Ship a human-operated extension settings page from the start, usable without a
-server. Include connections, exclusions, account defaults, inference settings,
-service connection, status and recovery. Chrome use access to this page is not
-assumed. Keep settings and execution operations independent of their UI.
+Settings, exclusions, account defaults and inference settings are edited on the
+service's owner-authenticated web UI
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's own page
+covers only vault connection, re-authentication, unlock and service pairing. Chrome use
+access to these pages is not assumed. Keep settings and execution operations independent
+of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
@@ -403,10 +407,11 @@ and failure conditions, and provenance. The vocabulary is packaged code such as
 fill, click, wait-for-state, and assert-state. There is no eval, remote JavaScript,
 arbitrary fetch, or model-selected secret destination.
 
-Site recipes contain meanings such as branch-number/account-number/password.
-Keep account-specific bindings separate and resolve them locally. Optional
-private settings sync may store references/bindings, never credential values;
-these private bindings do not belong in AI input. Multi-origin SSO needs an
+Site recipes contain meanings such as branch-number/account-number/password. Keep
+account-specific bindings separate from recipes. They are stored in the synced settings
+document as references, never credential values, and resolved to values locally. AI
+input may name the allowed vault fields but never carries bindings, item or account IDs
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Multi-origin SSO needs an
 explicit configured transition policy.
 
 Split inference into independently configured recipe generation/repair and
@@ -585,7 +590,7 @@ the credential idle-expiry decision, and the optional `launchWebAuthFlow` varian
 
 Settings read/update, permitted selection, execution requests, status, cancel,
 pause and repair operations should be independent of presentation. They can
-later serve page UI, optional HTTPS management UI and MCP. Revalidate caller
+later serve page UI, the service's HTTPS management UI and MCP. Revalidate caller
 authority at every entry point and policy at the executing device. Page UI may
 show minimal permitted aliases but cannot grant permissions or remove exclusions.
 Use accessible ordinary HTML without extension-origin iframes if added; Shadow
