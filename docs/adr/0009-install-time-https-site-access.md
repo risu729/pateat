@@ -37,7 +37,8 @@ settings, not on the browser grant. Users can still withhold site access in Chro
 extension settings; the background respects that per origin.
 
 The grant also covers provider HTTPS hosts, so connection setup prompts for host access
-only when the user has withheld site access; `optional_host_permissions` stays declared
-so that request remains valid. The provider transport still enforces the configured
-origin, method and service path; the broader browser grant does not widen which
-endpoints a connection may call.
+only when the user has withheld site access. Chrome lets the extension re-request a
+withheld required host, so no `optional_host_permissions` entry is declared; Chrome
+would omit it as redundant with a warning. The provider transport still enforces the
+configured origin, method and service path; the broader browser grant does not widen
+which endpoints a connection may call.

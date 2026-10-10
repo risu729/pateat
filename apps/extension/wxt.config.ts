@@ -13,10 +13,9 @@ export default defineConfig({
     permissions: ["storage", "offscreen"],
     // Owner-approved install-time HTTPS site access (ADR 0009). The login content script
     // runs on every HTTPS page; only saved-default origins are admitted for execution.
+    // Chrome can still re-request these hosts if the user withholds site access, so no
+    // redundant optional entry is declared.
     host_permissions: ["https://*/*"],
-    // Kept so provider setup's explicit permission request remains valid if the user
-    // withholds site access in Chrome.
-    optional_host_permissions: ["https://*/*"],
     content_security_policy: {
       extension_pages:
         "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https:",
