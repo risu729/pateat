@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
 import * as v from "valibot";
 import { createLocalCryptoSession, type LocalCryptoSession } from "./local-crypto";
-import { localVaultMetadataSchema } from "./catalog";
+import { localVaultMetadataSchema, vaultFieldName } from "./catalog";
 import { preparedVault, type VaultFixtureKind } from "./__fixtures__/unlock";
 import {
   legacyName,
@@ -150,7 +150,16 @@ describe("value-free catalog admission", () => {
           label: "Login",
           type: 1,
           groupIds: [groupId],
-          fields: [{ id: "login.password", label: "Password", kind: "hidden" }],
+          fields: [
+            { id: "login.password", label: "Password", name: null, kind: "hidden" },
+            {
+              id: `custom.${snapshotId}.0`,
+              label: "PIN",
+              name: "PIN",
+              kind: "linked",
+              linkedFieldId: "login.password",
+            },
+          ],
         },
       ],
     };
@@ -167,6 +176,13 @@ describe("value-free catalog admission", () => {
       expect(v.safeParse(localVaultMetadataSchema, value).success).toBe(false);
     },
   );
+  it("withholds field names it cannot carry exactly instead of truncating them", () => {
+    expect(vaultFieldName("PIN")).toBe("PIN");
+    expect(vaultFieldName("x".repeat(200))).toBe("x".repeat(200));
+    expect(vaultFieldName("x".repeat(201))).toBeNull();
+    expect(vaultFieldName("")).toBeNull();
+    expect(vaultFieldName(null)).toBeNull();
+  });
   it("rejects a native handle alongside otherwise valid catalog metadata", () => {
     expect(
       v.safeParse(localVaultMetadataSchema, {

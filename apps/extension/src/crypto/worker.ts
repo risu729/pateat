@@ -11,6 +11,7 @@ import {
   type PreparedBitwardenAccount,
   type LocalVaultMetadata,
   vaultDisplayLabel,
+  vaultFieldName,
   localVaultMetadataSchema,
 } from "@pateat/bitwarden";
 import { loadBrowserCryptoSdk } from "@pateat/bitwarden/browser-sdk";
@@ -198,7 +199,9 @@ async function execute(command: HostCommand) {
           fields: snapshot.data.list().map((field) => ({
             id: field.ref.fieldId,
             label: vaultDisplayLabel(field.label, field.ref.fieldId),
+            name: vaultFieldName(field.name),
             kind: field.kind,
+            ...(field.linkedFieldId ? { linkedFieldId: field.linkedFieldId } : {}),
           })),
         });
       } finally {

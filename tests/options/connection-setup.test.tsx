@@ -371,9 +371,19 @@ test.each([false, true])(
                 allowedOrigins: [],
                 groupIds: [],
                 fields: [
-                  { id: "login.password", label: "Password" },
-                  { id: `custom.${snapshot}.0`, label: "Duplicate" },
-                  { id: `custom.${snapshot}.1`, label: "Duplicate" },
+                  { id: "login.password", label: "Password", name: null, kind: "hidden" },
+                  {
+                    id: `custom.${snapshot}.0`,
+                    label: "Duplicate",
+                    name: "Duplicate",
+                    kind: "text",
+                  },
+                  {
+                    id: `custom.${snapshot}.1`,
+                    label: "Duplicate",
+                    name: "Duplicate",
+                    kind: "text",
+                  },
                 ],
               },
             ],

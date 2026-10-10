@@ -38,7 +38,12 @@ test("manual options setup accepts real SDK data and restores value-free catalog
     const saved = await settingsRequest(options);
     const item = saved.catalog.connections.find((entry) => entry.id === accepted.connectionId)
       ?.items[0];
-    expect(item?.fields).toContainEqual({ id: "login.password", label: "Password" });
+    expect(item?.fields).toContainEqual({
+      id: "login.password",
+      label: "Password",
+      name: null,
+      kind: "hidden",
+    });
     expect(item?.fields.some((field) => field.id === `custom.${accepted.snapshotId}.1`)).toBe(true);
     expect(item?.allowedOrigins).toEqual([]);
     expect(await setupProbe(first.page, { action: "resolve", field: "password" })).toEqual({

@@ -125,6 +125,7 @@ function harness(
         data: [
           {
             kind: "hidden" as const,
+            name: null,
             label: "Password",
             ref: {
               connectionId: session.connectionId,

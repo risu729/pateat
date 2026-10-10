@@ -230,7 +230,17 @@ export const vaultCatalogSchema = v.strictObject({
           label: identifier,
           allowedOrigins: v.array(originSchema),
           groupIds: identifiers,
-          fields: v.array(v.strictObject({ id: identifier, label: identifier })),
+          fields: v.array(
+            v.strictObject({
+              id: identifier,
+              label: identifier,
+              /** A custom field's own vault name; `null` for built-in and unnamed fields. */
+              name: v.nullable(identifier),
+              kind: v.picklist(["text", "hidden", "boolean", "linked", "otp", "unsupported"]),
+              /** The built-in field a Linked field reads, when the provider defines it. */
+              linkedFieldId: v.optional(identifier),
+            }),
+          ),
         }),
       ),
     }),
@@ -291,9 +301,9 @@ export const DUMMY_VAULT_CATALOG: VaultCatalog = {
           allowedOrigins: ["https://bank.example"],
           groupIds: ["everyday"],
           fields: [
-            { id: "username", label: "Username" },
-            { id: "password", label: "Password" },
-            { id: "branch", label: "Branch number" },
+            { id: "username", label: "Username", name: null, kind: "text" },
+            { id: "password", label: "Password", name: null, kind: "hidden" },
+            { id: "branch", label: "Branch number", name: "Branch number", kind: "text" },
           ],
         },
         {
@@ -302,8 +312,8 @@ export const DUMMY_VAULT_CATALOG: VaultCatalog = {
           allowedOrigins: ["https://bank.example", "https://mail.example"],
           groupIds: [],
           fields: [
-            { id: "username", label: "Username" },
-            { id: "password", label: "Password" },
+            { id: "username", label: "Username", name: null, kind: "text" },
+            { id: "password", label: "Password", name: null, kind: "hidden" },
           ],
         },
       ],
@@ -320,8 +330,8 @@ export const DUMMY_VAULT_CATALOG: VaultCatalog = {
           allowedOrigins: ["https://bank.example"],
           groupIds: ["team"],
           fields: [
-            { id: "username", label: "Username" },
-            { id: "password", label: "Password" },
+            { id: "username", label: "Username", name: null, kind: "text" },
+            { id: "password", label: "Password", name: null, kind: "hidden" },
           ],
         },
       ],

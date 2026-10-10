@@ -176,7 +176,13 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         label: item.label,
         allowedOrigins: [],
         groupIds: item.groupIds,
-        fields: item.fields.map(({ id, label }) => ({ id, label })),
+        fields: item.fields.map(({ id, label, name, kind, linkedFieldId }) => ({
+          id,
+          label,
+          name,
+          kind,
+          ...(linkedFieldId ? { linkedFieldId } : {}),
+        })),
       })),
     };
     const adopted = await deps.policy.adopt({
