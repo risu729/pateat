@@ -37,13 +37,13 @@ monthly Claude API credit and chose the model. The offline harness in
 - The owner approved one paid benchmark run of the synthetic corpus with this
   configuration. Further paid runs and the service route need their own approval.
   The benchmark runs outside the service, so it reads the key from `ANTHROPIC_API_KEY`
-  in the environment of the session that runs it.
+  in the environment of the session that runs it. Cloud sessions withhold that name,
+  so there the key is stored as `PATEAT_ANTHROPIC_API_KEY` and passed in as
+  `ANTHROPIC_API_KEY="$PATEAT_ANTHROPIC_API_KEY"`.
 - After that run refused the unlabeled bank page, the owner approved stating the use
   in the generation instructions (the credentials' owner signing in to their own
   account, values filled locally), recording the refusal category code, and one more
-  run of the full corpus to check the change. Cloud sessions withhold that name,
-  so there the key is stored as `PATEAT_ANTHROPIC_API_KEY` and passed in as
-  `ANTHROPIC_API_KEY="$PATEAT_ANTHROPIC_API_KEY"`.
+  run of the full corpus to check the change.
 
 Estimated cost per generation call, assuming about 3,000 input tokens and about 1,000
 output tokens including thinking, at $4 and $20 per million: about $0.03, or about

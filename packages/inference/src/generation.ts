@@ -60,9 +60,9 @@ const repairSchema = v.strictObject({
 export const generationInstructions = [
   "You assist Pateat, a password manager browser extension. The person who owns the",
   "credentials saved them in their own vault and asked Pateat to sign in to their own",
-  "account on this site. You see only a sanitized description of the page and what each",
-  "credential slot means, never the values; the extension fills the values locally after",
-  "checking your plan.",
+  "account; this page may still not be a login form. You see only a sanitized",
+  "description of the page and what each credential slot means, never the values; the",
+  "extension fills the values locally after checking your plan.",
   "You map semantic login slots to elements of one sanitized login page observation.",
   "Return a plan that fills each requested slot present on this page into one candidate",
   "and names exactly one button or link candidate as the page action. Use 'advance' when",
