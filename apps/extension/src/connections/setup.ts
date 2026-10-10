@@ -18,6 +18,8 @@ const error = (code: Extract<SetupReply, { ok: false }>["error"]["code"]): Setup
   ok: false,
   error: { code },
 });
+/** The single reply boundary: a failure carries only its code, never a provider status or detail. */
+const replyOf = (result: SetupReply): SetupReply => (result.ok ? result : error(result.error.code));
 type Authenticated = Extract<PasswordTokenOutcome, { kind: "authenticated" }>;
 type Flow = {
   id: string;
@@ -389,7 +391,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         active.set(configuration.profile.connectionId, current);
         return current;
       }
-      return {
+      const caller = {
         begin(input: unknown): Promise<SetupReply> {
           return run(async () => {
             const checked = v.safeParse(setupBeginSchema, structuredClone(input));
@@ -600,6 +602,17 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           if (owned) clear(owned);
           owned = undefined;
         },
+      };
+      return {
+        begin: (input: unknown) => caller.begin(input).then(replyOf),
+        continue: (input: unknown) => caller.continue(input).then(replyOf),
+        cancel: (flowId: string) => caller.cancel(flowId).then(replyOf),
+        status: () => caller.status().then(replyOf),
+        sync: (connectionId: string) => caller.sync(connectionId).then(replyOf),
+        forget: (connectionId: string) => caller.forget(connectionId).then(replyOf),
+        disable: (connectionId: string) => caller.disable(connectionId).then(replyOf),
+        review: (input: Parameters<typeof caller.review>[0]) => caller.review(input).then(replyOf),
+        dispose: caller.dispose,
       };
     },
   };

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBitwardenTransport, type BitwardenProfile } from "@pateat/bitwarden";
 import { createConnectionSetupService } from "./setup";
+import { parseSetupReply } from "./wire";
 import type {
   BitwardenConnectionConfiguration,
   ConnectionSetupDependencies,
@@ -810,7 +811,7 @@ describe("durable provider sessions", () => {
       },
     });
     h.syncResponses.push({ status: 500, body: {} });
-    expect(await h.restart().caller.sync(accountProfile.connectionId)).toMatchObject({
+    expect(await h.restart().caller.sync(accountProfile.connectionId)).toEqual({
       ok: false,
       error: { code: "http-error" },
     });
@@ -819,6 +820,24 @@ describe("durable provider sessions", () => {
       refreshToken: "synthetic-rotated-refresh",
     });
     expect(h.durable()).toEqual(previous);
+  });
+  it("an HTTP 500 sync failure replies with only a wire-valid error code", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const previous = h.durable();
+    h.syncResponses.push({ status: 500, body: {} });
+    const reply = await h.caller.sync(accountProfile.connectionId);
+    expect(reply).toEqual({ ok: false, error: { code: "http-error" } });
+    expect(parseSetupReply(reply)).toEqual(reply);
+    expect(h.sessionMemory.raw()).toMatchObject({ state: "active" });
+    expect(h.durable()).toEqual(previous);
+  });
+  it("a provider HTTP failure during password setup replies with only its code", async () => {
+    const h = harness();
+    h.tokenResponses.push({ status: 503, body: {} });
+    const reply = await h.caller.begin(newInput());
+    expect(reply).toEqual({ ok: false, error: { code: "http-error" } });
+    expect(parseSetupReply(reply)).toEqual(reply);
   });
   it("a rejected access token forgets only the sync session", async () => {
     const h = harness({ existing: true });
