@@ -8,7 +8,11 @@ import {
   type PasswordTokenOutcome,
   type RefreshTokenOutcome,
 } from "./auth-models";
-import { bitwardenEndpoints, normalizeBitwardenProfile } from "./environment";
+import {
+  BITWARDEN_READ_PROTOCOL,
+  bitwardenEndpoints,
+  normalizeBitwardenProfile,
+} from "./environment";
 import { failure, type BitwardenErrorCode, type BitwardenResult } from "./errors";
 import {
   encryptedSyncEnvelopeSchema,
@@ -95,6 +99,11 @@ export function createBitwardenTransport(
     try {
       const pending = fetchResponse(url, {
         ...init,
+        headers: {
+          ...init.headers,
+          "Bitwarden-Client-Version": BITWARDEN_READ_PROTOCOL.clientVersion,
+          "Device-Type": String(BITWARDEN_READ_PROTOCOL.deviceType),
+        },
         signal: controller.signal,
         redirect: "error",
         credentials: "omit",
@@ -282,7 +291,7 @@ export function createBitwardenTransport(
       if (!parsed.success) return failure("invalid-request");
       if (parsed.output.connectionId !== profile.connectionId)
         return failure("connection-mismatch");
-      // Do not advertise official Client-Version/Device-Type capabilities we cannot yet fulfill.
+      // Read protocol baseline only. The server can still omit leased/inaccessible items.
       return request(
         `${endpoints.apiUrl}/sync`,
         {

@@ -138,10 +138,34 @@ URLs. No method is claimed compatible with a real account from synthetic HTTP
 tests. Settings integration, code-delivery initiation, interactive providers,
 token persistence and authoritative account/cache reconciliation remain separate
 gates; an authenticated transport result does not mean an unlocked vault.
-The isolated transport also omits `Bitwarden-Client-Version`; the pinned current
-server rejects existing-account authentication without it. A tested advertised
-protocol profile, including account/sync metadata completeness, is an integration
-gate before settings can enable provider login.
+The transport uses the explicit read-protocol profile described in the
+[architecture](architecture.md#vault-adapter). Header acceptance alone does not
+prove real-account compatibility or complete sync coverage.
+
+## Account mapping progress
+
+The isolated mapper maps received account/sync data into the local crypto boundary
+and defines an explicit read-protocol profile. It correlates provider and
+subject continuity, distinguishes authentication from unlock parameters, rejects
+incomplete current-format state and carries known account/security-version
+floors. Unsigned token-claim decoding is consistency checking, not independent
+authentication or ownership proof.
+
+The initial mapper targets ordinary login, secure-note, card and identity items.
+Other item types receive explicit unimplemented outcomes without blocking
+unrelated supported items. Do not expand rare-type support solely to satisfy a
+compatibility label. All received IDs still require validation and uniqueness;
+malformed supported/account data cannot fall back to older formats or secrets.
+Coverage remains the received envelope, not a complete-vault or atomic-cache
+claim. Real-account setup, persistent unlock and cache reconciliation remain
+separate integration gates.
+
+Synthetic raw token/sync responses exercise real SDK password unlock and
+decryption for personal and organization items and V2 sealed blobs. The V2
+password wrapper is explicitly SDK-generated compatibility data; its signed
+account state and blob/plaintext anchors come from recorded upstream fixtures.
+This is not an independent password-wrapping known answer or real-account proof.
+The packaged browser probe includes both V1 and V2 mapping/password-unlock paths.
 
 ## Initial delivery and later scope
 

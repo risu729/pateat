@@ -373,6 +373,23 @@ function parsed<TSchema extends v.GenericSchema>(
   }
 }
 
+/** Pure DTO admission shared with the provider mapper; no native parsing or decryption. */
+export function admitLocalCryptoCipher(input: unknown): BitwardenResult<Sdk.Cipher> {
+  const cipher = parsed(cipherSchema, input);
+  if (!cipher) return failure("invalid-crypto-input");
+  try {
+    if (!supportedEncryptedFields(cipher)) return failure("unsupported-crypto");
+    // Never let the SDK's legacy fallback reinterpret a claimed sealed blob.
+    if (cipher.data != null) {
+      const blob = parsed(blobSchema, JSON.parse(cipher.data));
+      if (!blob || !authenticatedCiphertext(blob.wrapped_cek)) return failure("unsupported-crypto");
+    } else if (!cipher.name) return failure("invalid-crypto-input");
+    return { ok: true, data: cipher as unknown as Sdk.Cipher };
+  } catch {
+    return failure("unsupported-crypto");
+  }
+}
+
 function bytesFromBase64(value: string): Uint8Array {
   const decoded = atob(value);
   if (btoa(decoded) !== value) throw new Error();
@@ -634,21 +651,8 @@ export async function createLocalCryptoSession(
       const cipher = checked.cipher;
       if (cipher.organizationId && !knownOrganizations.has(cipher.organizationId))
         return failure("crypto-failed");
-      try {
-        if (!supportedEncryptedFields(cipher)) return failure("unsupported-crypto");
-      } catch {
-        return failure("invalid-crypto-input");
-      }
-      // SDK parsing failure otherwise falls back to legacy even with its strict flag enabled.
-      if (cipher.data != null) {
-        try {
-          const blob = parsed(blobSchema, JSON.parse(cipher.data));
-          if (!blob || !authenticatedCiphertext(blob.wrapped_cek))
-            return failure("unsupported-crypto");
-        } catch {
-          return failure("unsupported-crypto");
-        }
-      } else if (!cipher.name) return failure("invalid-crypto-input");
+      const admitted = admitLocalCryptoCipher(cipher);
+      if (!admitted.ok) return admitted;
       pendingCalls += 1;
       try {
         const view = await ciphers.decrypt(cipher as unknown as Sdk.Cipher);

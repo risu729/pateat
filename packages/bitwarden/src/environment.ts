@@ -2,6 +2,15 @@ import * as v from "valibot";
 
 import { failure, type BitwardenResult } from "./errors";
 
+/** Pinned server read compatibility, separate from Pateat's product version.
+ * Device 2 is a Chrome extension; received records do not prove whole-vault coverage.
+ * Types not implemented by the account mapper remain explicitly unavailable.
+ */
+export const BITWARDEN_READ_PROTOCOL = Object.freeze({
+  clientVersion: "2026.2.0",
+  deviceType: 2,
+});
+
 const profileSchema = v.strictObject({
   connectionId: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
   environment: v.variant("kind", [
