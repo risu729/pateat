@@ -394,7 +394,7 @@ revocation.
 
 ## Passkey progress
 
-[ADR 0007](adr/0007-existing-passkey-assertions.md) proposes the M5 bridge and
+[ADR 0007](adr/0007-existing-passkey-assertions.md) records the M5 bridge and
 presence policy. The Bitwarden package maps one decrypted FIDO2 credential view
 per item into secret-free metadata: ECDSA P-256 public-key credentials, GUID or
 `b64.` credential IDs, canonical user handles, lowercase ASCII domain RP IDs
@@ -426,9 +426,23 @@ including UP and UV for page-load and UV-required requests, prove delegation to 
 virtual authenticator for nonzero-counter and unconfigured requests and, under a
 ceremony policy, for unattended and UV-required requests, keep the browser's rejection
 for unknown allow-list credentials and a denied permissions policy, and cover abort and
-background timeout. The Bitwarden vault source, crypto-host signing, production
-entrypoints and real-site interoperability remain open; a navigation during signing
-relies on Chrome dropping the response to the replaced document.
+background timeout.
+
+The crypto Worker can list and sign with a stored passkey of one verified, live login
+item from the accepted snapshot. The host and vault manager expose these two operations
+with the same snapshot binding, durable-revision checks and late-result withholding as
+URL matching. Listing returns only the secret-free metadata above. Signing re-derives
+the item's single credential, requires the requested credential ID and RP ID to match
+it, refuses a nonzero stored counter, and signs only 37-byte zero-counter assertion data
+whose RP ID hash matches and whose flags carry UP, BE and BS with no attested data,
+extension or reserved bits. The decoded key is imported non-extractable inside the
+Worker and only a DER signature crosses the Port. A reply bound to another snapshot,
+item or credential, or with any other shape, locks the session; an unreadable or
+ambiguous item fails on its own without retiring the session. Unit tests sign through
+the pinned SDK with the synthetic FIDO2 fixture and verify against its public key.
+Bridge selection from the vault, production entrypoints and real-site interoperability
+remain open; a navigation during signing relies on Chrome dropping the response to the
+replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
 property with a different `length` and source text), which real-site testing must

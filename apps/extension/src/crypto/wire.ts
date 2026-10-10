@@ -10,6 +10,8 @@ export const OFFSCREEN_PATH = "/crypto-offscreen.html";
 export const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 const uuid = v.pipe(v.string(), v.uuid());
+const base64Url = (minimum: number, maximum: number) =>
+  v.pipe(v.string(), v.minLength(minimum), v.maxLength(maximum), v.regex(/^[A-Za-z0-9_-]+$/u));
 export const sessionSchema = v.strictObject({
   brokerGeneration: uuid,
   connectionId: id,
@@ -34,6 +36,16 @@ export type HostOperation =
       nowMs?: number;
     }
   | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
+  | { kind: "passkey-candidates"; session: HostSessionRef; itemId: string }
+  | {
+      kind: "passkey-sign";
+      session: HostSessionRef;
+      itemId: string;
+      credentialId: string;
+      rpId: string;
+      authenticatorData: string;
+      clientDataHash: string;
+    }
   | { kind: "lock"; session: HostSessionRef }
   | { kind: "close" };
 export const commandSchema = v.strictObject({
@@ -84,9 +96,45 @@ export const commandSchema = v.strictObject({
       session: sessionSchema,
       targetUrl: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
     }),
+    v.strictObject({ kind: v.literal("passkey-candidates"), session: sessionSchema, itemId: uuid }),
+    v.strictObject({
+      kind: v.literal("passkey-sign"),
+      session: sessionSchema,
+      itemId: uuid,
+      credentialId: base64Url(1, 1366),
+      rpId: v.pipe(v.string(), v.minLength(1), v.maxLength(253)),
+      // 37 and 32 bytes; the Worker decodes and checks them strictly.
+      authenticatorData: base64Url(50, 50),
+      clientDataHash: base64Url(43, 43),
+    }),
     v.strictObject({ kind: v.literal("lock"), session: sessionSchema }),
     v.strictObject({ kind: v.literal("close") }),
   ]),
+});
+const passkeyBinding = {
+  connectionId: id,
+  userId: uuid,
+  snapshotId: uuid,
+  itemId: uuid,
+  credentialId: base64Url(1, 1366),
+};
+/** Secret-free passkey metadata for one item; the private key never leaves the Worker. */
+export const passkeyCandidatesSchema = v.pipe(
+  v.array(
+    v.strictObject({
+      ...passkeyBinding,
+      rpId: v.pipe(v.string(), v.minLength(1), v.maxLength(253)),
+      userHandle: v.nullable(base64Url(1, 86)),
+      discoverable: v.boolean(),
+      counter: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(0xff_ff_ff_ff)),
+    }),
+  ),
+  v.maxLength(1),
+);
+/** One DER ECDSA P-256 signature (8 to 72 bytes) bound to the credential that made it. */
+export const passkeySignatureSchema = v.strictObject({
+  ...passkeyBinding,
+  signature: base64Url(11, 96),
 });
 /** Candidate signal only: item and URI indices for one snapshot, never URI strings or values. */
 export const uriCandidatesSchema = v.strictObject({

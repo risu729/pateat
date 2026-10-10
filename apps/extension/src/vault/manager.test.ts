@@ -142,6 +142,33 @@ function harness(
         ? { ok: true as const, data: { kind: "text" as const, value: "synthetic-unit-password" } }
         : { ok: false as const, error: { code: "field-denied" as const } },
     ),
+    passkeyCandidates: vi.fn<VaultCryptoHost["passkeyCandidates"]>(async (session, selectedId) => ({
+      ok: true as const,
+      data: [
+        {
+          connectionId: session.connectionId,
+          userId: session.userId,
+          snapshotId: session.snapshotId,
+          itemId: selectedId,
+          credentialId: "AQID",
+          rpId: "example.com",
+          userHandle: "BAUG",
+          discoverable: true,
+          counter: 0,
+        },
+      ],
+    })),
+    signPasskey: vi.fn<VaultCryptoHost["signPasskey"]>(async (session, input) => ({
+      ok: true as const,
+      data: {
+        connectionId: session.connectionId,
+        userId: session.userId,
+        snapshotId: session.snapshotId,
+        itemId: input.itemId,
+        credentialId: input.credentialId,
+        signature: "MEUCIQ",
+      },
+    })),
   };
   const manager = createLocalVaultManager({
     profile: accountProfile,
@@ -617,6 +644,59 @@ describe("durable authority across independent managers", () => {
       vaultFailure("stale-vault-handle"),
     );
     expect(h.host.matchUris).toHaveBeenCalledTimes(2);
+  });
+  it("lists and signs passkeys only through the current live snapshot", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    expect(await h.manager.passkeyCandidates(current.handle, itemId)).toMatchObject({
+      ok: true,
+      data: [{ snapshotId: current.handle.snapshotId, itemId, credentialId: "AQID" }],
+    });
+    const input = {
+      itemId,
+      credentialId: "AQID",
+      rpId: "example.com",
+      authenticatorData: "A".repeat(50),
+      clientDataHash: "A".repeat(43),
+    };
+    expect(await h.manager.signPasskey(current.handle, input)).toMatchObject({
+      ok: true,
+      data: { snapshotId: current.handle.snapshotId, itemId, signature: "MEUCIQ" },
+    });
+    expect(h.host.signPasskey.mock.calls[0]?.[0].snapshotId).toBe(current.handle.snapshotId);
+    expect(h.host.signPasskey.mock.calls[0]?.[1]).toEqual(input);
+    expect(
+      await h.manager.signPasskey(current.handle, undefined as unknown as typeof input),
+    ).toEqual(vaultFailure("invalid-request"));
+    expect(h.host.signPasskey).toHaveBeenCalledTimes(1);
+    const held = gate();
+    h.host.signPasskey.mockImplementationOnce(async (session, signed) => {
+      await held.promise;
+      return {
+        ok: true,
+        data: {
+          connectionId: session.connectionId,
+          userId: session.userId,
+          snapshotId: session.snapshotId,
+          itemId: signed.itemId,
+          credentialId: signed.credentialId,
+          signature: "MEUCIQ",
+        },
+      };
+    });
+    const pending = h.manager.signPasskey(current.handle, input);
+    await vi.waitFor(() => expect(h.host.signPasskey).toHaveBeenCalledTimes(2));
+    await h.manager.disableAutoUnlock();
+    held.release();
+    expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
+    expect(await h.manager.passkeyCandidates(current.handle, itemId)).toEqual(
+      vaultFailure("stale-vault-handle"),
+    );
+    expect(await h.manager.signPasskey(current.handle, input)).toEqual(
+      vaultFailure("stale-vault-handle"),
+    );
+    expect(h.host.passkeyCandidates).toHaveBeenCalledTimes(1);
+    expect(h.host.signPasskey).toHaveBeenCalledTimes(2);
   });
   it("withholds a field completed after an external writer replaces the accepted revision", async () => {
     const h = harness();
