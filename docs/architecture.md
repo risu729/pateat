@@ -208,6 +208,17 @@ Equivalent groups and the effective default mode are retained with the prepared
 account snapshot; an unavailable or conflicting context makes the affected URIs
 unavailable instead of falling back. Decrypted URI rules stay in the crypto Worker.
 
+Deliberate differences from the official Bitwarden clients, to be reconsidered later:
+
+- Regex URIs are not evaluated. The official clients test them; Pateat matches inside
+  the crypto Worker that holds the vault session, and a catastrophic pattern would
+  block that Worker. Such URIs are reported as unsupported and never match.
+- When equivalent domains or the organization default-match policy cannot be read
+  consistently, affected URIs are reported unavailable. The official clients would
+  continue with Domain matching.
+- The official clients' device-local default match setting is not visible to Pateat;
+  Domain is used unless an enforced organization policy applies.
+
 A provider match and its descriptive target origin are not a credential-release
 grant. Raw StartsWith can match a different host with the same prefix. Live
 integration must enforce site exclusions, account selection, recipe and document
