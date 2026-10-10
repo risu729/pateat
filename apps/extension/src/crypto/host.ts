@@ -17,7 +17,9 @@ import {
   progressSchema,
   replySchema,
   sessionSchema,
+  uriCandidatesSchema,
   type HostOperation,
+  type UriCandidates,
   type HostSessionRef,
   type HostUnlock,
 } from "./wire";
@@ -76,6 +78,14 @@ export type OpenedHostSession = {
   };
 };
 
+function sameOrigin(targetUrl: string, origin: string): boolean {
+  try {
+    return new URL(targetUrl).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 /** Background-internal API. Neither the options page nor content scripts get these operations. */
 export function createCryptoHost(deps: CryptoHostDependencies) {
   const random = deps.randomId ?? (() => crypto.randomUUID());
@@ -132,6 +142,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     "invalid-totp",
     "unsupported-totp",
     "invalid-uri-input",
+    "uri-context-unavailable",
   ]);
   function finish(id: string, result: BitwardenResult<unknown>) {
     const job = pending.get(id);
@@ -302,6 +313,19 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           metadata.output.connectionId !== job.connectionId ||
           metadata.output.userId !== job.operation.session.userId ||
           metadata.output.snapshotId !== job.operation.session.snapshotId
+        ) {
+          cancelOwned(parsed.output.requestId, "crypto-locked");
+          return;
+        }
+      }
+      if (job.operation.kind === "match-uris") {
+        const candidates = v.safeParse(uriCandidatesSchema, result.data);
+        if (
+          !candidates.success ||
+          candidates.output.connectionId !== job.connectionId ||
+          candidates.output.userId !== job.operation.session.userId ||
+          candidates.output.snapshotId !== job.operation.session.snapshotId ||
+          !sameOrigin(job.operation.targetUrl, candidates.output.targetOrigin)
         ) {
           cancelOwned(parsed.output.requestId, "crypto-locked");
           return;
@@ -630,6 +654,14 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<LocalFieldValue>(
         session.connectionId,
         { kind: "resolve", session, ref, ...grant },
+        signal,
+      );
+    },
+    /** Provider candidates for one target URL; no URI strings, values or grants leave the Worker. */
+    matchUris(session: HostSessionRef, targetUrl: string, signal?: AbortSignal) {
+      return request<UriCandidates>(
+        session.connectionId,
+        { kind: "match-uris", session, targetUrl },
         signal,
       );
     },

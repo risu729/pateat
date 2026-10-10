@@ -106,9 +106,17 @@ export type VaultRequest =
   | { action: FixedAction }
   | {
       action: "accept";
-      kind: "v1" | "v2" | "organization" | "corrupt-last" | "unavailable";
+      kind:
+        | "v1"
+        | "v2"
+        | "organization"
+        | "corrupt-last"
+        | "unavailable"
+        | "uri"
+        | "uri-without-context";
       autoUnlock?: "enable" | "preserve";
     }
+  | { action: "match"; url: string }
   | { action: "arm"; checkpoint: "before-write" | "after-write" };
 export type VaultResult<T> = { ok: true; data: T } | { ok: false; error: { code: string } };
 export function invokeVault<T>(page: Page, request: VaultRequest): Promise<VaultResult<T>> {
