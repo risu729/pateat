@@ -121,9 +121,12 @@ while any connection or item is unevaluated.
 
 For example, two items each store a credential with `rpId` `github.com`, and
 `https://github.com/login` requests `rpId` `github.com` without an allow list. With
-`siteDefaults: [{ origin: "https://github.com", connectionId, itemId }]` naming one
-of them, Pateat signs with that item; without it, the browser handles the request.
-An allow list usually narrows the matches to one before this step.
+`siteDefaults: [{ origin: "https://github.com", provider: "bitwarden", userId, itemId }]`
+naming one of them, Pateat signs with that item; without it, the browser handles the
+request. An allow list usually narrows the matches to one before this step. As for
+logins, a default resolves to the one local connection of that provider account, and a
+legacy default saved with a `connectionId` still names that connection. An account that
+is connected twice, or not connected here, gives no default.
 
 ### Credential eligibility and assertion
 

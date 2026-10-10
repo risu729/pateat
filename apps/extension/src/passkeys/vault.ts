@@ -1,6 +1,7 @@
 import {
   getItemEligibility,
   isSiteExcluded,
+  siteDefaultConnection,
   type SettingsResponse,
   type VaultCatalog,
   type LocalSettings,
@@ -62,7 +63,13 @@ export async function findVaultPasskeys(input: {
   const { settings, revision } = input.saved.snapshot;
   const { catalog } = input.saved;
   if (isSiteExcluded(settings, input.origin)) return undefined;
-  const preferred = settings.siteDefaults.find((entry) => entry.origin === input.origin);
+  const siteDefault = settings.siteDefaults.find((entry) => entry.origin === input.origin);
+  // A default naming a provider account resolves to its one local connection, as for logins.
+  const preferredConnection = siteDefault ? siteDefaultConnection(siteDefault, catalog) : undefined;
+  const preferred =
+    siteDefault && preferredConnection?.ok
+      ? { connectionId: preferredConnection.connectionId, itemId: siteDefault.itemId }
+      : undefined;
   const candidates: VaultPasskeyCandidate[] = [];
   let complete = true;
   for (const connection of catalog.connections) {

@@ -7,6 +7,7 @@ import { createVaultPasskeySource, findVaultPasskeys, type PasskeyFinder } from 
 
 const snapshotId = "11111111-1111-4111-8111-111111111111";
 const userId = "33333333-3333-4333-8333-333333333333";
+const otherUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const first = "44444444-4444-4444-8444-444444444444";
 const second = "55555555-5555-4555-8555-555555555555";
 const quarantined = "66666666-6666-4666-8666-666666666666";
@@ -38,6 +39,10 @@ function saved(
     /** A second enabled connection holding the same item ID as `first`. */
     other?: VaultCatalog["connections"][number]["state"];
     defaultConnection?: string;
+    /** Saves the default by provider account (the current form) instead of connection ID. */
+    defaultAccount?: string;
+    /** Connects the other connection to the same Bitwarden account as `live`. */
+    sameAccount?: boolean;
   } = {},
 ): Extract<SettingsResponse, { ok: true }> {
   const catalog: VaultCatalog = {
@@ -64,7 +69,7 @@ function saved(
         id: "other",
         label: "Other",
         provider: "bitwarden",
-        userId,
+        userId: options.sameAccount ? userId : otherUserId,
         snapshotId: otherSnapshotId,
         state: options.other ?? "ready",
         quarantinedItemIds: [],
@@ -83,11 +88,20 @@ function saved(
   });
   settings.connections[1]!.enabled = options.other !== undefined;
   if (options.siteDefault)
-    settings.siteDefaults.push({
-      origin,
-      connectionId: options.defaultConnection ?? "live",
-      itemId: options.siteDefault,
-    });
+    settings.siteDefaults.push(
+      options.defaultAccount
+        ? {
+            origin,
+            provider: "bitwarden",
+            userId: options.defaultAccount,
+            itemId: options.siteDefault,
+          }
+        : {
+            origin,
+            connectionId: options.defaultConnection ?? "live",
+            itemId: options.siteDefault,
+          },
+    );
   if (options.excludedSite)
     settings.excludedSites.push({ hostname: options.excludedSite, includeSubdomains: false });
   return {
@@ -98,9 +112,10 @@ function saved(
   };
 }
 
+const accountOf = (connectionId: string) => (connectionId === "live" ? userId : otherUserId);
 const stored = (itemId: string, connectionId = "live") => ({
   connectionId,
-  userId,
+  userId: accountOf(connectionId),
   snapshotId: connectionId === "live" ? snapshotId : otherSnapshotId,
   itemId,
   credentialId: `cred-${itemId.slice(0, 4)}`,
@@ -115,7 +130,7 @@ const matches = (
   connectionId = "live",
 ): PasskeyMatches => ({
   connectionId,
-  userId,
+  userId: accountOf(connectionId),
   snapshotId: connectionId === "live" ? snapshotId : otherSnapshotId,
   rpId,
   candidates: ids.map((id) => stored(id, connectionId)),
@@ -270,6 +285,58 @@ describe("vault passkey candidates", () => {
     expect(selectPasskey(request, preferredWhileIncomplete!)).toMatchObject({
       credential: { connectionId: "live", itemId: first },
     });
+  });
+
+  it("resolves a default saved by provider account to that account's connection", async () => {
+    const find = perConnection({
+      live: { ok: true, data: matches([first]) },
+      other: { ok: true, data: matches([first], [], "other") },
+    });
+    for (const [account, connectionId] of [
+      [userId, "live"],
+      [otherUserId, "other"],
+    ] as const) {
+      // eslint-disable-next-line no-await-in-loop
+      const found = await findVaultPasskeys({
+        saved: saved({ other: "ready", siteDefault: first, defaultAccount: account }),
+        origin,
+        rpId,
+        find,
+      });
+      expect(selectPasskey(request, found!)).toMatchObject({
+        credential: { connectionId, itemId: first, preferred: true },
+      });
+    }
+    // An account connected twice, or not connected here, names no connection.
+    for (const options of [
+      { sameAccount: true, defaultAccount: userId },
+      { defaultAccount: crypto.randomUUID() },
+    ]) {
+      const account = options.sameAccount ? userId : otherUserId;
+      const other = matches([first], [], "other");
+      // eslint-disable-next-line no-await-in-loop
+      const found = await findVaultPasskeys({
+        saved: saved({ other: "ready", siteDefault: first, ...options }),
+        origin,
+        rpId,
+        find: perConnection({
+          live: { ok: true, data: matches([first]) },
+          other: {
+            ok: true,
+            data: {
+              ...other,
+              userId: account,
+              candidates: other.candidates.map((entry) => ({ ...entry, userId: account })),
+            },
+          },
+        }),
+      });
+      expect(found?.candidates.some((entry) => entry.preferred)).toBe(false);
+      expect(selectPasskey(request, found!)).toEqual({
+        kind: "delegate",
+        reason: "ambiguous-credential",
+      });
+    }
   });
 
   it("never prefers a default that names an excluded or quarantined item", async () => {
