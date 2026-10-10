@@ -236,7 +236,8 @@ inactive tab with identity checked across navigation.
 [CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
 two Windows browser cases remain blocked before Chromium launch by a missing SideBySide
 assembly; Linux success does not resolve that host issue. These isolated synthetic tests
-do not establish actual installed Chrome use coexistence, which remains untested.
+do not establish actual installed Chrome use coexistence, which had not yet been tested
+at that head. The later early acceptance result is recorded below.
 Complete M1 and deployed service acceptance remain separate gates in
 [the plan](../plan.md).
 

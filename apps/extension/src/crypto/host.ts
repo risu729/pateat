@@ -378,6 +378,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     port.postMessage({ version: 1, type: "crypto.reset", generation });
   }
   const onConnect = (port: CryptoHostPort) => {
+    if (port.name !== CRYPTO_PORT) return;
     void connect(port);
   };
   deps.onConnect.addListener(onConnect);
