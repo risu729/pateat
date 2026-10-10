@@ -1,6 +1,6 @@
 # ADR 0004: Compose maintained libraries around explicit domain boundaries
 
-Status: proposed amendment to ADR 0002 and the inference tooling in ADR 0003.
+Status: proposal awaiting the owner's library-by-library choices; not accepted.
 Date: 2026-10-10
 
 ## Context
@@ -12,18 +12,21 @@ delivery is not a reason to minimize dependencies. Settings forms, asynchronous
 state, cancellable login attempts and private revisioned sync already have
 concrete needs for established infrastructure.
 
-## Decision
+## Proposal and decision gate
 
-Replace the dependency-minimization guidance with the target stack and integration
-rules in [development](../development.md). Introduce the selected libraries in
-their owning milestones, including the React settings migration before extending
-that UI further. Installation and exact compatibility pins belong to those PRs.
+The owner rejected minimizing dependencies merely because development is early.
+Evaluate candidates by maintainability and the complexity they handle. The
+recommendations and integration conditions in [development](../development.md)
+await the owner's decisions. Research or a request to update the plan is not
+approval to adopt a candidate. Keep this proposal unaccepted until those choices
+are recorded; implementation PRs may introduce only approved choices.
 
-Use React/Tailwind/Base UI, selected shadcn/ui components, TanStack Form/Query,
+Recommend React/Tailwind/Base UI, selected shadcn/ui components, TanStack Form/Query,
 XState, WXT storage/messaging, tldts, OTPAuth, Hono/Drizzle and compatible AI SDK
 adapters for their specified responsibilities. Keep Valibot application contracts
 and the existing Vitest/Playwright test layers, supplemented with browser component,
-accessibility and property-based tests. Native APIs remain appropriate primitives;
+accessibility and property-based test candidates. All new choices remain pending.
+Native APIs remain appropriate primitives;
 they are not a reason to recreate useful higher-level infrastructure.
 
 Independent feature implementation means owning permission policy, vault protocol
@@ -33,28 +36,29 @@ Choose additional crypto/encoding dependencies after identifying protocol gaps.
 Libraries must not broaden permissions, expose secrets or automatically replay
 side effects after retries or restoration.
 
-AI SDK handles compatible generation transport and structured output. Specialized
-finite-choice APIs keep direct adapters if SDK abstractions lose their semantics.
-Provider evaluation, including Clef, stays in [ADR 0003](0003-service-and-ai.md).
-No agent loop, automatic fallback or additional hosted infrastructure is implied.
+If chosen, AI SDK handles compatible generation transport and structured output.
+Specialized finite-choice APIs keep direct adapters if SDK abstractions lose their
+semantics. Provider evaluation stays in [ADR 0003](0003-service-and-ai.md) and a
+separate PR. No agent loop, automatic fallback or additional hosted infrastructure is
+implied.
 
 ## Alternatives and consequences
 
 Continuing native-only form/async/lifecycle code avoids migration but leaves us
 maintaining known infrastructure. React Hook Form is a credible Valibot-compatible
-alternative; choose TanStack Form for native Standard Schema support and typed
-composition instead of using both. Base UI plus selected shadcn/ui source fits
-Tailwind and accessible settings controls, but copied components require our own
-maintenance. Redux/Zustand or another overlapping form/query layer is not needed
-without a distinct state ownership problem.
+alternative; TanStack Form offers native Standard Schema support and typed composition.
+Ask the owner to choose rather than using both. Base UI plus selected shadcn/ui source
+fits Tailwind and accessible settings controls, but copied components require our own
+maintenance. Redux/Zustand or another overlapping form/query layer is not needed without
+a distinct state ownership problem.
 
-This adds dependency upgrades and bundle costs. Review maintenance, licenses and
-runtime compatibility, pin the tested combination and let Renovate propose
-updates. Beta/RC versions are eligible, not mandatory. Library popularity or
-successful compilation does not establish security or extension compatibility.
-Existing revision, trusted-storage and draft-retention behavior must survive
-migration. Recovery tests must demonstrate that restored attempts observe before
-resubmitting. This documentation does not claim any new library is installed.
+Adoption would add dependency upgrades and bundle costs. Review maintenance, licenses
+and runtime compatibility, pin the tested combination and let Renovate propose updates.
+Beta/RC versions are eligible, not mandatory. Library popularity or successful
+compilation does not establish security or extension compatibility. Existing revision,
+trusted-storage and draft-retention behavior must survive migration. Recovery tests must
+demonstrate that restored attempts observe before resubmitting. This documentation does
+not claim any new library is installed.
 
 ## Primary sources reviewed
 

@@ -238,13 +238,11 @@ decisions, not arbitrary recipe generation. Its
 [documented failure modes](https://docs.typesafe.ai/model-jaggedness/jev-1.13)
 include adversarial inputs and option/context sensitivity. Jev performance for these
 forms is unmeasured.
-[Cloudflare Clef](https://developers.cloudflare.com/workers-ai/models/clef/) is
-another decision-model option. The update below expands its evaluation priority
-without selecting a provider or enabling fallback.
+[Cloudflare Clef](https://developers.cloudflare.com/ai/models/%40cf/cloudflare/clef/) is
+another decision-model option, not a reason to add a second provider now.
 
-First prepare sanitized synthetic Japanese/English fixtures without paid calls;
-actual provider benchmarks require authorized API access and recorded cost.
-Claim support and latency only after the relevant benchmark
+First evaluate sanitized synthetic Japanese/English forms with no paid account
+requests required. Claim support and latency only after the relevant benchmark
 and integrated acceptance gates pass.
 
 Ordinary [Claude Messages](https://platform.claude.com/docs/en/api/messages/create),
@@ -257,45 +255,6 @@ Keep estimates distinct from billed charges. The selected monthly spending
 threshold stops subsequent inference after usage accounting; concurrent or
 in-flight calls can overshoot it. It is not a hard billing ceiling and must not
 disable cached local recipes. No billing reconciliation was tested.
-
-### Clef update reviewed 2026-10-10
-
-The
-[October 9 announcement](https://blog.cloudflare.com/clef-faster-cheaper-multimodal/)
-reports faster Clef serving, a lower Clef-flash price with reduced hosted context, and
-Clef-omni audio/video support. Cloudflare reports roughly 152 ms median and 351 ms p95
-for Clef on roughly 800-token requests. These are vendor measurements, not measured
-Pateat latency, login accuracy or evidence that media is needed. Cloudflare describes
-Jev API compatibility; Pateat still needs schema, usage and error normalization tests.
-Self-hosting open weights is outside initial scope.
-
-Current hosted model documentation lists the following input rates and context
-limits; verify them again when implementing pricing and model settings. These
-are list rates, not an account invoice or a fixed budget guarantee.
-
-| Model | USD per million input tokens | Context tokens | Planned use |
-| --- | --- | --- | --- |
-| [Clef-flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) | 0.038 | 24,576 | Text/structured finite-choice evaluation |
-| [Clef](https://developers.cloudflare.com/workers-ai/models/clef/) | 0.24 | 65,536 | Text/structured finite-choice evaluation |
-| [Clef-omni](https://developers.cloudflare.com/workers-ai/models/clef-omni/) | 0.15 | 64,000 | Deferred multimodal evaluation |
-
-The documented models have no output-token charge. Their finite-choice API uses
-supplied state, questions and options; it does not generate arbitrary recipes.
-Worker binding and REST transports are available. The flash documentation warns
-that oversized text state may be truncated; cap complete requests, including
-questions/options, and abstain on incomplete observations. Omni media also uses
-context, so text-only limits must not be reused blindly if media is added later.
-
-The
-[input schema](https://developers.cloudflare.com/workers-ai/models/clef-flash/schema-input.json)
-and
-[output schema](https://developers.cloudflare.com/workers-ai/models/clef-flash/schema-output.json)
-describe choice/probability results and input-token usage. Highest-scoring choice is not
-native safe abstention: provide an unknown/none option, validate identifiers and
-probability shape, and enforce local semantic checks. Missing usage remains unknown
-rather than zero cost. No inference call or task-specific benchmark was performed for
-this review. The resulting plan evaluates Clef-flash/Clef alongside Jev and keeps
-generation/repair, media collection and submission authority separate.
 
 ## Optional service authentication and MCP
 

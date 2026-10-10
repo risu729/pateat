@@ -96,11 +96,14 @@ and the maintenance work displaced. Popularity is supporting evidence, not a
 quality guarantee. Prereleases are allowed when their required APIs and upgrade
 costs are understood and the compatibility checks pass.
 
-The following is the target stack, introduced with its owning feature. This docs
-amendment installs nothing; the current manifests and lockfile describe what is
-actually installed. WXT + TypeScript + Valibot remain fixed choices.
+The following are recommendations awaiting the owner's choices, not an adopted
+stack or permission to install packages. Compare alternatives and obtain the
+owner's decision for each major addition/replacement before updating the accepted
+plan or implementation. The current manifests and lockfile describe what is
+installed. WXT + TypeScript + Valibot remain confirmed choices; existing Vitest,
+Playwright and build tools remain in use.
 
-| Area | Planned choice | First owning slice |
+| Area | Candidate recommendation, pending owner decision | Possible owning slice |
 | --- | --- | --- |
 | Extension UI | React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with selected shadcn/ui components | M2 settings UI migration |
 | Form state | TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
@@ -117,15 +120,15 @@ actually installed. WXT + TypeScript + Valibot remain fixed choices.
 | Static checks | Existing Oxlint/Oxfmt and TypeScript; React/JSX accessibility rules and Knip | M2 React migration |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
-### Responsibility and integration rules
+### Conditions if candidates are approved
 
 React belongs in manually opened extension pages. Keep content scripts and the
 MV3 worker independent of UI rendering, and do not introduce automatic page UI.
 Base UI provides accessible primitives; shadcn/ui source becomes code we own and
 must review for updates. Compile Tailwind locally. Keyboard/focus tests remain
-necessary. TanStack Form is the selected form library for typed composition and
-native Standard Schema support; React Hook Form with its Valibot resolver is a
-maintained alternative, not a second form layer to install alongside it.
+necessary. TanStack Form is recommended for typed composition and native Standard
+Schema support; React Hook Form with its Valibot resolver is a maintained
+alternative. The owner has not selected either; compare them before adoption.
 
 Form drafts, Query caches and authoritative settings have different lifetimes.
 Keep dirty drafts separate from query refreshes, preserve revision conflicts,
@@ -155,7 +158,7 @@ supports it. Evaluate `@scure/base`, `@noble/hashes` and `cbor-x` for actual pro
 gaps. Do not write crypto/CBOR primitives ourselves, assume all primitives in a
 package are audited, or substitute a different KDF for Bitwarden Argon2id.
 
-Hono and Drizzle should be adopted with the first substantive service routes and
+If approved, Hono and Drizzle fit the first substantive service routes and
 schema. Verify generated SQL/migrations, explicit owner predicates, conditional
 revision writes and D1 batch behavior; an ORM does not supply authorization or
 cross-request atomicity. Use Valibot at application boundaries, including the
@@ -178,9 +181,9 @@ before treating reported unused files as removable.
 We continue to implement domain behavior independently, without copying feature
 code from Fenko, auto-filler, Superfill, Boltwarden or bronzewarden. Extra global
 state stores, routing systems or agent frameworks need a distinct responsibility
-instead of duplicating the selected tools. Exact pins are established in each
+instead of duplicating tools the owner selects. Exact pins are established in each
 implementation PR, with peer, MV3 CSP and bundled-output checks. See
-[ADR 0004](adr/0004-library-composition.md) for this amendment and its sources.
+[ADR 0004](adr/0004-library-composition.md) for the proposal and its sources.
 
 The Worker uses the pinned beta Cloudflare Vite plugin required by cf's typed
 configuration and Build Output workflow. Its manifest declares that plugin
