@@ -1,10 +1,10 @@
 # Implementation plan
 
 Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1). M1-M3 are in
-progress; M5 has a proposed design and M4 and M6 are unstarted. The current foundation
-is not a working autologin product or a completed M1 acceptance claim. This plan becomes
-the single work tracker until an issue is needed for a concrete slice. Issues and PRs
-link to these gates rather than maintaining a second roadmap.
+progress; M5 has a proposed design and its first slice; M4 and M6 are unstarted. The
+current foundation is not a working autologin product or a completed M1 acceptance
+claim. This plan becomes the single work tracker until an issue is needed for a concrete
+slice. Issues and PRs link to these gates rather than maintaining a second roadmap.
 
 ## Foundation progress
 
@@ -349,6 +349,19 @@ Primary sources:
 [refresh response model](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/auth/models/response/refresh-token.response.ts)
 and
 [refreshed membership claims](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/test/Identity.IntegrationTest/Grants/RefreshTokenGrantTests.cs#L69-L106).
+
+## Passkey progress
+
+[ADR 0007](adr/0007-existing-passkey-assertions.md) proposes the M5 bridge and
+presence policy. The Bitwarden package maps one decrypted FIDO2 credential view
+per item into secret-free metadata: ECDSA P-256 public-key credentials, GUID or
+`b64.` credential IDs, canonical user handles, lowercase ASCII domain RP IDs
+(no IP literals) and decimal counters. Items with several credentials are rejected
+instead of choosing one; a nonzero counter is preserved so selection can refuse it.
+The SDK-decrypted private key is decoded with a DER framing check only; WebCrypto
+import validates its structure. Unit tests cover malformed and unsupported views and
+an SDK round trip through the synthetic legacy account fixture. Selection, signing
+and the page bridge are not connected.
 
 ## Initial delivery and later scope
 
