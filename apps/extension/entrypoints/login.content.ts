@@ -3,7 +3,7 @@ import { installLoginContent } from "../src/login/content";
 
 /**
  * Runs in the isolated world of every top-level HTTPS page. It only announces the
- * document; the background admits saved-default origins before any observation.
+ * document; the background needs a cached recipe for the origin before any observation.
  */
 export default defineContentScript({
   matches: ["https://*/*"],

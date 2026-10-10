@@ -327,9 +327,12 @@ subdomain option and stop Pateat analysis, inference, filling, submission and
 passkey handling while preserving ordinary browser authentication. Apply them
 before collecting observations; policy changes cancel stale work.
 
-The initial account choice is a saved site default applied on the next login.
-Changing it does not log out the current session. Missing or ambiguous selection
-requires configuration rather than trying accounts in turn. One-time overrides
+The account choice is a saved site default applied on the next login. Without one,
+a single eligible provider URI match is used and saved only after the login is
+`authenticated`; a saved choice keeps winning when more items match later
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not
+log out the current session. No match or several matches require configuration
+rather than trying accounts in turn. One-time overrides
 and automatic logout/relogin are later operations. Cookies may be shared across
 tabs even during initial login. The first executor conservatively locks an origin
 to one owner tab until closure; wider shared-session domains need explicit
@@ -346,8 +349,9 @@ vocabulary contains login operations only.
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution
-trigger. A static content script runs on every top-level HTTPS page, but the background
-admits only exact saved-default origins
+trigger. A static content script runs on every top-level HTTPS page; the background
+admits non-excluded sites with host access and needs a cached recipe for the exact
+origin before any policy or vault access
 ([ADR 0009](adr/0009-install-time-https-site-access.md)). Inactive, frozen, discarded,
 and navigated documents are different states; only live documents can execute.
 

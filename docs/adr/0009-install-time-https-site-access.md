@@ -3,7 +3,7 @@
 Status: accepted by the owner on 2026-10-10 and implemented in the production document
 admission PR. No real-site or installed-profile acceptance has been run yet.
 Amended by [ADR 0013](0013-service-held-recipes-and-settings.md): recipes come from
-the synced service cache.
+the synced service cache, and admission no longer requires a saved site default.
 
 Date: 2026-10-10
 
@@ -15,14 +15,14 @@ isolated-world content script on every top-level HTTPS document. Do not add the
 synthetic loopback probe build.
 
 The content script only announces its document. The background admits a document only
-when its exact origin (scheme, host and port) has a saved site default, the site is not
-excluded, and Chrome still reports host access for that origin. Every other document
-gets only this local admission check: no attempt, observation, policy catalog or vault
-access. An admitted document still needs a cached recipe for that origin
-([ADR 0013](0013-service-held-recipes-and-settings.md)), looked up before the policy
-catalog is opened, and a valid account binding; every policy check of the declarative
-executor applies unchanged. Until the recipe cache exists,
-admitted documents stop with `recipe-not-found` without opening the catalog or vault.
+when the site is not excluded and Chrome still reports host access for its origin. A
+saved site default is not required: since ADR 0013 an account can also be chosen by a
+single provider URI match. An admitted document still needs a cached recipe for its
+exact origin (scheme, host and port), looked up before the policy catalog is opened;
+without one it gets no attempt, observation, policy catalog or vault access. Every
+policy check of the declarative executor applies unchanged. Until the recipe cache
+exists, admitted documents stop with `recipe-not-found` without opening the catalog or
+vault.
 
 Probe-only behavior stays confined to the probe build: the loopback origin grant, the
 probe recipe and binding, probe control messages and attempt status echoed to the page.

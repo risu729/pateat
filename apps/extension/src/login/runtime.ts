@@ -1,12 +1,16 @@
 import * as v from "valibot";
 import {
   createAttemptMetadata,
+  defaultLoginBinding,
+  findLoginBinding,
   nextLoginOperation,
   loginStepEffect,
   parseAttemptMetadata,
   recoverLoginAttempt,
+  resolveBindingFields,
   resolveLoginPlan,
   sameLoginDocument,
+  saveLoginChoice,
   transitionLoginAttempt,
   validateLoginOperation,
   type LoginAttemptEvent,
@@ -16,7 +20,9 @@ import {
   type LoginOperation,
   type LoginRecipe,
   type LoginTarget,
+  type SavedLoginBinding,
   type SettingsResponse,
+  type SettingsSnapshot,
   type VaultCatalog,
   type VaultConnectionMetadata,
 } from "@pateat/contracts";
@@ -46,7 +52,19 @@ import { loginSecretKind, type LoginFieldSource, type LoginSecretKind } from "./
 const STORAGE_KEY = "pateat.login-attempts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 type Sender = Browser.runtime.MessageSender;
-type SettingsRuntime = { handle(value: unknown): Promise<SettingsResponse> };
+type SettingsRuntime = {
+  handle(value: unknown): Promise<SettingsResponse>;
+  /** Trusted background mutation; saves an automatic account choice after `authenticated`. */
+  update?(
+    expectedRevision: number | undefined,
+    mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+  ): Promise<SettingsSnapshot>;
+};
+/** An account choice used by an attempt but not saved yet (ADR 0013). */
+type UnsavedChoice = { binding: SavedLoginBinding; connectionId: string };
+/** Settings with the choice added where missing; the same object when nothing changes. */
+const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
+  saveLoginChoice(value, choice.binding, choice.connectionId);
 type LiveDocument = {
   document: LoginDocument;
   token: string;
@@ -57,6 +75,8 @@ type LiveDocument = {
   reason?: string;
   /** A provider URI match for this document only, valid while its snapshot is unchanged. */
   uriMatch?: { connectionId: string; itemId: string; snapshotId: string };
+  /** A single-match account choice, valid while every connection's snapshot is unchanged. */
+  autoChoice?: { snapshots: string; connectionId: string; itemId: string };
 };
 type Execution = {
   metadata: LoginAttemptMetadata;
@@ -64,6 +84,8 @@ type Execution = {
   live: LiveDocument;
   running: boolean;
   operation?: LoginOperation;
+  /** Saved only once this attempt reaches `authenticated`. */
+  choice?: UnsavedChoice;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -81,16 +103,15 @@ function withItemOrigin(
 const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);
 
-/** Saved local recipes and their explicit account bindings. Neither carries values. */
+/**
+ * Cached recipes. Account bindings come from synced settings (`settings.bindings`,
+ * ADR 0013); neither carries values.
+ */
 export interface LoginRecipes {
   /** The recipe for a document, or an attempt's own recipe by ID after navigation. */
   recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
-  binding(recipe: LoginRecipe): Promise<LoginAccountBinding | undefined>;
 }
-export const noLoginRecipes: LoginRecipes = {
-  recipe: async () => undefined,
-  binding: async () => undefined,
-};
+export const noLoginRecipes: LoginRecipes = { recipe: async () => undefined };
 const probeMode = import.meta.env.MODE === "probe";
 
 /**
@@ -236,6 +257,40 @@ export function createLoginRuntime(
     }
     await save(run);
     await publish(run.live, run.metadata);
+    if (run.metadata.state === "authenticated" && run.choice) await remember(run);
+  }
+  /**
+   * Saves an automatic account choice after `authenticated` (ADR 0013). The settings must
+   * still be the revision the attempt was authorized under; otherwise nothing is saved and
+   * the next login chooses again.
+   */
+  async function remember(run: Execution): Promise<void> {
+    const choice = run.choice;
+    delete run.choice;
+    const { account: used } = run.metadata;
+    if (
+      !choice ||
+      !settings.update ||
+      // Only the account this attempt authenticated with may be saved.
+      choice.connectionId !== used.connectionId ||
+      choice.binding.itemId !== used.itemId ||
+      choice.binding.origin !== used.origin ||
+      // Saving bumps the revision every attempt checks; never stop another login with it.
+      [...attempts.values()].some(
+        (other) => other !== run && current(other) && !terminal(other.metadata),
+      )
+    )
+      return;
+    // Writing bumps the policy revision for every attempt, so skip a choice already saved.
+    const latest = await settings.handle({ version: 1, type: "settings.get" });
+    if (!latest.ok || withChoice(latest.snapshot.settings, choice) === latest.snapshot.settings)
+      return;
+    await settings
+      .update(run.metadata.policyRevision, (snapshot) => ({
+        ...snapshot,
+        settings: withChoice(snapshot.settings, choice),
+      }))
+      .catch(() => undefined);
   }
   async function send(live: LiveDocument, message: Record<string, unknown>): Promise<unknown> {
     return browser.tabs.sendMessage(
@@ -253,24 +308,67 @@ export function createLoginRuntime(
       ...(metadata?.outcome || live.reason ? { outcome: metadata?.outcome ?? live.reason } : {}),
     }).catch(() => undefined);
   }
+  type Choice = { connectionId: string; itemId: string; saved: boolean };
+  type Refusal = { reason: string };
   /**
-   * Origin scope for the saved default of this document. A live provider URI match for the
-   * document's own URL satisfies the item origin check for that document only; it is never
-   * saved as `allowedOrigins` and never selects an account. Only the saved default's
-   * connection is asked, and a match is reused while that connection's snapshot is unchanged.
+   * The account for this document. A saved site default wins. Without one, a single
+   * eligible provider URI match across all enabled connections is used for this attempt
+   * only (ADR 0013); none, several, or any connection or item that could not be evaluated
+   * refuses rather than guessing.
+   */
+  async function choose(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+  ): Promise<Choice | Refusal> {
+    const saved = snapshot.snapshot.settings.siteDefaults.find(
+      (entry) => entry.origin === live.document.origin,
+    );
+    if (saved) return { connectionId: saved.connectionId, itemId: saved.itemId, saved: true };
+    if (!uris) return { reason: "default-not-set" };
+    // Any sync replaces a snapshot ID, so a new match from a later sync is still noticed.
+    const snapshots = JSON.stringify(
+      snapshot.catalog.connections.map((entry) => [entry.id, entry.snapshotId, entry.state]),
+    );
+    const cached = live.autoChoice;
+    if (cached?.snapshots === snapshots)
+      return { connectionId: cached.connectionId, itemId: cached.itemId, saved: false };
+    delete live.autoChoice;
+    const scope = await findLiveSiteCandidates({
+      settings: snapshot.snapshot.settings,
+      catalog: snapshot.catalog,
+      url: live.url,
+      match: uris,
+    });
+    if (!scope.ok) return { reason: scope.reason };
+    if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
+    if (scope.incompleteItems.length > 0) return { reason: "item-uri-unevaluated" };
+    if (scope.candidates.length > 1) return { reason: "account-ambiguous" };
+    const [only] = scope.candidates;
+    if (!only) return { reason: "default-not-set" };
+    // The same answer covers the item origin check below; no second query is needed.
+    live.uriMatch = {
+      connectionId: only.connectionId,
+      itemId: only.itemId,
+      snapshotId: only.snapshotId,
+    };
+    live.autoChoice = { snapshots, connectionId: only.connectionId, itemId: only.itemId };
+    return { connectionId: only.connectionId, itemId: only.itemId, saved: false };
+  }
+  /**
+   * Origin scope for the chosen account of this document. A live provider URI match for
+   * the document's own URL satisfies the item origin check for that document only; it is
+   * never saved as `allowedOrigins`. Only the chosen account's connection is asked, and a
+   * match is reused while that connection's snapshot is unchanged.
    */
   async function liveScope(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
+    selected: { connectionId: string; itemId: string },
   ): Promise<{ catalog: VaultCatalog } | { reason: "vault-unavailable" | "item-uri-unevaluated" }> {
     const { catalog } = snapshot;
-    const selected = snapshot.snapshot.settings.siteDefaults.find(
-      (entry) => entry.origin === live.document.origin,
-    );
-    const connection = catalog.connections.find((entry) => entry.id === selected?.connectionId);
-    const item = connection?.items.find((entry) => entry.id === selected?.itemId);
-    if (!uris || !selected || !connection?.snapshotId || connection.provider !== "bitwarden")
-      return { catalog };
+    const connection = catalog.connections.find((entry) => entry.id === selected.connectionId);
+    const item = connection?.items.find((entry) => entry.id === selected.itemId);
+    if (!uris || !connection?.snapshotId || connection.provider !== "bitwarden") return { catalog };
     if (!item || item.allowedOrigins.includes(live.document.origin)) return { catalog };
     // An item awaiting field review is unavailable; do not report it as a URI mismatch.
     if (connection.quarantinedItemIds?.includes(item.id)) return { reason: "vault-unavailable" };
@@ -307,20 +405,85 @@ export function createLoginRuntime(
     }
     return { catalog: withItemOrigin(catalog, selected, live.document.origin) };
   }
-  /** One saved account must resolve from a usable connection, and its item must not await review. */
+  /**
+   * The synced binding of the chosen item, or the automatic one for built-in slots, mapped
+   * to this device's field IDs by the catalog's raw field names.
+   */
+  function bindingFor(
+    catalog: VaultCatalog,
+    settingsValue: SettingsSnapshot["settings"],
+    recipe: LoginRecipe,
+    choice: Choice,
+    documentOrigin: string,
+  ):
+    | { ok: true; binding: LoginAccountBinding; synced: SavedLoginBinding; saved: boolean }
+    | { ok: false; reason: string } {
+    const connection = catalog.connections.find((entry) => entry.id === choice.connectionId);
+    const item = connection?.items.find((entry) => entry.id === choice.itemId);
+    if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
+    const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
+    const saved = findLoginBinding(settingsValue.bindings ?? [], recipe, owner);
+    const binding = saved ?? defaultLoginBinding(recipe, { ...owner, itemName: item.label });
+    if (!binding) return { ok: false, reason: "binding-not-found" };
+    const resolved = resolveBindingFields(
+      binding,
+      recipe,
+      item.fields.map((field) => ({ id: field.id, name: field.name })),
+    );
+    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    return {
+      ok: true,
+      binding: {
+        origin: documentOrigin,
+        connectionId: connection.id,
+        itemId: item.id,
+        slots: resolved.slots,
+      },
+      synced: binding,
+      saved: saved !== undefined,
+    };
+  }
+  /** One account must resolve from a usable connection, and its item must not await review. */
   async function planFor(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     recipe: LoginRecipe,
   ) {
-    const probe = probeMode && recipe.origin === origin;
-    const scope = probe
-      ? { catalog: grantProbeOrigin(snapshot.catalog, origin, account) }
-      : await liveScope(snapshot, live);
-    if ("reason" in scope) return { ok: false as const, reason: scope.reason };
-    const { catalog } = scope;
-    const binding = probe ? probeBinding(recipe, account) : await recipes.binding(recipe);
-    const plan = resolveLoginPlan(snapshot.snapshot, catalog, live.url, recipe, binding);
+    let catalog: VaultCatalog;
+    let policy = snapshot.snapshot;
+    let binding: LoginAccountBinding | undefined;
+    let choice: UnsavedChoice | undefined;
+    if (probeMode && recipe.origin === origin) {
+      catalog = grantProbeOrigin(snapshot.catalog, origin, account);
+      binding = probeBinding(recipe, account);
+    } else {
+      const chosen = await choose(snapshot, live);
+      if ("reason" in chosen) return { ok: false as const, reason: chosen.reason };
+      const scope = await liveScope(snapshot, live, chosen);
+      if ("reason" in scope) return { ok: false as const, reason: scope.reason };
+      catalog = scope.catalog;
+      if (!chosen.saved) {
+        // The automatic choice acts as this document's default in memory only.
+        policy = structuredClone(policy);
+        policy.settings.siteDefaults.push({
+          origin: live.document.origin,
+          connectionId: chosen.connectionId,
+          itemId: chosen.itemId,
+        });
+      }
+      const bound = bindingFor(
+        catalog,
+        snapshot.snapshot.settings,
+        recipe,
+        chosen,
+        live.document.origin,
+      );
+      if (!bound.ok) return { ok: false as const, reason: bound.reason };
+      binding = bound.binding;
+      if (!chosen.saved || !bound.saved)
+        choice = { binding: bound.synced, connectionId: chosen.connectionId };
+    }
+    const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding);
     if (!plan.ok) return plan;
     const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
     if (
@@ -332,7 +495,7 @@ export function createLoginRuntime(
       connection.quarantinedItemIds?.includes(plan.account.itemId)
     )
       return { ok: false as const, reason: "vault-unavailable" as const };
-    return { ...plan, connection };
+    return { ...plan, connection, ...(choice ? { choice } : {}) };
   }
   type Authorized = { connection: VaultConnectionMetadata; binding: LoginAccountBinding };
   /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
@@ -662,7 +825,19 @@ export function createLoginRuntime(
         { type: "RESOLVE" },
       );
     }
-    const run: Execution = { metadata, recipe, live, running: false };
+    const run: Execution = {
+      metadata,
+      recipe,
+      live,
+      running: false,
+      // Each document re-derives the choice; every step still checks it is the attempt's account.
+      ...(plan.choice &&
+      !terminal(metadata) &&
+      plan.account.connectionId === metadata.account.connectionId &&
+      plan.account.itemId === metadata.account.itemId
+        ? { choice: plan.choice }
+        : {}),
+    };
     attempts.set(document.tabId, run);
     await save(run);
     await publish(live, metadata);
@@ -777,6 +952,8 @@ export function createLoginRuntime(
       const patterns = [
         ...(probeMode ? [`${origin}/*`] : []),
         ...(sites ? (await sites.origins()).map((entry) => `${entry}/*`) : []),
+        // An automatically chosen account has no saved default until it authenticates.
+        ...[...persisted.values()].map((entry) => `${entry.account.origin}/*`),
       ];
       if (!patterns.length) return undefined;
       const tabs = await browser.tabs.query({ url: patterns });

@@ -4,14 +4,16 @@ import { browser } from "wxt/browser";
 export interface LoginSites {
   /** Exact HTTPS origins with a saved default, no exclusion and host access still granted. */
   origins(): Promise<string[]>;
+  /** Top-level HTTPS documents on a non-excluded site with host access still granted. */
   admits(url: URL): Promise<boolean>;
 }
 
 /**
- * Production document admission. The content script runs on every HTTPS page, but only
- * an exact origin with a saved site default is admitted. Every other document gets only
- * this local check: no attempt, observation, policy catalog or vault access. Account
- * eligibility is still checked per attempt.
+ * Production document admission. The content script runs on every HTTPS page; a document
+ * on a non-excluded site with host access is admitted, with or without a saved site
+ * default (ADR 0013 chooses an account by URI match). An admitted document without a
+ * cached recipe stops there: no attempt, observation, policy catalog or vault access.
+ * Account eligibility is still checked per attempt.
  */
 export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }): LoginSites {
   async function origins(): Promise<string[]> {
@@ -42,7 +44,6 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
       try {
         const { settings: current } = await settings.read();
         return (
-          current.siteDefaults.some((entry) => entry.origin === url.origin) &&
           !isSiteExcluded(current, url.origin) &&
           (await browser.permissions.contains({ origins: [`https://${url.hostname}/*`] }))
         );
