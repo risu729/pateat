@@ -233,6 +233,28 @@ describe("submission and failure reconciliation", () => {
     expect(
       transitionLoginAttempt(intent, { type: "MUTATION_INTENT", operationId: "input-one" }),
     ).toEqual(intent);
+    const awaiting = transitionLoginAttempt(intent, {
+      type: "SUBMITTED",
+      operationId: "input-one",
+    });
+    expect(awaiting.state).toBe("awaiting-result");
+    expect(
+      transitionLoginAttempt(awaiting, { type: "OBSERVED", result: "continue", document }),
+    ).toEqual(awaiting);
+    const ordinaryUnknown = transitionLoginAttempt(awaiting, {
+      type: "OBSERVED",
+      result: "unknown",
+      document,
+    });
+    expect(ordinaryUnknown).toMatchObject({
+      state: "reconciling",
+      outcome: "unknown-submit",
+      stepIndex: 0,
+      submissions: 1,
+    });
+    expect(
+      nextLoginOperation(ordinaryUnknown, inputRecipe, document, "input-again"),
+    ).toBeUndefined();
     for (const interrupted of [
       intent,
       transitionLoginAttempt(intent, { type: "SUBMITTED", operationId: "input-one" }),

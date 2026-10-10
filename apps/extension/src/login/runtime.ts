@@ -265,8 +265,17 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
       (!(run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance") ||
         run.recipe.steps[run.metadata.stepIndex]?.path !== next.path)
     ) {
-      await change(run, { type: "OBSERVED", result: "continue", document: run.live.document });
-      return;
+      const continuation: LoginAttemptEvent = {
+        type: "OBSERVED",
+        result: "continue",
+        document: run.live.document,
+      };
+      // Remaining fields alone do not prove that an uncertain input effect finished.
+      const candidate = transitionLoginAttempt(run.metadata, continuation);
+      if (candidate.state === "ready" || candidate.state === "retryable") {
+        await change(run, continuation);
+        return;
+      }
     }
     if (settleUnknown)
       await change(run, { type: "OBSERVED", result: "unknown", document: run.live.document });

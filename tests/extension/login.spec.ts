@@ -155,6 +155,7 @@ for (const outcome of ["credential-rejected", "unknown"] as const) {
         const runId = fixture.createRun(outcome);
         const page = await context.newPage();
         await page.goto(`${fixture.origin}/input-submit?runId=${runId}`);
+        await expect(page.locator("#effect-status")).toHaveText("POST result received");
         await expectInputOutcome(options, outcome === "unknown" ? "unknown-submit" : outcome);
         expect(fixture.evidence(runId)).toEqual({
           posts: 1,
