@@ -4,6 +4,9 @@ Status: accepted for M5. On 2026-10-10 the owner chose to set UP and UV on every
 claimed assertion without a user gesture, knowingly departing from the WebAuthn
 ceremony; this amends the truthful UV/UP condition in
 [ADR 0001](0001-local-login-boundary.md). A per-site setting is planned later.
+Also on 2026-10-10 the owner chose the official Bitwarden client's item rule:
+search every live login item by RP ID, and use the site default only to choose
+among several matches (see [Item selection](#item-selection)).
 
 Date: 2026-10-10
 
@@ -60,12 +63,31 @@ Pateat claims a request only when all of these hold; otherwise it delegates:
   suffixes. A trailing dot is significant.
 - The challenge is 16 to 1,024 bytes and at most 64 allowed credentials are
   given. Under the initial policy `userVerification` may take any value.
-- The site is not excluded, an exact-origin account default selects one item,
-  and that item yields exactly one eligible credential.
+- The site is not excluded and [item selection](#item-selection) yields exactly
+  one eligible credential.
 
 Unknown extensions are ignored as the client algorithm permits; client extension
 results are empty. PRF, large blob, AppID and hints are not interpreted, and the
 bridge snapshot drops `timeout`, `hints` and `extensions` before relaying.
+
+### Item selection
+
+Follow the pinned official Bitwarden client
+([`findCredentialsByRp` and `findCredentialsById`](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/platform/services/fido2/fido2-authenticator.service.ts)):
+search every live login item, not only the site default, and do not use the item's
+saved URIs. Skip disabled connections and excluded items. An item is a match when
+its single stored credential is eligible as below. Then:
+
+1. Exactly one match: use it. No site setting is needed.
+2. Several matches: use the item in `siteDefaults` for the page's exact origin if it
+   is one of them.
+3. Several matches and no such default: delegate. Pateat never picks one.
+
+For example, two items each store a credential with `rpId` `github.com`, and
+`https://github.com/login` requests `rpId` `github.com` without an allow list. With
+`siteDefaults: [{ origin: "https://github.com", connectionId, itemId }]` naming one
+of them, Pateat signs with that item; without it, the browser handles the request.
+An allow list usually narrows the matches to one before this step.
 
 ### Credential eligibility and assertion
 
@@ -124,10 +146,11 @@ assertion code; until then every claimed request uses the initial policy.
 
 Pateat never blocks a WebAuthn request it does not claim, so failures surface as the
 browser's ordinary passkey UI. Claimed requests complete unattended, and relying parties
-receive UV that no authenticator performed; any script running in a configured site's
-top-level page, including injected script, can obtain a verified assertion for that
-site. Registration, nonzero-counter writeback, conditional mediation, cross-origin
-frames, related origins and extensions remain later work.
+receive UV that no authenticator performed; any script running in a top-level page of a
+site with a stored passkey, including injected script, can obtain a verified assertion
+for that site without any Pateat site setting. Registration, nonzero-counter writeback,
+conditional mediation, cross-origin frames, related origins and extensions remain later
+work.
 
 Verify with the WebAuthn Level 3 ES256 vectors, HTML registrable-suffix cases,
 credential mapping vectors, signature verification by an independent verifier,
