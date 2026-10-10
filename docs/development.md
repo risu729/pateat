@@ -16,6 +16,7 @@ apps/extension/       WXT entrypoints and extension shell
 services/api/         Health-only Cloudflare Worker
 packages/contracts/  Shared Valibot schemas and inferred types
 packages/bitwarden/  Provider-specific endpoint and transport boundary
+packages/inference/  Offline AI role adapters, synthetic corpus and evaluation harness
 tests/extension/      Isolated synthetic browser fixtures and tests
 tests/options/        React component tests in isolated Chromium
 ```
@@ -59,6 +60,8 @@ Focused tasks are available for diagnosis:
 | `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
 | `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
 | `mise run typecheck:bitwarden` | Check provider source and test types |
+| `mise run test:inference` | Score AI role adapters on the synthetic corpus with fake providers |
+| `mise run typecheck:inference` | Check AI adapter, corpus and harness types |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run test:server` | Run Worker tests in the Cloudflare Vitest runtime |
 | `mise run build:server` | Generate production Build Output and Worker types |
@@ -209,7 +212,7 @@ use.
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved:** Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
-| Inference transport | **Approved:** AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
+| Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; no provider package is installed | M4 provider integration |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
@@ -266,6 +269,13 @@ provider adapter when that API is not represented faithfully by the SDK. Set
 retry/timeout limits explicitly and account for every attempt. Disable raw
 input/output/header telemetry and sanitize errors. No automatic model/provider
 fallback is introduced by a library.
+
+`packages/inference` passes configured model instances only; a model ID string would
+resolve through the SDK's global default provider and is rejected. The finite-choice
+role uses `experimental_decide`, whose contract may change in patch releases, so the
+`ai` version stays exact and its tests guard answer validation. A Clef or Jev adapter
+implements that `doDecide` contract or replaces it with a direct typed adapter if the
+contract loses provider semantics.
 
 Use the approved fast-check for invariants such as stronger exclusions never expanding
 eligibility and stale events never authorizing a new document. Component tests

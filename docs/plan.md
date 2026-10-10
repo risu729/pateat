@@ -290,6 +290,32 @@ Chrome yet.
 - Real Bitwarden connections, individual MFA methods and optional host-permission
   prompts in installed Chrome remain separate gates.
 
+## AI evaluation harness progress
+
+`packages/inference` holds the first offline M4 slice. A proposed sanitized observation
+contract carries bounded, value-free element roles, locators and labels; incomplete
+observations are rejected before inference. The generation/repair role uses AI SDK
+structured output and the finite-choice role uses the SDK decision contract with an
+explicit none option per question. Both resolve observation-local candidate IDs, check
+slot/role compatibility, joint mapping uniqueness and the shared recipe step contract,
+and return explicit ok, abstained or failed outcomes with per-attempt usage where
+missing usage is unknown. Retries default to none and are bounded; timeouts, caller
+cancellation and complete-request byte limits are enforced locally.
+
+A 15-page synthetic Japanese/English corpus covers bank branch/account/password,
+identifier-first and password steps, one-time codes, decoy search/sign-up/SSO controls,
+label injection, unlabeled ambiguity and a page without a login form. The harness
+reports semantic accuracy, false submits, abstentions, joint-mapping rejections,
+errors, p50/p95 latency and usage. Fake-provider tests cover malformed output,
+nonexistent targets, malformed probabilities, refusal, truncation, timeout, rate limits,
+oversized and incomplete inputs and the absence of fallback.
+
+No provider or model is selected and no paid inference has run. Remaining M4 AI work:
+provider adapters after owner selection, real benchmark runs and their report, the
+service route and monthly spend stop, and the extension observation extractor with
+privacy fixtures. Move the observation contract to `packages/contracts` when the
+service shares it.
+
 ## Initial delivery and later scope
 
 The [architecture](architecture.md) owns the product contracts. These boundaries
