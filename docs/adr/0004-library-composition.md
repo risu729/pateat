@@ -1,7 +1,8 @@
 # ADR 0004: Compose maintained libraries around explicit domain boundaries
 
-Status: application and verification libraries approved;
-protocol-specific crypto choices pending. Implementation follows the milestone plan.
+Status: application and verification libraries approved; Bitwarden crypto choice
+subsequently resolved by [ADR 0005](0005-bitwarden-local-crypto.md). Implementation
+follows the milestone plan.
 
 Date: 2026-10-10
 

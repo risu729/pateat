@@ -325,6 +325,12 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
       </form>
       <RuntimeStatus client={client} />
       <p className="note">
+        <a href="legal.html" target="_blank" rel="noreferrer">
+          Licenses and source
+        </a>
+        {" · "}GPLv3 · No warranty
+      </p>
+      <p className="note">
         This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms,
         or sign passkey requests.
       </p>

@@ -9,7 +9,13 @@ export type BitwardenErrorCode =
   | "redirect"
   | "http-error"
   | "response-too-large"
-  | "invalid-response";
+  | "invalid-response"
+  | "invalid-crypto-input"
+  | "crypto-failed"
+  | "unsupported-crypto"
+  | "security-downgrade"
+  | "crypto-locked"
+  | "resource-limit";
 
 export type BitwardenResult<T> =
   | { ok: true; data: T }

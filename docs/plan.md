@@ -80,11 +80,46 @@ request destinations are excluded. Response size, cancellation and parsing
 boundaries have synthetic tests; errors do not expose request or response bodies.
 
 This library is not connected to extension settings or a real vault. Token
-acquisition, supported MFA, local cryptography, authoritative cache reconciliation,
-field resolution, TOTP and persistent unlock remain outstanding. Synthetic fetch
+acquisition, supported MFA, authoritative cache reconciliation, field resolution,
+TOTP and persistent unlock remain outstanding. Synthetic fetch
 tests do not establish real-server compatibility or installed-Chrome permissions.
-SDK integration and cryptographic compatibility require a separate implementation
-slice; this transport change adds no SDK or cryptographic dependency.
+The local cryptography slice below adds the approved SDK separately from these
+transport operations.
+
+## Local cryptography progress
+
+The next M3 slice uses the pinned official OSS SDK under its GPLv3 option, as
+approved in [ADR 0005](adr/0005-bitwarden-local-crypto.md). It introduces isolated
+local sessions, bounded PBKDF2/Argon2id admission, V1/V2 account initialization,
+strict cipher and stored-passkey decryption, and verified security-version
+checks. It does not yet map encrypted sync responses into those sessions.
+
+The pinned SDK's V2 version export also rewraps and re-signs an in-memory copy of
+verified key state. Pateat keeps only its version and does not send or persist
+the export. This adds transient sensitive copies and computation. Invalid blobs
+never fall back to legacy fields; supplied URI checksums are verified even for
+legacy keyless items, while absent legacy checksums remain supported.
+
+Synchronous SDK parsing checks signed COSE and serialized keys before asynchronous
+bindings that can otherwise leave malformed-input calls unresolved. The signed
+COSE check admits structure only; account initialization must still verify the
+actual signature. Key admission can temporarily unwrap/rewrap key material; those
+results are discarded and mutable key buffers cleared. This is additional local
+work, not a claim of zero-copy secrets or cancellation of synchronous WASM.
+
+Disposal invalidates results immediately but defers native object cleanup until
+pending operations settle. Hard cancellation requires termination of the owning
+Worker. A separate synthetic extension page exercises packaged native WASM,
+real vectors and Worker termination; this host is not production activation or
+an established persistent background-vault host. See the
+[source/distribution requirements](sdk-source.md) before conveying its binary.
+
+An earlier synthetic executor artifact was manually installed in the owner's
+Chrome on 2026-10-10. Chrome-use observations verified single/multi-page login,
+input-triggered submission, uncertain-outcome stopping and competing-tab refusal.
+Page-recorded visibility showed a successful inactive-tab run. This evidence
+does not cover the SDK slice, real vaults, actual-profile restart or coexistence
+with the official Bitwarden extension; M1-M3 remain incomplete.
 
 ## Initial delivery and later scope
 
@@ -203,9 +238,11 @@ support for every site or vault format. Keep observed limitations explicit.
 - Establish the Chrome use ownership/wait mechanism before integrated automation
   claims. If no integration hook exists, document the tested wait protocol and
   remaining races rather than inventing support.
-- Choose Argon2id implementation after interoperability, memory/time, browser
-  lifecycle and maintenance checks. Use native crypto where it matches the
-  protocol; do not implement cryptographic primitives ourselves.
+- Verify the owner-approved official OSS SDK for local Bitwarden cryptography,
+  including Argon2id, legacy/current formats, strict failure handling, GPL
+  distribution, memory/time and browser lifecycle. See
+  [ADR 0005](adr/0005-bitwarden-local-crypto.md); do not implement cryptographic
+  primitives ourselves or treat library adoption as compatibility proof.
 - Establish truthful UV/UP behavior before M5. Initial assertions use existing
   zero-counter keys; nonzero-counter synchronization is deferred. Fully unattended
   operation is not guaranteed for all requested ceremonies.

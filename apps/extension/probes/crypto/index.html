@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pateat synthetic cryptography probe</title>
+  </head>
+  <body>
+    <h1>Synthetic cryptography probe</h1>
+    <p>Packaged official OSS WASM, public test vectors, no real account connection.</p>
+    <button id="run-vectors">Run public vectors</button>
+    <button id="run-kdf">Start cancellable KDF</button>
+    <button id="cancel" disabled>Cancel worker</button>
+    <output id="status" aria-live="polite">Idle</output>
+    <pre id="results"></pre>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
