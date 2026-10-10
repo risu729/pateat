@@ -145,7 +145,9 @@ export async function startLoginFixture(
     } else if (path === "/identity") {
       response.end(
         html(
-          '<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><label>Account<input id="account"></label><button id="next" type="button">Next</button>',
+          fixtureUrl.searchParams.has("split-forms")
+            ? '<h1>Synthetic identity step</h1><form><label>Branch<input id="branch"></label></form><form><label>Account<input id="account"></label></form><button id="next" type="button">Next</button>'
+            : '<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><label>Account<input id="account"></label><button id="next" type="button">Next</button>',
           `document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));
@@ -186,7 +188,12 @@ export async function startLoginFixture(
     ) {
       response.end(
         html(
-          '<h1>Synthetic single-page login</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
+          `<h1>Synthetic single-page login</h1><label>Password<input id="password" ${
+            {
+              text: 'type="text"',
+              "text-current-password": 'type="text" autocomplete="current-password"',
+            }[fixtureUrl.searchParams.get("password-input") ?? ""] ?? 'type="password"'
+          }></label><button id="login" type="button">Log in</button>`,
           `document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));

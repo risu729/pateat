@@ -204,6 +204,10 @@ describe("production login document admission", () => {
       expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
     );
     expect(h.fields).toHaveBeenCalledTimes(1);
+    // The content script fills a Bitwarden password only into a password input.
+    expect(fake.state.messages.find((entry) => entry.type === "login.execute")?.values).toEqual([
+      { slot: "password", value: "synthetic-secret", secret: "password" },
+    ]);
     expect(h.fields.mock.calls[0]![0]).toMatchObject({
       account: { origin, connectionId, itemId },
       fieldId: "login.password",

@@ -375,6 +375,9 @@ validated failure proving that the current operation made no mutation can
 release its reservation. A separate retry budget still applies. Initiated or
 possibly initiated effects remain counted, not proven server requests: one page
 handler can itself issue more than one request.
+A step fills only inputs inside one form, and a password or one-time code only
+into an input that declares that purpose, so a recipe cannot place a secret in a
+search box or a second form on the page.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.

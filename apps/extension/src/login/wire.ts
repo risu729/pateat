@@ -32,7 +32,14 @@ export const commandSchema = v.variant("type", [
     token: id,
     operation: loginOperationSchema,
     values: v.pipe(
-      v.array(v.strictObject({ slot: id, value: v.pipe(v.string(), v.maxLength(4096)) })),
+      v.array(
+        v.strictObject({
+          slot: id,
+          value: v.pipe(v.string(), v.maxLength(4096)),
+          /** Secret values fill only matching inputs; other values fill any writable input. */
+          secret: v.optional(v.picklist(["password", "otp"])),
+        }),
+      ),
       v.maxLength(20),
     ),
   }),

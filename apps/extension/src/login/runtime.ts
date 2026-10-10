@@ -41,7 +41,7 @@ import {
 } from "./dummy";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import type { LoginSites } from "./sites";
-import type { LoginFieldSource } from "./vault";
+import { loginSecretKind, type LoginFieldSource, type LoginSecretKind } from "./vault";
 
 const STORAGE_KEY = "pateat.login-attempts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
@@ -470,7 +470,7 @@ export function createLoginRuntime(
           await change(run, { type: "FAILED", reason: "timeout" });
           return;
         }
-        const values: { slot: string; value: string }[] = [];
+        const values: { slot: string; value: string; secret?: LoginSecretKind }[] = [];
         let response: unknown;
         try {
           if (operation.step.kind === "fill") {
@@ -498,7 +498,8 @@ export function createLoginRuntime(
                 await change(run, { type: "POLICY_CHANGED" });
                 return;
               }
-              values.push({ slot: field.slot, value });
+              const secret = loginSecretKind(authorized.connection, reference.fieldId);
+              values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
             }
           }
           if (operation.step.kind === "fill" || operation.step.kind === "click")

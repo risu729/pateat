@@ -62,6 +62,23 @@ export function createVaultUriMatcher(
   };
 }
 
+export type LoginSecretKind = "password" | "otp";
+/**
+ * Which values may only fill password or one-time-code inputs. Hidden and Linked custom
+ * fields are not classified yet.
+ */
+export function loginSecretKind(
+  connection: Pick<VaultConnectionMetadata, "provider">,
+  fieldId: string,
+): LoginSecretKind | undefined {
+  if (connection.provider === "bitwarden") {
+    if (fieldId === "login.password") return "password";
+    if (fieldId === "login.totp-code") return "otp";
+  }
+  if (connection.provider === "dummy" && fieldId === "password") return "password";
+  return undefined;
+}
+
 /** Bundled synthetic values; the probe build is the only caller. */
 export const dummyFieldSource: LoginFieldSource = async ({ connection, fieldId }) =>
   connection.provider === "dummy" ? resolveDummyField(fieldId) : undefined;
