@@ -484,12 +484,15 @@ real-extension coexistence require separate compatibility tests.
 The bridge, admission rules, assertion format and unattended presence and verification
 policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Like the official
 Bitwarden client, passkey requests search every live login item by RP ID rather than by
-saved URI; a site default only chooses among several matches. Only the probe build
-connects the core to pages, through the bridge with a synthetic credential source. The
-crypto Worker can sign with a stored vault passkey, keeping the private key inside the
-Worker and signing only zero-counter assertion data for that credential's RP ID. A
-vault-backed passkey source applies the item selection over it, but no build connects
-that source to pages yet.
+saved URI; a site default only chooses among several matches. Every build registers the
+bridge on top-level `https://*/*` documents: `passkey-main.js` in the MAIN world and
+`passkey-isolated.js` in the isolated world, both at document start, under the
+install-time HTTPS access of [ADR 0009](adr/0009-install-time-https-site-access.md). The
+background answers them from the vault-backed passkey source, which applies the item
+selection. The crypto Worker signs with the stored vault passkey, keeping the private
+key inside the Worker and signing only zero-counter assertion data for that credential's
+RP ID. The probe build adds `http://localhost/*` scripts and a synthetic test-vector key
+for that origin.
 
 ## Minimal service
 

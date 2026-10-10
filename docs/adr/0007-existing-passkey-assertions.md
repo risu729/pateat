@@ -27,11 +27,13 @@ requirements, pinned Bitwarden behavior and the SDK surface this design relies o
 ### Bridge topology
 
 Register a MAIN-world wrapper for `navigator.credentials.get` at document start in
-top-level frames only. It snapshots the request, forwards a bounded copy to the
-isolated content script, and either returns a Pateat assertion or calls the
-browser's original `get` with the original arguments. Delegation is the default
-for every case Pateat does not claim, so excluded or unsupported requests keep
-ordinary browser behavior, including other installed passkey providers.
+top-level frames only, as a static content script on `https://*/*` under the
+install-time HTTPS access of [ADR 0009](0009-install-time-https-site-access.md), with an
+isolated-world relay on the same pages. It snapshots the request, forwards a bounded
+copy to the isolated content script, and either returns a Pateat assertion or calls the
+browser's original `get` with the original arguments. Delegation is the default for
+every case Pateat does not claim, so excluded or unsupported requests keep ordinary
+browser behavior, including other installed passkey providers.
 `navigator.credentials.create` is not wrapped.
 
 Pateat stays outside other passkey providers' wrappers. Chromium decides the order in

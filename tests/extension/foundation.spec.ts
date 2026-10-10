@@ -72,13 +72,29 @@ async function startFixture(): Promise<{ server: Server; url: string }> {
   return { server, url: `http://127.0.0.1:${address.port}/fixture` };
 }
 
-test("production package permits local storage, the crypto host and one HTTPS login script", async () => {
+test("production package permits local storage, the crypto host and the HTTPS login and passkey scripts", async () => {
   const manifest = JSON.parse(await readFile(resolve(extensionDirectory, "manifest.json"), "utf8"));
   expect(manifest.manifest_version).toBe(3);
   expect(manifest.options_ui).toMatchObject({ page: "options.html", open_in_tab: true });
-  // Owner-approved install-time HTTPS access (ADR 0009): top-level, isolated world only.
-  expect(manifest.content_scripts).toEqual([
+  // Owner-approved install-time HTTPS access (ADR 0009): top-level only. The ADR 0007
+  // passkey bridge is the only MAIN-world script.
+  expect(
+    [...manifest.content_scripts].sort((a: { js: string[] }, b: { js: string[] }) =>
+      a.js[0]!.localeCompare(b.js[0]!),
+    ),
+  ).toEqual([
     { matches: ["https://*/*"], run_at: "document_idle", js: ["content-scripts/login.js"] },
+    {
+      matches: ["https://*/*"],
+      run_at: "document_start",
+      js: ["content-scripts/passkey-isolated.js"],
+    },
+    {
+      matches: ["https://*/*"],
+      run_at: "document_start",
+      world: "MAIN",
+      js: ["content-scripts/passkey-main.js"],
+    },
   ]);
   expect(manifest.permissions).toEqual(["storage", "offscreen"]);
   expect(manifest.host_permissions).toEqual(["https://*/*"]);
@@ -102,15 +118,14 @@ test("production package permits local storage, the crypto host and one HTTPS lo
   expect(probeManifest.permissions).toEqual(["storage", "offscreen"]);
   expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toBeUndefined();
-  // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost,
-  // plus the intercepted synthetic Bitwarden passkey origin, which never resolves.
-  // The production HTTPS login script is shared with the probe build.
+  // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.
+  // The production HTTPS login and passkey scripts are shared with the probe build.
   for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
     expect(script.matches).toEqual(
-      script.js.join() === "content-scripts/login.js"
+      /^content-scripts\/(?:login|passkey-main|passkey-isolated)\.js$/u.test(script.js.join())
         ? ["https://*/*"]
-        : script.js.some((file) => /\/passkey-(?:main|isolated)\.js$/u.test(file))
-          ? ["http://localhost/*", "https://synthetic.example.test/*"]
+        : script.js.some((file) => /\/passkey-probe-(?:main|isolated)\.js$/u.test(file))
+          ? ["http://localhost/*"]
           : ["http://127.0.0.1/*"],
     );
 });

@@ -1,4 +1,8 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createHash,
   createPrivateKey,
@@ -34,7 +38,7 @@ const virtualCredentialId = Buffer.from("synthetic-native-credential");
 const pateatCredentialId = Buffer.from(PROBE_PASSKEY.credentialId, "hex").toString("base64url");
 
 /** CDP virtual authenticator: the browser's own path, distinguishable by credential ID. */
-async function addVirtualAuthenticator(context: BrowserContext, page: Page) {
+async function addVirtualAuthenticator(context: BrowserContext, page: Page, rpId = "localhost") {
   const session = await context.newCDPSession(page);
   await session.send("WebAuthn.enable", { enableUI: false });
   const { authenticatorId } = await session.send("WebAuthn.addVirtualAuthenticator", {
@@ -53,7 +57,7 @@ async function addVirtualAuthenticator(context: BrowserContext, page: Page) {
     credential: {
       credentialId: virtualCredentialId.toString("base64"),
       isResidentCredential: true,
-      rpId: "localhost",
+      rpId,
       privateKey: privateKey.export({ format: "der", type: "pkcs8" }).toString("base64"),
       userHandle: Buffer.from("native-user").toString("base64"),
       signCount: 0,
@@ -63,7 +67,7 @@ async function addVirtualAuthenticator(context: BrowserContext, page: Page) {
 
 async function openRelyingParty(context: BrowserContext, origin: string, path = "/") {
   const page = await context.newPage();
-  await addVirtualAuthenticator(context, page);
+  await addVirtualAuthenticator(context, page, new URL(origin).hostname);
   await page.goto(`${origin}${path}`);
   expect(
     await page.evaluate(() => (window as unknown as { wrappedAtStart: boolean }).wrappedAtStart),
@@ -570,8 +574,38 @@ test("a passkey stored in the synthetic Bitwarden vault signs inside the crypto 
       expectedRevision: saved.snapshot.revision,
       settings,
     });
-    expect(await clickRequest(page, { challenge: challengeHex() })).toEqual({
-      error: "NotAllowedError",
-    });
+    // The browser's virtual authenticator then answers with its own credential.
+    const nativeChallenge = challengeHex();
+    expectNativeAssertion(
+      await clickRequest(page, { challenge: nativeChallenge }),
+      vaultOrigin,
+      nativeChallenge,
+    );
   });
+});
+
+test("the production build installs the bridge on HTTPS pages and leaves unclaimed requests to the browser", async () => {
+  const directory = fileURLToPath(
+    new URL("../../apps/extension/.output/chrome-mv3", import.meta.url),
+  );
+  const profile = await mkdtemp(resolve(tmpdir(), "pateat-passkey-production-"));
+  let context: BrowserContext | undefined;
+  try {
+    context = await chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      args: [`--disable-extensions-except=${directory}`, `--load-extension=${directory}`],
+    });
+    if (context.serviceWorkers().length === 0) await context.waitForEvent("serviceworker");
+    await context.route(`${vaultOrigin}/**`, (route) =>
+      route.fulfill({ contentType: "text/html; charset=utf-8", body: passkeyPageHtml }),
+    );
+    // No vault is connected, so the background claims nothing and the browser answers.
+    const page = await openRelyingParty(context, vaultOrigin);
+    const challenge = challengeHex();
+    expectNativeAssertion(await clickRequest(page, { challenge }), vaultOrigin, challenge);
+  } finally {
+    await context?.close();
+    await rm(profile, { recursive: true, force: true });
+  }
 });

@@ -148,12 +148,12 @@ test prerequisite, not a reason to expose settings mutations to a web page.
 ### Installed Chrome synthetic passkey probe
 
 This prepares a manual acceptance run of the passkey bridge; it is not evidence
-that installed Chrome has passed. The probe's passkey scripts run only on
-`http://localhost/*` and `https://synthetic.example.test/*`. On localhost its
-synthetic source signs only for RP ID `localhost` with the public WebAuthn Level 3
-test-vector key. The `.test` origin, which never resolves, is for automated tests that
-answer from the probe build's synthetic Bitwarden account through the vault source. No
-real vault, passkey or provider is involved.
+that installed Chrome has passed. The probe build adds passkey scripts for
+`http://localhost/*`, where its synthetic source signs only for RP ID `localhost` with
+the public WebAuthn Level 3 test-vector key. HTTPS pages get the production bridge and
+vault source; automated tests reach them on `https://synthetic.example.test`, which
+never resolves, with the probe build's synthetic Bitwarden account. No real vault,
+passkey or provider is involved.
 
 1. Run `mise run build:probe` and `mise run probe:passkeys`. The latter listens
    only on loopback `127.0.0.1:3848`, is opened as `http://localhost:3848`, and

@@ -588,14 +588,17 @@ of that search: enabled connections only, excluded sites, excluded and quarantin
 items, the exact-origin site default as the tie-break, and no single-match choice while
 a connection or eligible item could not be searched. Signing through it requires the
 same settings revision, snapshot and item eligibility before and after the Worker signs.
-Unit tests cover it with fake vault managers. The probe build wires it to pages for
-origins other than `http://localhost`, which its passkey scripts reach only on
-`https://synthetic.example.test`. A Playwright test there connects the synthetic
+Unit tests cover it with fake vault managers. Both builds register the bridge on every
+top-level `https://*/*` document and answer it from this source; the probe build keeps
+its test-vector key for `http://localhost` only. A probe-build Playwright test on
+`https://synthetic.example.test`, served by request interception, connects the synthetic
 Bitwarden account (fixture variant `passkey`, one login holding one zero-counter
 passkey), gets an assertion signed in the crypto Worker and verified with the fixture's
-public key, and gets the browser's `NotAllowedError` once the item is excluded.
-Production entrypoints and real-site interoperability remain open; a navigation during
-signing relies on Chrome dropping the response to the replaced document.
+public key, and gets the browser's own credential once the item is excluded. A
+production-build test checks that the bridge is installed at document start there and,
+with no vault connected, leaves the request to the browser. Real-site interoperability
+and real-account use remain open; a navigation during signing relies on Chrome dropping
+the response to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
 accessor property returning a function with a different `length` and source text), which
