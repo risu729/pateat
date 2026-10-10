@@ -186,12 +186,9 @@ HOTP are explicit errors. OTP seeds are not field values or inference inputs.
 Independent RFC 6238 and pinned upstream answers, clock boundaries and the
 packaged MV3 probe are the verification gates for this slice.
 
-Production catalog/settings integration remains separate. In particular,
-snapshot-scoped custom references do not automatically reconcile persistent
-exclusions when fields are edited or reordered. Rebinding/invalidation must
-preserve denies before any live resolver is connected to settings or the executor.
-End-to-end connection setup, cache adoption and live URI eligibility remain
-unfinished M3 gates; the cache component is described below.
+Connection setup, cache adoption and custom-field exclusion rebinding are now
+integrated, as described below. The remaining M3 integration gaps are listed after
+the connection setup section.
 
 ## URI candidate matching progress
 
@@ -270,11 +267,28 @@ cannot clear unresolved exclusions or that binding history. Separate cache/setti
 stores detect mismatched state after interruption; they do not provide one atomic
 combined commit. Catalog bounds are validated before unlock-key export and cache commit.
 
-Source integration and local synthetic tests are implemented. Full native-browser
-acceptance is pending. The fixed browser probe substitutes provider responses and host
-permission decisions; it does not establish real optional-permission prompt behavior or
-real-account authentication. Production starts with an empty catalog until connections
-are configured. The demo catalog remains confined to the synthetic probe.
+[PR #20](https://github.com/risu729/pateat/pull/20) passed
+[full Linux CI](https://github.com/risu729/pateat/actions/runs/38047201686) with 766
+package, 72 connection, 73 vault, 47 host, 42 contract, 21 options and 69 extension
+tests, and [CodeQL](https://github.com/risu729/pateat/actions/runs/38047201688). The 11
+added native setup cases cover restoration after a full browser close, manual MFA and
+new-device verification, two connections, preservation of the existing cache after
+rejected re-authentication or oversized metadata, and custom-field rebinding and review.
+Independent review approved the change. The fixed browser probe substitutes provider
+responses and host permission decisions; it does not establish real optional-permission
+prompt behavior or real-account authentication. Production starts with an empty catalog
+until connections are configured. The demo catalog remains confined to the synthetic
+probe. No build containing the SDK or this setup has been installed in the owner's
+Chrome yet.
+
+### Remaining M3 integration gaps
+
+- The URI matcher is not yet connected to live vault data and site execution.
+  Prepared accounts do not yet retain domain or equivalent-domain context; do not
+  derive `allowedOrigins` from URIs without it.
+- The live vault is not yet connected to the declarative executor.
+- Real Bitwarden connections, individual MFA methods and optional host-permission
+  prompts in installed Chrome remain separate gates.
 
 ## Initial delivery and later scope
 

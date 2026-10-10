@@ -2,8 +2,9 @@
 
 The foundation has a Bun workspace, pinned tools, local policy settings, shared
 contracts, and a health-only Worker. A separate localhost probe exercises the
-declarative login executor with synthetic values. Real vault access, production
-login activation, service authentication and inference remain unimplemented.
+declarative login executor with synthetic values. Manual Bitwarden setup and local
+vault caching are implemented; production login activation, service authentication
+and inference remain unimplemented.
 M1 is not complete until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
@@ -134,8 +135,8 @@ test prerequisite, not a reason to expose settings mutations to a web page.
 
 ### Manual Bitwarden setup preview
 
-The connection setup slice is implemented and under verification. Its options
-panel selects Bitwarden Cloud US/EU or an ordinary self-hosted HTTPS root and
+The connection setup slice is implemented and tested with synthetic responses. Its
+options panel selects Bitwarden Cloud US/EU or an ordinary self-hosted HTTPS root and
 requests access only to that provider's hosts. Setup is a deliberate user action;
 automated tests use synthetic accounts and responses. Do not enter real account
 credentials during a test unless that account test has been separately authorized.
