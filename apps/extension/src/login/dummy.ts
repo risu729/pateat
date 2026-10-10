@@ -8,10 +8,8 @@ import {
 
 export const DEFAULT_PROBE_ORIGIN = "http://127.0.0.1:3847";
 /** Bundled synthetic adapter. This is not a Bitwarden connection or a production grant. */
-export function createProbeCatalog(origin = DEFAULT_PROBE_ORIGIN): VaultCatalog {
-  const catalog = structuredClone(DUMMY_VAULT_CATALOG);
-  catalog.connections[0]!.items[0]!.allowedOrigins.push(origin);
-  return catalog;
+export function createProbeCatalog(): VaultCatalog {
+  return structuredClone(DUMMY_VAULT_CATALOG);
 }
 
 const target = (value: string) => ({ by: "id" as const, value });
@@ -138,13 +136,48 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
     maxSubmissions: multi || inputAdvance ? 2 : 1,
   });
 }
-export function probeBinding(recipe: LoginRecipe): LoginAccountBinding {
+export type ProbeAccount = {
+  connectionId: string;
+  itemId: string;
+  slots: { slot: string; fieldId: string }[];
+};
+/** The bundled demo item. A configured probe account replaces it as one explicit binding. */
+export const DEMO_PROBE_ACCOUNT: ProbeAccount = {
+  connectionId: "demo-personal",
+  itemId: "primary",
+  slots: [
+    { slot: "branch", fieldId: "branch" },
+    { slot: "account", fieldId: "username" },
+    { slot: "password", fieldId: "password" },
+  ],
+};
+export function probeBinding(
+  recipe: LoginRecipe,
+  account: ProbeAccount = DEMO_PROBE_ACCOUNT,
+): LoginAccountBinding {
   return {
     origin: recipe.origin,
-    connectionId: "demo-personal",
-    itemId: "primary",
-    slots: recipe.slots.map((slot) => ({ slot, fieldId: slot === "account" ? "username" : slot })),
+    connectionId: account.connectionId,
+    itemId: account.itemId,
+    // A recipe slot without an explicit mapping fails plan resolution; nothing is guessed.
+    slots: account.slots.filter((entry) => recipe.slots.includes(entry.slot)),
   };
+}
+/**
+ * Synthetic origin grant for the loopback fixture only. Live provider URI matching
+ * supplies production origins; this never derives an origin from vault data.
+ */
+export function grantProbeOrigin(
+  catalog: VaultCatalog,
+  origin: string,
+  account: Pick<ProbeAccount, "connectionId" | "itemId">,
+): VaultCatalog {
+  const granted = structuredClone(catalog);
+  const item = granted.connections
+    .find((entry) => entry.id === account.connectionId)
+    ?.items.find((entry) => entry.id === account.itemId);
+  if (item && !item.allowedOrigins.includes(origin)) item.allowedOrigins.push(origin);
+  return granted;
 }
 
 /** Resolve one allowed field at a time; no values enter recipes, metadata or status. */

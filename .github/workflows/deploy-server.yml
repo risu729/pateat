@@ -19,7 +19,7 @@ defaults:
 jobs:
   deploy:
     name: Deploy tested server
-    if: vars.SERVER_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    if: ${{ vars.SERVER_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production
@@ -87,7 +87,7 @@ jobs:
             echo "Superseded by main revision ${current}; dispatch again with its CI run." >> "${GITHUB_STEP_SUMMARY}"
           fi
       - name: Activate the exact prebuilt server
-        if: steps.current.outputs.deploy == 'true'
+        if: ${{ steps.current.outputs.deploy == 'true' }}
         id: deploy
         uses: risu729/wrangler-deploy-action@6a93154ef1c550b760d8582bcf59d8d4a0710788 # v2.2.1
         with:
@@ -100,7 +100,7 @@ jobs:
           production-strategy: versions
           deploy-triggers: "false"
       - name: Verify deployment readback and hosted revision
-        if: steps.current.outputs.deploy == 'true'
+        if: ${{ steps.current.outputs.deploy == 'true' }}
         env:
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment-id }}
           VERSION_ID: ${{ steps.deploy.outputs.version-id }}

@@ -1,6 +1,6 @@
-amends "https://raw.githubusercontent.com/risu729/hk-config/9e91957751c9c374bf5b3dafeff6b71d705a7919/presets.pkl"
+amends "https://raw.githubusercontent.com/risu729/hk-config/v3.1.0/presets.pkl"
 
-import "https://raw.githubusercontent.com/risu729/hk-config/9e91957751c9c374bf5b3dafeff6b71d705a7919/helpers.pkl"
+import "https://raw.githubusercontent.com/risu729/hk-config/v3.1.0/helpers.pkl"
 
 steps = (helpers.pick(new Listing {
   "oxlint"
