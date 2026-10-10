@@ -48,14 +48,30 @@ type DiagnosticPort = {
     nativeApplication?: string;
   };
 };
+type BootstrapConnection = {
+  name: string;
+  sender: {
+    id: string | undefined;
+    url: string | undefined;
+    documentId: string | undefined;
+    frameId: number | undefined;
+    hasTab: boolean;
+    hasNativeApplication: boolean;
+  };
+  contexts: unknown[];
+  contextReadFailed: boolean;
+};
 
 async function captureBootstrapMetadata(background: Worker) {
   await background.evaluate(() => {
     const scope = globalThis as unknown as {
       chrome: ExtensionChrome;
-      pateatHostBootstrap?: { connections: unknown[]; listener: (port: DiagnosticPort) => void };
+      pateatHostBootstrap?: {
+        connections: BootstrapConnection[];
+        listener: (port: DiagnosticPort) => void;
+      };
     };
-    const connections: unknown[] = [];
+    const connections: BootstrapConnection[] = [];
     // This test listener records browser identity only; it never reads Port
     // messages, command payloads, or native results.
     const listener = (port: DiagnosticPort) => {
@@ -93,7 +109,7 @@ async function captureBootstrapMetadata(background: Worker) {
       return background.evaluate(async () => {
         const scope = globalThis as unknown as {
           chrome: ExtensionChrome;
-          pateatHostBootstrap?: { connections: unknown[] };
+          pateatHostBootstrap?: { connections: BootstrapConnection[] };
         };
         return {
           connections: scope.pateatHostBootstrap?.connections ?? [],
@@ -203,6 +219,24 @@ function prohibitExternalRequests(context: BrowserContext) {
   return external;
 }
 
+function expectBrokerContext(active: Awaited<ReturnType<typeof contexts>>, extensionId: string) {
+  expect(active).toHaveLength(1);
+  expect(active[0]!.contextType).toBe("OFFSCREEN_DOCUMENT");
+  const url = new URL(active[0]!.documentUrl!);
+  expect(url.protocol).toBe("chrome-extension:");
+  expect(url.hostname).toBe(extensionId);
+  expect(url.pathname).toBe("/crypto-offscreen.html");
+  expect([...url.searchParams.keys()]).toEqual(["host"]);
+  expect(url.searchParams.get("host")).toMatch(/^[0-9a-f-]{36}$/iu);
+  expect(url.hash).toBe("");
+  // This browser value is opaque (currently 32 uppercase hex characters),
+  // independent of the application's UUID generations and session IDs.
+  expect(typeof active[0]!.documentId).toBe("string");
+  expect(active[0]!.documentId!.length).toBeGreaterThan(0);
+  expect(active[0]!.documentId!.length).toBeLessThanOrEqual(256);
+  return active[0]!;
+}
+
 test("actual offscreen sender binds its browser document and real native sessions resolve only granted fields", async () => {
   const testInfo = test.info();
   await withLoginExtension(async (context, background, extensionId) => {
@@ -219,12 +253,18 @@ test("actual offscreen sender binds its browser document and real native session
       await expect.poll(async () => (await status(page)).ready, { timeout: 5000 }).toBe(true);
       expect(await vectors).toEqual({ ok: true, data: expectedVectors });
       const active = await contexts(background);
-      expect(active).toHaveLength(1);
-      expect(active[0]).toMatchObject({
-        contextType: "OFFSCREEN_DOCUMENT",
-        documentUrl: `chrome-extension://${extensionId}/crypto-offscreen.html`,
+      const nativeContext = expectBrokerContext(active, extensionId);
+      const identity = await bootstrap.read();
+      expect(identity.connections).toHaveLength(1);
+      const sender = identity.connections[0]!.sender;
+      expect(sender).toMatchObject({
+        id: extensionId,
+        url: nativeContext.documentUrl,
+        hasTab: false,
+        hasNativeApplication: false,
       });
-      expect(active[0]!.documentId).toMatch(/^[0-9a-f-]{36}$/iu);
+      expect(sender.frameId).toBeUndefined();
+      if (sender.documentId !== undefined) expect(sender.documentId).toBe(nativeContext.documentId);
       expect(await status(page)).toMatchObject({
         ready: true,
         pending: 0,
@@ -414,7 +454,7 @@ test("service-worker restart destroys the held native session and replaces the o
           offscreenDocumentBound: true,
         });
       const oldGeneration = (await status(page)).generation;
-      const oldDocument = (await contexts(background))[0]!.documentId;
+      const oldContext = expectBrokerContext(await contexts(background), extensionId);
       await expect.poll(() => observed.created.size, { timeout: 5000 }).toBeGreaterThan(0);
       const retained = [...observed.created.keys()].filter((id) => !observed.destroyed.has(id));
       expect(retained.length).toBeGreaterThan(0);
@@ -434,7 +474,9 @@ test("service-worker restart destroys the held native session and replaces the o
           .poll(() => retained.every((id) => observed.destroyed.has(id)), { timeout: 5000 })
           .toBe(true);
         expect(await invoke(page, "vectors")).toEqual({ ok: true, data: expectedVectors });
-        expect((await contexts(background))[0]!.documentId).not.toBe(oldDocument);
+        const freshContext = expectBrokerContext(await contexts(background), extensionId);
+        expect(freshContext.documentId).not.toBe(oldContext.documentId);
+        expect(freshContext.documentUrl).not.toBe(oldContext.documentUrl);
       });
       // Require completion/closed-channel evidence for the original request, rather
       // than a transient empty result before asynchronous reconciliation finishes.

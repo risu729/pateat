@@ -139,8 +139,13 @@ unlock still need their own integration and acceptance tests.
 
 The background host uses a packaged offscreen document with the `WORKERS`
 reason to construct Dedicated Workers. A private runtime Port starts in that
-document; the background validates its browser-supplied sender and document ID
-against `runtime.getContexts`. Secret operations do not use broadcast messages.
+document; the background validates its browser-supplied extension identity and
+exact URL against the single live offscreen context from `runtime.getContexts`.
+Each host uses a fresh URL query to reject connections from a previous host.
+Chrome may omit the Port sender's document ID for this non-tab context; the live
+context supplies the authoritative opaque document ID, and any sender document
+ID that is present must match. Tab, frame and native-application senders are
+rejected. Secret operations do not use broadcast messages.
 The host exposes fixed authentication, session and field operations only to
 trusted background code, with no generic page-facing SDK API.
 

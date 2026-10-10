@@ -175,14 +175,14 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
   }
   async function connect(port: CryptoHostPort) {
     const sender = port.sender;
+    const connectingCreation = creation;
     if (
       disposed ||
       port.name !== CRYPTO_PORT ||
-      !creation ||
+      !connectingCreation ||
       !sender ||
       sender.id !== deps.extensionId ||
       sender.url !== deps.offscreenUrl ||
-      !sender.documentId ||
       sender.tab !== undefined ||
       sender.frameId !== undefined ||
       sender.nativeApplication !== undefined ||
@@ -192,18 +192,25 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return;
     }
     const contexts = await deps.getContexts().catch(() => []);
+    const context = contexts[0];
     if (
       disposed ||
       boundPort ||
-      !creation ||
-      !contexts.some(
-        (context) =>
-          context.documentId === sender.documentId && context.documentUrl === deps.offscreenUrl,
-      )
+      creation !== connectingCreation ||
+      contexts.length !== 1 ||
+      context?.documentUrl !== deps.offscreenUrl ||
+      typeof context.documentId !== "string" ||
+      context.documentId.length === 0 ||
+      context.documentId.length > 256 ||
+      (sender.documentId !== undefined && sender.documentId !== context.documentId)
     ) {
       port.disconnect();
       return;
     }
+    // Chrome's non-tab Port sender can omit documentId. The native singleton
+    // context ID is opaque (observed as 32 hex characters), not a UUID. Its exact
+    // fresh URL plus browser-reported sender identity binds this Port; a provided
+    // sender documentId must still match, rather than being ignored.
     boundPort = port;
     port.onDisconnect.addListener(() => invalidate(port));
     port.onMessage.addListener((message) => {
