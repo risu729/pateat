@@ -448,20 +448,21 @@ paired device's credential, applies active and revoked changes, and writes the c
 and recipes together, so a failed page or write leaves the previous consistent copy. It
 reads at most 50 pages per sync and refuses a page that moves the cursor backwards or
 does not advance it. The cache belongs to one paired device: a new pairing starts from
-an empty cache, nothing is served while no device is paired, and disconnecting clears
-it. Sync runs right after pairing completes, also when another device's sync is still
-running, and in the background when the worker starts, a lookup arrives or the settings
-page is open and the last attempt is more than five minutes old. The attempt time is
-stored, so a worker restart does not sync again sooner, and a 429 postpones background
-syncs, but not the one after pairing, for 15 minutes. A lookup does not wait for the
-network or for pairing and disconnect requests. The serialized cache is limited to 2 MiB
-of the extension's 10 MB `storage.local` quota, which it shares with the vault cache,
-settings and login attempts; a page that would exceed it is not applied, and the
-settings page says the recipes no longer fit. A 401 marks the device as rejected:
-syncing stops, login keeps using the cached recipes, and the settings page says to pair
-again. Lookup uses `selectLoginRecipe` for a new attempt and the recipe ID for a resumed
-one; two recipes starting on one page find no recipe. Unit tests use synthetic pages and
-in-memory storage; no running service has been tried.
+an empty cache, nothing is served while no device is paired or the pairing cannot be
+read, and disconnecting or forgetting an unreadable pairing clears it. Sync runs right
+after pairing completes, also when another device's sync is still running, and in the
+background when the worker starts, a lookup arrives or the settings page is open and the
+last attempt is more than five minutes old. The attempt time is stored, so a worker
+restart does not sync again sooner, and a 429 postpones background syncs, but not the
+one after pairing, for 15 minutes. A lookup does not wait for the network or for pairing
+and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
+MB `storage.local` quota, which it shares with the vault cache, settings and login
+attempts; a page that would exceed it is not applied, and the settings page says the
+recipes no longer fit. A 401 marks the device as rejected: syncing stops, login keeps
+using the cached recipes, and the settings page says to pair again. Lookup uses
+`selectLoginRecipe` for a new attempt and the recipe ID for a resumed one; two recipes
+starting on one page find no recipe. Unit tests use synthetic pages and in-memory
+storage; no running service has been tried.
 
 ### Remaining M4 service gaps
 
