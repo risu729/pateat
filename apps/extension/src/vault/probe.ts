@@ -2,7 +2,7 @@ import * as v from "valibot";
 import type { CryptoHost } from "../crypto/host";
 import { preparedVault } from "../../../../packages/bitwarden/src/__fixtures__/unlock";
 import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/account";
-import { v1Password } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
+import { uriCiphertexts, v1Password } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
 import { createIndexedDbVaultStore } from "./storage";
 import { createLocalVaultManager, type VaultCheckpoint, type LocalVaultHandle } from "./manager";
 import { MAX_VAULT_RECORD_BYTES, vaultFailure, type VaultEntry } from "./record";
@@ -11,7 +11,15 @@ const requestSchema = v.variant("action", [
   v.strictObject({
     type: v.literal("vault.probe"),
     action: v.literal("accept"),
-    kind: v.picklist(["v1", "v2", "organization", "corrupt-last", "unavailable"]),
+    kind: v.picklist([
+      "v1",
+      "v2",
+      "organization",
+      "corrupt-last",
+      "unavailable",
+      "uri",
+      "uri-without-context",
+    ]),
     autoUnlock: v.optional(v.picklist(["enable", "preserve"]), "enable"),
   }),
   v.strictObject({
@@ -29,6 +37,11 @@ const requestSchema = v.variant("action", [
       "oversize",
       "corrupt-key",
     ]),
+  }),
+  v.strictObject({
+    type: v.literal("vault.probe"),
+    action: v.literal("match"),
+    url: v.pipe(v.string(), v.maxLength(8192)),
   }),
   v.strictObject({
     type: v.literal("vault.probe"),
@@ -133,6 +146,23 @@ export function createVaultProbe(host: CryptoHost) {
           last.name = parts.join("|") as unknown as typeof last.name;
           prepared.ciphers.push(last);
         }
+        if (action.kind === "uri" || action.kind === "uri-without-context") {
+          // Fixed SDK-encrypted synthetic URI; the second rule uses the retained default.
+          const rule = { uri: uriCiphertexts.uri, uriChecksum: uriCiphertexts.checksum };
+          const login = prepared.ciphers[0]!.login!;
+          login.uris = [
+            { ...rule, match: 3 },
+            { ...rule, match: undefined },
+          ] as unknown as typeof login.uris;
+          if (action.kind === "uri-without-context") delete prepared.uriMatchContext;
+          // Same URI rules in trash and archive must never become page candidates.
+          for (const state of ["deletedDate", "archivedDate"] as const) {
+            const hidden = structuredClone(prepared.ciphers[0]!);
+            hidden.id = crypto.randomUUID() as unknown as typeof hidden.id;
+            hidden[state] = "2024-02-01T00:00:00.000Z" as unknown as (typeof hidden)[typeof state];
+            prepared.ciphers.push(hidden);
+          }
+        }
         if (action.kind === "unavailable") {
           prepared.unavailableItems.push({
             itemId: prepared.ciphers[0]!.id as unknown as string,
@@ -167,6 +197,8 @@ export function createVaultProbe(host: CryptoHost) {
         return manager.disableAutoUnlock();
       }
       if (action.action === "resolve") return resolves();
+      if (action.action === "match")
+        return handle ? manager.matchUris(handle, action.url) : vaultFailure("stale-vault-handle");
       if (action.action === "inspect") {
         const read = await store.read();
         if (!read.ok) return read;

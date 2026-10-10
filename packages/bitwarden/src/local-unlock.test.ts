@@ -158,6 +158,35 @@ describe("offline encrypted prepared-context admission", () => {
     expect(admitPreparedBitwardenAccount(prepared, accountProfile).ok).toBe(false);
   });
 
+  it("retains URI context and still admits older caches without it", () => {
+    const prepared = preparedVault();
+    prepared.uriMatchContext = {
+      equivalentDomains: [["example.com", "example.net"]],
+      defaultMatch: 3,
+    };
+    const admitted = admitPreparedBitwardenAccount(prepared, accountProfile);
+    expect(admitted.ok && admitted.data.uriMatchContext).toEqual(prepared.uriMatchContext);
+    delete prepared.uriMatchContext;
+    const older = admitPreparedBitwardenAccount(prepared, accountProfile);
+    expect(older.ok).toBe(true);
+    expect(older.ok && "uriMatchContext" in older.data).toBe(false);
+  });
+
+  it.each([
+    { equivalentDomains: [], defaultMatch: 9 },
+    { equivalentDomains: [["Example.com"]], defaultMatch: 0 },
+    { equivalentDomains: [], defaultMatch: 0, raw: "https://example.com" },
+  ])(
+    "drops a URI context that no longer readmits instead of rejecting the cache case %#",
+    (context) => {
+      const prepared = preparedVault();
+      (prepared as { uriMatchContext?: unknown }).uriMatchContext = context;
+      const admitted = admitPreparedBitwardenAccount(prepared, accountProfile);
+      expect(admitted.ok).toBe(true);
+      expect(admitted.ok && "uriMatchContext" in admitted.data).toBe(false);
+    },
+  );
+
   it("rejects duplicate supported and unavailable item identities", () => {
     const prepared = preparedVault();
     prepared.ciphers.push(structuredClone(prepared.ciphers[0]!));
