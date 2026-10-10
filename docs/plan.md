@@ -1,11 +1,10 @@
 # Implementation plan
 
-Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1).
-M1-M3 are in progress; M4-M6 are unstarted. The current foundation is not a working
-autologin product or a completed M1 acceptance claim.
-This plan becomes the single work tracker until an issue is needed for a concrete
-slice.
-Issues and PRs link to these gates rather than maintaining a second roadmap.
+Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1). M1-M3 are in
+progress; M5 has a proposed design and M4 and M6 are unstarted. The current foundation
+is not a working autologin product or a completed M1 acceptance claim. This plan becomes
+the single work tracker until an issue is needed for a concrete slice. Issues and PRs
+link to these gates rather than maintaining a second roadmap.
 
 ## Foundation progress
 
@@ -473,9 +472,12 @@ support for every site or vault format. Keep observed limitations explicit.
   distribution, memory/time and browser lifecycle. See
   [ADR 0005](adr/0005-bitwarden-local-crypto.md); do not implement cryptographic
   primitives ourselves or treat library adoption as compatibility proof.
-- Establish truthful UV/UP behavior before M5. Initial assertions use existing
-  zero-counter keys; nonzero-counter synchronization is deferred. Fully unattended
-  operation is not guaranteed for all requested ceremonies.
+- [ADR 0007](adr/0007-existing-passkey-assertions.md) sets the initial UV/UP
+  policy: UV clear, UP only with transient user activation and a preconfigured
+  account, and delegation to the browser otherwise. Nonzero-counter
+  synchronization is deferred. The owner must decide whether a per-site unattended
+  presence mode is acceptable before page-load or executor-triggered passkey login
+  can complete without a gesture.
 - Settle device enrollment/recovery, credential lifetime, AI pricing sources and
   the monthly monetary budget default before service deployment. Initial spending
   control aggregates usage and stops later inference after the limit is reached;
