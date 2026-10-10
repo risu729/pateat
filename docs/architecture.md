@@ -175,6 +175,22 @@ map and resolve Linked fields to their source. Second passwords and card PINs
 are valid field roles. Prefer explicit mappings; abstain from ambiguous mappings
 instead of trying every candidate. Values never go to inference.
 
+Local field snapshots detach supported decrypted items from caller mutation.
+References bind connection, user, item and snapshot identity; custom fields use
+snapshot-scoped positional IDs because Bitwarden does not supply a persistent
+field UUID. Resolution requires an explicit field allowlist. Linked aliases
+also require permission for every source field, and Boolean fields retain a
+typed Boolean result. Metadata lists never include field values or OTP seeds.
+The trusted host must assign a fresh snapshot UUID whenever captured item state
+changes; caller-supplied identifiers do not prove freshness or authorization.
+
+Snapshot-bound references alone do not preserve persistent exclusions. Before
+connecting this resolver to live settings/cache refresh, invalidate or explicitly
+rebind affected custom-field policies and recipes. A changed snapshot must never
+silently discard an exclusion or reinterpret an ordinal as another field.
+The isolated resolver rejects stale references; persistent reconciliation remains
+an integration gate.
+
 Generate TOTP locally and preserve stored parameters. Test raw Base32, standard
 TOTP URIs and Bitwarden's Steam variant. Unsupported OTP formats must not be
 silently interpreted as TOTP. Bitwarden setup's manually entered verification

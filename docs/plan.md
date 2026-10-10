@@ -79,12 +79,11 @@ Redirects, browser cookies, automatic retries and arbitrary caller-supplied
 request destinations are excluded. Response size, cancellation and parsing
 boundaries have synthetic tests; errors do not expose request or response bodies.
 
-This library is not connected to extension settings or a real vault. Token
-acquisition, supported MFA, authoritative cache reconciliation, field resolution,
-TOTP and persistent unlock remain outstanding. Synthetic fetch
-tests do not establish real-server compatibility or installed-Chrome permissions.
-The local cryptography slice below adds the approved SDK separately from these
-transport operations.
+This library is not connected to extension settings or a real vault. The isolated
+authentication and account-mapping operations are described below. Real-account
+MFA compatibility, authoritative cache reconciliation and persistent unlock remain
+outstanding. Synthetic fetch tests do not establish real-server compatibility or
+installed-Chrome permissions.
 
 ## Local cryptography progress
 
@@ -92,7 +91,9 @@ The next M3 slice uses the pinned official OSS SDK under its GPLv3 option, as
 approved in [ADR 0005](adr/0005-bitwarden-local-crypto.md). It introduces isolated
 local sessions, bounded PBKDF2/Argon2id admission, V1/V2 account initialization,
 strict cipher and stored-passkey decryption, and verified security-version
-checks. It does not yet map encrypted sync responses into those sessions.
+checks. The account mapper below prepares encrypted sync responses for these
+sessions; extension connection setup and persistent cache acceptance remain
+unimplemented.
 
 The pinned SDK's V2 version export also rewraps and re-signs an in-memory copy of
 verified key state. Pateat keeps only its version and does not send or persist
@@ -166,6 +167,28 @@ password wrapper is explicitly SDK-generated compatibility data; its signed
 account state and blob/plaintext anchors come from recorded upstream fixtures.
 This is not an independent password-wrapping known answer or real-account proof.
 The packaged browser probe includes both V1 and V2 mapping/password-unlock paths.
+
+## Local field and TOTP progress
+
+The isolated field resolver covers ordinary login, secure-note, card and identity
+values plus Text, Hidden, Boolean and Linked custom fields. It exposes value-free
+metadata and scoped references, preserves duplicate names and leading zeros, and
+requires an explicit allowlist for both a linked alias and its source fields.
+Disposing a snapshot prevents later resolution. The host must still enforce
+destination policy and invalidate stale operations.
+
+OTPAuth supplies local standard TOTP and Steam generation. Supported inputs are
+canonical Base32 and explicit TOTP URI parameters; unsupported algorithms and
+HOTP are explicit errors. OTP seeds are not field values or inference inputs.
+Independent RFC 6238 and pinned upstream answers, clock boundaries and the
+packaged MV3 probe are the verification gates for this slice.
+
+Production catalog/settings integration remains separate. In particular,
+snapshot-scoped custom references do not automatically reconcile persistent
+exclusions when fields are edited or reordered. Rebinding/invalidation must
+preserve denies before any live resolver is connected to settings or the executor.
+Persistent unlock, authenticated cache acceptance and URI eligibility remain
+unfinished M3 gates.
 
 ## Initial delivery and later scope
 
