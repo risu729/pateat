@@ -209,6 +209,41 @@ describe("same-account supplied equivalent domains", () => {
 });
 
 describe("strict destination and unsupported rule admission", () => {
+  it.each(["ssh:123/path.with.dot", "ssh:123?x=path.with.dot"])(
+    "does not reinterpret a nonweb scheme as a bare host because its path/query contains a dot: %s",
+    (uri) => {
+      const targetUrl = `http://${uri}`;
+      for (const match of [0, 1, 2, 3]) {
+        expect(matchBitwardenLoginUris(saved(uri, match), targetUrl)).toEqual({
+          ok: true,
+          data: {
+            matched: false,
+            targetOrigin: "http://ssh:123",
+            matches: [],
+            unavailableUris: [{ uriIndex: 0, reason: "unsupported-uri-scheme" }],
+          },
+        });
+      }
+    },
+  );
+
+  it.each(["example.com:123/path.with.dot", "example.com:123?x=path.with.dot"])(
+    "recognizes a bare host/port when the hostname itself contains a dot: %s",
+    (uri) => {
+      for (const match of [0, 1]) {
+        expect(matchBitwardenLoginUris(saved(uri, match), `http://${uri}`)).toEqual({
+          ok: true,
+          data: {
+            matched: true,
+            targetOrigin: "http://example.com:123",
+            matches: [{ uriIndex: 0, match }],
+            unavailableUris: [],
+          },
+        });
+      }
+    },
+  );
+
   // extractHostname:false assumes already valid hostnames. Empty labels must
   // be rejected before suffix splitting, which can collapse unrelated hosts.
   it.each(["foo..com", "foo.com..", ".example.com", "foo..com."])(

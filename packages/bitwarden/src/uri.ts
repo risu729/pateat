@@ -212,8 +212,8 @@ export function matchBitwardenLoginUris(
         return;
       }
       const scheme = /^([a-z][a-z0-9+.-]*):/iu.exec(stored.trim())?.[1]?.toLowerCase();
-      const bareHostPort =
-        stored.trim().includes(".") && /^[^/?#:@]+:[0-9]+(?:[/?#]|$)/u.test(stored.trim());
+      const bareHostname = /^([^/?#:@]+):[0-9]+(?:[/?#]|$)/u.exec(stored.trim())?.[1];
+      const bareHostPort = bareHostname?.includes(".") === true;
       if (scheme && scheme !== "http" && scheme !== "https" && !bareHostPort) {
         unavailable("unsupported-uri-scheme");
         return;
