@@ -1,5 +1,6 @@
 import { createLocalCryptoSession } from "../../../../packages/bitwarden/src/local-crypto";
 import { initializeSyntheticCryptoHost } from "./host";
+import { mappedAccountVectors } from "./account-vectors";
 import { derivePasswordAuthentication } from "../../../../packages/bitwarden/src/auth-crypto";
 import {
   authPassword,
@@ -126,6 +127,7 @@ void (async () => {
       sdk,
     );
     const checks = {
+      ...(await mappedAccountVectors(sdk)),
       pbkdf2: pbkdf.every((value, index) => value === pbkdf2Expected[index]),
       argon2id: argon.every((value, index) => value === argon2Expected[index]),
       loginMatches,

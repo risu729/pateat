@@ -50,6 +50,8 @@ test("packaged Dedicated Worker executes real SDK vectors without external reque
       v2Verified: true,
       authPbkdf2: true,
       authArgon2id: true,
+      mappedV1Login: true,
+      mappedV2Blob: true,
     });
     expect(wasmRequests).toHaveLength(1);
     expect(wasmRequests[0]).toMatch(new RegExp(`^chrome-extension://${extensionId}/`));
@@ -89,6 +91,8 @@ test("cancellation terminates the computing Worker and a fresh Worker remains us
       v2Verified: true,
       authPbkdf2: true,
       authArgon2id: true,
+      mappedV1Login: true,
+      mappedV2Blob: true,
     });
     expect(externalRequests).toEqual([]);
   });

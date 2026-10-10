@@ -29,6 +29,10 @@ magic links, session switching and separately authorized post-login operations,
 including transactions and approvals, are later product capabilities. They are
 not permanent exclusions and must not silently broaden the initial executor.
 Unsupported challenges produce specific results rather than indefinite retries.
+Prioritize ordinary login paths. Uncommon cases may remain explicitly
+unimplemented; report the unsupported capability without misclassifying it as
+bad credentials or attempting another method. An unsupported unrelated vault
+item must not prevent use of otherwise valid, supported login items.
 
 This targets locally installed Chrome. Running in a hosted browser depends on
 that environment allowing installation and storage; it is not an initial
@@ -94,12 +98,32 @@ The server can filter sync data according to client version and device capabilit
 headers. Record the protocol profile and validate completeness in the later
 adapter before replacing a usable cache; an intact outer envelope alone is not
 evidence that every vault item was returned.
-The isolated requests do not yet advertise `Bitwarden-Client-Version`. The
+Treat coverage as the received envelope only. The
+[pinned server restricts partial-cipher support to Web clients](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/src/Core/Vault/Authorization/PartialCipherSupport.cs),
+so an honest Chrome device profile can omit restricted items. Missing records
+cannot prove deletion. An explicitly unavailable item cannot authorize reuse of
+its old cached secret; cache reconciliation still needs its own integration.
+The isolated requests advertise the fixed read-protocol baseline
+`Bitwarden-Client-Version: 2026.2.0` and truthful Chrome `Device-Type: 2`. This is
+a protocol compatibility label, separate from Pateat's product version, and does
+not claim support for every official-client capability or item type. The
 [pinned server validator](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/src/Identity/IdentityServer/RequestValidators/ClientVersionValidator.cs)
-rejects existing-account authentication without that
-header. Surface this as protocol incompatibility; a tested, explicit compatibility
-profile is required before enabling provider setup. Omitting the header is not a
-usable compatibility strategy.
+requires a version header for existing accounts. Report version rejection as
+protocol incompatibility; do not retry with another version or device identity.
+
+The pure account mapper prepares trusted transport responses for local crypto.
+It correlates token subject, sync profile and a known account's canonical provider
+binding. Decoding unsigned JWT claims does not verify their signature or establish
+ownership; the calling host must preserve the fixed HTTPS response provenance.
+Authentication salt/KDF and vault-unlock salt/KDF remain independent. Incomplete
+modern account keys cannot fall back to legacy state. Previously verified account
+format and signed security-version floors must survive subsequent syncs.
+
+The initial mapper admits login, secure-note, card and identity items. Other
+types have explicit unavailable results containing only IDs and an unsupported
+reason. Validate uniqueness across both sets. No secrets from unavailable records
+may be released. Mapping success is preparation only; native cryptographic
+verification and later cache acceptance remain separate gates.
 
 The isolated local-crypto library uses the owner-approved official OSS SDK,
 with no SDK HTTP/token provider. It validates supported input shapes, rejects

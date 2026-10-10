@@ -79,6 +79,7 @@ describe("fixed password and refresh grants", () => {
     );
     expect(request.headers.get("accept")).toBe("application/json");
     expect(request.headers.get("device-type")).toBe("2");
+    expect(request.headers.get("bitwarden-client-version")).toBe("2026.2.0");
     expect(request.headers.has("authorization")).toBe(false);
     expect(request.headers.has("client-version")).toBe(false);
     expect(init).toMatchObject({
@@ -158,6 +159,7 @@ describe("fixed password and refresh grants", () => {
       refresh_token: "synthetic-refresh-token",
     });
     expect(request.headers.get("device-type")).toBe("2");
+    expect(request.headers.get("bitwarden-client-version")).toBe("2026.2.0");
     expect(request.headers.has("authorization")).toBe(false);
   });
 
