@@ -22,7 +22,8 @@ implementation commitments; the [plan](docs/plan.md) defines delivery boundaries
 The name comes from Latin _pateat_: "let it be open."
 
 **Status: Bitwarden connection preview.** The settings page saves local exclusion
-policies and next-login account defaults. A manual Bitwarden connection syncs the
+policies and next-login account defaults. It requests host access only for a
+configured provider. A manual Bitwarden connection syncs the
 vault, decrypts it locally with the official OSS SDK, keeps an encrypted cache with
 optional automatic unlock across browser restarts, and lists value-free metadata
 for those policies. Real-account compatibility is unverified. Production website
