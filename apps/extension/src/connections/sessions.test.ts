@@ -91,7 +91,7 @@ function harness() {
 describe("provider session record admission", () => {
   it("narrows the encrypted context and keeps tokens out of a refresh claim", async () => {
     const h = harness();
-    expect(await h.retain()).toEqual({ ok: true, data: true });
+    expect(await h.retain()).toEqual({ ok: true, data: expect.any(String) });
     const stored = h.memory.raw() as Record<string, unknown> & {
       accessToken?: unknown;
       refreshToken?: unknown;
@@ -402,7 +402,7 @@ describe("forget", () => {
     expect(h.memory.raw()).toBeUndefined();
     h.memory.set(other);
     // A password sign-in replaces it.
-    expect(await h.retain()).toEqual({ ok: true, data: true });
+    expect(await h.retain()).toEqual({ ok: true, data: expect.any(String) });
     expect(await h.sessions.status(accountProfile)).toBe("active");
     h.memory.set(other);
     // A non-null expected revision never overwrites an unadmittable record.

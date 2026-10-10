@@ -192,14 +192,18 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     reviews.set(profile.connectionId, adopted.policyReviewItemIds);
     flow.published = true;
     // A failed write leaves the cache usable; status then asks for sign-in before the next sync.
-    if (source.kind === "password")
-      await deps.sessions.retain(
+    if (source.kind === "password") {
+      const retained = await deps.sessions.retain(
         profile,
         authenticated,
         { userId: mapped.data.binding.userId, email: mapped.data.binding.email },
         accepted.data.summary.revision,
         source.receivedAt,
       );
+      // Permission removal may have forgotten the store before this write landed.
+      if (retained.ok && !(await deps.permissions.contains(profile).catch(() => false)))
+        await deps.sessions.discard(profile, retained.data);
+    }
     return {
       ok: true,
       kind: "ready",

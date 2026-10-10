@@ -980,6 +980,18 @@ describe("durable provider sessions", () => {
     await expect(h.service.permissionsRemoved()).resolves.toBeUndefined();
     expect(h.sessionMemory.raw()).toMatchObject({ state: "active" });
   });
+  it("a sign-in whose permission is removed after acceptance keeps no sync session", async () => {
+    const h = harness({ existing: true });
+    const accept = h.manager.accept.getMockImplementation()!;
+    h.manager.accept.mockImplementation(async (...input: Parameters<typeof accept>) => {
+      const result = await accept(...input);
+      h.permission(false);
+      return result;
+    });
+    await connected(h);
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.durable()?.state).toBe("active");
+  });
   it("permission removal forgets only connections whose provider lost access", async () => {
     const h = harness({ existing: true });
     await connected(h);

@@ -80,7 +80,7 @@ export function createProviderSessions(deps: {
       cacheRevision: string,
       /** When the token response was received, not when setup finished. */
       receivedAt: number,
-    ): Promise<VaultResult<true>> {
+    ): Promise<VaultResult<string>> {
       const encryptedAccount = narrowEncryptedAccount(authenticated.encryptedAccount);
       if (!encryptedAccount) return vaultFailure("invalid-response");
       const store = deps.storeFor(profile);
@@ -105,7 +105,7 @@ export function createProviderSessions(deps: {
         next,
         { cacheRevision },
       );
-      return written.ok ? { ok: true, data: true } : written;
+      return written.ok ? { ok: true, data: next.revision } : written;
     },
     /**
      * Return a usable authorization for one explicit sync, refreshing it at most once.
