@@ -80,20 +80,20 @@ verification/MFA through settings; record tested methods instead of claiming all
 methods work. Vaultwarden and special endpoint/certificate configurations are
 later compatibility work.
 
-The initial transport library fixes service paths for each selected environment.
-Reject endpoint credentials, query/fragment components and unsupported custom
-service layouts. Do not follow redirects or send browser cookies. Each provider
-operation owns its method, path and request shape; no generic authenticated
-request function is exposed. Bound response bytes while reading, support explicit
-cancellation and report sanitized errors without request bodies or tokens.
-Manual connection setup requests the canonical provider HTTPS hosts from the
-options page's user gesture. Runtime-discovered self-hosted origins use optional
-HTTPS host declarations; declarations do not grant every HTTPS host. The
-background rechecks actual permission before each provider operation and cancels
-affected authentication flows when permission is removed. Chrome's host grant
-does not constrain endpoint paths, so the fixed transport still enforces the
-configured origin, method and service path. Extension CSP permits HTTPS
-connections while keeping script sources packaged locally. See Chrome's
+The initial transport library fixes service paths for each selected environment. Reject
+endpoint credentials, query/fragment components and unsupported custom service layouts.
+Do not follow redirects or send browser cookies. Each provider operation owns its
+method, path and request shape; no generic authenticated request function is exposed.
+Bound response bytes while reading, support explicit cancellation and report sanitized
+errors without request bodies or tokens. Manual connection setup requests the canonical
+provider HTTPS hosts from the options page's user gesture. The install-time HTTPS site
+access of [ADR 0009](adr/0009-install-time-https-site-access.md) normally already covers
+them, so the request prompts only when the user has withheld site access. The background
+rechecks actual permission before each provider operation and cancels affected
+authentication flows when permission is removed. Chrome's host grant does not constrain
+endpoint paths, so the fixed transport still enforces the configured origin, method and
+service path. Extension CSP permits HTTPS connections while keeping script sources
+packaged locally. See Chrome's
 [optional permissions](https://developer.chrome.com/docs/extensions/reference/api/permissions)
 and
 [network request policy](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests).
@@ -322,11 +322,13 @@ vocabulary contains login operations only.
 
 ## Background execution
 
-Address tabs explicitly by `tabId`, frames by `frameId`, and documents by
-`documentId`. Never select the target by whichever tab happens to be active.
-Use declarative content scripts/host permissions and browser events, not a popup
-or focus event as the execution trigger. Inactive, frozen, discarded, and
-navigated documents are different states; only live documents can execute.
+Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
+Never select the target by whichever tab happens to be active. Use declarative content
+scripts/host permissions and browser events, not a popup or focus event as the execution
+trigger. A static content script runs on every top-level HTTPS page, but the background
+admits only exact saved-default origins
+([ADR 0009](adr/0009-install-time-https-site-access.md)). Inactive, frozen, discarded,
+and navigated documents are different states; only live documents can execute.
 
 Do not inject `chrome-extension://` iframes, automatic overlays, unlock windows,
 or passkey choosers into the flow. Start with no page UI; use an icon badge and

@@ -30,7 +30,12 @@ function writable(element: Element | undefined): element is HTMLInputElement {
   );
 }
 
-export function installLoginContent(): () => void {
+export interface LoginContentOptions {
+  /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
+  readonly probeStatus?: boolean;
+}
+
+export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = crypto.randomUUID();
   let cancelled = false;
   const used = new Set<string>();
@@ -55,17 +60,19 @@ export function installLoginContent(): () => void {
       return false;
     }
     if (command.type === "login.status") {
-      window.postMessage(
-        {
-          type: "pateat.login.probe.status",
-          status: {
-            state: command.state,
-            stepIndex: command.stepIndex,
-            ...(command.outcome ? { outcome: command.outcome } : {}),
+      // Pages are untrusted; only the synthetic probe fixture observes attempt status.
+      if (probeStatus)
+        window.postMessage(
+          {
+            type: "pateat.login.probe.status",
+            status: {
+              state: command.state,
+              stepIndex: command.stepIndex,
+              ...(command.outcome ? { outcome: command.outcome } : {}),
+            },
           },
-        },
-        location.origin,
-      );
+          location.origin,
+        );
       respond({ ok: true });
       return false;
     }

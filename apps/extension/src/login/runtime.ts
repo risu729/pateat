@@ -38,6 +38,7 @@ import {
   probeRecipe,
   type ProbeAccount,
 } from "./dummy";
+import type { LoginSites } from "./sites";
 import type { LoginFieldSource } from "./vault";
 
 const STORAGE_KEY = "pateat.login-attempts.v1";
@@ -61,11 +62,28 @@ type Execution = {
 const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);
 
+/** Saved local recipes and their explicit account bindings. Neither carries values. */
+export interface LoginRecipes {
+  /** The recipe for a document, or an attempt's own recipe by ID after navigation. */
+  recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
+  binding(recipe: LoginRecipe): Promise<LoginAccountBinding | undefined>;
+}
+export const noLoginRecipes: LoginRecipes = {
+  recipe: async () => undefined,
+  binding: async () => undefined,
+};
+const probeMode = import.meta.env.MODE === "probe";
+
 /**
- * Coordinator is reusable packaged code; only this adapter's entry points are probe gated.
+ * Coordinator is packaged production code. Production admits only `sites` documents and
+ * uses `recipes`; the loopback probe adapter and its controls exist only in the probe build.
  * Account metadata comes from each live settings read; values come from `fields` per fill.
  */
-export function createLoginRuntime(settings: SettingsRuntime, fields: LoginFieldSource) {
+export function createLoginRuntime(
+  settings: SettingsRuntime,
+  options: { fields: LoginFieldSource; sites?: LoginSites; recipes?: LoginRecipes },
+) {
+  const { fields, sites, recipes = noLoginRecipes } = options;
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<number, LiveDocument>();
@@ -101,7 +119,7 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
       await browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
       const storage = await browser.storage.local.get([STORAGE_KEY, CONFIG_KEY]);
       const config: unknown = storage[CONFIG_KEY];
-      if (config !== undefined) {
+      if (probeMode && config !== undefined) {
         const parsed = v.parse(configureSchema, {
           version: 1,
           type: "login.probe.configure",
@@ -128,7 +146,10 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
       storageHealthy = false;
     }
   })();
-  function identify(sender: Sender): LoginDocument | undefined {
+  const hellos = new Map<number | undefined, number>();
+  const probeDocument = (url: URL) =>
+    probeMode && url.origin === origin && url.protocol === "http:" && url.hostname === "127.0.0.1";
+  async function identify(sender: Sender): Promise<LoginDocument | undefined> {
     if (
       sender.id !== browser.runtime.id ||
       sender.tab?.id === undefined ||
@@ -139,8 +160,7 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
       return undefined;
     try {
       const url = new URL(sender.url);
-      if (url.origin !== origin || url.protocol !== "http:" || url.hostname !== "127.0.0.1")
-        return undefined;
+      if (!probeDocument(url) && !(sites && (await sites.admits(url)))) return undefined;
       return {
         origin: url.origin,
         tabId: sender.tab.id,
@@ -209,19 +229,15 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
     }).catch(() => undefined);
   }
   /** One saved account must resolve from a usable connection, and its item must not await review. */
-  function planFor(
+  async function planFor(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     url: string,
     recipe: LoginRecipe,
   ) {
-    const catalog = grantProbeOrigin(snapshot.catalog, origin, account);
-    const plan = resolveLoginPlan(
-      snapshot.snapshot,
-      catalog,
-      url,
-      recipe,
-      probeBinding(recipe, account),
-    );
+    const probe = probeMode && recipe.origin === origin;
+    const catalog = probe ? grantProbeOrigin(snapshot.catalog, origin, account) : snapshot.catalog;
+    const binding = probe ? probeBinding(recipe, account) : await recipes.binding(recipe);
+    const plan = resolveLoginPlan(snapshot.snapshot, catalog, url, recipe, binding);
     if (!plan.ok) return plan;
     const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
     if (
@@ -245,7 +261,7 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
       await change(run, { type: "POLICY_CHANGED" });
       return undefined;
     }
-    const plan = planFor(snapshot, `${run.live.document.origin}${run.live.path}`, run.recipe);
+    const plan = await planFor(snapshot, `${run.live.document.origin}${run.live.path}`, run.recipe);
     if (
       !plan.ok ||
       plan.account.connectionId !== run.metadata.account.connectionId ||
@@ -468,9 +484,14 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
   }
   /* eslint-enable no-await-in-loop */
   async function ready(sender: Sender, token: string): Promise<{ ok: boolean; reason?: string }> {
+    // Admission is async; a later hello from the same tab must not be overtaken by an older one.
+    const tabId = sender.tab?.id;
+    const sequence = (hellos.get(tabId) ?? 0) + 1;
+    hellos.set(tabId, sequence);
     await loaded;
-    const document = identify(sender);
+    const document = await identify(sender);
     if (!document || !sender.url) return { ok: false, reason: "unauthorized-document" };
+    if (hellos.get(tabId) !== sequence) return { ok: false, reason: "stale-document" };
     const oldLive = documents.get(document.tabId);
     if (oldLive && sameLoginDocument(oldLive.document, document))
       return { ok: false, reason: "duplicate-document" };
@@ -484,6 +505,22 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
       return { ok: false, reason };
     };
     if (!storageHealthy) return refuse("storage-unavailable");
+    const previous = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    // Look up the recipe first: a page without one never opens the policy catalog or vault.
+    const recipe =
+      probeMode && document.origin === origin
+        ? previous
+          ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
+          : probeRecipe(origin, live.path)
+        : await recipes.recipe(document.origin, live.path, previous?.recipeId);
+    if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
+    // A resumed attempt keeps its own recipe; a different saved recipe never takes it over.
+    if (
+      !recipe ||
+      recipe.origin !== document.origin ||
+      (previous && previous.recipeId !== recipe.id)
+    )
+      return refuse("recipe-not-found");
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return refuse(snapshot.error.code);
     if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
@@ -500,17 +537,14 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
     } catch {
       return refuse("closed-tab");
     }
-    const previous = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
-    const recipe = previous
-      ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
-      : probeRecipe(origin, live.path);
-    if (!recipe) return refuse("recipe-not-found");
-    const plan = planFor(snapshot, sender.url, recipe);
+    const plan = await planFor(snapshot, sender.url, recipe);
+    if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
     if (!plan.ok) return refuse(plan.reason);
     // Cookies can be shared across tabs. Preserve this conservative origin owner even at terminal state until tab closure.
     if (
       [...persisted.values()].some(
-        (entry) => entry.account.origin === origin && entry.document.tabId !== document.tabId,
+        (entry) =>
+          entry.account.origin === document.origin && entry.document.tabId !== document.tabId,
       )
     )
       return refuse("origin-busy");
@@ -529,7 +563,11 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
           id: crypto.randomUUID(),
           recipe,
           policyRevision: snapshot.snapshot.revision,
-          account: { origin, connectionId: plan.account.connectionId, itemId: plan.account.itemId },
+          account: {
+            origin: document.origin,
+            connectionId: plan.account.connectionId,
+            itemId: plan.account.itemId,
+          },
           document,
         }),
         { type: "RESOLVE" },
@@ -543,9 +581,10 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
     return { ok: true };
   }
   async function handle(message: unknown, sender: Sender): Promise<unknown> {
-    if (trusted(sender)) {
+    // Probe controls are compiled into every build but answer only in the probe build.
+    if (probeMode && trusted(sender)) {
       const control = v.safeParse(probeControlSchema, message);
-      if (control.success && import.meta.env.MODE === "probe") {
+      if (control.success) {
         if (control.output.action === "release") {
           if (!releaseCheckpoint) return { ok: false, reason: "checkpoint-not-paused" };
           releaseCheckpoint();
@@ -597,7 +636,7 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
     if (hello.success) return ready(sender, hello.output.token);
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
-    const document = identify(sender);
+    const document = await identify(sender);
     if (!document) return false;
     const run = attempts.get(document.tabId);
     if (
@@ -627,6 +666,7 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
     }
   }
   browser.tabs.onRemoved.addListener((tabId) => {
+    hellos.delete(tabId);
     documents.delete(tabId);
     attempts.delete(tabId);
     storageQueue = storageQueue
@@ -645,7 +685,12 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
   void loaded
     .then(async () => {
       if (!storageHealthy) return undefined;
-      const tabs = await browser.tabs.query({ url: `${origin}/*` });
+      const patterns = [
+        ...(probeMode ? [`${origin}/*`] : []),
+        ...(sites ? (await sites.origins()).map((entry) => `${entry}/*`) : []),
+      ];
+      if (!patterns.length) return undefined;
+      const tabs = await browser.tabs.query({ url: patterns });
       for (const tab of tabs) {
         if (tab.id !== undefined)
           void browser.tabs

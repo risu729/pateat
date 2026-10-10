@@ -3,6 +3,7 @@ import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
+import { createLoginSites } from "../src/login/sites";
 import { combineFieldSources, createVaultFieldSource, dummyFieldSource } from "../src/login/vault";
 import { createBrowserCryptoHost } from "../src/crypto/browser";
 import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/probe";
@@ -34,16 +35,13 @@ export default defineBackground(() => {
       : {}),
   });
   const settings = connections.settings;
-  // Site execution remains probe-gated until production document admission is added.
-  const login = catalog
-    ? createLoginRuntime(
-        settings,
-        combineFieldSources({
-          dummy: dummyFieldSource,
-          bitwarden: createVaultFieldSource(connections),
-        }),
-      )
-    : undefined;
+  const login = createLoginRuntime(settings, {
+    fields: combineFieldSources({
+      bitwarden: createVaultFieldSource(connections),
+      ...(catalog ? { dummy: dummyFieldSource } : {}),
+    }),
+    sites: createLoginSites(settings),
+  });
   const setupProbe = syntheticSetup?.handler(connections);
   const passkeyProbe = import.meta.env.MODE === "probe" ? createProbePasskeySource() : undefined;
   const passkeys = passkeyProbe
@@ -109,7 +107,7 @@ export default defineBackground(() => {
     ) {
       void settings.handle(message).then((response) => {
         if (message.type === "settings.save" && response.ok) {
-          login?.settingsChanged();
+          login.settingsChanged();
           passkeys?.cancelAll();
         }
         return sendResponse(response);
@@ -125,7 +123,6 @@ export default defineBackground(() => {
     }
 
     if (
-      login &&
       message !== null &&
       typeof message === "object" &&
       typeof message.type === "string" &&
