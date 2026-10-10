@@ -319,7 +319,7 @@ export function createSettingsSync(options: {
       if (!equalSynced(merged, localSynced)) {
         // A policy write now would stop a login in progress; a later sync applies it.
         // oxlint-disable-next-line no-await-in-loop -- decides this attempt's write
-        if (await holdForLogin()) return "busy";
+        if (await holdForLogin(stale)) return "busy";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
           await settings.update(local.revision, (snapshot) => ({
@@ -341,7 +341,7 @@ export function createSettingsSync(options: {
   }
 
   /** Waits for a running login, but not longer than the limit since the first wait. */
-  async function holdForLogin(): Promise<boolean> {
+  async function holdForLogin(stale: () => boolean): Promise<boolean> {
     if (!(await options.deferred?.())) return false;
     const at = now();
     let since: number | undefined;
@@ -354,6 +354,8 @@ export function createSettingsSync(options: {
       return false;
     }
     if (since === undefined) {
+      // A disconnect meanwhile cleared the hold; it does not carry over to a new pairing.
+      if (stale()) return true;
       since = at;
       try {
         await hold.write(since);

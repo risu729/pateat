@@ -134,6 +134,7 @@ function setup(
   return {
     sync: start(),
     restart: start,
+    hold,
     store,
     transport,
     storage,
@@ -734,6 +735,67 @@ describe("settings sync after the first", () => {
     time += MAX_SETTINGS_DEFER_MS / 2;
     expect(await restart().run(CONNECTION, never)).toBe("synced");
     expect(after()?.settings.excludedSites).toEqual([]);
+  });
+
+  it("starts the wait again when the stored start is in the future", async () => {
+    const { sync, hold } = setup({
+      local: agreed,
+      service: state(5, { ...agreed, excludedSites: [] }),
+      base: baseOf(4, agreed),
+      deferred: () => true,
+      now: () => 1000,
+    });
+    await hold.write(1000 + MAX_SETTINGS_DEFER_MS * 10);
+    expect(await sync.run(CONNECTION, never)).toBe("busy");
+    expect(await hold.read()).toBe(1000);
+  });
+
+  it.each(["read", "write"] as const)(
+    "writes local settings when the stored wait fails to %s",
+    async (method) => {
+      const {
+        sync,
+        hold,
+        local: after,
+      } = setup({
+        local: agreed,
+        service: state(5, { ...agreed, excludedSites: [] }),
+        base: baseOf(4, agreed),
+        deferred: () => true,
+      });
+      hold[method].mockRejectedValue(new Error("synthetic storage failure"));
+      expect(await sync.run(CONNECTION, never)).toBe("synced");
+      expect(after()?.settings.excludedSites).toEqual([]);
+    },
+  );
+
+  it("forgets the wait on disconnect", async () => {
+    const { sync, hold } = setup({
+      local: agreed,
+      service: state(5, { ...agreed, excludedSites: [] }),
+      base: baseOf(4, agreed),
+      deferred: () => true,
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("busy");
+    expect(await hold.read()).toBeTypeOf("number");
+    await sync.clear();
+    expect(await hold.read()).toBeUndefined();
+  });
+
+  it("forgets the wait once the local write is done", async () => {
+    // Running when the first sync starts and decides; the second sync sees the login
+    // still running at its start but finished when it writes.
+    const answers = [true, true, true, false];
+    const { sync, hold } = setup({
+      local: agreed,
+      service: state(5, { ...agreed, excludedSites: [] }),
+      base: baseOf(4, agreed),
+      deferred: () => answers.shift() ?? false,
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("busy");
+    expect(await hold.read()).toBeTypeOf("number");
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(await hold.read()).toBeUndefined();
   });
 
   it("waits the full time again for a later login", async () => {

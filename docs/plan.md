@@ -493,9 +493,9 @@ service whose revision went back below the stored one or matches it with other c
 both sides' entries are kept, the service wins where they differ, and nothing is
 removed. A service restored to an older state whose revision has since passed the stored
 one is merged against the stored base, so its removals apply. Writing the base is best
-effort; when that write fails, the next sync uses the older base, which can drop a local
-edit that sets an entry back to its value in that older base. Disconnecting forgets the
-base but keeps local settings, so pairing with another owner's service uploads this
+effort; when that write fails, the next sync uses the older base, which can drop a later
+local edit to an entry that the sync with the lost base changed. Disconnecting forgets
+the base but keeps local settings, so pairing with another owner's service uploads this
 device's synced settings there. The merge is written back with a conditional
 `PUT /v1/settings`, and a stale service or local revision merges again, in up to three
 attempts per sync. A merge over the settings limits (1,000 entries per list, or an
