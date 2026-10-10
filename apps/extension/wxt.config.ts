@@ -33,7 +33,13 @@ export default defineConfig({
     "entrypoints:found"(wxt, entrypoints) {
       // These scripts are compatibility experiments, never production features.
       if (wxt.config.mode !== "probe") return;
-      for (const name of ["probe-main", "probe-isolated", "login-probe"]) {
+      for (const name of [
+        "probe-main",
+        "probe-isolated",
+        "login-probe",
+        "passkey-main",
+        "passkey-isolated",
+      ]) {
         entrypoints.push({
           name,
           inputPath: fileURLToPath(

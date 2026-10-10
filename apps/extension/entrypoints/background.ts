@@ -10,6 +10,8 @@ import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/prob
 import { createVaultProbe } from "../src/vault/probe";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
+import { createProbePasskeySource } from "../src/passkeys/probe";
+import { createPasskeyRuntime } from "../src/passkeys/runtime";
 
 export default defineBackground(() => {
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
@@ -41,6 +43,15 @@ export default defineBackground(() => {
     sites: createLoginSites(settings),
   });
   const setupProbe = syntheticSetup?.handler(connections);
+  const passkeyProbe = import.meta.env.MODE === "probe" ? createProbePasskeySource() : undefined;
+  const passkeys = passkeyProbe
+    ? createPasskeyRuntime(passkeyProbe.source, {
+        extensionId: browser.runtime.id,
+        timeoutMs: passkeyProbe.timeoutMs,
+        policy: passkeyProbe.policy,
+      })
+    : undefined;
+
   browser.runtime.onConnect.addListener((port) => {
     connections.attach(port);
   });
@@ -95,7 +106,10 @@ export default defineBackground(() => {
       (message.type === "settings.get" || message.type === "settings.save")
     ) {
       void settings.handle(message).then((response) => {
-        if (message.type === "settings.save" && response.ok) login.settingsChanged();
+        if (message.type === "settings.save" && response.ok) {
+          login.settingsChanged();
+          passkeys?.cancelAll();
+        }
         return sendResponse(response);
       });
       return true;
@@ -117,6 +131,33 @@ export default defineBackground(() => {
       void login
         .handle(message, sender)
         .then(sendResponse, () => sendResponse({ ok: false, reason: "runtime-unavailable" }));
+      return true;
+    }
+
+    if (
+      passkeyProbe &&
+      sender.id === browser.runtime.id &&
+      sender.url === browser.runtime.getURL("/options.html") &&
+      message !== null &&
+      typeof message === "object" &&
+      typeof message.type === "string" &&
+      message.type.startsWith("passkey.probe.")
+    ) {
+      sendResponse(passkeyProbe.control(message));
+      return false;
+    }
+    if (
+      passkeys &&
+      message !== null &&
+      typeof message === "object" &&
+      typeof message.type === "string" &&
+      message.type.startsWith("passkey.")
+    ) {
+      void passkeys
+        .handle(message, sender)
+        .then(sendResponse, () =>
+          sendResponse({ kind: "delegate", reason: "runtime-unavailable" }),
+        );
       return true;
     }
 

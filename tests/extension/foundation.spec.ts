@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SettingsResponse } from "../../packages/contracts/src/index";
+import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const extensionDirectory = resolve(repository, "apps/extension/.output/chrome-mv3");
@@ -88,6 +89,7 @@ test("production package permits local storage, the crypto host and one HTTPS lo
     "utf8",
   );
   expect(background).not.toContain("pateat.test.document");
+  expect(background).not.toContain(PROBE_PASSKEY.credentialPrivateKey);
   const notices = await readFile(resolve(extensionDirectory, "THIRD-PARTY-NOTICES.md"), "utf8");
   expect(notices).toContain("Copyright (c) 2023 shadcn");
   expect(notices).toContain("MIT License");
@@ -99,14 +101,16 @@ test("production package permits local storage, the crypto host and one HTTPS lo
   expect(probeManifest.permissions).toEqual(["storage", "offscreen"]);
   expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toEqual(["https://*/*"]);
-  expect(
-    probeManifest.content_scripts.every(
-      (script: { matches: string[]; js: string[] }) =>
-        script.matches.every((match) => match === "http://127.0.0.1/*") ||
-        (script.js.join() === "content-scripts/login.js" &&
-          script.matches.join() === "https://*/*"),
-    ),
-  ).toBe(true);
+  // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.
+  // The production HTTPS login script is shared with the probe build.
+  for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
+    expect(script.matches).toEqual(
+      script.js.join() === "content-scripts/login.js"
+        ? ["https://*/*"]
+        : script.js.some((file) => /\/passkey-(?:main|isolated)\.js$/u.test(file))
+          ? ["http://localhost/*"]
+          : ["http://127.0.0.1/*"],
+    );
 });
 
 test("probe options support keyboard policy validation and pass accessibility checks", async () => {

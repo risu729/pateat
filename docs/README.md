@@ -5,9 +5,11 @@ contracts, isolated transport/local-crypto libraries, a packaged offscreen crypt
 a local vault cache with offline restoration, a localhost-only synthetic login executor
 probe, a device-authenticated settings/recipe sync Worker skeleton and
 CI/manual-delivery foundations. Connection setup and its live metadata integration
-passed synthetic native-browser tests; real-account compatibility is unproven.
-Production login activation, service enrollment, inference and passkey execution remain
-unimplemented. The service is not deployed. The initial design was adopted in
+passed synthetic native-browser tests; real-account compatibility is unproven. An
+offline AI evaluation harness scores role adapters on a synthetic Japanese/English
+corpus with fake providers only. Production login activation, service enrollment,
+provider inference and passkey execution remain unimplemented. The service is not
+deployed. The initial design was adopted in
 [PR #1](https://github.com/risu729/pateat/pull/1).
 
 The architecture describes the agreed product boundaries; the plan separates

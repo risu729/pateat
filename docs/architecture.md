@@ -398,7 +398,10 @@ Abstain on insufficient evidence; model confidence never grants permission.
 Bound the full input, including candidate/question text, and reject incomplete
 observations instead of relying on provider truncation.
 
-Extract an allowlisted observation before filling. Exclude values, hidden inputs,
+Extract an allowlisted observation before filling. The proposed observation contract
+and offline role adapters live in `packages/inference` until the service shares them;
+see [AI evaluation harness progress](plan.md#ai-evaluation-harness-progress).
+Exclude values, hidden inputs,
 raw HTML, screenshots, query strings, and unrelated page text by default. Labels
 can contain private data too: sanitize and bound them, with privacy fixtures and
 an abstention path when a useful safe observation cannot be constructed. Model
@@ -442,8 +445,9 @@ keys cannot be unlocked merely by changing flags. Conditional mediation and simu
 official-Bitwarden interception require separate compatibility tests.
 
 The bridge, admission rules, assertion format and unattended presence and
-verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). The
-assertion core is implemented but not yet connected to pages or the vault.
+verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Only
+the probe build connects the core to pages, through the bridge with a synthetic
+credential source; the vault is not yet connected.
 
 ## Minimal service
 
