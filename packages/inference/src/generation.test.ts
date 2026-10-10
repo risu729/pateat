@@ -83,6 +83,24 @@ describe("recipe generation role", () => {
     expect(call.maxOutputTokens).toBe(512);
   });
 
+  it("sends field names, value shapes and input constraints but never values", async () => {
+    const bank = evaluationCorpus.find((item) => item.id === "ja-bank-unlabeled-lengths")!;
+    const model = oracleGenerator();
+    const generate = createRecipeGenerator({ model, limits, maxOutputTokens: 512 });
+    expect(await generate({ observation: bank.observation, slots: bank.slots })).toMatchObject({
+      status: "ok",
+    });
+    const call = model.doGenerateCalls[0]!;
+    expect(generationRequest(call)).toMatchObject({
+      slots: bank.slots,
+      observation: bank.observation,
+    });
+    const sent = JSON.stringify(call.prompt);
+    expect(sent).toContain("口座番号");
+    expect(sent).toContain('\\"maxLength\\":7');
+    for (const value of Object.values(bank.values!)) expect(sent).not.toContain(value);
+  });
+
   it("passes explicit abstention through", async () => {
     const { generate } = generatorReturning(
       JSON.stringify({ result: { decision: "abstain", reason: "unsafe-instructions" } }),

@@ -420,7 +420,15 @@ not counted). SDK telemetry is disabled per call so prompts, page text and outpu
 reach global integrations. The finite-choice state carries page context and slot
 meanings only; eligible elements appear solely as question options.
 
-A 15-page synthetic Japanese/English corpus covers bank branch/account/password,
+Per [ADR 0009](adr/0009-inference-field-hints.md), slots may name the allowed vault
+field and give the coarse shape (length, character classes, email form) of a login
+username or Text field value, and observations carry page `maxLength`, `minLength` and
+`inputMode`. `checkPlanValues` checks a plan against the real values before filling and
+turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
+carries synthetic values. The vault adapter and runtime do not supply these hints yet.
+
+A 16-page synthetic Japanese/English corpus covers bank branch/account/password
+(including an unlabeled page distinguishable only by length),
 identifier-first and password steps, one-time codes, decoy search/sign-up/SSO controls,
 label injection, unlabeled ambiguity and a page without a login form. The harness
 reports semantic accuracy, false submits, abstentions, joint-mapping rejections,
@@ -430,9 +438,10 @@ oversized and incomplete inputs and the absence of fallback.
 
 No provider or model is selected and no paid inference has run. Remaining M4 AI work:
 provider adapters after owner selection, real benchmark runs and their report, the
-service route and monthly spend stop, and the extension observation extractor with
-privacy fixtures. Move the observation contract to `packages/contracts` when the
-service shares it.
+service route and monthly spend stop, the extension observation extractor with privacy
+fixtures, and supplying ADR 0009 hints from the vault adapter with the local value check
+in the runtime. Move the observation contract to `packages/contracts` when the service
+shares it.
 
 ## Initial delivery and later scope
 

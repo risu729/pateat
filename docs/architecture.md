@@ -248,7 +248,10 @@ Handle all custom field types: Text, Hidden, Boolean and Linked. Preserve leadin
 zeros and duplicate names; use stable field references rather than a name-only
 map and resolve Linked fields to their source. Second passwords and card PINs
 are valid field roles. Prefer explicit mappings; abstain from ambiguous mappings
-instead of trying every candidate. Values never go to inference.
+instead of trying every candidate. Values never go to inference; allowed field names
+and the coarse shape of visible identifier values may
+([ADR 0009](adr/0009-inference-field-hints.md)), and a plan is checked against the real
+values locally before filling.
 
 Local field snapshots detach supported decrypted items from caller mutation.
 References bind connection, user, item and snapshot identity; custom fields use

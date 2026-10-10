@@ -51,6 +51,44 @@ describe("evaluation harness", () => {
     });
   });
 
+  it("turns plans that contradict the real values into value-mismatch abstentions", async () => {
+    const bank = evaluationCorpus.find((item) => item.id === "ja-bank-unlabeled-lengths")!;
+    const unchecked = await evaluateRole({
+      cases: [bank],
+      run: async (entry) => firstMatch(entry),
+    });
+    expect(unchecked.cases[0]!.verdict).toBe("false-submit");
+    const checked = await evaluateRole({
+      cases: [bank],
+      run: async (entry) => firstMatch(entry),
+      checkValues: true,
+    });
+    expect(checked.cases[0]).toMatchObject({ verdict: "missed", reason: "value-mismatch" });
+    expect(checked.abstentions).toEqual({ "value-mismatch": 1 });
+    expect(checked.falseSubmits).toBe(0);
+  });
+
+  it("keeps every ground-truth plan consistent with its synthetic values", async () => {
+    const report = await evaluateRole({
+      cases: evaluationCorpus,
+      checkValues: true,
+      run: async (entry) => {
+        if (entry.expected.kind === "abstain")
+          return { status: "abstained", reason: "ambiguous", calls: 0, usage };
+        const result = validatePagePlan(entry.observation, entry.slots, {
+          fields: Object.entries(entry.expected.fields).map(([slot, candidate]) => ({
+            slot,
+            candidate,
+          })),
+          action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
+        });
+        if (!result.ok) throw new Error(entry.id);
+        return { status: "ok", value: result.plan, calls: 0, usage };
+      },
+    });
+    expect(report.semanticAccuracy).toBe(1);
+  });
+
   it("separates abstentions, misses and failures", async () => {
     const plain = evaluationCorpus.find((item) => item.id === "en-basic")!;
     const ambiguous = evaluationCorpus.find((item) => item.id === "ja-unlabeled-ambiguous")!;

@@ -27,7 +27,9 @@ export type AbstentionReason =
   | "low-confidence"
   | "missing-probabilities"
   | "inconsistent-mapping"
-  | "no-action";
+  | "no-action"
+  /** The local value check rejected the mapping; see `checkPlanValues`. */
+  | "value-mismatch";
 
 /**
  * Every role returns one of these local outcomes. Diagnostics carry codes only;

@@ -67,6 +67,23 @@ describe("finite-choice decision role", () => {
     ]);
   });
 
+  it("offers field names, value shapes and input constraints but never values", async () => {
+    const bank = evaluationCorpus.find((item) => item.id === "ja-bank-unlabeled-lengths")!;
+    const questions = buildFieldQuestions(bank.observation, bank.slots);
+    expect(questions["slot:branch-number"]!.criteria["c:field-b"]).toEqual({
+      role: "tel",
+      maxLength: 3,
+      inputMode: "numeric",
+    });
+    const model = oracleDecider();
+    const outcome = await decider(model)({ observation: bank.observation, slots: bank.slots });
+    expect(outcome.status).toBe("ok");
+    const sent = JSON.stringify(model.calls[0]);
+    expect(sent).toContain("支店番号");
+    expect(sent).toContain('"valueShape":{"length":3,"classes":["ascii-digit"],"email":false}');
+    for (const value of Object.values(bank.values!)) expect(sent).not.toContain(value);
+  });
+
   it("returns a validated plan and derives the submit purpose locally", async () => {
     const model = answering(correct);
     const outcome = await decider(model)(request);
