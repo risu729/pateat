@@ -1,11 +1,11 @@
 # Implementation plan
 
-Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1). M1-M3 are in
-progress; M4 has an offline AI harness slice; M5 has a proposed design and its first
-slice; M6 is unstarted. The current foundation is not a working autologin product or a
-completed M1 acceptance claim. This plan becomes the single work tracker until an issue
-is needed for a concrete slice. Issues and PRs link to these gates rather than
-maintaining a second roadmap.
+Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1). M1-M4 are in
+progress (M4 has a sync skeleton and an offline AI harness slice); M5 has a proposed
+design and its first slice; M6 is unstarted. The current foundation is not a working
+autologin product or a completed M1 acceptance claim. This plan becomes the single work
+tracker until an issue is needed for a concrete slice. Issues and PRs link to these
+gates rather than maintaining a second roadmap.
 
 ## Foundation progress
 
@@ -359,6 +359,33 @@ Primary sources:
 [refresh response model](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/auth/models/response/refresh-token.response.ts)
 and
 [refreshed membership claims](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/test/Identity.IntegrationTest/Grants/RefreshTokenGrantTests.cs#L69-L106).
+
+## Service sync progress
+
+The first M4 slice turns the health-only Worker into a device-authenticated
+settings/recipe sync API with Hono, Drizzle and a D1 schema. Shared Valibot contracts
+cover synced settings, immutable recipe revisions with tombstones, cursor pages and
+conflict responses. Every query is scoped by the owner resolved from a hashed,
+revocable device credential; request paths and bodies never select an owner. Settings
+writes and recipe heads use conditional revision writes, and a recipe's history row
+is recorded in the same D1 batch only when that request won the head.
+
+Local Miniflare tests cover unknown, malformed and revoked credentials, owner and
+device isolation, stale and concurrent writes, tombstones, cursor paging, strict
+schema rejection, media type and body limits, and fail-closed handling of corrupt
+stored documents. Concurrent cases interleave within one local runtime, not hosted
+D1. A migration check regenerates SQL from the Drizzle schema. The D1 database is
+not provisioned, and nothing is deployed.
+
+### Remaining M4 service gaps
+
+- Access-backed device enrollment, owner management and revocation routes follow the
+  [proposed enrollment design](architecture.md#proposed-device-enrollment); tests seed
+  synthetic owners and devices directly until then.
+- The extension does not yet call the service, keep a last-known-good sync cache or
+  map synced connection identifiers to a new device's local connections.
+- Inference adapters, spending accounting and the release artifact's migration SQL
+  remain separate slices.
 
 ## Passkey progress
 
