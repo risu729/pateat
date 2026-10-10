@@ -135,7 +135,11 @@ export function createRecipeSync(options: {
   async function run(): Promise<RecipeSyncOutcome> {
     const started = generation;
     const connection = await service.connection();
-    if (!connection) return "not-connected";
+    if (!connection) {
+      // Retries a clear that a disconnect could not finish, for example in a stopped worker.
+      await clear();
+      return "not-connected";
+    }
     if (connection.rejected) return "rejected";
     // A new pairing starts from an empty cache, so another owner's recipes never linger.
     let cache: RecipeCache = (await load(connection)) ?? {
@@ -145,6 +149,8 @@ export function createRecipeSync(options: {
       cursor: 0,
       recipes: [],
     };
+    // Disconnected while reading; the old credential is not used again.
+    if (generation !== started) return "not-connected";
     for (let page = 0; page < MAX_RECIPE_PAGES_PER_SYNC; page += 1) {
       // oxlint-disable-next-line no-await-in-loop -- each page continues from the last cursor
       const result = await transport.recipeChanges(
