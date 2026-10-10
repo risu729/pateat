@@ -76,6 +76,9 @@ run = "node node_modules/vitest/vitest.mjs run apps/extension/src/crypto/host.te
 [tasks."test:vault"]
 run = "node node_modules/vitest/vitest.mjs run apps/extension/src/vault"
 
+[tasks."test:passkeys"]
+run = "node node_modules/vitest/vitest.mjs run apps/extension/src/passkeys"
+
 [tasks."test:connections"]
 run = "node node_modules/vitest/vitest.mjs run apps/extension/src/connections"
 
@@ -115,7 +118,7 @@ run = "node node_modules/typescript/bin/tsc --noEmit -p tests/options/tsconfig.j
 
 [tasks."check:runtime"]
 description = "Run implementation checks without recursing into hk."
-run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run typecheck:options", "mise run typecheck:bitwarden", "mise run typecheck:inference", "mise run test:contracts", "mise run test:bitwarden", "mise run test:inference", "mise run test:crypto-host", "mise run test:vault", "mise run test:connections", "mise run test:login", "mise run test:tools", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:options", "mise run test:browser"]
+run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run typecheck:options", "mise run typecheck:bitwarden", "mise run typecheck:inference", "mise run test:contracts", "mise run test:bitwarden", "mise run test:inference", "mise run test:crypto-host", "mise run test:vault", "mise run test:connections", "mise run test:login", "mise run test:passkeys", "mise run test:tools", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:options", "mise run test:browser"]
 
 [tasks."test:tools"]
 run = "node --test .github/scripts/*.test.mjs"

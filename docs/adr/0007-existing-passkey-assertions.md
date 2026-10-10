@@ -60,7 +60,8 @@ Pateat claims a request only when all of these hold; otherwise it delegates:
   and that item yields exactly one eligible credential.
 
 Unknown extensions are ignored as the client algorithm permits; client extension
-results are empty. PRF, large blob, AppID and hints are not interpreted.
+results are empty. PRF, large blob, AppID and hints are not interpreted, and the
+bridge snapshot drops `timeout`, `hints` and `extensions` before relaying.
 
 ### Credential eligibility and assertion
 
