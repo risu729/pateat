@@ -180,8 +180,26 @@ test("a pending submission stays in reconciliation after worker restart without 
         await expect
           .poll(() => context.serviceWorkers().some((entry) => entry.url() === worker.url()))
           .toBe(true);
+        // Reconnection publishes document identity before drive starts. Observe beyond
+        // the coordinator's 3-second result budget so late replay cannot pass this test.
+        const observeUntil = Date.now() + 4000;
+        /* eslint-disable no-await-in-loop */
+        while (Date.now() < observeUntil) {
+          const evidence = await page.evaluate(() => ({
+            clicks: Number(sessionStorage.getItem("submitClicks") || 0),
+            value: (document.getElementById("password") as HTMLInputElement).value,
+          }));
+          expect(evidence).toEqual({ clicks: 1, value: "synthetic-after-submit-marker" });
+          await new Promise<void>((resolveObservation) => setTimeout(resolveObservation, 50));
+        }
+        /* eslint-enable no-await-in-loop */
         await expect(page.locator("#password")).toHaveValue("synthetic-after-submit-marker");
         expect(await clicks(page)).toBe(1);
+        expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+          attempts: [
+            { id: journal.id, state: "reconciling", outcome: "unknown-submit", submissions: 1 },
+          ],
+        });
         await expect(page.locator("#authenticated")).toHaveCount(0);
       } finally {
         await debuggerSession.detach();
