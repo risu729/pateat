@@ -359,11 +359,10 @@ Chrome yet.
   (`defaultLoginBinding`), and maps it to this device's field IDs with
   `resolveBindingFields` over the catalog's raw field names. A recipe with another slot
   and no saved binding refuses as `binding-not-found`; a connection without a `userId`
-  refuses as `vault-unavailable`. Production reads recipes from the synced recipe
-  cache described under [service sync progress](#service-sync-progress). Settings are
-  not synced yet, so bindings live only in local settings. `/v1/settings` already
-  accepts and stores bindings. An extension or service build that predates `bindings`
-  rejects settings that contain them. Provider-derived origins remain open.
+  refuses as `vault-unavailable`. Production reads recipes from the synced recipe cache
+  described under [service sync progress](#service-sync-progress), and bindings from the
+  synced settings described there. An extension or service build that predates
+  `bindings` rejects settings that contain them. Provider-derived origins remain open.
 - A fill step refuses as `structural-mismatch` before writing anything unless all of its
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy
@@ -475,14 +474,54 @@ using the cached recipes, and the settings page says to pair again. Lookup uses
 starting on one page find no recipe. Unit tests use synthetic pages and in-memory
 storage; no running service has been tried.
 
+The fifth slice syncs the device-independent settings in the same run, after recipes:
+site exclusions, site defaults that name a provider account and item, and account
+bindings. Vault connections, item selection, field exclusions and legacy site defaults
+that name a device-local connection ID stay on the device; the service document always
+has an empty `connections` list. The background reads `GET /v1/settings` and merges
+three copies per entry (exclusions by hostname, defaults by origin, bindings by recipe,
+origin and account): the last agreed base, stored under `pateat.sync-settings.v1`, the
+local settings and the service's. A side that changed an entry since that base wins, and
+the service wins when both changed it; removing an entry counts as a change. The base
+keeps the service's copy and the local copy it accounts for. Both are the same after a
+complete sync; after an upload whose local write has not happened yet, the local copy is
+still the one the merge started from, so a merged entry the device has not written yet
+is not read as a local removal, and a local edit made meanwhile still wins. The base is
+used only when the service revision is newer than the stored one, or equal with the same
+content. Without a base (a new pairing, a device paired before this sync existed, or a
+service whose revision went back below the stored one or matches it with other content)
+both sides' entries are kept, the service wins where they differ, and nothing is
+removed. A service restored to an older state whose revision has since passed the stored
+one is merged against the stored base, so its removals apply. Writing the base is best
+effort; when that write fails, the next sync uses the older base, which can drop a later
+local edit to an entry that the sync with the lost base changed. Disconnecting forgets
+the base but keeps local settings, so pairing with another owner's service uploads this
+device's synced settings there. The merge is written back with a conditional
+`PUT /v1/settings`, and a stale service or local revision merges again, in up to three
+attempts per sync. A merge over the settings limits (1,000 entries per list, or an
+uploaded document over 120 KiB of the service's 128 KiB body limit) is not applied, and
+the settings page says the settings no longer fit; when a later attempt in the same sync
+goes over, an earlier upload stays. Local settings change through the settings store's
+revision check, only when the merge differs from them, so an unchanged sync does not
+stop running login attempts. While a login is running, including one between pages, the
+upload still happens but the local write waits for a later sync, for at most two minutes
+after the first wait. The time of the first wait is stored under
+`pateat.sync-settings-hold.v1`, so the limit holds across service worker restarts, and
+it is cleared when a sync finds no login running. A later sync starts when the recipe
+schedule is due again. A local legacy default is replaced when the service names an
+account for its origin. Saving settings on the extension's page or saving an automatic
+account choice starts a sync at once. A recipe sync that cannot reach the service skips
+settings, a 401 from either request marks the device rejected, and the settings page
+shows a complete sync only when both finished. Unit tests use a synthetic service and
+the real settings store over in-memory storage; no running service has been tried.
+
 ### Remaining M4 service gaps
 
 - Device enrollment has not been tried against a real Access application; that probe
   needs the owner's approval, as do the credential idle-expiry decision and the
   optional `launchWebAuthFlow` variant.
-- The extension syncs recipes but not settings yet: site defaults, bindings and
-  exclusions still live only in local settings, and settings that use device-local
-  connection IDs have no device-independent form yet (ADR 0013).
+- Settings that use device-local connection IDs, such as item selection and field
+  exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - Inference adapters, spending accounting and the release artifact's migration SQL
   remain separate slices.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an

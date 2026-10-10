@@ -158,8 +158,8 @@ export function ServiceConnection({
     <section className="panel" aria-labelledby="sync-service-heading">
       <h2 id="sync-service-heading">Sync service</h2>
       <p className="note">
-        Optional. Pair this device with your own Pateat service to sync recipes; settings sync comes
-        later. Pairing never sends vault values, passwords or keys.
+        Optional. Pair this device with your own Pateat service to sync recipes, site exclusions,
+        saved accounts and account bindings. Pairing never sends vault values, passwords or keys.
       </p>
       <output
         id="sync-service-status"
@@ -314,10 +314,10 @@ export function ServiceConnection({
             {state.rejected
               ? "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync."
               : state.cacheFull
-                ? "Your recipes no longer fit in this device's cache, so newer changes are not applied. Login keeps using the recipes synced before."
+                ? "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before."
                 : state.syncedAt === undefined
-                  ? "Recipes have not finished syncing yet."
-                  : `Recipes last synced at ${new Date(state.syncedAt).toLocaleString()}.`}
+                  ? "Recipes and settings have not finished syncing yet."
+                  : `Recipes and settings last synced at ${new Date(state.syncedAt).toLocaleString()}.`}
           </p>
           <div>
             <Button

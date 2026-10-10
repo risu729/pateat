@@ -20,10 +20,13 @@ import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createVaultPasskeySource } from "../src/passkeys/vault";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
+import { createSettingsSync } from "../src/service/settings-sync";
 import {
   createBrowserRecipeCacheStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
+  createBrowserSettingsBaseStorage,
+  createBrowserSettingsHoldStorage,
 } from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
 
@@ -57,15 +60,37 @@ export default defineBackground(() => {
     hasSiteAccess: (origin) =>
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
   });
+  const settingsSync = createSettingsSync({
+    transport: serviceTransport,
+    settings,
+    storage: createBrowserSettingsBaseStorage(),
+    hold: createBrowserSettingsHoldStorage(),
+    // Synced changes replace the policy that running attempts were authorized under.
+    applied: () => {
+      login.settingsChanged();
+      passkeys?.cancelAll();
+    },
+    deferred: () => login.active(),
+  });
   const recipeSync = createRecipeSync({
     service,
     transport: serviceTransport,
     storage: createBrowserRecipeCacheStorage(),
     schedule: createBrowserRecipeScheduleStorage(),
+    settings: settingsSync,
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
   recipeSync.refreshIfStale();
-  const login = createLoginRuntime(settings, {
+  // A saved account choice is uploaded at once instead of waiting for the next sync.
+  const loginSettings: typeof settings = {
+    ...settings,
+    update: (expectedRevision, mutate) =>
+      settings.update(expectedRevision, mutate).then((snapshot) => {
+        void recipeSync.sync();
+        return snapshot;
+      }),
+  };
+  const login = createLoginRuntime(loginSettings, {
     fields: combineFieldSources({
       bitwarden: createVaultFieldSource(connections),
       ...(catalog ? { dummy: dummyFieldSource } : {}),
@@ -144,6 +169,7 @@ export default defineBackground(() => {
         if (message.type === "settings.save" && response.ok) {
           login.settingsChanged();
           passkeys?.cancelAll();
+          void recipeSync.sync();
         }
         return sendResponse(response);
       });

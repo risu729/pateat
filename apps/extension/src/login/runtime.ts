@@ -978,5 +978,16 @@ export function createLoginRuntime(
       return undefined;
     })
     .catch(() => undefined);
-  return { handle, settingsChanged };
+  /**
+   * Whether a login is in progress; a policy write now would stop it. An attempt between
+   * pages has no current document, so its saved state counts too, once it is loaded.
+   */
+  async function active(): Promise<boolean> {
+    await loaded;
+    return (
+      [...attempts.values()].some((run) => current(run) && !terminal(run.metadata)) ||
+      [...persisted.values()].some((metadata) => !terminal(metadata))
+    );
+  }
+  return { handle, settingsChanged, active };
 }

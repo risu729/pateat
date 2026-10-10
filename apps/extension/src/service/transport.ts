@@ -2,8 +2,11 @@ import {
   enrollmentRedeemResultSchema,
   SYNC_PAGE_LIMIT,
   syncRecipeChangesSchema,
+  syncSettingsStateSchema,
   type EnrollmentRedeemResult,
   type SyncRecipeChanges,
+  type SyncSettingsState,
+  type SyncSettingsWrite,
 } from "@pateat/contracts";
 import * as v from "valibot";
 
@@ -23,17 +26,38 @@ export type RecipeChangesResult =
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure };
 
+export type SettingsResult =
+  | { kind: "state"; state: SyncSettingsState }
+  /** The write named a stale revision; `current` is the service's state now. */
+  | { kind: "conflict"; current: SyncSettingsState }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
+
 export interface ServiceTransport {
   redeem(origin: string, verifier: string): Promise<RedeemResult>;
   revoke(origin: string, credential: string): Promise<RevokeResult>;
   /** One page of recipe changes after `after`, as returned by `GET /v1/recipes`. */
   recipeChanges(origin: string, credential: string, after: number): Promise<RecipeChangesResult>;
+  /** The owner's synced settings document, as returned by `GET /v1/settings`. */
+  settings(origin: string, credential: string): Promise<SettingsResult>;
+  /** A conditional `PUT /v1/settings`; a stale revision answers with a conflict. */
+  saveSettings(
+    origin: string,
+    credential: string,
+    write: SyncSettingsWrite,
+  ): Promise<SettingsResult>;
 }
 
 const errorSchema = v.object({ error: v.string() });
 const MAX_RESPONSE_BYTES = 16 * 1024;
 /** A full page of recipes; the service accepts each recipe write up to 128 KiB. */
 const MAX_RECIPE_PAGE_BYTES = 16 * 1024 * 1024;
+/** The service accepts settings writes up to 128 KiB; reads stay within twice that. */
+const MAX_SETTINGS_BYTES = 256 * 1024;
+const settingsConflictSchema = v.strictObject({
+  error: v.literal("settings_conflict"),
+  current: syncSettingsStateSchema,
+});
 
 /** Reads at most the byte limit, cancelling the stream instead of buffering more. */
 async function readBounded(response: Response, limit: number): Promise<string | undefined> {
@@ -175,5 +199,51 @@ export function createServiceTransport(
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };
     },
+    async settings(origin, credential) {
+      return settingsResult(
+        await call(
+          origin,
+          "/v1/settings",
+          { method: "GET", headers: { Authorization: `Bearer ${credential}` } },
+          MAX_SETTINGS_BYTES,
+        ),
+      );
+    },
+    async saveSettings(origin, credential, write) {
+      return settingsResult(
+        await call(
+          origin,
+          "/v1/settings",
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${credential}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(write),
+          },
+          MAX_SETTINGS_BYTES,
+        ),
+      );
+    },
   };
+
+  function settingsResult(response: Awaited<ReturnType<typeof call>>): SettingsResult {
+    if ("failed" in response) return { kind: "failed", error: response.failed };
+    if (response.status === 200) {
+      const parsed = v.safeParse(syncSettingsStateSchema, response.body);
+      return parsed.success
+        ? { kind: "state", state: parsed.output }
+        : { kind: "failed", error: "unexpected-response" };
+    }
+    if (response.status === 409) {
+      const parsed = v.safeParse(settingsConflictSchema, response.body);
+      return parsed.success
+        ? { kind: "conflict", current: parsed.output.current }
+        : { kind: "failed", error: "unexpected-response" };
+    }
+    if (rejected(response)) return { kind: "rejected" };
+    if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+    return { kind: "failed", error: "unexpected-response" };
+  }
 }
