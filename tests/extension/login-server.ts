@@ -29,7 +29,11 @@ function html(body: string, script = ""): string {
   </script></body></html>`;
 }
 
-export async function startLoginFixture(port = 0): Promise<{
+/** `password` selects the expected synthetic value, such as a fixture vault's login password. */
+export async function startLoginFixture(
+  port = 0,
+  { password = "Pateat-synthetic-only!" }: { password?: string } = {},
+): Promise<{
   server: Server;
   origin: string;
   createRun: (outcome?: FixtureOutcome, holdResult?: boolean) => string;
@@ -68,7 +72,7 @@ export async function startLoginFixture(port = 0): Promise<{
             ? fields.get("branch") === "007" && fields.get("account") === "00001234"
             : fields.get("stage") === "account"
               ? fields.get("account") === "00001234"
-              : fields.get("password") === "Pateat-synthetic-only!";
+              : fields.get("password") === password;
         run.evidence.allMatched &&= matched;
         // Retain counts and matched flags only, never submitted synthetic values.
         body = "";
@@ -168,7 +172,7 @@ export async function startLoginFixture(port = 0): Promise<{
           '<h1>Synthetic password step</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
           `document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
-          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === 'Pateat-synthetic-only!'));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});` : ""}
           location.href = '/authenticated';
         });`,
@@ -185,7 +189,7 @@ export async function startLoginFixture(port = 0): Promise<{
           '<h1>Synthetic single-page login</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
           `document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
-          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === 'Pateat-synthetic-only!'));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});` : ""}
           ${path === "/rejection" ? "document.body.insertAdjacentHTML('beforeend', '<p id=\"rejected\">Credentials rejected</p>');" : path === "/single" ? "document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id=\"authenticated\">Authenticated</p>' : '<p id=\"rejected\">Credentials rejected</p>');" : ""}
           ${path === "/delayed-result" ? `setTimeout(() => { document.body.insertAdjacentHTML('beforeend', ${fixtureUrl.searchParams.has("reject") ? "'<p id=\"rejected\">Credentials rejected</p>'" : "sessionStorage.getItem('passwordMatched') === 'true' ? '<p id=\"authenticated\">Authenticated</p>' : '<p id=\"rejected\">Credentials rejected</p>'"}); updateFixtureStatus(); }, 250);` : ""}
@@ -202,7 +206,7 @@ export async function startLoginFixture(port = 0): Promise<{
           document.body.insertAdjacentHTML('afterbegin', '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>');
           document.getElementById('login').addEventListener('click', () => {
             sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
-            sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === 'Pateat-synthetic-only!'));
+            sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
             document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
             updateFixtureStatus();
           });

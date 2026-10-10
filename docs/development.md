@@ -30,7 +30,7 @@ that require it, notably cf. Commit mise and Bun lockfiles after resolving them,
 never hand-author a purported installed dependency graph.
 
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
-commit. hk provides the single complete check entrypoint,
+release tag. hk provides the single complete check entrypoint,
 delegating work to mise. Avoid recursion between hk check and mise checks.
 
 Install the pinned tools and frozen dependencies, then use the complete check
@@ -59,6 +59,7 @@ Focused tasks are available for diagnosis:
 | `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
 | `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
 | `mise run typecheck:bitwarden` | Check provider source and test types |
+| `mise run test:login` | Test login executor sources with synthetic vault results |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run test:server` | Run Worker tests in the Cloudflare Vitest runtime |
 | `mise run build:server` | Generate production Build Output and Worker types |
@@ -171,11 +172,10 @@ and test dependencies are grouped and allow prereleases. TypeScript, its shared
 preset and type packages are grouped so peer requirements can be reviewed
 together. Updates still have to pass the repository's required checks.
 
-The current commit-pinned hk-config imports and typed Cloudflare compatibility
-date are reviewed manually: the shared preset's managers cover release-tagged
-hk imports and Wrangler TOML/JSON dates, not these forms. Do not claim automatic
-updates for them. Regenerate and commit the mise lockfiles whenever tool pins
-change.
+Renovate tracks the release-tagged hk-config imports through the shared preset. The
+typed Cloudflare compatibility date remains reviewed manually: the shared preset's date
+managers cover Wrangler TOML/JSON, not this typed configuration. Regenerate and commit
+the mise lockfiles whenever tool pins change.
 
 Optimize for reliable behavior and maintainability, not a low dependency count.
 An early implementation is not a reason to rebuild established infrastructure.

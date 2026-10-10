@@ -3,6 +3,7 @@ import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
+import { combineFieldSources, createVaultFieldSource, dummyFieldSource } from "../src/login/vault";
 import { createBrowserCryptoHost } from "../src/crypto/browser";
 import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/probe";
 import { createVaultProbe } from "../src/vault/probe";
@@ -31,7 +32,16 @@ export default defineBackground(() => {
       : {}),
   });
   const settings = connections.settings;
-  const login = catalog ? createLoginRuntime(settings, catalog) : undefined;
+  // Site execution remains probe-gated until production document admission is added.
+  const login = catalog
+    ? createLoginRuntime(
+        settings,
+        combineFieldSources({
+          dummy: dummyFieldSource,
+          bitwarden: createVaultFieldSource(connections),
+        }),
+      )
+    : undefined;
   const setupProbe = syntheticSetup?.handler(connections);
   browser.runtime.onConnect.addListener((port) => {
     connections.attach(port);

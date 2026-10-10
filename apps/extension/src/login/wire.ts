@@ -71,6 +71,18 @@ export const configureSchema = v.strictObject({
       }
     }),
   ),
+  /** Probe-only explicit account binding; the default is the bundled demo item. */
+  account: v.optional(
+    v.strictObject({
+      connectionId: id,
+      itemId: id,
+      slots: v.pipe(
+        v.array(v.strictObject({ slot: id, fieldId: id })),
+        v.minLength(1),
+        v.maxLength(20),
+      ),
+    }),
+  ),
 });
 export const statusSchema = v.strictObject({
   version: v.literal(1),
