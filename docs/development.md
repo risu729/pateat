@@ -59,6 +59,7 @@ Focused tasks are available for diagnosis:
 | `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
 | `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
 | `mise run typecheck:bitwarden` | Check provider source and test types |
+| `mise run test:login` | Test login executor sources with synthetic vault results |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run test:server` | Run Worker tests in the Cloudflare Vitest runtime |
 | `mise run build:server` | Generate production Build Output and Worker types |
