@@ -325,6 +325,12 @@ Chrome yet.
   `credential-rejected` or an unknown outcome. Saving bumps the settings revision every
   attempt checks, so it is skipped while another login is still running; the next login
   chooses again.
+- A site default saved from now on names the provider account and item
+  (`{ origin, provider, userId, itemId }`, ADR 0013); the executor and the settings
+  page find this device's connection through the catalog connection's `userId`, and an
+  account that is not connected here, or is connected twice, refuses as
+  `connection-missing`. A default saved earlier with a `connectionId` is still read
+  and used as before and is never rewritten.
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is

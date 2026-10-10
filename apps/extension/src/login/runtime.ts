@@ -11,6 +11,7 @@ import {
   resolveLoginPlan,
   sameLoginDocument,
   saveLoginChoice,
+  siteDefaultConnectionId,
   transitionLoginAttempt,
   validateLoginOperation,
   type LoginAttemptEvent,
@@ -323,7 +324,12 @@ export function createLoginRuntime(
     const saved = snapshot.snapshot.settings.siteDefaults.find(
       (entry) => entry.origin === live.document.origin,
     );
-    if (saved) return { connectionId: saved.connectionId, itemId: saved.itemId, saved: true };
+    if (saved) {
+      const connectionId = siteDefaultConnectionId(saved, snapshot.catalog);
+      return connectionId
+        ? { connectionId, itemId: saved.itemId, saved: true }
+        : { reason: "connection-missing" };
+    }
     if (!uris) return { reason: "default-not-set" };
     // Any sync replaces a snapshot ID, so a new match from a later sync is still noticed.
     const snapshots = JSON.stringify(

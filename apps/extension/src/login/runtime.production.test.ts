@@ -470,7 +470,10 @@ describe("production login document admission", () => {
         fieldId: "login.password",
       });
       expect(h.store.update.mock.calls[0]![0]).toBe(1);
-      expect(h.settings.settings.siteDefaults).toEqual([{ origin, connectionId, itemId }]);
+      // The saved default names the provider account, not this device's connection.
+      expect(h.settings.settings.siteDefaults).toEqual([
+        { origin, provider: "bitwarden", userId, itemId },
+      ]);
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
       // One query per document while every connection's snapshot is unchanged.
       expect(uris).toHaveBeenCalledTimes(1);
@@ -544,8 +547,29 @@ describe("production login document admission", () => {
       const h = harness({ bindings: [] }, { allowedOrigins: [], uris });
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
+      // A legacy default saved with a connection ID is kept as is, never rewritten.
       expect(h.settings.settings.siteDefaults).toEqual([{ origin, connectionId, itemId }]);
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
+    });
+    it("uses a provider-account default through this device's connection", async () => {
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: both }));
+      const h = harness(
+        { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
+        { allowedOrigins: [], uris },
+      );
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(h.fields).toHaveBeenCalled());
+      expect(h.fields.mock.calls[0]![0]).toMatchObject({
+        account: { origin, connectionId, itemId },
+      });
+    });
+    it("refuses a provider-account default whose account is not connected here", async () => {
+      const h = harness(
+        { siteDefaults: [{ origin, provider: "bitwarden", userId: "other-account", itemId }] },
+        { allowedOrigins: [origin] },
+      );
+      expect(await h.hello()).toEqual({ ok: false, reason: "connection-missing" });
+      expect(h.fields).not.toHaveBeenCalled();
     });
     it.each<[string, Awaited<ReturnType<LiveUriMatcher>>, string]>([
       ["two items match", { ok: true, data: both }, "account-ambiguous"],

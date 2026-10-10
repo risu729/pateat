@@ -2,6 +2,7 @@ import {
   normalizeHostname,
   parseSiteUrl,
   resolveSiteAccount,
+  siteDefaultConnectionId,
   type LocalSettings,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -96,13 +97,15 @@ export function SitePolicy({
       const selected = catalog.connections
         .flatMap((connection) =>
           connection.items.map((item) => ({
-            connectionId: connection.id,
+            provider: connection.provider,
+            userId: connection.userId,
             itemId: item.id,
             value: JSON.stringify([connection.id, item.id]),
           })),
         )
         .find((entry) => entry.value === value.account);
-      if (!selected) {
+      const userId = selected?.userId;
+      if (!selected || !userId) {
         setDefaultError("Choose an available default account.");
         originInput.current?.focus();
         return;
@@ -112,7 +115,8 @@ export function SitePolicy({
         settings.siteDefaults = settings.siteDefaults.filter((entry) => entry.origin !== origin);
         settings.siteDefaults.push({
           origin,
-          connectionId: selected.connectionId,
+          provider: selected.provider,
+          userId,
           itemId: selected.itemId,
         });
       });
@@ -224,16 +228,17 @@ export function SitePolicy({
             <li>No site defaults. Account selection requires configuration.</li>
           )}
           {draft.siteDefaults.map((selected) => {
-            const connection = catalog.connections.find(
-              (entry) => entry.id === selected.connectionId,
-            );
+            const connectionId = siteDefaultConnectionId(selected, catalog);
+            const connection = catalog.connections.find((entry) => entry.id === connectionId);
             const item = connection?.items.find((entry) => entry.id === selected.itemId);
             const resolved = resolveSiteAccount(draft, catalog, selected.origin);
             return (
               <li key={selected.origin}>
                 <span>
-                  {selected.origin} → {connection?.label ?? selected.connectionId} /{" "}
-                  {item?.label ?? selected.itemId}
+                  {selected.origin} →{" "}
+                  {connection?.label ??
+                    ("connectionId" in selected ? selected.connectionId : selected.userId)}{" "}
+                  / {item?.label ?? selected.itemId}
                   <small>
                     {resolved.ok
                       ? "Available under this draft policy"

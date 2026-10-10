@@ -10,6 +10,7 @@ import {
   parseSettingsResponse,
   parseSiteUrl,
   resolveSiteAccount,
+  siteDefaultConnectionId,
   vaultCatalogSchema,
 } from "./settings";
 import { createSettingsStore, type SettingsStorage } from "./settings-store";
@@ -148,6 +149,34 @@ describe("scoped metadata eligibility and next-login defaults", () => {
     expect(getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-personal", "primary")).toEqual({
       eligible: false,
       reason: "fields-excluded",
+    });
+  });
+
+  it("resolves a provider-account default to its one local connection", () => {
+    const catalog = structuredClone(DUMMY_VAULT_CATALOG);
+    catalog.connections[0]!.userId = "account-1";
+    const settings = createDefaultSettings();
+    settings.siteDefaults.push({
+      origin: "https://bank.example",
+      provider: "dummy",
+      userId: "account-1",
+      itemId: "primary",
+    });
+    expect(resolveSiteAccount(settings, catalog, "https://bank.example/login")).toMatchObject({
+      ok: true,
+      connectionId: "demo-personal",
+      itemId: "primary",
+    });
+    expect(siteDefaultConnectionId(settings.siteDefaults[0]!, catalog)).toBe("demo-personal");
+    // An account connected twice, or not connected here, names no connection.
+    catalog.connections[1]!.userId = "account-1";
+    expect(resolveSiteAccount(settings, catalog, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "connection-missing",
+    });
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "connection-missing",
     });
   });
 

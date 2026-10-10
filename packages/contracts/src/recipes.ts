@@ -180,10 +180,11 @@ const maxSavedEntries = 1000;
  * Saves an account choice after an `authenticated` outcome: the site default for the
  * binding's origin and the binding itself, each only when none exists yet. A saved
  * choice therefore keeps winning, and a binding written by the owner or by AI
- * generation is never replaced. When the origin's saved default names another item,
- * or a list is full, nothing is saved. The caller checks that `connectionId` holds the
- * binding's provider account. Returns the same object when nothing changes, so the
- * caller can skip the write.
+ * generation is never replaced. When the origin's saved default names another account,
+ * or a list is full, nothing is saved. A new default names the binding's provider
+ * account and item; `connectionId`, the local connection of that account, only matches
+ * a legacy default saved with a connection ID. Returns the same object when nothing
+ * changes, so the caller can skip the write.
  */
 export function saveLoginChoice(
   settings: LocalSettings,
@@ -191,8 +192,13 @@ export function saveLoginChoice(
   connectionId: string,
 ): LocalSettings {
   const saved = settings.siteDefaults.find((site) => site.origin === binding.origin);
-  if (saved && (saved.connectionId !== connectionId || saved.itemId !== binding.itemId))
-    return settings;
+  const sameAccount =
+    saved &&
+    saved.itemId === binding.itemId &&
+    ("connectionId" in saved
+      ? saved.connectionId === connectionId
+      : saved.provider === binding.provider && saved.userId === binding.userId);
+  if (saved && !sameAccount) return settings;
   const bindings = settings.bindings ?? [];
   const hasBinding = bindings.some((entry) => sameLoginBinding(entry, binding));
   if (saved && hasBinding) return settings;
@@ -207,7 +213,12 @@ export function saveLoginChoice(
       ? settings.siteDefaults
       : [
           ...settings.siteDefaults,
-          { origin: binding.origin, connectionId, itemId: binding.itemId },
+          {
+            origin: binding.origin,
+            provider: binding.provider,
+            userId: binding.userId,
+            itemId: binding.itemId,
+          },
         ],
     bindings: hasBinding ? bindings : [...bindings, binding],
   };
