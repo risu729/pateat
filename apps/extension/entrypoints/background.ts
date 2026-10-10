@@ -1,13 +1,25 @@
 import { getFoundationStatus, isStatusRequest } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
+import { createLocalSettingsRuntime } from "../src/settings";
 
 export default defineBackground(() => {
+  const settings = createLocalSettingsRuntime();
   browser.action.onClicked.addListener(() => {
     void browser.runtime.openOptionsPage();
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (
+      sender.id === browser.runtime.id &&
+      sender.url === browser.runtime.getURL("/options.html") &&
+      message !== null &&
+      typeof message === "object" &&
+      (message.type === "settings.get" || message.type === "settings.save")
+    ) {
+      void settings.handle(message).then(sendResponse);
+      return true;
+    }
     if (
       sender.id === browser.runtime.id &&
       sender.url === browser.runtime.getURL("/options.html") &&

@@ -1,6 +1,6 @@
 # Development workflow
 
-The foundation has a Bun workspace, pinned tools, an extension shell, shared
+The foundation has a Bun workspace, pinned tools, local policy settings, shared
 contracts, and a health-only Worker. These are implementation and test scaffolds;
 they do not implement vault access, login execution, service authentication, or
 inference. M1 is not complete until its required checks and acceptance gates pass.
@@ -51,7 +51,7 @@ Focused tasks are available for diagnosis:
 | `mise run build:extension` | Package the Chrome extension shell |
 | `mise run build:probe` | Build the isolated synthetic browser-test variant |
 | `mise run typecheck:extension` | Check extension source after WXT preparation |
-| `mise run test:contracts` | Test shared schemas |
+| `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run test:server` | Run Worker tests in the Cloudflare Vitest runtime |
 | `mise run build:server` | Generate production Build Output and Worker types |
