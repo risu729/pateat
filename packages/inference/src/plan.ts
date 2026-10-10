@@ -37,6 +37,10 @@ const compatibleRoles: Record<SemanticSlot["kind"], readonly ObservedCandidate["
 export const slotFitsRole = (kind: SemanticSlot["kind"], role: ObservedCandidate["role"]) =>
   compatibleRoles[kind].includes(role);
 
+/** True when a slot may be filled into this element; registration passwords never qualify. */
+export const slotAccepts = (kind: SemanticSlot["kind"], candidate: ObservedCandidate) =>
+  slotFitsRole(kind, candidate.role) && candidate.autocomplete !== "new-password";
+
 /** True when an observed element can carry the page action. */
 export const isActionRole = (role: ObservedCandidate["role"]) =>
   (actionRoles as readonly string[]).includes(role);
@@ -62,8 +66,7 @@ export function validatePagePlan(
     if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
     if (usedSlots.has(field.slot)) return { ok: false, reason: "duplicate-slot" };
     if (usedCandidates.has(field.candidate)) return { ok: false, reason: "duplicate-candidate" };
-    if (!slotFitsRole(kind, candidate.role) || candidate.autocomplete === "new-password")
-      return { ok: false, reason: "incompatible-role" };
+    if (!slotAccepts(kind, candidate)) return { ok: false, reason: "incompatible-role" };
     usedSlots.add(field.slot);
     usedCandidates.add(field.candidate);
   }
@@ -71,7 +74,8 @@ export function validatePagePlan(
   if (action === undefined) return { ok: false, reason: "unknown-candidate" };
   if (usedCandidates.has(action.id)) return { ok: false, reason: "duplicate-candidate" };
   if (!isActionRole(action.role)) return { ok: false, reason: "incompatible-role" };
-  // When the page groups its elements, one plan must stay within a single form.
+  // One plan must stay within a single form: every filled element and the action share
+  // one group, or none has a group. A grouped field with an ungrouped action fails closed.
   const groups = new Set(
     [...plan.fields.map((field) => candidates.get(field.candidate)!), action].map(
       (candidate) => candidate.group,

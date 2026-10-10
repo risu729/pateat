@@ -165,6 +165,20 @@ describe("finite-choice decision role", () => {
     expect(report.jointMappingRejections).toBe(1);
   });
 
+  it("hides registration passwords and abstains on cross-form mappings", async () => {
+    const signup = evaluationCorpus.find((entry) => entry.id === "ja-signup-adjacent")!;
+    const questions = buildFieldQuestions(signup.observation, signup.slots);
+    expect(Object.keys(questions["slot:password"]!.criteria)).toEqual(["c:login-pass", "none"]);
+    const crossForm = answering({
+      "slot:email": "c:reg-email",
+      "slot:password": "c:login-pass",
+      action: "c:login-submit",
+    });
+    expect(
+      await decider(crossForm)({ observation: signup.observation, slots: signup.slots }),
+    ).toMatchObject({ status: "abstained", reason: "inconsistent-mapping" });
+  });
+
   it("maps refusal, rate limits and timeouts to explicit failures", async () => {
     const refusing = answering(correct, 0.9, { action: { type: "refusal" } });
     expect(await decider(refusing)(request)).toMatchObject({ status: "failed", error: "refused" });
