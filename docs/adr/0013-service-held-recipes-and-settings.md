@@ -72,8 +72,16 @@ names of the fields allowed for automatic fill (with positions for duplicate nam
 never values, item IDs or account IDs, and returns a slot-to-field mapping in the
 same form. The service or extension combines that
 mapping with the selected item to form the binding. The web UI therefore needs no
-item or field picker. A saved site default still selects the item; selecting a single
-URI-matched item without a default is a separate pending decision. Until AI
+item or field picker.
+
+A saved account choice selects the item. Without one, when the provider URI match
+finds exactly one eligible item, the attempt uses that item, and the choice is saved
+only after the outcome is `authenticated`. Nothing is saved on `credential-rejected` or
+an unknown outcome. A saved choice wins even if more items match later; deleting it
+restores automatic choice. Two or more matches still need a manual choice. Until AI
+generation maps slots, an automatic choice binds only the slots named `username`,
+`password` and `totp` to the item's login username, password and TOTP; a recipe with
+any other slot needs a manual binding. Until AI
 generation exists, development writes recipes through the existing `/v1/recipes` API
 and bindings through `/v1/settings` once the settings schema gains them, both with a
 paired device credential.
@@ -90,8 +98,9 @@ step detection can replace the selector later without changing the stored format
 
 The executor enforces these regardless of where a recipe came from:
 
-- The login password and Hidden custom fields, including Linked fields that resolve
-  to them, fill only `type=password` or `autocomplete=current-password` inputs.
+- The login password fills only `type=password` or `autocomplete=current-password`
+  inputs. Whether Hidden custom fields, and Linked fields that resolve to the
+  password, follow the same rule is still open; the recommendation is yes for both.
 - TOTP fills only `autocomplete=one-time-code` or short numeric inputs; the length
   limit is set at implementation.
 - All fills of one step share one form owner, or all have none.

@@ -696,8 +696,9 @@ support for every site or vault format. Keep observed limitations explicit.
   setting over the existing policy shape is later work. Nonzero-counter
   synchronization is deferred.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
-  among several URI-matched items, how synced field exclusions move to
-  device-independent references, and where custom-field review happens.
+  among several URI-matched items, whether Hidden custom fields and Linked fields
+  resolving to the password get the password input rule, how synced field exclusions
+  move to device-independent references, and where custom-field review happens.
 - Settle device enrollment/recovery, credential lifetime, AI pricing sources and
   the monthly monetary budget default before service deployment. Initial spending
   control aggregates usage and stops later inference after the limit is reached;
