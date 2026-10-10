@@ -121,6 +121,33 @@ setup messages are excluded from the production build. Chrome use may not be
 able to operate another extension's settings page; manual setup is a supported
 test prerequisite, not a reason to expose settings mutations to a web page.
 
+### Manual Bitwarden setup preview
+
+The connection setup slice is implemented and under verification. Its options
+panel selects Bitwarden Cloud US/EU or an ordinary self-hosted HTTPS root and
+requests access only to that provider's hosts. Setup is a deliberate user action;
+automated tests use synthetic accounts and responses. Do not enter real account
+credentials during a test unless that account test has been separately authorized.
+
+The panel submits supported manual verification codes through the same private
+setup channel. Email-code delivery initiation and interactive MFA methods are
+not implemented by the existing transport. Provider authentication is transient:
+after the extension worker restarts, remote sync can require sign-in again.
+Offline local-vault restoration is independent of that provider session.
+
+Connecting retains the local unlock key and encrypted cache. Disabling automatic
+unlock removes the retained key; signing in again does not implicitly re-enable
+it. A cancellation or timeout during the durable write can leave an accepted
+record even when setup reports an uncertain result. Reload connection status;
+explicitly disable automatic unlock if that retained key should be removed.
+Compensation removes only a positively identified first-enrollment candidate,
+never an unknown or newer record. Connection status and policy metadata contain
+no field values. A changed
+catalog preserves unsaved policy edits and requires an explicit reload before
+saving those stale edits. Custom-field review must confirm the current field
+selection before releasing an item whose earlier exclusions cannot be rebound.
+Automatic website login is not activated by this setup slice.
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other

@@ -94,6 +94,16 @@ function harness(
       opened.delete(session.sessionId);
       return { ok: true as const, data: null };
     }),
+    catalog: vi.fn<VaultCryptoHost["catalog"]>(async (session) => ({
+      ok: true as const,
+      data: {
+        connectionId: session.connectionId,
+        userId: session.userId,
+        snapshotId: session.snapshotId,
+        groups: [],
+        items: [],
+      },
+    })),
     listFields: vi.fn<VaultCryptoHost["listFields"]>(async (session, selectedId) => {
       const active = opened.get(session.sessionId);
       if (!active?.prepared.ciphers.some((cipher) => String(cipher.id) === selectedId))
@@ -264,6 +274,40 @@ describe("acceptance verification and publication", () => {
 });
 
 describe("durable disable and stale candidate races", () => {
+  it("candidate-scoped disable rejects a different durable revision without writing a tombstone", async () => {
+    const h = harness();
+    await accepted(h);
+    const before = h.entry();
+    h.store.compareAndSwap.mockClear();
+    expect(await h.manager.disableAutoUnlock(crypto.randomUUID())).toEqual(
+      vaultFailure("storage-conflict"),
+    );
+    expect(h.store.compareAndSwap).not.toHaveBeenCalled();
+    expect(h.entry()).toEqual(before);
+    expect(h.opened.size).toBe(0);
+  });
+  it("candidate-scoped disable never retries after a newer acceptance wins the native CAS", async () => {
+    const h = harness();
+    await accepted(h);
+    const old = h.entry();
+    if (!old) throw new Error("Synthetic cache acceptance failed");
+    const replacement = activeEntry();
+    replacement.revision = crypto.randomUUID();
+    replacement.accepted.snapshotId = crypto.randomUUID();
+    const nativeCas = h.store.compareAndSwap.getMockImplementation()!;
+    h.store.compareAndSwap.mockClear();
+    h.store.compareAndSwap.mockImplementationOnce(async (expected, next, signal) => {
+      h.setEntry(replacement);
+      return nativeCas(expected, next, signal);
+    });
+    expect(await h.manager.disableAutoUnlock(old.revision)).toEqual(
+      vaultFailure("storage-conflict"),
+    );
+    expect(h.store.compareAndSwap).toHaveBeenCalledTimes(1);
+    expect(h.entry()).toEqual(replacement);
+    expect(h.entry()?.state).toBe("active");
+    expect(h.opened.size).toBe(0);
+  });
   it("persists an empty disabled tombstone and requires explicit re-enable intent", async () => {
     const h = harness();
     expect(await h.manager.disableAutoUnlock()).toMatchObject({

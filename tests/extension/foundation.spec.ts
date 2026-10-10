@@ -78,6 +78,7 @@ test("production package permits local storage and the crypto host with no site 
   expect(manifest.content_scripts ?? []).toEqual([]);
   expect(manifest.permissions).toEqual(["storage", "offscreen"]);
   expect(manifest.host_permissions ?? []).toEqual([]);
+  expect(manifest.optional_host_permissions).toEqual(["https://*/*"]);
   expect(manifest.web_accessible_resources ?? []).toEqual([]);
   const background = await readFile(
     resolve(extensionDirectory, manifest.background.service_worker),
@@ -94,6 +95,7 @@ test("production package permits local storage and the crypto host with no site 
   // matches. It belongs only to the synthetic build and only to loopback HTTP.
   expect(probeManifest.permissions).toEqual(["storage", "offscreen"]);
   expect(probeManifest.host_permissions).toEqual(["http://127.0.0.1/*"]);
+  expect(probeManifest.optional_host_permissions).toEqual(["https://*/*"]);
   expect(
     probeManifest.content_scripts.every((script: { matches: string[] }) =>
       script.matches.every((match) => match === "http://127.0.0.1/*"),

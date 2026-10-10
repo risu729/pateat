@@ -23,8 +23,8 @@ complete check graph, including all three Playwright tests for the production pa
 installed shell status, and document-start/inactive-tab identity probe;
 [CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
 downloaded Windows Chromium still fails before launch with a missing SideBySide
-assembly. Installed Chrome/Chrome use coexistence remains a separate, untested M1 gate;
-the synthetic Playwright result does not replace it. Code Quality setup must be
+assembly. The later installed-Chrome synthetic probe passed the early login gate;
+broader coexistence remains a separate M1 gate. Code Quality setup must be
 rechecked after language detection; its existing required rule is retained.
 
 ## Local settings progress
@@ -66,8 +66,12 @@ intent persistence, delivery, effect and acknowledgement; a missing acknowledgem
 never authorizes another fill or a fallback click.
 [Development](development.md#installed-chrome-synthetic-login-probe)
 describes the early installed-Chrome acceptance procedure. Production activation,
-arbitrary saved recipe configuration, real provider protocol, broader frame and
-dynamic-page support and actual Chrome use coexistence remain outstanding.
+arbitrary saved recipe configuration, real provider compatibility and broader frame
+and dynamic-page support remain outstanding. The early installed-Chrome run passed
+multi-page, background-tab, single-page, rejection, ambiguity, concurrency and
+input/change-triggered advance cases using synthetic values. It does not establish
+current SDK/setup compatibility or official Bitwarden extension coexistence. See the
+[dated acceptance evidence](research/2026-10-10-feasibility.md#early-installed-chrome-acceptance-2026-10-10).
 Neither M1 nor M2 is complete.
 
 ## Bitwarden transport progress
@@ -79,11 +83,10 @@ Redirects, browser cookies, automatic retries and arbitrary caller-supplied
 request destinations are excluded. Response size, cancellation and parsing
 boundaries have synthetic tests; errors do not expose request or response bodies.
 
-This library is not connected to extension settings or a real vault. The isolated
-authentication and account-mapping operations are described below. Real-account
-MFA compatibility, authoritative cache reconciliation and persistent unlock remain
-outstanding. Synthetic fetch tests do not establish real-server compatibility or
-installed-Chrome permissions.
+The connection setup below integrates this library with extension settings and the
+local cache. The isolated authentication and account-mapping operations are described
+below. Real-account MFA compatibility remains outstanding. Synthetic fetch tests do
+not establish real-server compatibility or installed-Chrome permissions.
 
 ## Local cryptography progress
 
@@ -92,8 +95,8 @@ approved in [ADR 0005](adr/0005-bitwarden-local-crypto.md). It introduces isolat
 local sessions, bounded PBKDF2/Argon2id admission, V1/V2 account initialization,
 strict cipher and stored-passkey decryption, and verified security-version
 checks. The account mapper below prepares encrypted sync responses for these
-sessions; extension connection setup remains unimplemented. The persistent cache
-layer has a separate progress section below.
+sessions. Extension connection setup and the persistent cache layer have separate
+progress sections below.
 
 The pinned SDK's V2 version export also rewraps and re-signs an in-memory copy of
 verified key state. Pateat keeps only its version and does not send or persist
@@ -220,7 +223,7 @@ through the host, connection isolation, lock and hard cancellation, bounded
 deadlines, and fresh recovery after service-worker or offscreen-document loss.
 A new background incarnation must replace old hosts and reject
 old handles without replaying requests. Production artifacts now package the
-host and WASM, but only the synthetic probe calls it in this slice.
+host and WASM. The connection setup slice below now calls the same host.
 
 [PR #18](https://github.com/risu729/pateat/pull/18) passed the complete Linux
 verification graph with 46 host tests and 42 extension tests. Its actual browser
@@ -229,21 +232,49 @@ offscreen recreation and service-worker restart. This is synthetic runtime
 evidence; it does not establish real-provider or installed-Chrome compatibility.
 
 The persistent-unlock layer below adds encrypted-cache acceptance; that behavior
-is not proven by the host's in-memory restart fencing. Production connection setup, real
-provider authentication and settings/catalog integration remain unfinished.
+is not proven by the host's in-memory restart fencing. Connection setup and
+settings/catalog integration are described below; real-provider compatibility
+remains unverified.
 Conveying a new artifact still requires its matching
 [Corresponding Source](sdk-source.md).
 
 ## Persistent unlock and cache progress
 
-The next focused slice implements
+The cache slice implements
 [atomic local cache records](adr/0006-atomic-local-vault-cache.md), verified SDK
 unlock-key retention, offline restoration and durable local disable. It has no provider
-HTTP or production setup UI. Acceptance requires real IndexedDB revision conflicts and
-aborts, disable versus stale acceptance, full browser restart with the same isolated
-profile, fresh SDK verification, preserved snapshot identity, and proof that unavailable
-items cannot reuse older secrets. Implementation and these acceptance tests remain in
-progress.
+HTTP or production setup UI.
+[PR #19](https://github.com/risu729/pateat/pull/19) passed full Linux CI with 71 vault
+tests and 58 extension tests. The 16 added browser cases passed real IndexedDB revision
+conflicts and aborts, disable versus stale acceptance, full browser restart with the
+same isolated profile for V1/V2/organization accounts, fresh SDK verification, preserved
+snapshot identity, and unavailable-item replacement without older secrets. Independent
+review verified restore/disable ordering and cleanup joining. This is synthetic native
+browser evidence, not an installed-profile or real-account compatibility claim.
+
+## Connection setup and live catalog progress
+
+The connection setup slice connects manual options setup to the existing authentication,
+mapping and durable-cache components. It adds configured-provider host permissions,
+bounded manual challenges and a value-free catalog for local settings. Production site
+execution remains a separate integration gate. Provider authentication remains transient
+in this slice; service-worker restart can require sign-in again for remote sync, while
+the local cached vault restores independently. Durable provider-session refresh and
+revocation remain required M3 follow-up work.
+
+Catalog replacement preserves custom-field denies: exact unchanged encrypted field
+sequences can rebind snapshot-scoped references, while changed or ambiguous sequences
+with custom-policy history block the affected item's secret release until reviewed.
+Protected snapshot bindings survive even a review choosing no exclusions. Generic saves
+cannot clear unresolved exclusions or that binding history. Separate cache/settings
+stores detect mismatched state after interruption; they do not provide one atomic
+combined commit. Catalog bounds are validated before unlock-key export and cache commit.
+
+Source integration and local synthetic tests are implemented. Full native-browser
+acceptance is pending. The fixed browser probe substitutes provider responses and host
+permission decisions; it does not establish real optional-permission prompt behavior or
+real-account authentication. Production starts with an empty catalog until connections
+are configured. The demo catalog remains confined to the synthetic probe.
 
 ## Initial delivery and later scope
 

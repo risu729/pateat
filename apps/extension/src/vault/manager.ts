@@ -19,7 +19,13 @@ import type { DurableVaultStore } from "./storage";
 
 export type VaultCryptoHost = Pick<
   CryptoHost,
-  "open" | "verifyReceivedCiphers" | "exportUnlockMaterial" | "lock" | "listFields" | "resolveField"
+  | "open"
+  | "verifyReceivedCiphers"
+  | "exportUnlockMaterial"
+  | "lock"
+  | "listFields"
+  | "resolveField"
+  | "catalog"
 >;
 export type LocalVaultHandle = {
   managerGeneration: string;
@@ -434,7 +440,9 @@ export function createLocalVaultManager(options: {
         busy = false;
       }
     },
-    async disableAutoUnlock(): Promise<VaultResult<LocalVaultSummary>> {
+    /** Expected revision is used only to compensate a cancelled first enrollment,
+     * never to disable an unrelated newer accepted record. */
+    async disableAutoUnlock(expectedRevision?: string): Promise<VaultResult<LocalVaultSummary>> {
       if (!profile) return vaultFailure("invalid-profile");
       if (disposed) return vaultFailure("crypto-locked");
       if (disabling) return vaultFailure("resource-limit");
@@ -446,6 +454,8 @@ export function createLocalVaultManager(options: {
           // eslint-disable-next-line no-await-in-loop
           const stored = await options.store.read();
           if (!stored.ok) return stored;
+          if (expectedRevision !== undefined && stored.data?.revision !== expectedRevision)
+            return vaultFailure("storage-conflict");
           const next: VaultEntry = {
             schemaVersion: 1,
             revision: random(),
@@ -456,7 +466,7 @@ export function createLocalVaultManager(options: {
           // eslint-disable-next-line no-await-in-loop
           const write = await options.store.compareAndSwap(stored.data?.revision ?? null, next);
           if (!write.ok) {
-            if (write.error.code === "storage-conflict") continue;
+            if (write.error.code === "storage-conflict" && expectedRevision === undefined) continue;
             uncertain = write.error.code === "storage-uncertain";
             return write;
           }
@@ -477,6 +487,9 @@ export function createLocalVaultManager(options: {
         disabling = false;
       }
     },
+    async lock() {
+      await fence();
+    },
     async listFields(handle: LocalVaultHandle, itemId: string, signal?: AbortSignal) {
       try {
         handle = structuredClone(handle);
@@ -494,6 +507,22 @@ export function createLocalVaultManager(options: {
       return validHandle(handle) && live === currentLive
         ? result
         : vaultFailure("stale-vault-handle");
+    },
+    async catalog(handle: LocalVaultHandle, signal?: AbortSignal) {
+      try {
+        handle = structuredClone(handle);
+      } catch {
+        return vaultFailure("invalid-request");
+      }
+      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
+      const owner = live;
+      const before = await checkDurable(owner);
+      if (!before.ok || !validHandle(handle))
+        return before.ok ? vaultFailure("stale-vault-handle") : before;
+      const result = await options.host.catalog(owner.opened.session, signal);
+      const after = await checkDurable(owner);
+      if (!after.ok) return after;
+      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
     },
     async resolveField(
       handle: LocalVaultHandle,

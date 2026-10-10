@@ -6,11 +6,19 @@ import { Button } from "./button";
 import { RUNTIME_STATUS_QUERY_KEY, SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { Connections } from "./connections";
 import { SitePolicy } from "./site-policy";
+import { BitwardenSetup } from "./bitwarden-setup";
+import type { ConnectionClient } from "./connection-client";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = { connections: [], excludedSites: [], siteDefaults: [] };
 
-function RuntimeStatus({ client }: { client: SettingsClient }) {
+function RuntimeStatus({
+  client,
+  hasConnections,
+}: {
+  client: SettingsClient;
+  hasConnections: boolean;
+}) {
   const refreshing = useRef(false);
   const status = useQuery({
     queryKey: RUNTIME_STATUS_QUERY_KEY,
@@ -35,22 +43,26 @@ function RuntimeStatus({ client }: { client: SettingsClient }) {
     <section aria-labelledby="status-heading" className="panel">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="status-heading">Runtime status</h2>
-        <span className="badge">Foundation only</span>
+        <span className="badge">{hasConnections ? "Manual vault setup" : "Foundation only"}</span>
       </div>
       <output id="runtime-status" className="block">
         {status.isFetching
           ? "Checking extension…"
           : status.isError
             ? "Unable to read runtime status. Reload the extension and try again."
-            : "Extension ready · Foundation only"}
+            : hasConnections
+              ? "Extension ready · Automatic login unavailable"
+              : "Extension ready · Foundation only"}
       </output>
       <dl>
-        <div>
-          <dt>Vault</dt>
-          <dd id="vault-status">
-            {known && known.vault === "not-connected" ? "Not connected" : "Unknown"}
-          </dd>
-        </div>
+        {!hasConnections && (
+          <div>
+            <dt>Vault</dt>
+            <dd id="vault-status">
+              {known && known.vault === "not-connected" ? "Not connected" : "Unknown"}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Optional service</dt>
           <dd id="service-status">
@@ -77,7 +89,13 @@ function RuntimeStatus({ client }: { client: SettingsClient }) {
   );
 }
 
-export function SettingsApp({ client }: { client: SettingsClient }) {
+export function SettingsApp({
+  client,
+  connectionClient,
+}: {
+  client: SettingsClient;
+  connectionClient?: ConnectionClient;
+}) {
   const queryClient = useQueryClient();
   const [accepted, setAccepted] = useState<AcceptedSettings>();
   const acceptedRef = useRef<AcceptedSettings | undefined>(undefined);
@@ -87,6 +105,8 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
   const [busy, setBusy] = useState(true);
   const [saveBlocked, setSaveBlocked] = useState(true);
   const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  const catalogGeneration = useRef(0);
   const [message, setMessage] = useState("Loading saved settings…");
   const [generation, setGeneration] = useState(0);
   const settings = useQuery({
@@ -111,6 +131,7 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
     onSubmit: async ({ value }) => {
       const previous = acceptedRef.current;
       if (!previous || operation.current !== "save") return;
+      const epoch = catalogGeneration.current;
       try {
         const result = await saveMutation.mutateAsync({
           version: 1,
@@ -118,6 +139,13 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
           expectedRevision: previous.snapshot.revision,
           settings: structuredClone(value),
         });
+        if (epoch !== catalogGeneration.current) {
+          setSaveBlocked(true);
+          setMessage(
+            "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again.",
+          );
+          return;
+        }
         if (!result.ok) {
           const blocked =
             result.error.code !== "invalid-settings" && result.error.code !== "invalid-request";
@@ -147,6 +175,7 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
     setAccepted(next);
     form.reset(structuredClone(next.snapshot.settings));
     setDirty(false);
+    dirtyRef.current = false;
     setSaveBlocked(false);
     setMessage(statusMessage);
     if (resetAddForms) setGeneration((current) => current + 1);
@@ -164,7 +193,11 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
       setMessage(
         `${settings.data.error.message} Reload saved settings to retry. Your existing draft has been preserved.`,
       );
-    else {
+    else if (catalogGeneration.current) {
+      setMessage(
+        "Vault metadata changed while settings were loading. Reload saved settings to read the current catalog.",
+      );
+    } else {
       const next = structuredClone(settings.data);
       acceptedRef.current = next;
       setAccepted(next);
@@ -184,6 +217,7 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     setDirty(true);
+    dirtyRef.current = true;
     if (!saveBlocked) setMessage("Unsaved changes. Save settings to apply this draft.");
     return true;
   }
@@ -193,6 +227,7 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
     setBusy(true);
     setSaveBlocked(true);
     setMessage("Loading saved settings…");
+    const epoch = catalogGeneration.current;
     try {
       const result = await queryClient.fetchQuery({
         queryKey: SETTINGS_QUERY_KEY,
@@ -200,6 +235,12 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
         staleTime: 0,
         retry: false,
       });
+      if (epoch !== catalogGeneration.current) {
+        setMessage(
+          "Vault metadata changed while settings were loading. Your draft has been preserved. Reload saved settings again.",
+        );
+        return;
+      }
       if (!result.ok) {
         setMessage(
           `${result.error.message} Reload saved settings to retry. Your existing draft has been preserved.`,
@@ -232,14 +273,26 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
       setBusy(false);
     }
   }
+  function catalogChanged() {
+    ++catalogGeneration.current;
+    if (dirtyRef.current || operation.current || saveBlocked) {
+      setSaveBlocked(true);
+      setMessage(
+        "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving.",
+      );
+      return;
+    }
+    void reload();
+  }
   return (
     <main className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
       <header className="mb-8 max-w-3xl">
-        <p className="eyebrow">Pateat · Local settings preview</p>
+        <p className="eyebrow">Pateat · Local settings</p>
         <h1>Settings</h1>
         <p className="intro">
-          Configure local policy with demo vault metadata. No real vault is connected, and this
-          preview cannot log in to websites.
+          {connectionClient
+            ? "Connect Bitwarden and configure local vault policy. Automatic website login remains unavailable."
+            : "Configure local policy with demo vault metadata. No real vault is connected, and this preview cannot log in to websites."}
         </p>
       </header>
       <output
@@ -250,13 +303,21 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
       >
         {message}
       </output>
+      {connectionClient && (
+        <BitwardenSetup
+          client={connectionClient}
+          onCatalogChanged={catalogChanged}
+          acceptedSettings={accepted}
+          reviewBlocked={dirty || busy || saveBlocked}
+        />
+      )}
       <fieldset id="settings-controls" disabled={busy || !accepted}>
         <legend className="visually-hidden">Local settings</legend>
         <section aria-labelledby="connections-heading" className="panel">
-          <h2 id="connections-heading">Demo vault connections</h2>
-          <p className="note">
-            Synthetic names and field labels only. No passwords, keys or field values.
-          </p>
+          <h2 id="connections-heading">
+            {connectionClient ? "Vault access policy" : "Demo vault connections"}
+          </h2>
+          <p className="note">Names and field labels only. No passwords, keys or field values.</p>
           {accepted ? (
             <Connections
               draft={draft}
@@ -323,7 +384,7 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
           draft.
         </p>
       </form>
-      <RuntimeStatus client={client} />
+      <RuntimeStatus client={client} hasConnections={!!connectionClient} />
       <p className="note">
         <a href="legal.html" target="_blank" rel="noreferrer">
           Licenses and source
@@ -331,8 +392,9 @@ export function SettingsApp({ client }: { client: SettingsClient }) {
         {" · "}GPLv3 · No warranty
       </p>
       <p className="note">
-        This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms,
-        or sign passkey requests.
+        {connectionClient
+          ? "Provider setup is manual. Site form filling, passkey requests and the optional AI service remain unavailable."
+          : "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests."}
       </p>
     </main>
   );

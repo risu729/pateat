@@ -38,3 +38,5 @@ export {
   type BitwardenTransport,
   type BitwardenTransportOptions,
 } from "./transport";
+export * from "./catalog";
+export { bitwardenEndpoints } from "./environment";

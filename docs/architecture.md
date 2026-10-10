@@ -85,8 +85,24 @@ service layouts. Do not follow redirects or send browser cookies. Each provider
 operation owns its method, path and request shape; no generic authenticated
 request function is exposed. Bound response bytes while reading, support explicit
 cancellation and report sanitized errors without request bodies or tokens.
+Manual connection setup requests the canonical provider HTTPS hosts from the
+options page's user gesture. Runtime-discovered self-hosted origins use optional
+HTTPS host declarations; declarations do not grant every HTTPS host. The
+background rechecks actual permission before each provider operation and cancels
+affected authentication flows when permission is removed. Chrome's host grant
+does not constrain endpoint paths, so the fixed transport still enforces the
+configured origin, method and service path. Extension CSP permits HTTPS
+connections while keeping script sources packaged locally. See Chrome's
+[optional permissions](https://developer.chrome.com/docs/extensions/reference/api/permissions)
+and
+[network request policy](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests).
+
 Prelogin, password/refresh-token requests and encrypted sync are isolated library
-operations; settings does not yet create an authenticated extension connection.
+operations. Manual options setup composes them through a dedicated private Port
+bound to the exact options-page sender. Passwords and manual codes never enter
+the metadata query cache. Closing that Port cancels its flow and withholds late
+results. Only value-free connection, group, item and field metadata returns to
+the settings catalog; vault field resolution remains an internal background API.
 Password requests accept explicit manual authenticator/email codes and new-device
 OTP values. Return bounded challenge categories and provider IDs, never raw
 challenge parameters, server descriptions or URLs. Code delivery and interactive
@@ -238,12 +254,26 @@ typed Boolean result. Metadata lists never include field values or OTP seeds.
 The trusted host must assign a fresh snapshot UUID whenever captured item state
 changes; caller-supplied identifiers do not prove freshness or authorization.
 
-Snapshot-bound references alone do not preserve persistent exclusions. Before
-connecting this resolver to live settings/cache refresh, invalidate or explicitly
-rebind affected custom-field policies and recipes. A changed snapshot must never
-silently discard an exclusion or reinterpret an ordinal as another field.
-The isolated resolver rejects stale references; persistent reconciliation remains
-an integration gate.
+Snapshot-bound references alone do not preserve persistent exclusions. Persist
+the accepted policy-to-snapshot binding. On replacement, rebind custom-field
+exclusions only when the captured encrypted custom-field sequence is exactly
+unchanged, including encrypted values and linked source identifiers. Equal names
+and types cannot establish identity when names repeat. For a sealed item, require
+the whole captured encrypted blob to match. A changed or ambiguous sequence with
+an existing custom exclusion blocks that item's secret release until explicit
+review; unrelated items and stable built-in exclusions retain their policies.
+
+Review must identify the current snapshot and settings revision. Start every
+current custom field excluded, and require a deliberate save of that item's
+reviewed choices. Reloading metadata or saving unrelated settings must not clear
+the old exclusions or count as review. Retain an item's snapshot binding after
+review even when every field is allowed; an empty exclusion list must not let
+an interrupted review authorize a newer, unreviewed field sequence.
+Cache and settings use separate stores:
+an interrupted update can leave mismatched records, which must deny release
+until reconciled. Do not claim an atomic transaction across both stores.
+Persistent reconciliation and its restart tests are under implementation in
+the [connection setup slice](plan.md#connection-setup-and-live-catalog-progress).
 
 Generate TOTP locally and preserve stored parameters. Test raw Base32, standard
 TOTP URIs and Bitwarden's Steam variant. Unsupported OTP formats must not be

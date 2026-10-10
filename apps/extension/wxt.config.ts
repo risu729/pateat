@@ -11,9 +11,12 @@ export default defineConfig({
     minimum_chrome_version: "120",
     action: { default_title: "Open Pateat settings" },
     permissions: ["storage", "offscreen"],
+    // Self-hosted provider origins are selected at setup. Only that connection's
+    // canonical HTTPS hosts are requested from the user's setup gesture.
+    optional_host_permissions: ["https://*/*"],
     content_security_policy: {
       extension_pages:
-        "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self'",
+        "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https:",
     },
     // Content-script matches do not grant access to tabs.Tab.url. The synthetic
     // coordinator needs that browser-provided URL for its fail-closed recheck.

@@ -1,10 +1,11 @@
 # Documentation
 
-The repository contains local policy settings backed by synthetic vault metadata, shared
-contracts, isolated Bitwarden transport/local-crypto libraries, a packaged offscreen
-crypto host, local vault-cache components under verification, a localhost-only synthetic
+The repository contains local policy settings, manual Bitwarden connection setup,
+shared contracts, isolated transport/local-crypto libraries, a packaged offscreen
+crypto host, a local vault cache with offline restoration, a localhost-only synthetic
 login executor probe, a health-only Worker and CI/manual-delivery foundations.
-Production login activation, real vault connections, inference and passkey execution
+Connection setup and its live metadata integration are under verification; real-account
+compatibility is unproven. Production login activation, inference and passkey execution
 remain unimplemented. The service is not deployed. The initial design was adopted in
 [PR #1](https://github.com/risu729/pateat/pull/1).
 
