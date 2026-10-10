@@ -62,6 +62,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0010: Inference field hints and local fill checks](adr/0010-inference-field-hints.md)
 - [0012: Inference request log and evaluation data](adr/0012-inference-request-log.md)
 - [0013: Service-held recipes, settings and account bindings](adr/0013-service-held-recipes-and-settings.md)
+- [0014: Claude Opus 5.5 for recipe generation](adr/0014-claude-generation-provider.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),
