@@ -526,6 +526,13 @@ describe("recipe sync", () => {
       recipe: recipe("bank-login", 1),
     });
     expect(invalid.status).toBe(400);
+    const collection = await api(device, "/v1/recipes", {
+      method: "PUT",
+      headers: { "Content-Type": "text/plain" },
+      body: "synthetic",
+    });
+    expect(collection.status).toBe(405);
+    expect(collection.headers.get("Allow")).toBe("GET");
     const remove = await api(device, "/v1/recipes/bank-login", { method: "DELETE" });
     expect(remove.status).toBe(405);
     expect(remove.headers.get("Allow")).toBe("PUT");

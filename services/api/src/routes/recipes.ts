@@ -13,7 +13,7 @@ import * as v from "valibot";
 import type { ApiEnv, DeviceScope } from "../auth";
 import { recipeHeads, recipeRevisions } from "../db/schema";
 import { apiError } from "../http";
-import { jsonBody } from "../validation";
+import { jsonBody, requireJsonBody } from "../validation";
 
 const changesQuerySchema = v.strictObject({
   after: v.optional(
@@ -105,6 +105,7 @@ export const recipeRoutes = new Hono<ApiEnv>()
       const result = v.safeParse(v.strictObject({ recipeId: syncRecipeIdSchema }), value);
       return result.success ? result.output : apiError(c, 400, { error: "bad_request" });
     }),
+    requireJsonBody,
     jsonBody(syncRecipeWriteSchema),
     async (c) => {
       const scope = c.get("scope");

@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import * as v from "valibot";
 import type { ApiEnv, DeviceScope } from "../auth";
 import { settings } from "../db/schema";
-import { jsonBody } from "../validation";
+import { jsonBody, requireJsonBody } from "../validation";
 
 async function readSettings(db: D1Database, scope: DeviceScope): Promise<SyncSettingsState> {
   const [row] = await drizzle(db)
@@ -27,7 +27,7 @@ async function readSettings(db: D1Database, scope: DeviceScope): Promise<SyncSet
 
 export const settingsRoutes = new Hono<ApiEnv>()
   .get("/", async (c) => c.json(await readSettings(c.env.DB, c.get("scope"))))
-  .put("/", jsonBody(syncSettingsWriteSchema), async (c) => {
+  .put("/", requireJsonBody, jsonBody(syncSettingsWriteSchema), async (c) => {
     const scope = c.get("scope");
     const write = c.req.valid("json");
     const db = drizzle(c.env.DB);
