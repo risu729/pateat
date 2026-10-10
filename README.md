@@ -21,10 +21,12 @@ implementation commitments; the [plan](docs/plan.md) defines delivery boundaries
 
 The name comes from Latin _pateat_: "let it be open."
 
-**Status: foundation preview.** The repository builds a permission-free extension
-with a status/settings shell and a health-only Worker. Shared contracts, isolated
-browser probes, CI and opt-in manual server delivery are implemented. Vault
-connections, automatic login, inference and passkeys are not implemented yet.
+**Status: local settings preview.** The extension saves local exclusion policies
+and next-login account defaults against synthetic demo vault metadata. It requests
+local storage access, with no site access or production content scripts. A
+health-only Worker, shared contracts, isolated browser probes, CI and opt-in manual
+server delivery are implemented. Real vault connections, automatic login,
+inference and passkeys are not implemented yet.
 No hosted service has been deployed.
 
 See [development](docs/development.md) for installation and checks. The production

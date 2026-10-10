@@ -34,6 +34,20 @@ export default defineContentScript({
           // The settings-only boundary also permits browsers that reject a
           // response-less request instead of resolving it with undefined.
         }
+        let settingsRequestAccepted = false;
+        let storageReadAccepted = false;
+        try {
+          settingsRequestAccepted =
+            (await browser.runtime.sendMessage({ version: 1, type: "settings.get" })) !== undefined;
+        } catch {
+          // Content scripts must not reach settings operations.
+        }
+        try {
+          await browser.storage.local.get("pateat.local-settings.v1");
+          storageReadAccepted = true;
+        } catch {
+          // Trusted-context-only storage must reject direct content-script reads.
+        }
         if (ctx.isInvalid) return;
         window.postMessage(
           {
@@ -43,6 +57,8 @@ export default defineContentScript({
             nativeGetUnchanged: data.nativeGetUnchanged,
             identity,
             statusRequestAccepted,
+            settingsRequestAccepted,
+            storageReadAccepted,
           },
           location.origin,
         );
