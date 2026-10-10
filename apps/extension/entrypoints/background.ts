@@ -7,6 +7,7 @@ import { createLoginSites } from "../src/login/sites";
 import {
   combineFieldSources,
   createVaultFieldSource,
+  createVaultOwners,
   createVaultUriMatcher,
   dummyFieldSource,
 } from "../src/login/vault";
@@ -50,6 +51,7 @@ export default defineBackground(() => {
     }),
     sites: createLoginSites(settings),
     uris: createVaultUriMatcher(connections),
+    owners: createVaultOwners(connections),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const passkeyProbe = import.meta.env.MODE === "probe" ? createProbePasskeySource() : undefined;

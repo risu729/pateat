@@ -62,6 +62,26 @@ export function createVaultUriMatcher(
   };
 }
 
+/** The provider account ID of a connection's open snapshot, or nothing when locked. */
+export type LoginVaultOwner = (
+  connectionId: string,
+  snapshotId: string,
+) => Promise<string | undefined>;
+
+/** Reads the account ID from the open vault handle only when it holds that snapshot. */
+export function createVaultOwners(
+  connections: Pick<ConnectionRuntime, "registry" | "vaultFor">,
+): LoginVaultOwner {
+  return async (connectionId, snapshotId) => {
+    const configuration = await connections.registry.get(connectionId);
+    if (!configuration) return undefined;
+    const handle = connections.vaultFor(configuration.profile).manager.status().handle;
+    return handle?.connectionId === connectionId && handle.snapshotId === snapshotId
+      ? handle.userId
+      : undefined;
+  };
+}
+
 export type LoginSecretKind = "password" | "otp";
 /**
  * Which values may only fill password or one-time-code inputs. Hidden and Linked custom

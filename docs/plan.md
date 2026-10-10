@@ -305,39 +305,50 @@ Chrome yet.
 
 ### Remaining M3 integration gaps
 
-- The executor asks the saved site default's connection for provider URI candidates for
-  each admitted document's own URL. A match of that item satisfies the item origin check
-  for that document only, and is reused while the connection's snapshot is unchanged. It
-  never selects an account, saves `allowedOrigins` or grants a field. Each new document
-  is matched again, so an Exact rule refuses a later page at another path. No match
-  refuses as `item-origin-mismatch`. Rules the matcher could not evaluate for that item
-  (including Regex rules) refuse as `item-uri-unevaluated`. A connection that cannot
-  answer (including for page URLs over 8192 characters), or answers from another
-  snapshot, and an item awaiting field review refuse as `vault-unavailable`. Static
-  `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
-  StartsWith rules cannot be expressed as exact origins, so do not derive them.
-  Synthetic unit tests cover this path; a native browser run waits for cached recipes.
+- The executor chooses the account for each admitted document. A saved site default
+  wins. Without one, it asks every enabled connection for provider URI candidates for
+  the document's own URL and uses the item only when exactly one eligible item matches
+  (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`;
+  an unevaluated item (including Regex rules) as `item-uri-unevaluated`; and a
+  connection that cannot answer, or a locked vault, as `vault-unavailable`. The choice
+  is re-derived on every policy check and each new document, so a new match from a
+  later sync stops the attempt. It is saved (`siteDefaults` plus `settings.bindings`)
+  only after the outcome is `authenticated`, only when the settings revision is still
+  the one the attempt was authorized under, and only for what is missing; nothing is
+  saved on `credential-rejected` or an unknown outcome. Saving bumps the settings
+  revision, so a concurrent attempt on another site stops as `policy-changed`. A choice
+  made by a document whose attempt is interrupted by a worker restart is not saved.
+- A saved default's own item is matched the same way. A match satisfies the item origin
+  check for that document only, and is reused while the connection's snapshot is
+  unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
+  matched again, so an Exact rule refuses a later page at another path. No match refuses
+  as `item-origin-mismatch`. Page URLs over 8192 characters and answers from another
+  snapshot refuse as `vault-unavailable`. Static `allowedOrigins` remain empty for live
+  items; Domain-mode subdomains and raw StartsWith rules cannot be expressed as exact
+  origins, so do not derive them. Synthetic unit tests cover these paths; a native
+  browser run waits for cached recipes.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
-  immediately before a fill. Bindings are explicit slot-to-field references;
-  custom-field references are snapshot-scoped. An unavailable connection or an item
-  awaiting field review is refused before an attempt starts. A denied, locked or failed
-  field read, or a replacement snapshot before delivery, blocks the attempt as
-  `policy-changed` without filling. Production admits only top-level HTTPS documents
-  whose exact origin has a saved, non-excluded site default and granted host access
+  immediately before a fill. An unavailable connection or an item awaiting field review
+  is refused before an attempt starts. A denied, locked or failed field read, or a
+  replacement snapshot before delivery, blocks the attempt as `policy-changed` without
+  filling. Production admits top-level HTTPS documents on a non-excluded site with
+  granted host access, with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
   stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
   probe build grants its loopback origin to the probe item and supplies recipes and
-  bindings. Recipes and account bindings are to come from the service cache
-  ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The shared contracts
-  define the synced binding format (`settings.bindings`, `savedLoginBindingSchema`)
-  and, in `packages/contracts/src/recipes.ts`, the first-step recipe selector, binding
-  lookup, name-based field resolution, the built-in-slot binding for an automatic
-  account choice and the save that keeps an existing choice. The executor does not use
-  them yet, and the extension has no sync client, so bindings live only in local
-  settings until it does. `/v1/settings` already accepts and stores them. An extension
-  or service build that predates `bindings` rejects settings that contain them.
-  Provider-derived origins remain open.
+  bindings. Recipes and account bindings come from the service cache
+  ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The executor looks up the
+  chosen item's binding in `settings.bindings` by recipe, provider, provider account ID
+  (from the open vault handle of that snapshot) and item, falls back to the
+  built-in-slot binding (`defaultLoginBinding`), and maps it to this device's field IDs
+  with `resolveBindingFields`. A recipe with another slot and no saved binding refuses
+  as `binding-not-found`. The catalog does not expose raw custom-field names yet, so a
+  binding to a custom field refuses as `field-missing`. The extension has no sync client
+  and production has no recipe cache, so bindings live only in local settings and
+  production attempts still stop at `recipe-not-found`. `/v1/settings` already accepts
+  and stores bindings. An extension or service build that predates `bindings` rejects
+  settings that contain them. Provider-derived origins remain open.
 - A fill step refuses as `structural-mismatch` before writing anything unless all of its
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy

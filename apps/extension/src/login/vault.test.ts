@@ -3,6 +3,7 @@ import type { VaultConnectionMetadata } from "@pateat/contracts";
 import {
   combineFieldSources,
   createVaultFieldSource,
+  createVaultOwners,
   createVaultUriMatcher,
   dummyFieldSource,
   loginSecretKind,
@@ -168,6 +169,26 @@ describe("live vault URI matcher", () => {
     await expect(
       matcher().match("50000000-0000-4000-8000-000000000009", "https://login.example/"),
     ).resolves.toEqual({ ok: false, error: { code: "invalid-request" } });
+  });
+});
+
+describe("live vault owners", () => {
+  const owners = (handle?: { connectionId: string; userId: string; snapshotId: string }) =>
+    createVaultOwners({
+      registry: {
+        get: async (id: string) =>
+          id === connectionId ? { profile: { connectionId } } : undefined,
+      },
+      vaultFor: () => ({ manager: { status: () => (handle ? { handle } : {}) } }),
+    } as unknown as Parameters<typeof createVaultOwners>[0]);
+  it("reads the account only from the open handle of that snapshot", async () => {
+    const open = owners({ connectionId, userId, snapshotId });
+    await expect(open(connectionId, snapshotId)).resolves.toBe(userId);
+    await expect(open(connectionId, "60000000-0000-4000-8000-000000000009")).resolves.toBe(
+      undefined,
+    );
+    await expect(open("50000000-0000-4000-8000-000000000009", snapshotId)).resolves.toBe(undefined);
+    await expect(owners()(connectionId, snapshotId)).resolves.toBe(undefined);
   });
 });
 

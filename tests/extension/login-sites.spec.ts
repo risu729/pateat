@@ -27,7 +27,7 @@ async function serveSites(context: BrowserContext) {
   );
 }
 
-test("the HTTPS login script is admitted only on an exact saved-default origin", async () => {
+test("the HTTPS login script admits non-excluded sites and stops without a recipe", async () => {
   await withLoginExtension(async (context, _worker, id) => {
     await serveSites(context);
     const options = await context.newPage();
@@ -36,9 +36,9 @@ test("the HTTPS login script is admitted only on an exact saved-default origin",
     const current = (await send(options, { version: 1, type: "settings.get" })) as SettingsResponse;
     if (!current.ok) throw new Error("Synthetic settings unavailable");
     const settings = current.snapshot.settings;
-    settings.siteDefaults = [
-      { origin: "https://login.example", connectionId: "demo-personal", itemId: "primary" },
-    ];
+    // No saved default: an account can also be chosen by a single URI match (ADR 0013).
+    settings.siteDefaults = [];
+    settings.excludedSites = [{ hostname: "other.example", includeSubdomains: false }];
     const saved = (await send(options, {
       version: 1,
       type: "settings.save",
@@ -61,7 +61,7 @@ test("the HTTPS login script is admitted only on an exact saved-default origin",
     const other = await context.newPage();
     await other.goto("https://other.example/signin");
     await expect(other.locator("#password")).toBeVisible();
-    // The other origin's hello is refused before a document entry is created.
+    // The excluded site's hello is refused before a document entry is created.
     await other.waitForTimeout(500);
     const status = (await send(options, { version: 1, type: "login.probe.status" })) as Status;
     expect(status.documents.map((entry) => entry.origin)).toEqual(["https://login.example"]);
