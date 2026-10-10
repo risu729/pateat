@@ -107,7 +107,7 @@ export function createConnectionProbeTransport() {
           challenge = request.challenge;
           permission = request.permission;
           overflow = request.overflow === "group-refs";
-          if (!permission) runtime.service.permissionsRemoved();
+          if (!permission) await runtime.service.permissionsRemoved();
           return { ok: true };
         }
         const configurations = await runtime.registry.list();

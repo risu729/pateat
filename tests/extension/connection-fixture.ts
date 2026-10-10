@@ -32,7 +32,7 @@ type Request =
   | { type: "connection.begin"; input: SetupBegin }
   | { type: "connection.continue"; input: SetupContinuation }
   | { type: "connection.status" }
-  | { type: "connection.sync" | "connection.disable"; connectionId: string }
+  | { type: "connection.sync" | "connection.disable" | "connection.forget"; connectionId: string }
   | { type: "connection.cancel"; flowId: string }
   | {
       type: "connection.review";
@@ -198,4 +198,93 @@ export function inspectSetupPersistence(page: Page) {
       db?.close();
     }
   });
+}
+
+/** Value-free view of the native schema and provider-session store. */
+export function inspectProviderSessions(page: Page) {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const open = indexedDB.open("pateat.local-vault.v1");
+      open.onupgradeneeded = () => open.transaction?.abort();
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(new Error("Synthetic database open failed"));
+    });
+    try {
+      const stores = [...db.objectStoreNames].sort();
+      const read = (name: string) =>
+        new Promise<unknown[]>((resolve, reject) => {
+          const tx = db.transaction(name, "readonly");
+          const get = tx.objectStore(name).getAll();
+          tx.oncomplete = () => resolve(get.result);
+          tx.onerror = () => reject(new Error("Synthetic read failed"));
+        });
+      const sessions = stores.includes("providerSessions")
+        ? ((await read("providerSessions")) as Record<string, unknown>[])
+        : [];
+      const records = stores.includes("records") ? await read("records") : [];
+      const serialized = JSON.stringify(sessions);
+      return {
+        version: db.version,
+        stores,
+        records: records.length,
+        sessions: sessions.map((entry) => ({
+          state: entry["state"],
+          hasAccessToken: typeof entry["accessToken"] === "string",
+          hasRefreshToken: typeof entry["refreshToken"] === "string",
+        })),
+        recordsHaveNoToken: !JSON.stringify(records).includes("accessToken"),
+        passwordAbsent: !serialized.includes("asdfasdfasdf"),
+        plaintextAbsent: !serialized.includes("test_password"),
+      };
+    } finally {
+      db.close();
+    }
+  });
+}
+/** Create the version 1 schema shipped before provider sessions, with a sentinel record. */
+export function seedVersionOneDatabase(page: Page, hold: boolean) {
+  return page.evaluate(async (keepOpen) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const open = indexedDB.open("pateat.local-vault.v1", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("records");
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(new Error("Synthetic database open failed"));
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("records", "readwrite");
+      tx.objectStore("records").put({ sentinel: true }, "synthetic-version-one");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(new Error("Synthetic write failed"));
+    });
+    // A held connection ignores versionchange, which blocks the upgrade until it closes.
+    if (keepOpen) (globalThis as { heldVaultDatabase?: IDBDatabase }).heldVaultDatabase = db;
+    else db.close();
+    return db.version;
+  }, hold);
+}
+export function releaseVersionOneDatabase(page: Page) {
+  return page.evaluate(() => {
+    const scope = globalThis as { heldVaultDatabase?: IDBDatabase };
+    scope.heldVaultDatabase?.close();
+    delete scope.heldVaultDatabase;
+  });
+}
+export function readSentinel(page: Page) {
+  return page.evaluate(
+    () =>
+      new Promise<unknown>((resolve, reject) => {
+        const open = indexedDB.open("pateat.local-vault.v1");
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("records", "readonly");
+          const get = tx.objectStore("records").get("synthetic-version-one");
+          tx.oncomplete = () => {
+            db.close();
+            resolve(get.result);
+          };
+          tx.onerror = () => reject(new Error("Synthetic read failed"));
+        };
+        open.onerror = () => reject(new Error("Synthetic open failed"));
+      }),
+  );
 }

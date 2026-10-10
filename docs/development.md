@@ -143,8 +143,9 @@ credentials during a test unless that account test has been separately authorize
 
 The panel submits supported manual verification codes through the same private
 setup channel. Email-code delivery initiation and interactive MFA methods are
-not implemented by the existing transport. Provider authentication is transient:
-after the extension worker restarts, remote sync can require sign-in again.
+not implemented by the existing transport. The sync sign-in persists across restarts
+as described in [ADR 0008](adr/0008-durable-provider-sessions.md); Sync refreshes it
+when needed, and Forget sync sign-in removes it locally without a server logout.
 Offline local-vault restoration is independent of that provider session.
 
 Connecting retains the local unlock key and encrypted cache. Disabling automatic

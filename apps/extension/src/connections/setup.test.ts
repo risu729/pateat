@@ -12,9 +12,12 @@ import {
   accountUserId,
 } from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { rawCustomAccount } from "../../../../packages/bitwarden/src/__fixtures__/connection";
+import { rawV1Account } from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { v1Email, v1Password } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
 import { activeEntry } from "../vault/__fixtures__/vault";
 import type { VaultEntry } from "../vault/record";
+import { createProviderSessions } from "./sessions";
+import { memorySessionStore } from "./__fixtures__/sessions";
 
 const authenticationHash = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
 function gate() {
@@ -63,6 +66,7 @@ function harness(options: { existing?: boolean } = {}) {
     }),
   };
   const tokenResponses: { body: unknown; status: number }[] = [];
+  const syncResponses: { body: unknown; status: number }[] = [];
   const fetch = vi.fn(async (url: string, _init: RequestInit) => {
     const path = new URL(url).pathname;
     const stage = path.includes("prelogin")
@@ -81,7 +85,11 @@ function harness(options: { existing?: boolean } = {}) {
       const next = tokenResponses.shift();
       body = next?.body ?? raw.token;
       status = next?.status ?? 200;
-    } else if (stage === "sync") body = raw.sync;
+    } else if (stage === "sync") {
+      const next = syncResponses.shift();
+      body = next?.body ?? raw.sync;
+      status = next?.status ?? 200;
+    }
     else throw new Error("Unexpected synthetic provider route");
     return new Response(JSON.stringify(body), {
       status,
@@ -187,16 +195,26 @@ function harness(options: { existing?: boolean } = {}) {
   const transportFor = vi.fn((profile: BitwardenProfile) =>
     createBitwardenTransport(profile, { fetch }),
   );
-  const service = createConnectionSetupService({
-    host,
-    transportFor,
-    permissions,
-    registry,
-    policy,
-    vaultFor: () =>
-      ({ store, manager }) as unknown as ReturnType<ConnectionSetupDependencies["vaultFor"]>,
-    nowMs: () => clock,
+  const sessionMemory = memorySessionStore({
+    profile: accountProfile,
+    cacheRevision: () => (durable?.state === "active" ? durable.revision : null),
   });
+  const build = () =>
+    createConnectionSetupService({
+      host,
+      sessions: createProviderSessions({
+        storeFor: () => sessionMemory.store,
+        nowMs: () => clock,
+      }),
+      transportFor,
+      permissions,
+      registry,
+      policy,
+      vaultFor: () =>
+        ({ store, manager }) as unknown as ReturnType<ConnectionSetupDependencies["vaultFor"]>,
+      nowMs: () => clock,
+    });
+  const service = build();
   const caller = service.createCaller();
   closers.push(() => caller.dispose());
   return {
@@ -213,6 +231,15 @@ function harness(options: { existing?: boolean } = {}) {
     permissions,
     events,
     tokenResponses,
+    syncResponses,
+    sessionMemory,
+    /** A new background incarnation: no in-memory state, same durable stores. */
+    restart() {
+      const next = build();
+      const caller = next.createCaller();
+      closers.push(() => caller.dispose());
+      return { service: next, caller };
+    },
     durable: () => structuredClone(durable),
     permission: (allowed: boolean) => {
       permission = allowed;
@@ -534,7 +561,7 @@ describe("failed refresh does not destroy a previously usable cache", () => {
     expect(h.host.deriveAuthentication).not.toHaveBeenCalled();
     expect(h.manager.accept).not.toHaveBeenCalled();
   });
-  it("sync refreshes expired authorization, uses its new bearer, and retains the rotated refresh only in memory", async () => {
+  it("sync refreshes expired authorization, uses its new bearer, and keeps the rotated refresh out of the vault record", async () => {
     const h = harness({ existing: true });
     expect(
       (
@@ -592,6 +619,7 @@ describe("failed refresh does not destroy a previously usable cache", () => {
       "synthetic-rotated-refresh",
     );
     expect(JSON.stringify(h.durable())).not.toContain("synthetic-rotated-refresh");
+    expect(h.sessionMemory.raw()).toMatchObject({ refreshToken: "synthetic-rotated-refresh" });
     noSecrets(result);
     expect(h.fetch).toHaveBeenCalledTimes(7);
   });
@@ -737,5 +765,128 @@ describe("failed refresh does not destroy a previously usable cache", () => {
     expect(result).toEqual({ ok: false, error: { code: "account-mismatch" } });
     expect(h.manager.accept).not.toHaveBeenCalled();
     expect(h.durable()).toEqual(previous);
+  });
+});
+
+describe("durable provider sessions", () => {
+  async function connected(h: ReturnType<typeof harness>) {
+    const begun = await h.caller.begin({
+      kind: "existing",
+      connectionId: accountProfile.connectionId,
+      password: v1Password,
+      autoUnlock: "preserve",
+    });
+    expect(begun.ok).toBe(true);
+  }
+  it("a new background incarnation syncs without the password and without HTTP at startup", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    expect(h.sessionMemory.raw()).toMatchObject({ state: "active" });
+    expect(JSON.stringify(h.sessionMemory.raw())).not.toContain(v1Password);
+    const fresh = h.restart();
+    const status = await fresh.caller.status();
+    expect(status).toMatchObject({ connections: [{ providerSession: "active" }] });
+    noSecrets(status);
+    expect(h.fetch).toHaveBeenCalledTimes(3);
+    expect((await fresh.caller.sync(accountProfile.connectionId)).ok).toBe(true);
+    expect(h.fetch).toHaveBeenCalledTimes(4);
+    expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
+    // A second consecutive sync still works against the newly accepted cache revision.
+    expect((await fresh.caller.sync(accountProfile.connectionId)).ok).toBe(true);
+    expect(h.manager.accept).toHaveBeenCalledTimes(3);
+  });
+  it("a sync failure after a committed rotation keeps the rotated token", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const previous = h.durable();
+    h.advance(3_601_000);
+    const fresh = rawCustomAccount("unchanged", accountNow + 3601);
+    h.tokenResponses.push({
+      status: 200,
+      body: {
+        access_token: fresh.token.access_token,
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: "synthetic-rotated-refresh",
+      },
+    });
+    h.syncResponses.push({ status: 500, body: {} });
+    expect(await h.restart().caller.sync(accountProfile.connectionId)).toMatchObject({
+      ok: false,
+      error: { code: "http-error" },
+    });
+    expect(h.sessionMemory.raw()).toMatchObject({
+      state: "active",
+      refreshToken: "synthetic-rotated-refresh",
+    });
+    expect(h.durable()).toEqual(previous);
+  });
+  it("a rejected access token forgets only the sync session", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const previous = h.durable();
+    h.syncResponses.push({ status: 401, body: {} });
+    expect(await h.caller.sync(accountProfile.connectionId)).toEqual({
+      ok: false,
+      error: { code: "setup-reauthentication-required" },
+    });
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.durable()).toEqual(previous);
+    expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
+  });
+  it("changed account crypto requires password sign-in and preserves the cache", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const previous = h.durable();
+    const changed = rawCustomAccount();
+    changed.sync.profile.privateKey = rawV1Account().token.Key;
+    h.setRaw(changed);
+    expect(await h.caller.sync(accountProfile.connectionId)).toEqual({
+      ok: false,
+      error: { code: "setup-reauthentication-required" },
+    });
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.durable()).toEqual(previous);
+    expect(h.manager.accept).toHaveBeenCalledTimes(1);
+  });
+  it("local forget keeps offline unlock and is not a server logout", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const calls = h.fetch.mock.calls.length;
+    expect(await h.caller.forget(accountProfile.connectionId)).toEqual({
+      ok: true,
+      kind: "forgotten",
+      connectionId: accountProfile.connectionId,
+    });
+    expect(h.fetch).toHaveBeenCalledTimes(calls);
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.durable()?.state).toBe("active");
+    expect(await h.caller.status()).toMatchObject({
+      connections: [{ providerSession: "none", autoUnlock: "enabled" }],
+    });
+    expect(await h.caller.sync(accountProfile.connectionId)).toEqual({
+      ok: false,
+      error: { code: "setup-reauthentication-required" },
+    });
+  });
+  it("disabling automatic unlock also forgets sync credentials", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.manager.disableAutoUnlock.mockResolvedValueOnce({
+      ok: true,
+      data: { connectionId: accountProfile.connectionId, revision: crypto.randomUUID() },
+    });
+    expect((await h.caller.disable(accountProfile.connectionId)).ok).toBe(true);
+    expect(h.sessionMemory.raw()).toBeUndefined();
+  });
+  it("permission removal forgets only connections whose provider lost access", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    await h.service.permissionsRemoved();
+    expect(h.sessionMemory.raw()).toMatchObject({ state: "active" });
+    h.permission(false);
+    await h.service.permissionsRemoved();
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.durable()?.state).toBe("active");
   });
 });

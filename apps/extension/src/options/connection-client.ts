@@ -13,6 +13,8 @@ export interface ConnectionClient {
   cancel(flowId: string): Promise<SetupReply>;
   sync(connectionId: string): Promise<SetupReply>;
   disableAutoUnlock(connectionId: string): Promise<SetupReply>;
+  /** Local only: removes saved sync sign-in, not a provider logout. */
+  forgetProviderSession(connectionId: string): Promise<SetupReply>;
   review(
     input: Extract<v.InferInput<typeof setupRequestSchema>, { type: "connection.review" }>["input"],
   ): Promise<SetupReply>;
@@ -113,6 +115,7 @@ export function createConnectionClient(api: {
     cancel: (flowId) => send({ type: "connection.cancel", flowId }),
     sync: (connectionId) => send({ type: "connection.sync", connectionId }),
     disableAutoUnlock: (connectionId) => send({ type: "connection.disable", connectionId }),
+    forgetProviderSession: (connectionId) => send({ type: "connection.forget", connectionId }),
     review: (input) => send({ type: "connection.review", input }),
     close,
   };

@@ -7,6 +7,7 @@ import {
   type VaultResult,
   type VaultErrorCode,
 } from "./record";
+import { createVaultDatabase, RECORDS_STORE, runVaultTransaction } from "./database";
 
 export interface DurableVaultStore {
   read(): Promise<VaultResult<VaultEntry | null>>;
@@ -24,64 +25,10 @@ export function createIndexedDbVaultStore(options: {
   databaseName?: string;
   timeoutMs?: number;
 }): DurableVaultStore {
-  const factory = options.indexedDB ?? globalThis.indexedDB;
   const normalized = normalizeBitwardenProfile(structuredClone(options.profile));
   const profile = normalized.ok ? normalized.data : undefined;
-  const timeout = options.timeoutMs ?? 10_000;
-  const name = options.databaseName ?? "pateat.local-vault.v1";
-  let opening: Promise<IDBDatabase> | undefined;
-  let database: IDBDatabase | undefined;
-  let closed = false;
-  function open() {
-    if (
-      closed ||
-      !profile ||
-      !factory ||
-      !Number.isInteger(timeout) ||
-      timeout < 1 ||
-      timeout > 30_000
-    )
-      return Promise.reject(new Error());
-    opening ??= new Promise<IDBDatabase>((resolve, reject) => {
-      let ended = false;
-      const request = factory.open(name, 1);
-      const timer = setTimeout(() => {
-        ended = true;
-        reject(new Error());
-      }, timeout);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains("records"))
-          request.result.createObjectStore("records");
-      };
-      request.onerror = () => {
-        clearTimeout(timer);
-        ended = true;
-        reject(new Error());
-      };
-      request.onsuccess = () => {
-        clearTimeout(timer);
-        if (ended || closed) {
-          request.result.close();
-          reject(new Error());
-          return;
-        }
-        const opened = request.result;
-        database = opened;
-        opened.onversionchange = () => {
-          opened.close();
-          if (database === opened) {
-            database = undefined;
-            opening = undefined;
-          }
-        };
-        resolve(opened);
-      };
-    }).catch((error: unknown) => {
-      opening = undefined;
-      throw error;
-    });
-    return opening;
-  }
+  const database = createVaultDatabase(options);
+  const open = () => (profile ? database.open() : Promise.reject(new Error()));
   function transaction<T>(
     db: IDBDatabase,
     mode: IDBTransactionMode,
@@ -92,65 +39,14 @@ export function createIndexedDbVaultStore(options: {
     ) => void,
     signal?: AbortSignal,
   ): Promise<VaultResult<T>> {
-    return new Promise((resolve) => {
-      if (signal?.aborted) {
-        resolve(vaultFailure("cancelled"));
-        return;
-      }
-      const tx = db.transaction("records", mode, { durability: "strict" });
-      let result: VaultResult<T> = vaultFailure("storage-uncertain");
-      let abortCode: VaultErrorCode = "storage-failed";
-      let ended = false;
-      const abort = (code: VaultErrorCode) => {
-        abortCode = code;
-        try {
-          tx.abort();
-        } catch {
-          result = vaultFailure("storage-uncertain");
-        }
-      };
-      const cancelled = () => abort("cancelled");
-      signal?.addEventListener("abort", cancelled, { once: true });
-      const timer = setTimeout(() => {
-        abort("storage-uncertain");
-        finish(vaultFailure("storage-uncertain"));
-      }, timeout);
-      const cleanup = () => {
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", cancelled);
-      };
-      const finish = (value: VaultResult<T>) => {
-        if (ended) return;
-        ended = true;
-        cleanup();
-        resolve(value);
-      };
-      tx.onabort = () => {
-        finish(
-          vaultFailure(
-            tx.error?.name === "QuotaExceededError" ? "cache-quota-exceeded" : abortCode,
-          ),
-        );
-      };
-      // Request success is not a commit. Only transaction completion publishes a result.
-      tx.oncomplete = () => {
-        finish(signal?.aborted ? vaultFailure("storage-uncertain") : result);
-      };
-      tx.onerror = () => {
-        if (tx.error?.name === "QuotaExceededError") abortCode = "cache-quota-exceeded";
-      };
-      try {
-        work(
-          tx.objectStore("records"),
-          (value) => {
-            result = value;
-          },
-          abort,
-        );
-      } catch {
-        abort("storage-failed");
-      }
-    });
+    return runVaultTransaction<T>(
+      db,
+      RECORDS_STORE,
+      mode,
+      database.timeout,
+      (stores, set, abort) => work(stores(RECORDS_STORE), set, abort),
+      signal,
+    );
   }
   return {
     async read() {
@@ -221,9 +117,7 @@ export function createIndexedDbVaultStore(options: {
       }
     },
     close() {
-      closed = true;
-      database?.close();
-      database = undefined;
+      database.close();
     },
   };
 }

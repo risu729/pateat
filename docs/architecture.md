@@ -108,9 +108,10 @@ OTP values. Return bounded challenge categories and provider IDs, never raw
 challenge parameters, server descriptions or URLs. Code delivery and interactive
 providers need separate integration. Keep successful token and encrypted-account
 results local; they do not establish account ownership or unlock a vault by
-themselves. Preserve unknown encrypted format metadata
-for later crypto validation; successful HTTP parsing does not prove decryptability
-or authorize use of a newly fetched snapshot.
+themselves. Sync sessions persist apart from the vault record
+([ADR 0008](adr/0008-durable-provider-sessions.md)). Preserve unknown encrypted
+format metadata for later crypto validation; successful HTTP parsing does not prove
+decryptability or authorize use of a newly fetched snapshot.
 The server can filter sync data according to client version and device capability
 headers. Record the protocol profile and validate completeness in the later
 adapter before replacing a usable cache; an intact outer envelope alone is not

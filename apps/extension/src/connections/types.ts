@@ -7,6 +7,7 @@ import type {
 import type { CryptoHost } from "../crypto/host";
 import type { LocalVaultManager, LocalVaultHandle } from "../vault/manager";
 import type { DurableVaultStore } from "../vault/storage";
+import type { ProviderSessions, ProviderSessionState } from "./sessions";
 import type { VaultEntry, VaultErrorCode, VaultResult } from "../vault/record";
 import type { VaultCatalog } from "@pateat/contracts";
 
@@ -45,6 +46,7 @@ export type SetupContinuation = {
 };
 export type SetupReply =
   | { ok: true; kind: "disabled"; connectionId: string }
+  | { ok: true; kind: "forgotten"; connectionId: string }
   | {
       ok: true;
       kind: "status";
@@ -55,6 +57,8 @@ export type SetupReply =
         environment: BitwardenProfile["environment"];
         autoUnlock: "enabled" | "disabled" | "unknown";
         state: "configured" | "ready" | "disabled" | "review-required" | "unavailable";
+        /** Sync sign-in, independent of offline unlock. Never contains a token. */
+        providerSession: ProviderSessionState | "unavailable";
         snapshotId?: string;
       }[];
     }
@@ -127,6 +131,7 @@ export type ConnectionSetupDependencies = {
   };
   registry: ConnectionRegistry;
   policy: ConnectionPolicy;
+  sessions: Pick<ProviderSessions, "status" | "retain" | "acquire" | "forget">;
   nowMs?: () => number;
   randomId?: () => string;
 };
