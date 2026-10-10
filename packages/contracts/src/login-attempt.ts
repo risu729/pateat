@@ -5,6 +5,7 @@ import {
   loginDocumentSchema,
   loginOperationSchema,
   loginOutcomeSchema,
+  loginStepEffect,
   parseLoginRecipe,
   sameLoginDocument,
   type LoginAccount,
@@ -56,6 +57,8 @@ export const attemptMetadataSchema = v.pipe(
     ),
     operationId: v.optional(identifier),
     operationKind: v.optional(v.picklist(["fill", "click", "wait", "assert"])),
+    operationEffect: v.optional(v.picklist(["prepare", "advance", "submit"])),
+    mutationIntent: v.optional(v.literal(true)),
     outcome: v.optional(loginOutcomeSchema),
   }),
   v.check(
@@ -84,8 +87,17 @@ export const attemptMetadataSchema = v.pipe(
   v.check(
     (metadata) =>
       !["submit-intent", "awaiting-result"].includes(metadata.state) ||
+      metadata.operationKind === "click" ||
+      (metadata.operationKind === "fill" &&
+        ["advance", "submit"].includes(metadata.operationEffect ?? "prepare")),
+    "Submission state requires an effectful operation",
+  ),
+  v.check(
+    (metadata) =>
+      (metadata.operationEffect === undefined && metadata.mutationIntent === undefined) ||
+      metadata.operationKind === "fill" ||
       metadata.operationKind === "click",
-    "Only clicks have submission state",
+    "Mutation metadata requires a fill or click operation",
   ),
 );
 export type LoginAttemptMetadata = v.InferOutput<typeof attemptMetadataSchema>;
@@ -98,7 +110,9 @@ export const loginAttemptEventSchema = v.variant("type", [
     type: v.literal("PREPARE"),
     operationId: identifier,
     kind: v.picklist(["fill", "click", "wait", "assert"]),
+    effect: v.optional(v.picklist(["prepare", "advance", "submit"])),
   }),
+  v.strictObject({ type: v.literal("MUTATION_INTENT"), operationId: identifier }),
   v.strictObject({ type: v.literal("OPERATION_OK"), operationId: identifier }),
   v.strictObject({ type: v.literal("SUBMIT_INTENT"), operationId: identifier }),
   v.strictObject({ type: v.literal("SUBMITTED"), operationId: identifier }),
@@ -118,6 +132,9 @@ export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({
     type: v.literal("FAILED"),
     reason: v.picklist(["structural-mismatch", "timeout"]),
+    mutation: v.optional(v.picklist(["none", "possible"])),
+    operationId: v.optional(identifier),
+    document: v.optional(loginDocumentSchema),
   }),
   v.strictObject({ type: v.literal("RETRY") }),
   v.strictObject({ type: v.literal("POLICY_CHANGED") }),
@@ -128,6 +145,12 @@ const sameScope = (left: LoginDocument, right: LoginDocument) =>
   left.origin === right.origin && left.tabId === right.tabId && left.frameId === right.frameId;
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
+const confirmedNoMutation = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
+  event.type === "FAILED" &&
+  event.mutation === "none" &&
+  operationMatches(context, event) &&
+  event.document !== undefined &&
+  sameLoginDocument(context.document, event.document);
 
 function record(
   context: LoginAttemptMetadata,
@@ -138,25 +161,41 @@ function record(
       return {
         operationId: event.operationId,
         operationKind: event.kind,
+        operationEffect:
+          event.effect ??
+          (event.kind === "fill" ? "prepare" : event.kind === "click" ? "submit" : undefined),
+        mutationIntent: undefined,
         usedOperationIds: [...context.usedOperationIds, event.operationId],
         outcome: undefined,
       };
     case "SUBMIT_INTENT":
-      return { submissions: context.submissions + 1 };
+      return { submissions: context.submissions + 1, mutationIntent: true };
+    case "MUTATION_INTENT":
+      return {
+        mutationIntent: true,
+        submissions: context.submissions + (context.operationEffect === "prepare" ? 0 : 1),
+      };
     case "OPERATION_OK":
       return {
         stepIndex: context.stepIndex + 1,
         operationId: undefined,
         operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
         outcome: undefined,
       };
     case "OBSERVED":
       if (event.result === "continue")
         return {
-          stepIndex: context.operationKind === "click" ? context.stepIndex + 1 : context.stepIndex,
+          stepIndex:
+            context.operationKind === "click" || context.operationEffect === "advance"
+              ? context.stepIndex + 1
+              : context.stepIndex,
           document: event.document ?? context.document,
           operationId: undefined,
           operationKind: undefined,
+          operationEffect: undefined,
+          mutationIntent: undefined,
           outcome: undefined,
         };
       return {
@@ -167,27 +206,47 @@ function record(
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,
         outcome:
-          context.operationKind === "click" && context.submissions > 0
+          context.mutationIntent ||
+          context.operationKind === "fill" ||
+          (context.operationKind === "click" && context.submissions > 0)
             ? "unknown-submit"
             : "interrupted",
       };
     case "INTERRUPTED":
       return {
         outcome:
-          context.operationKind === "click" && context.submissions > 0
+          context.mutationIntent ||
+          context.operationKind === "fill" ||
+          (context.operationKind === "click" && context.submissions > 0)
             ? "unknown-submit"
             : "interrupted",
       };
     case "FAILED":
       return {
         outcome: event.reason,
-        retryRequired: context.operationKind !== "click" ? true : context.retryRequired,
+        // A trusted preflight failure proves that this fill never initiated its
+        // reserved effect. Keep its used ID and the independent retry budget.
+        submissions:
+          confirmedNoMutation(context, event) &&
+          context.mutationIntent === true &&
+          context.operationKind === "fill" &&
+          ["advance", "submit"].includes(context.operationEffect ?? "prepare")
+            ? context.submissions - 1
+            : context.submissions,
+        mutationIntent: confirmedNoMutation(context, event) ? undefined : context.mutationIntent,
+        retryRequired:
+          context.operationKind !== "click" &&
+          (!context.mutationIntent || confirmedNoMutation(context, event))
+            ? true
+            : context.retryRequired,
       };
     case "RETRY":
       return {
         retries: context.retries + 1,
         operationId: undefined,
         operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
         outcome: undefined,
         retryRequired: undefined,
       };
@@ -230,7 +289,23 @@ function createLoginAttemptMachine() {
         context.usedOperationIds.length < 96,
       operationMatches: ({ context, event }) => operationMatches(context, event),
       completedNonClick: ({ context, event }) =>
-        operationMatches(context, event) && context.operationKind !== "click",
+        operationMatches(context, event) &&
+        context.operationKind !== "click" &&
+        (context.operationKind !== "fill" ||
+          (context.operationEffect === "prepare" && context.mutationIntent === true)),
+      preparationFill: ({ context, event }) =>
+        operationMatches(context, event) &&
+        context.operationKind === "fill" &&
+        context.operationEffect === "prepare",
+      effectfulFillAvailable: ({ context, event }) =>
+        operationMatches(context, event) &&
+        context.operationKind === "fill" &&
+        context.operationEffect !== "prepare" &&
+        context.submissions < context.maxSubmissions,
+      effectfulFill: ({ context, event }) =>
+        operationMatches(context, event) &&
+        context.operationKind === "fill" &&
+        context.operationEffect !== "prepare",
       canSubmit: ({ context, event }) =>
         operationMatches(context, event) &&
         context.operationKind === "click" &&
@@ -238,7 +313,13 @@ function createLoginAttemptMachine() {
       clickMatches: ({ context, event }) =>
         operationMatches(context, event) && context.operationKind === "click",
       retryAvailable: ({ context }) => context.retries < context.maxRetries,
-      failedClick: ({ context }) => context.operationKind === "click",
+      failedPossibleMutation: ({ context, event }) =>
+        context.operationKind === "click" ||
+        (context.mutationIntent === true && !confirmedNoMutation(context, event)),
+      staleFailure: ({ context, event }) =>
+        event.type === "FAILED" &&
+        ((event.operationId !== undefined && event.operationId !== context.operationId) ||
+          (event.document !== undefined && !sameLoginDocument(context.document, event.document))),
       sameScope: ({ context, event }) =>
         event.type === "NAVIGATED" && sameScope(context.document, event.document),
       observedAuthenticated: ({ context, event }) =>
@@ -253,8 +334,15 @@ function createLoginAttemptMachine() {
         event.type === "OBSERVED" &&
         event.result === "continue" &&
         context.stepIndex < context.stepCount &&
-        (context.operationKind !== "click" ||
+        !(
+          context.operationKind === "fill" &&
+          (context.operationEffect === "submit" ||
+            ((context.operationEffect ?? "prepare") === "prepare" &&
+              context.retryRequired !== true))
+        ) &&
+        (!(context.operationKind === "click" || context.operationEffect === "advance") ||
           (context.operationId !== undefined &&
+            context.mutationIntent === true &&
             context.submissions > 0 &&
             context.stepIndex + 1 < context.stepCount)) &&
         (!event.document || sameScope(context.document, event.document)),
@@ -288,7 +376,7 @@ function createLoginAttemptMachine() {
       ready: {
         on: {
           PREPARE: { guard: "canPrepare", target: "executing", actions: "record" },
-          FAILED: { target: "retryable", actions: "record" },
+          FAILED: [{ guard: "staleFailure" }, { target: "retryable", actions: "record" }],
           OBSERVED: [
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
             { guard: "observedRejected", target: "blocked", actions: "record" },
@@ -298,12 +386,18 @@ function createLoginAttemptMachine() {
       executing: {
         on: {
           OPERATION_OK: { guard: "completedNonClick", target: "ready", actions: "record" },
+          MUTATION_INTENT: [
+            { guard: "preparationFill", actions: "record" },
+            { guard: "effectfulFillAvailable", target: "submit-intent", actions: "record" },
+            { guard: "effectfulFill", target: "blocked", actions: "submissionLimit" },
+          ],
           SUBMIT_INTENT: [
             { guard: "canSubmit", target: "submit-intent", actions: "record" },
             { guard: "clickMatches", target: "blocked", actions: "submissionLimit" },
           ],
           FAILED: [
-            { guard: "failedClick", target: "reconciling", actions: "record" },
+            { guard: "staleFailure" },
+            { guard: "failedPossibleMutation", target: "reconciling", actions: "record" },
             { target: "retryable", actions: "record" },
           ],
         },
@@ -311,11 +405,23 @@ function createLoginAttemptMachine() {
       "submit-intent": {
         on: {
           SUBMITTED: { guard: "operationMatches", target: "awaiting-result" },
-          FAILED: { target: "reconciling", actions: "record" },
+          FAILED: [
+            { guard: "staleFailure" },
+            {
+              guard: ({ context, event }) =>
+                context.operationKind === "fill" && confirmedNoMutation(context, event),
+              target: "retryable",
+              actions: "record",
+            },
+            { target: "reconciling", actions: "record" },
+          ],
         },
       },
       "awaiting-result": {
-        on: { OBSERVED: observedTransitions, FAILED: { target: "reconciling", actions: "record" } },
+        on: {
+          OBSERVED: observedTransitions,
+          FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
+        },
       },
       reconciling: { on: { OBSERVED: observedTransitions } },
       retryable: {
@@ -413,7 +519,12 @@ export function nextLoginOperation(
   )
     return undefined;
   const step = recipe.steps[metadata.stepIndex];
-  if (!step || (step.kind === "click" && metadata.submissions >= metadata.maxSubmissions))
+  if (
+    !step ||
+    (loginStepEffect(step) !== undefined &&
+      loginStepEffect(step) !== "prepare" &&
+      metadata.submissions >= metadata.maxSubmissions)
+  )
     return undefined;
   return v.parse(loginOperationSchema, {
     version: 1,
@@ -440,15 +551,18 @@ export function validateLoginOperation(
   const parsedDocument = v.safeParse(loginDocumentSchema, document);
   if (!parsedOperation.success || !parsedMetadata.success || !parsedDocument.success) return false;
   const readyToExecute =
-    operation.step.kind === "click"
+    loginStepEffect(operation.step) !== undefined && loginStepEffect(operation.step) !== "prepare"
       ? metadata.state === "submit-intent"
       : metadata.state === "executing";
   return (
     readyToExecute &&
+    (!(operation.step.kind === "fill" || operation.step.kind === "click") ||
+      metadata.mutationIntent === true) &&
     operation.attemptId === metadata.id &&
     operation.operationId === metadata.operationId &&
     operation.stepIndex === metadata.stepIndex &&
     operation.step.kind === metadata.operationKind &&
+    loginStepEffect(operation.step) === metadata.operationEffect &&
     operation.policyRevision === policyRevision &&
     metadata.policyRevision === policyRevision &&
     sameLoginDocument(operation.document, document) &&

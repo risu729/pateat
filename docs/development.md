@@ -107,7 +107,13 @@ recheck browser-provided tab URLs. Production grants no host access.
    evidence. An isolated Playwright pass does not establish these Chrome results.
 
 The fixture exposes synthetic match flags and click counts, not a real account
-session. The probe has no real-provider adapter. Its fixed localhost recipes and
+session. Automated fixtures additionally count POSTs on the local server and can
+hold a response to distinguish a delivered request from an observed result.
+Probe-only interruption controls pause after durable intent but before delivery,
+or after execution but before acknowledgement. Only validated messages from the
+extension settings page can configure these controls; web pages cannot. Worker
+restart tests reconcile the retained intent without repeating a fill or click.
+The probe has no real-provider adapter. Its fixed localhost recipes and
 setup messages are excluded from the production build. Chrome use may not be
 able to operate another extension's settings page; manual setup is a supported
 test prerequisite, not a reason to expose settings mutations to a web page.

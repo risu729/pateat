@@ -48,6 +48,9 @@ export const commandSchema = v.variant("type", [
 ]);
 export const executionResultSchema = v.strictObject({
   ok: v.boolean(),
+  operationId: id,
+  documentId: id,
+  mutation: v.picklist(["none", "possible"]),
   reason: v.optional(v.picklist(["structural-mismatch", "timeout", "cancelled"])),
 });
 export const observationSchema = v.strictObject({
@@ -78,3 +81,16 @@ export const cancelSchema = v.strictObject({
   type: v.literal("login.probe.cancel"),
   tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
 });
+export const probeControlSchema = v.variant("action", [
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.probe.control"),
+    action: v.literal("arm"),
+    checkpoint: v.picklist(["before-delivery", "before-ack", "intent-write-failure"]),
+  }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.probe.control"),
+    action: v.literal("release"),
+  }),
+]);

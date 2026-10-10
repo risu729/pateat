@@ -171,10 +171,25 @@ fill or click. Expire late AI results after navigation and cancel outstanding
 work. Synthetic events and lack of trusted user activation may limit some sites.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to
-blindly replay a submit. After interruption around a click, observe the new page
-and reconcile the outcome before another attempt. Exactly-once effects at a
+blindly replay a submit. Input and change handlers can submit without a click.
+Declare whether a fill prepares fields, advances a flow or submits it; an
+input-triggered advance or submission uses one explicit event and initially one
+field. Record intent before any field mutation or event, including preparation
+fills. An acknowledgement proves local execution, not remote acceptance.
+After interruption around a fill or click, observe the current page and
+reconcile the outcome before another attempt. An uncertain fill must not be
+repeated merely because the original fields remain visible. Only a confirmed
+failure before mutation can permit a bounded retry. Never use an observation
+timeout to fall back from an input-triggered submission to a click. Recipes for
+ordinary click flows must explicitly describe tested preparation behavior.
+Exactly-once effects at a
 remote website cannot be guaranteed by local state alone. Apply a finite retry
 budget per account/origin, with delay and a terminal outcome for lockout risk.
+The submission budget reserves each executor effect before delivery; only a
+validated failure proving that the current operation made no mutation can
+release its reservation. A separate retry budget still applies. Initiated or
+possibly initiated effects remain counted, not proven server requests: one page
+handler can itself issue more than one request.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.

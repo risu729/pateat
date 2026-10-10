@@ -54,12 +54,17 @@ checks and add automated accessibility inspection.
 The first executor slice adds strict bounded recipe, account-binding and operation
 contracts, an XState lifecycle, and fixed DOM operations behind the separate
 localhost-only probe build. It uses explicit saved account defaults and bundled
-synthetic values. A metadata journal precedes clicks; recovery observes the
-current document and never blindly replays a pending submit. Same-origin attempts
+synthetic values. A metadata journal precedes every fill and click; input-triggered
+advance/submission declares its effect and event explicitly. Recovery observes
+the current document and never blindly replays an uncertain mutation or pending
+submit. Same-origin attempts
 remain locked to one owner tab until that tab closes, including terminal results.
 
-The shared synthetic site verifies field values and click counts independently
-of the executor. [Development](development.md#installed-chrome-synthetic-login-probe)
+The shared synthetic site verifies field values, click counts and server-observed
+POST counts independently of the executor. Interruption fixtures distinguish
+intent persistence, delivery, effect and acknowledgement; a missing acknowledgement
+never authorizes another fill or a fallback click.
+[Development](development.md#installed-chrome-synthetic-login-probe)
 describes the early installed-Chrome acceptance procedure. Production activation,
 arbitrary saved recipe configuration, real provider protocol, broader frame and
 dynamic-page support and actual Chrome use coexistence remain outstanding.
