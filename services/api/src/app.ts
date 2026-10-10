@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import { requireAccess } from "./access";
 import { requireDevice, type ApiEnv } from "./auth";
 import { API_HEADERS, apiError } from "./http";
+import { message } from "./pages";
 import { deviceRoutes } from "./routes/device";
 import { enrollRoutes } from "./routes/enroll";
 import { manageRoutes } from "./routes/manage";
@@ -38,13 +39,19 @@ export const app = new Hono<ApiEnv>()
     "/enroll",
     requireAccess,
     csrf(),
-    bodyLimit({ maxSize: MAX_FORM_BYTES, onError: (c) => c.text("Payload too large", 413) }),
+    bodyLimit({
+      maxSize: MAX_FORM_BYTES,
+      onError: (c) => message(c, 413, "Too large", "The form was too large."),
+    }),
   )
   .use(
     "/manage/*",
     requireAccess,
     csrf(),
-    bodyLimit({ maxSize: MAX_FORM_BYTES, onError: (c) => c.text("Payload too large", 413) }),
+    bodyLimit({
+      maxSize: MAX_FORM_BYTES,
+      onError: (c) => message(c, 413, "Too large", "The form was too large."),
+    }),
   )
   .route("/enroll", enrollRoutes)
   .all("/enroll", methodNotAllowed("GET, POST"))
@@ -79,10 +86,16 @@ export const app = new Hono<ApiEnv>()
   .all("/v1/recipes/:recipeId", methodNotAllowed("PUT"))
   .notFound((c) => apiError(c, 404, { error: "not_found" }))
   .onError((error, c) => {
+    const ownerPage = /^\/(?:enroll|manage)(?:\/|$)/.test(c.req.path);
     if (error instanceof HTTPException && error.status === 400)
-      return apiError(c, 400, { error: "bad_request" });
+      return ownerPage
+        ? message(c, 400, "Invalid request", "Start again from Pateat's settings.")
+        : apiError(c, 400, { error: "bad_request" });
     // CSRF rejections from owner pages.
-    if (error instanceof HTTPException && error.status === 403) return c.text("Forbidden", 403);
+    if (error instanceof HTTPException && error.status === 403)
+      return message(c, 403, "Request refused", "Submit this form from its own page.");
     console.error("Unhandled API error", error instanceof Error ? error.name : "unknown");
-    return apiError(c, 500, { error: "internal_error" });
+    return ownerPage
+      ? message(c, 500, "Something went wrong", "Try again later.")
+      : apiError(c, 500, { error: "internal_error" });
   });

@@ -113,6 +113,7 @@ export const syncErrorCodeSchema = v.picklist([
   "unsupported_media_type",
   "rate_limited",
   "enrollment_not_found",
+  "enrollment_code_mismatch",
   "internal_error",
 ]);
 export const syncErrorSchema = v.variant("error", [

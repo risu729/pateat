@@ -23,11 +23,17 @@ export const requireAccess = createMiddleware<ApiEnv>(async (c, next) => {
   const issuer = `https://${teamDomain}`;
   let subject: unknown;
   try {
-    const payload = await Jwt.verifyWithJwks(token, {
-      jwks_uri: `${issuer}/cdn-cgi/access/certs`,
-      allowedAlgorithms: ["RS256"],
-      verification: { iss: issuer, aud: audience },
-    });
+    const payload = await Jwt.verifyWithJwks(
+      token,
+      {
+        jwks_uri: `${issuer}/cdn-cgi/access/certs`,
+        allowedAlgorithms: ["RS256"],
+        verification: { iss: issuer, aud: audience },
+      },
+      // Edge-cache the public keys briefly instead of fetching them on every page.
+      // A rotated key may be refused for up to this long after first use.
+      { cf: { cacheTtl: 300, cacheEverything: true } },
+    );
     // Hono checks `exp` only when present; Access tokens always carry it.
     subject = typeof payload.exp === "number" ? payload["sub"] : undefined;
   } catch (error) {

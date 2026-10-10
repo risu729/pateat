@@ -13,9 +13,12 @@ import {
 
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/** Independent reference: the first 40 digest bits as Crockford base32. */
-function referenceCode(challenge: string): string {
-  const bytes = Buffer.from(challenge, "base64url").subarray(0, 5);
+/** Independent reference: the first 40 bits of the tagged digest as Crockford base32. */
+function referenceCode(verifier: string): string {
+  const bytes = createHash("sha256")
+    .update(`pateat-enrollment-code:${verifier}`)
+    .digest()
+    .subarray(0, 5);
   const bits = [...bytes].map((byte) => byte.toString(2).padStart(8, "0")).join("");
   const digits = Array.from(
     { length: 8 },
@@ -43,18 +46,21 @@ describe("enrollment verifier and challenge", () => {
 
 describe("enrollment code", () => {
   it("matches an independent bit-level encoding", async () => {
-    expect(enrollmentCode("A".repeat(43))).toBe("0000-0000");
-    expect(enrollmentCode("_".repeat(43))).toBe("ZZZZ-ZZZZ");
-    const challenges = await Promise.all(
-      Array.from({ length: 50 }, () => createEnrollmentChallenge(createEnrollmentVerifier())),
-    );
-    for (const challenge of challenges)
-      expect(enrollmentCode(challenge)).toBe(referenceCode(challenge));
+    const verifiers = ["A".repeat(43), ...Array.from({ length: 50 }, createEnrollmentVerifier)];
+    const codes = await Promise.all(verifiers.map(enrollmentCode));
+    expect(codes).toEqual(verifiers.map(referenceCode));
+    for (const code of codes) expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
   });
 
-  it("rejects malformed challenges", () => {
-    expect(() => enrollmentCode("short")).toThrow();
-    expect(() => enrollmentCode(`${"A".repeat(42)}=`)).toThrow();
+  it("differs from a code computed from the public challenge", async () => {
+    const verifier = createEnrollmentVerifier();
+    const challenge = await createEnrollmentChallenge(verifier);
+    expect(await enrollmentCode(verifier)).not.toBe(await enrollmentCode(challenge));
+  });
+
+  it("rejects malformed verifiers", async () => {
+    await expect(enrollmentCode("short")).rejects.toThrow();
+    await expect(enrollmentCode(`${"A".repeat(42)}=`)).rejects.toThrow();
   });
 
   it("normalizes typed codes", () => {

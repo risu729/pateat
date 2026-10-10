@@ -22,7 +22,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `GET /enroll?challenge=&label=` | Access page asking the owner to type the device's pairing code |
-| `POST /enroll` | Approve the challenge for 10 minutes when the typed code matches |
+| `POST /enroll` | Record the owner's approval and typed code for 10 minutes |
 | `POST /redeem` | Exchange an approved verifier for a device credential, once |
 | `GET /manage` | Access page listing the owner's devices |
 | `POST /manage/devices/:deviceId/revoke` | Revoke one of the owner's devices |
@@ -40,9 +40,12 @@ closed with a 500 `internal_error`.
 Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's keys, the
 `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both secrets those
 pages answer 503. The owner is found by token issuer and subject, never by email.
-Approval forms must come from the same origin. `/redeem` is anonymous, limited to 10
-requests a minute per client address by the `REDEEM_LIMITER` binding, and returns the
-same 404 `enrollment_not_found` for pending, expired, used and unknown verifiers. The
+Approval forms must come from the same origin. `/redeem` is anonymous and issues a
+credential only when the typed code equals the code derived from the verifier; a
+mismatch returns 409 `enrollment_code_mismatch`, and unapproved, expired, used and
+unknown verifiers return the same 404 `enrollment_not_found`. The `REDEEM_LIMITER`
+binding allows about 10 requests a minute per client address (the hosted limiter is
+approximate and per location), so poll no more than every 6 seconds. The
 [enrollment design](../../docs/architecture.md#device-enrollment) describes the flow.
 
 Recipe revisions are immutable. A write claims the head with a conditional statement

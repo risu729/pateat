@@ -69,6 +69,8 @@ export const enrollments = sqliteTable(
       .notNull()
       .references(() => owners.id),
     label: text("label").notNull(),
+    /** The normalized code the owner typed; redemption must derive the same one. */
+    code: text("code").notNull(),
     approvedAt: integer("approved_at").notNull(),
     expiresAt: integer("expires_at").notNull(),
     redeemedAt: integer("redeemed_at"),

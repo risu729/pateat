@@ -1,10 +1,9 @@
 import {
   deviceLabelSchema,
   enrollmentChallengeSchema,
-  enrollmentCode,
   normalizeEnrollmentCode,
 } from "@pateat/contracts";
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { html } from "hono/html";
@@ -79,15 +78,17 @@ export const enrollRoutes = new Hono<ApiEnv>()
       return result.success ? result.output : invalidRequest(c);
     }),
     async (c) => {
-      const { challenge, label, code } = c.req.valid("form");
-      // The typed code proves the owner sees this challenge on their own device, so
-      // a link carrying someone else's challenge cannot be approved by mistake.
-      if (normalizeEnrollmentCode(code) !== enrollmentCode(challenge))
+      const { challenge, label, code: typed } = c.req.valid("form");
+      // The code comes from the verifier only the requesting extension holds, so it
+      // is checked at redemption: a link carrying someone else's challenge, or a
+      // challenge seen by another account, cannot yield a device for that requester.
+      const code = normalizeEnrollmentCode(typed);
+      if (!code)
         return message(
           c,
           400,
-          "Code does not match",
-          "Go back and type the code shown in Pateat. Close this page if you did not start pairing.",
+          "Invalid code",
+          "Go back and type the 8-character code shown in Pateat. Close this page if you did not start pairing.",
         );
 
       const ownerId = await resolveOwner(c.env.DB, c.get("identity"));
@@ -103,18 +104,30 @@ export const enrollRoutes = new Hono<ApiEnv>()
             challenge,
             ownerId,
             label,
+            code,
             approvedAt: now,
             expiresAt: now + ENROLLMENT_TTL_MS,
           })
-          .onConflictDoNothing(),
+          // The same owner may retype the code until the device redeems it.
+          .onConflictDoUpdate({
+            target: enrollments.challenge,
+            set: { code, approvedAt: now, expiresAt: now + ENROLLMENT_TTL_MS },
+            setWhere: sql`${enrollments.ownerId} = ${ownerId} AND ${enrollments.redeemedAt} IS NULL`,
+          }),
       ]);
       const [row] = await db
         .select()
         .from(enrollments)
         .where(eq(enrollments.challenge, challenge))
         .limit(1);
-      // Approving the same pending challenge again is harmless; anything else is reuse.
-      if (!row || row.ownerId !== ownerId || row.redeemedAt !== null || row.expiresAt <= now)
+      if (row && row.ownerId !== ownerId)
+        return message(
+          c,
+          409,
+          "Approved by another account",
+          "Another account already approved this pairing request. If you started it, cancel pairing in Pateat and start again.",
+        );
+      if (!row || row.redeemedAt !== null || row.expiresAt <= now)
         return message(
           c,
           409,

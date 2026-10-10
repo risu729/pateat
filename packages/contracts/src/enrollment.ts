@@ -2,7 +2,7 @@ import * as v from "valibot";
 
 // Device enrollment contracts shared by the service and the extension. The verifier
 // never leaves trusted extension storage until redemption; the enrollment page sees
-// only its SHA-256 challenge and the short code derived from that challenge.
+// only its SHA-256 challenge and the code the owner types from the extension.
 
 const base64Url256 = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{43}$/));
 
@@ -63,14 +63,19 @@ export async function createEnrollmentChallenge(verifier: string): Promise<strin
 
 /**
  * The 40-bit code the owner retypes on the enrollment page, shown as `XXXX-XXXX`.
- * The challenge is a uniform digest, so its first 40 bits need no further hashing.
+ * It is derived from the secret verifier, not the challenge, so someone who sees the
+ * enrollment link cannot compute it; the service checks it at redemption.
  */
-export function enrollmentCode(challenge: string): string {
-  const parsed = v.parse(enrollmentChallengeSchema, challenge);
+export async function enrollmentCode(verifier: string): Promise<string> {
+  const parsed = v.parse(enrollmentVerifierSchema, verifier);
+  const digest = new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`pateat-enrollment-code:${parsed}`),
+    ),
+  );
   let bits = 0n;
-  for (const character of parsed.slice(0, 7))
-    bits = (bits << 6n) | BigInt(BASE64URL.indexOf(character));
-  bits >>= 2n; // 7 characters carry 42 bits; keep the first 40.
+  for (const byte of digest.subarray(0, 5)) bits = (bits << 8n) | BigInt(byte);
   let code = "";
   for (let index = 7; index >= 0; index -= 1)
     code += CROCKFORD[Number((bits >> BigInt(index * 5)) & 31n)];

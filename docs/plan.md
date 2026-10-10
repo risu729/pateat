@@ -380,12 +380,14 @@ The second slice adds the service side of
 [device enrollment](architecture.md#device-enrollment). The Worker verifies Cloudflare
 Access tokens itself (RS256 signature against the team keys, issuer, audience, expiry
 and a user subject) and maps the issuer and subject to an owner. An Access-protected
-page approves a device's SHA-256 challenge only when the owner types the code derived
-from it, an anonymous rate-limited route exchanges the matching verifier for a
-single-use device credential, and the owner can list and revoke devices; a device can
-revoke itself. Local tests use synthetic signing keys and cover forged, expired,
-wrong-audience and service tokens, missing configuration, CSRF, code mismatch, replay,
-concurrent redemption, expiry, cleanup, rate limits and cross-owner revocation.
+page records the owner's approval of a device's SHA-256 challenge with the code they
+typed, an anonymous rate-limited route exchanges the verifier for a device credential
+once and only if that code matches the one derived from the verifier, and the owner can
+list and revoke devices; a device can revoke itself. Local tests use synthetic signing
+keys and cover forged, expired, wrong-audience and service tokens, missing
+configuration, CSRF, code mismatch and retyping, approval by an account that only saw
+the link, replay, concurrent redemption, expiry, cleanup, rate limits and cross-owner
+revocation.
 
 ### Remaining M4 service gaps
 

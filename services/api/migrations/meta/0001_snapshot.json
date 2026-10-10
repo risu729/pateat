@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9ef4a39d-0e62-497e-bebc-c8ad7801c370",
+  "id": "f63eb5fe-5fdf-4f6e-bcd9-bb4f5ed86ec9",
   "prevId": "158a5d36-9a7a-4fd6-a6cb-93ae8ee9b6cb",
   "tables": {
     "devices": {
@@ -97,6 +97,13 @@
         },
         "label": {
           "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "code": {
+          "name": "code",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

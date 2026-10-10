@@ -2,6 +2,7 @@ CREATE TABLE `enrollments` (
 	`challenge` text PRIMARY KEY NOT NULL,
 	`owner_id` text NOT NULL,
 	`label` text NOT NULL,
+	`code` text NOT NULL,
 	`approved_at` integer NOT NULL,
 	`expires_at` integer NOT NULL,
 	`redeemed_at` integer,

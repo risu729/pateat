@@ -509,23 +509,27 @@ steady-state API calls.
   the email address. Verification uses Hono's JWT utility with the team JWKS, allowing
   only RS256; Hono's JWK middleware reads only `Bearer` values, and a dedicated JWT
   library would need its own owner decision. Tokens without an expiry or a user subject,
-  such as service tokens, are refused.
+  such as service tokens, are refused. The public keys are edge-cached for five
+  minutes, so a rotated key may be refused briefly.
 - Pairing. The settings page generates a 256-bit verifier, keeps it in trusted
   extension storage, and opens the enrollment page in an ordinary tab with only its
-  SHA-256 challenge and a device label. It also shows a short code: the first 40 bits
-  of the challenge in Crockford base32. After Access login, the owner types that code
-  and confirms; the page rejects a mismatch, so a link carrying someone else's
-  challenge cannot be approved by mistake. The confirmation is a same-origin form POST
-  (Origin or `Sec-Fetch-Site` checked) on a page that cannot be framed, and records an
-  approval for that owner, valid for 10 minutes. A challenge is single-use: once
-  redeemed or approved by another owner it cannot be approved again.
-- Redemption. The extension polls an unauthenticated redemption route with the
-  verifier, rate limited per client address. A matching, approved, unexpired and
-  unredeemed enrollment creates the device and returns its credential once; only its
-  hash is stored, as today. Pending, expired, redeemed and unknown verifiers return
-  the same response. `chrome.identity.launchWebAuthFlow` would avoid typing a code
-  but adds the `identity` permission, so it remains an alternative for the owner to
-  choose.
+  SHA-256 challenge and a device label. It also shows a short code: 40 bits of a
+  tagged SHA-256 of the verifier in Crockford base32, so anyone who sees the link
+  still cannot compute it. After Access login, the owner types that code and
+  confirms. The confirmation is a same-origin form POST (Origin or `Sec-Fetch-Site`
+  checked) on a page that cannot be framed, and records an approval with the typed
+  code for that owner, valid for 10 minutes; the same owner may retype the code until
+  redemption. A redeemed challenge, or one with another owner's unexpired approval,
+  cannot be approved again, and the page says which.
+- Redemption. The extension polls an unauthenticated redemption route with the verifier,
+  rate limited per client address. A matching, approved, unexpired and unredeemed
+  enrollment whose typed code equals the verifier's code creates the device and returns
+  its credential once; only its hash is stored, as today. So a link carrying someone
+  else's challenge, or a challenge another account saw and approved, yields no device. A
+  wrong code is reported only to the verifier holder; unapproved, expired, redeemed and
+  unknown verifiers return the same response. `chrome.identity.launchWebAuthFlow` would
+  avoid typing a code but adds the `identity` permission, so it remains an alternative
+  for the owner to choose.
 - Lifetime and recovery. Credentials stay valid until revoked; an idle expiry is
   an open decision. The Access-protected management page lists and revokes the
   owner's devices, and a device can revoke itself on sign-out. A lost device is

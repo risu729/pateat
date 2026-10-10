@@ -1,4 +1,8 @@
-import { createEnrollmentChallenge, enrollmentRedeemSchema } from "@pateat/contracts";
+import {
+  createEnrollmentChallenge,
+  enrollmentCode,
+  enrollmentRedeemSchema,
+} from "@pateat/contracts";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
@@ -24,16 +28,19 @@ export const redeemRoutes = new Hono<ApiEnv>().post(
   async (c) => {
     const { verifier } = c.req.valid("json");
     const challenge = await createEnrollmentChallenge(verifier);
+    const code = await enrollmentCode(verifier);
     const deviceId = crypto.randomUUID();
     const credential = createDeviceToken();
     const tokenHash = await hashDeviceToken(credential);
     const now = Date.now();
     const db = drizzle(c.env.DB);
-    const redeemable = and(
+    const pending = and(
       eq(enrollments.challenge, challenge),
       isNull(enrollments.redeemedAt),
       gt(enrollments.expiresAt, now),
     );
+    // The owner must have typed the code this verifier derives.
+    const redeemable = and(pending, eq(enrollments.code, code));
     // Both statements run in one transaction: the device is created only from a
     // redeemable approval, and the approval is consumed only if that device exists.
     // INSERT ... SELECT is positional: keep these fields in the devices column order.
@@ -58,10 +65,22 @@ export const redeemRoutes = new Hono<ApiEnv>().post(
           and(redeemable, sql`EXISTS (SELECT 1 FROM ${devices} WHERE ${devices.id} = ${deviceId})`),
         ),
     ]);
+    // Unreachable within one transaction; kept as an invariant check, not a rollback.
     if (created.meta.changes !== consumed.meta.changes)
       throw new Error("Enrollment redemption was only partly applied");
-    // Pending, expired, already redeemed and unknown verifiers look the same.
-    if (created.meta.changes !== 1) return apiError(c, 404, { error: "enrollment_not_found" });
+    if (created.meta.changes !== 1) {
+      // Only the verifier holder can learn that the typed code was wrong; the owner
+      // may retype it on the same page. Otherwise unapproved, expired, redeemed and
+      // unknown verifiers look the same.
+      const [mistyped] = await db
+        .select({ challenge: enrollments.challenge })
+        .from(enrollments)
+        .where(pending)
+        .limit(1);
+      return mistyped
+        ? apiError(c, 409, { error: "enrollment_code_mismatch" })
+        : apiError(c, 404, { error: "enrollment_not_found" });
+    }
     return c.json({ version: 1 as const, deviceId, credential });
   },
 );

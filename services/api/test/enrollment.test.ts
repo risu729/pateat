@@ -87,6 +87,11 @@ function withoutExpiry(payload: JWTPayload): JWTPayload {
   return copy;
 }
 
+function unsigned(payload: JWTPayload) {
+  const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "none", kid: "access-test-key", typ: "JWT" })}.${encode(payload)}.`;
+}
+
 function signAccess(payload: JWTPayload, key = accessKey) {
   return Jwt.sign(payload, key.privateJwk, "RS256");
 }
@@ -120,7 +125,7 @@ function postForm(path: string, access: string | undefined, fields: Record<strin
 async function pairing(label = "Test laptop") {
   const verifier = createEnrollmentVerifier();
   const challenge = await createEnrollmentChallenge(verifier);
-  return { verifier, challenge, label, code: enrollmentCode(challenge) };
+  return { verifier, challenge, label, code: await enrollmentCode(verifier) };
 }
 
 type Pairing = Awaited<ReturnType<typeof pairing>>;
@@ -173,6 +178,18 @@ describe("Access verification", () => {
     expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
   });
 
+  it("guards every owner route", async () => {
+    const pending = await pairing();
+    const query = new URLSearchParams({ challenge: pending.challenge, label: pending.label });
+    const responses = await Promise.all([
+      request(`/enroll?${query}`),
+      postForm("/enroll", undefined, { ...Object.fromEntries(query), code: pending.code }),
+      request("/manage"),
+      postForm(`/manage/devices/${crypto.randomUUID()}/revoke`, undefined, {}),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401]);
+  });
+
   it("accepts a valid token", async () => {
     const response = await request("/manage", { access: (await owner()).token });
     expect(response.status).toBe(200);
@@ -200,6 +217,11 @@ describe("Access verification", () => {
       async () => signAccess(claims("", { common_name: "service" })),
     ],
     ["a symmetric token", async () => Jwt.sign(claims(newSubject()), "shared-secret", "HS256")],
+    [
+      "a token not yet valid",
+      async () => signAccess(claims(newSubject(), { nbf: Math.floor(Date.now() / 1000) + 600 })),
+    ],
+    ["an unsigned token", async () => unsigned(claims(newSubject()))],
     ["a malformed token", async () => "not.a.jwt"],
   ])("rejects %s", async (_, token) => {
     const response = await request("/manage", { access: await token() });
@@ -278,23 +300,46 @@ describe("enrollment approval", () => {
     expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
   });
 
-  it("requires the code derived from the challenge", async () => {
+  it("rejects malformed codes before changing state", async () => {
     const by = await owner();
     const pending = await pairing();
-    const other = await pairing();
     const responses = await Promise.all(
-      [other.code, "", "0000"].map((code) => approve(by, pending, code)),
+      ["", "0000", "ABCD-EFGU"].map((code) => approve(by, pending, code)),
     );
     expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
     expect(await ownerIdFor(by.subject)).toBeNull();
     expect((await redeem(pending.verifier)).status).toBe(404);
   });
 
-  it("accepts the code in any case and spacing", async () => {
+  it("redeems only with the code derived from the verifier, which the owner may retype", async () => {
     const by = await owner();
     const pending = await pairing();
+    const other = await pairing();
+    expect((await approve(by, pending, other.code)).status).toBe(200);
+    const mistyped = await redeem(pending.verifier);
+    expect(mistyped.status).toBe(409);
+    expect(await mistyped.json()).toEqual({ error: "enrollment_code_mismatch" });
+    // Retyping on the same page replaces the stored code until redemption.
     const typed = ` ${pending.code.replace("-", " ").toLowerCase()} `;
     expect((await approve(by, pending, typed)).status).toBe(200);
+    expect((await redeem(pending.verifier)).status).toBe(200);
+  });
+
+  it("does not let another account that saw the link capture the device", async () => {
+    const victim = await owner();
+    const observer = await owner();
+    const pending = await pairing();
+    // The observer knows the challenge but not the verifier-derived code.
+    const guess = await enrollmentCode(createEnrollmentVerifier());
+    expect((await approve(observer, pending, guess)).status).toBe(200);
+    const blocked = await approve(victim, pending);
+    expect(blocked.status).toBe(409);
+    expect(await blocked.text()).toContain("Approved by another account");
+    expect((await redeem(pending.verifier)).status).toBe(409);
+    const devices = await env.DB.prepare("SELECT COUNT(*) AS count FROM devices WHERE owner_id = ?")
+      .bind(await ownerIdFor(observer.subject))
+      .first<{ count: number }>();
+    expect(devices?.count).toBe(0);
   });
 
   it("rejects cross-site and non-form approvals before changing state", async () => {
