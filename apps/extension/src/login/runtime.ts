@@ -208,7 +208,7 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
       ...(metadata?.outcome || live.reason ? { outcome: metadata?.outcome ?? live.reason } : {}),
     }).catch(() => undefined);
   }
-  /** One saved account must resolve, and its live connection must be ready and unquarantined. */
+  /** One saved account must resolve from a usable connection, and its item must not await review. */
   function planFor(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     url: string,
@@ -226,7 +226,10 @@ export function createLoginRuntime(settings: SettingsRuntime, fields: LoginField
     const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
     if (
       !connection ||
-      (connection.state !== undefined && connection.state !== "ready") ||
+      // Review blocks only the affected items; unrelated items in the connection stay usable.
+      (connection.state !== undefined &&
+        connection.state !== "ready" &&
+        connection.state !== "review-required") ||
       connection.quarantinedItemIds?.includes(plan.account.itemId)
     )
       return { ok: false as const, reason: "vault-unavailable" as const };

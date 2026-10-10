@@ -289,7 +289,7 @@ Chrome yet.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. Bindings are explicit slot-to-field references;
-  custom-field references are snapshot-scoped. A connection that is not ready or an item
+  custom-field references are snapshot-scoped. An unavailable connection or an item
   awaiting field review is refused before an attempt starts. A denied, locked or failed
   field read, or a replacement snapshot before delivery, blocks the attempt as
   `policy-changed` without filling. Only the localhost probe admits documents, grants

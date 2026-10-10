@@ -72,7 +72,12 @@ const page = {
   url: fake.pageUrl,
 } as never;
 
-function settingsFor(snapshot: () => string, quarantined: string[] = []) {
+type Catalog = {
+  snapshot?: () => string;
+  state?: "ready" | "review-required" | "unavailable";
+  quarantined?: string[];
+};
+function settingsFor({ snapshot = () => first, state = "ready", quarantined = [] }: Catalog) {
   return {
     handle: vi.fn(async (): Promise<SettingsResponse> => ({
       version: 1,
@@ -101,7 +106,7 @@ function settingsFor(snapshot: () => string, quarantined: string[] = []) {
             label: "Synthetic live vault",
             provider: "bitwarden",
             snapshotId: snapshot(),
-            state: quarantined.length ? "review-required" : "ready",
+            state,
             quarantinedItemIds: quarantined,
             groups: [],
             items: [
@@ -119,12 +124,8 @@ function settingsFor(snapshot: () => string, quarantined: string[] = []) {
     })),
   };
 }
-async function start(
-  fields: LoginFieldSource,
-  snapshot: () => string = () => first,
-  quarantined?: string[],
-) {
-  const login = createLoginRuntime(settingsFor(snapshot, quarantined), fields);
+async function start(fields: LoginFieldSource, catalog: Catalog = {}) {
+  const login = createLoginRuntime(settingsFor(catalog), fields);
   expect(
     await login.handle(
       {
@@ -168,7 +169,7 @@ describe("login runtime with a live vault field source", () => {
       connection: { id: connectionId, snapshotId: first },
       fieldId: "login.password",
     });
-    // The background clears its copy after delivery; the page received the value once.
+    // The fill step carried the one bound value; the submit click carried none.
     expect(executions().map((message) => message.values?.length)).toEqual([1, 0]);
     expect(JSON.stringify(fake.state.storage)).not.toContain("synthetic-secret");
   });
@@ -194,18 +195,32 @@ describe("login runtime with a live vault field source", () => {
         snapshot = second;
         return "synthetic-secret";
       },
-      () => snapshot,
+      { snapshot: () => snapshot },
     );
     await vi.waitFor(async () =>
       expect(await run.attempt()).toMatchObject({ state: "blocked", outcome: "policy-changed" }),
     );
     expect(executions()).toEqual([]);
   });
-  it("refuses an item that awaits field review before creating an attempt", async () => {
+  it.each<[string, Catalog]>([
+    ["an item that awaits field review", { state: "review-required", quarantined: [itemId] }],
+    ["a quarantined item even if the connection reports ready", { quarantined: [itemId] }],
+    ["an unavailable connection", { state: "unavailable" }],
+  ])("refuses %s before creating an attempt", async (_name, catalog) => {
     const fields = vi.fn<LoginFieldSource>(async () => "synthetic-secret");
-    const run = await start(fields, () => first, [itemId]);
+    const run = await start(fields, catalog);
     expect(run.ready).toEqual({ ok: false, reason: "vault-unavailable" });
     expect(await run.attempt()).toBeUndefined();
     expect(fields).not.toHaveBeenCalled();
+  });
+  it("still uses an unrelated item while another item in the connection awaits review", async () => {
+    const run = await start(async () => "synthetic-secret", {
+      state: "review-required",
+      quarantined: ["80000000-0000-4000-8000-000000000002"],
+    });
+    expect(run.ready).toEqual({ ok: true });
+    await vi.waitFor(async () =>
+      expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
+    );
   });
 });
