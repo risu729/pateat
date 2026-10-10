@@ -42,6 +42,7 @@ private page captures, or raw model requests.
 - [0001: Local login execution and vault adapters](adr/0001-local-login-boundary.md)
 - [0002: Maintained tools and independent feature implementation](adr/0002-toolchain.md)
 - [0003: Minimal Cloudflare service and provider-neutral inference](adr/0003-service-and-ai.md)
+- [0004: Maintained library composition (proposed amendment)](adr/0004-library-composition.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

@@ -1,7 +1,9 @@
 # Implementation plan
 
 Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1).
-M1 is in progress; M2-M6 are unstarted. The current foundation is not a working
+M1 is in progress. M2's metadata-only local settings slice is proposed in
+[PR #3](https://github.com/risu729/pateat/pull/3), which is open and unmerged as of
+2026-10-10; M3-M6 are unstarted. The merged foundation is not a working
 autologin product or a completed M1 acceptance claim.
 This plan becomes the single work tracker until an issue is needed for a concrete
 slice.
@@ -17,15 +19,16 @@ Mise and Bun dependencies are locked; no native helper or production secrets are
 required to build or test.
 
 Local source/Worker tests, typechecks, builds, prebuilt dry-run and emitted-bundle smoke
-checks have passed. At head `c24d82a`,
-[Linux CI](https://github.com/risu729/pateat/actions/runs/37969704501) passed the
+checks have passed. At merged main `41b7109`,
+[Linux CI](https://github.com/risu729/pateat/actions/runs/37970317528) passed the
 complete check graph, including all three Playwright tests for the production package,
 installed shell status, and document-start/inactive-tab identity probe;
-[CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
+[CodeQL](https://github.com/risu729/pateat/actions/runs/37970317776) also passed. The
 downloaded Windows Chromium still fails before launch with a missing SideBySide
 assembly. Installed Chrome/Chrome use coexistence remains a separate, untested M1 gate;
-the synthetic Playwright result does not replace it. Code Quality setup must be
-rechecked after language detection; its existing required rule is retained.
+the synthetic Playwright result does not replace it. Code Quality setup remained
+unavailable after language detection in the last check; retain its existing rule
+and recheck availability rather than declaring permanent lack of support.
 
 ## Initial delivery and later scope
 
@@ -56,7 +59,7 @@ implicit permissions or initial acceptance requirements.
 | M1: Tooling and runtime probes                | WXT skeleton, shared Valibot contracts, mise/hk, mandatory CI                                            | Frozen installation; full checks; packaged extension build; early injection/background execution in isolated Chromium and a small installed-Chrome/Chrome-use dummy-page coexistence probe; compatible cf/Workers test harness |
 | M2: Local login engine and settings           | Dummy vault adapter, settings page, multi-connection policies, saved site defaults, declarative executor | Multi-field/multi-page fixtures; policy precedence, excluded-site pass-through, background, navigation, interruption and concurrency tests; no automatic extension UI                                                          |
 | M3: Bitwarden passwords                       | First real adapter, local sync/crypto, persistent unlock, custom fields and TOTP                         | Synthetic protocol/crypto vectors; supported environment/authentication and TOTP cases below; restart/unlock; no vault writes; explicit unsupported cases; controlled account test only when authorized                        |
-| M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe sync, role-specific AI adapters, optional Jev evaluation   | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, retry and monthly spend-stop tests; provider selection evidence                                                         |
+| M4: Private settings/recipe service and AI    | Hono+Drizzle on Worker+D1, Access enrollment, settings/recipe sync, role-specific AI adapters and decision-model evaluation | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; provider selection evidence |
 | M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, truthful UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
 | M6: Integrated acceptance and server delivery | Chrome use coexistence, operational docs, hosted service release                                         | Installed Chrome dummy-account tests plus artifact-verified deployment and hosted synthetic smoke checks; measured limits documented                                                                                           |
 
@@ -64,6 +67,32 @@ M1's small cf compatibility probe may precede a backend skeleton; it must not
 provision resources. M2 starts with a dummy adapter so login correctness does not
 depend on account secrets. Bring the WebAuthn document-start probe forward into
 M1; defer full signing to M5. Each milestone can be several focused PRs.
+
+### Library adoption slices
+
+The target stack and responsibility boundaries live in
+[development](development.md#dependency-policy), with rationale in
+[ADR 0004](adr/0004-library-composition.md). Do not defer useful libraries merely
+because implementation is early. These are planned integrations, not claims that
+packages are already installed or compatibility is established.
+
+1. M2: migrate the settings UI to React/Tailwind/Base UI with selected shadcn/ui
+   components, TanStack Form and Query. Preserve draft retention, revision
+   conflicts and local-only operation from the settings slice. Add browser
+   component, accessibility and fast-check coverage, React lint rules and Knip.
+2. M2: build the executor with XState and integrate WXT storage/typed messaging.
+   Verify trusted-storage initialization, runtime sender validation, migration
+   behavior and interrupted-submit reconciliation before expanding execution.
+3. M3/M5: add OTPAuth and tldts at their protocol boundaries. Select remaining
+   crypto/encoding/CBOR packages from actual interoperability requirements;
+   establish Argon2id vectors, CSP compatibility and memory/time behavior.
+4. M4: adopt Hono/Drizzle for the first substantive service schema/routes and AI
+   SDK with Valibot for supported generation APIs. Verify specialized decision
+   adapters independently, including usage, errors and bounded retry behavior.
+
+Each slice pins a compatible dependency set and checks its shipped MV3/Worker
+output. UI migration must not add rendering dependencies to content scripts or
+replace installed-Chrome coexistence evidence with component tests.
 
 M3 initially targets Bitwarden Cloud US/EU and official self-hosted servers at
 ordinary HTTPS URLs. Use email/master-password authentication, with human-entered
@@ -91,8 +120,8 @@ support for every site or vault format. Keep observed limitations explicit.
 
 ## Decisions still requiring evidence
 
-- Pick and pin the compatible WXT/Vite/Node/Bun/Vitest/cf combination during M1.
-  Valibot and WXT are fixed choices, not open framework comparisons.
+- Retain the foundation's pinned WXT/Vite/Node/Bun/Vitest/cf compatibility and
+  recheck it when integrating the target libraries. Valibot and WXT remain fixed.
 - Establish the Chrome use ownership/wait mechanism before integrated automation
   claims. If no integration hook exists, document the tested wait protocol and
   remaining races rather than inventing support.
@@ -107,11 +136,15 @@ support for every site or vault format. Keep observed limitations explicit.
   control aggregates usage and stops later inference after the limit is reached;
   in-flight/concurrent requests can overshoot. Atomic maximum-cost reservation is
   not required. Verify actual Anthropic Console credit before paid inference.
-- Benchmark Claude and Jev on the same Japanese/English synthetic login corpus:
-  semantic correctness, false-submit count, abstentions, p50/p95 latency and
-  cost. Models remain unselected; there is no latency promise. Use only the
-  configured provider/model for each role; its failure is an error, not an
-  automatic fallback. Existing local recipes continue after an AI/budget failure.
+- Benchmark generation/repair and finite-choice roles separately on the same
+  Japanese/English synthetic login corpus. Evaluate Claude for generation and
+  Clef-flash, Clef and Jev for decisions: semantic correctness, false-submit count,
+  abstentions, joint mapping consistency, p50/p95 end-to-end latency and usage/cost.
+  Test invalid candidate IDs, malformed probabilities, context overflow and incomplete
+  observations. Clef vendor latency/price claims are research inputs, not Pateat
+  measurements. Models remain unselected; there is no latency promise. Use only the
+  configured provider/model for each role; its failure is an error, not an automatic
+  fallback. Existing local recipes continue after an AI/budget failure.
 
 Before implementing deferred features, add their concrete slice and evidence to
 this plan: write capabilities need independent connection permissions and no

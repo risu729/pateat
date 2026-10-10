@@ -167,6 +167,11 @@ origin, account binding, target elements, and document immediately before each
 fill or click. Expire late AI results after navigation and cancel outstanding
 work. Synthetic events and lack of trusted user activation may limit some sites.
 
+Use XState for the state-machine machinery while keeping these domain transitions
+and authorization checks explicit. Its snapshots are resumable metadata, not an
+authority to repeat side effects; restoration must enter reconciliation before
+any submission. The planned library boundaries are in [development](development.md).
+
 MV3 workers can stop. Persist only resumable metadata, never an instruction to
 blindly replay a submit. After interruption around a click, observe the new page
 and reconcile the outcome before another attempt. Exactly-once effects at a
@@ -203,11 +208,19 @@ eligible sanitized semantic references and cannot relax policy. Future AI accoun
 selection uses the same constrained operations as human selection; it does not
 change the initial saved-default behavior.
 
+For finite choices, include an explicit unknown/none candidate and validate
+returned identifiers, score/probability shapes and joint mapping consistency.
+Abstain on insufficient evidence; model confidence never grants permission.
+Bound the full input, including candidate/question text, and reject incomplete
+observations instead of relying on provider truncation.
+
 Extract an allowlisted observation before filling. Exclude values, hidden inputs,
 raw HTML, screenshots, query strings, and unrelated page text by default. Labels
 can contain private data too: sanitize and bound them, with privacy fixtures and
 an abstention path when a useful safe observation cannot be constructed. Model
 output must pass structural and semantic checks on the server and again locally.
+Screenshot, audio and video collection are deferred. A provider's multimodal
+support does not enable these inputs without a separate privacy/evaluation gate.
 
 Use a cached compatible recipe first. On structural mismatch or repeated genuine
 recipe failure, request repair within a separate bounded inference budget. Wrong
@@ -249,7 +262,9 @@ official-Bitwarden interception require separate compatibility tests.
 Use one optional Cloudflare Worker and D1 for private settings/recipe revisions
 and inference. Do not add queues, Durable Objects, browser rendering,
 vector search, or an agent framework without a demonstrated need. Use bound SQL
-parameters; no ORM is required initially.
+parameters through Drizzle and Hono for the first substantive API. Review owner
+predicates, revision conditions, generated migrations and D1 batch semantics;
+neither framework supplies application authorization or atomicity automatically.
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
@@ -281,9 +296,9 @@ minimum supported schema, origin scope and device access; reject stale or
 incompatible results. Start private per owner. Public recipe sharing and
 cross-user learning are deferred to a separate design.
 
-Keep provider selection independent of recipe contracts: Claude for bounded
-generation and Jev for finite choices are evaluation candidates, not fixed model
-requirements. Initial inference uses server-held keys. A future direct adapter
+Keep provider selection independent of recipe contracts: Claude for bounded generation
+and Clef-flash, Clef and Jev for finite choices are evaluation candidates, not fixed
+model requirements. Initial inference uses server-held keys. A future direct adapter
 keeps a user's key in trusted extension contexts and out of content scripts.
 
 Expose a simple monetary spending cap and stop new inference after recorded

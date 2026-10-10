@@ -3,6 +3,11 @@
 Status: accepted in PR #1; implementation follows the milestone plan.
 Date: 2026-10-10
 
+Amendment proposed: [ADR 0004](0004-library-composition.md) replaces the preference
+for native/minimal infrastructure with a maintained-library composition strategy.
+The original decision below is retained as history; independent domain behavior,
+WXT, TypeScript, Valibot and the shared tool workflow remain applicable.
+
 ## Context and options
 
 Small similar projects provide useful feasibility evidence but would import
