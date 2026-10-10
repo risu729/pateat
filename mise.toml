@@ -1,6 +1,6 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
-min_version = "2026.10.4"
+min_version = "2026.10.7"
 
 [tools]
 bun = "1.4.2"
@@ -9,7 +9,7 @@ python = "3.13.16"
 hk = "2.5.0"
 "npm:oxlint" = "1.87.0"
 oxfmt = "0.72.0"
-actionlint = "1.7.12"
+jactionlint = "2.0.2"
 shellcheck = "0.11.0"
 ghalint = "1.5.6"
 pinact = "5.0.0"
