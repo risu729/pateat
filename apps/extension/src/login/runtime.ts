@@ -1,0 +1,524 @@
+import * as v from "valibot";
+import {
+  createAttemptMetadata,
+  nextLoginOperation,
+  parseAttemptMetadata,
+  recoverLoginAttempt,
+  resolveLoginPlan,
+  sameLoginDocument,
+  transitionLoginAttempt,
+  validateLoginOperation,
+  type LoginAttemptEvent,
+  type LoginAttemptMetadata,
+  type LoginDocument,
+  type LoginOperation,
+  type LoginRecipe,
+  type LoginTarget,
+  type SettingsResponse,
+  type VaultCatalog,
+} from "@pateat/contracts";
+import { browser, type Browser } from "wxt/browser";
+import {
+  authorizeSchema,
+  cancelSchema,
+  configureSchema,
+  executionResultSchema,
+  helloSchema,
+  observationSchema,
+  statusSchema,
+} from "./wire";
+import { DEFAULT_PROBE_ORIGIN, probeBinding, probeRecipe, resolveDummyField } from "./dummy";
+
+const STORAGE_KEY = "pateat.login-attempts.v1";
+const CONFIG_KEY = "pateat.login-probe-origin.v1";
+type Sender = Browser.runtime.MessageSender;
+type SettingsRuntime = { handle(value: unknown): Promise<SettingsResponse> };
+type LiveDocument = {
+  document: LoginDocument;
+  token: string;
+  path: string;
+  state?: string;
+  reason?: string;
+};
+type Execution = {
+  metadata: LoginAttemptMetadata;
+  recipe: LoginRecipe;
+  live: LiveDocument;
+  running: boolean;
+  operation?: LoginOperation;
+};
+const terminal = (metadata: LoginAttemptMetadata) =>
+  ["authenticated", "blocked"].includes(metadata.state);
+
+/** Coordinator is reusable packaged code; only this adapter's entry points are probe gated. */
+export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCatalog) {
+  let origin = DEFAULT_PROBE_ORIGIN;
+  const documents = new Map<number, LiveDocument>();
+  const attempts = new Map<number, Execution>();
+  const persisted = new Map<number, LoginAttemptMetadata>();
+  let storageQueue: Promise<void> = Promise.resolve();
+  let storageHealthy = true;
+  const loaded = (async () => {
+    try {
+      await browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+      const storage = await browser.storage.local.get([STORAGE_KEY, CONFIG_KEY]);
+      const config = storage[CONFIG_KEY];
+      if (config !== undefined) {
+        const parsed = v.parse(configureSchema, {
+          version: 1,
+          type: "login.probe.configure",
+          origin: config,
+        });
+        origin = parsed.origin;
+        catalog.connections[0]!.items[0]!.allowedOrigins = ["https://bank.example", origin];
+      }
+      const stored = storage[STORAGE_KEY];
+      if (stored === undefined) return;
+      if (!Array.isArray(stored) || stored.length > 100) throw new Error("Invalid attempt store");
+      for (const entry of stored) {
+        const metadata = recoverLoginAttempt(parseAttemptMetadata(entry));
+        if (persisted.has(metadata.document.tabId)) throw new Error("Duplicate attempt scope");
+        persisted.set(metadata.document.tabId, metadata);
+      }
+      // Complete startup reconciliation before accepting any hello or checking
+      // ownership. Closing a tab can wake a worker whose in-memory map is empty.
+      const openTabs = await browser.tabs.query({});
+      const liveIds = new Set(openTabs.map((tab) => tab.id));
+      for (const tabId of persisted.keys()) if (!liveIds.has(tabId)) persisted.delete(tabId);
+      await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
+    } catch {
+      storageHealthy = false;
+    }
+  })();
+  function identify(sender: Sender): LoginDocument | undefined {
+    if (
+      sender.id !== browser.runtime.id ||
+      sender.tab?.id === undefined ||
+      sender.frameId !== 0 ||
+      !sender.documentId ||
+      !sender.url
+    )
+      return undefined;
+    try {
+      const url = new URL(sender.url);
+      if (url.origin !== origin || url.protocol !== "http:" || url.hostname !== "127.0.0.1")
+        return undefined;
+      return {
+        origin: url.origin,
+        tabId: sender.tab.id,
+        frameId: sender.frameId,
+        documentId: sender.documentId,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+  const trusted = (sender: Sender) =>
+    sender.id === browser.runtime.id &&
+    sender.url === browser.runtime.getURL("/options.html") &&
+    !sender.tab?.url?.startsWith("http:");
+  function current(run: Execution): boolean {
+    return (
+      attempts.get(run.live.document.tabId) === run &&
+      documents.get(run.live.document.tabId) === run.live
+    );
+  }
+  async function save(run: Execution): Promise<void> {
+    persisted.set(run.metadata.document.tabId, parseAttemptMetadata(run.metadata));
+    const snapshot = [...persisted.values()];
+    storageQueue = storageQueue.then(async () => {
+      if (!storageHealthy) throw new Error("Attempt storage unavailable");
+      await browser.storage.local.set({ [STORAGE_KEY]: snapshot });
+      return undefined;
+    });
+    try {
+      await storageQueue;
+    } catch {
+      storageHealthy = false;
+      throw new Error("Attempt storage unavailable");
+    }
+  }
+  async function change(run: Execution, event: LoginAttemptEvent): Promise<void> {
+    if (!current(run)) return;
+    run.metadata = transitionLoginAttempt(run.metadata, event);
+    await save(run);
+    await publish(run.live, run.metadata);
+  }
+  async function send(live: LiveDocument, message: Record<string, unknown>): Promise<unknown> {
+    return browser.tabs.sendMessage(
+      live.document.tabId,
+      { version: 1, token: live.token, ...message },
+      { documentId: live.document.documentId, frameId: live.document.frameId },
+    );
+  }
+  async function publish(live: LiveDocument, metadata?: LoginAttemptMetadata): Promise<void> {
+    if (documents.get(live.document.tabId) !== live) return;
+    await send(live, {
+      type: "login.status",
+      state: metadata?.state ?? live.state ?? "denied",
+      stepIndex: metadata?.stepIndex ?? 0,
+      ...(metadata?.outcome || live.reason ? { outcome: metadata?.outcome ?? live.reason } : {}),
+    }).catch(() => undefined);
+  }
+  async function allowed(run: Execution): Promise<boolean> {
+    if (!current(run) || !storageHealthy) return false;
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (!current(run)) return false;
+    if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) {
+      await change(run, { type: "POLICY_CHANGED" });
+      return false;
+    }
+    const plan = resolveLoginPlan(
+      snapshot.snapshot,
+      catalog,
+      `${run.live.document.origin}${run.live.path}`,
+      run.recipe,
+      probeBinding(run.recipe),
+    );
+    if (
+      !plan.ok ||
+      plan.account.connectionId !== run.metadata.account.connectionId ||
+      plan.account.itemId !== run.metadata.account.itemId
+    ) {
+      await change(run, { type: "POLICY_CHANGED" });
+      return false;
+    }
+    return true;
+  }
+  async function observe(run: Execution, targets: LoginTarget[]) {
+    // Exclusion/default/policy checks precede even metadata observation.
+    if (!(await allowed(run))) return undefined;
+    const response = await send(run.live, { type: "login.observe", path: run.live.path, targets });
+    if (!current(run)) return undefined;
+    const parsed = v.safeParse(observationSchema, response);
+    return parsed.success ? parsed.output : undefined;
+  }
+  async function reconcile(run: Execution, settleUnknown = false): Promise<void> {
+    const nextIndex =
+      run.metadata.operationKind === "click" ? run.metadata.stepIndex + 1 : run.metadata.stepIndex;
+    const next = run.recipe.steps[nextIndex];
+    const nextTargets =
+      next?.kind === "fill" ? next.fields.map((field) => field.target) : next ? [next.target] : [];
+    const targets = [
+      run.recipe.completion.target,
+      ...(run.recipe.rejection ? [run.recipe.rejection] : []),
+      ...nextTargets,
+    ];
+    const observed = await observe(run, targets);
+    if (!observed) return;
+    if (observed.path === run.recipe.completion.path && observed.targets[0] === "unique") {
+      await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
+      return;
+    }
+    if (run.recipe.rejection && observed.targets[1] === "unique") {
+      await change(run, {
+        type: "OBSERVED",
+        result: "credential-rejected",
+        document: run.live.document,
+      });
+      return;
+    }
+    const offset = run.recipe.rejection ? 2 : 1;
+    if (
+      next &&
+      observed.path === next.path &&
+      nextTargets.length &&
+      observed.targets.slice(offset).every((state) => state === "unique") &&
+      // A pending click advances only after evidence of its configured next page.
+      (run.metadata.operationKind !== "click" ||
+        run.recipe.steps[run.metadata.stepIndex]?.path !== next.path)
+    ) {
+      await change(run, { type: "OBSERVED", result: "continue", document: run.live.document });
+      return;
+    }
+    if (settleUnknown)
+      await change(run, { type: "OBSERVED", result: "unknown", document: run.live.document });
+  }
+  // State transitions, journal writes and DOM effects form an ordered protocol.
+  // Parallel execution would race policy checks or repeat submission side effects.
+  /* eslint-disable no-await-in-loop */
+  async function reconcileBounded(run: Execution): Promise<void> {
+    const until = Date.now() + 3000;
+    const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
+    while (current(run) && observing() && Date.now() < until) {
+      await reconcile(run);
+      if (!observing()) return;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    if (current(run) && observing()) await reconcile(run, true);
+  }
+  async function drive(run: Execution): Promise<void> {
+    if (run.running) return;
+    run.running = true;
+    try {
+      if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
+        await reconcileBounded(run);
+      while (current(run) && run.metadata.state === "ready") {
+        if (!(await allowed(run))) return;
+        const operation = nextLoginOperation(
+          run.metadata,
+          run.recipe,
+          run.live.document,
+          crypto.randomUUID(),
+        );
+        if (!operation) {
+          await change(run, { type: "FAILED", reason: "structural-mismatch" });
+          return;
+        }
+        await change(run, {
+          type: "PREPARE",
+          operationId: operation.operationId,
+          kind: operation.step.kind,
+        });
+        if (operation.step.kind === "click")
+          await change(run, { type: "SUBMIT_INTENT", operationId: operation.operationId });
+        run.operation = operation;
+        if (!(await allowed(run))) return;
+        if (
+          !validateLoginOperation(
+            operation,
+            run.metadata,
+            run.live.document,
+            run.metadata.policyRevision,
+          )
+        ) {
+          await change(run, { type: "FAILED", reason: "timeout" });
+          return;
+        }
+        const values: { slot: string; value: string }[] = [];
+        if (operation.step.kind === "fill") {
+          const binding = probeBinding(run.recipe);
+          for (const field of operation.step.fields) {
+            const reference = binding.slots.find((entry) => entry.slot === field.slot);
+            const value = reference && resolveDummyField(reference.fieldId);
+            if (value === undefined) {
+              await change(run, { type: "FAILED", reason: "structural-mismatch" });
+              return;
+            }
+            values.push({ slot: field.slot, value });
+          }
+        }
+        let response: unknown;
+        try {
+          response = await send(run.live, { type: "login.execute", operation, values });
+        } finally {
+          for (const entry of values) entry.value = "";
+        }
+        if (!current(run)) return;
+        delete run.operation;
+        const result = v.safeParse(executionResultSchema, response);
+        if (!result.success || !result.output.ok) {
+          await change(
+            run,
+            result.success && result.output.reason === "cancelled"
+              ? { type: "CANCEL" }
+              : {
+                  type: "FAILED",
+                  reason:
+                    result.success && result.output.reason === "timeout"
+                      ? "timeout"
+                      : "structural-mismatch",
+                },
+          );
+          return;
+        }
+        if (operation.step.kind !== "click") {
+          await change(run, { type: "OPERATION_OK", operationId: operation.operationId });
+          continue;
+        }
+        await change(run, { type: "SUBMITTED", operationId: operation.operationId });
+        // DOM navigation can replace this document. A same-page result is observed with a finite budget.
+        await reconcileBounded(run);
+        if (run.metadata.state !== "ready") return;
+      }
+    } catch {
+      if (current(run) && !terminal(run.metadata)) {
+        run.metadata = recoverLoginAttempt(run.metadata);
+        await save(run).catch(() => undefined);
+        await publish(run.live, run.metadata);
+      }
+    } finally {
+      run.running = false;
+    }
+  }
+  /* eslint-enable no-await-in-loop */
+  async function ready(sender: Sender, token: string): Promise<{ ok: boolean; reason?: string }> {
+    await loaded;
+    const document = identify(sender);
+    if (!document || !sender.url) return { ok: false, reason: "unauthorized-document" };
+    const oldLive = documents.get(document.tabId);
+    if (oldLive && sameLoginDocument(oldLive.document, document))
+      return { ok: false, reason: "duplicate-document" };
+    if (oldLive) await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
+    const live: LiveDocument = { document, token, path: new URL(sender.url).pathname };
+    documents.set(document.tabId, live);
+    const refuse = async (reason: string) => {
+      live.state = "denied";
+      live.reason = reason;
+      await publish(live);
+      return { ok: false, reason };
+    };
+    if (!storageHealthy) return refuse("storage-unavailable");
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (!snapshot.ok) return refuse(snapshot.error.code);
+    if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
+    // A close/navigation can happen while settings storage was awaited.
+    try {
+      const tab = await browser.tabs.get(document.tabId);
+      if (
+        !tab.url ||
+        new URL(tab.url).origin !== document.origin ||
+        new URL(tab.url).pathname !== live.path ||
+        documents.get(document.tabId) !== live
+      )
+        return refuse("stale-document");
+    } catch {
+      return refuse("closed-tab");
+    }
+    const previous = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    const recipe = previous
+      ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
+      : probeRecipe(origin, live.path);
+    if (!recipe) return refuse("recipe-not-found");
+    const plan = resolveLoginPlan(
+      snapshot.snapshot,
+      catalog,
+      sender.url,
+      recipe,
+      probeBinding(recipe),
+    );
+    if (!plan.ok) return refuse(plan.reason);
+    // Cookies can be shared across tabs. Preserve this conservative origin owner even at terminal state until tab closure.
+    if (
+      [...persisted.values()].some(
+        (entry) => entry.account.origin === origin && entry.document.tabId !== document.tabId,
+      )
+    )
+      return refuse("origin-busy");
+    if (!previous && persisted.size >= 100) return refuse("attempt-limit");
+    let metadata: LoginAttemptMetadata;
+    if (previous) {
+      metadata = transitionLoginAttempt(recoverLoginAttempt(previous), {
+        type: "NAVIGATED",
+        document,
+      });
+      if (metadata.policyRevision !== snapshot.snapshot.revision)
+        metadata = transitionLoginAttempt(metadata, { type: "POLICY_CHANGED" });
+    } else {
+      metadata = transitionLoginAttempt(
+        createAttemptMetadata({
+          id: crypto.randomUUID(),
+          recipe,
+          policyRevision: snapshot.snapshot.revision,
+          account: { origin, connectionId: plan.account.connectionId, itemId: plan.account.itemId },
+          document,
+        }),
+        { type: "RESOLVE" },
+      );
+    }
+    const run: Execution = { metadata, recipe, live, running: false };
+    attempts.set(document.tabId, run);
+    await save(run);
+    await publish(live, metadata);
+    void drive(run);
+    return { ok: true };
+  }
+  async function handle(message: unknown, sender: Sender): Promise<unknown> {
+    if (trusted(sender)) {
+      const config = v.safeParse(configureSchema, message);
+      if (config.success) {
+        await loaded;
+        if (persisted.size) return { ok: false, reason: "attempts-exist" };
+        origin = config.output.origin;
+        const item = catalog.connections[0]?.items[0];
+        if (item) item.allowedOrigins = ["https://bank.example", origin];
+        await browser.storage.local.set({ [CONFIG_KEY]: origin });
+        return { ok: true };
+      }
+      if (v.safeParse(statusSchema, message).success) {
+        await loaded;
+        return {
+          version: 1,
+          ok: true,
+          attempts: [...persisted.values()],
+          documents: [...documents.values()].map((live) => ({
+            ...live.document,
+            ...(live.state ? { state: live.state } : {}),
+            ...(live.reason ? { reason: live.reason } : {}),
+          })),
+        };
+      }
+      const cancel = v.safeParse(cancelSchema, message);
+      if (cancel.success) {
+        const run = attempts.get(cancel.output.tabId);
+        if (!run) return { ok: false, reason: "attempt-not-found" };
+        await change(run, { type: "CANCEL" });
+        await send(run.live, { type: "login.cancel" }).catch(() => undefined);
+        return { ok: true };
+      }
+      return undefined;
+    }
+    const hello = v.safeParse(helloSchema, message);
+    if (hello.success) return ready(sender, hello.output.token);
+    const authorization = v.safeParse(authorizeSchema, message);
+    if (!authorization.success) return undefined;
+    const document = identify(sender);
+    if (!document) return false;
+    const run = attempts.get(document.tabId);
+    if (
+      !run ||
+      !current(run) ||
+      run.live.token !== authorization.output.token ||
+      run.metadata.id !== authorization.output.attemptId ||
+      run.operation?.operationId !== authorization.output.operationId ||
+      !sameLoginDocument(run.live.document, document)
+    )
+      return false;
+    if (!(await allowed(run))) return false;
+    return validateLoginOperation(
+      run.operation,
+      run.metadata,
+      document,
+      run.metadata.policyRevision,
+    );
+  }
+  function settingsChanged(): void {
+    for (const run of attempts.values()) {
+      if (!terminal(run.metadata)) {
+        // Stop in-flight DOM waits promptly; the journal write may be slower.
+        void send(run.live, { type: "login.cancel" }).catch(() => undefined);
+        void change(run, { type: "POLICY_CHANGED" }).catch(() => undefined);
+      }
+    }
+  }
+  browser.tabs.onRemoved.addListener((tabId) => {
+    documents.delete(tabId);
+    attempts.delete(tabId);
+    storageQueue = storageQueue
+      .then(async () => {
+        await loaded;
+        persisted.delete(tabId);
+        await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
+        return undefined;
+      })
+      .catch(() => {
+        storageHealthy = false;
+      });
+  });
+  // A worker restart does not reinstall content scripts. Rebind browser-provided
+  // document identity before reconciling, without restoring pending side effects.
+  void loaded
+    .then(async () => {
+      if (!storageHealthy) return undefined;
+      const tabs = await browser.tabs.query({ url: `${origin}/*` });
+      for (const tab of tabs) {
+        if (tab.id !== undefined)
+          void browser.tabs
+            .sendMessage(tab.id, { version: 1, type: "login.reconnect" }, { frameId: 0 })
+            .catch(() => undefined);
+      }
+      return undefined;
+    })
+    .catch(() => undefined);
+  return { handle, settingsChanged };
+}

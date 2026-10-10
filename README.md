@@ -24,9 +24,9 @@ The name comes from Latin _pateat_: "let it be open."
 **Status: local settings preview.** The extension saves local exclusion policies
 and next-login account defaults against synthetic demo vault metadata. It requests
 local storage access, with no site access or production content scripts. A
-health-only Worker, shared contracts, isolated browser probes, CI and opt-in manual
-server delivery are implemented. Real vault connections, automatic login,
-inference and passkeys are not implemented yet.
+health-only Worker, shared contracts, a separate localhost-only synthetic login
+executor probe, CI and opt-in manual server delivery are implemented. Real vault
+connections, production login activation, inference and passkeys remain unimplemented.
 No hosted service has been deployed.
 
 See [development](docs/development.md) for installation and checks. The production

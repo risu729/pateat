@@ -1,9 +1,10 @@
 # Documentation
 
 The repository contains local policy settings backed by synthetic vault metadata,
-shared contracts, a health-only Worker and CI/manual-delivery foundations.
-No real vault connection, automatic login,
-inference or passkey execution is implemented. The service is not deployed.
+shared contracts, a localhost-only synthetic login executor probe, a health-only
+Worker and CI/manual-delivery foundations. Production login activation, real
+vault connections, inference and passkey execution remain unimplemented.
+The service is not deployed.
 The initial design was adopted in [PR #1](https://github.com/risu729/pateat/pull/1).
 
 The architecture describes the agreed product boundaries; the plan separates

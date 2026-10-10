@@ -1,8 +1,9 @@
 # Proposed architecture
 
 Status: accepted reference design. The foundation implements local metadata-only policy
-settings, status contracts and a health-only Worker. The capabilities below remain
-planned unless [the plan](plan.md) records their implementation and evidence.
+settings, status contracts, a localhost-only synthetic executor probe and a
+health-only Worker. The capabilities below remain planned unless
+[the plan](plan.md) records their implementation and evidence.
 
 ## Product boundary
 
@@ -138,7 +139,9 @@ The initial account choice is a saved site default applied on the next login.
 Changing it does not log out the current session. Missing or ambiguous selection
 requires configuration rather than trying accounts in turn. One-time overrides
 and automatic logout/relogin are later operations. Cookies may be shared across
-tabs, so future switching needs site-session coordination, not just a target tab.
+tabs even during initial login. The first executor conservatively locks an origin
+to one owner tab until closure; wider shared-session domains need explicit
+coordination before broader support, not a guessed relationship between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic

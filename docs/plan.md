@@ -51,8 +51,19 @@ composition. The draft is independent of the metadata query cache; automatic
 refetch/retry is disabled. Browser component tests cover error recovery and
 keyboard behavior, while extension tests retain the worker/storage boundary
 checks and add automated accessibility inspection.
-The declarative executor, real provider protocol and actual Chrome use coexistence
-remain unimplemented or unverified; neither M1 nor M2 is complete.
+The first executor slice adds strict bounded recipe, account-binding and operation
+contracts, an XState lifecycle, and fixed DOM operations behind the separate
+localhost-only probe build. It uses explicit saved account defaults and bundled
+synthetic values. A metadata journal precedes clicks; recovery observes the
+current document and never blindly replays a pending submit. Same-origin attempts
+remain locked to one owner tab until that tab closes, including terminal results.
+
+The shared synthetic site verifies field values and click counts independently
+of the executor. [Development](development.md#installed-chrome-synthetic-login-probe)
+describes the early installed-Chrome acceptance procedure. Production activation,
+arbitrary saved recipe configuration, real provider protocol, broader frame and
+dynamic-page support and actual Chrome use coexistence remain outstanding.
+Neither M1 nor M2 is complete.
 
 ## Initial delivery and later scope
 

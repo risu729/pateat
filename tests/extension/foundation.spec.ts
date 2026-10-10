@@ -87,6 +87,18 @@ test("production package only permits local storage with no site scripts", async
   const notices = await readFile(resolve(extensionDirectory, "THIRD-PARTY-NOTICES.md"), "utf8");
   expect(notices).toContain("Copyright (c) 2023 shadcn");
   expect(notices).toContain("MIT License");
+  const probeManifest = JSON.parse(
+    await readFile(resolve(probeDirectory, "manifest.json"), "utf8"),
+  );
+  // URL rechecks and worker reconnect require host access in addition to script
+  // matches. It belongs only to the synthetic build and only to loopback HTTP.
+  expect(probeManifest.permissions).toEqual(["storage"]);
+  expect(probeManifest.host_permissions).toEqual(["http://127.0.0.1/*"]);
+  expect(
+    probeManifest.content_scripts.every((script: { matches: string[] }) =>
+      script.matches.every((match) => match === "http://127.0.0.1/*"),
+    ),
+  ).toBe(true);
 });
 
 test("the built options page supports keyboard validation and passes accessibility checks", async () => {

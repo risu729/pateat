@@ -1,9 +1,10 @@
 # Development workflow
 
 The foundation has a Bun workspace, pinned tools, local policy settings, shared
-contracts, and a health-only Worker. These are implementation and test scaffolds;
-they do not implement vault access, login execution, service authentication, or
-inference. M1 is not complete until its required checks and acceptance gates pass.
+contracts, and a health-only Worker. A separate localhost probe exercises the
+declarative login executor with synthetic values. Real vault access, production
+login activation, service authentication and inference remain unimplemented.
+M1 is not complete until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
@@ -51,6 +52,7 @@ Focused tasks are available for diagnosis:
 | `mise run prepare:extension` | Generate WXT types |
 | `mise run build:extension` | Package the Chrome extension shell |
 | `mise run build:probe` | Build the isolated synthetic browser-test variant |
+| `mise run probe:login` | Serve the synthetic login site on loopback port 3847 |
 | `mise run typecheck:extension` | Check extension source after WXT preparation |
 | `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
 | `mise run test:tools` | Test artifact/provenance helpers |
@@ -76,6 +78,39 @@ Local success is scoped to the tested component. Worker tests and artifact
 checks have passed locally; they do not establish production deployment or
 installed Chrome use compatibility. Current evidence and unresolved browser
 acceptance results are recorded in [dated research](research/2026-10-10-feasibility.md).
+
+### Installed Chrome synthetic login probe
+
+This procedure prepares a manual acceptance run; its availability is not evidence
+that installed Chrome or Chrome use has passed. Use only the synthetic probe build.
+The probe grants host access only to `http://127.0.0.1/*` so the coordinator can
+recheck browser-provided tab URLs. Production grants no host access.
+
+1. Run `mise run build:probe` and `mise run probe:login`. The latter serves only
+   `http://127.0.0.1:3847` and stops with Ctrl+C. It does not contact a vault or AI.
+2. With the owner's installation approval, load
+   `apps/extension/.output/chrome-mv3-probe/` as an unpacked extension in Chrome.
+   Record the exact source commit, build, Chrome version and other extensions.
+3. Manually open Pateat settings. Add `http://127.0.0.1:3847` as a site default
+   for **Demo personal vault / Demo primary account**, then save. Keep the demo
+   connection and its branch, username and password fields eligible.
+4. Open `http://127.0.0.1:3847/identity` through Chrome use in an inactive tab.
+   The extension must fill and advance through the password page itself. Verify
+   the fixture's authenticated result, matched-field flags and one click per step.
+   Do not fill the fields through the test controller to manufacture success.
+5. Close the owner tab before each new attempt. The conservative origin lock
+   intentionally prevents another tab from starting even after a terminal result.
+   Test `/single`, `/rejection`, `/unknown` and `/ambiguous`; the latter cases
+   must stop or abstain without trying another account or repeating submission.
+6. Verify site/field exclusion, policy changes, navigation and concurrent Chrome
+   use separately. Keep actual observations and unresolved limits in the run's
+   evidence. An isolated Playwright pass does not establish these Chrome results.
+
+The fixture exposes synthetic match flags and click counts, not a real account
+session. The probe has no real-provider adapter. Its fixed localhost recipes and
+setup messages are excluded from the production build. Chrome use may not be
+able to operate another extension's settings page; manual setup is a supported
+test prerequisite, not a reason to expose settings mutations to a web page.
 
 ## Dependency policy
 
@@ -119,7 +154,7 @@ use.
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
 | Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
-| Attempt lifecycle | **Approved:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
+| Attempt lifecycle | **Implemented in the local probe:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
 | Storage | **Approved:** WXT storage helpers | M2 persistence integration |
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
