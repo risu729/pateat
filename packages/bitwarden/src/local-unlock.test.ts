@@ -152,9 +152,6 @@ describe("offline encrypted prepared-context admission", () => {
     ["cipher DTO", ["ciphers", "0", "login"], { unknown: "plaintext" }],
     ["extra password", ["password"], v1Password],
     ["extra token", ["accessToken"], "synthetic-expired-token"],
-    ["URI context", ["uriMatchContext"], { equivalentDomains: [], defaultMatch: 9 }],
-    ["URI context hostname", ["uriMatchContext", "equivalentDomains"], [["Example.com"]]],
-    ["URI context member", ["uriMatchContext", "raw"], "https://example.com"],
   ] as const)("rejects malformed %s before any native SDK work", (_label, path, value) => {
     const prepared = preparedVault();
     changeAt(prepared, [...path], value);
@@ -174,6 +171,21 @@ describe("offline encrypted prepared-context admission", () => {
     expect(older.ok).toBe(true);
     expect(older.ok && "uriMatchContext" in older.data).toBe(false);
   });
+
+  it.each([
+    { equivalentDomains: [], defaultMatch: 9 },
+    { equivalentDomains: [["Example.com"]], defaultMatch: 0 },
+    { equivalentDomains: [], defaultMatch: 0, raw: "https://example.com" },
+  ])(
+    "drops a URI context that no longer readmits instead of rejecting the cache case %#",
+    (context) => {
+      const prepared = preparedVault();
+      (prepared as { uriMatchContext?: unknown }).uriMatchContext = context;
+      const admitted = admitPreparedBitwardenAccount(prepared, accountProfile);
+      expect(admitted.ok).toBe(true);
+      expect(admitted.ok && "uriMatchContext" in admitted.data).toBe(false);
+    },
+  );
 
   it("rejects duplicate supported and unavailable item identities", () => {
     const prepared = preparedVault();

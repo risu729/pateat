@@ -104,9 +104,9 @@ the export. This adds transient sensitive copies and computation. Invalid blobs
 never fall back to legacy fields; supplied URI checksums are verified even for
 legacy keyless items, while absent legacy checksums remain supported.
 
-Synchronous SDK parsing checks signed CASE and serialized keys before asynchronous
+Synchronous SDK parsing checks signed COSE and serialized keys before asynchronous
 bindings that can otherwise leave malformed-input calls unresolved. The signed
-CASE check admits structure only; account initialization must still verify the
+COSE check admits structure only; account initialization must still verify the
 actual signature. Key admission can temporarily unwrap/rewrap key material; those
 results are discarded and mutable key buffers cleared. This is additional local
 work, not a claim of zero-copy secrets or cancellation of synchronous WASM.
@@ -218,9 +218,12 @@ URI matching unavailable until the next accepted sync.
 
 The crypto Worker captures login URI rules while verifying every received item,
 skipping deleted and archived items, and answers fixed snapshot-bound match requests
-with item IDs and URI indices only. A settings bridge queries enabled, ready
-connections after site exclusions and keeps only eligible, non-quarantined items.
-Unavailable connections are reported, never treated as no match. Native browser
+with item IDs and URI indices only. A settings bridge queries enabled connections
+whose snapshot is ready or under review, after site exclusions, and keeps only
+eligible, non-quarantined items. Unavailable connections and eligible items with
+unevaluated rules are reported, never treated as no match. Pateat only receives
+confirmed organization memberships, so a policy from an accepted-only membership is
+treated as enforced; this can only enforce or mark a default unavailable. Native browser
 tests verify an actual SDK-decrypted URI with the retained context across a full
 profile restart, and the unavailable result for a cache without context.
 

@@ -78,6 +78,14 @@ export type OpenedHostSession = {
   };
 };
 
+function sameOrigin(targetUrl: string, origin: string): boolean {
+  try {
+    return new URL(targetUrl).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 /** Background-internal API. Neither the options page nor content scripts get these operations. */
 export function createCryptoHost(deps: CryptoHostDependencies) {
   const random = deps.randomId ?? (() => crypto.randomUUID());
@@ -316,7 +324,8 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           !candidates.success ||
           candidates.output.connectionId !== job.connectionId ||
           candidates.output.userId !== job.operation.session.userId ||
-          candidates.output.snapshotId !== job.operation.session.snapshotId
+          candidates.output.snapshotId !== job.operation.session.snapshotId ||
+          !sameOrigin(job.operation.targetUrl, candidates.output.targetOrigin)
         ) {
           cancelOwned(parsed.output.requestId, "crypto-locked");
           return;

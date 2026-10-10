@@ -217,7 +217,14 @@ export function createBitwardenUriMatchContext(
   } catch {
     groups = undefined;
   }
-  return { equivalentDomains: groups ?? "unavailable", defaultMatch };
+  const context: BitwardenUriMatchContext = {
+    equivalentDomains: groups ?? "unavailable",
+    defaultMatch,
+  };
+  // IDNA can lengthen an admitted raw name; never retain a context that cannot be readmitted.
+  return (
+    admitBitwardenUriMatchContext(context) ?? { equivalentDomains: "unavailable", defaultMatch }
+  );
 }
 
 /** Strict structural admission of a retained context; hostnames must already be normalized. */
@@ -241,6 +248,107 @@ export function admitBitwardenUriMatchContext(
   }
 }
 
+type UriEvaluator = (uris: unknown) => BitwardenResult<UriMatchEvaluation>;
+/** Precompute the target and its equivalent set once; each call evaluates one item's URIs. */
+function createEvaluator(targetUrl: string, settings: MatchingSettings): UriEvaluator | undefined {
+  const target = webUrl(targetUrl, false);
+  if (!target) return undefined;
+  const targetDomain = domainKey(target);
+  const equivalents = new Set<string>();
+  if (targetDomain) {
+    equivalents.add(targetDomain);
+    // Deliberately direct membership only; overlapping groups do not create a transitive closure.
+    if (settings.groups !== "unavailable")
+      for (const group of settings.groups)
+        if (group.includes(targetDomain)) for (const domain of group) equivalents.add(domain);
+  }
+  return (uris: unknown) => {
+    try {
+      if (!Array.isArray(uris) || uris.length > maxUris) return failure("invalid-uri-input");
+      const matches: { uriIndex: number; match: 0 | 1 | 2 | 3 }[] = [];
+      const unavailableUris: { uriIndex: number; reason: UriUnavailableReason }[] = [];
+      uris.forEach((raw, uriIndex) => {
+        const unavailable = (reason: (typeof unavailableUris)[number]["reason"]) =>
+          unavailableUris.push({ uriIndex, reason });
+        if (!isRecord(raw)) {
+          unavailable("invalid-uri");
+          return;
+        }
+        const parsed = v.safeParse(uriSchema, raw);
+        if (!parsed.success) {
+          unavailable("invalid-uri");
+          return;
+        }
+        const match = parsed.output.match ?? settings.defaultMatch;
+        // An unresolved default never falls back to Domain or another strategy.
+        if (match === "unavailable") {
+          unavailable("default-match-unavailable");
+          return;
+        }
+        if (match === 5) return;
+        if (match !== 0 && match !== 1 && match !== 2 && match !== 3) {
+          unavailable("unsupported-uri-match");
+          return;
+        }
+        const stored = parsed.output.uri;
+        if (!stored) {
+          unavailable("invalid-uri");
+          return;
+        }
+        const scheme = /^([a-z][a-z0-9+.-]*):/iu.exec(stored.trim())?.[1]?.toLowerCase();
+        const bareHostname = /^([^/?#:@]+):[0-9]+(?:[/?#]|$)/u.exec(stored.trim())?.[1];
+        const bareHostPort = bareHostname?.includes(".") === true;
+        if (scheme && scheme !== "http" && scheme !== "https" && !bareHostPort) {
+          unavailable("unsupported-uri-scheme");
+          return;
+        }
+        const saved = webUrl(stored, true);
+        if (!saved) {
+          unavailable("invalid-uri");
+          return;
+        }
+        let matched = false;
+        switch (match) {
+          case 0: {
+            // Equivalent groups can widen Domain matches; never guess without the received groups.
+            if (settings.groups === "unavailable") {
+              unavailable("equivalent-domains-unavailable");
+              return;
+            }
+            const savedDomain = domainKey(saved);
+            matched = savedDomain !== undefined && equivalents.has(savedDomain);
+            // Pinned client exception for user-authored Google scripts; other modes are explicit.
+            if (savedDomain === "google.com" && target.host === "script.google.com")
+              matched = false;
+            break;
+          }
+          case 1:
+            matched = saved.host === target.host;
+            break;
+          case 2:
+            matched = targetUrl.startsWith(stored);
+            break;
+          case 3:
+            matched = targetUrl === stored;
+            break;
+        }
+        if (matched) matches.push({ uriIndex, match });
+      });
+      return {
+        ok: true,
+        data: {
+          matched: matches.length > 0,
+          targetOrigin: target.origin,
+          matches,
+          unavailableUris,
+        },
+      };
+    } catch {
+      return failure("invalid-uri-input");
+    }
+  };
+}
+
 /** Provider matching is a candidate signal. Account/origin/document/field policy still gates filling. */
 export function matchBitwardenLoginUris(
   uris: unknown,
@@ -250,91 +358,30 @@ export function matchBitwardenLoginUris(
   try {
     if (!Array.isArray(uris) || uris.length > maxUris || typeof targetUrl !== "string")
       return failure("invalid-uri-input");
-    const target = webUrl(targetUrl, false);
-    if (!target) return failure("invalid-uri-input");
+    if (!webUrl(targetUrl, false)) return failure("invalid-uri-input");
     const settings = matchingSettings(options);
     if (!settings) return failure("invalid-options");
-    const targetDomain = domainKey(target);
-    const equivalents = new Set<string>();
-    if (targetDomain) {
-      equivalents.add(targetDomain);
-      // Deliberately direct membership only; overlapping groups do not create a transitive closure.
-      if (settings.groups !== "unavailable")
-        for (const group of settings.groups)
-          if (group.includes(targetDomain)) for (const domain of group) equivalents.add(domain);
-    }
-    const matches: { uriIndex: number; match: 0 | 1 | 2 | 3 }[] = [];
-    const unavailableUris: { uriIndex: number; reason: UriUnavailableReason }[] = [];
-    uris.forEach((raw, uriIndex) => {
-      const unavailable = (reason: (typeof unavailableUris)[number]["reason"]) =>
-        unavailableUris.push({ uriIndex, reason });
-      if (!isRecord(raw)) {
-        unavailable("invalid-uri");
-        return;
-      }
-      const parsed = v.safeParse(uriSchema, raw);
-      if (!parsed.success) {
-        unavailable("invalid-uri");
-        return;
-      }
-      const match = parsed.output.match ?? settings.defaultMatch;
-      // An unresolved default never falls back to Domain or another strategy.
-      if (match === "unavailable") {
-        unavailable("default-match-unavailable");
-        return;
-      }
-      if (match === 5) return;
-      if (match !== 0 && match !== 1 && match !== 2 && match !== 3) {
-        unavailable("unsupported-uri-match");
-        return;
-      }
-      const stored = parsed.output.uri;
-      if (!stored) {
-        unavailable("invalid-uri");
-        return;
-      }
-      const scheme = /^([a-z][a-z0-9+.-]*):/iu.exec(stored.trim())?.[1]?.toLowerCase();
-      const bareHostname = /^([^/?#:@]+):[0-9]+(?:[/?#]|$)/u.exec(stored.trim())?.[1];
-      const bareHostPort = bareHostname?.includes(".") === true;
-      if (scheme && scheme !== "http" && scheme !== "https" && !bareHostPort) {
-        unavailable("unsupported-uri-scheme");
-        return;
-      }
-      const saved = webUrl(stored, true);
-      if (!saved) {
-        unavailable("invalid-uri");
-        return;
-      }
-      let matched = false;
-      switch (match) {
-        case 0: {
-          // Equivalent groups can widen Domain matches; never guess without the received groups.
-          if (settings.groups === "unavailable") {
-            unavailable("equivalent-domains-unavailable");
-            return;
-          }
-          const savedDomain = domainKey(saved);
-          matched = savedDomain !== undefined && equivalents.has(savedDomain);
-          // Pinned client exception for user-authored Google scripts; other modes are explicit.
-          if (savedDomain === "google.com" && target.host === "script.google.com") matched = false;
-          break;
-        }
-        case 1:
-          matched = saved.host === target.host;
-          break;
-        case 2:
-          matched = targetUrl.startsWith(stored);
-          break;
-        case 3:
-          matched = targetUrl === stored;
-          break;
-      }
-      if (matched) matches.push({ uriIndex, match });
-    });
-    return {
-      ok: true,
-      data: { matched: matches.length > 0, targetOrigin: target.origin, matches, unavailableUris },
-    };
+    return createEvaluator(targetUrl, settings)?.(uris) ?? failure("invalid-uri-input");
+  } catch {
+    return failure("invalid-uri-input");
+  }
+}
+
+/** Admit retained context and the target once for many items from the same snapshot. */
+export function createBitwardenUriMatcher(
+  targetUrl: unknown,
+  context: unknown,
+): BitwardenResult<{ targetOrigin: string; evaluate: UriEvaluator }> {
+  try {
+    if (typeof targetUrl !== "string") return failure("invalid-uri-input");
+    const target = webUrl(targetUrl, false);
+    if (!target) return failure("invalid-uri-input");
+    const settings = matchingSettings({ context });
+    if (!settings) return failure("invalid-options");
+    const evaluate = createEvaluator(targetUrl, settings);
+    return evaluate
+      ? { ok: true, data: { targetOrigin: target.origin, evaluate } }
+      : failure("invalid-uri-input");
   } catch {
     return failure("invalid-uri-input");
   }

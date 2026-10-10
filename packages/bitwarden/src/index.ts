@@ -22,6 +22,7 @@ export {
 export { generateLocalTotp, type LocalOtpValue, type LocalTotpOptions } from "./totp";
 export {
   admitBitwardenUriMatchContext,
+  createBitwardenUriMatcher,
   matchBitwardenLoginUris,
   type BitwardenUriMatchContext,
   type UriMatchEvaluation,

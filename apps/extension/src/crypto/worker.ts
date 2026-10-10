@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import {
   admitBitwardenUriMatchContext,
-  matchBitwardenLoginUris,
+  createBitwardenUriMatcher,
   type BitwardenUriMatchContext,
   createLocalCryptoSession,
   createLocalFieldSnapshot,
@@ -96,12 +96,11 @@ async function execute(command: HostCommand) {
         return fail("invalid-request");
       ciphers.set(id.toLowerCase(), cipher);
     }
-    // Retained with this snapshot only. Older caches without it cannot match URIs.
+    // Retained with this snapshot only. A missing or unreadmittable context cannot match URIs.
     const uriContext =
       prepared.uriMatchContext === undefined
         ? undefined
         : admitBitwardenUriMatchContext(prepared.uriMatchContext);
-    if (prepared.uriMatchContext !== undefined && !uriContext) return fail("invalid-request");
     const unlock =
       op.unlock.kind === "password"
         ? { ...op.unlock, masterPasswordUnlock: prepared.masterPasswordUnlock }
@@ -170,7 +169,8 @@ async function execute(command: HostCommand) {
       // Pinned clients exclude deleted and archived items from URL matching.
       if (checked.data.type === 1 && !checked.data.deletedDate && !checked.data.archivedDate)
         loginUris.set(
-          String(checked.data.id).toLowerCase(),
+          // Same identifier form as the catalog item, so settings eligibility applies.
+          String(checked.data.id),
           (checked.data.login?.uris ?? []).map((entry) => ({
             uri: entry.uri ?? null,
             match: entry.match ?? null,
@@ -228,20 +228,20 @@ async function execute(command: HostCommand) {
   if (op.kind === "match-uris") {
     if (!owned.verified) return fail("invalid-request");
     if (!owned.uriContext) return fail("uri-context-unavailable");
-    const context = owned.uriContext;
-    const target = matchBitwardenLoginUris([], op.targetUrl, { context });
-    if (!target.ok) return fail("invalid-uri-input");
+    // Admit the context and target once; each item then costs only its own URI rules.
+    const matcher = createBitwardenUriMatcher(op.targetUrl, owned.uriContext);
+    if (!matcher.ok || matcher.data.targetOrigin.length > 8192) return fail("invalid-uri-input");
     const result: UriCandidates = {
       connectionId: command.connectionId,
       userId: owned.ref.userId,
       snapshotId: owned.ref.snapshotId,
-      targetOrigin: target.data.targetOrigin,
+      targetOrigin: matcher.data.targetOrigin,
       candidates: [],
       unavailableUris: [],
       unavailableItemIds: [],
     };
     for (const [itemId, uris] of owned.loginUris) {
-      const evaluated = matchBitwardenLoginUris(uris, op.targetUrl, { context });
+      const evaluated = matcher.data.evaluate(uris);
       // A single oversized item is reported without hiding unrelated candidates.
       if (!evaluated.ok) {
         result.unavailableItemIds.push(itemId);

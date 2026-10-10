@@ -105,12 +105,12 @@ export function admitPreparedBitwardenAccount(
       structuredClone(input),
     );
     if (!checked.success) return failure("invalid-crypto-input");
+    // A context that no longer readmits (for example after an IDNA table change) is dropped:
+    // matching then reports it unavailable while unrelated field access keeps working.
     const uriMatchContext =
       checked.output.uriMatchContext === undefined
         ? undefined
         : admitBitwardenUriMatchContext(checked.output.uriMatchContext);
-    if (checked.output.uriMatchContext !== undefined && !uriMatchContext)
-      return failure("invalid-crypto-input");
     const profile = normalizeBitwardenProfile(checked.output.binding.profile);
     if (!profile.ok || JSON.stringify(profile.data) !== JSON.stringify(expected.data))
       return failure("account-mismatch");
@@ -149,10 +149,11 @@ export function admitPreparedBitwardenAccount(
       if (ids.has(item.itemId)) return failure("invalid-crypto-input");
       ids.add(item.itemId);
     }
+    const { uriMatchContext: _retained, ...rest } = value;
     return {
       ok: true,
       data: {
-        ...value,
+        ...rest,
         binding: { ...value.binding, profile: profile.data },
         ciphers,
         ...(uriMatchContext ? { uriMatchContext } : {}),
@@ -349,7 +350,7 @@ function accountFromProfile(profile: RecordValue): Sdk.WrappedAccountCryptograph
   const legacy = read(profile, "privateKey");
   const privateKey = "V1" in state ? state.V1.private_key : state.V2.private_key;
   if (legacy != null && legacy !== privateKey) reject();
-  // No modern state means an explicitly legacy AES private key, never a stripped CASE account.
+  // No modern state means an explicitly legacy AES private key, never a stripped COSE account.
   if (modern == null && privateKey.startsWith("7.")) reject();
   return state;
 }
@@ -728,9 +729,16 @@ export function createBitwardenAccountMapper(
           const organizationIds = new Set<string>();
           const policyContexts = new Map<string, OrganizationPolicyContext>();
           const providerOrganizationIds = new Set<string>();
-          for (const raw of optionalList(read(account, "providerOrganizations"), 1_000)) {
-            const id = v.safeParse(uuid, read(record(raw), "id"));
-            if (id.success) providerOrganizationIds.add(id.output);
+          // Provider membership only adds an exemption; malformed entries are ignored as before.
+          const providerOrganizations = read(account, "providerOrganizations");
+          for (const raw of Array.isArray(providerOrganizations)
+            ? providerOrganizations.slice(0, 1_000)
+            : []) {
+            const id =
+              raw && typeof raw === "object" && !Array.isArray(raw)
+                ? v.safeParse(uuid, (raw as RecordValue)["id"] ?? (raw as RecordValue)["Id"])
+                : undefined;
+            if (id?.success) providerOrganizationIds.add(id.output);
           }
           for (const raw of optionalList(read(account, "organizations"), 1_000)) {
             const organization = record(raw);

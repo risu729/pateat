@@ -453,6 +453,7 @@ describe("fixed operations, session scope and reply fencing", () => {
 
   it.each([
     { ...uriCandidates, snapshotId: crypto.randomUUID() },
+    { ...uriCandidates, targetOrigin: "https://example.net" },
     { ...uriCandidates, candidates: [{ itemId, matches: [], uri: "https://example.com" }] },
   ])("locks the session on a URI reply for another snapshot or shape case %#", async (data) => {
     const h = harness();

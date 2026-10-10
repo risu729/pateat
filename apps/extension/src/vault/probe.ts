@@ -155,6 +155,13 @@ export function createVaultProbe(host: CryptoHost) {
             { ...rule, match: undefined },
           ] as unknown as typeof login.uris;
           if (action.kind === "uri-without-context") delete prepared.uriMatchContext;
+          // Same URI rules in trash and archive must never become page candidates.
+          for (const state of ["deletedDate", "archivedDate"] as const) {
+            const hidden = structuredClone(prepared.ciphers[0]!);
+            hidden.id = crypto.randomUUID() as unknown as typeof hidden.id;
+            hidden[state] = "2024-02-01T00:00:00.000Z" as unknown as (typeof hidden)[typeof state];
+            prepared.ciphers.push(hidden);
+          }
         }
         if (action.kind === "unavailable") {
           prepared.unavailableItems.push({

@@ -73,6 +73,7 @@ describe("live provider URI candidates", () => {
       candidates: [
         { connectionId: "live", itemId: loginId, snapshotId, matches: [{ uriIndex: 0, match: 0 }] },
       ],
+      incompleteItems: [],
       unavailableConnections: [],
     });
     expect(match).toHaveBeenCalledWith("live", url, undefined);
@@ -117,6 +118,7 @@ describe("live provider URI candidates", () => {
       ok: true,
       origin: "https://auth.example.com",
       candidates: [],
+      incompleteItems: [],
       unavailableConnections: [],
     });
     const locked = catalog("locked");
@@ -158,7 +160,35 @@ describe("live provider URI candidates", () => {
       ok: true,
       origin: "https://auth.example.com",
       candidates: [],
+      incompleteItems: [],
       unavailableConnections: [{ connectionId: "live", reason }],
+    });
+  });
+
+  it("reports eligible items with unevaluated rules instead of treating them as no match", async () => {
+    const value = catalog();
+    const match = matcher({
+      ok: true,
+      data: candidates({
+        candidates: [],
+        unavailableUris: [
+          { itemId: loginId, uriIndex: 0, reason: "default-match-unavailable" },
+          { itemId: loginId, uriIndex: 1, reason: "default-match-unavailable" },
+          { itemId: excludedId, uriIndex: 0, reason: "equivalent-domains-unavailable" },
+        ],
+        unavailableItemIds: [quarantinedId],
+      }),
+    });
+    expect(
+      await findLiveSiteCandidates({ settings: settings(value), catalog: value, url, match }),
+    ).toEqual({
+      ok: true,
+      origin: "https://auth.example.com",
+      candidates: [],
+      incompleteItems: [
+        { connectionId: "live", itemId: loginId, reasons: ["default-match-unavailable"] },
+      ],
+      unavailableConnections: [],
     });
   });
 

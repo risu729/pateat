@@ -62,6 +62,7 @@ test("matches actual SDK-decrypted URIs with retained context after full profile
   await withVaultProfile(async (open, externalRequests) => {
     const first = await open();
     const accepted = await vaultData<Accepted>(first.page, { action: "accept", kind: "uri" });
+    // The fixture also carries deleted and archived copies with identical URI rules.
     const exact = await vaultData<UriCandidates>(first.page, {
       action: "match",
       url: "https://synthetic.example.test/login",
@@ -80,6 +81,7 @@ test("matches actual SDK-decrypted URIs with retained context after full profile
       unavailableUris: [],
       unavailableItemIds: [],
     });
+    expect(exact.candidates).toHaveLength(1);
     const sibling = await vaultData<UriCandidates>(first.page, {
       action: "match",
       url: "https://auth.example.test/",

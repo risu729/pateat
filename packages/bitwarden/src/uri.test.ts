@@ -8,6 +8,7 @@ import {
 import {
   admitBitwardenUriMatchContext,
   createBitwardenUriMatchContext,
+  createBitwardenUriMatcher,
   matchBitwardenLoginUris,
 } from "./uri";
 import { createLocalCryptoSession } from "./local-crypto";
@@ -240,6 +241,45 @@ describe("retained account URI context", () => {
     expect(matchBitwardenLoginUris(saved("https://example.edu"), target, { context })).toEqual(
       emptyResult(),
     );
+  });
+
+  it("marks groups unavailable when IDNA normalization exceeds the retained bound", () => {
+    // Distinct CJK code points: about 240 raw characters become several hundred ASCII ones.
+    const long = `${Array.from({ length: 240 }, (_, i) => String.fromCodePoint(0x4e00 + i * 37)).join("")}.jp`;
+    expect(long.length).toBeLessThanOrEqual(253);
+    expect(createBitwardenUriMatchContext(userDomains([["example.com", long]]), 2)).toEqual({
+      equivalentDomains: "unavailable",
+      defaultMatch: 2,
+    });
+  });
+
+  it("evaluates many items against one admitted target and context", () => {
+    const matcher = createBitwardenUriMatcher(target, {
+      equivalentDomains: [["example.com", "example.net"]],
+      defaultMatch: 0,
+    });
+    expect(matcher.ok).toBe(true);
+    if (!matcher.ok) return;
+    expect(matcher.data.targetOrigin).toBe("https://example.com");
+    expect(matcher.data.evaluate(saved("https://example.net"))).toMatchObject({
+      ok: true,
+      data: { matched: true },
+    });
+    expect(matcher.data.evaluate(saved("https://example.org"))).toEqual(emptyResult());
+    expect(matcher.data.evaluate(Array.from({ length: 1001 }, () => ({ uri: target })))).toEqual({
+      ok: false,
+      error: { code: "invalid-uri-input" },
+    });
+    expect(
+      createBitwardenUriMatcher("ftp://example.com/", { equivalentDomains: [], defaultMatch: 0 }),
+    ).toEqual({
+      ok: false,
+      error: { code: "invalid-uri-input" },
+    });
+    expect(createBitwardenUriMatcher(target, { equivalentDomains: [] })).toEqual({
+      ok: false,
+      error: { code: "invalid-options" },
+    });
   });
 
   it("treats absent sync domains as no equivalent groups, as the pinned client does", () => {
