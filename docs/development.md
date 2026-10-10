@@ -96,20 +96,20 @@ and the maintenance work displaced. Popularity is supporting evidence, not a
 quality guarantee. Prereleases are allowed when their required APIs and upgrade
 costs are understood and the compatibility checks pass.
 
-The owner approved React, Tailwind + Base UI + selected shadcn/ui components,
-TanStack Form + Valibot, TanStack Query and `@webext-core/messaging` on 2026-10-10.
-These are planned integrations, not
-installed packages. Other new recommendations below remain pending; obtain the
-owner's decision before adopting each major addition/replacement. The current
-manifests and lockfile describe what is installed. WXT + TypeScript + Valibot
-remain confirmed choices; existing Vitest, Playwright and build tools remain in use.
+The owner approved React, Tailwind + Base UI + selected shadcn/ui components, TanStack
+Form + Valibot, TanStack Query, XState and `@webext-core/messaging` on 2026-10-10. These
+are planned integrations, not installed packages. Other new recommendations below remain
+pending; obtain the owner's decision before adopting each major addition/replacement.
+The current manifests and lockfile describe what is installed. WXT + TypeScript +
+Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
+use.
 
 | Area | Choice or candidate (new choices pending unless marked approved) | Owning slice |
 | --- | --- | --- |
 | Extension UI | **Approved:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with selected shadcn/ui components | M2 settings UI migration |
 | Form state | **Approved:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Approved:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
-| Attempt lifecycle | **Deferred decision:** compare XState with an application-owned TypeScript state machine | M2 declarative executor |
+| Attempt lifecycle | **Approved:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
 | Storage | WXT storage helpers (pending separately) | M2 persistence integration |
 | Destination matching | WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |

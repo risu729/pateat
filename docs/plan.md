@@ -83,8 +83,11 @@ new test libraries remain separate pending decisions.
 Also approved for M2: TanStack Query for metadata loading/mutations and
 `@webext-core/messaging` for extension communication. Keep dirty form drafts
 separate from refreshed data, configure retry/refetch behavior explicitly and
-retain runtime payload/sender authorization. XState is deferred pending comparison
-with a custom TypeScript state machine; WXT storage helpers remain unapproved.
+retain runtime payload/sender authorization. Use the approved XState for the M2
+executor; verify navigation cancellation, timeout handling and interrupted-submit
+reconciliation before expanding execution. Persist allowlisted resumable metadata
+only; restoring state must not blindly replay submission. WXT storage helpers
+remain unapproved.
 
 Potential integration points, subject to those decisions, are M2 settings UI,
 forms, async state, attempt lifecycle and verification; M3/M5 protocol libraries;
