@@ -17,6 +17,7 @@ import {
   type LoginRecipe,
   type LoginTarget,
   type SettingsResponse,
+  type VaultCatalog,
   type VaultConnectionMetadata,
 } from "@pateat/contracts";
 import { browser, type Browser } from "wxt/browser";
@@ -38,6 +39,7 @@ import {
   probeRecipe,
   type ProbeAccount,
 } from "./dummy";
+import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import type { LoginSites } from "./sites";
 import type { LoginFieldSource } from "./vault";
 
@@ -48,9 +50,13 @@ type SettingsRuntime = { handle(value: unknown): Promise<SettingsResponse> };
 type LiveDocument = {
   document: LoginDocument;
   token: string;
+  /** The browser-provided URL this document announced; provider URI rules match against it. */
+  url: string;
   path: string;
   state?: string;
   reason?: string;
+  /** A provider URI match for this document only, valid while its snapshot is unchanged. */
+  uriMatch?: { connectionId: string; itemId: string; snapshotId: string };
 };
 type Execution = {
   metadata: LoginAttemptMetadata;
@@ -59,6 +65,19 @@ type Execution = {
   running: boolean;
   operation?: LoginOperation;
 };
+/** An in-memory catalog copy in which one item covers `origin`; never persisted. */
+function withItemOrigin(
+  catalog: VaultCatalog,
+  account: { connectionId: string; itemId: string },
+  origin: string,
+): VaultCatalog {
+  const granted = structuredClone(catalog);
+  const item = granted.connections
+    .find((entry) => entry.id === account.connectionId)
+    ?.items.find((entry) => entry.id === account.itemId);
+  if (item && !item.allowedOrigins.includes(origin)) item.allowedOrigins.push(origin);
+  return granted;
+}
 const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);
 
@@ -81,9 +100,15 @@ const probeMode = import.meta.env.MODE === "probe";
  */
 export function createLoginRuntime(
   settings: SettingsRuntime,
-  options: { fields: LoginFieldSource; sites?: LoginSites; recipes?: LoginRecipes },
+  options: {
+    fields: LoginFieldSource;
+    sites?: LoginSites;
+    recipes?: LoginRecipes;
+    /** Live provider URI matching; without it only static `allowedOrigins` apply. */
+    uris?: LiveUriMatcher;
+  },
 ) {
-  const { fields, sites, recipes = noLoginRecipes } = options;
+  const { fields, sites, recipes = noLoginRecipes, uris } = options;
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<number, LiveDocument>();
@@ -228,16 +253,72 @@ export function createLoginRuntime(
       ...(metadata?.outcome || live.reason ? { outcome: metadata?.outcome ?? live.reason } : {}),
     }).catch(() => undefined);
   }
+  /**
+   * Origin scope for the saved default of this document. A live provider URI match for the
+   * document's own URL satisfies the item origin check for that document only; it is never
+   * saved as `allowedOrigins` and never selects an account. Only the saved default's
+   * connection is asked, and a match is reused while that connection's snapshot is unchanged.
+   */
+  async function liveScope(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+  ): Promise<{ catalog: VaultCatalog } | { reason: "vault-unavailable" }> {
+    const { catalog } = snapshot;
+    const selected = snapshot.snapshot.settings.siteDefaults.find(
+      (entry) => entry.origin === live.document.origin,
+    );
+    const connection = catalog.connections.find((entry) => entry.id === selected?.connectionId);
+    const item = connection?.items.find((entry) => entry.id === selected?.itemId);
+    if (!uris || !selected || !connection?.snapshotId || connection.provider !== "bitwarden")
+      return { catalog };
+    if (!item || item.allowedOrigins.includes(live.document.origin)) return { catalog };
+    const cached = live.uriMatch;
+    if (
+      !cached ||
+      cached.connectionId !== selected.connectionId ||
+      cached.itemId !== selected.itemId ||
+      cached.snapshotId !== connection.snapshotId
+    ) {
+      delete live.uriMatch;
+      const scope = await findLiveSiteCandidates({
+        settings: snapshot.snapshot.settings,
+        catalog: { connections: [connection] },
+        url: live.url,
+        match: uris,
+      });
+      if (!scope.ok) return { catalog };
+      const matched = scope.candidates.some(
+        (entry) => entry.itemId === selected.itemId && entry.snapshotId === connection.snapshotId,
+      );
+      if (!matched) {
+        // Unevaluated rules may still cover this page; never treat them as a mismatch.
+        const unknown =
+          scope.unavailableConnections.length > 0 ||
+          scope.incompleteItems.some((entry) => entry.itemId === selected.itemId);
+        return unknown ? { reason: "vault-unavailable" } : { catalog };
+      }
+      live.uriMatch = {
+        connectionId: selected.connectionId,
+        itemId: selected.itemId,
+        snapshotId: connection.snapshotId,
+      };
+    }
+    return { catalog: withItemOrigin(catalog, selected, live.document.origin) };
+  }
   /** One saved account must resolve from a usable connection, and its item must not await review. */
   async function planFor(
     snapshot: Extract<SettingsResponse, { ok: true }>,
-    url: string,
+    live: LiveDocument,
     recipe: LoginRecipe,
   ) {
     const probe = probeMode && recipe.origin === origin;
-    const catalog = probe ? grantProbeOrigin(snapshot.catalog, origin, account) : snapshot.catalog;
+    const scope = probe
+      ? { catalog: grantProbeOrigin(snapshot.catalog, origin, account) }
+      : await liveScope(snapshot, live);
+    if ("reason" in scope) return { ok: false as const, reason: scope.reason };
+    const { catalog } = scope;
     const binding = probe ? probeBinding(recipe, account) : await recipes.binding(recipe);
-    const plan = resolveLoginPlan(snapshot.snapshot, catalog, url, recipe, binding);
+    const plan = resolveLoginPlan(snapshot.snapshot, catalog, live.url, recipe, binding);
     if (!plan.ok) return plan;
     const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
     if (
@@ -261,7 +342,7 @@ export function createLoginRuntime(
       await change(run, { type: "POLICY_CHANGED" });
       return undefined;
     }
-    const plan = await planFor(snapshot, `${run.live.document.origin}${run.live.path}`, run.recipe);
+    const plan = await planFor(snapshot, run.live, run.recipe);
     if (
       !plan.ok ||
       plan.account.connectionId !== run.metadata.account.connectionId ||
@@ -496,7 +577,12 @@ export function createLoginRuntime(
     if (oldLive && sameLoginDocument(oldLive.document, document))
       return { ok: false, reason: "duplicate-document" };
     if (oldLive) await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
-    const live: LiveDocument = { document, token, path: new URL(sender.url).pathname };
+    const live: LiveDocument = {
+      document,
+      token,
+      url: sender.url,
+      path: new URL(sender.url).pathname,
+    };
     documents.set(document.tabId, live);
     const refuse = async (reason: string) => {
       live.state = "denied";
@@ -537,7 +623,7 @@ export function createLoginRuntime(
     } catch {
       return refuse("closed-tab");
     }
-    const plan = await planFor(snapshot, sender.url, recipe);
+    const plan = await planFor(snapshot, live, recipe);
     if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
     if (!plan.ok) return refuse(plan.reason);
     // Cookies can be shared across tabs. Preserve this conservative origin owner even at terminal state until tab closure.

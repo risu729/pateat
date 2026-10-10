@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { VaultConnectionMetadata } from "@pateat/contracts";
-import { combineFieldSources, createVaultFieldSource, dummyFieldSource } from "./vault";
+import {
+  combineFieldSources,
+  createVaultFieldSource,
+  createVaultUriMatcher,
+  dummyFieldSource,
+} from "./vault";
 
 vi.mock("wxt/browser", () => ({ browser: {} }));
 const connectionId = "50000000-0000-4000-8000-000000000001";
@@ -119,5 +124,48 @@ describe("live vault login field source", () => {
       }),
     ).resolves.toBeUndefined();
     expect(live).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("live vault URI matcher", () => {
+  function matcher(handle: { userId: string; snapshotId: string } | null = { userId, snapshotId }) {
+    const profile = { connectionId, environment: { kind: "cloud", region: "us" } };
+    const matched = { ok: true, data: { connectionId, snapshotId, candidates: [] } };
+    const manager = {
+      status: () => ({ ...(handle ? { handle } : {}) }),
+      matchUris: vi.fn(async () => matched),
+    };
+    const connections = {
+      registry: {
+        get: vi.fn(async (id: string) => (id === connectionId ? { profile } : undefined)),
+      },
+      vaultFor: vi.fn(() => ({ manager })),
+    };
+    return {
+      manager,
+      matched,
+      match: createVaultUriMatcher(
+        connections as unknown as Parameters<typeof createVaultUriMatcher>[0],
+      ),
+    };
+  }
+  it("asks the connection's open snapshot for the page URL", async () => {
+    const h = matcher();
+    await expect(h.match(connectionId, "https://login.example/signin")).resolves.toBe(h.matched);
+    expect(h.manager.matchUris).toHaveBeenCalledWith(
+      { userId, snapshotId },
+      "https://login.example/signin",
+    );
+  });
+  it("answers unavailable, not no-match, when locked or unconfigured", async () => {
+    const locked = matcher(null);
+    await expect(locked.match(connectionId, "https://login.example/")).resolves.toEqual({
+      ok: false,
+      error: { code: "crypto-locked" },
+    });
+    expect(locked.manager.matchUris).not.toHaveBeenCalled();
+    await expect(
+      matcher().match("50000000-0000-4000-8000-000000000009", "https://login.example/"),
+    ).resolves.toEqual({ ok: false, error: { code: "invalid-request" } });
   });
 });

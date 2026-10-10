@@ -5,6 +5,9 @@ import {
   type LoginAccountBinding,
   type SettingsResponse,
 } from "@pateat/contracts";
+import type { UriCandidates } from "../crypto/wire";
+import { vaultFailure } from "../vault/record";
+import type { LiveUriMatcher } from "../vault/site-candidates";
 import type { LoginFieldSource } from "./vault";
 
 const fake = vi.hoisted(() => {
@@ -103,7 +106,22 @@ const binding: LoginAccountBinding = {
   slots: [{ slot: "password", fieldId: "login.password" }],
 };
 
-function harness(overrides: Partial<LocalSettings> = {}) {
+const otherItemId = "80000000-0000-4000-8000-000000000002";
+const uriMatch = (overrides: Partial<UriCandidates> = {}): UriCandidates => ({
+  connectionId,
+  userId: "70000000-0000-4000-8000-000000000001",
+  snapshotId,
+  targetOrigin: origin,
+  candidates: [{ itemId, matches: [{ uriIndex: 0, match: 0 }] }],
+  unavailableUris: [],
+  unavailableItemIds: [],
+  ...overrides,
+});
+
+function harness(
+  overrides: Partial<LocalSettings> = {},
+  live: { allowedOrigins?: string[]; uris?: LiveUriMatcher } = {},
+) {
   const settings: LocalSettings = {
     connections: [
       {
@@ -138,8 +156,7 @@ function harness(overrides: Partial<LocalSettings> = {}) {
               {
                 id: itemId,
                 label: "Synthetic item",
-                // Supplied by provider URI matching once that bridge is connected.
-                allowedOrigins: [origin],
+                allowedOrigins: live.allowedOrigins ?? [origin],
                 groupIds: [],
                 fields: [{ id: "login.password", label: "Password" }],
               },
@@ -156,7 +173,12 @@ function harness(overrides: Partial<LocalSettings> = {}) {
     ),
     binding: vi.fn(async () => binding),
   };
-  const login = createLoginRuntime(store, { fields, sites: createLoginSites(store), recipes });
+  const login = createLoginRuntime(store, {
+    fields,
+    sites: createLoginSites(store),
+    recipes,
+    ...(live.uris ? { uris: live.uris } : {}),
+  });
   const hello = (from: Record<string, unknown> = {}) =>
     login.handle(
       { version: 1, type: "login.document.ready", token: "synthetic-token" },
@@ -264,6 +286,71 @@ describe("production login document admission", () => {
     expect(h.store.handle).not.toHaveBeenCalled();
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).toEqual(["login.status"]);
+  });
+  describe("live provider URI matches", () => {
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    it("let the saved default fill when its URI matches this page", async () => {
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      const h = harness({}, { allowedOrigins: [], uris });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(h.fields).toHaveBeenCalledTimes(1);
+      // One query per document and snapshot, for the default's connection and the full URL.
+      expect(uris).toHaveBeenCalledTimes(1);
+      expect(uris.mock.calls[0]?.slice(0, 2)).toEqual([
+        connectionId,
+        "https://login.example/signin",
+      ]);
+    });
+    it.each<[string, Awaited<ReturnType<LiveUriMatcher>>, string]>([
+      [
+        "no rule of the item matches",
+        { ok: true, data: uriMatch({ candidates: [] }) },
+        "item-origin-mismatch",
+      ],
+      [
+        "only another item matches",
+        {
+          ok: true,
+          data: uriMatch({
+            candidates: [{ itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] }],
+          }),
+        },
+        "item-origin-mismatch",
+      ],
+      [
+        "the item's rules could not be evaluated",
+        { ok: true, data: uriMatch({ candidates: [], unavailableItemIds: [itemId] }) },
+        "vault-unavailable",
+      ],
+      [
+        "a different snapshot answered",
+        {
+          ok: true,
+          data: uriMatch({ snapshotId: "60000000-0000-4000-8000-000000000002" }),
+        },
+        "vault-unavailable",
+      ],
+      ["the vault is locked", vaultFailure("crypto-locked"), "vault-unavailable"],
+    ])("refuse before any field read when %s", async (_name, answer, reason) => {
+      const h = harness({}, { allowedOrigins: [], uris: async () => answer });
+      expect(await h.hello()).toEqual({ ok: false, reason });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("are not consulted for an excluded site or without a saved default", async () => {
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      fake.state.pageUrl = "https://other.example/signin";
+      expect(await harness({}, { allowedOrigins: [], uris }).hello()).toEqual({
+        ok: false,
+        reason: "unauthorized-document",
+      });
+      expect(uris).not.toHaveBeenCalled();
+    });
+    it("keep static allowed origins working without a matcher", async () => {
+      const h = harness({}, { allowedOrigins: [] });
+      expect(await h.hello()).toEqual({ ok: false, reason: "item-origin-mismatch" });
+    });
   });
   it("does not answer probe controls outside the probe build", async () => {
     const h = harness();
