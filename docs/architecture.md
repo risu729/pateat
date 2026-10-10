@@ -440,8 +440,9 @@ keys cannot be unlocked merely by changing flags. Conditional mediation and simu
 official-Bitwarden interception require separate compatibility tests.
 
 The bridge, admission rules, assertion format and unattended presence and
-verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). The
-assertion core is implemented but not yet connected to pages or the vault.
+verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Only
+the probe build connects the core to pages, through the bridge with a synthetic
+credential source; the vault is not yet connected.
 
 ## Minimal service
 
