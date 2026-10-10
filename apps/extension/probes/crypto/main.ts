@@ -17,7 +17,10 @@ function stop(message: string) {
 function start(operation: "vectors" | "kdf") {
   stop("Loading packaged WASM");
   results.textContent = "";
-  const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+  const worker =
+    operation === "vectors"
+      ? new Worker(new URL("./worker.ts", import.meta.url), { type: "module" })
+      : new Worker(new URL("./kdf-worker.ts", import.meta.url), { type: "module" });
   const id = crypto.randomUUID();
   job = { worker, id, timer: setTimeout(() => stop("Timed out"), 30_000) };
   cancelButton.disabled = false;
@@ -27,15 +30,13 @@ function start(operation: "vectors" | "kdf") {
   };
   worker.onmessage = (event: MessageEvent<unknown>) => {
     if (job?.id !== id || !event.data || typeof event.data !== "object") return;
-    const message = event.data as { id?: unknown; type?: unknown; results?: unknown };
-    if (message.id !== id) return;
+    const message = event.data as { type?: unknown; results?: unknown };
     if (message.type === "started") status.textContent = "Computing";
     else if (message.type === "complete") {
       results.textContent = JSON.stringify(message.results);
       stop("Complete");
     } else if (message.type === "failed") stop("Failed");
   };
-  worker.postMessage({ id, operation });
 }
 
 document.querySelector("#run-vectors")!.addEventListener("click", () => start("vectors"));

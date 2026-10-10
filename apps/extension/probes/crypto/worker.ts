@@ -1,5 +1,5 @@
 import { createLocalCryptoSession } from "../../../../packages/bitwarden/src/local-crypto";
-import { loadBrowserCryptoSdk } from "../../../../packages/bitwarden/src/browser-sdk";
+import { initializeSyntheticCryptoHost } from "./host";
 import { derivePasswordAuthentication } from "../../../../packages/bitwarden/src/auth-crypto";
 import {
   authPassword,
@@ -25,37 +25,13 @@ import {
   V2_SIGNING_KEY,
 } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
 
-// The SDK's Error log level still logs errors and panic details. This dedicated
-// synthetic host emits only boolean evidence, never raw SDK errors or values.
-for (const method of ["log", "info", "warn", "error", "debug", "trace"] as const)
-  console[method] = () => {};
-let busy = false;
-self.onmessage = async (event: MessageEvent<unknown>) => {
-  if (busy || !event.data || typeof event.data !== "object") return;
-  const request = event.data as { id?: unknown; operation?: unknown };
-  if (
-    typeof request.id !== "string" ||
-    request.id.length > 64 ||
-    (request.operation !== "vectors" && request.operation !== "kdf")
-  )
-    return;
-  busy = true;
-  const id = request.id;
+// One fixed synthetic job per Worker. No message or page data selects credentials
+// or controls a cryptographic operation inside this host.
+void (async () => {
   try {
-    const sdk = await loadBrowserCryptoSdk();
-    // The only permitted fetch was the packaged same-extension WASM above.
-    globalThis.fetch = () => Promise.reject(new Error("Network disabled in crypto host"));
-    sdk.init_sdk(sdk.LogLevel.Error, sdk.LogLevel.Error, 0);
-    self.postMessage({ id, type: "started" });
+    const sdk = await initializeSyntheticCryptoHost();
+    self.postMessage({ type: "started" });
     const encode = (value: string) => new TextEncoder().encode(value);
-    if (request.operation === "kdf") {
-      const value = sdk.PureCrypto.derive_kdf_material(encode(kdfPassword), encode(kdfSalt), {
-        argon2id: { iterations: 20, memory: 128, parallelism: 2 },
-      });
-      value.fill(0);
-      self.postMessage({ id, type: "complete", results: { finished: true } });
-      return;
-    }
     const pbkdf = sdk.PureCrypto.derive_kdf_material(encode(kdfPassword), encode(kdfSalt), {
       pBKDF2: { iterations: 10_000 },
     });
@@ -163,8 +139,8 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
     };
     pbkdf.fill(0);
     argon.fill(0);
-    self.postMessage({ id, type: "complete", results: checks });
+    self.postMessage({ type: "complete", results: checks });
   } catch {
-    self.postMessage({ id, type: "failed" });
+    self.postMessage({ type: "failed" });
   }
-};
+})();
