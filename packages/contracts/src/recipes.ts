@@ -1,5 +1,11 @@
+import * as v from "valibot";
 import type { LoginRecipe } from "./login";
-import type { SavedLoginBinding, VaultFieldReference } from "./settings";
+import {
+  savedLoginBindingSchema,
+  type LocalSettings,
+  type SavedLoginBinding,
+  type VaultFieldReference,
+} from "./settings";
 
 // Recipe lookup and binding resolution over synced data (ADR 0013). Recipes and
 // bindings come from the service cache; these functions only read them.
@@ -131,4 +137,58 @@ export function resolveBindingFields(
     slots.push({ slot: entry.slot, fieldId: resolved.fieldId });
   }
   return { ok: true, slots };
+}
+
+const builtinSlots = new Set<string>(["username", "password", "totp"]);
+
+/**
+ * The binding an automatic account choice uses before AI generation maps slots (ADR
+ * 0013): each slot named `username`, `password` or `totp` reads the item's built-in
+ * field of that name. A recipe with any other slot has no automatic binding.
+ */
+export function defaultLoginBinding(
+  recipe: Pick<LoginRecipe, "id" | "origin" | "slots">,
+  account: { provider: string; userId: string; itemId: string; itemName: string },
+): SavedLoginBinding | undefined {
+  if (!recipe.slots.every((slot) => builtinSlots.has(slot))) return undefined;
+  const binding = v.safeParse(savedLoginBindingSchema, {
+    recipeId: recipe.id,
+    origin: recipe.origin,
+    ...account,
+    slots: recipe.slots.map((slot) => ({ slot, field: slot })),
+  });
+  return binding.success ? binding.output : undefined;
+}
+
+/**
+ * Saves an account choice after an `authenticated` outcome: the site default for the
+ * binding's origin and the binding itself, each only when none exists yet. A saved
+ * choice therefore keeps winning, and a binding written by the owner or by AI
+ * generation is never replaced. Returns the same object when nothing changes.
+ */
+export function saveLoginChoice(
+  settings: LocalSettings,
+  binding: SavedLoginBinding,
+  connectionId: string,
+): LocalSettings {
+  const hasDefault = settings.siteDefaults.some((site) => site.origin === binding.origin);
+  const bindings = settings.bindings ?? [];
+  const hasBinding = bindings.some(
+    (entry) =>
+      entry.recipeId === binding.recipeId &&
+      entry.provider === binding.provider &&
+      entry.userId === binding.userId &&
+      entry.itemId === binding.itemId,
+  );
+  if (hasDefault && hasBinding) return settings;
+  return {
+    ...settings,
+    siteDefaults: hasDefault
+      ? settings.siteDefaults
+      : [
+          ...settings.siteDefaults,
+          { origin: binding.origin, connectionId, itemId: binding.itemId },
+        ],
+    bindings: hasBinding ? bindings : [...bindings, binding],
+  };
 }

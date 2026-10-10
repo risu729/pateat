@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import { parseLoginRecipe, type LoginRecipe } from "./login";
 import {
+  defaultLoginBinding,
   findLoginBinding,
   findLoginRecipe,
   loginRecipesForOrigin,
   resolveBindingFields,
+  saveLoginChoice,
   selectLoginRecipe,
   type LocalItemField,
 } from "./recipes";
@@ -234,5 +236,61 @@ describe("synced account bindings", () => {
     expect(v.is(localSettingsSchema, { ...settings, bindings: [binding(), binding()] })).toBe(
       false,
     );
+  });
+});
+
+describe("automatic account choice", () => {
+  const account = {
+    provider: "bitwarden",
+    userId: binding().userId,
+    itemId: binding().itemId,
+    itemName: "Example Bank",
+  };
+
+  it("binds built-in slot names to the item's built-in fields only", () => {
+    expect(
+      defaultLoginBinding(
+        { ...recipe("bank-signin", "/login"), slots: ["username", "password", "totp"] },
+        account,
+      ),
+    ).toEqual({
+      recipeId: "bank-signin",
+      origin,
+      ...account,
+      slots: [
+        { slot: "username", field: "username" },
+        { slot: "password", field: "password" },
+        { slot: "totp", field: "totp" },
+      ],
+    });
+    expect(
+      defaultLoginBinding(
+        { ...recipe("bank-signin", "/login"), slots: ["username", "branch"] },
+        account,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("saves the choice and binding once and never replaces existing ones", () => {
+    const settings = createDefaultSettings({ connections: [] });
+    const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
+    const saved = saveLoginChoice(settings, chosen, "live");
+    expect(saved.siteDefaults).toEqual([{ origin, connectionId: "live", itemId: account.itemId }]);
+    expect(saved.bindings).toEqual([chosen]);
+    expect(v.is(localSettingsSchema, saved)).toBe(true);
+    expect(saveLoginChoice(saved, chosen, "live")).toBe(saved);
+
+    const other = { ...chosen, itemId: "00000000-0000-4000-8000-000000000003" };
+    const kept = saveLoginChoice(saved, other, "live");
+    expect(kept.siteDefaults).toEqual(saved.siteDefaults);
+    expect(kept.bindings).toEqual([chosen, other]);
+
+    const manual = {
+      ...chosen,
+      slots: [{ slot: "username", field: { custom: "Login ID" } }, chosen.slots[1]!],
+    };
+    expect(saveLoginChoice({ ...saved, bindings: [manual] }, chosen, "live").bindings).toEqual([
+      manual,
+    ]);
   });
 });
