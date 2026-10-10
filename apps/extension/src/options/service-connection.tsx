@@ -18,7 +18,7 @@ function errorMessage(error: ServiceErrorCode): string {
     case "storage-corrupt":
       return "Pateat cannot read its saved service connection. Forget it here, then revoke the old device on the service's management page if it was paired.";
     case "site-access-needed":
-      return "Chrome is not letting Pateat reach this service. Pair again and allow site access when Chrome asks, or allow it in the extension's site access settings.";
+      return "Chrome is not letting Pateat reach this service. Allow site access when Chrome asks, or in the extension's site access settings.";
     case "unreachable":
       return "The service could not be reached. Pateat keeps trying while this page is open.";
     case "rate-limited":
@@ -28,7 +28,7 @@ function errorMessage(error: ServiceErrorCode): string {
     case "code-mismatch":
       return "The approval page has a different code. Retype the code shown here on that page. If it says another account approved this request, cancel and pair again.";
     case "pairing-expired":
-      return "Pairing expired before this device received its credential. Start again. If you had approved it, remove the unused device on the service's management page.";
+      return "Pairing expired before this device received its credential. Start again. If you had approved it, check the service's management page for an unused device.";
     case "wrong-state":
       return "The connection changed elsewhere. This page now shows its current state.";
     case "invalid-request":
@@ -50,6 +50,7 @@ export function ServiceConnection({
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
   const [corrupt, setCorrupt] = useState(false);
+  const [siteAccessNeeded, setSiteAccessNeeded] = useState(false);
   const mounted = useRef(true);
   const checking = useRef(false);
   // Acquire synchronously: React state alone cannot stop a double click.
@@ -57,7 +58,9 @@ export function ServiceConnection({
 
   function receive(response: ServiceResponse, success?: string) {
     if (!mounted.current) return;
-    setCorrupt(!response.ok && response.error === "storage-corrupt");
+    if (response.ok) setCorrupt(false);
+    else if (response.error === "storage-corrupt") setCorrupt(true);
+    setSiteAccessNeeded(!response.ok && response.error === "site-access-needed");
     if (response.ok) {
       setState(response.state);
       if (success !== undefined) setMessage(success);
@@ -243,6 +246,21 @@ export function ServiceConnection({
             >
               Open approval page
             </Button>
+            {siteAccessNeeded && (
+              <Button
+                id="sync-service-access"
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void act(async () => {
+                    // Requested before any other await so Chrome still sees the click.
+                    if (await client.requestSiteAccess(state.origin)) receive(await client.check());
+                  })
+                }
+              >
+                Allow site access
+              </Button>
+            )}
             <Button
               id="sync-service-cancel"
               type="button"

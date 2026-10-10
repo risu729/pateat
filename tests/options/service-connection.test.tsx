@@ -76,8 +76,25 @@ test("does not start pairing when site access is declined", async () => {
   await render(<ServiceConnection client={client} pollMs={60_000} />);
   await page.getByLabelText("Service address", { exact: true }).fill(ORIGIN);
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
-  await expect.element(page.getByText(/allow site access when Chrome asks/)).toBeVisible();
+  await expect.element(page.getByText(/site access when Chrome asks/)).toBeVisible();
   expect(client.start).not.toHaveBeenCalled();
+});
+
+test("asks for site access again without abandoning a pairing", async () => {
+  const client = mockClient(pairing);
+  let granted = false;
+  client.check.mockImplementation(async () =>
+    granted ? ok(connected) : { ok: false, error: "site-access-needed", state: pairing },
+  );
+  client.requestSiteAccess.mockImplementation(async () => {
+    granted = true;
+    return true;
+  });
+  await render(<ServiceConnection client={client} pollMs={50} />);
+  await page.getByRole("button", { name: "Allow site access", exact: true }).click();
+  expect(client.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
+  expect(client.cancel).not.toHaveBeenCalled();
+  await expect.element(page.getByText(/is paired with/)).toBeVisible();
 });
 
 test("forgets an unreadable saved connection", async () => {

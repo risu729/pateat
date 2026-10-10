@@ -69,6 +69,8 @@ export function createServiceRuntime(options: {
   let nextRedeemAt = 0;
   // An issued credential whose write failed; the service has already spent the verifier.
   let unsaved: ServiceRecord | undefined;
+  // A held-back check repeats the last redemption failure instead of hiding it.
+  let lastFailure: ServiceErrorCode | undefined;
 
   async function load(): Promise<ServiceRecord | undefined> {
     let stored: unknown;
@@ -153,9 +155,17 @@ export function createServiceRuntime(options: {
     if (!parsed.success) return fail("invalid-request", null);
     const request = parsed.output;
     if (request.type === "service.forget") {
-      unsaved = undefined;
-      await clear();
-      return ok(undefined);
+      // Only an unreadable record is forgotten; a readable one may hold a live credential.
+      if (!unsaved) {
+        try {
+          await load();
+        } catch (error) {
+          if (!(error instanceof StorageCorrupt)) throw error;
+          await clear();
+          return ok(undefined);
+        }
+      }
+      return fail("wrong-state", (await current()).record);
     }
     const { record, expired } = await current();
 
@@ -165,6 +175,7 @@ export function createServiceRuntime(options: {
       case "service.pair.start": {
         if (record?.kind === "connected") return fail("wrong-state", record);
         if (!(await hasSiteAccess(request.origin))) return fail("site-access-needed", record);
+        lastFailure = undefined;
         // Starting again replaces an unfinished pairing and its verifier.
         const pairing: ServiceRecord = {
           version: 1,
@@ -179,15 +190,23 @@ export function createServiceRuntime(options: {
       }
       case "service.pair.check": {
         if (expired) return fail("pairing-expired", undefined);
+        // Already paired, for example by an earlier check or a retried credential write.
+        if (record?.kind === "connected") return ok(record);
         if (record?.kind !== "pairing") return fail("wrong-state", record);
         if (!(await hasSiteAccess(record.origin))) return fail("site-access-needed", record);
-        if (now() < nextRedeemAt) return ok(record);
+        if (now() < nextRedeemAt) return lastFailure ? fail(lastFailure, record) : ok(record);
         const result = await transport.redeem(record.origin, record.verifier);
         nextRedeemAt =
           now() +
           (result.kind === "failed" && result.error === "rate-limited"
             ? RATE_LIMIT_BACKOFF_MS
             : MIN_REDEEM_INTERVAL_MS);
+        lastFailure =
+          result.kind === "code-mismatch"
+            ? "code-mismatch"
+            : result.kind === "failed"
+              ? result.error
+              : undefined;
         if (result.kind === "pending") return ok(record);
         if (result.kind === "code-mismatch") return fail("code-mismatch", record);
         if (result.kind === "failed") return fail(result.error, record);

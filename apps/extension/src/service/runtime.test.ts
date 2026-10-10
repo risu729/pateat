@@ -207,7 +207,8 @@ describe("pairing", () => {
     transport.redeem.mockResolvedValueOnce({ kind: "failed", error: "rate-limited" });
     expect(await runtime.handle(check)).toMatchObject({ ok: false, error: "rate-limited" });
     time += RATE_LIMIT_BACKOFF_MS - 1;
-    await runtime.handle(check);
+    // A held-back check keeps reporting the rate limit rather than looking pending.
+    expect(await runtime.handle(check)).toMatchObject({ ok: false, error: "rate-limited" });
     expect(transport.redeem).toHaveBeenCalledTimes(2);
     time += 1;
     await runtime.handle(check);
@@ -315,7 +316,7 @@ describe("pairing", () => {
     await vi.waitFor(() => expect(transport.redeem).toHaveBeenCalledTimes(1));
     release();
     expect(await first).toMatchObject({ ok: true, state: { kind: "connected" } });
-    expect(await second).toMatchObject({ ok: false, error: "wrong-state" });
+    expect(await second).toMatchObject({ ok: true, state: { kind: "connected" } });
     expect(transport.redeem).toHaveBeenCalledTimes(1);
   });
 });
@@ -387,6 +388,24 @@ describe("storage failures", () => {
     });
     expect(storage.value()).toBeUndefined();
     expect(transport.revoke).not.toHaveBeenCalled();
+  });
+
+  it("never forgets a readable connection", async () => {
+    const connected = {
+      version: 1,
+      kind: "connected",
+      origin: ORIGIN,
+      label: "Work laptop",
+      deviceId: ISSUED.deviceId,
+      credential: CREDENTIAL,
+    };
+    const { storage, runtime } = setup({ storage: memoryStorage(connected) });
+    expect(await runtime.handle({ version: 1, type: "service.forget" })).toMatchObject({
+      ok: false,
+      error: "wrong-state",
+      state: { kind: "connected" },
+    });
+    expect(storage.value()).toEqual(connected);
   });
 
   it("reports unreadable and unwritable storage", async () => {
