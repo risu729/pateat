@@ -12,7 +12,9 @@ const classOf = (character: string): ValueShape["classes"][number] => {
 };
 
 // WHATWG "valid email address" and "valid floating-point number" productions, so the
-// local check agrees with what the browser would accept in that input type.
+// local check agrees with what the browser would accept in that input type. Browsers
+// also trim email whitespace and accept IDN domains; those values fail here, which
+// stops the fill rather than risking a wrong one.
 const validEmail =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 const validNumber = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;

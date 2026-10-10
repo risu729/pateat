@@ -460,13 +460,13 @@ No provider or model is selected and no paid inference has run. Remaining M4 AI 
 
 - Provider adapters after owner selection, real benchmark runs and their report.
 - The service route, monthly spend stop and the
-  [request log](adr/0011-inference-request-log.md).
+  [request log](adr/0012-inference-request-log.md).
 - The extension observation extractor with privacy fixtures. Expect Japanese pages to
   put labels in adjacent table cells, use image buttons labeled only by `alt`, and
   offer software keyboards.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
-- A real-page corpus per ADR 0011, then moving the observation contract to
+- A real-page corpus per ADR 0012, then moving the observation contract to
   `packages/contracts` when the service shares it.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each

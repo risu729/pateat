@@ -47,7 +47,7 @@ extension as well. AI receives only sanitized observations and semantic slots,
 never account bindings or vault values. [ADR 0010](0010-inference-field-hints.md)
 amends this: slots may carry allowed field names and the coarse shape of visible
 identifier values, never the values themselves.
-[ADR 0011](0011-inference-request-log.md) adds a server-side log of sent requests.
+[ADR 0012](0012-inference-request-log.md) adds a server-side log of sent requests.
 
 Keep service identity verification behind an adapter so later deployments can
 replace Access with OIDC or passkey-based service authentication. Access is not

@@ -51,8 +51,9 @@ export const observedCandidateSchema = v.strictObject({
   group: v.optional(identifier),
   // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
   // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
-  // values such as 524288) and omits both when minlength exceeds maxlength, so one odd
-  // attribute never rejects the whole observation. `pattern` is deliberately absent:
+  // values such as 524288), omits both when minlength exceeds maxlength, and omits
+  // lengths on number inputs, where browsers ignore them, so one odd attribute never
+  // rejects the whole observation. Constraints appear only on fill roles. `pattern` is deliberately absent:
   // evaluating a page-supplied expression locally could hang the caller.
   maxLength: v.optional(textLength),
   minLength: v.optional(textLength),
@@ -94,6 +95,19 @@ export const loginObservationSchema = v.pipe(
           minLength === undefined || maxLength === undefined || minLength <= maxLength,
       ),
     "minLength exceeds maxLength",
+  ),
+  v.check(
+    (observation) =>
+      observation.candidates.every(
+        ({ role, maxLength, minLength }) =>
+          (maxLength === undefined && minLength === undefined) ||
+          (role !== "number" && (fillRoles as readonly string[]).includes(role)),
+      ) &&
+      observation.candidates.every(
+        ({ role, inputMode }) =>
+          inputMode === undefined || (fillRoles as readonly string[]).includes(role),
+      ),
+    "Input constraints apply only to fill roles; lengths not to number inputs",
   ),
 );
 

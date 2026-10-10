@@ -70,7 +70,7 @@ describe("recipe generation role", () => {
     ]);
   });
 
-  it("sends only the bounded observation, slot meanings and instructions", async () => {
+  it("sends only the bounded observation, slots and instructions", async () => {
     const { model, generate } = generatorReturning(plan([["email", "email"]]));
     await generate(request);
     const call = model.doGenerateCalls[0]!;

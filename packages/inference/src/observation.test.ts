@@ -110,5 +110,10 @@ describe("observation contract", () => {
     expect(withConstraints({ maxLength: 1.5 })).toBe(false);
     expect(withConstraints({ inputMode: "kana" })).toBe(false);
     expect(withConstraints({ pattern: "[0-9]{3}" })).toBe(false);
+    // Browsers ignore lengths on number inputs, and non-fill elements take no input.
+    expect(withConstraints({ role: "number", maxLength: 3 })).toBe(false);
+    expect(withConstraints({ role: "number", inputMode: "numeric" })).toBe(true);
+    expect(withConstraints({ role: "button", maxLength: 3 })).toBe(false);
+    expect(withConstraints({ role: "link", inputMode: "text" })).toBe(false);
   });
 });

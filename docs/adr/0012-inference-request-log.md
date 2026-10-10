@@ -1,4 +1,4 @@
-# ADR 0011: Inference request log and evaluation data
+# ADR 0012: Inference request log and evaluation data
 
 Status: accepted by the owner on 2026-10-10; not implemented. The retention default is
 chosen with the service route.
@@ -19,8 +19,11 @@ response, for later evaluation and prompt improvement:
 
 - Stored: role, provider and model ID, the instructions, the sanitized observation and
   slots exactly as sent (including [ADR 0010](0010-inference-field-hints.md) hints),
-  the structured output or failure code, local outcome, usage and timestamp. Vault
-  values are never in a request, so they are never logged.
+  the structured output or failure code, the local outcome code, usage and timestamp.
+  Vault values are never in a request, so they are never logged. A local check result
+  is logged only as its outcome code (`value-mismatch` or the post-fill stop), never
+  with the slot or the reason, because "password too long for `maxLength: 4`" would
+  disclose a secret's length.
 - Stored in the user's service data with a retention period and a delete-all action.
   The log is private settings-class data, not diagnostics; outcome codes and service
   diagnostics stay value- and page-text-free as before.
@@ -30,7 +33,9 @@ Evaluation data:
 - The synthetic corpus stays as unit-test fixtures for traps (label injection,
   decoy forms, abstention cases).
 - A real-page corpus is public by default. Before publishing, review each page for
-  personal data and hold back anything that looks private. Japanese pages, including
+  personal data and hold back anything that looks private. A corpus entry keeps only the
+  derived observation and its labeled mapping; logged field names and value shapes come
+  from the user's vault and are replaced with synthetic ones. Japanese pages, including
   banks and securities, are captured from the request log and from the owner's Chrome.
 - Third-party data enters the repository only as derived observations with labels and
   attribution, never as raw HTML or screenshots. Research-only datasets are used for

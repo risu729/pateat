@@ -66,6 +66,8 @@ function withValueCheck(
   outcome: InferenceOutcome<ValidatedPagePlan>,
   enabled: boolean | undefined,
 ): InferenceOutcome<ValidatedPagePlan> {
+  // A mismatch on an expected-abstain case would score as a correct abstention; such
+  // cases should not carry values unless that is the point of the case.
   if (!enabled || outcome.status !== "ok" || testCase.values === undefined) return outcome;
   const values = new Map(Object.entries(testCase.values));
   if (checkPlanValues(testCase.observation, outcome.value, values).ok) return outcome;
