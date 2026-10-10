@@ -257,7 +257,10 @@ official-Bitwarden interception require separate compatibility tests.
 Use one optional Cloudflare Worker and D1 for private settings/recipe revisions
 and inference. Do not add queues, Durable Objects, browser rendering,
 vector search, or an agent framework without a demonstrated need. Use bound SQL
-parameters; no ORM is required initially.
+parameters through the approved Drizzle integration, with Hono for API routing
+and middleware. Owner scope, conditional revision writes and D1 batch behavior
+remain explicit application responsibilities. These integrations are planned,
+not implemented by the current health-only Worker.
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free

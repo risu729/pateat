@@ -87,6 +87,54 @@ provision resources. M2 starts with a dummy adapter so login correctness does no
 depend on account secrets. Bring the WebAuthn document-start probe forward into
 M1; defer full signing to M5. Each milestone can be several focused PRs.
 
+### Library decisions before implementation
+
+[ADR 0004](adr/0004-library-composition.md) and the
+[candidate comparison](development.md#dependency-policy) distinguish approved
+choices from pending recommendations. Ask the owner to decide each major addition
+or replacement after presenting its purpose, alternatives and tradeoffs. Do not
+infer adoption approval from a research or plan-update request.
+
+Approved M2 slice: migrate the settings page to React, Tailwind + Base UI with
+selected shadcn/ui components, and TanStack Form + Valibot. Pin compatible versions
+with WXT/Vite, verify MV3 CSP and emitted bundles, and retain draft preservation,
+revision conflicts, validation and keyboard/focus behavior. Keep UI dependencies
+out of the background worker and content scripts. Add the approved Vitest Browser
+Mode with `vitest-browser-react`, `@axe-core/playwright` and Knip to the existing
+test stack. Keep real-extension Playwright tests and manual keyboard/focus checks;
+configure WXT entrypoints before acting on Knip findings. Use the approved fast-check
+for policy invariants, state transitions and controlled async-ordering tests.
+
+Also approved for M2: TanStack Query for metadata loading/mutations and
+`@webext-core/messaging` for extension communication. Keep dirty form drafts
+separate from refreshed data, configure retry/refetch behavior explicitly and
+retain runtime payload/sender authorization. Use the approved XState for the M2
+executor; verify navigation cancellation, timeout handling and interrupted-submit
+reconciliation before expanding execution. Persist allowlisted resumable metadata
+only; restoring state must not blindly replay submission. Integrate approved WXT
+storage helpers with trusted-access initialization before migrations, existing
+single-writer revision checks and fail-closed handling of corrupt settings.
+
+Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
+Valibot boundary validation, verify generated SQL and migrations, and test owner
+isolation, conditional revision writes and D1 batch behavior. Neither dependency
+automatically supplies those application guarantees.
+
+Selected for M3/M5 under delegated maintenance review: OTPAuth for standard TOTP
+and URI handling, and tldts for public/private suffix information after WHATWG URL
+normalization. Verify Bitwarden parameters/Steam format and destination/RP policy
+separately; neither library approval expands the supported protocol scope.
+Approved for M4: AI SDK with Valibot for supported generation APIs. Preserve
+role-specific decision adapters, explicit retry/timeout limits, redacted diagnostics
+and usage accounting. This selects transport tooling, not an inference provider.
+
+Potential integration points, subject to those decisions, are M2 settings UI,
+forms, async state, attempt lifecycle and verification; M3/M5 protocol libraries;
+and M4 service/database and inference transport. Once a choice is approved, record
+it and add the concrete integration slice with compatibility and regression gates.
+Until then, continue independent work without installing the candidate or making
+the current plan depend on it.
+
 M3 initially targets Bitwarden Cloud US/EU and official self-hosted servers at
 ordinary HTTPS URLs. Use email/master-password authentication, with human-entered
 two-step/new-device verification in settings. Probe individual MFA methods before

@@ -89,30 +89,107 @@ hk imports and Wrangler TOML/JSON dates, not these forms. Do not claim automatic
 updates for them. Regenerate and commit the mise lockfiles whenever tool pins
 change.
 
-| Area                 | Choice                                                                              |
-| -------------------- | ----------------------------------------------------------------------------------- |
-| Extension            | WXT + TypeScript; no replacement framework                                          |
-| Runtime contracts    | Valibot; official JSON Schema converter only where a provider requires it           |
-| Transport/storage    | Native Chrome APIs with validated messages; WXT settings/cache helpers where useful |
-| Worker               | Native Workers APIs; Hono only if route complexity makes it worthwhile              |
-| Cryptography         | WebCrypto first; separately evaluated established Argon2 implementation             |
-| Unit/runtime tests   | Vitest, WXT test integration, current Cloudflare Vitest plugin                      |
-| Browser tests        | Playwright with isolated extension-capable Chromium                                 |
-| Server configuration | cf with cloudflare.config.ts; Vite build path, no production Wrangler TOML/JSON     |
+Optimize for reliable behavior and maintainability, not a low dependency count.
+An early implementation is not a reason to rebuild established infrastructure.
+Check maintenance, security response, license, compatibility, bundle/runtime cost
+and the maintenance work displaced. Popularity is supporting evidence, not a
+quality guarantee. Prereleases are allowed when their required APIs and upgrade
+costs are understood and the compatibility checks pass.
 
-Prefer established maintained libraries over similar low-star feature projects.
-Stars alone do not establish quality: check release history, maintenance,
-security response, dependency footprint, license and browser compatibility.
-Implement the login state machine, form semantics, vault adapter and WebAuthn
-policy ourselves using standards and interoperability tests. Do not copy code
-from Fenko, auto-filler, Superfill, Boltwarden, or bronzewarden.
+The owner approved React, Tailwind + Base UI + selected shadcn/ui components, TanStack
+Form + Valibot, TanStack Query, XState, `@webext-core/messaging`, WXT storage,
+Hono, Drizzle, AI SDK with Valibot, Vitest Browser Mode with `vitest-browser-react`,
+`@axe-core/playwright`, Knip and fast-check on 2026-10-10. The owner delegated OTP/PSL
+selection by maintenance and freshness; that review selected OTPAuth and tldts. These
+are planned integrations, not installed packages. Other new recommendations below remain
+pending; obtain the owner's decision before adopting each major addition/replacement.
+The current manifests and lockfile describe what is installed. WXT + TypeScript +
+Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
+use.
 
-Do not add a state-machine framework, ORM, RPC system, broad AI SDK, UI framework,
-CBOR package, or additional crypto suite before a concrete need. A small typed
-HTTP adapter can suffice for inference. Valibot applies to our direct schemas;
-tooling can have unavoidable transitive Zod dependencies without changing that
-choice. cf is currently beta; pin it and test updates instead of pretending every
-part of the selected stack is stable.
+| Area | Choice or candidate (new choices pending unless marked approved) | Owning slice |
+| --- | --- | --- |
+| Extension UI | **Approved:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with selected shadcn/ui components | M2 settings UI migration |
+| Form state | **Approved:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
+| Async UI state | **Approved:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
+| Attempt lifecycle | **Approved:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
+| Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
+| Storage | **Approved:** WXT storage helpers | M2 persistence integration |
+| Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
+| Crypto and OTP | WebCrypto; **selected under delegated authority:** OTPAuth. Argon2 implementation still requires evaluation | M3 Bitwarden adapter |
+| Service and database | **Approved:** Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
+| Inference transport | **Approved:** AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
+| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
+| Component tests | **Approved:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
+| Integration/accessibility | Existing Playwright; **approved:** `@axe-core/playwright` | M2 settings and executor fixtures |
+| Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
+| Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
+
+### Integration conditions (pending candidates remain conditional)
+
+React belongs in manually opened extension pages. Keep content scripts and the
+MV3 worker independent of UI rendering, and do not introduce automatic page UI.
+Base UI provides accessible primitives; shadcn/ui source becomes code we own and
+must review for updates. Compile Tailwind locally. Keyboard/focus tests remain
+necessary. The owner selected TanStack Form for typed composition and native
+Standard Schema support after considering React Hook Form with its Valibot resolver.
+Do not install a second form-state layer alongside it.
+
+Form drafts, Query caches and authoritative settings have different lifetimes.
+Keep dirty drafts separate from query refreshes, preserve revision conflicts,
+and invalidate metadata after successful writes. Query caches must not contain
+vault values, unlock material or provider secrets. Explicitly configure retry,
+staleness and refetch behavior; a focus/reconnect event must never replay login
+or silently discard an edit. The extension worker remains the settings authority.
+
+Use XState for lifecycle machinery, but own the login semantics, permission
+guards, attempt limits and reconciliation. Persist only allowlisted resumable
+metadata. Restoring an invoked actor can restart its work: never restore directly
+into a submit invocation. Resume through observation and outcome reconciliation.
+Do not put secrets in machine context, events, snapshots, inspectors or logs.
+
+WXT helpers and typed messaging do not replace Valibot validation, browser-sender
+authorization or tab/frame/document checks. Initialize trusted-only storage access
+before item definitions/migrations can access sensitive settings. Preserve
+single-writer revision checks, corruption handling and fail-closed policy;
+storage helpers do not provide compare-and-swap by themselves.
+
+Parse destinations with `new URL()` and pass the normalized hostname to tldts;
+explicitly include private suffix rules where appropriate. PSL information is
+not permission to fill or sign, and does not replace HTTPS, origin, ancestor or
+Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
+Steam compatibility separately and do not advertise HOTP merely because parsing
+supports it. Evaluate `@scure/base`, `@noble/hashes` and `cbor-x` for actual protocol
+gaps. Do not write crypto/CBOR primitives ourselves, assume all primitives in a
+package are audited, or substitute a different KDF for Bitwarden Argon2id.
+
+Use the approved Hono and Drizzle for the first substantive service routes and
+schema. Verify generated SQL/migrations, explicit owner predicates, conditional
+revision writes and D1 batch behavior; an ORM does not supply authorization or
+cross-request atomicity. Use Valibot at application boundaries, including the
+chosen Hono/Drizzle integrations; transitive Zod does not change that decision.
+
+AI SDK is transport/structured-output infrastructure, not an autonomous agent
+loop. Keep generation and finite-choice contracts distinct; use a direct typed
+provider adapter when that API is not represented faithfully by the SDK. Set
+retry/timeout limits explicitly and account for every attempt. Disable raw
+input/output/header telemetry and sanitize errors. No automatic model/provider
+fallback is introduced by a library.
+
+Use the approved fast-check for invariants such as stronger exclusions never expanding
+eligibility and stale events never authorizing a new document. Component tests
+cover drafts, conflicts, validation and keyboard behavior; Playwright covers real
+extension boundaries and lifecycle. Automated accessibility checks supplement
+manual keyboard/focus inspection. Browser component tests do not establish
+extension API or MV3 lifecycle behavior. Knip must understand WXT-generated entrypoints
+before treating reported unused files as removable.
+
+We continue to implement domain behavior independently, without copying feature
+code from Fenko, auto-filler, Superfill, Boltwarden or bronzewarden. Extra global
+state stores, routing systems or agent frameworks need a distinct responsibility
+instead of duplicating tools the owner selects. Exact pins are established in each
+implementation PR, with peer, MV3 CSP and bundled-output checks. See
+[ADR 0004](adr/0004-library-composition.md) for the proposal and its sources.
 
 The Worker uses the pinned beta Cloudflare Vite plugin required by cf's typed
 configuration and Build Output workflow. Its manifest declares that plugin
