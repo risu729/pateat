@@ -3,9 +3,11 @@
 Status: accepted in PR #1; implementation follows the milestone plan.
 Date: 2026-10-10
 
-Amendment proposed: [ADR 0004](0004-library-composition.md) evaluates maintained
-libraries without treating dependency count as a goal. Specific library choices
-await the owner; the proposal does not supersede this accepted ADR yet.
+Approved amendment: [ADR 0004](0004-library-composition.md) supersedes the original
+preference for native infrastructure and deferring libraries until more complexity
+appears. Its application and verification library composition is owner-approved;
+protocol-specific crypto and encoding choices still require separate evidence and
+owner decisions when needed.
 Independent domain behavior, WXT, TypeScript, Valibot and the shared tool workflow
 remain applicable.
 

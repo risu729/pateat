@@ -1,22 +1,26 @@
 # ADR 0004: Compose maintained libraries around explicit domain boundaries
 
 Status: application and verification libraries approved;
-protocol-specific crypto choices pending. PR unmerged.
+protocol-specific crypto choices pending. Implementation follows the milestone plan.
 
 Date: 2026-10-10
 
 ## Context
 
-The foundation uses plain TypeScript UI, native messages/storage and a health-only
-Worker. The original dependency policy discouraged UI, state-machine, ORM and AI
+At the time of this decision, the foundation uses plain TypeScript UI, native
+messages/storage and a health-only Worker. The original dependency policy
+discouraged UI, state-machine, ORM and AI
 libraries until additional complexity appeared. The owner clarified that initial
 delivery is not a reason to minimize dependencies. Settings forms, asynchronous
 state, cancellable login attempts and private revisioned sync already have
 concrete needs for established infrastructure.
 
-## Proposal and decision gate
+## Decision and implementation gates
 
 The owner rejected minimizing dependencies merely because development is early.
+This approved composition supersedes [ADR 0002](0002-toolchain.md)'s original
+preference for native infrastructure and deferring libraries until more complexity
+appears. Its independent domain behavior and shared tool workflow remain applicable.
 Evaluate candidates by maintainability and the complexity they handle. The
 recommendations and integration conditions in [development](../development.md)
 distinguish approved choices from pending candidates. Research or a request to
@@ -93,8 +97,9 @@ controls instrumented test operations; it does not simulate the browser lifecycl
 Newness alone does not establish superiority. Effect Arbitrary deserves evaluation
 if Effect becomes an independently justified dependency; this comparison does not
 approve adding Effect or replacing Valibot. Only fast-check is approved for a future
-property-testing integration; this PR installs no packages.
-No candidate has been benchmarked against this project by this documentation PR.
+property-testing integration. Selection is separate from installation and compatibility
+verification; implementation evidence belongs in the owning milestone.
+This decision records no project-specific benchmark of these candidates.
 
 ## Alternatives and consequences
 
@@ -106,13 +111,14 @@ fits Tailwind and accessible settings controls, but copied components require ou
 maintenance. Redux/Zustand or another overlapping form/query layer is not needed without
 a distinct state ownership problem.
 
-Adoption would add dependency upgrades and bundle costs. Review maintenance, licenses
+Adoption adds dependency upgrades and bundle costs. Review maintenance, licenses
 and runtime compatibility, pin the tested combination and let Renovate propose updates.
 Beta/RC versions are eligible, not mandatory. Library popularity or successful
 compilation does not establish security or extension compatibility. Existing revision,
 trusted-storage and draft-retention behavior must survive migration. Recovery tests must
-demonstrate that restored attempts observe before resubmitting. This documentation does
-not claim any new library is installed.
+demonstrate that restored attempts observe before resubmitting. This documentation
+records approved composition; manifests, lockfiles and milestone evidence describe
+the implemented integrations.
 
 ## Primary sources reviewed
 
