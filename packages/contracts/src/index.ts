@@ -2,6 +2,8 @@ import * as v from "valibot";
 
 export * from "./settings";
 export * from "./settings-store";
+export * from "./login";
+export * from "./login-attempt";
 
 // Only the implemented, read-only boundary is shared. Future adapters add
 // their own capabilities without granting them to existing connections.

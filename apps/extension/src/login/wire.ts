@@ -1,0 +1,80 @@
+import * as v from "valibot";
+import { loginOperationSchema, loginTargetSchema } from "@pateat/contracts";
+
+const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
+export const helloSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.ready"),
+  token: id,
+});
+export const reconnectSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.reconnect"),
+});
+export const authorizeSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.operation.authorize"),
+  token: id,
+  attemptId: id,
+  operationId: id,
+});
+export const commandSchema = v.variant("type", [
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.observe"),
+    token: id,
+    path: v.string(),
+    targets: v.pipe(v.array(loginTargetSchema), v.maxLength(24)),
+  }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.execute"),
+    token: id,
+    operation: loginOperationSchema,
+    values: v.pipe(
+      v.array(v.strictObject({ slot: id, value: v.pipe(v.string(), v.maxLength(4096)) })),
+      v.maxLength(20),
+    ),
+  }),
+  v.strictObject({ version: v.literal(1), type: v.literal("login.cancel"), token: id }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.status"),
+    token: id,
+    state: v.string(),
+    stepIndex: v.number(),
+    outcome: v.optional(v.string()),
+  }),
+]);
+export const executionResultSchema = v.strictObject({
+  ok: v.boolean(),
+  reason: v.optional(v.picklist(["structural-mismatch", "timeout", "cancelled"])),
+});
+export const observationSchema = v.strictObject({
+  path: v.string(),
+  targets: v.pipe(v.array(v.picklist(["missing", "unique", "ambiguous"])), v.maxLength(24)),
+});
+export const configureSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.probe.configure"),
+  origin: v.pipe(
+    v.string(),
+    v.check((origin) => {
+      try {
+        const url = new URL(origin);
+        return url.origin === origin && url.protocol === "http:" && url.hostname === "127.0.0.1";
+      } catch {
+        return false;
+      }
+    }),
+  ),
+});
+export const statusSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.probe.status"),
+});
+export const cancelSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.probe.cancel"),
+  tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
+});

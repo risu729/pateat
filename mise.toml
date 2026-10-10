@@ -79,6 +79,10 @@ run = "node node_modules/@playwright/test/cli.js install {% if usage.with_deps %
 depends = ["build:probe"]
 run = "node node_modules/@playwright/test/cli.js test --config tests/extension/playwright.config.ts"
 
+[tasks."probe:login"]
+description = "Serve synthetic login fixtures for installed Chrome acceptance."
+run = "node scripts/login-fixture.mjs"
+
 [tasks."test:options"]
 run = "node node_modules/vitest/vitest.mjs run --config tests/options/vitest.config.ts"
 

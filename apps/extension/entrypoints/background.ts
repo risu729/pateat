@@ -2,9 +2,13 @@ import { getFoundationStatus, isStatusRequest } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createLocalSettingsRuntime } from "../src/settings";
+import { createProbeCatalog } from "../src/login/dummy";
+import { createLoginRuntime } from "../src/login/runtime";
 
 export default defineBackground(() => {
-  const settings = createLocalSettingsRuntime();
+  const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
+  const settings = catalog ? createLocalSettingsRuntime({ catalog }) : createLocalSettingsRuntime();
+  const login = catalog ? createLoginRuntime(settings, catalog) : undefined;
   browser.action.onClicked.addListener(() => {
     void browser.runtime.openOptionsPage();
   });
@@ -17,7 +21,10 @@ export default defineBackground(() => {
       typeof message === "object" &&
       (message.type === "settings.get" || message.type === "settings.save")
     ) {
-      void settings.handle(message).then(sendResponse);
+      void settings.handle(message).then((response) => {
+        if (message.type === "settings.save" && response.ok) login?.settingsChanged();
+        return sendResponse(response);
+      });
       return true;
     }
     if (
@@ -26,6 +33,19 @@ export default defineBackground(() => {
       isStatusRequest(message)
     ) {
       sendResponse(getFoundationStatus());
+    }
+
+    if (
+      login &&
+      message !== null &&
+      typeof message === "object" &&
+      typeof message.type === "string" &&
+      message.type.startsWith("login.")
+    ) {
+      void login
+        .handle(message, sender)
+        .then(sendResponse, () => sendResponse({ ok: false, reason: "runtime-unavailable" }));
+      return true;
     }
 
     if (
