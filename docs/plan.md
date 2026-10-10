@@ -286,7 +286,16 @@ Chrome yet.
 - The URI matcher is not yet connected to live vault data and site execution.
   Prepared accounts do not yet retain domain or equivalent-domain context; do not
   derive `allowedOrigins` from URIs without it.
-- The live vault is not yet connected to the declarative executor.
+- The declarative executor reads account metadata from the live settings catalog on
+  every policy check and resolves each bound field through the connection runtime
+  immediately before a fill. Bindings are explicit slot-to-field references;
+  custom-field references are snapshot-scoped. A connection that is not ready or an item
+  awaiting field review is refused before an attempt starts. A denied, locked or failed
+  field read, or a replacement snapshot before delivery, blocks the attempt as
+  `policy-changed` without filling. Only the localhost probe admits documents, grants
+  its loopback origin to the configured probe item and supplies recipes and bindings.
+  Production document admission, local recipe and binding storage, and provider-derived
+  origins remain open.
 - Real Bitwarden connections, individual MFA methods and optional host-permission
   prompts in installed Chrome remain separate gates.
 

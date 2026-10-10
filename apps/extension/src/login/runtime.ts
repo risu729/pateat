@@ -10,13 +10,14 @@ import {
   transitionLoginAttempt,
   validateLoginOperation,
   type LoginAttemptEvent,
+  type LoginAccountBinding,
   type LoginAttemptMetadata,
   type LoginDocument,
   type LoginOperation,
   type LoginRecipe,
   type LoginTarget,
   type SettingsResponse,
-  type VaultCatalog,
+  type VaultConnectionMetadata,
 } from "@pateat/contracts";
 import { browser, type Browser } from "wxt/browser";
 import {
@@ -29,7 +30,15 @@ import {
   statusSchema,
   probeControlSchema,
 } from "./wire";
-import { DEFAULT_PROBE_ORIGIN, probeBinding, probeRecipe, resolveDummyField } from "./dummy";
+import {
+  DEFAULT_PROBE_ORIGIN,
+  DEMO_PROBE_ACCOUNT,
+  grantProbeOrigin,
+  probeBinding,
+  probeRecipe,
+  type ProbeAccount,
+} from "./dummy";
+import type { LoginFieldSource } from "./vault";
 
 const STORAGE_KEY = "pateat.login-attempts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
@@ -52,9 +61,13 @@ type Execution = {
 const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);
 
-/** Coordinator is reusable packaged code; only this adapter's entry points are probe gated. */
-export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCatalog) {
+/**
+ * Coordinator is reusable packaged code; only this adapter's entry points are probe gated.
+ * Account metadata comes from each live settings read; values come from `fields` per fill.
+ */
+export function createLoginRuntime(settings: SettingsRuntime, fields: LoginFieldSource) {
   let origin = DEFAULT_PROBE_ORIGIN;
+  let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<number, LiveDocument>();
   const attempts = new Map<number, Execution>();
   const persisted = new Map<number, LoginAttemptMetadata>();
@@ -87,15 +100,15 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
     try {
       await browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
       const storage = await browser.storage.local.get([STORAGE_KEY, CONFIG_KEY]);
-      const config = storage[CONFIG_KEY];
+      const config: unknown = storage[CONFIG_KEY];
       if (config !== undefined) {
         const parsed = v.parse(configureSchema, {
           version: 1,
           type: "login.probe.configure",
-          origin: config,
+          ...(typeof config === "string" ? { origin: config } : (config as object)),
         });
         origin = parsed.origin;
-        catalog.connections[0]!.items[0]!.allowedOrigins = ["https://bank.example", origin];
+        account = parsed.account ?? DEMO_PROBE_ACCOUNT;
       }
       const stored = storage[STORAGE_KEY];
       if (stored === undefined) return;
@@ -195,30 +208,50 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
       ...(metadata?.outcome || live.reason ? { outcome: metadata?.outcome ?? live.reason } : {}),
     }).catch(() => undefined);
   }
-  async function allowed(run: Execution): Promise<boolean> {
-    if (!current(run) || !storageHealthy) return false;
-    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
-    if (!current(run)) return false;
-    if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) {
-      await change(run, { type: "POLICY_CHANGED" });
-      return false;
-    }
+  /** One saved account must resolve, and its live connection must be ready and unquarantined. */
+  function planFor(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    url: string,
+    recipe: LoginRecipe,
+  ) {
+    const catalog = grantProbeOrigin(snapshot.catalog, origin, account);
     const plan = resolveLoginPlan(
       snapshot.snapshot,
       catalog,
-      `${run.live.document.origin}${run.live.path}`,
-      run.recipe,
-      probeBinding(run.recipe),
+      url,
+      recipe,
+      probeBinding(recipe, account),
     );
+    if (!plan.ok) return plan;
+    const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
+    if (
+      !connection ||
+      (connection.state !== undefined && connection.state !== "ready") ||
+      connection.quarantinedItemIds?.includes(plan.account.itemId)
+    )
+      return { ok: false as const, reason: "vault-unavailable" as const };
+    return { ...plan, connection };
+  }
+  type Authorized = { connection: VaultConnectionMetadata; binding: LoginAccountBinding };
+  /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
+  async function allowed(run: Execution): Promise<Authorized | undefined> {
+    if (!current(run) || !storageHealthy) return undefined;
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (!current(run)) return undefined;
+    if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) {
+      await change(run, { type: "POLICY_CHANGED" });
+      return undefined;
+    }
+    const plan = planFor(snapshot, `${run.live.document.origin}${run.live.path}`, run.recipe);
     if (
       !plan.ok ||
       plan.account.connectionId !== run.metadata.account.connectionId ||
       plan.account.itemId !== run.metadata.account.itemId
     ) {
       await change(run, { type: "POLICY_CHANGED" });
-      return false;
+      return undefined;
     }
-    return true;
+    return { connection: plan.connection, binding: plan.binding };
   }
   async function observe(run: Execution, targets: LoginTarget[]) {
     // Exclusion/default/policy checks precede even metadata observation.
@@ -322,7 +355,8 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
         else if (operation.step.kind === "fill")
           await change(run, { type: "MUTATION_INTENT", operationId: operation.operationId });
         run.operation = operation;
-        if (!(await allowed(run))) return;
+        const authorized = await allowed(run);
+        if (!authorized) return;
         if (
           !validateLoginOperation(
             operation,
@@ -335,23 +369,46 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
           return;
         }
         const values: { slot: string; value: string }[] = [];
-        if (operation.step.kind === "fill") {
-          const binding = probeBinding(run.recipe);
-          for (const field of operation.step.fields) {
-            const reference = binding.slots.find((entry) => entry.slot === field.slot);
-            const value = reference && resolveDummyField(reference.fieldId);
-            if (value === undefined) {
-              await change(run, { type: "FAILED", reason: "structural-mismatch" });
-              return;
-            }
-            values.push({ slot: field.slot, value });
-          }
-        }
         let response: unknown;
         try {
+          if (operation.step.kind === "fill") {
+            for (const field of operation.step.fields) {
+              const reference = authorized.binding.slots.find((entry) => entry.slot === field.slot);
+              if (!reference) {
+                await change(run, { type: "FAILED", reason: "structural-mismatch" });
+                return;
+              }
+              // Vault reads are serial so a denial stops before any later field is released.
+              let value: string | undefined;
+              try {
+                value = await fields({
+                  account: run.metadata.account,
+                  connection: authorized.connection,
+                  fieldId: reference.fieldId,
+                });
+              } catch {
+                // A failed read is not a page mutation; never reclassify it as uncertain.
+                value = undefined;
+              }
+              if (!current(run)) return;
+              // Locked, resynchronized or newly denied vault access withdraws this grant.
+              if (value === undefined) {
+                await change(run, { type: "POLICY_CHANGED" });
+                return;
+              }
+              values.push({ slot: field.slot, value });
+            }
+          }
           if (operation.step.kind === "fill" || operation.step.kind === "click")
             await pause("before-delivery");
-          if (!current(run) || !(await allowed(run))) return;
+          if (!current(run)) return;
+          const latest = await allowed(run);
+          if (!latest) return;
+          // Values belong to the snapshot that authorized them; a replacement withdraws them.
+          if (latest.connection.snapshotId !== authorized.connection.snapshotId) {
+            await change(run, { type: "POLICY_CHANGED" });
+            return;
+          }
           response = await send(run.live, { type: "login.execute", operation, values });
         } finally {
           for (const entry of values) entry.value = "";
@@ -445,13 +502,7 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
       ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
       : probeRecipe(origin, live.path);
     if (!recipe) return refuse("recipe-not-found");
-    const plan = resolveLoginPlan(
-      snapshot.snapshot,
-      catalog,
-      sender.url,
-      recipe,
-      probeBinding(recipe),
-    );
+    const plan = planFor(snapshot, sender.url, recipe);
     if (!plan.ok) return refuse(plan.reason);
     // Cookies can be shared across tabs. Preserve this conservative origin owner even at terminal state until tab closure.
     if (
@@ -509,9 +560,10 @@ export function createLoginRuntime(settings: SettingsRuntime, catalog: VaultCata
         await loaded;
         if (persisted.size) return { ok: false, reason: "attempts-exist" };
         origin = config.output.origin;
-        const item = catalog.connections[0]?.items[0];
-        if (item) item.allowedOrigins = ["https://bank.example", origin];
-        await browser.storage.local.set({ [CONFIG_KEY]: origin });
+        account = config.output.account ?? DEMO_PROBE_ACCOUNT;
+        await browser.storage.local.set({
+          [CONFIG_KEY]: { origin, ...(config.output.account ? { account } : {}) },
+        });
         return { ok: true };
       }
       if (v.safeParse(statusSchema, message).success) {
