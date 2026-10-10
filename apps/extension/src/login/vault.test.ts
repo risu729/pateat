@@ -5,6 +5,7 @@ import {
   createVaultFieldSource,
   createVaultUriMatcher,
   dummyFieldSource,
+  loginSecretKind,
 } from "./vault";
 
 vi.mock("wxt/browser", () => ({ browser: {} }));
@@ -167,5 +168,20 @@ describe("live vault URI matcher", () => {
     await expect(
       matcher().match("50000000-0000-4000-8000-000000000009", "https://login.example/"),
     ).resolves.toEqual({ ok: false, error: { code: "invalid-request" } });
+  });
+});
+
+describe("login secret kinds", () => {
+  it.each([
+    ["bitwarden", "login.password", "password"],
+    ["bitwarden", "login.totp-code", "otp"],
+    ["bitwarden", "login.username", undefined],
+    // Hidden and Linked custom fields stay unclassified for now.
+    ["bitwarden", "custom.60000000-0000-4000-8000-000000000001.0", undefined],
+    ["dummy", "password", "password"],
+    ["dummy", "username", undefined],
+    ["dummy", "login.password", undefined],
+  ] as const)("classifies %s %s as %s", (provider, fieldId, kind) => {
+    expect(loginSecretKind({ provider }, fieldId)).toBe(kind);
   });
 });

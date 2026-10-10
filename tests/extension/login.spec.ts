@@ -723,6 +723,58 @@ test("ambiguous fields stop without filling either candidate or submitting", asy
   }
 });
 
+test("a password fills only a password input and one step stays inside one form", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const text = await context.newPage();
+      await text.goto(`${fixture.origin}/single?password-input=text`);
+      await expect.poll(status).toContain("structural-mismatch");
+      await expect(text.locator("#password")).toHaveValue("");
+      expect(await clicks(text)).toBe(0);
+      await text.close();
+      await expect.poll(status).not.toContain("structural-mismatch");
+      const split = await context.newPage();
+      await split.goto(`${fixture.origin}/identity?split-forms`);
+      await expect.poll(status).toContain("structural-mismatch");
+      await expect(split.locator("#branch")).toHaveValue("");
+      await expect(split.locator("#account")).toHaveValue("");
+      expect(
+        await split.evaluate(() => Number(sessionStorage.getItem("identityClicks") || 0)),
+      ).toBe(0);
+      await split.close();
+      await expect.poll(status).not.toContain("structural-mismatch");
+      const mixed = await context.newPage();
+      await mixed.goto(`${fixture.origin}/identity?account-form`);
+      await expect.poll(status).toContain("structural-mismatch");
+      await expect(mixed.locator("#branch")).toHaveValue("");
+      await mixed.close();
+      await expect.poll(status).not.toContain("structural-mismatch");
+      // A page handler that moves the next input into another form stops the remaining writes.
+      const moved = await context.newPage();
+      await moved.goto(`${fixture.origin}/identity?move-on-fill`);
+      await expect.poll(status).toContain("cancelled");
+      await expect(moved.locator("#branch")).toHaveValue("007");
+      await expect(moved.locator("#account")).toHaveValue("");
+      expect(
+        await moved.evaluate(() => Number(sessionStorage.getItem("identityClicks") || 0)),
+      ).toBe(0);
+      await moved.close();
+      await expect.poll(status).not.toContain("cancelled");
+      const declared = await context.newPage();
+      await declared.goto(`${fixture.origin}/single?password-input=text-current-password`);
+      await expect(declared.locator("#authenticated")).toBeVisible();
+      expect(await clicks(declared)).toBe(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("credential rejection and unknown outcome each stop after one submission", async () => {
   const fixture = await startLoginFixture();
   try {

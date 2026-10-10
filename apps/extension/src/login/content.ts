@@ -30,6 +30,26 @@ function writable(element: Element | undefined): element is HTMLInputElement {
   );
 }
 
+function tokens(input: HTMLInputElement): string[] {
+  return input.autocomplete.toLowerCase().split(/\s+/u);
+}
+/**
+ * Secret values go only where a login form expects them, so a recipe cannot place a
+ * password in a search box or comment field. A TOTP code may also use a short numeric field.
+ */
+function accepts(input: HTMLInputElement, secret: "password" | "otp" | undefined): boolean {
+  if (secret === "password")
+    return input.type === "password" || tokens(input).includes("current-password");
+  if (secret === "otp")
+    return (
+      tokens(input).includes("one-time-code") ||
+      ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
+        input.maxLength >= 1 &&
+        input.maxLength <= 10)
+    );
+  return true;
+}
+
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -130,21 +150,37 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           )
         )
           return fail("structural-mismatch");
+        // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
+        const writableInputs = inputs as HTMLInputElement[];
+        const form = writableInputs[0]!.form;
+        if (
+          writableInputs.some((input) => input.form !== form) ||
+          step.fields.some(
+            (field, index) =>
+              !accepts(
+                writableInputs[index]!,
+                command.values.find((entry) => entry.slot === field.slot)!.secret,
+              ),
+          )
+        )
+          return fail("structural-mismatch");
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch");
         for (const [index, field] of step.fields.entries()) {
           const input = inputs[index] as HTMLInputElement;
           // Each mutation repeats scope/connected checks; events may synchronously change the page.
           const current = matches(field.target);
+          const value = command.values.find((entry) => entry.slot === field.slot)!;
           if (
             cancelled ||
             location.pathname !== step.path ||
             current.length !== 1 ||
             current[0] !== input ||
-            !writable(input)
+            !writable(input) ||
+            input.form !== form ||
+            !accepts(input, value.secret)
           )
             return fail("cancelled");
-          const value = command.values.find((entry) => entry.slot === field.slot)!;
           // Mark uncertainty before calling into DOM/page code, including a throwing setter.
           mutated = true;
           setter.call(input, value.value);
