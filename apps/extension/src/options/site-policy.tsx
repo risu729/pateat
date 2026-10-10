@@ -245,7 +245,9 @@ export function SitePolicy({
                 <span>
                   {selected.origin} →{" "}
                   {connection?.label ??
-                    ("connectionId" in selected ? selected.connectionId : selected.userId)}{" "}
+                    ("connectionId" in selected
+                      ? selected.connectionId
+                      : `account ${selected.userId} (not available here)`)}{" "}
                   / {item?.label ?? selected.itemId}
                   <small>
                     {resolved.ok
