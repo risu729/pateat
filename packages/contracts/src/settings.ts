@@ -56,6 +56,53 @@ const originSchema = v.pipe(
   }, "Use an exact HTTP(S) origin"),
 );
 
+/** Recipe IDs share the login identifier alphabet. */
+const recipeIdSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(120),
+  v.regex(/^[a-zA-Z0-9_.:-]+$/),
+);
+const vaultNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
+/**
+ * A vault field named the same way on every device (ADR 0013). Custom fields are named;
+ * when several share a name, `position` (1-based) and `count` pin one of them.
+ */
+export const vaultFieldReferenceSchema = v.union([
+  v.picklist(["username", "password", "totp"]),
+  v.pipe(
+    v.strictObject({
+      custom: vaultNameSchema,
+      position: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000))),
+      count: v.optional(v.pipe(v.number(), v.integer(), v.minValue(2), v.maxValue(1000))),
+    }),
+    v.check(
+      (ref) =>
+        (ref.position === undefined) === (ref.count === undefined) &&
+        (ref.position === undefined || ref.position <= ref.count!),
+      "A duplicate-name reference needs a position within its count",
+    ),
+  ),
+]);
+/** Which vault field fills each recipe slot for one item. References only, never values. */
+export const savedLoginBindingSchema = v.strictObject({
+  recipeId: recipeIdSchema,
+  origin: originSchema,
+  provider: identifier,
+  userId: identifier,
+  itemId: identifier,
+  itemName: vaultNameSchema,
+  slots: v.pipe(
+    v.array(v.strictObject({ slot: recipeIdSchema, field: vaultFieldReferenceSchema })),
+    v.minLength(1),
+    v.maxLength(20),
+    v.check(
+      (entries) => new Set(entries.map((entry) => entry.slot)).size === entries.length,
+      "Duplicate binding slots",
+    ),
+  ),
+});
+
 export const connectionSettingsSchema = v.strictObject({
   connectionId: identifier,
   enabled: v.boolean(),
@@ -103,6 +150,28 @@ export const localSettingsSchema = v.pipe(
       v.check(
         (sites) => new Set(sites.map((site) => site.origin)).size === sites.length,
         "Duplicate origins",
+      ),
+    ),
+    /** Synced account bindings (ADR 0013); absent in settings saved before they existed. */
+    bindings: v.optional(
+      v.pipe(
+        v.array(savedLoginBindingSchema),
+        v.maxLength(1000),
+        v.check(
+          (bindings) =>
+            new Set(
+              bindings.map((entry) =>
+                JSON.stringify([
+                  entry.recipeId,
+                  entry.origin,
+                  entry.provider,
+                  entry.userId,
+                  entry.itemId,
+                ]),
+              ),
+            ).size === bindings.length,
+          "Duplicate account bindings",
+        ),
       ),
     ),
   }),
@@ -195,6 +264,8 @@ export type SettingsRequest = v.InferOutput<typeof settingsRequestSchema>;
 export type SettingsResponse = v.InferOutput<typeof settingsResponseSchema>;
 export type SettingsError = v.InferOutput<typeof settingsErrorSchema>;
 export type VaultCatalog = v.InferOutput<typeof vaultCatalogSchema>;
+export type VaultFieldReference = v.InferOutput<typeof vaultFieldReferenceSchema>;
+export type SavedLoginBinding = v.InferOutput<typeof savedLoginBindingSchema>;
 export type VaultConnectionMetadata = VaultCatalog["connections"][number];
 export type VaultItemMetadata = VaultConnectionMetadata["items"][number];
 

@@ -175,7 +175,7 @@ export function createSettingsStore(
       );
       return pending;
     },
-    /** Trusted background-only mutation; the options save contract cannot change bindings. */
+    /** Trusted background-only mutation; the options save contract cannot change field policies. */
     update(
       expectedRevision: number | undefined,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,

@@ -5,6 +5,7 @@ export * from "./settings";
 export * from "./settings-store";
 export * from "./login";
 export * from "./login-attempt";
+export * from "./recipes";
 export * from "./service-connection";
 export * from "./sync";
 
