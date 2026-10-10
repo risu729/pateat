@@ -270,11 +270,17 @@ cannot clear unresolved exclusions or that binding history. Separate cache/setti
 stores detect mismatched state after interruption; they do not provide one atomic
 combined commit. Catalog bounds are validated before unlock-key export and cache commit.
 
-Source integration and local synthetic tests are implemented. Full native-browser
-acceptance is pending. The fixed browser probe substitutes provider responses and host
-permission decisions; it does not establish real optional-permission prompt behavior or
-real-account authentication. Production starts with an empty catalog until connections
-are configured. The demo catalog remains confined to the synthetic probe.
+[PR #20](https://github.com/risu729/pateat/pull/20) passed
+[full Linux CI](https://github.com/risu729/pateat/actions/runs/38047201686) with 72
+connection, 73 vault, 47 host, 21 options and 69 extension tests. The 11 added native
+setup cases cover restoration after a full browser close, manual MFA and new-device
+verification, two connections, preservation of the existing cache after rejected
+re-authentication or oversized metadata, and custom-field rebinding and review.
+Independent review approved the change. The fixed browser probe substitutes provider
+responses and host permission decisions; it does not establish real optional-permission
+prompt behavior or real-account authentication. Production starts with an empty catalog
+until connections are configured. The demo catalog remains confined to the synthetic
+probe.
 
 ## Initial delivery and later scope
 

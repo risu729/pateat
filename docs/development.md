@@ -2,8 +2,9 @@
 
 The foundation has a Bun workspace, pinned tools, local policy settings, shared
 contracts, and a health-only Worker. A separate localhost probe exercises the
-declarative login executor with synthetic values. Real vault access, production
-login activation, service authentication and inference remain unimplemented.
+declarative login executor with synthetic values. Manual Bitwarden setup and local
+vault caching are implemented; production login activation, service authentication
+and inference remain unimplemented.
 M1 is not complete until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
