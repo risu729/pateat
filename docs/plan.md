@@ -378,7 +378,9 @@ ceremony policy, for unattended and UV-required requests, keep the browser's rej
 for unknown allow-list credentials and a denied permissions policy, and cover abort and
 background timeout. The Bitwarden vault source, crypto-host signing, production
 entrypoints and real-site interoperability remain open; a navigation during signing
-relies on Chrome dropping the response to the replaced document.
+relies on Chrome dropping the response to the replaced document. Page script can
+detect the wrapper (an own `get` property with a different `length` and source text),
+which real-site testing must evaluate.
 
 ## Initial delivery and later scope
 

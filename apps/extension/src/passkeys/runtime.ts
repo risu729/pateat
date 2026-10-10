@@ -27,6 +27,8 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
 }
 
 const MAX_OPERATIONS = 32;
+/** One document cannot exhaust the shared operation budget. */
+const MAX_DOCUMENT_OPERATIONS = 4;
 
 function senderOrigin(sender: Sender, extensionId: string): string | undefined {
   if (
@@ -75,7 +77,14 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     origin: string,
     documentId: string,
   ): Promise<RuntimeResult> {
-    if (operations.has(message.operationId) || operations.size >= MAX_OPERATIONS)
+    const documentOperations = [...operations.values()].filter(
+      (operation) => operation.documentId === documentId,
+    ).length;
+    if (
+      operations.has(message.operationId) ||
+      operations.size >= MAX_OPERATIONS ||
+      documentOperations >= MAX_DOCUMENT_OPERATIONS
+    )
       return { kind: "delegate", reason: "busy" };
     const admission = admitGetRequest({
       origin,

@@ -1,5 +1,12 @@
+import * as v from "valibot";
 import { fromBase64Url } from "./encoding";
-import { PAGE_CHANNEL, PAGE_TIMEOUT_MS, type RuntimeResult } from "./wire";
+import {
+  PAGE_CHANNEL,
+  PAGE_TIMEOUT_MS,
+  RELAY_ACK_TIMEOUT_MS,
+  pageReplySchema,
+  type RuntimeResult,
+} from "./wire";
 import type { BridgedGetRequest } from "./request";
 import type { PasskeyAssertion } from "./assertion";
 
@@ -129,16 +136,19 @@ export function installPasskeyPage(scope: PageScope = window): void {
   const responsePrototype = responseClass.prototype;
   const origin = scope.location.origin;
   const post = (message: unknown) => scope.postMessage(message, origin);
-  const pending = new Map<string, (result: RuntimeResult | { kind: "aborted" }) => void>();
+  const AbortSignalClass = scope.AbortSignal;
+  const pending = new Map<
+    string,
+    { finish(result: RuntimeResult | { kind: "aborted" }): void; acknowledge(): void }
+  >();
 
   scope.addEventListener("message", (event: MessageEvent<unknown>) => {
     if (event.source !== scope || event.origin !== origin) return;
-    const data = event.data as Record<string, unknown> | null;
-    if (data?.["channel"] !== PAGE_CHANNEL || data["type"] !== "result") return;
-    const id = data["id"];
-    const result = data["result"] as RuntimeResult | undefined;
-    if (typeof id !== "string" || !result || typeof result !== "object") return;
-    pending.get(id)?.(result);
+    const reply = v.safeParse(pageReplySchema, event.data);
+    if (!reply.success) return;
+    const operation = pending.get(reply.output.id);
+    if (reply.output.type === "ack") operation?.acknowledge();
+    else operation?.finish(reply.output.result);
   });
 
   async function get(
@@ -155,12 +165,16 @@ export function installPasskeyPage(scope: PageScope = window): void {
       request = undefined;
     }
     const signal = options?.signal;
-    if (!request || signal?.aborted) return callNative();
+    // Anything but a genuine signal gets the browser's own handling, including its TypeError.
+    if (!request || (signal !== undefined && !(signal instanceof AbortSignalClass)))
+      return callNative();
+    if (signal?.aborted) return callNative();
     const id = crypto.randomUUID();
     const result = await new Promise<RuntimeResult | { kind: "aborted" }>((resolve) => {
       const finish = (outcome: RuntimeResult | { kind: "aborted" }) => {
         if (!pending.delete(id)) return;
         clearTimeout(timer);
+        clearTimeout(ackTimer);
         signal?.removeEventListener("abort", onAbort);
         if (outcome.kind !== "assertion" && outcome.kind !== "delegate")
           post({ channel: PAGE_CHANNEL, type: "cancel", id });
@@ -168,7 +182,9 @@ export function installPasskeyPage(scope: PageScope = window): void {
       };
       const onAbort = () => finish({ kind: "aborted" });
       const timer = setTimeout(() => finish({ kind: "cancelled" }), PAGE_TIMEOUT_MS);
-      pending.set(id, finish);
+      // A removed or invalidated relay never acknowledges; do not hold the caller for long.
+      const ackTimer = setTimeout(() => finish({ kind: "cancelled" }), RELAY_ACK_TIMEOUT_MS);
+      pending.set(id, { finish, acknowledge: () => clearTimeout(ackTimer) });
       signal?.addEventListener("abort", onAbort, { once: true });
       post({ channel: PAGE_CHANNEL, type: "get", id, request });
     });

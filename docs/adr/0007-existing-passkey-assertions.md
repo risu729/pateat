@@ -34,8 +34,11 @@ permissions policy before relaying, and reports whether the document has transie
 activation. The background derives origin, tab, frame and document from the
 browser-supplied sender, never from page data, and accepts only frame 0 of an `https:`
 origin or `http://localhost`. Each request has a short-lived operation ID bound to that
-document. Abort, timeout, navigation, policy change, lock and connection replacement
-cancel it; a late result is discarded.
+document, and one document may hold only a few at once. Abort, timeout, policy
+change, lock and connection replacement cancel it; a late result is discarded.
+Navigation does not cancel it: Chrome drops a response addressed to a replaced
+document. The wrapper delegates if the relay does not acknowledge a request
+promptly, so an invalidated extension does not hold callers.
 
 The background selects the credential and builds client data. Signing runs in the
 crypto host Worker that owns the decrypted vault session, so the private key is
@@ -128,6 +131,6 @@ frames, related origins and extensions remain later work.
 
 Verify with the WebAuthn Level 3 ES256 vectors, HTML registrable-suffix cases,
 credential mapping vectors, signature verification by an independent verifier,
-and probe-build browser tests covering unattended claims, delegation, abort, timeout,
-navigation and a synthetic relying party. Real-site interoperability and
+and probe-build browser tests covering unattended claims, delegation, abort, timeout
+and a synthetic relying party. Real-site interoperability and
 coexistence with the official Bitwarden extension are separate gates.

@@ -1,5 +1,11 @@
 import * as v from "valibot";
-import { PAGE_CHANNEL, pageRequestSchema, runtimeResultSchema, type RuntimeResult } from "./wire";
+import {
+  MAX_REQUEST_CHARACTERS,
+  PAGE_CHANNEL,
+  pageRequestSchema,
+  runtimeResultSchema,
+  type RuntimeResult,
+} from "./wire";
 
 type Send = (message: unknown) => Promise<unknown>;
 
@@ -15,11 +21,21 @@ function documentAdmits(): boolean {
   return policy?.allowsFeature("publickey-credentials-get") === true;
 }
 
+function withinBound(request: unknown): boolean {
+  try {
+    return (JSON.stringify(request)?.length ?? Infinity) <= MAX_REQUEST_CHARACTERS;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Isolated-world relay. The background derives origin and document from the browser-supplied
  * sender; this world contributes only checks the page cannot forge, including user activation.
  */
 export function installPasskeyRelay(send: Send): () => void {
+  // A synchronous throw, such as from an invalidated extension context, still settles.
+  const relay = (message: unknown) => Promise.resolve().then(() => send(message));
   const reply = (id: string, result: RuntimeResult) =>
     window.postMessage({ channel: PAGE_CHANNEL, type: "result", id, result }, location.origin);
   const listener = (event: MessageEvent<unknown>) => {
@@ -28,7 +44,12 @@ export function installPasskeyRelay(send: Send): () => void {
     if (!parsed.success) return;
     const message = parsed.output;
     if (message.type === "cancel") {
-      void send({ version: 1, type: "passkey.cancel", operationId: message.id }).catch(() => {});
+      void relay({ version: 1, type: "passkey.cancel", operationId: message.id }).catch(() => {});
+      return;
+    }
+    window.postMessage({ channel: PAGE_CHANNEL, type: "ack", id: message.id }, location.origin);
+    if (!withinBound(message.request)) {
+      reply(message.id, { kind: "delegate", reason: "invalid-request" });
       return;
     }
     if (!documentAdmits()) {
@@ -36,7 +57,7 @@ export function installPasskeyRelay(send: Send): () => void {
       return;
     }
     const userActivation = navigator.userActivation?.isActive === true;
-    void send({
+    void relay({
       version: 1,
       type: "passkey.get",
       operationId: message.id,

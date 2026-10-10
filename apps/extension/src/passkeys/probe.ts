@@ -9,7 +9,8 @@ import { importAssertionKey, signAssertion } from "./signature";
  * Synthetic source for the loopback probe build only. Its key is the public WebAuthn Level 3
  * ES256 test-vector key, never vault data. It answers only for `http://localhost` origins.
  */
-export const PROBE_PASSKEY = Object.freeze({
+// Pure so production builds, which import only the tree-shaken factory, drop the vector key.
+export const PROBE_PASSKEY = /* @__PURE__ */ Object.freeze({
   rpId: "localhost",
   credentialPrivateKey: "6e68e7a58484a3264f66b77f5d6dc5bc36a47085b615c9727ab334e8c369c2ee",
   publicKeyX: "afefa16f97ca9b2d23eb86ccb64098d20db90856062eb249c33a9b672f26df61",

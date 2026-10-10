@@ -4,8 +4,12 @@ import * as v from "valibot";
 export const PAGE_CHANNEL = "pateat.passkey.v1";
 /** MAIN-world backstop; the background normally answers or delegates well before this. */
 export const PAGE_TIMEOUT_MS = 15_000;
+/** Without an acknowledgement from the isolated relay, the wrapper delegates after this. */
+export const RELAY_ACK_TIMEOUT_MS = 1_000;
 /** Background budget for credential lookup and signing before delegating to the browser. */
 export const RUNTIME_TIMEOUT_MS = 10_000;
+/** Upper bound on a serialized snapshot; a maximal valid snapshot is about 100,000 characters. */
+export const MAX_REQUEST_CHARACTERS = 131_072;
 
 const operationId = v.pipe(v.string(), v.uuid());
 const base64Url = (maximum: number) =>
@@ -36,12 +40,16 @@ export const runtimeResultSchema = v.variant("kind", [
 ]);
 export type RuntimeResult = v.InferOutput<typeof runtimeResultSchema>;
 
-export const pageResultSchema = v.strictObject({
-  channel: v.literal(PAGE_CHANNEL),
-  type: v.literal("result"),
-  id: operationId,
-  result: runtimeResultSchema,
-});
+/** Relay replies the MAIN-world wrapper accepts: an acknowledgement, then one result. */
+export const pageReplySchema = v.variant("type", [
+  v.strictObject({ channel: v.literal(PAGE_CHANNEL), type: v.literal("ack"), id: operationId }),
+  v.strictObject({
+    channel: v.literal(PAGE_CHANNEL),
+    type: v.literal("result"),
+    id: operationId,
+    result: runtimeResultSchema,
+  }),
+]);
 
 export const runtimeMessageSchema = v.variant("type", [
   v.strictObject({

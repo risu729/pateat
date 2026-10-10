@@ -127,6 +127,18 @@ describe("passkey runtime cancellation", () => {
     expect(await first).toEqual({ kind: "delegate", reason: "timeout" });
   });
 
+  it("limits concurrent operations per document without starving other documents", async () => {
+    const runtime = createPasskeyRuntime(slowSign(), { extensionId });
+    const pending = Array.from({ length: 4 }, () => runtime.handle(get(), sender()));
+    expect(await runtime.handle(get(), sender())).toEqual({ kind: "delegate", reason: "busy" });
+    const other = runtime.handle(get(), sender({ documentId: "document-b" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    runtime.cancelAll();
+    expect(await Promise.all([...pending, other])).toEqual(
+      Array.from({ length: 5 }, () => ({ kind: "cancelled" })),
+    );
+  });
+
   it("cancels every in-flight operation on a policy change", async () => {
     const runtime = createPasskeyRuntime(slowSign(), { extensionId });
     const pending = [runtime.handle(get(), sender()), runtime.handle(get(), sender())];

@@ -45,7 +45,7 @@ window.request = (spec) => {
     userHandle: credential.response.userHandle && b64u(credential.response.userHandle),
     extensions: credential.getClientExtensionResults(),
     json: JSON.parse(JSON.stringify(credential)),
-  }), (error) => ({ error: error.name }));
+  }), (error) => ({ error: error === window.abortReason ? 'caller-reason' : error.name }));
 };
 </script></head><body><main><h1>Synthetic passkey relying party</h1>
 <button id="sign-in" type="button">Sign in with a passkey</button></main><script>
@@ -192,9 +192,17 @@ function expectPateatAssertion(
   });
 }
 
-function expectNativeAssertion(result: Serialized) {
+/** The virtual authenticator answered the caller's own challenge for the page's origin. */
+function expectNativeAssertion(result: Serialized, origin: string, challenge: string) {
   if ("error" in result) throw new Error(`Expected a native assertion, got ${result.error}`);
   expect(result.id).toBe(virtualCredentialId.toString("base64url"));
+  expect(
+    JSON.parse(Buffer.from(result.clientDataJSON, "base64url").toString("utf8")),
+  ).toMatchObject({
+    type: "webauthn.get",
+    challenge: Buffer.from(challenge, "hex").toString("base64url"),
+    origin,
+  });
 }
 
 type ProbeControl = { ok: boolean; signatures: number };
@@ -268,9 +276,15 @@ test("unclaimed requests reach the browser's own authenticator unchanged", async
       const probe = await probeControls(context, extensionId);
       await probe.configure({ counter: 3 });
       const page = await openRelyingParty(context, origin);
-      expectNativeAssertion(await clickRequest(page, { challenge: challengeHex() }));
+      const counted = challengeHex();
+      expectNativeAssertion(await clickRequest(page, { challenge: counted }), origin, counted);
       await probe.configure({ enabled: false });
-      expectNativeAssertion(await clickRequest(page, { challenge: challengeHex() }));
+      const unconfigured = challengeHex();
+      expectNativeAssertion(
+        await clickRequest(page, { challenge: unconfigured }),
+        origin,
+        unconfigured,
+      );
       await probe.configure();
       // Neither authenticator holds this credential, so the browser's own rejection surfaces.
       expect(await clickRequest(page, { challenge: challengeHex(), allow: ["00112233"] })).toEqual({
@@ -294,10 +308,15 @@ test("a ceremony policy delegates unattended and UV-required requests and clears
         await unattended.evaluate(
           () => (window as unknown as { pending: Promise<Serialized> }).pending,
         ),
+        origin,
+        "00".repeat(32),
       );
       const page = await openRelyingParty(context, origin);
+      const required = challengeHex();
       expectNativeAssertion(
-        await clickRequest(page, { challenge: challengeHex(), userVerification: "required" }),
+        await clickRequest(page, { challenge: required, userVerification: "required" }),
+        origin,
+        required,
       );
       const activated = challengeHex();
       expectPateatAssertion(
@@ -344,16 +363,21 @@ test("abort rejects with the caller's reason and a slow bridge delegates", async
         { challenge: challengeHex() },
       );
       await page.getByRole("button", { name: "Sign in with a passkey" }).click();
-      await page.evaluate(() =>
-        (window as unknown as { controller: AbortController }).controller.abort(),
-      );
+      await page.evaluate(() => {
+        const scope = window as unknown as { controller: AbortController; abortReason: unknown };
+        scope.abortReason = { synthetic: "abort" };
+        scope.controller.abort(scope.abortReason);
+      });
       expect(
         await page.evaluate(() => (window as unknown as { pending: Promise<Serialized> }).pending),
-      ).toEqual({ error: "AbortError" });
+      ).toEqual({ error: "caller-reason" });
 
       await probe.configure({ signDelayMs: 3000, timeoutMs: 300 });
-      expectNativeAssertion(await clickRequest(page, { challenge: challengeHex() }));
-      await expect.poll(() => probe.signatures(), { timeout: 4000 }).toBe(0);
+      const slow = challengeHex();
+      expectNativeAssertion(await clickRequest(page, { challenge: slow }), origin, slow);
+      // Outlast both delayed signatures: cancellation and the deadline must have stopped them.
+      await page.waitForTimeout(3500);
+      expect(await probe.signatures()).toBe(0);
     });
   } finally {
     server.close();
