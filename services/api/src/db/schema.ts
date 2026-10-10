@@ -18,6 +18,26 @@ export const owners = sqliteTable("owners", {
   createdAt: integer("created_at").notNull(),
 });
 
+/**
+ * Maps a verified external identity to its owner. The key is the issuer plus its
+ * stable subject, never an email address, so a later identity adapter adds rows.
+ */
+export const ownerIdentities = sqliteTable(
+  "owner_identities",
+  {
+    issuer: text("issuer").notNull(),
+    subject: text("subject").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.issuer, table.subject] }),
+    index("owner_identities_owner_idx").on(table.ownerId),
+  ],
+);
+
 /** Only a SHA-256 digest of each high-entropy device credential is stored. */
 export const devices = sqliteTable(
   "devices",
@@ -27,12 +47,41 @@ export const devices = sqliteTable(
       .notNull()
       .references(() => owners.id),
     tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull().default(""),
     createdAt: integer("created_at").notNull(),
     revokedAt: integer("revoked_at"),
   },
   (table) => [
     uniqueIndex("devices_token_hash_unique").on(table.tokenHash),
     index("devices_owner_idx").on(table.ownerId),
+  ],
+);
+
+/**
+ * An owner-approved pairing, keyed by the SHA-256 challenge of a verifier only the
+ * extension holds. Redeemed rows stay so a challenge can never mint a second device.
+ */
+export const enrollments = sqliteTable(
+  "enrollments",
+  {
+    challenge: text("challenge").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    label: text("label").notNull(),
+    /** The normalized code the owner typed; redemption must derive the same one. */
+    code: text("code").notNull(),
+    approvedAt: integer("approved_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    redeemedAt: integer("redeemed_at"),
+    deviceId: text("device_id").references(() => devices.id),
+  },
+  (table) => [
+    index("enrollments_expires_idx").on(table.expiresAt),
+    check(
+      "enrollments_redemption_check",
+      sql`(${table.redeemedAt} IS NULL) = (${table.deviceId} IS NULL)`,
+    ),
   ],
 );
 

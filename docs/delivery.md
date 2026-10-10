@@ -16,10 +16,13 @@ See [merging](#merging).
 
 Successful main-push CI packages the exact tested production Worker output with
 repository, revision, run/attempt, tool versions and per-file hashes. The artifact does
-not yet carry the committed D1 migrations, and enrollment is not implemented, so the
-sync API cannot be released yet. The `DB` binding has no database ID; cf deploy would
-provision one, so set the bootstrapped ID before enabling delivery. Artifact tests
-reject tampering and mismatched provenance.
+not yet carry the committed D1 migrations, and enrollment has not been verified against
+a real Access application, so the sync API cannot be released yet. The `DB` binding has
+no database ID; cf deploy would provision one, so set the bootstrapped ID before
+enabling delivery. A deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`
+Worker secrets and an Access application covering only `/enroll` and `/manage`; the
+owner pages answer 503 without them. Artifact tests reject tampering and mismatched
+provenance.
 
 `deploy-server.yml` is manual and disabled until `SERVER_DEPLOY_ENABLED=true`.
 Before enabling it, provision the Worker/routing and set repository variables
