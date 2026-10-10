@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as v from "valibot";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,
@@ -9,6 +10,7 @@ import {
   parseSettingsResponse,
   parseSiteUrl,
   resolveSiteAccount,
+  vaultCatalogSchema,
 } from "./settings";
 import { createSettingsStore, type SettingsStorage } from "./settings-store";
 
@@ -382,5 +384,42 @@ describe("serialized persistent settings store", () => {
     settings.connections[0]!.enabled = false;
     settings.siteDefaults[0]!.itemId = "secondary";
     expect(await pending).toMatchObject({ ok: true, snapshot: { settings: withDefault() } });
+  });
+});
+
+describe("vault catalog field metadata", () => {
+  const withField = (field: Record<string, unknown>) => {
+    const catalog = structuredClone(DUMMY_VAULT_CATALOG);
+    catalog.connections[0]!.items[0]!.fields = [field as never];
+    return catalog;
+  };
+
+  it("carries raw names, kinds and Linked sources", () => {
+    expect(v.is(vaultCatalogSchema, DUMMY_VAULT_CATALOG)).toBe(true);
+    expect(
+      v.is(
+        vaultCatalogSchema,
+        withField({
+          id: "custom.x.0",
+          label: "PIN",
+          name: "PIN",
+          kind: "linked",
+          linkedFieldId: "login.password",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["an empty name", { name: "" }],
+    ["a name over 200 characters", { name: "x".repeat(201) }],
+    ["a missing name", { name: undefined }],
+    ["a missing kind", { kind: undefined }],
+    ["an unknown kind", { kind: "password" }],
+  ])("rejects %s", (_label, change) => {
+    const field = { id: "custom.x.0", label: "PIN", name: "PIN", kind: "text", ...change };
+    for (const key of Object.keys(field))
+      if (field[key as keyof typeof field] === undefined) delete field[key as keyof typeof field];
+    expect(v.is(vaultCatalogSchema, withField(field))).toBe(false);
   });
 });

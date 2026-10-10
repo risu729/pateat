@@ -176,7 +176,12 @@ The packaged browser probe includes both V1 and V2 mapping/password-unlock paths
 The isolated field resolver covers ordinary login, secure-note, card and identity
 values plus Text, Hidden, Boolean and Linked custom fields. It exposes value-free
 metadata and scoped references, preserves duplicate names and leading zeros, and
-requires an explicit allowlist for both a linked alias and its source fields.
+requires an explicit allowlist for both a linked alias and its source fields. The
+settings catalog lists each field's display label, its raw custom-field name (`null`
+for built-in fields, unnamed fields and names over 200 characters), its kind and, for a
+Linked field, the built-in field it reads; each connection also names its provider
+account ID. These are what synced, name-based bindings need
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 Disposing a snapshot prevents later resolution. The host must still enforce
 destination policy and invalidate stale operations.
 
@@ -504,8 +509,8 @@ remain open; a navigation during signing relies on Chrome dropping the response 
 replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
-property with a different `length` and source text), which real-site testing must
-evaluate.
+accessor property returning a function with a different `length` and source text), which
+real-site testing must evaluate.
 
 Evidence, 2026-10-10, synthetic relying party only:
 
@@ -519,8 +524,19 @@ Evidence, 2026-10-10, synthetic relying party only:
   UV-required and page-load requests reported `error Error`. Bitwarden's page script
   had replaced `navigator.credentials.get` outside Pateat's wrapper. For the
   UV-required request it showed its "No passkeys found" window and, when that closed,
-  rejected instead of falling back. Coexistence with that extension is unresolved
-  pending an owner decision.
+  rejected instead of falling back.
+- The owner then chose to keep Pateat's wrapper outermost
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md#bridge-topology)). In cloud
+  Chromium, a synthetic page script shaped like Bitwarden's (`/provider` on the
+  synthetic relying party) reproduced `error Error` before that change; after it, both
+  buttons returned Pateat assertions, also after the script restored its saved `get`,
+  and an unclaimed request reached that script once. While the script held an unclaimed
+  request, as Bitwarden's "Your vault is locked" window does, a new request still got a
+  Pateat assertion and the held one ended with the script's own `Error`. A conditional
+  request that the script passed on as a shallow copy reached it once, and a later
+  modal request still got a Pateat assertion. Real-site testing must also check pages
+  that wrap `get` themselves, which no longer see claimed requests. This is not yet
+  confirmed with the real extension in the owner's Chrome.
 
 ## AI evaluation harness progress
 

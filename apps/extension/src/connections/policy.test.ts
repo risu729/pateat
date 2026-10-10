@@ -56,10 +56,12 @@ function catalog(record: ReturnType<typeof entry>): VaultCatalog["connections"][
         allowedOrigins: [],
         groupIds: [],
         fields: [
-          { id: "login.password", label: "Password" },
+          { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
           ...(cipher.fields ?? []).map((_, ordinal) => ({
             id: `custom.${record.accepted.snapshotId}.${ordinal}`,
             label: "Duplicate label",
+            name: "Duplicate label",
+            kind: "text" as const,
           })),
         ],
       },
@@ -68,7 +70,7 @@ function catalog(record: ReturnType<typeof entry>): VaultCatalog["connections"][
         label: "Unrelated login",
         allowedOrigins: [],
         groupIds: [],
-        fields: [{ id: "login.password", label: "Password" }],
+        fields: [{ id: "login.password", label: "Password", name: null, kind: "hidden" as const }],
       },
     ],
   };

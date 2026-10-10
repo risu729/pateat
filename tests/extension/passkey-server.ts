@@ -25,7 +25,9 @@ window.request = (spec) => {
   if (spec.rpId) publicKey.rpId = spec.rpId;
   if (spec.userVerification) publicKey.userVerification = spec.userVerification;
   if (spec.allow) publicKey.allowCredentials = spec.allow.map((id) => ({ type: 'public-key', id: fromHex(id) }));
-  return navigator.credentials.get({ publicKey, signal: window.controller.signal }).then((credential) => ({
+  const options = { publicKey, signal: window.controller.signal };
+  if (spec.mediation) options.mediation = spec.mediation;
+  return navigator.credentials.get(options).then((credential) => ({
     instance: credential instanceof PublicKeyCredential,
     responseInstance: credential.response instanceof AuthenticatorAssertionResponse,
     id: credential.id,
@@ -74,7 +76,7 @@ async function describe(result) {
 </script></head><body><main><h1>Synthetic passkey relying party</h1>
 <button id="sign-in" type="button">Sign in with a passkey</button>
 <button id="sign-in-uv" type="button">Sign in requiring UV</button>
-<p><a href="/?unattended">Request on page load</a> · <a href="/denied">Permissions Policy denies passkeys</a> · <a href="/">Reset</a></p>
+<p><a href="/?unattended">Request on page load</a> · <a href="/denied">Permissions Policy denies passkeys</a> · <a href="/provider">Another provider wraps later</a> · <a href="/provider?fallback">Another provider falls back</a> · <a href="/provider?locked">Another provider is locked</a> · <a href="/">Reset</a></p>
 <p>Wrapped at document start: <output id="wrapped"></output></p>
 <p>Result: <output id="result" aria-live="polite">none</output></p></main><script>
 document.getElementById('wrapped').textContent = String(window.wrappedAtStart);
@@ -89,6 +91,37 @@ document.getElementById('sign-in-uv').addEventListener('click', () => {
 if (location.search === '?unattended') window.pending = window.request({ challenge: '00'.repeat(32) });
 </script></body></html>`;
 
+/**
+ * A passkey provider that wraps `get` after Pateat, shaped like the official Bitwarden page script
+ * (browser-v2026.6.1 `fido2-page-script.ts`): it saves the current `get`, assigns its own, rejects
+ * public-key requests it cannot serve unless it falls back, and `restoreProvider()` writes the
+ * saved function back as its `destroy()` does on an excluded site. A conditional request goes on to
+ * the saved function with a shallow copy of the options, as Bitwarden's does. With `?locked` it holds each
+ * public-key request until `unlockProvider()` and then rejects it.
+ */
+const laterProviderScript = `<script>
+{
+  const saved = navigator.credentials.get.bind(navigator.credentials);
+  const mode = new URLSearchParams(location.search);
+  let unlock;
+  const unlocked = new Promise((resolve) => { unlock = resolve; });
+  window.providerCalls = 0;
+  window.unlockProvider = () => unlock();
+  navigator.credentials.get = async (options) => {
+    window.providerCalls++;
+    if (!options?.publicKey) return saved(options);
+    // Bitwarden races its own lookup against the saved get with a shallow copy of the options.
+    if (options.mediation === 'conditional')
+      return Promise.race([new Promise(() => {}), saved({ ...options, signal: new AbortController().signal })]);
+    // "?locked" holds the request as Bitwarden's "Your vault is locked" window does.
+    await (mode.has('locked') ? unlocked : new Promise((resolve) => setTimeout(resolve)));
+    if (mode.has('fallback')) return saved(options);
+    throw new Error('Something went wrong.');
+  };
+  window.restoreProvider = () => { navigator.credentials.get = saved; };
+}
+</script>`;
+
 export async function startPasskeyRelyingParty(
   port = 0,
 ): Promise<{ server: Server; origin: string; close(): Promise<void> }> {
@@ -96,7 +129,13 @@ export async function startPasskeyRelyingParty(
     const headers: Record<string, string> = { "content-type": "text/html; charset=utf-8" };
     if (request.url === "/denied") headers["permissions-policy"] = "publickey-credentials-get=()";
     response.writeHead(200, headers);
-    response.end(passkeyPageHtml);
+    // The provider's script runs before the page's own, after Pateat's document-start wrapper.
+    const provider = new URL(request.url ?? "/", "http://localhost").pathname === "/provider";
+    response.end(
+      provider
+        ? passkeyPageHtml.replace("<script>", `${laterProviderScript}<script>`)
+        : passkeyPageHtml,
+    );
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

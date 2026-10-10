@@ -170,13 +170,20 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       id: profile.connectionId,
       label: flow.configuration.label,
       provider: "bitwarden",
+      userId: metadata.data.userId,
       groups: metadata.data.groups,
       items: metadata.data.items.map((item) => ({
         id: item.id,
         label: item.label,
         allowedOrigins: [],
         groupIds: item.groupIds,
-        fields: item.fields.map(({ id, label }) => ({ id, label })),
+        fields: item.fields.map(({ id, label, name, kind, linkedFieldId }) => ({
+          id,
+          label,
+          name,
+          kind,
+          ...(linkedFieldId ? { linkedFieldId } : {}),
+        })),
       })),
     };
     const adopted = await deps.policy.adopt({

@@ -173,7 +173,9 @@ function harness(options: { existing?: boolean } = {}) {
             label: "test_item",
             type: 1 as const,
             groupIds: [],
-            fields: [{ id: "login.password", label: "Password", kind: "hidden" as const }],
+            fields: [
+              { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+            ],
           },
         ],
       },

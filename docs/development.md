@@ -169,8 +169,11 @@ provider is involved.
    verified Pateat assertion.
 6. Open **Permissions Policy denies passkeys** and click the first button. The
    page must report the browser's `NotAllowedError`, not a Pateat assertion.
-7. Record whether another installed passkey provider's UI appeared at any step.
-   Coexistence with such providers is an open interoperability question.
+7. Record whether another installed passkey provider's UI appeared at any step. With
+   another provider installed, steps 4 and 5 must still report Pateat assertions without
+   that provider's UI. **Another provider wraps later**, **Another provider falls back**
+   and **Another provider is locked** add a synthetic provider wrapper to the page for
+   runs without one.
 
 ### Manual Bitwarden setup preview
 

@@ -184,7 +184,9 @@ function harness(
                 label: "Synthetic item",
                 allowedOrigins: live.allowedOrigins ?? [origin],
                 groupIds: [],
-                fields: [{ id: "login.password", label: "Password" }],
+                fields: [
+                  { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+                ],
               },
               {
                 id: otherItemId,

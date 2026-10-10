@@ -14,7 +14,14 @@ export interface LocalFieldReference {
 export interface LocalFieldMetadata {
   readonly ref: Readonly<LocalFieldReference>;
   readonly label: string;
+  /**
+   * A custom field's own vault name, unbounded here; `null` for built-in and unnamed
+   * fields. The settings catalog withholds names it cannot carry exactly.
+   */
+  readonly name: string | null;
   readonly kind: "text" | "hidden" | "boolean" | "linked" | "otp" | "unsupported";
+  /** The built-in field a Linked field reads, when the provider defines it. */
+  readonly linkedFieldId?: string;
 }
 
 export type LocalFieldValue =
@@ -171,8 +178,21 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
       snapshotId: scope.output.snapshotId,
     };
     const metadata: LocalFieldMetadata[] = [];
-    const add = (fieldId: string, label: string, kind: LocalFieldMetadata["kind"]) => {
-      metadata.push(Object.freeze({ ref: Object.freeze({ ...scopeValue, fieldId }), label, kind }));
+    const add = (
+      fieldId: string,
+      label: string,
+      kind: LocalFieldMetadata["kind"],
+      custom?: { name: string | null; linkedFieldId: string | undefined },
+    ) => {
+      metadata.push(
+        Object.freeze({
+          ref: Object.freeze({ ...scopeValue, fieldId }),
+          label,
+          name: custom?.name ?? null,
+          kind,
+          ...(custom?.linkedFieldId ? { linkedFieldId: custom.linkedFieldId } : {}),
+        }),
+      );
     };
     add("notes", "Notes", "text");
     if (item.type === 1) {
@@ -189,11 +209,15 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
     item.fields?.forEach((field, index) => {
       const id = `custom.${scopeValue.snapshotId}.${index}`;
       custom.set(id, index);
-      add(
-        id,
-        field.name ?? `Custom field ${index + 1}`,
-        (["text", "hidden", "boolean", "linked"] as const)[field.type] ?? "unsupported",
-      );
+      const kind = (["text", "hidden", "boolean", "linked"] as const)[field.type] ?? "unsupported";
+      const source =
+        kind === "linked" && field.linkedId != null ? linkedSources[field.linkedId] : undefined;
+      add(id, field.name ?? `Custom field ${index + 1}`, kind, {
+        name: field.name || null,
+        // Built-ins are listed first; a link to a field this item lacks names no source.
+        linkedFieldId:
+          source && metadata.some((entry) => entry.ref.fieldId === source) ? source : undefined,
+      });
     });
     let catalog: readonly LocalFieldMetadata[] = Object.freeze(metadata);
     const builtins = new Set(

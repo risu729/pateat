@@ -117,7 +117,9 @@ function settingsFor({ snapshot = () => first, state = "ready", quarantined = []
                 label: "Synthetic item",
                 allowedOrigins: [],
                 groupIds: [],
-                fields: [{ id: "login.password", label: "Password" }],
+                fields: [
+                  { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+                ],
               },
             ],
           },
