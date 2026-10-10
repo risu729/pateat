@@ -1,7 +1,7 @@
 import type { LoginRecipe } from "./login";
 import type { SavedLoginBinding, VaultFieldReference } from "./settings";
 
-// Recipe lookup and binding resolution over synced data (ADR 0012). Recipes and
+// Recipe lookup and binding resolution over synced data (ADR 0013). Recipes and
 // bindings come from the service cache; these functions only read them.
 
 /** Every recipe for one exact origin, in cache order. */
@@ -62,51 +62,68 @@ export function findLoginBinding(
   );
 }
 
-/** A live item's fields as the local catalog lists them. */
-export type LocalItemField = { id: string; label: string };
+/**
+ * One field of a live item, in the item's own field order. `name` is the field's raw
+ * vault name: a custom field without a name (or with an empty one) has `null`, never a
+ * display fallback such as "Custom field 2", so it can never be bound by name.
+ */
+export type LocalItemField = { id: string; name: string | null };
+type FieldRefusal = "field-missing" | "field-ambiguous" | "field-count-changed";
 export type BindingFieldResolution =
   | { ok: true; slots: { slot: string; fieldId: string }[] }
-  | {
-      ok: false;
-      slot: string;
-      reason: "field-missing" | "field-ambiguous" | "field-count-changed";
-    };
+  | { ok: false; reason: "binding-slots-mismatch" }
+  | { ok: false; slot: string; reason: FieldRefusal };
 
 const builtinFieldIds = {
   username: "login.username",
   password: "login.password",
   totp: "login.totp-code",
 } as const;
+const customFieldId = /^custom\.[^.]+\.(\d+)$/;
 
-/** Maps device-independent references to this device's current field IDs. */
+/** Maps a device-independent reference to this device's current field ID. */
 function resolveField(
   reference: VaultFieldReference,
   fields: readonly LocalItemField[],
-): { fieldId: string } | { reason: "field-missing" | "field-ambiguous" | "field-count-changed" } {
+): { fieldId: string } | { reason: FieldRefusal } {
   if (typeof reference === "string") {
     const fieldId = builtinFieldIds[reference];
     return fields.some((field) => field.id === fieldId) ? { fieldId } : { reason: "field-missing" };
   }
-  const named = fields.filter(
-    (field) => field.id.startsWith("custom.") && field.label === reference.custom,
-  );
+  // Same-name fields are counted over the whole item, ordered by their vault index.
+  const named = fields
+    .flatMap((field) => {
+      const index = customFieldId.exec(field.id)?.[1];
+      return index !== undefined && field.name === reference.custom
+        ? [{ id: field.id, index: Number(index) }]
+        : [];
+    })
+    .sort((left, right) => left.index - right.index);
   if (reference.position === undefined) {
     if (named.length > 1) return { reason: "field-ambiguous" };
     return named[0] ? { fieldId: named[0].id } : { reason: "field-missing" };
   }
-  // Reordered, added or removed duplicates must be reviewed again, never guessed.
+  // An added or removed duplicate needs review again. Swapping two same-name fields
+  // keeps the count and is not detected (ADR 0013).
   if (named.length !== reference.count) return { reason: "field-count-changed" };
   return { fieldId: named[reference.position - 1]!.id };
 }
 
 /**
  * Resolves every slot of a binding against one live item, or refuses on the first
- * slot that cannot be resolved exactly. Eligibility and exclusions are checked later.
+ * slot that cannot be resolved exactly. The binding must cover exactly the recipe's
+ * slots, and `fields` must be the item's full field list, not a filtered one.
+ * Eligibility and exclusions are checked later.
  */
 export function resolveBindingFields(
   binding: Pick<SavedLoginBinding, "slots">,
+  recipe: Pick<LoginRecipe, "slots">,
   fields: readonly LocalItemField[],
 ): BindingFieldResolution {
+  const bound = new Set(binding.slots.map((entry) => entry.slot));
+  if (bound.size !== recipe.slots.length || recipe.slots.some((slot) => !bound.has(slot))) {
+    return { ok: false, reason: "binding-slots-mismatch" };
+  }
   const slots: { slot: string; fieldId: string }[] = [];
   for (const entry of binding.slots) {
     const resolved = resolveField(entry.field, fields);

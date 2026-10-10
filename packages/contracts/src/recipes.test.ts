@@ -7,6 +7,7 @@ import {
   loginRecipesForOrigin,
   resolveBindingFields,
   selectLoginRecipe,
+  type LocalItemField,
 } from "./recipes";
 import {
   createDefaultSettings,
@@ -48,13 +49,17 @@ const binding = (overrides: Partial<SavedLoginBinding> = {}): SavedLoginBinding 
 });
 const snapshotId = "11111111-1111-4111-8111-111111111111";
 const fields = [
-  { id: "login.username", label: "Username" },
-  { id: "login.password", label: "Password" },
-  { id: "login.totp-code", label: "Verification code" },
-  { id: `custom.${snapshotId}.0`, label: "Branch number" },
-  { id: `custom.${snapshotId}.1`, label: "PIN" },
-  { id: `custom.${snapshotId}.2`, label: "PIN" },
+  { id: "login.username", name: null },
+  { id: "login.password", name: null },
+  { id: "login.totp-code", name: null },
+  { id: `custom.${snapshotId}.0`, name: "Branch number" },
+  { id: `custom.${snapshotId}.1`, name: "PIN" },
+  { id: `custom.${snapshotId}.2`, name: "PIN" },
+  { id: `custom.${snapshotId}.3`, name: null },
 ];
+/** Resolves a binding against a recipe with exactly the binding's slots. */
+const resolve = (entry: SavedLoginBinding, live: readonly LocalItemField[] = fields) =>
+  resolveBindingFields(entry, { slots: entry.slots.map((slot) => slot.slot) }, live);
 
 describe("recipe selection", () => {
   const recipes = [
@@ -90,6 +95,9 @@ describe("recipe selection", () => {
     expect(
       selectLoginRecipe([...recipes, recipe("bank-business", "/login")], origin, "/login"),
     ).toEqual({ ok: false, reason: "recipe-ambiguous" });
+    expect(
+      selectLoginRecipe([...recipes, recipe("bank-signin", "/login", 2)], origin, "/login"),
+    ).toEqual({ ok: false, reason: "recipe-ambiguous" });
   });
 
   it("resumes only the exact recipe revision on its origin", () => {
@@ -112,7 +120,7 @@ describe("synced account bindings", () => {
   });
 
   it("resolves built-in and named custom fields to this device's IDs", () => {
-    expect(resolveBindingFields(binding(), fields)).toEqual({
+    expect(resolve(binding())).toEqual({
       ok: true,
       slots: [
         { slot: "branch", fieldId: `custom.${snapshotId}.0` },
@@ -124,51 +132,99 @@ describe("synced account bindings", () => {
   it("pins a duplicate name by position only while the count is unchanged", () => {
     const pin = (position: number, count: number) =>
       binding({ slots: [{ slot: "pin", field: { custom: "PIN", position, count } }] });
-    expect(resolveBindingFields(pin(2, 2), fields)).toEqual({
+    expect(resolve(pin(2, 2))).toEqual({
       ok: true,
       slots: [{ slot: "pin", fieldId: `custom.${snapshotId}.2` }],
     });
-    expect(resolveBindingFields(pin(1, 3), fields)).toEqual({
+    expect(resolve(pin(1, 3))).toEqual({
       ok: false,
       slot: "pin",
       reason: "field-count-changed",
     });
-    expect(
-      resolveBindingFields(binding({ slots: [{ slot: "pin", field: { custom: "PIN" } }] }), fields),
-    ).toEqual({ ok: false, slot: "pin", reason: "field-ambiguous" });
+    expect(resolve(binding({ slots: [{ slot: "pin", field: { custom: "PIN" } }] }))).toEqual({
+      ok: false,
+      slot: "pin",
+      reason: "field-ambiguous",
+    });
   });
 
   it("refuses a missing field instead of falling back", () => {
-    expect(resolveBindingFields(binding(), [{ id: "login.password", label: "Password" }])).toEqual({
+    expect(resolve(binding(), [{ id: "login.password", name: null }])).toEqual({
       ok: false,
       slot: "branch",
       reason: "field-missing",
     });
     expect(
-      resolveBindingFields(
-        binding({ slots: [{ slot: "otp", field: "totp" }] }),
-        fields.slice(0, 2),
-      ),
+      resolve(binding({ slots: [{ slot: "otp", field: "totp" }] }), fields.slice(0, 2)),
     ).toEqual({ ok: false, slot: "otp", reason: "field-missing" });
-    // A built-in label never matches a custom name.
-    expect(
-      resolveBindingFields(
-        binding({ slots: [{ slot: "user", field: { custom: "Username" } }] }),
-        fields,
-      ),
-    ).toEqual({ ok: false, slot: "user", reason: "field-missing" });
+    // Built-in fields and unnamed custom fields never match a custom name, including
+    // the display fallback an unnamed field gets in the catalog.
+    for (const name of ["Username", "Custom field 4", `custom.${snapshotId}.3`]) {
+      expect(resolve(binding({ slots: [{ slot: "x", field: { custom: name } }] }))).toEqual({
+        ok: false,
+        slot: "x",
+        reason: "field-missing",
+      });
+    }
+  });
+
+  it("counts same-name fields over the whole item in vault order", () => {
+    const shuffled = [fields[5]!, fields[0]!, fields[4]!];
+    const pin = (position: number) =>
+      binding({ slots: [{ slot: "pin", field: { custom: "PIN", position, count: 2 } }] });
+    expect(resolve(pin(1), shuffled)).toMatchObject({
+      ok: true,
+      slots: [{ fieldId: `custom.${snapshotId}.1` }],
+    });
+    // A removed duplicate is a count change, not a silent fallback to the other one.
+    expect(resolve(pin(1), [fields[4]!])).toEqual({
+      ok: false,
+      slot: "pin",
+      reason: "field-count-changed",
+    });
+  });
+
+  it("refuses a binding whose slots differ from the recipe's", () => {
+    const entry = binding();
+    expect(resolveBindingFields(entry, { slots: ["branch", "password", "otp"] }, fields)).toEqual({
+      ok: false,
+      reason: "binding-slots-mismatch",
+    });
+    expect(resolveBindingFields(entry, { slots: ["password"] }, fields)).toEqual({
+      ok: false,
+      reason: "binding-slots-mismatch",
+    });
   });
 
   it.each([
     ["a position without a count", { custom: "PIN", position: 1 }],
     ["a position beyond the count", { custom: "PIN", position: 3, count: 2 }],
     ["a count of one", { custom: "PIN", position: 1, count: 1 }],
+    ["a count without a position", { custom: "PIN", count: 2 }],
+    ["a position of zero", { custom: "PIN", position: 0, count: 2 }],
+    ["a fractional position", { custom: "PIN", position: 1.5, count: 2 }],
+    ["an extra key", { custom: "PIN", index: 1 }],
     ["an empty name", { custom: "" }],
     ["an unknown built-in", "notes"],
   ])("rejects %s", (_label, field) => {
     expect(v.is(savedLoginBindingSchema, binding({ slots: [{ slot: "x", field }] as never }))).toBe(
       false,
     );
+  });
+
+  it("rejects duplicate slots in one binding", () => {
+    const field = "password" as const;
+    expect(
+      v.is(
+        savedLoginBindingSchema,
+        binding({
+          slots: [
+            { slot: "a", field },
+            { slot: "a", field },
+          ],
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("keeps settings without bindings valid and rejects duplicate bindings", () => {

@@ -63,16 +63,16 @@ const recipeIdSchema = v.pipe(
   v.maxLength(120),
   v.regex(/^[a-zA-Z0-9_.:-]+$/),
 );
-const vaultFieldNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
+const vaultNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 /**
- * A vault field named the same way on every device (ADR 0012). Custom fields are named;
+ * A vault field named the same way on every device (ADR 0013). Custom fields are named;
  * when several share a name, `position` (1-based) and `count` pin one of them.
  */
 export const vaultFieldReferenceSchema = v.union([
   v.picklist(["username", "password", "totp"]),
   v.pipe(
     v.strictObject({
-      custom: vaultFieldNameSchema,
+      custom: vaultNameSchema,
       position: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000))),
       count: v.optional(v.pipe(v.number(), v.integer(), v.minValue(2), v.maxValue(1000))),
     }),
@@ -91,7 +91,7 @@ export const savedLoginBindingSchema = v.strictObject({
   provider: identifier,
   userId: identifier,
   itemId: identifier,
-  itemName: identifier,
+  itemName: vaultNameSchema,
   slots: v.pipe(
     v.array(v.strictObject({ slot: recipeIdSchema, field: vaultFieldReferenceSchema })),
     v.minLength(1),
@@ -152,7 +152,7 @@ export const localSettingsSchema = v.pipe(
         "Duplicate origins",
       ),
     ),
-    /** Synced account bindings (ADR 0012); absent in settings saved before they existed. */
+    /** Synced account bindings (ADR 0013); absent in settings saved before they existed. */
     bindings: v.optional(
       v.pipe(
         v.array(savedLoginBindingSchema),
