@@ -71,12 +71,12 @@ async function startFixture(): Promise<{ server: Server; url: string }> {
   return { server, url: `http://127.0.0.1:${address.port}/fixture` };
 }
 
-test("production package only permits local storage with no site scripts", async () => {
+test("production package permits local storage and the crypto host with no site scripts", async () => {
   const manifest = JSON.parse(await readFile(resolve(extensionDirectory, "manifest.json"), "utf8"));
   expect(manifest.manifest_version).toBe(3);
   expect(manifest.options_ui).toMatchObject({ page: "options.html", open_in_tab: true });
   expect(manifest.content_scripts ?? []).toEqual([]);
-  expect(manifest.permissions).toEqual(["storage"]);
+  expect(manifest.permissions).toEqual(["storage", "offscreen"]);
   expect(manifest.host_permissions ?? []).toEqual([]);
   expect(manifest.web_accessible_resources ?? []).toEqual([]);
   const background = await readFile(
@@ -92,7 +92,7 @@ test("production package only permits local storage with no site scripts", async
   );
   // URL rechecks and worker reconnect require host access in addition to script
   // matches. It belongs only to the synthetic build and only to loopback HTTP.
-  expect(probeManifest.permissions).toEqual(["storage"]);
+  expect(probeManifest.permissions).toEqual(["storage", "offscreen"]);
   expect(probeManifest.host_permissions).toEqual(["http://127.0.0.1/*"]);
   expect(
     probeManifest.content_scripts.every((script: { matches: string[] }) =>

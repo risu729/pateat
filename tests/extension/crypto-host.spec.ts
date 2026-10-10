@@ -29,9 +29,93 @@ type ExtensionChrome = {
     getContexts(
       filter: unknown,
     ): Promise<{ documentId?: string; documentUrl?: string; contextType: string }[]>;
+    onConnect: {
+      addListener(listener: (port: DiagnosticPort) => void): void;
+      removeListener(listener: (port: DiagnosticPort) => void): void;
+    };
   };
   offscreen: { closeDocument(): Promise<void> };
 };
+
+type DiagnosticPort = {
+  name: string;
+  sender?: {
+    id?: string;
+    url?: string;
+    documentId?: string;
+    frameId?: number;
+    tab?: unknown;
+    nativeApplication?: string;
+  };
+};
+
+async function captureBootstrapMetadata(background: Worker) {
+  await background.evaluate(() => {
+    const scope = globalThis as unknown as {
+      chrome: ExtensionChrome;
+      pateatHostBootstrap?: { connections: unknown[]; listener: (port: DiagnosticPort) => void };
+    };
+    const connections: unknown[] = [];
+    // This test listener records browser identity only; it never reads Port
+    // messages, command payloads, or native results.
+    const listener = (port: DiagnosticPort) => {
+      if (port.name !== "pateat.crypto-host.v1") return;
+      const sender = port.sender;
+      const entry = {
+        name: port.name,
+        sender: {
+          id: sender?.id,
+          url: sender?.url,
+          documentId: sender?.documentId,
+          frameId: sender?.frameId,
+          hasTab: sender?.tab !== undefined,
+          hasNativeApplication: sender?.nativeApplication !== undefined,
+        },
+        contexts: [] as unknown[],
+        contextReadFailed: false,
+      };
+      connections.push(entry);
+      void scope.chrome.runtime
+        .getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] })
+        .then((active) => {
+          entry.contexts = active;
+          return null;
+        })
+        .catch(() => {
+          entry.contextReadFailed = true;
+        });
+    };
+    scope.pateatHostBootstrap = { connections, listener };
+    scope.chrome.runtime.onConnect.addListener(listener);
+  });
+  return {
+    async read() {
+      return background.evaluate(async () => {
+        const scope = globalThis as unknown as {
+          chrome: ExtensionChrome;
+          pateatHostBootstrap?: { connections: unknown[] };
+        };
+        return {
+          connections: scope.pateatHostBootstrap?.connections ?? [],
+          contexts: await scope.chrome.runtime.getContexts({
+            contextTypes: ["OFFSCREEN_DOCUMENT"],
+          }),
+        };
+      });
+    },
+    async dispose() {
+      await background.evaluate(() => {
+        const scope = globalThis as unknown as {
+          chrome: ExtensionChrome;
+          pateatHostBootstrap?: { listener: (port: DiagnosticPort) => void };
+        };
+        if (scope.pateatHostBootstrap)
+          scope.chrome.runtime.onConnect.removeListener(scope.pateatHostBootstrap.listener);
+        delete scope.pateatHostBootstrap;
+      });
+    },
+  };
+}
 
 const expectedVectors = {
   authHash: true,
@@ -120,13 +204,20 @@ function prohibitExternalRequests(context: BrowserContext) {
 }
 
 test("actual offscreen sender binds its browser document and real native sessions resolve only granted fields", async () => {
+  const testInfo = test.info();
   await withLoginExtension(async (context, background, extensionId) => {
     const external = prohibitExternalRequests(context);
     const page = await controller(context, extensionId);
     const observed = await observeWorkers(context, page, extensionId);
+    const bootstrap = await captureBootstrapMetadata(background);
     try {
       expect(await contexts(background)).toEqual([]);
-      expect(await invoke(page, "vectors")).toEqual({ ok: true, data: expectedVectors });
+      const vectors = invoke(page, "vectors");
+      void vectors.catch(() => {});
+      // Bootstrap should finish before expensive native work; a bounded early
+      // check leaves time to attach actual sender/context evidence on failure.
+      await expect.poll(async () => (await status(page)).ready, { timeout: 5000 }).toBe(true);
+      expect(await vectors).toEqual({ ok: true, data: expectedVectors });
       const active = await contexts(background);
       expect(active).toHaveLength(1);
       expect(active[0]).toMatchObject({
@@ -145,7 +236,25 @@ test("actual offscreen sender binds its browser document and real native session
       });
       await observed.expectTerminated();
       expect(external).toEqual([]);
+    } catch (error) {
+      const targets = (await observed.session.send("Target.getTargets")) as {
+        targetInfos: Target[];
+      };
+      const diagnostic = JSON.stringify({
+        ...(await bootstrap.read()),
+        targets: targets.targetInfos
+          .filter((target) => target.url.startsWith(`chrome-extension://${extensionId}/`))
+          .map(({ targetId, type, url }) => ({ targetId, type, url })),
+        status: await status(page),
+      });
+      console.error("Pateat crypto bootstrap metadata:", diagnostic);
+      await testInfo.attach("crypto-host-bootstrap.json", {
+        body: diagnostic,
+        contentType: "application/json",
+      });
+      throw error;
     } finally {
+      await bootstrap.dispose();
       await observed.dispose();
     }
   });
