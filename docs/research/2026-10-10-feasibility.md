@@ -379,3 +379,24 @@ extension inventory were not established. Official Bitwarden coexistence, the
 later SDK/setup build, real-account authentication, passkeys, broader frames and
 restart behavior in this actual profile remain separate gates. Owned fixture tabs
 and servers were closed; the user-installed synthetic probe and settings remained.
+
+## Installed-Chrome provider session check, 2026-10-10
+
+The owner ran the synthetic probe built from `main` at
+`f33a543` (which contains the durable provider sessions of
+[ADR 0008](../adr/0008-durable-provider-sessions.md)) in Chrome 154.0.8037.98 on
+Windows 11, in the default profile with the official Bitwarden extension 2026.6.1
+also installed. Setup used the probe's synthetic transport and the public SDK test
+vector account, so no request reached Bitwarden.
+
+Before a full browser quit, the connection showed "Local vault ready",
+"Automatic unlock: enabled." and "Sync sign-in saved on this device." After every
+`chrome.exe` process had exited and Chrome was reopened, the same three lines
+appeared without a password, and Sync reported "Vault verified and local cache
+accepted." with no password prompt. Forget sync sign-in and disabling automatic
+unlock behaved as documented. Sync after disabling automatic unlock showed a raw
+`auto-unlock-disabled` code; that message is a separate fix.
+
+Not established: revocation of real host access, because the probe answers provider
+permission checks synthetically; service-worker console output; and any real-account
+refresh.
