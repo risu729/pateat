@@ -104,6 +104,18 @@ function harness(
         items: [],
       },
     })),
+    matchUris: vi.fn<VaultCryptoHost["matchUris"]>(async (session, targetUrl) => ({
+      ok: true as const,
+      data: {
+        connectionId: session.connectionId,
+        userId: session.userId,
+        snapshotId: session.snapshotId,
+        targetOrigin: new URL(targetUrl).origin,
+        candidates: [{ itemId, matches: [{ uriIndex: 0, match: 0 as const }] }],
+        unavailableUris: [],
+        unavailableItemIds: [],
+      },
+    })),
     listFields: vi.fn<VaultCryptoHost["listFields"]>(async (session, selectedId) => {
       const active = opened.get(session.sessionId);
       if (!active?.prepared.ciphers.some((cipher) => String(cipher.id) === selectedId))
@@ -570,6 +582,41 @@ describe("durable authority across independent managers", () => {
     );
     expect(h.host.listFields).not.toHaveBeenCalled();
     expect(h.opened.size).toBe(0);
+  });
+  it("matches URIs only through the current live snapshot and withholds a late result", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    const matched = await h.manager.matchUris(current.handle, "https://example.com/login");
+    expect(matched).toMatchObject({
+      ok: true,
+      data: { snapshotId: current.handle.snapshotId, candidates: [{ itemId }] },
+    });
+    expect(h.host.matchUris.mock.calls[0]?.[0].snapshotId).toBe(current.handle.snapshotId);
+    const held = gate();
+    h.host.matchUris.mockImplementationOnce(async (session, targetUrl) => {
+      await held.promise;
+      return {
+        ok: true,
+        data: {
+          connectionId: session.connectionId,
+          userId: session.userId,
+          snapshotId: session.snapshotId,
+          targetOrigin: new URL(targetUrl).origin,
+          candidates: [],
+          unavailableUris: [],
+          unavailableItemIds: [],
+        },
+      };
+    });
+    const pending = h.manager.matchUris(current.handle, "https://example.com/login");
+    await vi.waitFor(() => expect(h.host.matchUris).toHaveBeenCalledTimes(2));
+    await h.manager.disableAutoUnlock();
+    held.release();
+    expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
+    expect(await h.manager.matchUris(current.handle, "https://example.com/login")).toEqual(
+      vaultFailure("stale-vault-handle"),
+    );
+    expect(h.host.matchUris).toHaveBeenCalledTimes(2);
   });
   it("withholds a field completed after an external writer replaces the accepted revision", async () => {
     const h = harness();

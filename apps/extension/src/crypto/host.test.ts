@@ -428,6 +428,49 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(h.host.status()).not.toHaveProperty("password");
   });
 
+  const uriCandidates = {
+    connectionId,
+    userId: accountUserId,
+    snapshotId,
+    targetOrigin: "https://example.com",
+    candidates: [{ itemId, matches: [{ uriIndex: 0, match: 0 }] }],
+    unavailableUris: [{ itemId, uriIndex: 1, reason: "default-match-unavailable" }],
+    unavailableItemIds: [],
+  };
+  it("returns snapshot-bound URI candidates without URI strings", async () => {
+    const h = harness();
+    const session = await h.open();
+    const matched = h.host.matchUris(session, "https://example.com/login");
+    const request = await h.command(1);
+    expect(request.operation).toEqual({
+      kind: "match-uris",
+      session,
+      targetUrl: "https://example.com/login",
+    });
+    h.reply(request, { ok: true, data: uriCandidates });
+    expect(await matched).toEqual({ ok: true, data: uriCandidates });
+  });
+
+  it.each([
+    { ...uriCandidates, snapshotId: crypto.randomUUID() },
+    { ...uriCandidates, candidates: [{ itemId, matches: [], uri: "https://example.com" }] },
+  ])("locks the session on a URI reply for another snapshot or shape case %#", async (data) => {
+    const h = harness();
+    const session = await h.open();
+    const pending = h.host.matchUris(session, "https://example.com/login");
+    h.reply(await h.command(1), { ok: true, data });
+    expect(await pending).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(await h.host.catalog(session)).toEqual({ ok: false, error: { code: "crypto-locked" } });
+  });
+
+  it("forwards an unavailable URI context as its own result", async () => {
+    const h = harness();
+    const session = await h.open();
+    const matched = h.host.matchUris(session, "https://example.com/login");
+    h.reply(await h.command(1), { ok: false, error: { code: "uri-context-unavailable" } });
+    expect(await matched).toEqual({ ok: false, error: { code: "uri-context-unavailable" } });
+  });
+
   it("lock immediately invalidates access and withholds a pending plaintext reply", async () => {
     const h = harness({ timeoutMs: 200 });
     const session = await h.open();

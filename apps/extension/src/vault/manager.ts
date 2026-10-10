@@ -26,6 +26,7 @@ export type VaultCryptoHost = Pick<
   | "listFields"
   | "resolveField"
   | "catalog"
+  | "matchUris"
 >;
 export type LocalVaultHandle = {
   managerGeneration: string;
@@ -520,6 +521,24 @@ export function createLocalVaultManager(options: {
       if (!before.ok || !validHandle(handle))
         return before.ok ? vaultFailure("stale-vault-handle") : before;
       const result = await options.host.catalog(owner.opened.session, signal);
+      const after = await checkDurable(owner);
+      if (!after.ok) return after;
+      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+    },
+    /** Candidate signal for the live accepted snapshot only; it grants no field release. */
+    async matchUris(handle: LocalVaultHandle, targetUrl: string, signal?: AbortSignal) {
+      try {
+        handle = structuredClone(handle);
+      } catch {
+        return vaultFailure("invalid-request");
+      }
+      if (typeof targetUrl !== "string") return vaultFailure("invalid-uri-input");
+      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
+      const owner = live;
+      const before = await checkDurable(owner);
+      if (!before.ok || !validHandle(handle))
+        return before.ok ? vaultFailure("stale-vault-handle") : before;
+      const result = await options.host.matchUris(owner.opened.session, targetUrl, signal);
       const after = await checkDurable(owner);
       if (!after.ok) return after;
       return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");

@@ -1,5 +1,8 @@
 import * as v from "valibot";
 import {
+  admitBitwardenUriMatchContext,
+  matchBitwardenLoginUris,
+  type BitwardenUriMatchContext,
   createLocalCryptoSession,
   createLocalFieldSnapshot,
   derivePasswordAuthentication,
@@ -11,7 +14,7 @@ import {
   localVaultMetadataSchema,
 } from "@pateat/bitwarden";
 import { loadBrowserCryptoSdk } from "@pateat/bitwarden/browser-sdk";
-import { commandSchema, type HostCommand, type HostSessionRef } from "./wire";
+import { commandSchema, type HostCommand, type HostSessionRef, type UriCandidates } from "./wire";
 
 // Native SDK panic/log output can contain decrypted input. The host emits only typed results.
 for (const method of ["log", "info", "warn", "error", "debug", "trace"] as const)
@@ -33,6 +36,9 @@ let owned:
       verified: boolean;
       metadataContext: PreparedBitwardenAccount["encryptedMetadata"];
       catalog?: LocalVaultMetadata;
+      uriContext?: BitwardenUriMatchContext;
+      /** Decrypted login URI rules captured during verification; this Worker only. */
+      loginUris: Map<string, { uri: string | null; match: number | null }[]>;
     }
   | undefined;
 let busy = false;
@@ -43,7 +49,9 @@ const fail = (
     | "account-mismatch"
     | "crypto-locked"
     | "field-missing"
-    | "resource-limit",
+    | "resource-limit"
+    | "invalid-uri-input"
+    | "uri-context-unavailable",
 ) => ({ ok: false as const, error: { code } });
 function exactSession(ref: HostSessionRef) {
   return (
@@ -88,6 +96,12 @@ async function execute(command: HostCommand) {
         return fail("invalid-request");
       ciphers.set(id.toLowerCase(), cipher);
     }
+    // Retained with this snapshot only. Older caches without it cannot match URIs.
+    const uriContext =
+      prepared.uriMatchContext === undefined
+        ? undefined
+        : admitBitwardenUriMatchContext(prepared.uriMatchContext);
+    if (prepared.uriMatchContext !== undefined && !uriContext) return fail("invalid-request");
     const unlock =
       op.unlock.kind === "password"
         ? { ...op.unlock, masterPasswordUnlock: prepared.masterPasswordUnlock }
@@ -124,6 +138,8 @@ async function execute(command: HostCommand) {
       fields: new Map(),
       verified: false,
       metadataContext: prepared.encryptedMetadata,
+      ...(uriContext ? { uriContext } : {}),
+      loginUris: new Map(),
     };
     return { ok: true as const, data: { session: ref, metadata: session.data.metadata } };
   }
@@ -134,6 +150,8 @@ async function execute(command: HostCommand) {
   if (op.kind === "verify-received-ciphers") {
     owned.verified = false;
     delete owned.catalog;
+    owned.loginUris.clear();
+    const loginUris = new Map<string, { uri: string | null; match: number | null }[]>();
     const groups = await owned.session.decryptCatalogGroups(
       owned.metadataContext ?? { folders: [], collections: [] },
     );
@@ -149,6 +167,15 @@ async function execute(command: HostCommand) {
       });
       if (!checked.ok) return checked;
       if (![1, 2, 3, 4].includes(checked.data.type)) return fail("crypto-failed");
+      // Pinned clients exclude deleted and archived items from URL matching.
+      if (checked.data.type === 1 && !checked.data.deletedDate && !checked.data.archivedDate)
+        loginUris.set(
+          String(checked.data.id).toLowerCase(),
+          (checked.data.login?.uris ?? []).map((entry) => ({
+            uri: entry.uri ?? null,
+            match: entry.match ?? null,
+          })),
+        );
       const snapshot = createLocalFieldSnapshot({
         connectionId: command.connectionId,
         userId: owned.ref.userId,
@@ -186,6 +213,7 @@ async function execute(command: HostCommand) {
     });
     if (!catalog.success) return fail("resource-limit");
     owned.catalog = catalog.output;
+    owned.loginUris = loginUris;
     owned.verified = true;
     return { ok: true as const, data: { verifiedCipherCount: owned.ciphers.size } };
   }
@@ -197,6 +225,36 @@ async function execute(command: HostCommand) {
     return owned.verified && owned.catalog
       ? { ok: true as const, data: owned.catalog }
       : fail("invalid-request");
+  if (op.kind === "match-uris") {
+    if (!owned.verified) return fail("invalid-request");
+    if (!owned.uriContext) return fail("uri-context-unavailable");
+    const context = owned.uriContext;
+    const target = matchBitwardenLoginUris([], op.targetUrl, { context });
+    if (!target.ok) return fail("invalid-uri-input");
+    const result: UriCandidates = {
+      connectionId: command.connectionId,
+      userId: owned.ref.userId,
+      snapshotId: owned.ref.snapshotId,
+      targetOrigin: target.data.targetOrigin,
+      candidates: [],
+      unavailableUris: [],
+      unavailableItemIds: [],
+    };
+    for (const [itemId, uris] of owned.loginUris) {
+      const evaluated = matchBitwardenLoginUris(uris, op.targetUrl, { context });
+      // A single oversized item is reported without hiding unrelated candidates.
+      if (!evaluated.ok) {
+        result.unavailableItemIds.push(itemId);
+        continue;
+      }
+      if (evaluated.data.matched)
+        result.candidates.push({ itemId, matches: [...evaluated.data.matches] });
+      for (const entry of evaluated.data.unavailableUris)
+        result.unavailableUris.push({ itemId, ...entry });
+      if (result.unavailableUris.length > 100_000) return fail("resource-limit");
+    }
+    return { ok: true as const, data: result };
+  }
   if (op.kind !== "resolve" && !("itemId" in op)) return fail("invalid-request");
   const itemId = (op.kind === "resolve" ? op.ref.itemId : op.itemId).toLowerCase();
   const cipher = owned.ciphers.get(itemId);

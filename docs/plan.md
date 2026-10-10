@@ -104,9 +104,9 @@ the export. This adds transient sensitive copies and computation. Invalid blobs
 never fall back to legacy fields; supplied URI checksums are verified even for
 legacy keyless items, while absent legacy checksums remain supported.
 
-Synchronous SDK parsing checks signed COSE and serialized keys before asynchronous
+Synchronous SDK parsing checks signed CASE and serialized keys before asynchronous
 bindings that can otherwise leave malformed-input calls unresolved. The signed
-COSE check admits structure only; account initialization must still verify the
+CASE check admits structure only; account initialization must still verify the
 actual signature. Key admission can temporarily unwrap/rewrap key material; those
 results are discarded and mutable key buffers cleared. This is additional local
 work, not a claim of zero-copy secrets or cancellation of synchronous WASM.
@@ -207,6 +207,23 @@ integration must derive authorization separately. Synthetic tests cover private
 suffix isolation, IDN, localhost/IP, equivalent groups and malformed destinations;
 the MV3 probe passes a real SDK-decrypted, checksum-validated URI to this matcher.
 
+Prepared accounts now retain a URI context from the same sync: normalized direct
+equivalent-domain groups and the effective default mode. The default is Domain unless
+an enforced organization URI-match-defaults policy applies, using the pinned SDK's
+exemptions for owners, admins and provider users. Pateat cannot see the official
+clients' local default setting. Differing enforced defaults, or malformed policy or
+domain data, mark that part unavailable; affected URIs report unavailable rather than
+falling back. Caches accepted before this change keep working for fields but report
+URI matching unavailable until the next accepted sync.
+
+The crypto Worker captures login URI rules while verifying every received item,
+skipping deleted and archived items, and answers fixed snapshot-bound match requests
+with item IDs and URI indices only. A settings bridge queries enabled, ready
+connections after site exclusions and keeps only eligible, non-quarantined items.
+Unavailable connections are reported, never treated as no match. Native browser
+tests verify an actual SDK-decrypted URI with the retained context across a full
+profile restart, and the unavailable result for a cache without context.
+
 ## Background cryptographic host progress
 
 The offscreen host slice connects trusted background operations to packaged
@@ -283,9 +300,9 @@ Chrome yet.
 
 ### Remaining M3 integration gaps
 
-- The URI matcher is not yet connected to live vault data and site execution.
-  Prepared accounts do not yet retain domain or equivalent-domain context; do not
-  derive `allowedOrigins` from URIs without it.
+- Live URI candidates are not yet used by site account resolution or execution.
+  Static `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
+  StartsWith rules cannot be expressed as exact origins, so do not derive them.
 - The live vault is not yet connected to the declarative executor.
 - Real Bitwarden connections, individual MFA methods and optional host-permission
   prompts in installed Chrome remain separate gates.

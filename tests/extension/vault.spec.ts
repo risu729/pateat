@@ -50,6 +50,74 @@ for (const kind of ["v1", "v2", "organization"] as const) {
   });
 }
 
+type UriCandidates = {
+  snapshotId: string;
+  targetOrigin: string;
+  candidates: { itemId: string; matches: { uriIndex: number; match: number }[] }[];
+  unavailableUris: unknown[];
+  unavailableItemIds: string[];
+};
+
+test("matches actual SDK-decrypted URIs with retained context after full profile restart", async () => {
+  await withVaultProfile(async (open, externalRequests) => {
+    const first = await open();
+    const accepted = await vaultData<Accepted>(first.page, { action: "accept", kind: "uri" });
+    const exact = await vaultData<UriCandidates>(first.page, {
+      action: "match",
+      url: "https://synthetic.example.test/login",
+    });
+    expect(exact).toMatchObject({
+      snapshotId: accepted.handle.snapshotId,
+      targetOrigin: "https://synthetic.example.test",
+      candidates: [
+        {
+          matches: [
+            { uriIndex: 0, match: 3 },
+            { uriIndex: 1, match: 0 },
+          ],
+        },
+      ],
+      unavailableUris: [],
+      unavailableItemIds: [],
+    });
+    const sibling = await vaultData<UriCandidates>(first.page, {
+      action: "match",
+      url: "https://auth.example.test/",
+    });
+    expect(sibling.candidates).toEqual([
+      { itemId: exact.candidates[0]!.itemId, matches: [{ uriIndex: 1, match: 0 }] },
+    ]);
+    expect(
+      (await vaultData<UriCandidates>(first.page, { action: "match", url: "https://example.org/" }))
+        .candidates,
+    ).toEqual([]);
+    expect(JSON.stringify([exact, sibling])).not.toContain("synthetic.example.test/login");
+    expect(await invokeVault(first.page, { action: "match", url: "ftp://example.test/" })).toEqual({
+      ok: false,
+      error: { code: "invalid-uri-input" },
+    });
+    const reopened = await open();
+    await vaultData<Accepted>(reopened.page, { action: "restore" });
+    expect(
+      await vaultData<UriCandidates>(reopened.page, {
+        action: "match",
+        url: "https://synthetic.example.test/login",
+      }),
+    ).toEqual(exact);
+    expect(externalRequests).toEqual([]);
+  });
+});
+
+test("an accepted cache without URI context reports matching unavailable", async () => {
+  await withVaultProfile(async (open) => {
+    const { page } = await open();
+    await vaultData<Accepted>(page, { action: "accept", kind: "uri-without-context" });
+    expect(
+      await invokeVault(page, { action: "match", url: "https://synthetic.example.test/login" }),
+    ).toEqual({ ok: false, error: { code: "uri-context-unavailable" } });
+  });
+});
+
 test("keeps durable disabled state across profile restart and requires explicit re-enable", async () => {
   await withVaultProfile(async (open, externalRequests) => {
     const first = await open();

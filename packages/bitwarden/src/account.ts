@@ -9,6 +9,11 @@ import {
   encryptedCatalogContextSchema,
 } from "./local-crypto";
 import { encryptedSyncEnvelopeSchema } from "./models";
+import {
+  admitBitwardenUriMatchContext,
+  createBitwardenUriMatchContext,
+  type BitwardenUriMatchContext,
+} from "./uri";
 
 type RecordValue = Record<string, unknown>;
 const uuid = v.pipe(
@@ -57,6 +62,8 @@ export type PreparedBitwardenAccount = {
   coverage: "received-envelope";
   /** Optional for caches accepted before metadata retention was implemented. */
   encryptedMetadata?: v.InferOutput<typeof encryptedCatalogContextSchema>;
+  /** Optional for caches accepted before URI context retention; matching then stays unavailable. */
+  uriMatchContext?: BitwardenUriMatchContext;
 };
 export interface BitwardenAccountMapper {
   readonly profile: BitwardenProfile;
@@ -93,10 +100,17 @@ export function admitPreparedBitwardenAccount(
         ),
         coverage: v.literal("received-envelope"),
         encryptedMetadata: v.optional(encryptedCatalogContextSchema),
+        uriMatchContext: v.optional(v.unknown()),
       }),
       structuredClone(input),
     );
     if (!checked.success) return failure("invalid-crypto-input");
+    const uriMatchContext =
+      checked.output.uriMatchContext === undefined
+        ? undefined
+        : admitBitwardenUriMatchContext(checked.output.uriMatchContext);
+    if (checked.output.uriMatchContext !== undefined && !uriMatchContext)
+      return failure("invalid-crypto-input");
     const profile = normalizeBitwardenProfile(checked.output.binding.profile);
     if (!profile.ok || JSON.stringify(profile.data) !== JSON.stringify(expected.data))
       return failure("account-mismatch");
@@ -141,6 +155,7 @@ export function admitPreparedBitwardenAccount(
         ...value,
         binding: { ...value.binding, profile: profile.data },
         ciphers,
+        ...(uriMatchContext ? { uriMatchContext } : {}),
       } as PreparedBitwardenAccount,
     };
   } catch {
@@ -334,7 +349,7 @@ function accountFromProfile(profile: RecordValue): Sdk.WrappedAccountCryptograph
   const legacy = read(profile, "privateKey");
   const privateKey = "V1" in state ? state.V1.private_key : state.V2.private_key;
   if (legacy != null && legacy !== privateKey) reject();
-  // No modern state means an explicitly legacy AES private key, never a stripped COSE account.
+  // No modern state means an explicitly legacy AES private key, never a stripped CASE account.
   if (modern == null && privateKey.startsWith("7.")) reject();
   return state;
 }
@@ -527,6 +542,56 @@ function cipherDto(input: RecordValue, type: number, itemId: string): Sdk.Cipher
   return admitted.data;
 }
 
+const uriMatchDefaultsPolicy = 16;
+type OrganizationPolicyContext = {
+  enabled: boolean;
+  usePolicies?: boolean;
+  role?: unknown;
+  status?: unknown;
+  providerUser: boolean;
+};
+/** Mirrors the pinned SDK policy filter's default enforcement for UriMatchDefaults:
+ * owners, admins and provider users are exempt; missing organization context enforces.
+ * The pinned clients then use the first enforced policy; differing values fail closed here.
+ */
+function uriMatchDefault(
+  policies: readonly unknown[],
+  organizations: ReadonlyMap<string, OrganizationPolicyContext>,
+): 0 | 1 | 2 | 3 | 4 | 5 | "unavailable" {
+  const values = new Set<number>();
+  for (const raw of policies) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "unavailable";
+    const policy = raw as RecordValue;
+    if (read(policy, "type") !== uriMatchDefaultsPolicy) continue;
+    const enabled = read(policy, "enabled");
+    const organizationId = v.safeParse(uuid, read(policy, "organizationId"));
+    if (typeof enabled !== "boolean" || !organizationId.success) return "unavailable";
+    if (!enabled) continue;
+    const context = organizations.get(organizationId.output);
+    if (
+      context &&
+      (!context.enabled ||
+        context.usePolicies === false ||
+        context.role === 0 ||
+        context.role === 1 ||
+        context.providerUser ||
+        (context.status != null && context.status !== 1 && context.status !== 2))
+    )
+      continue;
+    const data = read(policy, "data");
+    const detection =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? read(data as RecordValue, "uriMatchDetection")
+        : undefined;
+    // Invalid or absent policy data falls back to the provider's Domain default, as upstream.
+    values.add(
+      typeof detection === "number" && [0, 1, 2, 3, 4, 5].includes(detection) ? detection : 0,
+    );
+  }
+  if (values.size > 1) return "unavailable";
+  return ([...values][0] ?? 0) as 0 | 1 | 2 | 3 | 4 | 5;
+}
+
 /** Fixed provider/account context. No network, passwords, native crypto, migrations or cache writes. */
 export function createBitwardenAccountMapper(
   profileInput: unknown,
@@ -661,6 +726,12 @@ export function createBitwardenAccountMapper(
           }
           const organizations = new Map<string, string>();
           const organizationIds = new Set<string>();
+          const policyContexts = new Map<string, OrganizationPolicyContext>();
+          const providerOrganizationIds = new Set<string>();
+          for (const raw of optionalList(read(account, "providerOrganizations"), 1_000)) {
+            const id = v.safeParse(uuid, read(record(raw), "id"));
+            if (id.success) providerOrganizationIds.add(id.output);
+          }
           for (const raw of optionalList(read(account, "organizations"), 1_000)) {
             const organization = record(raw);
             const id = identifier(read(organization, "id"));
@@ -672,7 +743,21 @@ export function createBitwardenAccountMapper(
             if (status != null && status !== 2) reject();
             const key = read(organization, "key");
             if (enabled && key != null) organizations.set(id, encrypted(key, [3, 4, 7]));
+            const usePolicies = read(organization, "usePolicies");
+            policyContexts.set(id, {
+              enabled,
+              ...(typeof usePolicies === "boolean" ? { usePolicies } : {}),
+              role: read(organization, "type"),
+              status,
+              providerUser: providerOrganizationIds.has(id),
+            });
           }
+          const policiesNew = sync.policiesNew ?? [];
+          const uriMatchContext = createBitwardenUriMatchContext(
+            sync.domains,
+            // Pinned clients fall back to `policies` when `policiesNew` is absent or empty.
+            uriMatchDefault(policiesNew.length ? policiesNew : sync.policies, policyContexts),
+          );
           const ciphers: Sdk.Cipher[] = [];
           const unavailableItems: PreparedBitwardenAccount["unavailableItems"] = [];
           const itemIds = new Set<string>();
@@ -761,6 +846,7 @@ export function createBitwardenAccountMapper(
               minimumSecurityVersion: binding.kind === "known" ? binding.minimumSecurityVersion : 1,
               coverage: "received-envelope",
               encryptedMetadata: encryptedMetadata.output,
+              uriMatchContext,
             },
           };
         } catch (error) {

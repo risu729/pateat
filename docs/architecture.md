@@ -199,6 +199,9 @@ WHATWG URL parsing, including private suffixes and direct equivalent-domain
 groups from the same account. Host includes the parsed port; Exact and StartsWith
 preserve the original strings. Malformed or unsupported individual stored URIs
 receive unavailable metadata without blocking unrelated valid candidates.
+Equivalent groups and the effective default mode are retained with the prepared
+account snapshot; an unavailable or conflicting context makes the affected URIs
+unavailable instead of falling back. Decrypted URI rules stay in the crypto Worker.
 
 A provider match and its descriptive target origin are not a credential-release
 grant. Raw StartsWith can match a different host with the same prefix. Live

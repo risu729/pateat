@@ -33,6 +33,7 @@ export type HostOperation =
       allowedFieldIds: readonly string[];
       nowMs?: number;
     }
+  | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
   | { kind: "lock"; session: HostSessionRef }
   | { kind: "close" };
 export const commandSchema = v.strictObject({
@@ -78,10 +79,58 @@ export const commandSchema = v.strictObject({
         v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
       ),
     }),
+    v.strictObject({
+      kind: v.literal("match-uris"),
+      session: sessionSchema,
+      targetUrl: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
+    }),
     v.strictObject({ kind: v.literal("lock"), session: sessionSchema }),
     v.strictObject({ kind: v.literal("close") }),
   ]),
 });
+/** Candidate signal only: item and URI indices for one snapshot, never URI strings or values. */
+export const uriCandidatesSchema = v.strictObject({
+  connectionId: id,
+  userId: uuid,
+  snapshotId: uuid,
+  targetOrigin: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
+  candidates: v.pipe(
+    v.array(
+      v.strictObject({
+        itemId: uuid,
+        matches: v.pipe(
+          v.array(
+            v.strictObject({
+              uriIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(999)),
+              match: v.picklist([0, 1, 2, 3]),
+            }),
+          ),
+          v.minLength(1),
+          v.maxLength(1000),
+        ),
+      }),
+    ),
+    v.maxLength(10_000),
+  ),
+  unavailableUris: v.pipe(
+    v.array(
+      v.strictObject({
+        itemId: uuid,
+        uriIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(999)),
+        reason: v.picklist([
+          "unsupported-uri-match",
+          "unsupported-uri-scheme",
+          "invalid-uri",
+          "default-match-unavailable",
+          "equivalent-domains-unavailable",
+        ]),
+      }),
+    ),
+    v.maxLength(100_000),
+  ),
+  unavailableItemIds: v.pipe(v.array(uuid), v.maxLength(10_000)),
+});
+export type UriCandidates = v.InferOutput<typeof uriCandidatesSchema>;
 export type HostCommand = v.InferOutput<typeof commandSchema>;
 export const controlSchema = v.variant("type", [
   v.strictObject({ version: v.literal(1), type: v.literal("crypto.reset"), generation: uuid }),
