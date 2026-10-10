@@ -434,6 +434,10 @@ block or request a supported ceremony for the rest. Hardware-bound keys cannot
 be unlocked merely by changing flags. Conditional mediation and simultaneous
 official-Bitwarden interception require separate compatibility tests.
 
+The proposed bridge, admission rules, assertion format and activation-backed
+presence policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). None
+is implemented yet.
+
 ## Minimal service
 
 Use one optional Cloudflare Worker and D1 for private settings/recipe revisions
