@@ -17,7 +17,11 @@ const fake = vi.hoisted(() => {
     messages: [] as { type: string; values?: { slot: string; value: string }[] }[],
     granted: true,
     pageUrl: "https://login.example/signin",
-    onExecute: undefined as undefined | ((message: Record<string, unknown>) => Promise<void>),
+    onExecute: undefined as
+      | undefined
+      | ((message: Record<string, unknown>, tabId: number) => Promise<void>),
+    /** Per-tab URLs; other tabs use `pageUrl`. */
+    tabUrls: {} as Record<number, string>,
     /** Completion, then rejection target states reported by observation. */
     observed: ["unique", "missing"],
   };
@@ -41,13 +45,13 @@ const fake = vi.hoisted(() => {
     },
     tabs: {
       query: async () => [],
-      get: async (id: number) => ({ id, url: state.pageUrl }),
+      get: async (id: number) => ({ id, url: state.tabUrls[id] ?? state.pageUrl }),
       sendMessage: async (_tabId: number, message: Record<string, unknown>) => {
         state.messages.push(structuredClone(message) as (typeof state.messages)[number]);
         if (message["type"] === "login.observe")
           return { path: "/signin", targets: [...state.observed] };
         if (message["type"] === "login.execute") {
-          await state.onExecute?.(message);
+          await state.onExecute?.(message, _tabId);
           const operation = message["operation"] as {
             operationId: string;
             document: { documentId: string };
@@ -226,6 +230,7 @@ describe("production login document admission", () => {
     fake.state.granted = true;
     fake.state.pageUrl = "https://login.example/signin";
     fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
     fake.state.observed = ["unique", "missing"];
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
@@ -460,6 +465,60 @@ describe("production login document admission", () => {
       expect(h.store.update.mock.calls[0]![0]).toBe(1);
       expect(h.settings.settings.siteDefaults).toEqual([{ origin, connectionId, itemId }]);
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
+      // One query per document while every connection's snapshot is unchanged.
+      expect(uris).toHaveBeenCalledTimes(1);
+    });
+    it("saves nothing while another login is still running", async () => {
+      const second = "https://second.example";
+      const h = harness(
+        { siteDefaults: [{ origin: second, connectionId, itemId }], bindings: [] },
+        { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }) },
+      );
+      h.recipes.recipe.mockImplementation(async (at: string) =>
+        at === origin ? recipe : at === second ? { ...recipe, origin: second } : undefined,
+      );
+      fake.state.tabUrls[2] = `${second}/signin`;
+      let held = false;
+      fake.state.onExecute = async (_message, tabId) => {
+        if (tabId !== 2) return;
+        held = true;
+        await new Promise(() => undefined);
+      };
+      expect(await h.hello({ tab: { id: 2 }, url: `${second}/signin` })).toEqual({ ok: true });
+      await vi.waitFor(() => expect(held).toBe(true));
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(JSON.stringify(fake.state.messages)).toContain("authenticated"),
+      );
+      expect(h.store.update).not.toHaveBeenCalled();
+    });
+    it("never saves an account other than the one the attempt used", async () => {
+      const replaced = "60000000-0000-4000-8000-000000000002";
+      const onlyOther = uriMatch({
+        snapshotId: replaced,
+        candidates: [{ itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] }],
+      });
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      const h = harness(unsaved, { allowedOrigins: [], uris });
+      fake.state.onExecute = async () => {
+        fake.state.onExecute = undefined;
+        // Only another item matches while the next document announces itself, then the
+        // attempt's own item matches again and the login completes.
+        h.snapshot.current = replaced;
+        uris.mockResolvedValue({ ok: true, data: onlyOther });
+        // Restore the attempt's item once that document's plan has chosen the other one.
+        h.owners.mockImplementationOnce(async () => {
+          h.snapshot.current = snapshotId;
+          uris.mockResolvedValue({ ok: true, data: uriMatch() });
+          return userId;
+        });
+        await h.hello({ documentId: "synthetic-document-2" });
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(JSON.stringify(fake.state.messages)).toContain("authenticated"),
+      );
+      expect(h.store.update).not.toHaveBeenCalled();
     });
     it("saves nothing when the credential is rejected", async () => {
       const rejecting = { ...recipe, rejection: target("rejected") };

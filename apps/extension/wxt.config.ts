@@ -12,7 +12,7 @@ export default defineConfig({
     action: { default_title: "Open Pateat settings" },
     permissions: ["storage", "offscreen"],
     // Owner-approved install-time HTTPS site access (ADR 0009). The login content script
-    // runs on every HTTPS page; only saved-default origins are admitted for execution.
+    // runs on every HTTPS page; only non-excluded sites with a cached recipe can execute.
     // Chrome can still re-request these hosts if the user withholds site access, so no
     // redundant optional entry is declared.
     host_permissions: ["https://*/*"],

@@ -349,8 +349,9 @@ vocabulary contains login operations only.
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution
-trigger. A static content script runs on every top-level HTTPS page, but the background
-admits only exact saved-default origins
+trigger. A static content script runs on every top-level HTTPS page; the background
+admits non-excluded sites with host access and needs a cached recipe for the exact
+origin before any policy or vault access
 ([ADR 0009](adr/0009-install-time-https-site-access.md)). Inactive, frozen, discarded,
 and navigated documents are different states; only live documents can execute.
 

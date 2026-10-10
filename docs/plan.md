@@ -310,14 +310,16 @@ Chrome yet.
   the document's own URL and uses the item only when exactly one eligible item matches
   (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`;
   an unevaluated item (including Regex rules) as `item-uri-unevaluated`; and a
-  connection that cannot answer, or a locked vault, as `vault-unavailable`. The choice
-  is re-derived on every policy check and each new document, so a new match from a
-  later sync stops the attempt. It is saved (`siteDefaults` plus `settings.bindings`)
-  only after the outcome is `authenticated`, only when the settings revision is still
-  the one the attempt was authorized under, and only for what is missing; nothing is
-  saved on `credential-rejected` or an unknown outcome. Saving bumps the settings
-  revision, so a concurrent attempt on another site stops as `policy-changed`. A choice
-  made by a document whose attempt is interrupted by a worker restart is not saved.
+  connection that cannot answer, or a locked vault, as `vault-unavailable`. Each
+  document asks once and reuses the answer while every connection's snapshot is
+  unchanged, so a new match from a later sync stops the attempt; every policy check
+  still compares the choice with the attempt's account. It is saved (`siteDefaults`
+  plus `settings.bindings`) only after the outcome is `authenticated`, only for the
+  account the attempt used, only when the settings revision is still the one the
+  attempt was authorized under, and only for what is missing; nothing is saved on
+  `credential-rejected` or an unknown outcome. Saving bumps the settings revision every
+  attempt checks, so it is skipped while another login is still running; the next login
+  chooses again.
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
@@ -344,7 +346,8 @@ Chrome yet.
   built-in-slot binding (`defaultLoginBinding`), and maps it to this device's field IDs
   with `resolveBindingFields`. A recipe with another slot and no saved binding refuses
   as `binding-not-found`. The catalog does not expose raw custom-field names yet, so a
-  binding to a custom field refuses as `field-missing`. The extension has no sync client
+  binding to a custom field refuses as `field-missing` (or `field-count-changed` with a
+  position). The extension has no sync client
   and production has no recipe cache, so bindings live only in local settings and
   production attempts still stop at `recipe-not-found`. `/v1/settings` already accepts
   and stores bindings. An extension or service build that predates `bindings` rejects

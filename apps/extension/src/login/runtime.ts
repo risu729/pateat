@@ -80,6 +80,8 @@ type LiveDocument = {
   reason?: string;
   /** A provider URI match for this document only, valid while its snapshot is unchanged. */
   uriMatch?: { connectionId: string; itemId: string; snapshotId: string };
+  /** A single-match account choice, valid while every connection's snapshot is unchanged. */
+  autoChoice?: { snapshots: string; connectionId: string; itemId: string };
 };
 type Execution = {
   metadata: LoginAttemptMetadata;
@@ -272,7 +274,18 @@ export function createLoginRuntime(
   async function remember(run: Execution): Promise<void> {
     const choice = run.choice;
     delete run.choice;
-    if (!choice || !settings.update) return;
+    const { account: used } = run.metadata;
+    if (
+      !choice ||
+      !settings.update ||
+      // Only the account this attempt authenticated with may be saved.
+      choice.connectionId !== used.connectionId ||
+      choice.binding.itemId !== used.itemId ||
+      choice.binding.origin !== used.origin ||
+      // Saving bumps the revision every attempt checks; never stop another login with it.
+      [...attempts.values()].some((other) => other !== run && !terminal(other.metadata))
+    )
+      return;
     // Writing bumps the policy revision for every attempt, so skip a choice already saved.
     const latest = await settings.handle({ version: 1, type: "settings.get" });
     if (!latest.ok || withChoice(latest.snapshot.settings, choice) === latest.snapshot.settings)
@@ -317,13 +330,21 @@ export function createLoginRuntime(
     );
     if (saved) return { connectionId: saved.connectionId, itemId: saved.itemId, saved: true };
     if (!uris) return { reason: "default-not-set" };
+    // Any sync replaces a snapshot ID, so a new match from a later sync is still noticed.
+    const snapshots = JSON.stringify(
+      snapshot.catalog.connections.map((entry) => [entry.id, entry.snapshotId, entry.state]),
+    );
+    const cached = live.autoChoice;
+    if (cached?.snapshots === snapshots)
+      return { connectionId: cached.connectionId, itemId: cached.itemId, saved: false };
+    delete live.autoChoice;
     const scope = await findLiveSiteCandidates({
       settings: snapshot.snapshot.settings,
       catalog: snapshot.catalog,
       url: live.url,
       match: uris,
     });
-    if (!scope.ok) return { reason: "default-not-set" };
+    if (!scope.ok) return { reason: scope.reason };
     if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
     if (scope.incompleteItems.length > 0) return { reason: "item-uri-unevaluated" };
     if (scope.candidates.length > 1) return { reason: "account-ambiguous" };
@@ -335,6 +356,7 @@ export function createLoginRuntime(
       itemId: only.itemId,
       snapshotId: only.snapshotId,
     };
+    live.autoChoice = { snapshots, connectionId: only.connectionId, itemId: only.itemId };
     return { connectionId: only.connectionId, itemId: only.itemId, saved: false };
   }
   /**
@@ -819,7 +841,12 @@ export function createLoginRuntime(
       live,
       running: false,
       // Each document re-derives the choice; every step still checks it is the attempt's account.
-      ...(plan.choice && !terminal(metadata) ? { choice: plan.choice } : {}),
+      ...(plan.choice &&
+      !terminal(metadata) &&
+      plan.account.connectionId === metadata.account.connectionId &&
+      plan.account.itemId === metadata.account.itemId
+        ? { choice: plan.choice }
+        : {}),
     };
     attempts.set(document.tabId, run);
     await save(run);
