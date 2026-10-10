@@ -2,14 +2,16 @@
 // independent Node AES-CBC/HMAC vectors already exercised against the real SDK.
 // Variants change valid ciphertext DTOs, not decryption mocks or real accounts.
 import { accountNow, rawV1Account, syntheticJwt } from "./account";
-import { customFieldCiphertexts, legacyUsername } from "./crypto";
+import { customFieldCiphertexts, fidoCredential, legacyUsername } from "./crypto";
 
 export type CustomAccountVariant =
   | "unchanged"
   | "reordered"
   | "changed"
   | "removed"
-  | "builtin-changed";
+  | "builtin-changed"
+  /** The login also stores the synthetic FIDO2 credential for `synthetic.example.test`. */
+  | "passkey";
 export function rawCustomAccount(
   variant: CustomAccountVariant = "unchanged",
   nowSeconds = accountNow,
@@ -41,7 +43,11 @@ export function rawCustomAccount(
   if (variant === "removed") fields.splice(0, 1);
   const cipher = raw.sync.ciphers[0]!;
   const login =
-    variant === "builtin-changed" ? { ...cipher.login, password: legacyUsername } : cipher.login;
+    variant === "builtin-changed"
+      ? { ...cipher.login, password: legacyUsername }
+      : variant === "passkey"
+        ? { ...cipher.login, fido2Credentials: [fidoCredential] }
+        : cipher.login;
   const data = JSON.parse(cipher.data) as Record<string, unknown>;
   return {
     token: {
@@ -59,7 +65,12 @@ export function rawCustomAccount(
           ...cipher,
           login,
           fields,
-          data: JSON.stringify({ ...data, fields, password: login.password }),
+          data: JSON.stringify({
+            ...data,
+            fields,
+            password: login.password,
+            fido2Credentials: login.fido2Credentials,
+          }),
         },
       ],
     },

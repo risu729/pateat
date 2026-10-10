@@ -38,7 +38,14 @@ export const probeControlSchema = v.variant("type", [
 const hex = (value: string) =>
   Uint8Array.from(value.match(/../gu) ?? [], (pair) => Number.parseInt(pair, 16));
 
-export function createProbePasskeySource(): {
+/**
+ * The probe build's source. `http://localhost` origins get the synthetic test-vector key; any
+ * other origin the probe content scripts reach is answered by `other`, such as the vault source
+ * over a synthetic Bitwarden account.
+ */
+export function createProbePasskeySource<TOther extends PasskeyCandidate>(
+  other?: PasskeySource<TOther>,
+): {
   source: PasskeySource;
   /** Synthetic controls, accepted only from the probe build's own options page. */
   control(message: unknown): unknown;
@@ -88,9 +95,15 @@ export function createProbePasskeySource(): {
         { once: true },
       );
     });
+  const others = new WeakSet<PasskeyCandidate>();
   const source: PasskeySource = {
-    async candidates(origin) {
-      if (!enabled || new URL(origin).hostname !== PROBE_PASSKEY.rpId) return undefined;
+    async candidates(origin, rpId, signal) {
+      if (new URL(origin).hostname !== PROBE_PASSKEY.rpId) {
+        const found = await other?.candidates(origin, rpId, signal);
+        for (const candidate of found?.candidates ?? []) others.add(candidate);
+        return found;
+      }
+      if (!enabled) return undefined;
       const candidate: PasskeyCandidate = {
         credentialId: toBase64Url(hex(PROBE_PASSKEY.credentialId)),
         rpId: PROBE_PASSKEY.rpId,
@@ -100,7 +113,17 @@ export function createProbePasskeySource(): {
       };
       return { candidates: [candidate], complete: true };
     },
-    async sign(_candidate, authenticatorData, clientDataHash, signal) {
+    async sign(candidate, authenticatorData, clientDataHash, signal) {
+      if (others.has(candidate)) {
+        const signature = await other!.sign(
+          candidate as TOther,
+          authenticatorData,
+          clientDataHash,
+          signal,
+        );
+        signatures += 1;
+        return signature;
+      }
       if (signDelayMs > 0) await delay(signDelayMs, signal);
       const signature = await signAssertion(await key(), authenticatorData, clientDataHash);
       signatures += 1;

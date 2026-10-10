@@ -1,8 +1,17 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
-import { createHash, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  verify,
+} from "node:crypto";
 import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
+import { fidoPrivateKey } from "../../packages/bitwarden/src/__fixtures__/crypto";
+import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
 import { withLoginExtension } from "./login-fixture";
-import { startPasskeyRelyingParty as startRelyingParty } from "./passkey-server";
+import { passkeyPageHtml, startPasskeyRelyingParty as startRelyingParty } from "./passkey-server";
+import { withVaultProfile } from "./vault-fixture";
 
 type Serialized =
   | { error: string }
@@ -474,4 +483,95 @@ test("a provider's conditional request reaches the browser once and leaves sign-
   } finally {
     server.close();
   }
+});
+
+// The synthetic Bitwarden login stores one FIDO2 credential for this RP ID. Tests serve the
+// page through request interception, so no certificate or DNS entry is involved.
+const vaultOrigin = "https://synthetic.example.test";
+const vaultCredentialId = "EjRWeBI0QjSCNBI0VniavA";
+
+test("a passkey stored in the synthetic Bitwarden vault signs inside the crypto Worker", async () => {
+  await withVaultProfile(async (open) => {
+    const browser = await open();
+    await setupProbe(browser.page, { action: "configure", variant: "passkey" });
+    const options = await browser.context.newPage();
+    await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
+    const accepted = await setupRequest(options, {
+      type: "connection.begin",
+      input: beginInput(),
+    });
+    if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
+    await browser.context.route(`${vaultOrigin}/**`, (route) =>
+      route.fulfill({ contentType: "text/html; charset=utf-8", body: passkeyPageHtml }),
+    );
+    // The probe build's demo connections hold no snapshot, so they would count as unsearched
+    // and block a single match. The owner turning them off leaves only the synthetic account.
+    const initial = await settingsRequest(options);
+    const enabled = initial.snapshot.settings;
+    for (const entry of enabled.connections)
+      entry.enabled = entry.connectionId === accepted.connectionId;
+    await settingsRequest(options, {
+      version: 1,
+      type: "settings.save",
+      expectedRevision: initial.snapshot.revision,
+      settings: enabled,
+    });
+    const page = await openRelyingParty(browser.context, vaultOrigin);
+    const challenge = challengeHex();
+    const result = await clickRequest(page, { challenge });
+    if ("error" in result) throw new Error(`Expected an assertion, got ${result.error}`);
+    expect(result).toMatchObject({
+      instance: true,
+      id: vaultCredentialId,
+      rawId: vaultCredentialId,
+      userHandle: Buffer.from("synthetic-user-id").toString("base64url"),
+    });
+    const clientData = Buffer.from(result.clientDataJSON, "base64url");
+    expect(JSON.parse(clientData.toString("utf8"))).toEqual({
+      type: "webauthn.get",
+      challenge: Buffer.from(challenge, "hex").toString("base64url"),
+      origin: vaultOrigin,
+      crossOrigin: false,
+    });
+    const authenticatorData = Buffer.from(result.authenticatorData, "base64url");
+    expect(authenticatorData.subarray(0, 32)).toEqual(
+      createHash("sha256").update("synthetic.example.test").digest(),
+    );
+    expect(authenticatorData[32]).toBe(0x1d);
+    expect(authenticatorData.readUInt32BE(33)).toBe(0);
+    const key = createPublicKey(
+      createPrivateKey({
+        key: Buffer.from(fidoPrivateKey, "base64"),
+        format: "der",
+        type: "pkcs8",
+      }),
+    );
+    expect(
+      verify(
+        "sha256",
+        Buffer.concat([authenticatorData, createHash("sha256").update(clientData).digest()]),
+        { key, dsaEncoding: "der" },
+        Buffer.from(result.signature, "base64url"),
+      ),
+    ).toBe(true);
+
+    // Excluding the item in Pateat's settings leaves the request to the browser.
+    const saved = await settingsRequest(options);
+    const settings = saved.snapshot.settings;
+    const connection = settings.connections.find(
+      (entry) => entry.connectionId === accepted.connectionId,
+    )!;
+    const itemId = saved.catalog.connections.find((entry) => entry.id === accepted.connectionId)!
+      .items[0]!.id;
+    connection.excludedItemIds = [itemId];
+    await settingsRequest(options, {
+      version: 1,
+      type: "settings.save",
+      expectedRevision: saved.snapshot.revision,
+      settings,
+    });
+    expect(await clickRequest(page, { challenge: challengeHex() })).toEqual({
+      error: "NotAllowedError",
+    });
+  });
 });

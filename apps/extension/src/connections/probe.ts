@@ -21,7 +21,14 @@ const schema = v.variant("action", [
   v.strictObject({
     type: v.literal("setup.probe"),
     action: v.literal("configure"),
-    variant: v.picklist(["unchanged", "reordered", "changed", "removed", "builtin-changed"]),
+    variant: v.picklist([
+      "unchanged",
+      "reordered",
+      "changed",
+      "removed",
+      "builtin-changed",
+      "passkey",
+    ]),
     challenge: v.optional(v.picklist(["none", "mfa", "new-device", "rejected"]), "none"),
     permission: v.optional(v.boolean(), true),
     overflow: v.optional(v.literal("group-refs")),
