@@ -316,6 +316,24 @@ describe("recipe sync", () => {
   });
 });
 
+it("does not write a disconnected device's recipes back after clearing", async () => {
+  let release: (result: RecipeChangesResult) => void = () => undefined;
+  const { sync, transport, storage, cache } = setup();
+  transport.recipeChanges.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const running = sync.sync();
+  await vi.waitFor(() => expect(transport.recipeChanges).toHaveBeenCalledOnce());
+  await sync.clear();
+  release(page([active(recipe("bank-signin", "/login"))], 3));
+  expect(await running).toBe("not-connected");
+  expect(storage.write).not.toHaveBeenCalled();
+  expect(cache()).toBeUndefined();
+});
+
 describe("recipe sync schedule", () => {
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 

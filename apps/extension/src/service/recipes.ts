@@ -89,11 +89,14 @@ export function createRecipeSync(options: {
   let rerun = false;
   // Only this module writes the cache, so the parsed copy stays valid until the next write.
   let memory: RecipeCache | undefined;
+  // Bumped by clear(), so a sync or read that started before it cannot restore the cache.
+  let generation = 0;
   let retryAt: Promise<number> | undefined;
 
   /** The cache of exactly this paired device; another device's or a corrupt copy is ignored. */
   async function load(connection: ServiceConnection): Promise<RecipeCache | undefined> {
     if (!memory) {
+      const started = generation;
       let stored: unknown;
       try {
         stored = await storage.read();
@@ -102,6 +105,7 @@ export function createRecipeSync(options: {
       }
       const parsed = v.safeParse(cacheSchema, stored);
       if (!parsed.success) return undefined;
+      if (generation !== started) return undefined;
       memory ??= parsed.output;
     }
     return memory.origin === connection.origin && memory.deviceId === connection.deviceId
@@ -129,6 +133,7 @@ export function createRecipeSync(options: {
   }
 
   async function run(): Promise<RecipeSyncOutcome> {
+    const started = generation;
     const connection = await service.connection();
     if (!connection) return "not-connected";
     if (connection.rejected) return "rejected";
@@ -166,6 +171,8 @@ export function createRecipeSync(options: {
         await service.recordSync(connection.deviceId, { cacheFull: true });
         return "cache-full";
       }
+      // The device was disconnected meanwhile; its recipes are not written back.
+      if (generation !== started) return "not-connected";
       try {
         memory = undefined;
         // oxlint-disable-next-line no-await-in-loop -- the cursor advances only with its recipes
@@ -173,6 +180,7 @@ export function createRecipeSync(options: {
       } catch {
         return "storage-unavailable";
       }
+      if (generation !== started) return "not-connected";
       memory = next;
       cache = next;
       if (complete) {
@@ -194,19 +202,22 @@ export function createRecipeSync(options: {
       return running;
     }
     running = (async () => {
-      let outcome: RecipeSyncOutcome;
-      do {
-        rerun = false;
-        const startedAt = now();
-        plan(startedAt, RECIPE_SYNC_STALE_MS);
-        // oxlint-disable-next-line no-await-in-loop -- a rerun follows the previous run
-        outcome = await run().catch((): RecipeSyncOutcome => "storage-unavailable");
-        if (outcome === "rate-limited") plan(startedAt, RECIPE_SYNC_RATE_LIMIT_MS);
-      } while (rerun);
-      return outcome;
-    })().finally(() => {
-      running = undefined;
-    });
+      try {
+        let outcome: RecipeSyncOutcome;
+        do {
+          rerun = false;
+          const startedAt = now();
+          plan(startedAt, RECIPE_SYNC_STALE_MS);
+          // oxlint-disable-next-line no-await-in-loop -- a rerun follows the previous run
+          outcome = await run().catch((): RecipeSyncOutcome => "storage-unavailable");
+          if (outcome === "rate-limited") plan(startedAt, RECIPE_SYNC_RATE_LIMIT_MS);
+        } while (rerun);
+        return outcome;
+      } finally {
+        // Cleared in the same step as the last rerun check, so no request falls between.
+        running = undefined;
+      }
+    })();
     return running;
   }
 
@@ -218,6 +229,7 @@ export function createRecipeSync(options: {
 
   /** Forgets the cache when its device is disconnected; a new pairing starts empty anyway. */
   async function clear() {
+    generation += 1;
     memory = undefined;
     await storage.clear().catch(() => undefined);
   }

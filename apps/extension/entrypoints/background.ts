@@ -161,7 +161,11 @@ export default defineBackground(() => {
             else recipeSync.refreshIfStale();
           }
           // The previous owner's recipes are not kept once their device is gone.
-          if (response.ok && response.state.kind === "disconnected") void recipeSync.clear();
+          if (
+            (message.type === "service.disconnect" || message.type === "service.forget") &&
+            response.ok
+          )
+            void recipeSync.clear();
           return sendResponse(response);
         },
         () => sendResponse({ ok: false, error: "storage-unavailable" }),
