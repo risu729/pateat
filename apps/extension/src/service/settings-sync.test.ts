@@ -823,6 +823,36 @@ describe("settings sync after the first", () => {
     expect(after()?.revision).toBe(7);
   });
 
+  it.each([
+    ["the login ends", true],
+    ["the login keeps running", false],
+  ])(
+    "writes nothing locally after a disconnect while checking whether %s",
+    async (_name, ended) => {
+      let gone = false;
+      let calls = 0;
+      const {
+        sync,
+        hold,
+        local: after,
+      } = setup({
+        local: agreed,
+        service: state(5, { ...agreed, excludedSites: [] }),
+        base: baseOf(4, agreed),
+        // Running when the sync starts; the device is disconnected during the second check.
+        deferred: () => {
+          calls += 1;
+          if (calls === 1) return true;
+          gone = true;
+          return !ended;
+        },
+      });
+      expect(await sync.run(CONNECTION, () => gone)).toBe("busy");
+      expect(hold.write).not.toHaveBeenCalled();
+      expect(after()?.revision).toBe(7);
+    },
+  );
+
   it("does not upload for a device disconnected before the merge", async () => {
     const { sync, transport } = setup({
       local: { ...agreed, excludedSites: [] },

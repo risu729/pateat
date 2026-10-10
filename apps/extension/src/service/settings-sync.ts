@@ -320,6 +320,7 @@ export function createSettingsSync(options: {
         // A policy write now would stop a login in progress; a later sync applies it.
         // oxlint-disable-next-line no-await-in-loop -- decides this attempt's write
         if (await holdForLogin(stale)) return "busy";
+        if (stale()) return "busy";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
           await settings.update(local.revision, (snapshot) => ({
