@@ -369,8 +369,17 @@ per item into secret-free metadata: ECDSA P-256 public-key credentials, GUID or
 instead of choosing one; a nonzero counter is preserved so selection can refuse it.
 The SDK-decrypted private key is decoded with a DER framing check only; WebCrypto
 import validates its structure. Unit tests cover malformed and unsupported views and
-an SDK round trip through the synthetic legacy account fixture. Selection, signing
-and the page bridge are not connected.
+an SDK round trip through the synthetic legacy account fixture.
+
+The extension's assertion core admits only requests with mediation absent or `optional`
+that do not require UV, carry user activation and pass WebAuthn RP ID validation with
+tldts private suffixes; everything else is a delegation result. It selects exactly one
+eligible credential, refuses nonzero counters, serializes `clientDataJSON`, builds
+authenticator data with UP, BE and BS and a zero counter, and returns DER ECDSA
+signatures from a non-extractable sign-only key. Unit tests reproduce the WebAuthn Level
+3 ES256 client data and authenticator data byte for byte, verify the published and
+produced signatures, and cover the HTML registrable-suffix examples. The core is not yet
+connected to the vault, the crypto host or a page bridge.
 
 ## Initial delivery and later scope
 

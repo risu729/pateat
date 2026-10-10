@@ -1,5 +1,11 @@
+[default]
+# Abbreviated commit hashes.
+extend-ignore-re = ["\\b[0-9a-f]{7,12}\\b"]
+
 [default.extend-identifiers]
 OTPs = "OTPs"
 
 [default.extend-words]
 COSE = "COSE"
+# Base64 DER prefix fixture.
+MIGH = "MIGH"
