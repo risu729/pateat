@@ -47,12 +47,7 @@ import {
 } from "./dummy";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import type { LoginSites } from "./sites";
-import {
-  loginSecretKind,
-  type LoginFieldSource,
-  type LoginSecretKind,
-  type LoginVaultOwner,
-} from "./vault";
+import { loginSecretKind, type LoginFieldSource, type LoginSecretKind } from "./vault";
 
 const STORAGE_KEY = "pateat.login-attempts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
@@ -132,11 +127,9 @@ export function createLoginRuntime(
     recipes?: LoginRecipes;
     /** Live provider URI matching; without it only static `allowedOrigins` apply. */
     uris?: LiveUriMatcher;
-    /** The provider account of an open connection, for synced bindings. */
-    owners?: LoginVaultOwner;
   },
 ) {
-  const { fields, sites, recipes = noLoginRecipes, uris, owners } = options;
+  const { fields, sites, recipes = noLoginRecipes, uris } = options;
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<number, LiveDocument>();
@@ -412,33 +405,28 @@ export function createLoginRuntime(
   }
   /**
    * The synced binding of the chosen item, or the automatic one for built-in slots, mapped
-   * to this device's field IDs. Custom-field references need raw field names, which the
-   * catalog does not expose yet, so they refuse as `field-missing`.
+   * to this device's field IDs by the catalog's raw field names.
    */
-  async function bindingFor(
+  function bindingFor(
     catalog: VaultCatalog,
     settingsValue: SettingsSnapshot["settings"],
     recipe: LoginRecipe,
     choice: Choice,
     documentOrigin: string,
-  ): Promise<
+  ):
     | { ok: true; binding: LoginAccountBinding; synced: SavedLoginBinding; saved: boolean }
-    | { ok: false; reason: string }
-  > {
+    | { ok: false; reason: string } {
     const connection = catalog.connections.find((entry) => entry.id === choice.connectionId);
     const item = connection?.items.find((entry) => entry.id === choice.itemId);
-    if (!connection?.snapshotId || !item || !owners)
-      return { ok: false, reason: "vault-unavailable" };
-    const userId = await owners(connection.id, connection.snapshotId);
-    if (!userId) return { ok: false, reason: "vault-unavailable" };
-    const owner = { provider: connection.provider, userId, itemId: item.id };
+    if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
+    const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
     const saved = findLoginBinding(settingsValue.bindings ?? [], recipe, owner);
     const binding = saved ?? defaultLoginBinding(recipe, { ...owner, itemName: item.label });
     if (!binding) return { ok: false, reason: "binding-not-found" };
     const resolved = resolveBindingFields(
       binding,
       recipe,
-      item.fields.map((field) => ({ id: field.id, name: null })),
+      item.fields.map((field) => ({ id: field.id, name: field.name })),
     );
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
     return {
@@ -481,7 +469,7 @@ export function createLoginRuntime(
           itemId: chosen.itemId,
         });
       }
-      const bound = await bindingFor(
+      const bound = bindingFor(
         catalog,
         snapshot.snapshot.settings,
         recipe,

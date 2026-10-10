@@ -133,7 +133,7 @@ function harness(
   overrides: Partial<LocalSettings> = {},
   live: { allowedOrigins?: string[]; uris?: LiveUriMatcher; quarantined?: boolean } = {},
 ) {
-  const current = { current: snapshotId };
+  const current = { current: snapshotId, userId: userId as string | undefined };
   const settings: LocalSettings = {
     connections: [
       {
@@ -174,6 +174,7 @@ function harness(
             id: connectionId,
             label: "Synthetic live vault",
             provider: "bitwarden",
+            ...(current.userId ? { userId: current.userId } : {}),
             snapshotId: current.current,
             state: "ready",
             ...(live.quarantined ? { quarantinedItemIds: [itemId] } : {}),
@@ -186,6 +187,12 @@ function harness(
                 groupIds: [],
                 fields: [
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+                  {
+                    id: `custom.${current.current}.0`,
+                    label: "Branch",
+                    name: "Branch",
+                    kind: "text" as const,
+                  },
                 ],
               },
               {
@@ -193,7 +200,9 @@ function harness(
                 label: "Other synthetic item",
                 allowedOrigins: [],
                 groupIds: [],
-                fields: [{ id: "login.password", label: "Password" }],
+                fields: [
+                  { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+                ],
               },
             ],
           },
@@ -207,14 +216,10 @@ function harness(
       at === origin && path === "/signin" ? recipe : undefined,
     ),
   };
-  const owners = vi.fn(async (at: string, opened: string) =>
-    at === connectionId && opened === current.current ? userId : undefined,
-  );
   const login = createLoginRuntime(store, {
     fields,
     sites: createLoginSites(store),
     recipes,
-    owners,
     ...(live.uris ? { uris: live.uris } : {}),
   });
   const hello = (from: Record<string, unknown> = {}) =>
@@ -222,7 +227,7 @@ function harness(
       { version: 1, type: "login.document.ready", token: "synthetic-token" },
       sender(from),
     );
-  return { login, store, fields, recipes, owners, hello, snapshot: current, settings: snapshot };
+  return { login, store, fields, recipes, hello, snapshot: current, settings: snapshot };
 }
 
 describe("production login document admission", () => {
@@ -507,12 +512,10 @@ describe("production login document admission", () => {
         // Only another item matches while the next document announces itself, then the
         // attempt's own item matches again and the login completes.
         h.snapshot.current = replaced;
-        uris.mockResolvedValue({ ok: true, data: onlyOther });
-        // Restore the attempt's item once that document's plan has chosen the other one.
-        h.owners.mockImplementationOnce(async () => {
+        // Restore the attempt's item once that document's query has chosen the other one.
+        uris.mockImplementationOnce(async () => {
           h.snapshot.current = snapshotId;
-          uris.mockResolvedValue({ ok: true, data: uriMatch() });
-          return userId;
+          return { ok: true, data: onlyOther };
         });
         await h.hello({ documentId: "synthetic-document-2" });
       };
@@ -585,12 +588,48 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
       expect(h.fields).not.toHaveBeenCalled();
     });
+    it("fills a custom field through the synced binding's field name", async () => {
+      const branchRecipe = parseLoginRecipe({
+        ...recipe,
+        slots: ["branch", "password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "branch", target: target("branch") },
+              { slot: "password", target: target("password") },
+            ],
+          },
+          recipe.steps[1],
+        ],
+      });
+      const h = harness({
+        bindings: [
+          {
+            ...savedBinding,
+            slots: [
+              { slot: "branch", field: { custom: "Branch" } },
+              { slot: "password", field: "password" },
+            ],
+          },
+        ],
+      });
+      h.recipes.recipe.mockResolvedValue(branchRecipe);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(h.fields).toHaveBeenCalledTimes(2));
+      expect(h.fields.mock.calls.map((call) => call[0].fieldId)).toEqual([
+        `custom.${snapshotId}.0`,
+        "login.password",
+      ]);
+      expect(h.store.update).not.toHaveBeenCalled();
+    });
     it("does not choose while the vault account is unknown", async () => {
       const h = harness(unsaved, {
         allowedOrigins: [],
         uris: async () => ({ ok: true, data: uriMatch() }),
       });
-      h.owners.mockResolvedValue(undefined);
+      h.snapshot.userId = undefined;
       expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
       expect(h.fields).not.toHaveBeenCalled();
     });

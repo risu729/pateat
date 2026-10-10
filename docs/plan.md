@@ -347,12 +347,11 @@ Chrome yet.
   bindings. Recipes and account bindings come from the service cache
   ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The executor looks up the
   chosen item's binding in `settings.bindings` by recipe, provider, provider account ID
-  (from the open vault handle of that snapshot) and item, falls back to the
-  built-in-slot binding (`defaultLoginBinding`), and maps it to this device's field IDs
-  with `resolveBindingFields`. A recipe with another slot and no saved binding refuses
-  as `binding-not-found`. The catalog does not expose raw custom-field names yet, so a
-  binding to a custom field refuses as `field-missing` (or `field-count-changed` with a
-  position). The extension has no sync client
+  (the catalog connection's `userId`) and item, falls back to the built-in-slot binding
+  (`defaultLoginBinding`), and maps it to this device's field IDs with
+  `resolveBindingFields` over the catalog's raw field names. A recipe with another slot
+  and no saved binding refuses as `binding-not-found`; a connection without a `userId`
+  refuses as `vault-unavailable`. The extension has no sync client
   and production has no recipe cache, so bindings live only in local settings and
   production attempts still stop at `recipe-not-found`. `/v1/settings` already accepts
   and stores bindings. An extension or service build that predates `bindings` rejects
