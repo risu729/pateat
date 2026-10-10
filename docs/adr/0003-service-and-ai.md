@@ -44,7 +44,7 @@ bindings and defaults, not vault values, provider login secrets or unlock keys.
 Treat account references and policy metadata as private even though the service
 can read them. Store the settings needed for local execution durably in the
 extension as well. AI receives only sanitized observations and semantic slots,
-never account bindings or vault values. [ADR 0009](0009-inference-field-hints.md)
+never account bindings or vault values. [ADR 0010](0010-inference-field-hints.md)
 amends this: slots may carry allowed field names and the coarse shape of visible
 identifier values, never the values themselves.
 

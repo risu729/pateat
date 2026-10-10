@@ -3,7 +3,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 import { BitwardenSetup } from "../../apps/extension/src/options/bitwarden-setup";
-import type { ConnectionClient } from "../../apps/extension/src/options/connection-client";
+import {
+  createConnectionClient,
+  type ConnectionClient,
+} from "../../apps/extension/src/options/connection-client";
 import {
   createMetadataQueryClient,
   type SettingsClient,
@@ -451,4 +454,50 @@ test("sync sign-in is shown separately from automatic unlock and forgetting it i
     .element(page.getByRole("button", { name: "Saved vault: Forget sync sign-in", exact: true }))
     .toBeDisabled();
   await expect.element(page.getByText("Automatic unlock: enabled.")).toBeVisible();
+});
+
+test("a provider HTTP failure on sync shows an error instead of a lost connection", async () => {
+  const saved = {
+    connectionId: "saved-http",
+    label: "Saved vault",
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "ready" as const,
+    autoUnlock: "enabled" as const,
+    providerSession: "active" as const,
+  };
+  let deliver: (message: unknown) => void = () => {};
+  const port = {
+    // Replies take the real options wire path, as the background setup service sends them.
+    postMessage: vi.fn((message: { requestId: string; type: string }) => {
+      const result =
+        message.type === "connection.sync"
+          ? { ok: false, error: { code: "http-error" } }
+          : { ok: true, kind: "status", connections: [saved] };
+      queueMicrotask(() => deliver({ requestId: message.requestId, result }));
+    }),
+    disconnect: vi.fn(),
+    onMessage: {
+      addListener: (listener: (message: unknown) => void) => {
+        deliver = listener;
+      },
+    },
+    onDisconnect: { addListener: () => {} },
+  };
+  const client = createConnectionClient({
+    connect: () => port,
+    requestPermission: async () => true,
+  });
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <BitwardenSetup client={client} onCatalogChanged={vi.fn()} />
+    </QueryClientProvider>,
+  );
+  await page.getByRole("button", { name: "Saved vault: Sync", exact: true }).click();
+  await expect
+    .element(page.getByText(/Connection operation unavailable \(http-error\)/))
+    .toBeVisible();
+  expect(port.postMessage.mock.calls.map(([message]) => message.type)).toContain("connection.sync");
+  expect(port.disconnect).not.toHaveBeenCalled();
+  expect(document.body.textContent).not.toContain("The operation could not be confirmed.");
 });

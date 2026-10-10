@@ -1,4 +1,4 @@
-# ADR 0009: Field names and visible value shapes as inference hints
+# ADR 0010: Field names and visible value shapes as inference hints
 
 Status: accepted by the owner on 2026-10-10. The contract, shape derivation and local
 value check are implemented offline in `packages/inference`; the vault adapter and

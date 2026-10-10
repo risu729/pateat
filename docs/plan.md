@@ -310,12 +310,15 @@ Chrome yet.
   custom-field references are snapshot-scoped. An unavailable connection or an item
   awaiting field review is refused before an attempt starts. A denied, locked or failed
   field read, or a replacement snapshot before delivery, blocks the attempt as
-  `policy-changed` without filling. Only the localhost probe admits documents, grants
-  its loopback origin to the configured probe item and supplies recipes and bindings.
-  Production document admission, local recipe and binding storage, and provider-derived
-  origins remain open.
-- Real Bitwarden connections, individual MFA methods and optional host-permission
-  prompts in installed Chrome remain separate gates.
+  `policy-changed` without filling. Production admits only top-level HTTPS documents
+  whose exact origin has a saved, non-excluded site default and granted host access
+  ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a local recipe they
+  stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
+  probe build grants its loopback origin to the probe item and supplies recipes and
+  bindings. Local recipe and binding storage and provider-derived origins remain open.
+- Real Bitwarden connections, individual MFA methods, the install-time site-access
+  warning and the setup prompt after withheld site access in installed Chrome remain
+  separate gates.
 
 ## Provider session progress
 
@@ -399,9 +402,11 @@ ceremony policy, for unattended and UV-required requests, keep the browser's rej
 for unknown allow-list credentials and a denied permissions policy, and cover abort and
 background timeout. The Bitwarden vault source, crypto-host signing, production
 entrypoints and real-site interoperability remain open; a navigation during signing
-relies on Chrome dropping the response to the replaced document. Page script can
-detect the wrapper (an own `get` property with a different `length` and source text),
-which real-site testing must evaluate.
+relies on Chrome dropping the response to the replaced document.
+[Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
+installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
+property with a different `length` and source text), which real-site testing must
+evaluate.
 
 ## AI evaluation harness progress
 
@@ -420,7 +425,7 @@ not counted). SDK telemetry is disabled per call so prompts, page text and outpu
 reach global integrations. The finite-choice state carries page context and slot
 meanings only; eligible elements appear solely as question options.
 
-Per [ADR 0009](adr/0009-inference-field-hints.md), slots may name the allowed vault
+Per [ADR 0010](adr/0010-inference-field-hints.md), slots may name the allowed vault
 field and give the coarse shape (length, character classes, email form) of a login
 username or Text field value, and observations carry page `maxLength`, `minLength` and
 `inputMode`. `checkPlanValues` checks a plan against the real values before filling and
@@ -439,7 +444,7 @@ oversized and incomplete inputs and the absence of fallback.
 No provider or model is selected and no paid inference has run. Remaining M4 AI work:
 provider adapters after owner selection, real benchmark runs and their report, the
 service route and monthly spend stop, the extension observation extractor with privacy
-fixtures, and supplying ADR 0009 hints from the vault adapter with the local value check
+fixtures, and supplying ADR 0010 hints from the vault adapter with the local value check
 in the runtime. Move the observation contract to `packages/contracts` when the service
 shares it.
 

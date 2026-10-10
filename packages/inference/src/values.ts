@@ -18,7 +18,7 @@ const validEmail =
 const validNumber = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 /**
- * Derives the coarse shape of a visible identifier value (ADR 0009) on the trusted
+ * Derives the coarse shape of a visible identifier value (ADR 0010) on the trusted
  * side. Returns undefined for values the shape contract cannot describe. Callers pass
  * only login usernames and Text fields; never Hidden, password or TOTP values.
  */

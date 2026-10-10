@@ -54,7 +54,8 @@ private page captures, or raw model requests.
 - [0006: Atomic local vault cache](adr/0006-atomic-local-vault-cache.md)
 - [0007: Existing passkey assertions](adr/0007-existing-passkey-assertions.md)
 - [0008: Durable provider sync sessions](adr/0008-durable-provider-sessions.md)
-- [0009: Field names and visible value shapes as inference hints](adr/0009-inference-field-hints.md)
+- [0009: Install-time HTTPS site access](adr/0009-install-time-https-site-access.md)
+- [0010: Field names and visible value shapes as inference hints](adr/0010-inference-field-hints.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

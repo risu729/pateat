@@ -100,6 +100,23 @@ it.each([
     expect(h.first.port.disconnect).toHaveBeenCalledTimes(1);
   },
 );
+it("resolves a code-only provider HTTP failure as an error reply", async () => {
+  const h = harness();
+  const pending = h.client.sync("synthetic");
+  h.first.message({ requestId: firstId(h), result: { ok: false, error: { code: "http-error" } } });
+  expect(await pending).toEqual({ ok: false, error: { code: "http-error" } });
+  expect(h.first.port.disconnect).not.toHaveBeenCalled();
+});
+it("closes the channel when an error reply carries fields beyond its code", async () => {
+  const h = harness();
+  const pending = h.client.sync("synthetic");
+  h.first.message({
+    requestId: firstId(h),
+    result: { ok: false, error: { code: "http-error", status: 500 } },
+  });
+  await expect(pending).rejects.toThrow("Connection operation could not be confirmed.");
+  expect(h.first.port.disconnect).toHaveBeenCalledTimes(1);
+});
 it("closing pending credential work rejects once and never replays on a fresh channel", async () => {
   const h = harness();
   const input = {

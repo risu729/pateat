@@ -106,7 +106,7 @@ export const valueCharacterClasses = [
 ] as const;
 
 /**
- * Coarse shape of a visible identifier value (ADR 0009): its UTF-16 length, the
+ * Coarse shape of a visible identifier value (ADR 0010): its UTF-16 length, the
  * character classes it contains in canonical order, and whether it is email-shaped.
  * It never carries characters or their positions.
  */
@@ -132,7 +132,7 @@ export const valueShapeSchema = v.strictObject({
 /**
  * A semantic slot the caller wants mapped. Values and account bindings never enter
  * inference. `fieldName` is the user's name for an allowed vault field; `valueShape`
- * is allowed only on identifier slots backed by a visible value (ADR 0009).
+ * is allowed only on identifier slots backed by a visible value (ADR 0010).
  */
 export const semanticSlotSchema = v.pipe(
   v.strictObject({
