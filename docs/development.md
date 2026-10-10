@@ -154,7 +154,7 @@ use.
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
 | Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
-| Attempt lifecycle | **Approved:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
+| Attempt lifecycle | **Implemented in the local probe:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
 | Storage | **Approved:** WXT storage helpers | M2 persistence integration |
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |

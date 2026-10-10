@@ -1,11 +1,17 @@
 import { test, expect, type Page, type Worker } from "@playwright/test";
 import type { LoginAttemptMetadata, SettingsResponse } from "../../packages/contracts/src/index";
-import { withLoginExtension } from "./login-fixture";
+import { withStoppedLoginWorker, withLoginExtension } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
 
 type ProbeChrome = {
   runtime: { sendMessage: (message: unknown) => Promise<unknown> };
   tabs: { create: (options: { url: string; active: boolean }) => Promise<{ id: number }> };
+  storage: {
+    local: {
+      get: (key: string) => Promise<Record<string, unknown>>;
+      set: (values: Record<string, unknown>) => Promise<void>;
+    };
+  };
 };
 
 async function send(page: Page, message: unknown): Promise<unknown> {
@@ -72,7 +78,7 @@ test("a synchronous field replacement cannot redirect the remaining values", asy
   }
 });
 
-test("closing an owner tab while its worker is stopped releases persisted ownership", async () => {
+test("worker startup prunes persisted ownership for a closed tab", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, worker, id) => {
@@ -81,20 +87,40 @@ test("closing an owner tab while its worker is stopped releases persisted owners
       const owner = await context.newPage();
       await owner.goto(`${fixture.origin}/single`);
       await expect(owner.locator("#authenticated")).toBeVisible();
-      const debuggerSession = await context.newCDPSession(options);
-      try {
-        const targets = await debuggerSession.send("Target.getTargets");
-        const target = targets.targetInfos.find(
-          (entry) => entry.type === "service_worker" && entry.url === worker.url(),
-        );
-        if (!target) throw new Error("Synthetic extension worker target unavailable");
-        expect(
-          await debuggerSession.send("Target.closeTarget", { targetId: target.targetId }),
-        ).toMatchObject({ success: true });
-        await expect
-          .poll(() => context.serviceWorkers().some((entry) => entry.url() === worker.url()))
-          .toBe(false);
-        await owner.close();
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({ attempts: [{ state: "authenticated" }] });
+      const before = (await send(options, { version: 1, type: "login.probe.status" })) as {
+        attempts: LoginAttemptMetadata[];
+      };
+      const journal = before.attempts[0]!;
+      await owner.close();
+      const storageKey = "pateat.login-attempts.v1";
+      await expect
+        .poll(
+          async () =>
+            await options.evaluate(async (key) => {
+              const chrome = (globalThis as unknown as { chrome: ProbeChrome }).chrome;
+              return (await chrome.storage.local.get(key))[key];
+            }, storageKey),
+        )
+        .toEqual([]);
+      // Simulate a missed close event by restoring only the real synthetic
+      // metadata journal after its target tab and durable owner have been removed.
+      await options.evaluate(
+        async ({ key, metadata }) => {
+          const chrome = (globalThis as unknown as { chrome: ProbeChrome }).chrome;
+          await chrome.storage.local.set({ [key]: [metadata] });
+        },
+        { key: storageKey, metadata: journal },
+      );
+      expect(
+        await options.evaluate(async (key) => {
+          const chrome = (globalThis as unknown as { chrome: ProbeChrome }).chrome;
+          return (await chrome.storage.local.get(key))[key];
+        }, storageKey),
+      ).toEqual([journal]);
+      await withStoppedLoginWorker(context, worker, options, async (expectRestarted) => {
         await expect
           .poll(
             async () =>
@@ -105,13 +131,18 @@ test("closing an owner tab while its worker is stopped releases persisted owners
               ).attempts.length,
           )
           .toBe(0);
+        await expectRestarted();
+        expect(
+          await options.evaluate(async (key) => {
+            const chrome = (globalThis as unknown as { chrome: ProbeChrome }).chrome;
+            return (await chrome.storage.local.get(key))[key];
+          }, storageKey),
+        ).toEqual([]);
         const next = await context.newPage();
         await next.goto(`${fixture.origin}/single`);
         await expect(next.locator("#authenticated")).toBeVisible();
         expect(await clicks(next)).toBe(1);
-      } finally {
-        await debuggerSession.detach();
-      }
+      });
     });
   } finally {
     await fixture.close();
@@ -147,19 +178,7 @@ test("a pending submission stays in reconciliation after worker restart without 
       const journal = before.attempts[0]!;
       // An unchanged marker after restart also detects an accidental replay of fill.
       await page.locator("#password").fill("synthetic-after-submit-marker");
-      const debuggerSession = await context.newCDPSession(options);
-      try {
-        const targets = await debuggerSession.send("Target.getTargets");
-        const target = targets.targetInfos.find(
-          (entry) => entry.type === "service_worker" && entry.url === worker.url(),
-        );
-        if (!target) throw new Error("Synthetic extension worker target unavailable");
-        expect(
-          await debuggerSession.send("Target.closeTarget", { targetId: target.targetId }),
-        ).toMatchObject({ success: true });
-        await expect
-          .poll(() => context.serviceWorkers().some((entry) => entry.url() === worker.url()))
-          .toBe(false);
+      await withStoppedLoginWorker(context, worker, options, async (expectRestarted) => {
         // The trusted status request wakes the worker; startup reconnects the existing content script.
         await expect
           .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
@@ -177,9 +196,7 @@ test("a pending submission stays in reconciliation after worker restart without 
             ],
             documents: [{ documentId: journal.document.documentId }],
           });
-        await expect
-          .poll(() => context.serviceWorkers().some((entry) => entry.url() === worker.url()))
-          .toBe(true);
+        await expectRestarted();
         // Reconnection publishes document identity before drive starts. Observe beyond
         // the coordinator's 3-second result budget so late replay cannot pass this test.
         const observeUntil = Date.now() + 4000;
@@ -201,9 +218,7 @@ test("a pending submission stays in reconciliation after worker restart without 
           ],
         });
         await expect(page.locator("#authenticated")).toHaveCount(0);
-      } finally {
-        await debuggerSession.detach();
-      }
+      });
     });
   } finally {
     await fixture.close();
