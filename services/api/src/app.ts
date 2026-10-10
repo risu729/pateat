@@ -92,7 +92,7 @@ export const app = new Hono<ApiEnv>()
         ? message(c, 400, "Invalid request", "Start again from Pateat's settings.")
         : apiError(c, 400, { error: "bad_request" });
     // CSRF rejections from owner pages.
-    if (error instanceof HTTPException && error.status === 403)
+    if (ownerPage && error instanceof HTTPException && error.status === 403)
       return message(c, 403, "Request refused", "Submit this form from its own page.");
     console.error("Unhandled API error", error instanceof Error ? error.name : "unknown");
     return ownerPage

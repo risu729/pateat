@@ -108,10 +108,11 @@ export const enrollRoutes = new Hono<ApiEnv>()
             approvedAt: now,
             expiresAt: now + ENROLLMENT_TTL_MS,
           })
-          // The same owner may retype the code until the device redeems it.
+          // The same owner may retype the code until the device redeems it. A retype
+          // never extends the approval, so nobody can hold a challenge open by retyping.
           .onConflictDoUpdate({
             target: enrollments.challenge,
-            set: { code, approvedAt: now, expiresAt: now + ENROLLMENT_TTL_MS },
+            set: { code },
             setWhere: sql`${enrollments.ownerId} = ${ownerId} AND ${enrollments.redeemedAt} IS NULL`,
           }),
       ]);

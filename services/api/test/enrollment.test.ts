@@ -321,7 +321,15 @@ describe("enrollment approval", () => {
     expect(await mistyped.json()).toEqual({ error: "enrollment_code_mismatch" });
     // Retyping on the same page replaces the stored code until redemption.
     const typed = ` ${pending.code.replace("-", " ").toLowerCase()} `;
+    const before = await env.DB.prepare("SELECT expires_at FROM enrollments WHERE challenge = ?")
+      .bind(pending.challenge)
+      .first<{ expires_at: number }>();
     expect((await approve(by, pending, typed)).status).toBe(200);
+    // Retyping keeps the original expiry.
+    const after = await env.DB.prepare("SELECT expires_at FROM enrollments WHERE challenge = ?")
+      .bind(pending.challenge)
+      .first<{ expires_at: number }>();
+    expect(after?.expires_at).toBe(before?.expires_at);
     expect((await redeem(pending.verifier)).status).toBe(200);
   });
 
