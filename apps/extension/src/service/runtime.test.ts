@@ -229,6 +229,21 @@ describe("pairing", () => {
     expect(transport.redeem).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a held-back failure when a new pairing cannot be saved", async () => {
+    const transport = fakeTransport({ kind: "code-mismatch" });
+    const { storage, runtime } = setup({ transport });
+    await runtime.handle(start);
+    await runtime.handle(check);
+    const write = storage.write;
+    storage.write = vi.fn(async () => {
+      throw new Error("quota");
+    });
+    expect(await runtime.handle(start)).toEqual({ ok: false, error: "storage-unavailable" });
+    storage.write = write;
+    expect(await runtime.handle(check)).toMatchObject({ ok: false, error: "code-mismatch" });
+    expect(transport.redeem).toHaveBeenCalledTimes(1);
+  });
+
   it("needs Chrome site access to the service before contacting it", async () => {
     let allowed = false;
     const transport = fakeTransport();

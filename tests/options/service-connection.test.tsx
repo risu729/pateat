@@ -112,6 +112,18 @@ test("keeps the way out while forgetting fails", async () => {
     .toBeVisible();
 });
 
+test("drops the way out once the saved connection is readable again", async () => {
+  const client = mockClient();
+  client.get.mockResolvedValue({ ok: false, error: "storage-corrupt" });
+  client.forget.mockResolvedValue({ ok: false, error: "wrong-state", state: connected });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await page.getByRole("button", { name: "Forget saved connection", exact: true }).click();
+  await expect.element(page.getByText(/is paired with/)).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Forget saved connection" }))
+    .not.toBeInTheDocument();
+});
+
 test("forgets an unreadable saved connection", async () => {
   const client = mockClient();
   client.get.mockResolvedValue({ ok: false, error: "storage-corrupt" });
