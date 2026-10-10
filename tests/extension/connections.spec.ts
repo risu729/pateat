@@ -46,6 +46,7 @@ test("manual options setup accepts real SDK data and restores value-free catalog
       matched: true,
     });
     expect(await inspectSetupPersistence(first.page)).toEqual({
+      databaseExists: true,
       records: 1,
       noCredentialProperties: true,
       passwordAbsent: true,
@@ -64,6 +65,7 @@ test("manual options setup accepts real SDK data and restores value-free catalog
       matched: true,
     });
     expect(await inspectSetupPersistence(reopened.page)).toEqual({
+      databaseExists: true,
       records: 1,
       noCredentialProperties: true,
       passwordAbsent: true,
@@ -76,6 +78,10 @@ test("manual options setup accepts real SDK data and restores value-free catalog
 test("probe permission denial reaches the real coordinator before any fixed provider request", async () => {
   await withVaultProfile(async (open, requests) => {
     const browser = await open();
+    expect(await inspectSetupPersistence(browser.page)).toMatchObject({
+      databaseExists: false,
+      records: 0,
+    });
     await setupProbe(browser.page, {
       action: "configure",
       variant: "unchanged",
@@ -92,7 +98,13 @@ test("probe permission denial reaches the real coordinator before any fixed prov
       configuredIds: [],
       catalogs: [],
     });
-    expect(await inspectSetupPersistence(browser.page)).toMatchObject({ records: 0 });
+    expect(await inspectSetupPersistence(browser.page)).toEqual({
+      databaseExists: false,
+      records: 0,
+      noCredentialProperties: true,
+      passwordAbsent: true,
+      plaintextAbsent: true,
+    });
     expect(requests).toEqual([]);
   });
 });
@@ -121,6 +133,7 @@ test("native metadata overflow rejects the candidate before replacing its last a
       matched: true,
     });
     expect(await inspectSetupPersistence(browser.page)).toEqual({
+      databaseExists: true,
       records: 1,
       noCredentialProperties: true,
       passwordAbsent: true,
@@ -351,6 +364,7 @@ test("rejected reauthentication preserves the accepted local record and two inde
     expect(after.catalogs).toEqual(before.catalogs);
     expect(after.syncCalls).toBe(2);
     expect(await inspectSetupPersistence(browser.page)).toEqual({
+      databaseExists: true,
       records: 2,
       noCredentialProperties: true,
       passwordAbsent: true,

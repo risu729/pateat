@@ -147,18 +147,29 @@ export function inspectSetupPersistence(page: Page) {
       chrome: { storage: { local: { get(value: null): Promise<unknown> } } };
     };
     const metadata = await scope.chrome.storage.local.get(null);
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const open = indexedDB.open("pateat.local-vault.v1", 1);
-      open.onsuccess = () => resolve(open.result);
-      open.onerror = () => reject(new Error("Synthetic database open failed"));
-    });
+    const databaseExists = (await indexedDB.databases()).some(
+      (database) => database.name === "pateat.local-vault.v1",
+    );
+    const db = databaseExists
+      ? await new Promise<IDBDatabase>((resolve, reject) => {
+          const open = indexedDB.open("pateat.local-vault.v1");
+          // Inspection must never create a database, even if it disappears after enumeration.
+          open.onupgradeneeded = () => open.transaction?.abort();
+          open.onsuccess = () => resolve(open.result);
+          open.onerror = () => reject(new Error("Synthetic database open failed"));
+        })
+      : undefined;
     try {
-      const records = await new Promise<unknown[]>((resolve, reject) => {
-        const tx = db.transaction("records", "readonly");
-        const get = tx.objectStore("records").getAll();
-        tx.oncomplete = () => resolve(get.result);
-        tx.onerror = () => reject(new Error("Synthetic record read failed"));
-      });
+      if (db && !db.objectStoreNames.contains("records"))
+        throw new Error("Synthetic existing database is missing its records store");
+      const records = db
+        ? await new Promise<unknown[]>((resolve, reject) => {
+            const tx = db.transaction("records", "readonly");
+            const get = tx.objectStore("records").getAll();
+            tx.oncomplete = () => resolve(get.result);
+            tx.onerror = () => reject(new Error("Synthetic record read failed"));
+          })
+        : [];
       const prohibited = new Set([
         "password",
         "masterPasswordHash",
@@ -177,13 +188,14 @@ export function inspectSetupPersistence(page: Page) {
         );
       const serialized = JSON.stringify({ metadata, records });
       return {
+        databaseExists,
         records: records.length,
         noCredentialProperties: !unexpectedKey({ metadata, records }),
         passwordAbsent: !serialized.includes("asdfasdfasdf"),
         plaintextAbsent: !serialized.includes("test_password") && !serialized.includes("00001234"),
       };
     } finally {
-      db.close();
+      db?.close();
     }
   });
 }
