@@ -176,7 +176,12 @@ The packaged browser probe includes both V1 and V2 mapping/password-unlock paths
 The isolated field resolver covers ordinary login, secure-note, card and identity
 values plus Text, Hidden, Boolean and Linked custom fields. It exposes value-free
 metadata and scoped references, preserves duplicate names and leading zeros, and
-requires an explicit allowlist for both a linked alias and its source fields.
+requires an explicit allowlist for both a linked alias and its source fields. The
+settings catalog lists each field's display label, its raw custom-field name (`null`
+for built-in fields, unnamed fields and names over 200 characters), its kind and, for a
+Linked field, the built-in field it reads; each connection also names its provider
+account ID. These are what synced, name-based bindings need
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 Disposing a snapshot prevents later resolution. The host must still enforce
 destination policy and invalidate stale operations.
 

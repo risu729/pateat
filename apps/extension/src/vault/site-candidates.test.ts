@@ -21,7 +21,7 @@ const item = (id: string) => ({
   label: `Synthetic ${id.slice(0, 4)}`,
   allowedOrigins: [],
   groupIds: [],
-  fields: [{ id: "login.password", label: "Password" }],
+  fields: [{ id: "login.password", label: "Password", name: null, kind: "hidden" as const }],
 });
 function catalog(state: VaultCatalog["connections"][number]["state"] = "ready"): VaultCatalog {
   return {

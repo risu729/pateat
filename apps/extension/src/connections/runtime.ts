@@ -77,6 +77,7 @@ export function createConnectionRuntime(
         id: connectionId,
         label: configuration.label,
         provider: "bitwarden",
+        userId: projected.data.userId,
         snapshotId: record.data.accepted.snapshotId,
         groups: projected.data.groups,
         items: projected.data.items.map((item) => ({
@@ -84,7 +85,13 @@ export function createConnectionRuntime(
           label: item.label,
           allowedOrigins: [],
           groupIds: item.groupIds,
-          fields: item.fields.map(({ id, label }) => ({ id, label })),
+          fields: item.fields.map(({ id, label, name, kind, linkedFieldId }) => ({
+            id,
+            label,
+            name,
+            kind,
+            ...(linkedFieldId ? { linkedFieldId } : {}),
+          })),
         })),
       } satisfies VaultCatalog["connections"][number],
     };

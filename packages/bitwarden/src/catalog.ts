@@ -24,7 +24,9 @@ export const localVaultMetadataSchema = v.strictObject({
             v.strictObject({
               id,
               label,
+              name: v.nullable(label),
               kind: v.picklist(["text", "hidden", "boolean", "linked", "otp", "unsupported"]),
+              linkedFieldId: v.optional(id),
             }),
           ),
           v.maxLength(2000),
@@ -35,6 +37,12 @@ export const localVaultMetadataSchema = v.strictObject({
   ),
 });
 export type LocalVaultMetadata = v.InferOutput<typeof localVaultMetadataSchema>;
+/**
+ * A field name is never truncated, because bindings match it exactly. A name longer than
+ * a label is withheld (`null`), so it cannot be referenced.
+ */
+export const vaultFieldName = (value: string | null) =>
+  value && value.length <= 200 ? value : null;
 /** Label truncation affects display only, never identity or permission binding. */
 export const vaultDisplayLabel = (value: string | null | undefined, fallback: string) =>
   (value || fallback).slice(0, 200);

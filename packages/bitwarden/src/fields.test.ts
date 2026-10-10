@@ -55,10 +55,14 @@ describe("local field references and permission boundaries", () => {
     );
   });
 
-  it("exposes only field reference, label and kind in listed metadata", () => {
+  it("exposes only field reference, label, name, kind and link source in listed metadata", () => {
     const active = snapshot();
     for (const field of active.list()) {
-      expect(Object.keys(field).sort()).toEqual(["kind", "label", "ref"]);
+      expect(Object.keys(field).sort()).toEqual(
+        field.kind === "linked"
+          ? ["kind", "label", "linkedFieldId", "name", "ref"]
+          : ["kind", "label", "name", "ref"],
+      );
       expect(Object.keys(field.ref).sort()).toEqual([
         "connectionId",
         "fieldId",
@@ -141,6 +145,26 @@ describe("local field references and permission boundaries", () => {
     expect(active.list().find((field) => field.ref.fieldId === customFieldId(0))?.label).toBe(
       "duplicate",
     );
+  });
+
+  it("lists raw custom-field names apart from display labels", () => {
+    const item = localLoginView();
+    item.fields.push(
+      { name: null as unknown as string, value: "a", type: 0, linkedId: null },
+      { name: "", value: "b", type: 0, linkedId: null },
+    );
+    const listed = snapshot(item).list();
+    const field = (fieldId: string) => listed.find((entry) => entry.ref.fieldId === fieldId)!;
+    expect(field("login.password")).toMatchObject({ name: null, kind: "hidden" });
+    expect(field(customFieldId(0))).toMatchObject({ label: "duplicate", name: "duplicate" });
+    expect(field(customFieldId(3))).toMatchObject({
+      name: "linked-password",
+      kind: "linked",
+      linkedFieldId: "login.password",
+    });
+    // Unnamed fields keep a display label but have no name to bind by.
+    expect(field(customFieldId(4))).toMatchObject({ label: "Custom field 5", name: null });
+    expect(field(customFieldId(5))).toMatchObject({ name: null });
   });
 
   it("locks values and metadata permanently when disposed", () => {
@@ -307,6 +331,12 @@ describe("custom field value semantics", () => {
         ok: false,
         error: { code: "unsupported-field" },
       });
+      expect(active.list().find((field) => field.ref.fieldId === customFieldId(0))).toMatchObject({
+        kind: "linked",
+      });
+      expect(
+        active.list().find((field) => field.ref.fieldId === customFieldId(0))?.linkedFieldId,
+      ).toBeUndefined();
     },
   );
 
