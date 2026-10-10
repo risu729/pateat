@@ -265,6 +265,7 @@ describe("strict account initialization and metadata", () => {
     expect(Object.keys(active).sort()).toEqual(
       [
         "decryptCipher",
+        "decryptCatalogGroups",
         "decryptFido2Credentials",
         "decryptFido2PrivateKey",
         "dispose",

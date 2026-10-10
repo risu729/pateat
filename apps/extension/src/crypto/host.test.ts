@@ -112,15 +112,16 @@ function harness(
     contexts = options.creationContexts ?? [{ documentId, documentUrl: offscreenUrl }];
     onConnect.emit(port);
   });
+  const getContexts = vi.fn(async () => {
+    const snapshot = structuredClone(contexts);
+    if (snapshot[0]?.documentId === documentId) await options.contextLookup?.();
+    return snapshot;
+  });
   const host = createCryptoHost({
     extensionId,
     offscreenUrl,
     onConnect,
-    getContexts: vi.fn(async () => {
-      const snapshot = structuredClone(contexts);
-      if (snapshot[0]?.documentId === documentId) await options.contextLookup?.();
-      return snapshot;
-    }),
+    getContexts,
     closeDocument,
     createDocument,
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
@@ -193,6 +194,7 @@ function harness(
     open,
     closeDocument,
     createDocument,
+    getContexts,
     setContexts: (next: typeof contexts) => {
       contexts = next;
     },
@@ -205,6 +207,27 @@ afterEach(async () => {
 });
 
 describe("background-only crypto host authorization and handshake", () => {
+  it("leaves another subsystem's named Port untouched while still rejecting an owned crypto name from a spoofed sender", async () => {
+    const h = harness();
+    const unrelated = {
+      ...h.port,
+      name: "pateat.bitwarden-setup.v1",
+      sender: { id: extensionId, url: `chrome-extension://${extensionId}/options.html` },
+      disconnect: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    h.onConnect.emit(unrelated);
+    await Promise.resolve();
+    expect(unrelated.disconnect).not.toHaveBeenCalled();
+    expect(unrelated.postMessage).not.toHaveBeenCalled();
+    expect(h.getContexts).not.toHaveBeenCalled();
+    expect(h.host.status()).toMatchObject({ ready: false, offscreenDocumentBound: false });
+    const spoofed = { ...unrelated, name: CRYPTO_PORT, disconnect: vi.fn() };
+    h.onConnect.emit(spoofed);
+    await vi.waitFor(() => expect(spoofed.disconnect).toHaveBeenCalledOnce());
+    expect(spoofed.postMessage).not.toHaveBeenCalled();
+    expect(h.getContexts).not.toHaveBeenCalled();
+  });
   it("closes a prior offscreen document and binds only the fresh browser document before sending secrets", async () => {
     const h = harness({ existing: true, automaticReady: false });
     const pending = h.host.deriveAuthentication(auth());

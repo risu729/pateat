@@ -6,7 +6,9 @@ import type {
   LocalFieldValue,
   LocalCryptoSession,
   PreparedBitwardenAccount,
+  LocalVaultMetadata,
 } from "@pateat/bitwarden";
+import { localVaultMetadataSchema } from "@pateat/bitwarden";
 import {
   boundedMessage,
   commandSchema,
@@ -293,6 +295,18 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           return;
         }
       }
+      if (job.operation.kind === "catalog") {
+        const metadata = v.safeParse(localVaultMetadataSchema, result.data);
+        if (
+          !metadata.success ||
+          metadata.output.connectionId !== job.connectionId ||
+          metadata.output.userId !== job.operation.session.userId ||
+          metadata.output.snapshotId !== job.operation.session.snapshotId
+        ) {
+          cancelOwned(parsed.output.requestId, "crypto-locked");
+          return;
+        }
+      }
       if (job.operation.kind === "export-unlock") {
         const exported = result.data as {
           userKey?: unknown;
@@ -364,6 +378,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     port.postMessage({ version: 1, type: "crypto.reset", generation });
   }
   const onConnect = (port: CryptoHostPort) => {
+    if (port.name !== CRYPTO_PORT) return;
     void connect(port);
   };
   deps.onConnect.addListener(onConnect);
@@ -596,6 +611,13 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<readonly LocalFieldMetadata[]>(
         session.connectionId,
         { kind: "list", session, itemId },
+        signal,
+      );
+    },
+    catalog(session: HostSessionRef, signal?: AbortSignal) {
+      return request<LocalVaultMetadata>(
+        session.connectionId,
+        { kind: "catalog", session },
         signal,
       );
     },

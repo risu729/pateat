@@ -112,6 +112,22 @@ export const settingsSnapshotSchema = v.strictObject({
   version: v.literal(1),
   revision,
   settings: localSettingsSchema,
+  fieldPolicies: v.optional(
+    v.pipe(
+      v.array(
+        v.strictObject({
+          connectionId: identifier,
+          snapshotId: v.pipe(v.string(), v.uuid()),
+          quarantinedItemIds: identifiers,
+          protectedItemIds: v.optional(identifiers),
+        }),
+      ),
+      v.maxLength(100),
+      v.check(
+        (entries) => new Set(entries.map((entry) => entry.connectionId)).size === entries.length,
+      ),
+    ),
+  ),
 });
 export const settingsRequestSchema = v.variant("type", [
   v.strictObject({ version: v.literal(1), type: v.literal("settings.get") }),
@@ -129,6 +145,9 @@ export const vaultCatalogSchema = v.strictObject({
       id: identifier,
       label: identifier,
       provider: identifier,
+      snapshotId: v.optional(v.pipe(v.string(), v.uuid())),
+      quarantinedItemIds: v.optional(identifiers),
+      state: v.optional(v.picklist(["ready", "locked", "unavailable", "review-required"])),
       groups: v.array(
         v.strictObject({
           id: identifier,

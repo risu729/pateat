@@ -6,6 +6,9 @@ import {
   type LocalCryptoSession,
   type LocalFieldSnapshot,
   type PreparedBitwardenAccount,
+  type LocalVaultMetadata,
+  vaultDisplayLabel,
+  localVaultMetadataSchema,
 } from "@pateat/bitwarden";
 import { loadBrowserCryptoSdk } from "@pateat/bitwarden/browser-sdk";
 import { commandSchema, type HostCommand, type HostSessionRef } from "./wire";
@@ -28,6 +31,8 @@ let owned:
       ciphers: Map<string, unknown>;
       fields: Map<string, LocalFieldSnapshot>;
       verified: boolean;
+      metadataContext: PreparedBitwardenAccount["encryptedMetadata"];
+      catalog?: LocalVaultMetadata;
     }
   | undefined;
 let busy = false;
@@ -112,7 +117,14 @@ async function execute(command: HostCommand) {
       sessionId: crypto.randomUUID(),
       snapshotId: op.snapshotId,
     };
-    owned = { ref, session: session.data, ciphers, fields: new Map(), verified: false };
+    owned = {
+      ref,
+      session: session.data,
+      ciphers,
+      fields: new Map(),
+      verified: false,
+      metadataContext: prepared.encryptedMetadata,
+    };
     return { ok: true as const, data: { session: ref, metadata: session.data.metadata } };
   }
   if (op.kind === "close") return fail("invalid-request"); // Supervisor handles termination.
@@ -121,6 +133,12 @@ async function execute(command: HostCommand) {
   if (op.kind === "lock") return fail("invalid-request");
   if (op.kind === "verify-received-ciphers") {
     owned.verified = false;
+    delete owned.catalog;
+    const groups = await owned.session.decryptCatalogGroups(
+      owned.metadataContext ?? { folders: [], collections: [] },
+    );
+    if (!groups.ok) return groups;
+    const items: LocalVaultMetadata["items"] = [];
     // Validate every received supported item, without building a plaintext field
     // cache or forwarding bulk CipherViews across the extension Port.
     for (const cipher of owned.ciphers.values()) {
@@ -130,7 +148,44 @@ async function execute(command: HostCommand) {
         cipher,
       });
       if (!checked.ok) return checked;
+      if (![1, 2, 3, 4].includes(checked.data.type)) return fail("crypto-failed");
+      const snapshot = createLocalFieldSnapshot({
+        connectionId: command.connectionId,
+        userId: owned.ref.userId,
+        snapshotId: owned.ref.snapshotId,
+        item: checked.data,
+      });
+      if (!snapshot.ok) return snapshot;
+      try {
+        items.push({
+          id: String(checked.data.id),
+          label: vaultDisplayLabel(checked.data.name, String(checked.data.id)),
+          type: checked.data.type as 1 | 2 | 3 | 4,
+          groupIds: [
+            ...new Set([
+              ...(checked.data.folderId ? [String(checked.data.folderId)] : []),
+              ...checked.data.collectionIds.map(String),
+            ]),
+          ],
+          fields: snapshot.data.list().map((field) => ({
+            id: field.ref.fieldId,
+            label: vaultDisplayLabel(field.label, field.ref.fieldId),
+            kind: field.kind,
+          })),
+        });
+      } finally {
+        snapshot.data.dispose();
+      }
     }
+    const catalog = v.safeParse(localVaultMetadataSchema, {
+      connectionId: command.connectionId,
+      userId: owned.ref.userId,
+      snapshotId: owned.ref.snapshotId,
+      groups: groups.data,
+      items,
+    });
+    if (!catalog.success) return fail("resource-limit");
+    owned.catalog = catalog.output;
     owned.verified = true;
     return { ok: true as const, data: { verifiedCipherCount: owned.ciphers.size } };
   }
@@ -138,6 +193,10 @@ async function execute(command: HostCommand) {
     if (!owned.verified) return fail("invalid-request");
     return owned.session.exportUnlockMaterial();
   }
+  if (op.kind === "catalog")
+    return owned.verified && owned.catalog
+      ? { ok: true as const, data: owned.catalog }
+      : fail("invalid-request");
   if (op.kind !== "resolve" && !("itemId" in op)) return fail("invalid-request");
   const itemId = (op.kind === "resolve" ? op.ref.itemId : op.itemId).toLowerCase();
   const cipher = owned.ciphers.get(itemId);

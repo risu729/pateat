@@ -3,6 +3,7 @@ import {
   DUMMY_VAULT_CATALOG,
   type SettingsStorage,
   type VaultCatalog,
+  type SettingsSnapshot,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 
@@ -10,7 +11,8 @@ const STORAGE_KEY = "pateat.local-settings.v1";
 
 /** Metadata providers expose no secrets here; future operations own separate capability checks. */
 export interface MetadataProvider {
-  readonly catalog: VaultCatalog;
+  readonly catalog: VaultCatalog | ((snapshot: SettingsSnapshot) => Promise<VaultCatalog>);
+  readonly initialCatalog?: VaultCatalog;
 }
 
 export const dummyMetadataProvider: MetadataProvider = { catalog: DUMMY_VAULT_CATALOG };
@@ -40,5 +42,5 @@ export function createLocalSettingsRuntime(provider: MetadataProvider = dummyMet
       await browser.storage.local.set({ [STORAGE_KEY]: snapshot });
     },
   };
-  return createSettingsStore(storage, provider.catalog);
+  return createSettingsStore(storage, provider.catalog, provider.initialCatalog);
 }

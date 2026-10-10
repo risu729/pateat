@@ -22,6 +22,9 @@ export interface LocalCryptoSession {
     metadata: LocalCryptoSession["metadata"];
   }>;
   decryptCipher(input: unknown): Promise<BitwardenResult<Sdk.CipherView>>;
+  decryptCatalogGroups(
+    input: unknown,
+  ): Promise<BitwardenResult<{ id: string; label: string; kind: "folder" | "collection" }[]>>;
   decryptFido2Credentials(input: unknown): Promise<BitwardenResult<Sdk.Fido2CredentialView[]>>;
   decryptFido2PrivateKey(input: unknown): Promise<BitwardenResult<string>>;
   dispose(): void;
@@ -121,6 +124,32 @@ const date = v.pipe(
     return day <= days && Number.isFinite(Date.parse(value));
   }),
 );
+const groupEncryption = v.pipe(
+  text,
+  v.check((value) => authenticatedCiphertext(value)),
+);
+export const encryptedCatalogContextSchema = v.strictObject({
+  folders: v.pipe(
+    v.array(v.strictObject({ id: uuid, name: groupEncryption, revisionDate: date })),
+    v.maxLength(10000),
+  ),
+  collections: v.pipe(
+    v.array(
+      v.strictObject({
+        id: uuid,
+        organizationId: uuid,
+        name: groupEncryption,
+        externalId: nullable(v.string()),
+        hidePasswords: v.boolean(),
+        readOnly: v.boolean(),
+        manage: v.boolean(),
+        defaultUserCollectionEmail: nullable(v.string()),
+        type: v.picklist([0, 1]),
+      }),
+    ),
+    v.maxLength(10000),
+  ),
+});
 const items = <TSchema extends v.GenericSchema>(schema: TSchema) =>
   nullable(v.pipe(v.array(schema), v.maxLength(10_000)));
 const encryptedObject = (names: readonly string[], required: readonly string[] = []) =>
@@ -721,6 +750,70 @@ export async function createLocalCryptoSession(
           return { ok: true as const, data: { userKey, metadata } };
         },
         decryptCipher: decrypt,
+        decryptCatalogGroups: async (contextInput: unknown) => {
+          if (locked) return failure("crypto-locked");
+          let checked: v.SafeParseResult<typeof encryptedCatalogContextSchema>;
+          try {
+            checked = v.safeParse(encryptedCatalogContextSchema, structuredClone(contextInput));
+          } catch {
+            return failure("invalid-crypto-input");
+          }
+          if (!checked.success) return failure("invalid-crypto-input");
+          const output: { id: string; label: string; kind: "folder" | "collection" }[] = [];
+          const ids = new Set<string>();
+          pendingCalls += 1;
+          const folders = vault.folders();
+          const collections = client.collections();
+          try {
+            for (const [kind, groups] of [
+              ["folder", checked.output.folders],
+              ["collection", checked.output.collections],
+            ] as const) {
+              for (const group of groups) {
+                const id = group.id.toLowerCase();
+                if (ids.has(id)) return failure("invalid-crypto-input");
+                ids.add(id);
+                // Folder::decrypt swallows name errors. Verify the same authenticated
+                // name with strict SDK cipher decryption before using its group view.
+                // eslint-disable-next-line no-await-in-loop
+                const authenticated = await decrypt({
+                  connectionId,
+                  cipher: {
+                    id,
+                    type: 2,
+                    name: group.name,
+                    collectionIds: [],
+                    favorite: false,
+                    reprompt: 0,
+                    organizationUseTotp: false,
+                    edit: false,
+                    viewPassword: false,
+                    creationDate: "1970-01-01T00:00:00Z",
+                    revisionDate: "1970-01-01T00:00:00Z",
+                    secureNote: { type: 0 },
+                    ...(kind === "collection" && "organizationId" in group
+                      ? { organizationId: group.organizationId }
+                      : {}),
+                  },
+                });
+                if (!authenticated.ok) return authenticated;
+                const view =
+                  kind === "folder"
+                    ? folders.decrypt(group as unknown as Sdk.Folder)
+                    : collections.decrypt(group as unknown as Sdk.Collection);
+                output.push({ id, label: (view.name || id).slice(0, 200), kind });
+              }
+            }
+            return locked ? failure("crypto-locked") : { ok: true as const, data: output };
+          } catch {
+            return failure(locked ? "crypto-locked" : "crypto-failed");
+          } finally {
+            folders.free();
+            collections.free();
+            pendingCalls -= 1;
+            if (locked && pendingCalls === 0) releaseHandles();
+          }
+        },
         decryptFido2Credentials: async (
           request: unknown,
         ): Promise<BitwardenResult<Sdk.Fido2CredentialView[]>> => {

@@ -1,7 +1,8 @@
 # ADR 0006: Commit local vault state with atomic revision checks
 
-Status: accepted implementation decision within the approved persistent-unlock
-scope; implementation and acceptance tests are in progress.
+Status: accepted and implemented in
+[PR #19](https://github.com/risu729/pateat/pull/19). Native browser acceptance uses
+synthetic accounts; production connection integration remains separate.
 
 Date: 2026-10-10
 

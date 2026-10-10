@@ -19,6 +19,10 @@ test("crypto host packages native WASM under MV3 CSP while its synthetic probe s
       expect(manifest.permissions).toContain("offscreen");
       expect(manifest.content_security_policy.extension_pages).toContain("'wasm-unsafe-eval'");
       expect(manifest.content_security_policy.extension_pages).not.toContain("'unsafe-eval'");
+      expect(manifest.content_security_policy.extension_pages).toContain(
+        "connect-src 'self' https:",
+      );
+      expect(manifest.optional_host_permissions).toEqual(["https://*/*"]);
       expect(manifest.host_permissions ?? []).toEqual(
         directory === probe ? ["http://127.0.0.1/*"] : [],
       );
@@ -29,6 +33,8 @@ test("crypto host packages native WASM under MV3 CSP while its synthetic probe s
         );
         expect(background).not.toContain("synthetic-host");
         expect(background).not.toContain("crypto.probe");
+        expect(background).not.toContain("setup.probe");
+        expect(background).not.toContain("unsupported-synthetic-request");
       }
       const files = await readdir(directory, { recursive: true });
       expect(files).toContain("crypto-offscreen.html");

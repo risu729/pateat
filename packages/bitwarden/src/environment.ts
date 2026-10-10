@@ -42,7 +42,7 @@ export function normalizeBitwardenProfile(input: unknown): BitwardenResult<Bitwa
 
   const raw = environment.baseUrl;
   // Reject syntax which URL() would repair, including dot segments and encoded paths.
-  if (!/^https:\/\/[^/?#\\\s%@]+\/?$/i.test(raw)) return failure("invalid-profile");
+  if (!/^https:\/\/[^/?#\\\s%@*]+\/?$/i.test(raw)) return failure("invalid-profile");
   try {
     const url = new URL(raw);
     if (

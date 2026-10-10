@@ -3,7 +3,11 @@ import * as v from "valibot";
 
 import { normalizeBitwardenProfile, type BitwardenProfile } from "./environment";
 import { failure, type BitwardenErrorCode, type BitwardenResult } from "./errors";
-import { admitLocalCryptoCipher, localCryptoAccountContextSchema } from "./local-crypto";
+import {
+  admitLocalCryptoCipher,
+  localCryptoAccountContextSchema,
+  encryptedCatalogContextSchema,
+} from "./local-crypto";
 import { encryptedSyncEnvelopeSchema } from "./models";
 
 type RecordValue = Record<string, unknown>;
@@ -51,6 +55,8 @@ export type PreparedBitwardenAccount = {
   unavailableItems: { itemId: string; reason: "unsupported-cipher-type" }[];
   minimumSecurityVersion: 1 | 2;
   coverage: "received-envelope";
+  /** Optional for caches accepted before metadata retention was implemented. */
+  encryptedMetadata?: v.InferOutput<typeof encryptedCatalogContextSchema>;
 };
 export interface BitwardenAccountMapper {
   readonly profile: BitwardenProfile;
@@ -86,6 +92,7 @@ export function admitPreparedBitwardenAccount(
           v.maxLength(10_000),
         ),
         coverage: v.literal("received-envelope"),
+        encryptedMetadata: v.optional(encryptedCatalogContextSchema),
       }),
       structuredClone(input),
     );
@@ -210,6 +217,10 @@ function list(input: unknown, maximum = 10_000): unknown[] {
 }
 function optionalList(input: unknown, maximum = 10_000): unknown[] {
   return input == null ? [] : list(input, maximum);
+}
+function boolean(input: unknown): boolean {
+  if (typeof input !== "boolean") reject();
+  return input;
 }
 function canonicalBase64(input: unknown): string {
   const value = requiredText(input);
@@ -685,6 +696,55 @@ export function createBitwardenAccountMapper(
               reject();
             ciphers.push(cipher);
           }
+          const encryptedMetadata = v.safeParse(encryptedCatalogContextSchema, {
+            folders: list(sync.folders).map((folderInput) => {
+              const folder = record(folderInput);
+              return {
+                id: identifier(read(folder, "id")),
+                name: encrypted(read(folder, "name")),
+                revisionDate: requiredText(read(folder, "revisionDate")),
+              };
+            }),
+            collections: list(sync.collections).map((collectionInput) => {
+              const collection = record(collectionInput);
+              const organizationId = identifier(read(collection, "organizationId"));
+              if (!organizations.has(organizationId)) reject();
+              return {
+                id: identifier(read(collection, "id")),
+                organizationId,
+                name: encrypted(read(collection, "name")),
+                externalId:
+                  read(collection, "externalId") == null
+                    ? undefined
+                    : requiredText(read(collection, "externalId")),
+                hidePasswords:
+                  read(collection, "hidePasswords") == null
+                    ? false
+                    : boolean(read(collection, "hidePasswords")),
+                readOnly:
+                  read(collection, "readOnly") == null
+                    ? false
+                    : boolean(read(collection, "readOnly")),
+                manage:
+                  read(collection, "manage") == null ? false : boolean(read(collection, "manage")),
+                defaultUserCollectionEmail:
+                  read(collection, "defaultUserCollectionEmail") == null
+                    ? undefined
+                    : requiredText(read(collection, "defaultUserCollectionEmail")),
+                type: integer(read(collection, "type")) as 0 | 1,
+              };
+            }),
+          });
+          if (
+            !encryptedMetadata.success ||
+            new Set(
+              [...encryptedMetadata.output.folders, ...encryptedMetadata.output.collections].map(
+                (group) => group.id.toLowerCase(),
+              ),
+            ).size !==
+              encryptedMetadata.output.folders.length + encryptedMetadata.output.collections.length
+          )
+            reject();
           return {
             ok: true,
             data: {
@@ -700,6 +760,7 @@ export function createBitwardenAccountMapper(
               unavailableItems,
               minimumSecurityVersion: binding.kind === "known" ? binding.minimumSecurityVersion : 1,
               coverage: "received-envelope",
+              encryptedMetadata: encryptedMetadata.output,
             },
           };
         } catch (error) {

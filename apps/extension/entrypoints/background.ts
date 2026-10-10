@@ -1,17 +1,16 @@
 import { getFoundationStatus, isStatusRequest } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
-import { createLocalSettingsRuntime } from "../src/settings";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
 import { createBrowserCryptoHost } from "../src/crypto/browser";
 import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/probe";
 import { createVaultProbe } from "../src/vault/probe";
+import { createConnectionRuntime } from "../src/connections/runtime";
+import { createConnectionProbeTransport } from "../src/connections/probe";
 
 export default defineBackground(() => {
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
-  const settings = catalog ? createLocalSettingsRuntime({ catalog }) : createLocalSettingsRuntime();
-  const login = catalog ? createLoginRuntime(settings, catalog) : undefined;
   const cryptoControls = import.meta.env.MODE === "probe" ? createCryptoProbeControls() : undefined;
   const cryptoHost = createBrowserCryptoHost(
     cryptoControls
@@ -20,11 +19,44 @@ export default defineBackground(() => {
   );
   const cryptoProbe = cryptoControls ? createCryptoProbe(cryptoHost, cryptoControls) : undefined;
   const vaultProbe = import.meta.env.MODE === "probe" ? createVaultProbe(cryptoHost) : undefined;
+  const syntheticSetup =
+    import.meta.env.MODE === "probe" ? createConnectionProbeTransport() : undefined;
+  const connections = createConnectionRuntime(cryptoHost, {
+    ...(catalog ? { baseCatalog: catalog } : {}),
+    ...(syntheticSetup
+      ? {
+          transportOptions: syntheticSetup.transportOptions,
+          containsPermission: syntheticSetup.containsPermission,
+        }
+      : {}),
+  });
+  const settings = connections.settings;
+  const login = catalog ? createLoginRuntime(settings, catalog) : undefined;
+  const setupProbe = syntheticSetup?.handler(connections);
+  browser.runtime.onConnect.addListener((port) => {
+    connections.attach(port);
+  });
+  browser.permissions.onRemoved.addListener(() => {
+    connections.service.permissionsRemoved();
+  });
   browser.action.onClicked.addListener(() => {
     void browser.runtime.openOptionsPage();
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (
+      setupProbe &&
+      sender.id === browser.runtime.id &&
+      sender.url === new URL("crypto-probe.html", browser.runtime.getURL("/options.html")).href &&
+      message !== null &&
+      typeof message === "object" &&
+      message.type === "setup.probe"
+    ) {
+      void setupProbe(message).then(sendResponse, () =>
+        sendResponse({ ok: false, error: { code: "setup-unavailable" } }),
+      );
+      return true;
+    }
     if (
       vaultProbe &&
       sender.id === browser.runtime.id &&

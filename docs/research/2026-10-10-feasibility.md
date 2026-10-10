@@ -236,7 +236,8 @@ inactive tab with identity checked across navigation.
 [CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
 two Windows browser cases remain blocked before Chromium launch by a missing SideBySide
 assembly; Linux success does not resolve that host issue. These isolated synthetic tests
-do not establish actual installed Chrome use coexistence, which remains untested.
+do not establish actual installed Chrome use coexistence, which had not yet been tested
+at that head. The later early acceptance result is recorded below.
 Complete M1 and deployed service acceptance remain separate gates in
 [the plan](../plan.md).
 
@@ -357,3 +358,24 @@ human confirmation is not inherent to MCP; this does not establish Dots/Grok UI 
 or bypass any client's action policy. A synthetic target-client test must verify
 authorized autonomous calls before claiming this integration is useful for unattended
 operation. No such test was run.
+
+## Early installed-Chrome acceptance, 2026-10-10
+
+At approximately 06:24-06:34 UTC, the owner manually installed the frozen synthetic
+probe built from `b96fc146e6d73dcef5fcf969734d67e2bcad04bc`. Its nine artifact hashes
+were checked before use. In the owner's existing connected Chrome profile, Pateat
+completed multi-page and single-page login, input/change-triggered submission and
+input-triggered page advance using loopback-only synthetic credentials. The
+controller navigated and observed; it did not fill fields or click login controls.
+Fixture-side value matches and POST/click counts verified exactly one intended
+submission. Rejection and unknown outcomes did not cause duplicate clicks; a
+concurrent tab stayed empty while the original attempt retained ownership, and
+ambiguous duplicate fields stayed empty.
+
+A background multi-page run completed with each page's first script recording
+hidden and unfocused state before extension execution. This is stronger evidence
+than later observer visibility readings. The exact Chrome version and complete
+extension inventory were not established. Official Bitwarden coexistence, the
+later SDK/setup build, real-account authentication, passkeys, broader frames and
+restart behavior in this actual profile remain separate gates. Owned fixture tabs
+and servers were closed; the user-installed synthetic probe and settings remained.

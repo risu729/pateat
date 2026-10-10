@@ -78,6 +78,7 @@ test("production package permits local storage and the crypto host with no site 
   expect(manifest.content_scripts ?? []).toEqual([]);
   expect(manifest.permissions).toEqual(["storage", "offscreen"]);
   expect(manifest.host_permissions ?? []).toEqual([]);
+  expect(manifest.optional_host_permissions).toEqual(["https://*/*"]);
   expect(manifest.web_accessible_resources ?? []).toEqual([]);
   const background = await readFile(
     resolve(extensionDirectory, manifest.background.service_worker),
@@ -94,6 +95,7 @@ test("production package permits local storage and the crypto host with no site 
   // matches. It belongs only to the synthetic build and only to loopback HTTP.
   expect(probeManifest.permissions).toEqual(["storage", "offscreen"]);
   expect(probeManifest.host_permissions).toEqual(["http://127.0.0.1/*"]);
+  expect(probeManifest.optional_host_permissions).toEqual(["https://*/*"]);
   expect(
     probeManifest.content_scripts.every((script: { matches: string[] }) =>
       script.matches.every((match) => match === "http://127.0.0.1/*"),
@@ -101,8 +103,8 @@ test("production package permits local storage and the crypto host with no site 
   ).toBe(true);
 });
 
-test("the built options page supports keyboard validation and passes accessibility checks", async () => {
-  await withExtension(extensionDirectory, async (context, _worker, id) => {
+test("probe options support keyboard policy validation and pass accessibility checks", async () => {
+  await withExtension(probeDirectory, async (context, _worker, id) => {
     const page = await context.newPage();
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -149,17 +151,38 @@ test("the built options page supports keyboard validation and passes accessibili
   });
 });
 
-test("installed foundation reports truthful status and rejects extra request fields", async () => {
+test("installed production offers manual setup with an empty real catalog and rejects extra request fields", async () => {
   await withExtension(extensionDirectory, async (context, _worker, id) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${id}/options.html`);
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
-    await expect(page.locator("#runtime-status")).toHaveText("Extension ready · Foundation only");
-    await expect(page.locator("#vault-status")).toHaveText("Not connected");
+    await expect(page.locator("#runtime-status")).toHaveText(
+      "Extension ready · Automatic login unavailable",
+    );
+    await expect(page.locator("#vault-status")).toHaveCount(0);
+    await expect(page.locator("#bitwarden-setup-status")).toHaveText(
+      "Connections loaded. Add a vault or sign in again below.",
+    );
     await expect(page.locator("#service-status")).toHaveText("Not configured");
     await expect(page.locator("#login-status")).toHaveText("Not implemented");
     await page.getByRole("button", { name: "Refresh status" }).click();
-    await expect(page.locator("#runtime-status")).toHaveText("Extension ready · Foundation only");
+    await expect(page.locator("#runtime-status")).toHaveText(
+      "Extension ready · Automatic login unavailable",
+    );
+    const saved = await page.evaluate(async () => {
+      const chrome = (globalThis as unknown as { chrome: TestChrome }).chrome;
+      return (await chrome.runtime.sendMessage({
+        version: 1,
+        type: "settings.get",
+      })) as SettingsResponse;
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) throw new Error("Production settings unavailable");
+    expect(saved.catalog.connections).toEqual([]);
+    expect(saved.snapshot.settings.connections).toEqual([]);
+    expect(
+      await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze(),
+    ).toMatchObject({ violations: [] });
     expect(
       await page.evaluate(async () => {
         const chrome = (globalThis as unknown as { chrome: TestChrome }).chrome;
@@ -254,7 +277,7 @@ test("local policies and account defaults survive a browser restart", async () =
   const profile = await mkdtemp(resolve(tmpdir(), "pateat-settings-test-"));
   try {
     await withExtension(
-      extensionDirectory,
+      probeDirectory,
       async (context, _worker, id) => {
         const page = await context.newPage();
         await page.goto(`chrome-extension://${id}/options.html`);
@@ -285,7 +308,7 @@ test("local policies and account defaults survive a browser restart", async () =
       profile,
     );
     await withExtension(
-      extensionDirectory,
+      probeDirectory,
       async (context, _worker, id) => {
         const page = await context.newPage();
         await page.goto(`chrome-extension://${id}/options.html`);
