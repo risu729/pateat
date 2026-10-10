@@ -83,6 +83,8 @@ acceptance results are recorded in [dated research](research/2026-10-10-feasibil
 
 This procedure prepares a manual acceptance run; its availability is not evidence
 that installed Chrome or Chrome use has passed. Use only the synthetic probe build.
+The probe grants host access only to `http://127.0.0.1/*` so the coordinator can
+recheck browser-provided tab URLs. Production grants no host access.
 
 1. Run `mise run build:probe` and `mise run probe:login`. The latter serves only
    `http://127.0.0.1:3847` and stops with Ctrl+C. It does not contact a vault or AI.
