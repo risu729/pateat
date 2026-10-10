@@ -1,7 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
+  modules: ["@wxt-dev/module-react"],
+  vite: () => ({ plugins: [tailwindcss()] }),
   manifest: {
     name: "Pateat",
     description: "Local login assistant — foundation preview. Login is not implemented.",
