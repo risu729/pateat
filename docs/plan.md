@@ -325,6 +325,14 @@ Chrome yet.
   `credential-rejected` or an unknown outcome. Saving bumps the settings revision every
   attempt checks, so it is skipped while another login is still running; the next login
   chooses again.
+- A site default saved from now on names the provider account and item
+  (`{ origin, provider, userId, itemId }`, ADR 0013); the executor and the settings page
+  find this device's connection through the catalog connection's `userId`, and an
+  account that is not connected here refuses as `connection-missing`, one connected
+  twice as `account-ambiguous`, and one whose vault is locked or unavailable as
+  `vault-unavailable`; the settings page refuses to save a default it could not use. A
+  default saved earlier with a `connectionId` is still read and used as before and is
+  never rewritten.
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
@@ -515,23 +523,27 @@ ceremony policy, for unattended and UV-required requests, keep the browser's rej
 for unknown allow-list credentials and a denied permissions policy, and cover abort and
 background timeout.
 
-The crypto Worker can list and sign with a stored passkey of one verified, live login
-item from the accepted snapshot. The host and vault manager expose these two operations
-with the same snapshot binding, durable-revision checks and late-result withholding as
-URL matching. Listing returns only the secret-free metadata above. Signing re-derives
-the item's single credential, requires the requested credential ID and RP ID to match
-it, refuses a nonzero stored counter, and signs only 37-byte zero-counter assertion data
+The crypto Worker can search the verified, live login items of the accepted snapshot for
+stored passkeys whose RP ID equals the requested one, and sign with the passkey of one
+such item. The host and vault manager expose these two operations with the same snapshot
+binding, durable-revision checks and late-result withholding as URL matching. The search
+decrypts credential metadata only for items whose encrypted `login.fido2Credentials` is
+non-empty and returns only the secret-free metadata above. Items whose metadata cannot
+be decrypted, and decrypted items with this RP ID that cannot be used (for example
+several stored passkeys), are listed in `unavailableItemIds` instead of failing the
+search; items whose passkeys all have other RP IDs are not. Signing re-derives the
+item's single credential, requires the requested credential ID and RP ID to match it,
+refuses a nonzero stored counter, and signs only 37-byte zero-counter assertion data
 whose RP ID hash matches and whose flags carry UP, BE and BS with no attested data,
 extension or reserved bits. The decoded key is imported non-extractable inside the
 Worker and only a DER signature crosses the Port. A reply bound to another snapshot,
 item or credential, or with any other shape, locks the session; an unreadable or
 ambiguous item fails on its own without retiring the session. Unit tests sign through
 the pinned SDK with the synthetic FIDO2 fixture and verify against its public key.
-Selecting vault items by RP ID with the site default as the tie-break, as
+Applying exclusions, connection state and the site default tie-break that
 [ADR 0007](adr/0007-existing-passkey-assertions.md#item-selection) records, production
-entrypoints and real-site interoperability
-remain open; a navigation during signing relies on Chrome dropping the response to the
-replaced document.
+entrypoints and real-site interoperability remain open; a navigation during signing
+relies on Chrome dropping the response to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
 accessor property returning a function with a different `length` and source text), which
@@ -598,9 +610,12 @@ errors, p50/p95 latency and usage. Fake-provider tests cover malformed output,
 nonexistent targets, malformed probabilities, refusal, truncation, timeout, rate limits,
 oversized and incomplete inputs and the absence of fallback.
 
-No provider or model is selected and no paid inference has run. Remaining M4 AI work:
+[ADR 0014](adr/0014-claude-generation-provider.md) selects `claude-opus-5-5` at effort
+`low` through `@ai-sdk/anthropic` for the generation/repair role; the finite-choice role
+has no provider yet. No paid inference has run. Remaining M4 AI work:
 
-- Provider adapters after owner selection, real benchmark runs and their report.
+- The Claude adapter and the one owner-approved benchmark run of the synthetic corpus,
+  with its report.
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
 - The extension observation extractor with privacy fixtures. Expect Japanese pages to
@@ -663,7 +678,7 @@ implicit permissions or initial acceptance requirements.
 | M1: Tooling and runtime probes                | WXT skeleton, shared Valibot contracts, mise/hk, mandatory CI                                            | Frozen installation; full checks; packaged extension build; early injection/background execution in isolated Chromium and a small installed-Chrome/Chrome-use dummy-page coexistence probe; compatible cf/Workers test harness |
 | M2: Local login engine and settings           | Dummy vault adapter, settings page, multi-connection policies, saved site defaults, declarative executor | Multi-field/multi-page fixtures; policy precedence, excluded-site pass-through, background, navigation, interruption and concurrency tests; no automatic extension UI                                                          |
 | M3: Bitwarden passwords                       | First real adapter, local sync/crypto, persistent unlock, custom fields and TOTP                         | Synthetic protocol/crypto vectors; supported environment/authentication and TOTP cases below; restart/unlock; no vault writes; explicit unsupported cases; controlled account test only when authorized                        |
-| M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe/binding sync and web UI, role-specific AI adapters, Clef/Jev evaluation | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; provider selection evidence |
+| M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe/binding sync and web UI, Claude generation adapter (ADR 0014) | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; benchmark report |
 | M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, configured UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
 | M6: Integrated acceptance and server delivery | Chrome use coexistence, operational docs, hosted service release                                         | Installed Chrome dummy-account tests plus artifact-verified deployment and hosted synthetic smoke checks; measured limits documented                                                                                           |
 
@@ -768,15 +783,17 @@ support for every site or vault format. Keep observed limitations explicit.
   the monthly monetary budget default before service deployment. Initial spending
   control aggregates usage and stops later inference after the limit is reached;
   in-flight/concurrent requests can overshoot. Atomic maximum-cost reservation is
-  not required. Verify actual Anthropic Console credit before paid inference.
+  not required. The owner confirmed $200 of monthly Claude API credit; ADR 0014 sets
+  the default limit to $150.
 - Benchmark generation/repair and finite-choice roles separately on the same
-  Japanese/English synthetic login corpus. Evaluate Claude for generation and
-  Clef-flash, Clef and Jev for decisions: semantic correctness, false-submit count,
-  abstentions, joint mapping consistency, p50/p95 end-to-end latency and usage/cost.
-  Test invalid candidate IDs, malformed probabilities, context overflow and incomplete
-  observations. Clef vendor latency/price claims are research inputs, not Pateat
-  measurements. Present results to the owner for provider/model selection; evaluation
-  does not authorize adoption. There is no latency promise. Use only the configured
+  Japanese/English synthetic login corpus. Measure the ADR 0014 Claude configuration for
+  generation; Clef-flash, Clef and Jev for decisions are optional later candidates.
+  Report semantic correctness, false-submit count, abstentions, joint mapping
+  consistency, p50/p95 end-to-end latency and usage/cost. Test invalid candidate IDs,
+  malformed probabilities, context overflow and incomplete observations. Clef vendor
+  latency/price claims are research inputs, not Pateat measurements. Present results to
+  the owner; a model or effort change is an owner decision, and evaluating a candidate
+  does not authorize adopting it. There is no latency promise. Use only the configured
   provider/model for each role; its failure is an error, not an automatic fallback.
   Cached recipes continue after an AI/budget failure.
 

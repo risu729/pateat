@@ -12,6 +12,7 @@ const id = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 const uuid = v.pipe(v.string(), v.uuid());
 const base64Url = (minimum: number, maximum: number) =>
   v.pipe(v.string(), v.minLength(minimum), v.maxLength(maximum), v.regex(/^[A-Za-z0-9_-]+$/u));
+const rpId = v.pipe(v.string(), v.minLength(1), v.maxLength(253));
 export const sessionSchema = v.strictObject({
   brokerGeneration: uuid,
   connectionId: id,
@@ -36,7 +37,7 @@ export type HostOperation =
       nowMs?: number;
     }
   | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
-  | { kind: "passkey-candidates"; session: HostSessionRef; itemId: string }
+  | { kind: "passkey-find"; session: HostSessionRef; rpId: string }
   | {
       kind: "passkey-sign";
       session: HostSessionRef;
@@ -96,13 +97,13 @@ export const commandSchema = v.strictObject({
       session: sessionSchema,
       targetUrl: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
     }),
-    v.strictObject({ kind: v.literal("passkey-candidates"), session: sessionSchema, itemId: uuid }),
+    v.strictObject({ kind: v.literal("passkey-find"), session: sessionSchema, rpId }),
     v.strictObject({
       kind: v.literal("passkey-sign"),
       session: sessionSchema,
       itemId: uuid,
       credentialId: base64Url(1, 1366),
-      rpId: v.pipe(v.string(), v.minLength(1), v.maxLength(253)),
+      rpId,
       // 37 and 32 bytes; the Worker decodes and checks them strictly.
       authenticatorData: base64Url(50, 50),
       clientDataHash: base64Url(43, 43),
@@ -118,19 +119,26 @@ const passkeyBinding = {
   itemId: uuid,
   credentialId: base64Url(1, 1366),
 };
-/** Secret-free passkey metadata for one item; the private key never leaves the Worker. */
-export const passkeyCandidatesSchema = v.pipe(
-  v.array(
-    v.strictObject({
-      ...passkeyBinding,
-      rpId: v.pipe(v.string(), v.minLength(1), v.maxLength(253)),
-      userHandle: v.nullable(base64Url(1, 86)),
-      discoverable: v.boolean(),
-      counter: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(0xff_ff_ff_ff)),
-    }),
+/** Secret-free passkey metadata for the snapshot's live login items with one RP ID. */
+export const passkeyMatchesSchema = v.strictObject({
+  connectionId: id,
+  userId: uuid,
+  snapshotId: uuid,
+  rpId,
+  candidates: v.pipe(
+    v.array(
+      v.strictObject({
+        ...passkeyBinding,
+        rpId,
+        userHandle: v.nullable(base64Url(1, 86)),
+        discoverable: v.boolean(),
+        counter: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(0xff_ff_ff_ff)),
+      }),
+    ),
+    v.maxLength(10_000),
   ),
-  v.maxLength(1),
-);
+  unavailableItemIds: v.pipe(v.array(uuid), v.maxLength(10_000)),
+});
 /** One DER ECDSA P-256 signature (8 to 72 bytes) bound to the credential that made it. */
 export const passkeySignatureSchema = v.strictObject({
   ...passkeyBinding,

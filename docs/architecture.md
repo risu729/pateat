@@ -327,7 +327,9 @@ subdomain option and stop Pateat analysis, inference, filling, submission and
 passkey handling while preserving ordinary browser authentication. Apply them
 before collecting observations; policy changes cancel stale work.
 
-The account choice is a saved site default applied on the next login. Without one,
+The account choice is a saved site default applied on the next login. New defaults
+name the provider account and item, not this device's connection; defaults saved
+earlier with a connection ID still work. Without one,
 a single eligible provider URI match is used and saved only after the login is
 `authenticated`; a saved choice keeps winning when more items match later
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not

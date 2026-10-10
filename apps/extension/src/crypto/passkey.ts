@@ -103,6 +103,82 @@ export async function listStoredPasskeys(
   }
 }
 
+export interface PasskeyMatches extends PasskeyBinding {
+  readonly rpId: string;
+  readonly candidates: readonly LocalPasskeyCredential[];
+  /** Live login items whose stored passkey could not be read; never chosen silently. */
+  readonly unavailableItemIds: readonly string[];
+}
+
+/** Cheap check on the still-encrypted cipher so items without passkeys are never decrypted. */
+function storesPasskey(cipher: unknown) {
+  const credentials = (cipher as { login?: { fido2Credentials?: unknown } } | null)?.login
+    ?.fido2Credentials;
+  return Array.isArray(credentials) && credentials.length > 0;
+}
+
+/**
+ * Every verified live login item whose stored passkey has exactly this RP ID, as the official
+ * Bitwarden client searches: by RP ID, not by saved URIs. Only secret-free metadata is returned.
+ * An item is unavailable when its passkey metadata cannot be decrypted, so its RP ID is unknown,
+ * or when it is decrypted, has this RP ID and still cannot be used; an item whose decrypted
+ * passkeys all have other RP IDs never affects this search.
+ */
+export async function findStoredPasskeys(
+  session: LocalCryptoSession,
+  binding: PasskeyBinding,
+  source: PasskeyItemSource,
+  rpId: string,
+): Promise<BitwardenResult<PasskeyMatches>> {
+  if (!source.verified) return failure("invalid-request");
+  const candidates: LocalPasskeyCredential[] = [];
+  const unavailableItemIds: string[] = [];
+  for (const key of source.loginUris.keys()) {
+    const itemId = key.toLowerCase();
+    const cipher = source.ciphers.get(itemId);
+    if (cipher === undefined) {
+      unavailableItemIds.push(itemId);
+      continue;
+    }
+    if (!storesPasskey(cipher)) continue;
+    let views: BitwardenResult<readonly { readonly rpId?: unknown }[]>;
+    try {
+      const input = { connectionId: binding.connectionId, cipher };
+      // eslint-disable-next-line no-await-in-loop -- one SDK session decrypts serially.
+      views = perItem(await session.decryptFido2Credentials(input));
+    } catch {
+      views = failure("unsupported-crypto");
+    }
+    if (!views.ok || !Array.isArray(views.data)) {
+      if (!views.ok && views.error.code === "crypto-locked") return views;
+      unavailableItemIds.push(itemId);
+      continue;
+    }
+    if (!views.data.some((view) => view.rpId === rpId)) continue;
+    const mapped = mapLocalPasskeyCredentials({
+      connectionId: binding.connectionId,
+      userId: binding.userId,
+      snapshotId: binding.snapshotId,
+      itemId,
+      credentials: views.data,
+    });
+    if (!mapped.ok) {
+      unavailableItemIds.push(itemId);
+      continue;
+    }
+    for (const credential of mapped.data) if (credential.rpId === rpId) candidates.push(credential);
+  }
+  return {
+    ok: true,
+    data: Object.freeze({
+      ...binding,
+      rpId,
+      candidates: Object.freeze(candidates),
+      unavailableItemIds: Object.freeze(unavailableItemIds),
+    }),
+  };
+}
+
 /**
  * Sign one assertion with the item's stored key. The Worker re-derives the credential and checks
  * that the data is a zero-counter assertion for that credential's RP ID, so this cannot be used

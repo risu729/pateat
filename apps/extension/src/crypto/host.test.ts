@@ -493,14 +493,22 @@ describe("fixed operations, session scope and reply fencing", () => {
     credentialId: storedPasskey.credentialId,
     signature: "MAYCAQECAQE",
   };
-  it("lists snapshot-bound passkey metadata and signs by item ID inside the Worker", async () => {
+  const passkeyMatches = {
+    connectionId,
+    userId: accountUserId,
+    snapshotId,
+    rpId: storedPasskey.rpId,
+    candidates: [storedPasskey],
+    unavailableItemIds: [crypto.randomUUID()],
+  };
+  it("finds snapshot-bound passkey metadata by RP ID and signs by item ID inside the Worker", async () => {
     const h = harness();
     const session = await h.open();
-    const listed = h.host.passkeyCandidates(session, itemId);
-    const listing = await h.command(1);
-    expect(listing.operation).toEqual({ kind: "passkey-candidates", session, itemId });
-    h.reply(listing, { ok: true, data: [storedPasskey] });
-    expect(await listed).toEqual({ ok: true, data: [storedPasskey] });
+    const found = h.host.findPasskeys(session, "example.com");
+    const finding = await h.command(1);
+    expect(finding.operation).toEqual({ kind: "passkey-find", session, rpId: "example.com" });
+    h.reply(finding, { ok: true, data: passkeyMatches });
+    expect(await found).toEqual({ ok: true, data: passkeyMatches });
     const signed = h.host.signPasskey(session, signInput);
     const signing = await h.command(2);
     expect(signing.operation).toEqual({ kind: "passkey-sign", session, ...signInput });
@@ -514,16 +522,36 @@ describe("fixed operations, session scope and reply fencing", () => {
     const signed = h.host.signPasskey(session, signInput);
     h.reply(await h.command(1), { ok: false, error: { code: "unsupported-crypto" } });
     expect(await signed).toEqual({ ok: false, error: { code: "unsupported-crypto" } });
-    const listed = h.host.passkeyCandidates(session, itemId);
-    h.reply(await h.command(2), { ok: true, data: [] });
-    expect(await listed).toEqual({ ok: true, data: [] });
+    const empty = { ...passkeyMatches, candidates: [], unavailableItemIds: [] };
+    const found = h.host.findPasskeys(session, "example.com");
+    h.reply(await h.command(2), { ok: true, data: empty });
+    expect(await found).toEqual({ ok: true, data: empty });
   });
 
   it.each([
-    { kind: "list", data: [{ ...storedPasskey, snapshotId: crypto.randomUUID() }] },
-    { kind: "list", data: [{ ...storedPasskey, itemId: crypto.randomUUID() }] },
-    { kind: "list", data: [storedPasskey, storedPasskey] },
-    { kind: "list", data: [{ ...storedPasskey, keyValue: "synthetic-key" }] },
+    { kind: "find", data: { ...passkeyMatches, snapshotId: crypto.randomUUID() } },
+    { kind: "find", data: { ...passkeyMatches, rpId: "example.net" } },
+    {
+      kind: "find",
+      data: { ...passkeyMatches, candidates: [{ ...storedPasskey, userId: crypto.randomUUID() }] },
+    },
+    {
+      kind: "find",
+      data: { ...passkeyMatches, candidates: [{ ...storedPasskey, rpId: "example.net" }] },
+    },
+    { kind: "find", data: { ...passkeyMatches, candidates: [storedPasskey, storedPasskey] } },
+    {
+      kind: "find",
+      data: { ...passkeyMatches, unavailableItemIds: [storedPasskey.itemId.toUpperCase()] },
+    },
+    {
+      kind: "find",
+      data: { ...passkeyMatches, unavailableItemIds: [itemId, itemId.toUpperCase()] },
+    },
+    {
+      kind: "find",
+      data: { ...passkeyMatches, candidates: [{ ...storedPasskey, keyValue: "synthetic-key" }] },
+    },
     { kind: "sign", data: { ...passkeySignature, userId: crypto.randomUUID() } },
     { kind: "sign", data: { ...passkeySignature, snapshotId: crypto.randomUUID() } },
     { kind: "sign", data: { ...passkeySignature, itemId: crypto.randomUUID() } },
@@ -534,8 +562,8 @@ describe("fixed operations, session scope and reply fencing", () => {
     const h = harness();
     const session = await h.open();
     const pending =
-      reply.kind === "list"
-        ? h.host.passkeyCandidates(session, itemId)
+      reply.kind === "find"
+        ? h.host.findPasskeys(session, "example.com")
         : h.host.signPasskey(session, signInput);
     h.reply(await h.command(1), { ok: true, data: reply.data });
     expect(await pending).toEqual({ ok: false, error: { code: "crypto-locked" } });

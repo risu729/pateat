@@ -143,22 +143,32 @@ function harness(
         ? { ok: true as const, data: { kind: "text" as const, value: "synthetic-unit-password" } }
         : { ok: false as const, error: { code: "field-denied" as const } },
     ),
-    passkeyCandidates: vi.fn<VaultCryptoHost["passkeyCandidates"]>(async (session, selectedId) => ({
-      ok: true as const,
-      data: [
-        {
-          connectionId: session.connectionId,
-          userId: session.userId,
-          snapshotId: session.snapshotId,
-          itemId: selectedId,
-          credentialId: "AQID",
-          rpId: "example.com",
-          userHandle: "BAUG",
-          discoverable: true,
-          counter: 0,
+    findPasskeys: vi.fn<VaultCryptoHost["findPasskeys"]>(async (session, rpId) => {
+      const binding = {
+        connectionId: session.connectionId,
+        userId: session.userId,
+        snapshotId: session.snapshotId,
+      };
+      return {
+        ok: true as const,
+        data: {
+          ...binding,
+          rpId,
+          candidates: [
+            {
+              ...binding,
+              itemId,
+              credentialId: "AQID",
+              rpId,
+              userHandle: "BAUG",
+              discoverable: true,
+              counter: 0,
+            },
+          ],
+          unavailableItemIds: [],
         },
-      ],
-    })),
+      };
+    }),
     signPasskey: vi.fn<VaultCryptoHost["signPasskey"]>(async (session, input) => ({
       ok: true as const,
       data: {
@@ -646,12 +656,16 @@ describe("durable authority across independent managers", () => {
     );
     expect(h.host.matchUris).toHaveBeenCalledTimes(2);
   });
-  it("lists and signs passkeys only through the current live snapshot", async () => {
+  it("finds and signs passkeys only through the current live snapshot", async () => {
     const h = harness();
     const current = await accepted(h);
-    expect(await h.manager.passkeyCandidates(current.handle, itemId)).toMatchObject({
+    expect(await h.manager.findPasskeys(current.handle, "example.com")).toMatchObject({
       ok: true,
-      data: [{ snapshotId: current.handle.snapshotId, itemId, credentialId: "AQID" }],
+      data: {
+        snapshotId: current.handle.snapshotId,
+        rpId: "example.com",
+        candidates: [{ itemId, credentialId: "AQID" }],
+      },
     });
     const input = {
       itemId,
@@ -690,13 +704,13 @@ describe("durable authority across independent managers", () => {
     await h.manager.disableAutoUnlock();
     held.release();
     expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
-    expect(await h.manager.passkeyCandidates(current.handle, itemId)).toEqual(
+    expect(await h.manager.findPasskeys(current.handle, "example.com")).toEqual(
       vaultFailure("stale-vault-handle"),
     );
     expect(await h.manager.signPasskey(current.handle, input)).toEqual(
       vaultFailure("stale-vault-handle"),
     );
-    expect(h.host.passkeyCandidates).toHaveBeenCalledTimes(1);
+    expect(h.host.findPasskeys).toHaveBeenCalledTimes(1);
     expect(h.host.signPasskey).toHaveBeenCalledTimes(2);
   });
   it("withholds a field completed after an external writer replaces the accepted revision", async () => {
