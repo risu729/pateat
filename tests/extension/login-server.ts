@@ -143,13 +143,19 @@ export async function startLoginFixture(
         ),
       );
     } else if (path === "/identity") {
+      // The account number is a Hidden vault field, which fills only password or short
+      // numeric inputs; `?account-input=text` renders a plain text input instead.
+      const account =
+        fixtureUrl.searchParams.get("account-input") === "text"
+          ? '<input id="account">'
+          : '<input id="account" inputmode="numeric" maxlength="8">';
       response.end(
         html(
           fixtureUrl.searchParams.has("split-forms")
-            ? '<h1>Synthetic identity step</h1><form><label>Branch<input id="branch"></label></form><form><label>Account<input id="account"></label></form><button id="next" type="button">Next</button>'
+            ? `<h1>Synthetic identity step</h1><form><label>Branch<input id="branch"></label></form><form><label>Account${account}</label></form><button id="next" type="button">Next</button>`
             : fixtureUrl.searchParams.has("account-form")
-              ? '<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><form><label>Account<input id="account"></label></form><button id="next" type="button">Next</button>'
-              : '<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><label>Account<input id="account"></label><button id="next" type="button">Next</button>',
+              ? `<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><form><label>Account${account}</label></form><button id="next" type="button">Next</button>`
+              : `<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><label>Account${account}</label><button id="next" type="button">Next</button>`,
           `document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));
