@@ -355,6 +355,24 @@ describe("raw provider account through native local crypto", () => {
 
 describe("account and provider binding admission", () => {
   it.each([
+    ["tokenType", "MAC"],
+    ["expiresIn", 0],
+    ["expiresIn", "3600"],
+    ["expiresIn", 1.5],
+  ])("rejects malformed authenticated-token metadata %s", (name, value) => {
+    const raw = rawV1Account();
+    const outcome = authenticated(raw);
+    setAt(outcome, ["tokens", name as string], value);
+    expect(
+      mapper().map({
+        connectionId: accountProfile.connectionId,
+        authenticated: outcome,
+        sync: raw.sync,
+      }).ok,
+    ).toBe(false);
+  });
+
+  it.each([
     { sub: "10000000-0000-4000-8000-000000000002" },
     { sub: "not-a-uuid" },
     { email: "other@example.test" },
