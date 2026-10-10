@@ -458,6 +458,28 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: false, reason: "item-origin-mismatch" });
     });
   });
+  const branchRecipe = parseLoginRecipe({
+    ...recipe,
+    slots: ["branch", "password"],
+    steps: [
+      {
+        kind: "fill",
+        path: "/signin",
+        fields: [
+          { slot: "branch", target: target("branch") },
+          { slot: "password", target: target("password") },
+        ],
+      },
+      recipe.steps[1],
+    ],
+  });
+  const branchBinding: SavedLoginBinding = {
+    ...savedBinding,
+    slots: [
+      { slot: "branch", field: { custom: "Branch" } },
+      { slot: "password", field: "password" },
+    ],
+  };
   describe("without a saved account choice", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     const unsaved = { siteDefaults: [], bindings: [] };
@@ -575,48 +597,22 @@ describe("production login document admission", () => {
         allowedOrigins: [],
         uris: async () => ({ ok: true, data: uriMatch() }),
       });
-      h.recipes.recipe.mockResolvedValue(
-        parseLoginRecipe({
-          ...recipe,
-          slots: ["branch", "password"],
-          steps: [
-            {
-              kind: "fill",
-              path: "/signin",
-              fields: [
-                { slot: "branch", target: target("branch") },
-                { slot: "password", target: target("password") },
-              ],
-            },
-            recipe.steps[1],
-          ],
-        }),
-      );
+      h.recipes.recipe.mockResolvedValue(branchRecipe);
       expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
       expect(h.fields).not.toHaveBeenCalled();
     });
-    const branchRecipe = parseLoginRecipe({
-      ...recipe,
-      slots: ["branch", "password"],
-      steps: [
-        {
-          kind: "fill",
-          path: "/signin",
-          fields: [
-            { slot: "branch", target: target("branch") },
-            { slot: "password", target: target("password") },
-          ],
-        },
-        recipe.steps[1],
-      ],
+    it("does not choose while the vault account is unknown", async () => {
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris: async () => ({ ok: true, data: uriMatch() }),
+      });
+      h.snapshot.userId = undefined;
+      expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
+      expect(h.fields).not.toHaveBeenCalled();
     });
-    const branchBinding: SavedLoginBinding = {
-      ...savedBinding,
-      slots: [
-        { slot: "branch", field: { custom: "Branch" } },
-        { slot: "password", field: "password" },
-      ],
-    };
+  });
+  describe("with a saved account choice and a synced binding", () => {
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     it("fills a custom field through the synced binding's field name", async () => {
       const h = harness({ bindings: [branchBinding] });
       h.recipes.recipe.mockResolvedValue(branchRecipe);
@@ -670,6 +666,7 @@ describe("production login document admission", () => {
         expect(await h.hello()).toEqual({ ok: false, reason });
         expect(h.fields).not.toHaveBeenCalled();
         expect(executes()).toEqual([]);
+        expect(h.store.update).not.toHaveBeenCalled();
       },
     );
     it("ignores a binding saved for another vault account", async () => {
@@ -679,15 +676,8 @@ describe("production login document admission", () => {
       h.recipes.recipe.mockResolvedValue(branchRecipe);
       expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
       expect(h.fields).not.toHaveBeenCalled();
-    });
-    it("does not choose while the vault account is unknown", async () => {
-      const h = harness(unsaved, {
-        allowedOrigins: [],
-        uris: async () => ({ ok: true, data: uriMatch() }),
-      });
-      h.snapshot.userId = undefined;
-      expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
-      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+      expect(h.store.update).not.toHaveBeenCalled();
     });
   });
   it.each([
