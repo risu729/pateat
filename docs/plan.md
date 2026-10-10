@@ -329,8 +329,14 @@ Chrome yet.
   stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
   probe build grants its loopback origin to the probe item and supplies recipes and
   bindings. Recipes and account bindings come from the service cache
-  ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)); that lookup, name-based
-  custom-field bindings and provider-derived origins remain open.
+  ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The shared contracts
+  define the synced binding format (`settings.bindings`, `savedLoginBindingSchema`)
+  and, in `packages/contracts/src/recipes.ts`, the first-step recipe selector, binding
+  lookup, name-based field resolution, the built-in-slot binding for an automatic
+  account choice and the save that keeps an existing choice. The executor does not use
+  them yet, and the extension has no sync client, so bindings live only in local
+  settings until it does. An extension build that predates `bindings` rejects settings
+  that contain them. Provider-derived origins remain open.
 - A fill step refuses as `structural-mismatch` before writing anything unless all of its
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy

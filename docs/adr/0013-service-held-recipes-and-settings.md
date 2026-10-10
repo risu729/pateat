@@ -2,8 +2,9 @@
 
 Status: accepted by the owner on 2026-10-10. Amends the local-first statements in
 [ADR 0001](0001-local-login-boundary.md), [ADR 0003](0003-service-and-ai.md) and
-[ADR 0009](0009-install-time-https-site-access.md). Not implemented yet; the JSON below
-is the proposed format, not the current contract.
+[ADR 0009](0009-install-time-https-site-access.md). The binding format below is the
+current contract in `packages/contracts`; the executor and the service do not use it
+yet (see the [plan](../plan.md)).
 
 Date: 2026-10-10
 
