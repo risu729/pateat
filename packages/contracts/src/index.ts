@@ -1,5 +1,8 @@
 import * as v from "valibot";
 
+export * from "./settings";
+export * from "./settings-store";
+
 // Only the implemented, read-only boundary is shared. Future adapters add
 // their own capabilities without granting them to existing connections.
 export const statusRequestSchema = v.strictObject({

@@ -1,7 +1,7 @@
 # Implementation plan
 
 Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1).
-M1 is in progress; M2-M6 are unstarted. The current foundation is not a working
+M1 and M2 are in progress; M3-M6 are unstarted. The current foundation is not a working
 autologin product or a completed M1 acceptance claim.
 This plan becomes the single work tracker until an issue is needed for a concrete
 slice.
@@ -26,6 +26,28 @@ downloaded Windows Chromium still fails before launch with a missing SideBySide
 assembly. Installed Chrome/Chrome use coexistence remains a separate, untested M1 gate;
 the synthetic Playwright result does not replace it. Code Quality setup must be
 rechecked after language detection; its existing required rule is retained.
+
+## Local settings progress
+
+The first M2 slice provides explicit save/reload controls for local connection,
+group/item selection, item/field exclusions, host exclusions and exact-origin
+account defaults. Two bundled demo vaults contain display metadata only. There
+are no credential values, provider sessions, real vault connections, page
+observations or login operations.
+
+Settings use a versioned local snapshot and a worker-owned revision check.
+Stale saves fail without overwriting newer restrictions. Invalid stored data
+fails closed and is preserved. The settings page retains an unsaved draft on
+conflict; explicit reload replaces it with the saved version. Storage is restricted
+to trusted extension contexts before settings access. Site policy is checked
+before account resolution, exclusions win, and a denied/missing default never
+falls back to a different account. This is the selection boundary for a future
+executor, not evidence of automatic filling or current-session switching.
+
+Policy/storage unit tests and isolated browser tests cover these boundaries,
+including browser restart, stale settings pages and content-script denial.
+The declarative executor, real provider protocol and actual Chrome use coexistence
+remain unimplemented or unverified; neither M1 nor M2 is complete.
 
 ## Initial delivery and later scope
 
