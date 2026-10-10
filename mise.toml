@@ -71,7 +71,7 @@ run = "node node_modules/vitest/vitest.mjs run packages/contracts"
 run = "node node_modules/vitest/vitest.mjs run packages/bitwarden"
 
 [tasks."test:crypto-host"]
-run = "node node_modules/vitest/vitest.mjs run apps/extension/src/crypto/host.test.ts"
+run = "node node_modules/vitest/vitest.mjs run apps/extension/src/crypto"
 
 [tasks."test:vault"]
 run = "node node_modules/vitest/vitest.mjs run apps/extension/src/vault"

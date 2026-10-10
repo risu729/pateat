@@ -7,6 +7,7 @@ import type {
   LocalCryptoSession,
   PreparedBitwardenAccount,
   LocalVaultMetadata,
+  LocalPasskeyCredential,
 } from "@pateat/bitwarden";
 import { localVaultMetadataSchema } from "@pateat/bitwarden";
 import {
@@ -16,6 +17,8 @@ import {
   lifecycleSchema,
   progressSchema,
   replySchema,
+  passkeyCandidatesSchema,
+  passkeySignatureSchema,
   sessionSchema,
   uriCandidatesSchema,
   type HostOperation,
@@ -23,6 +26,8 @@ import {
   type HostSessionRef,
   type HostUnlock,
 } from "./wire";
+import type { PasskeySignRequest, PasskeySignature } from "./passkey";
+import { fromBase64Url } from "../passkeys/encoding";
 
 type Listener<T extends unknown[]> = {
   addListener(listener: (...args: T) => void): void;
@@ -327,6 +332,38 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           candidates.output.snapshotId !== job.operation.session.snapshotId ||
           !sameOrigin(job.operation.targetUrl, candidates.output.targetOrigin)
         ) {
+          cancelOwned(parsed.output.requestId, "crypto-locked");
+          return;
+        }
+      }
+      if (job.operation.kind === "passkey-candidates" || job.operation.kind === "passkey-sign") {
+        const operation = job.operation;
+        const bound = (entry: {
+          connectionId: string;
+          userId: string;
+          snapshotId: string;
+          itemId: string;
+        }) =>
+          entry.connectionId === job.connectionId &&
+          entry.userId === operation.session.userId &&
+          entry.snapshotId === operation.session.snapshotId &&
+          entry.itemId === operation.itemId.toLowerCase();
+        let valid: boolean;
+        if (operation.kind === "passkey-candidates") {
+          const listed = v.safeParse(passkeyCandidatesSchema, result.data);
+          valid = listed.success && listed.output.every(bound);
+        } else {
+          const signed = v.safeParse(passkeySignatureSchema, result.data);
+          const der = signed.success ? fromBase64Url(signed.output.signature) : undefined;
+          valid =
+            signed.success &&
+            bound(signed.output) &&
+            signed.output.credentialId === operation.credentialId &&
+            der !== undefined &&
+            der.length >= 8 &&
+            der.length <= 72;
+        }
+        if (!valid) {
           cancelOwned(parsed.output.requestId, "crypto-locked");
           return;
         }
@@ -662,6 +699,34 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<UriCandidates>(
         session.connectionId,
         { kind: "match-uris", session, targetUrl },
+        signal,
+      );
+    },
+    /** Secret-free metadata for one item's stored passkey. */
+    passkeyCandidates(session: HostSessionRef, itemId: string, signal?: AbortSignal) {
+      return request<readonly LocalPasskeyCredential[]>(
+        session.connectionId,
+        { kind: "passkey-candidates", session, itemId },
+        signal,
+      );
+    },
+    /** A DER signature from the item's stored key; the key never leaves the Worker. */
+    signPasskey(
+      session: HostSessionRef,
+      input: { itemId: string } & PasskeySignRequest,
+      signal?: AbortSignal,
+    ) {
+      return request<PasskeySignature>(
+        session.connectionId,
+        {
+          kind: "passkey-sign",
+          session,
+          itemId: input.itemId,
+          credentialId: input.credentialId,
+          rpId: input.rpId,
+          authenticatorData: input.authenticatorData,
+          clientDataHash: input.clientDataHash,
+        },
         signal,
       );
     },

@@ -4,7 +4,12 @@ import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
 import { createLoginSites } from "../src/login/sites";
-import { combineFieldSources, createVaultFieldSource, dummyFieldSource } from "../src/login/vault";
+import {
+  combineFieldSources,
+  createVaultFieldSource,
+  createVaultUriMatcher,
+  dummyFieldSource,
+} from "../src/login/vault";
 import { createBrowserCryptoHost } from "../src/crypto/browser";
 import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/probe";
 import { createVaultProbe } from "../src/vault/probe";
@@ -41,6 +46,7 @@ export default defineBackground(() => {
       ...(catalog ? { dummy: dummyFieldSource } : {}),
     }),
     sites: createLoginSites(settings),
+    uris: createVaultUriMatcher(connections),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const passkeyProbe = import.meta.env.MODE === "probe" ? createProbePasskeySource() : undefined;
