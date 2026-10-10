@@ -162,6 +162,12 @@ export function createVaultPasskeySource(
   };
   return {
     async candidates(origin, rpId) {
+      // Every HTTPS page can ask. Reading the catalog restores each registered vault, so an
+      // excluded site, or settings with no enabled connection, stop at the metadata read.
+      const metadata = await connections.settings.read().catch(() => undefined);
+      if (!metadata || isSiteExcluded(metadata.settings, origin)) return undefined;
+      if (!metadata.settings.connections.some((entry) => entry.enabled))
+        return { candidates: [], complete: true };
       const saved = await read();
       if (!saved) return undefined;
       return findVaultPasskeys({

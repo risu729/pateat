@@ -8,8 +8,10 @@ CI/manual-delivery foundations. Connection setup and its live metadata integrati
 passed synthetic native-browser tests; real-account compatibility is unproven. An
 offline AI evaluation harness scores role adapters on a synthetic Japanese/English
 corpus with fake providers only. The settings page can pair a device with the
-service; production login activation, settings/recipe sync in the extension, provider
-inference and passkey execution remain unimplemented. The service is not
+service; production login activation, settings/recipe sync in the extension and provider
+inference remain unimplemented. The production build answers WebAuthn `get` requests
+on HTTPS pages from stored vault passkeys; that path is tested only with a synthetic
+vault, not on real sites or accounts. The service is not
 deployed. The initial design was adopted in
 [PR #1](https://github.com/risu729/pateat/pull/1).
 

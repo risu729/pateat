@@ -57,6 +57,12 @@ describe("probe passkey source", () => {
     });
   });
 
+  it("keeps the test-vector key off HTTPS localhost", async () => {
+    const { probe, candidates } = setup();
+    await probe.source.candidates("https://localhost:8443", "localhost", signal);
+    expect(candidates).toHaveBeenCalledWith("https://localhost:8443", "localhost", signal);
+  });
+
   it("turns off only the localhost key", async () => {
     const { probe } = setup();
     probe.control({ version: 1, type: "passkey.probe.configure", enabled: false });

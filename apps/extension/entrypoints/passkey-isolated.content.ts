@@ -6,6 +6,8 @@ import { installPasskeyRelay } from "../src/passkeys/relay";
 export default defineContentScript({
   matches: ["https://*/*"],
   runAt: "document_start",
+  // WXT would otherwise post a start message naming the extension ID to every page.
+  noScriptStartedPostMessage: true,
   main(ctx) {
     ctx.onInvalidated(installPasskeyRelay((message) => browser.runtime.sendMessage(message)));
   },

@@ -3,7 +3,11 @@
 Status: accepted by the owner on 2026-10-10 and implemented in the production document
 admission PR. No real-site or installed-profile acceptance has been run yet.
 Amended by [ADR 0013](0013-service-held-recipes-and-settings.md): recipes come from
-the synced service cache, and admission no longer requires a saved site default.
+the synced service cache, and admission no longer requires a saved site default. The
+same HTTPS access also carries the passkey bridge of
+[ADR 0007](0007-existing-passkey-assertions.md): a MAIN-world and an isolated-world
+document-start script on every top-level HTTPS document, in addition to the login
+script below.
 
 Date: 2026-10-10
 

@@ -401,7 +401,10 @@ describe("vault passkey source", () => {
       })),
     };
     const connections = {
-      settings: { handle: vi.fn(async () => (reads.length > 1 ? reads.shift()! : reads[0]!)) },
+      settings: {
+        read: vi.fn(async () => reads[0]!.snapshot),
+        handle: vi.fn(async () => (reads.length > 1 ? reads.shift()! : reads[0]!)),
+      },
       registry: {
         get: vi.fn(async () =>
           overrides.registered === false ? undefined : { profile: { connectionId: "live" } },
@@ -411,6 +414,7 @@ describe("vault passkey source", () => {
     };
     return {
       manager,
+      connections,
       source: createVaultPasskeySource(
         connections as unknown as Parameters<typeof createVaultPasskeySource>[0],
       ),
@@ -488,6 +492,19 @@ describe("vault passkey source", () => {
       await expect(source.sign(candidate!, data, hash, signal)).rejects.toThrow(error);
     },
   );
+
+  it("reads no vault catalog for an excluded site or without an enabled connection", async () => {
+    for (const [settings, expected] of [
+      [saved({ excludedSite: "github.com" }), undefined],
+      [saved({ enabled: false }), { candidates: [], complete: true }],
+    ] as const) {
+      const { source, connections, manager } = runtime([settings]);
+      // eslint-disable-next-line no-await-in-loop
+      expect(await source.candidates(origin, rpId, signal)).toEqual(expected);
+      expect(connections.settings.handle).not.toHaveBeenCalled();
+      expect(manager.findPasskeys).not.toHaveBeenCalled();
+    }
+  });
 
   it("finds nothing and signs nothing without an unlocked, registered vault", async () => {
     for (const overrides of [{ handle: undefined }, { registered: false }]) {

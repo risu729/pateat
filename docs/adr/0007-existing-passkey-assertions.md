@@ -67,8 +67,12 @@ permissions policy before relaying, and reports whether the document has transie
 activation. The background derives origin, tab, frame and document from the
 browser-supplied sender, never from page data, and accepts only frame 0 of an `https:`
 origin or `http://localhost`. Each request has a short-lived operation ID bound to that
-document, and one document may hold only a few at once. Abort, timeout, policy
-change, lock and connection replacement cancel it; a late result is discarded.
+document, and one document may hold only a few at once. Abort, timeout and a settings
+change cancel it; a late result is discarded. A lock or connection replacement during
+signing makes the Worker's signature unavailable, so the request is delegated as a
+failed assertion. Pages on an excluded site, or with no enabled connection, are answered
+from the settings metadata without reading the vault catalog, so they do not restore a
+vault.
 Navigation does not cancel it: Chrome drops a response addressed to a replaced
 document. The wrapper delegates if the relay does not acknowledge a request
 promptly, so an invalidated extension does not hold callers.

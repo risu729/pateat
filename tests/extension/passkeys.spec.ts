@@ -600,10 +600,20 @@ test("the production build installs the bridge on HTTPS pages and leaves unclaim
     await context.route(`${vaultOrigin}/**`, (route) =>
       route.fulfill({ contentType: "text/html; charset=utf-8", body: passkeyPageHtml }),
     );
+    await context.addInitScript(() => {
+      const scope = window as unknown as { pageMessages: unknown[] };
+      scope.pageMessages = [];
+      window.addEventListener("message", (event) => scope.pageMessages.push(event.data));
+    });
     // No vault is connected, so the background claims nothing and the browser answers.
     const page = await openRelyingParty(context, vaultOrigin);
     const challenge = challengeHex();
     expectNativeAssertion(await clickRequest(page, { challenge }), vaultOrigin, challenge);
+    // No content script announces itself, or the extension ID, to the page.
+    const messages = await page.evaluate(
+      () => (window as unknown as { pageMessages: unknown[] }).pageMessages,
+    );
+    expect(JSON.stringify(messages)).not.toMatch(/content-script-started|contentScriptName/u);
   } finally {
     await context?.close();
     await rm(profile, { recursive: true, force: true });
