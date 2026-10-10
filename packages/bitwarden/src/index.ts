@@ -10,6 +10,15 @@ export {
   type PreparedBitwardenAccount,
 } from "./account";
 export type { BitwardenErrorCode, BitwardenResult } from "./errors";
+export {
+  createLocalFieldSnapshot,
+  type LocalFieldSnapshot,
+  type LocalFieldReference,
+  type LocalFieldMetadata,
+  type LocalFieldGrant,
+  type LocalFieldValue,
+} from "./fields";
+export { generateLocalTotp, type LocalOtpValue, type LocalTotpOptions } from "./totp";
 export type { EncryptedSyncEnvelope, PreloginResponse } from "./models";
 export { derivePasswordAuthentication } from "./auth-crypto";
 export type {

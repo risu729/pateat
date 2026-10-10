@@ -1,6 +1,7 @@
 import { createLocalCryptoSession } from "../../../../packages/bitwarden/src/local-crypto";
 import { initializeSyntheticCryptoHost } from "./host";
 import { mappedAccountVectors } from "./account-vectors";
+import { localFieldVectors } from "./field-vectors";
 import { derivePasswordAuthentication } from "../../../../packages/bitwarden/src/auth-crypto";
 import {
   authPassword,
@@ -64,6 +65,7 @@ void (async () => {
     if (!first.ok) throw new Error("Synthetic initialization failed");
     let loginMatches = false;
     let corruptionRejected = false;
+    let fieldChecks = { localFields: false, localTotp: false, localSteam: false };
     try {
       const cipher = legacyCipher();
       const decrypted = await first.data.decryptCipher({ connectionId: base.connectionId, cipher });
@@ -72,6 +74,7 @@ void (async () => {
         decrypted.data.name === "My test login" &&
         decrypted.data.login?.username === "test_username" &&
         decrypted.data.login?.password === "test_password";
+      if (decrypted.ok) fieldChecks = localFieldVectors(decrypted.data);
       const corrupt = { ...cipher, name: cipher.name.replace("JOw", "KOw") };
       const result = await first.data.decryptCipher({
         connectionId: base.connectionId,
@@ -127,6 +130,7 @@ void (async () => {
       sdk,
     );
     const checks = {
+      ...fieldChecks,
       ...(await mappedAccountVectors(sdk)),
       pbkdf2: pbkdf.every((value, index) => value === pbkdf2Expected[index]),
       argon2id: argon.every((value, index) => value === argon2Expected[index]),

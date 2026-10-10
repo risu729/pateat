@@ -18,7 +18,14 @@ export type BitwardenErrorCode =
   | "unsupported-crypto"
   | "security-downgrade"
   | "crypto-locked"
-  | "resource-limit";
+  | "resource-limit"
+  | "invalid-field-input"
+  | "stale-field-reference"
+  | "field-denied"
+  | "field-missing"
+  | "unsupported-field"
+  | "invalid-totp"
+  | "unsupported-totp";
 
 export type BitwardenResult<T> =
   | { ok: true; data: T }
