@@ -17,7 +17,7 @@ type Status = {
   dispatched: number;
   sessions: number;
   offscreenDocumentBound: boolean;
-  checkpoint: null | "before-dispatch" | "after-result";
+  checkpoint: null | "before-dispatch" | "after-dispatch" | "after-result";
   reached: boolean;
 };
 type ExtensionChrome = {
@@ -202,7 +202,7 @@ async function observeWorkers(context: BrowserContext, page: Page, extensionId: 
   session.on("Target.attachedToTarget", attach);
   session.on("Target.detachedFromTarget", detach);
   await session.send("Target.setDiscoverTargets", { discover: true });
-  const run = async (action: ProbeAction) => {
+  const run = async (action: ProbeAction, next?: "after-dispatch") => {
     expect(
       await send(page, { type: "crypto.probe", action: "arm", checkpoint: "before-dispatch" }),
     ).toEqual({ ok: true, data: { armed: true } });
@@ -235,7 +235,11 @@ async function observeWorkers(context: BrowserContext, page: Page, extensionId: 
         waitForDebuggerOnStart: false,
       });
     } finally {
-      await invoke(page, "release");
+      if (next)
+        expect(
+          await send(page, { type: "crypto.probe", action: "release-and-arm", checkpoint: next }),
+        ).toEqual({ ok: true, data: { released: true } });
+      else await invoke(page, "release");
     }
     return pending;
   };
@@ -428,7 +432,20 @@ for (const action of ["cancel", "deadline"] as const) {
       const page = await controller(context, extensionId);
       const observed = await observeWorkers(context, page, extensionId);
       try {
-        expect(await observed.run(action)).toEqual({ ok: true, data: { withheld: true } });
+        const result = observed.run(action, action === "cancel" ? "after-dispatch" : undefined);
+        void result.catch(() => {});
+        if (action === "cancel") {
+          // Hold the abort until the dispatched Worker is running: a Worker
+          // terminated before it starts never becomes an observable target.
+          await expect
+            .poll(() => status(page), { timeout: 5000 })
+            .toMatchObject({ checkpoint: "after-dispatch", reached: true, dispatched: 1 });
+          await expect
+            .poll(() => observed.created.size, { timeout: 5000 })
+            .toBeGreaterThanOrEqual(2);
+          await invoke(page, "release");
+        }
+        expect(await result).toEqual({ ok: true, data: { withheld: true } });
         // The warmup and expensive dispatched job must both have existed and died.
         await expect.poll(() => observed.created.size, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
         await observed.expectTerminated();
