@@ -68,7 +68,7 @@ export default defineBackground(() => {
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
       login.settingsChanged();
-      passkeys?.cancelAll();
+      passkeys.cancelAll();
     },
     deferred: () => login.active(),
   });

@@ -9,7 +9,10 @@ search every live login item by RP ID, and use the site default only to choose
 among several matches (see [Item selection](#item-selection)). After the official
 Bitwarden extension was found wrapping `get` outside Pateat, the owner chose on the same
 day to keep Pateat's wrapper outermost whatever the extension order (see
-[Bridge topology](#bridge-topology)).
+[Bridge topology](#bridge-topology)). Also on 2026-10-10 the owner chose to register the
+bridge in the production build on every top-level HTTPS page and to sign wherever the
+item selection allows on sites that are not excluded, rather than only on sites with a
+synced recipe.
 
 Date: 2026-10-10
 
