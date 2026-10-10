@@ -45,7 +45,8 @@ const inputSchema = v.strictObject({
   credentials: v.pipe(v.array(v.unknown()), v.maxLength(1000)),
 });
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-// RP IDs are stored as the canonical ASCII host they were registered with.
+// RP IDs are stored as the canonical ASCII domain they were registered with. A numeric final
+// label would make WHATWG URL parsing treat the host as IPv4, so it is rejected below.
 const rpIdPattern =
   /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/u;
 const MAX_COUNTER = 0xff_ff_ff_ff;
@@ -54,8 +55,9 @@ const MAX_CREDENTIAL_ID_BYTES = 1023;
 const MAX_USER_HANDLE_BYTES = 64;
 
 /**
- * Decode Bitwarden's base64 storage. Its client accepts both URL-safe and standard alphabets with
- * optional padding; mixed alphabets, bad padding and non-canonical trailing bits are rejected.
+ * Decode Bitwarden's base64 storage in either the URL-safe or standard alphabet, with optional
+ * padding. Pateat is stricter than Bitwarden's tolerant decoder: mixed alphabets, bad padding and
+ * non-canonical trailing bits are rejected rather than reinterpreted.
  */
 export function decodeBitwardenBase64(value: string): Uint8Array | undefined {
   if (typeof value !== "string" || value.length === 0 || value.length > 1_400_000) return undefined;
@@ -121,7 +123,8 @@ export function mapLocalPasskeyCredentials(
       return failure("unsupported-crypto");
     const credentialId = decodeBitwardenCredentialId(credential.credentialId);
     if (!credentialId) return failure("unsupported-crypto");
-    if (!rpIdPattern.test(credential.rpId)) return failure("unsupported-crypto");
+    if (!rpIdPattern.test(credential.rpId) || /(?:^|\.)[0-9]+$/u.test(credential.rpId))
+      return failure("unsupported-crypto");
     if (credential.discoverable !== "true" && credential.discoverable !== "false")
       return failure("unsupported-crypto");
     if (!/^(?:0|[1-9][0-9]{0,9})$/u.test(credential.counter)) return failure("unsupported-crypto");
@@ -154,12 +157,20 @@ export function mapLocalPasskeyCredentials(
   }
 }
 
-/** Decode the SDK-decrypted PKCS #8 private key for import inside the signing worker only. */
+/**
+ * Decode the SDK-decrypted private key for import inside the signing worker only. This checks
+ * only that the bytes form one complete DER SEQUENCE; WebCrypto's PKCS #8 import validates the
+ * key structure and curve.
+ */
 export function decodeLocalPasskeyPrivateKey(value: unknown): BitwardenResult<Uint8Array> {
   if (typeof value !== "string") return failure("invalid-crypto-input");
   const bytes = decodeBitwardenBase64(value);
   // A P-256 PKCS #8 key is a DER SEQUENCE of roughly 67 to 138 bytes.
   if (!bytes || bytes.length < 64 || bytes.length > 256 || bytes[0] !== 0x30)
     return failure("unsupported-crypto");
+  const length = bytes[1]!;
+  // Keys of this size use the short form or one long-form length byte.
+  const declared = length < 0x80 ? length + 2 : length === 0x81 ? bytes[2]! + 3 : -1;
+  if (declared !== bytes.length) return failure("unsupported-crypto");
   return { ok: true, data: bytes };
 }

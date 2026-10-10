@@ -116,6 +116,22 @@ describe("Bitwarden passkey metadata mapping", () => {
     });
   });
 
+  it("accepts WebAuthn maximum lengths and equivalent stored encodings", () => {
+    const maxId = `b64.${btoa("x".repeat(1023)).replace(/=+$/u, "")}`;
+    expect(map({ ...view, credentialId: maxId })).toMatchObject({ ok: true });
+    expect(map({ ...view, userHandle: btoa("u".repeat(64)) })).toMatchObject({
+      ok: true,
+      data: [{ userHandle: btoa("u".repeat(64)).replace(/=+$/u, "") }],
+    });
+    const upper = map({ ...view, credentialId: view.credentialId.toUpperCase() });
+    expect(upper).toMatchObject({ ok: true, data: [{ credentialId: "EjRWeBI0QjSCNBI0VniavA" }] });
+    // The standard padded alphabet names the same bytes as the URL-safe form.
+    expect(map({ ...view, credentialId: "b64.+/8=" })).toMatchObject({
+      ok: true,
+      data: [{ credentialId: "-_8" }],
+    });
+  });
+
   it("returns no credentials for an item without passkeys", () => {
     expect(map()).toEqual({ ok: true, data: [] });
   });
@@ -129,6 +145,8 @@ describe("Bitwarden passkey metadata mapping", () => {
     ["uppercase RP ID", [{ ...view, rpId: "Synthetic.example.test" }], "unsupported-crypto"],
     ["RP ID with a port", [{ ...view, rpId: "example.test:443" }], "unsupported-crypto"],
     ["trailing-dot RP ID", [{ ...view, rpId: "example.test." }], "unsupported-crypto"],
+    ["IPv4 RP ID", [{ ...view, rpId: "192.0.2.1" }], "unsupported-crypto"],
+    ["numeric final label", [{ ...view, rpId: "example.123" }], "unsupported-crypto"],
     ["boolean-like discoverable", [{ ...view, discoverable: "1" }], "unsupported-crypto"],
     ["negative counter", [{ ...view, counter: "-1" }], "unsupported-crypto"],
     ["leading-zero counter", [{ ...view, counter: "01" }], "unsupported-crypto"],
@@ -224,7 +242,14 @@ describe("SDK-decrypted passkey round trip", () => {
   });
 
   it("rejects non-PKCS #8 private key strings", () => {
-    for (const invalid of [undefined, "", "AAAA", "MIGH", `${"A".repeat(400)}`])
+    for (const invalid of [
+      undefined,
+      "",
+      "AAAA",
+      "MIGH",
+      `${"A".repeat(400)}`,
+      `MA${"A".repeat(100)}`,
+    ])
       expect(decodeLocalPasskeyPrivateKey(invalid).ok).toBe(false);
   });
 });
