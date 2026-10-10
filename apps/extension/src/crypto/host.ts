@@ -7,7 +7,6 @@ import type {
   LocalCryptoSession,
   PreparedBitwardenAccount,
   LocalVaultMetadata,
-  LocalPasskeyCredential,
 } from "@pateat/bitwarden";
 import { localVaultMetadataSchema } from "@pateat/bitwarden";
 import {
@@ -17,7 +16,7 @@ import {
   lifecycleSchema,
   progressSchema,
   replySchema,
-  passkeyCandidatesSchema,
+  passkeyMatchesSchema,
   passkeySignatureSchema,
   sessionSchema,
   uriCandidatesSchema,
@@ -26,7 +25,7 @@ import {
   type HostSessionRef,
   type HostUnlock,
 } from "./wire";
-import type { PasskeySignRequest, PasskeySignature } from "./passkey";
+import type { PasskeyMatches, PasskeySignRequest, PasskeySignature } from "./passkey";
 import { fromBase64Url } from "../passkeys/encoding";
 
 type Listener<T extends unknown[]> = {
@@ -82,6 +81,11 @@ export type OpenedHostSession = {
     securityVersion: 1 | 2;
   };
 };
+
+/** Item IDs are UUIDs, which may arrive in either case. */
+function unique(itemIds: readonly string[]): boolean {
+  return new Set(itemIds.map((id) => id.toLowerCase())).size === itemIds.length;
+}
 
 function sameOrigin(targetUrl: string, origin: string): boolean {
   try {
@@ -336,28 +340,33 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           return;
         }
       }
-      if (job.operation.kind === "passkey-candidates" || job.operation.kind === "passkey-sign") {
+      if (job.operation.kind === "passkey-find" || job.operation.kind === "passkey-sign") {
         const operation = job.operation;
-        const bound = (entry: {
-          connectionId: string;
-          userId: string;
-          snapshotId: string;
-          itemId: string;
-        }) =>
+        const bound = (entry: { connectionId: string; userId: string; snapshotId: string }) =>
           entry.connectionId === job.connectionId &&
           entry.userId === operation.session.userId &&
-          entry.snapshotId === operation.session.snapshotId &&
-          entry.itemId === operation.itemId.toLowerCase();
+          entry.snapshotId === operation.session.snapshotId;
         let valid: boolean;
-        if (operation.kind === "passkey-candidates") {
-          const listed = v.safeParse(passkeyCandidatesSchema, result.data);
-          valid = listed.success && listed.output.every(bound);
+        if (operation.kind === "passkey-find") {
+          const found = v.safeParse(passkeyMatchesSchema, result.data);
+          valid =
+            found.success &&
+            bound(found.output) &&
+            found.output.rpId === operation.rpId &&
+            found.output.candidates.every(
+              (candidate) => bound(candidate) && candidate.rpId === operation.rpId,
+            ) &&
+            unique([
+              ...found.output.candidates.map((candidate) => candidate.itemId),
+              ...found.output.unavailableItemIds,
+            ]);
         } else {
           const signed = v.safeParse(passkeySignatureSchema, result.data);
           const der = signed.success ? fromBase64Url(signed.output.signature) : undefined;
           valid =
             signed.success &&
             bound(signed.output) &&
+            signed.output.itemId === operation.itemId.toLowerCase() &&
             signed.output.credentialId === operation.credentialId &&
             der !== undefined &&
             der.length >= 8 &&
@@ -702,11 +711,11 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         signal,
       );
     },
-    /** Secret-free metadata for one item's stored passkey. */
-    passkeyCandidates(session: HostSessionRef, itemId: string, signal?: AbortSignal) {
-      return request<readonly LocalPasskeyCredential[]>(
+    /** Secret-free metadata for every live login item whose stored passkey has this RP ID. */
+    findPasskeys(session: HostSessionRef, rpId: string, signal?: AbortSignal) {
+      return request<PasskeyMatches>(
         session.connectionId,
-        { kind: "passkey-candidates", session, itemId },
+        { kind: "passkey-find", session, rpId },
         signal,
       );
     },
