@@ -434,23 +434,36 @@ export type SiteAccountResolution =
         | "site-excluded"
         | "default-not-set"
         | "item-origin-mismatch"
+        | "account-ambiguous"
+        | "vault-unavailable"
         | EligibilityReason;
     };
 
+export type SiteDefaultConnection =
+  | { ok: true; connectionId: string }
+  | { ok: false; reason: "connection-missing" | "account-ambiguous" | "vault-unavailable" };
+
 /**
  * The local connection a saved site default names: its own `connectionId` in the legacy
- * form, otherwise the one catalog connection of that provider account. Two connections
- * of one account are ambiguous and name none.
+ * form, otherwise the one catalog connection of that provider account. An account
+ * connected twice is ambiguous. With no match while a connection of that provider
+ * cannot name its account (locked or unavailable), the vault is unavailable rather than
+ * the account missing.
  */
-export function siteDefaultConnectionId(
+export function siteDefaultConnection(
   entry: SiteDefault,
   catalog: VaultCatalog,
-): string | undefined {
-  if ("connectionId" in entry) return entry.connectionId;
-  const matches = catalog.connections.filter(
-    (connection) => connection.provider === entry.provider && connection.userId === entry.userId,
+): SiteDefaultConnection {
+  if ("connectionId" in entry) return { ok: true, connectionId: entry.connectionId };
+  const sameProvider = catalog.connections.filter(
+    (connection) => connection.provider === entry.provider,
   );
-  return matches.length === 1 ? matches[0]!.id : undefined;
+  const matches = sameProvider.filter((connection) => connection.userId === entry.userId);
+  if (matches.length > 1) return { ok: false, reason: "account-ambiguous" };
+  if (matches[0]) return { ok: true, connectionId: matches[0].id };
+  return sameProvider.some((connection) => connection.userId === undefined)
+    ? { ok: false, reason: "vault-unavailable" }
+    : { ok: false, reason: "connection-missing" };
 }
 
 /** Pure next-login selection. This never switches a current browser session. */
@@ -464,8 +477,9 @@ export function resolveSiteAccount(
   if (isSiteExcluded(settings, value)) return { ok: false, reason: "site-excluded" };
   const selected = settings.siteDefaults.find((entry) => entry.origin === url.origin);
   if (!selected) return { ok: false, reason: "default-not-set" };
-  const connectionId = siteDefaultConnectionId(selected, catalog);
-  if (!connectionId) return { ok: false, reason: "connection-missing" };
+  const connection = siteDefaultConnection(selected, catalog);
+  if (!connection.ok) return { ok: false, reason: connection.reason };
+  const { connectionId } = connection;
   const eligibility = getItemEligibility(settings, catalog, connectionId, selected.itemId);
   if (!eligibility.eligible) return { ok: false, reason: eligibility.reason };
   if (!eligibility.item.allowedOrigins.includes(url.origin))

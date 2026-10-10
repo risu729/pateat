@@ -10,7 +10,7 @@ import {
   parseSettingsResponse,
   parseSiteUrl,
   resolveSiteAccount,
-  siteDefaultConnectionId,
+  siteDefaultConnection,
   vaultCatalogSchema,
 } from "./settings";
 import { createSettingsStore, type SettingsStorage } from "./settings-store";
@@ -167,17 +167,40 @@ describe("scoped metadata eligibility and next-login defaults", () => {
       connectionId: "demo-personal",
       itemId: "primary",
     });
-    expect(siteDefaultConnectionId(settings.siteDefaults[0]!, catalog)).toBe("demo-personal");
-    // An account connected twice, or not connected here, names no connection.
-    catalog.connections[1]!.userId = "account-1";
-    expect(resolveSiteAccount(settings, catalog, "https://bank.example")).toEqual({
-      ok: false,
-      reason: "connection-missing",
+    expect(siteDefaultConnection(settings.siteDefaults[0]!, catalog)).toEqual({
+      ok: true,
+      connectionId: "demo-personal",
     });
+    // Not connected here, connected twice, or a vault that cannot name its account.
     expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
       ok: false,
       reason: "connection-missing",
     });
+    const locked = structuredClone(DUMMY_VAULT_CATALOG);
+    delete locked.connections[1]!.userId;
+    expect(resolveSiteAccount(settings, locked, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "vault-unavailable",
+    });
+    catalog.connections[1]!.userId = "account-1";
+    expect(resolveSiteAccount(settings, catalog, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "account-ambiguous",
+    });
+  });
+
+  it.each([
+    ["a mixed entry", { connectionId: "demo-personal", provider: "dummy", userId: "a" }],
+    ["an entry without a user ID", { provider: "dummy" }],
+    ["an entry without a provider", { userId: "a" }],
+  ])("rejects a site default with %s", (_label, fields) => {
+    const settings = createDefaultSettings();
+    settings.siteDefaults.push({
+      origin: "https://bank.example",
+      itemId: "primary",
+      ...fields,
+    } as never);
+    expect(() => parseLocalSettings(settings)).toThrow();
   });
 
   it("does not guess even with eligible accounts; defaults use exact scheme/host/port", () => {

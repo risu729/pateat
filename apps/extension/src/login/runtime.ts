@@ -11,7 +11,7 @@ import {
   resolveLoginPlan,
   sameLoginDocument,
   saveLoginChoice,
-  siteDefaultConnectionId,
+  siteDefaultConnection,
   transitionLoginAttempt,
   validateLoginOperation,
   type LoginAttemptEvent,
@@ -325,10 +325,10 @@ export function createLoginRuntime(
       (entry) => entry.origin === live.document.origin,
     );
     if (saved) {
-      const connectionId = siteDefaultConnectionId(saved, snapshot.catalog);
-      return connectionId
-        ? { connectionId, itemId: saved.itemId, saved: true }
-        : { reason: "connection-missing" };
+      const connection = siteDefaultConnection(saved, snapshot.catalog);
+      return connection.ok
+        ? { connectionId: connection.connectionId, itemId: saved.itemId, saved: true }
+        : { reason: connection.reason };
     }
     if (!uris) return { reason: "default-not-set" };
     // Any sync replaces a snapshot ID, so a new match from a later sync is still noticed.
@@ -469,7 +469,8 @@ export function createLoginRuntime(
       if ("reason" in scope) return { ok: false as const, reason: scope.reason };
       catalog = scope.catalog;
       if (!chosen.saved) {
-        // The automatic choice acts as this document's default in memory only.
+        // The automatic choice acts as this document's default in memory only; the
+        // connection-ID form is fine here because this copy is never saved.
         policy = structuredClone(policy);
         policy.settings.siteDefaults.push({
           origin: live.document.origin,

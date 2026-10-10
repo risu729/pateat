@@ -2,7 +2,7 @@ import {
   normalizeHostname,
   parseSiteUrl,
   resolveSiteAccount,
-  siteDefaultConnectionId,
+  siteDefaultConnection,
   type LocalSettings,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -34,6 +34,8 @@ function unavailableReason(reason: string): string {
     "default-not-set": "No default account is configured.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",
+    "account-ambiguous": "This vault account is connected more than once.",
+    "vault-unavailable": "The vault is locked or unavailable.",
     "connection-disabled": "The vault connection is disabled.",
     "item-missing": "The account is unavailable.",
     "item-excluded": "This account is excluded.",
@@ -97,6 +99,7 @@ export function SitePolicy({
       const selected = catalog.connections
         .flatMap((connection) =>
           connection.items.map((item) => ({
+            connectionId: connection.id,
             provider: connection.provider,
             userId: connection.userId,
             itemId: item.id,
@@ -111,14 +114,17 @@ export function SitePolicy({
         return;
       }
       const origin = validated.output.trim();
+      const nextDefault = { origin, provider: selected.provider, userId, itemId: selected.itemId };
+      // A default names the account, so it must lead back to the chosen connection.
+      const mapped = siteDefaultConnection(nextDefault, catalog);
+      if (!mapped.ok || mapped.connectionId !== selected.connectionId) {
+        setDefaultError(unavailableReason(mapped.ok ? "account-ambiguous" : mapped.reason));
+        originInput.current?.focus();
+        return;
+      }
       const added = edit((settings) => {
         settings.siteDefaults = settings.siteDefaults.filter((entry) => entry.origin !== origin);
-        settings.siteDefaults.push({
-          origin,
-          provider: selected.provider,
-          userId,
-          itemId: selected.itemId,
-        });
+        settings.siteDefaults.push(nextDefault);
       });
       if (!added) return;
       defaultForm.setFieldValue("origin", "");
@@ -228,8 +234,10 @@ export function SitePolicy({
             <li>No site defaults. Account selection requires configuration.</li>
           )}
           {draft.siteDefaults.map((selected) => {
-            const connectionId = siteDefaultConnectionId(selected, catalog);
-            const connection = catalog.connections.find((entry) => entry.id === connectionId);
+            const mapped = siteDefaultConnection(selected, catalog);
+            const connection = mapped.ok
+              ? catalog.connections.find((entry) => entry.id === mapped.connectionId)
+              : undefined;
             const item = connection?.items.find((entry) => entry.id === selected.itemId);
             const resolved = resolveSiteAccount(draft, catalog, selected.origin);
             return (

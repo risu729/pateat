@@ -563,6 +563,15 @@ describe("production login document admission", () => {
         account: { origin, connectionId, itemId },
       });
     });
+    it("reports a locked vault, not a missing account, for a provider-account default", async () => {
+      const h = harness(
+        { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
+        { allowedOrigins: [origin] },
+      );
+      h.snapshot.userId = undefined;
+      expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
+      expect(h.fields).not.toHaveBeenCalled();
+    });
     it("refuses a provider-account default whose account is not connected here", async () => {
       const h = harness(
         { siteDefaults: [{ origin, provider: "bitwarden", userId: "other-account", itemId }] },
