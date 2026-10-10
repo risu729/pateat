@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { evaluationCorpus } from "../corpus/cases";
 import { createRecipeGenerator } from "../generation";
-import { claudeGeneration, createClaudeGenerationModel, estimateClaudeCostUsd } from "./claude";
+import {
+  claudeGeneration,
+  claudeRefusalCategory,
+  createClaudeGenerationModel,
+  estimateClaudeCostUsd,
+} from "./claude";
 
 const page = evaluationCorpus.find((entry) => entry.id === "en-basic")!;
 const limits = { timeoutMs: 1_000, maxInputBytes: 16_384 };
@@ -10,7 +15,7 @@ const syntheticKey = "sk-ant-test-synthetic";
 type Sent = { url: string; headers: Headers; body: Record<string, unknown> };
 
 // Answers like the Messages API without any network I/O.
-function fakeClaude(reply: { text: string; stopReason?: string }) {
+function fakeClaude(reply: { text: string; stopReason?: string; stopDetails?: unknown }) {
   const sent: Sent[] = [];
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     sent.push({
@@ -29,6 +34,7 @@ function fakeClaude(reply: { text: string; stopReason?: string }) {
       ],
       stop_reason: reply.stopReason ?? "end_turn",
       stop_sequence: null,
+      ...(reply.stopDetails === undefined ? {} : { stop_details: reply.stopDetails }),
       usage: { input_tokens: 3_000, output_tokens: 900 },
     });
   }) as typeof globalThis.fetch;
@@ -79,18 +85,56 @@ describe("Claude generation adapter", () => {
       expect(request!.body).not.toHaveProperty(absent);
   });
 
-  it("returns a refusal as refused without another attempt", async () => {
-    const { sent, fetch } = fakeClaude({ text: "", stopReason: "refusal" });
+  it("returns a refusal as refused with its category code and no other attempt", async () => {
+    const generateWith = (stopDetails: unknown) => {
+      const claude = fakeClaude({ text: "", stopReason: "refusal", stopDetails });
+      const generate = createRecipeGenerator({
+        model: createClaudeGenerationModel({ apiKey: syntheticKey, fetch: claude.fetch }),
+        limits,
+        maxOutputTokens: 4_096,
+        refusalCategory: claudeRefusalCategory,
+      });
+      return { claude, outcome: generate({ observation: page.observation, slots: page.slots }) };
+    };
+
+    const cyber = generateWith({
+      type: "refusal",
+      category: "cyber",
+      explanation: "Declined: synthetic explanation text",
+    });
+    const outcome = await cyber.outcome;
+    expect(outcome).toEqual({
+      status: "failed",
+      error: "refused",
+      refusalCategory: "cyber",
+      calls: 1,
+      usage: { inputTokens: 3_000, outputTokens: 900 },
+    });
+    expect(cyber.claude.sent).toHaveLength(1);
+    // Only a short code is kept; free text from the provider never enters the outcome.
+    const others = await Promise.all(
+      [null, "Declined because of page text", undefined].map(
+        (category) =>
+          generateWith(category === undefined ? undefined : { type: "refusal", category }).outcome,
+      ),
+    );
+    for (const other of others) {
+      expect(other).toMatchObject({ status: "failed", error: "refused" });
+      expect(other).not.toHaveProperty("refusalCategory");
+    }
+  });
+
+  it("tells the model whose credentials these are and that values stay local", async () => {
+    const { sent, fetch } = fakeClaude({ text: groundTruth() });
     const generate = createRecipeGenerator({
       model: createClaudeGenerationModel({ apiKey: syntheticKey, fetch }),
       limits,
       maxOutputTokens: 4_096,
     });
-
-    const outcome = await generate({ observation: page.observation, slots: page.slots });
-
-    expect(outcome).toMatchObject({ status: "failed", error: "refused", calls: 1 });
-    expect(sent).toHaveLength(1);
+    await generate({ observation: page.observation, slots: page.slots });
+    const system = JSON.stringify(sent[0]!.body["system"]);
+    expect(system).toContain("password manager");
+    expect(system).toContain("their own account");
   });
 
   it("requires an explicit key", () => {

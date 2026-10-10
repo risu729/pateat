@@ -85,6 +85,33 @@ describe("Claude benchmark runner", () => {
     expect(result.estimatedCostUsd).toBeCloseTo(2 * 0.426_0, 3);
   });
 
+  it("reports the refusal category of a refused case", async () => {
+    let calls = 0;
+    const fetch = (async () => {
+      calls += 1;
+      return Response.json({
+        id: "msg_synthetic",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5-5",
+        content: [],
+        stop_reason: "refusal",
+        stop_sequence: null,
+        stop_details: { type: "refusal", category: "cyber", explanation: "synthetic" },
+        usage: { input_tokens: 1_000, output_tokens: 0 },
+      });
+    }) as typeof globalThis.fetch;
+    const result = await runClaudeBenchmark({
+      apiKey: "sk-ant-test-synthetic",
+      maxCostUsd: 2,
+      cases: evaluationCorpus.slice(0, 1),
+      fetch,
+    });
+    expect(calls).toBe(1);
+    expect(result.report.errors).toEqual({ refused: 1 });
+    expect(result.report.cases[0]).toMatchObject({ reason: "refused", refusalCategory: "cyber" });
+  });
+
   it.each([0, Number.NaN, 11])("refuses the cap %s", async (maxCostUsd) => {
     await expect(
       runClaudeBenchmark({ apiKey: "sk-ant-test-synthetic", maxCostUsd }),

@@ -38,8 +38,18 @@ export type AbstentionReason =
 export type InferenceOutcome<T> = { calls: number; usage: InferenceUsage } & (
   | { status: "ok"; value: T }
   | { status: "abstained"; reason: AbstentionReason }
-  | { status: "failed"; error: InferenceErrorCode; detail?: PlanRejection }
+  | {
+      status: "failed";
+      error: InferenceErrorCode;
+      detail?: PlanRejection;
+      /** For `refused`: the provider's refusal category code when it reports one. */
+      refusalCategory?: string;
+    }
 );
+
+/** Keeps a provider refusal category only when it is a short code, never free text. */
+export const refusalCategoryCode = (value: unknown): string | undefined =>
+  typeof value === "string" && /^[a-z][a-z0-9_]{0,31}$/.test(value) ? value : undefined;
 
 export const unknownUsage: InferenceUsage = { inputTokens: null, outputTokens: null };
 /** Usage of an outcome decided locally before any model call. */

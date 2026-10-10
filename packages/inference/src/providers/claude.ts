@@ -46,6 +46,14 @@ export function createClaudeGenerationModel(options: {
   });
 }
 
+/** The `stop_details.category` of a Claude refusal, such as `cyber`, when reported. */
+export function claudeRefusalCategory(providerMetadata: unknown): string | undefined {
+  const anthropic = (providerMetadata as { anthropic?: { stopDetails?: { category?: unknown } } })
+    ?.anthropic;
+  const category = anthropic?.stopDetails?.category;
+  return typeof category === "string" ? category : undefined;
+}
+
 /** Estimated cost from reported usage at the checked rates; undefined when usage is unknown. */
 export function estimateClaudeCostUsd(usage: InferenceUsage): number | undefined {
   if (usage.inputTokens === null || usage.outputTokens === null) return undefined;

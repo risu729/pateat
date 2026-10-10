@@ -11,6 +11,8 @@ export type CaseResult = {
   verdict: Verdict;
   status: InferenceOutcome<ValidatedPagePlan>["status"];
   reason?: AbstentionReason | InferenceErrorCode;
+  /** The provider's refusal category code for a `refused` case, when reported. */
+  refusalCategory?: string;
   latencyMs: number;
   calls: number;
 };
@@ -151,6 +153,9 @@ export async function evaluateRole(options: {
       verdict,
       status: outcome.status,
       ...(reason === undefined ? {} : { reason }),
+      ...(outcome.status === "failed" && outcome.refusalCategory !== undefined
+        ? { refusalCategory: outcome.refusalCategory }
+        : {}),
       latencyMs,
       calls: outcome.calls,
     });
