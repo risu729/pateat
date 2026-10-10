@@ -481,14 +481,15 @@ wrappers that other providers, including the official Bitwarden extension, insta
 assigning `get`, so it answers claimed requests first. Conditional mediation and
 real-extension coexistence require separate compatibility tests.
 
-The bridge, admission rules, assertion format and unattended presence and
-verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md).
-Like the official Bitwarden client, passkey requests search every live login item by
-RP ID rather than by saved URI; a site default only chooses among several matches. Only
-the probe build connects the core to pages, through the bridge with a synthetic
-credential source. The crypto Worker can sign with a stored vault passkey, keeping the
-private key inside the Worker and signing only zero-counter assertion data for that
-credential's RP ID, but the bridge does not use it yet.
+The bridge, admission rules, assertion format and unattended presence and verification
+policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Like the official
+Bitwarden client, passkey requests search every live login item by RP ID rather than by
+saved URI; a site default only chooses among several matches. Only the probe build
+connects the core to pages, through the bridge with a synthetic credential source. The
+crypto Worker can sign with a stored vault passkey, keeping the private key inside the
+Worker and signing only zero-counter assertion data for that credential's RP ID. A
+vault-backed passkey source applies the item selection over it, but no build connects
+that source to pages yet.
 
 ## Minimal service
 

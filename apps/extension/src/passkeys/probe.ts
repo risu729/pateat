@@ -98,7 +98,7 @@ export function createProbePasskeySource(): {
         discoverable,
         counter,
       };
-      return [candidate];
+      return { candidates: [candidate], complete: true };
     },
     async sign(_candidate, authenticatorData, clientDataHash, signal) {
       if (signDelayMs > 0) await delay(signDelayMs, signal);

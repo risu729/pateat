@@ -230,7 +230,7 @@ describe("credential selection", () => {
   const request = { rpId: "example.com", allowCredentialIds: [] as string[] };
 
   it("selects the single discoverable credential for the RP ID", () => {
-    expect(selectPasskey(request, [candidate])).toEqual({
+    expect(selectPasskey(request, { candidates: [candidate], complete: true })).toEqual({
       kind: "credential",
       credential: candidate,
     });
@@ -238,29 +238,80 @@ describe("credential selection", () => {
 
   it("matches allow lists by exact credential ID, including non-discoverable keys", () => {
     const stored = { ...candidate, discoverable: false, userHandle: null };
-    expect(selectPasskey({ ...request, allowCredentialIds: ["AQID"] }, [stored]).kind).toBe(
-      "credential",
-    );
-    expect(selectPasskey({ ...request, allowCredentialIds: ["AQIE"] }, [stored])).toEqual({
+    expect(
+      selectPasskey(
+        { ...request, allowCredentialIds: ["AQID"] },
+        { candidates: [stored], complete: true },
+      ).kind,
+    ).toBe("credential");
+    expect(
+      selectPasskey(
+        { ...request, allowCredentialIds: ["AQIE"] },
+        { candidates: [stored], complete: true },
+      ),
+    ).toEqual({
       kind: "delegate",
       reason: "no-credential",
     });
-    expect(selectPasskey(request, [stored])).toEqual({ kind: "delegate", reason: "no-credential" });
+    expect(selectPasskey(request, { candidates: [stored], complete: true })).toEqual({
+      kind: "delegate",
+      reason: "no-credential",
+    });
   });
 
   it("never chooses among several matches", () => {
-    expect(selectPasskey(request, [candidate, { ...candidate, credentialId: "BAUG" }])).toEqual({
+    expect(
+      selectPasskey(request, {
+        candidates: [candidate, { ...candidate, credentialId: "BAUG" }],
+        complete: true,
+      }),
+    ).toEqual({
       kind: "delegate",
       reason: "ambiguous-credential",
     });
   });
 
+  it("uses the site default's item among several matches", () => {
+    const other = { ...candidate, credentialId: "BAUG" };
+    const preferred = { ...candidate, preferred: true };
+    expect(selectPasskey(request, { candidates: [other, preferred], complete: true })).toEqual({
+      kind: "credential",
+      credential: preferred,
+    });
+    // A default the request does not accept is no tie-break.
+    expect(
+      selectPasskey(
+        { ...request, allowCredentialIds: ["BAUG", "BwgJ"] },
+        { candidates: [other, { ...other, credentialId: "BwgJ" }, preferred], complete: true },
+      ),
+    ).toEqual({ kind: "delegate", reason: "ambiguous-credential" });
+  });
+
+  it("uses a single match only when every eligible item was searched", () => {
+    expect(selectPasskey(request, { candidates: [candidate], complete: false })).toEqual({
+      kind: "delegate",
+      reason: "vault-incomplete",
+    });
+    const preferred = { ...candidate, preferred: true };
+    expect(selectPasskey(request, { candidates: [preferred], complete: false })).toEqual({
+      kind: "credential",
+      credential: preferred,
+    });
+  });
+
   it("refuses a nonzero counter and ignores other RP IDs", () => {
-    expect(selectPasskey(request, [{ ...candidate, counter: 7 }])).toEqual({
+    expect(
+      selectPasskey(request, { candidates: [{ ...candidate, counter: 7 }], complete: true }),
+    ).toEqual({
       kind: "delegate",
       reason: "unsupported-counter",
     });
-    expect(selectPasskey(request, [{ ...candidate, rpId: "login.example.com" }])).toEqual({
+    expect(
+      selectPasskey(request, {
+        candidates: [{ ...candidate, rpId: "login.example.com" }],
+        complete: true,
+      }),
+    ).toEqual({
       kind: "delegate",
       reason: "no-credential",
     });
