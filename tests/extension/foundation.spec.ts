@@ -96,9 +96,12 @@ test("production package permits local storage and the crypto host with no site 
   expect(probeManifest.permissions).toEqual(["storage", "offscreen"]);
   expect(probeManifest.host_permissions).toEqual(["http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toEqual(["https://*/*"]);
+  // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.
   expect(
     probeManifest.content_scripts.every((script: { matches: string[] }) =>
-      script.matches.every((match) => match === "http://127.0.0.1/*"),
+      script.matches.every(
+        (match) => match === "http://127.0.0.1/*" || match === "http://localhost/*",
+      ),
     ),
   ).toBe(true);
 });

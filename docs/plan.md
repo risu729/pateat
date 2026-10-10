@@ -362,8 +362,23 @@ exactly one eligible credential, refuses nonzero counters, serializes `clientDat
 builds authenticator data with UP, UV, BE and BS and a zero counter, and returns DER
 ECDSA signatures from a non-extractable sign-only key. Unit tests reproduce the WebAuthn
 Level 3 ES256 client data and authenticator data byte for byte, verify the published and
-produced signatures, and cover the HTML registrable-suffix examples. The core is not yet
-connected to the vault, the crypto host or a page bridge.
+produced signatures, and cover the HTML registrable-suffix examples.
+
+The probe build connects that core through a request bridge: a document-start MAIN-world
+wrapper for `navigator.credentials.get`, an isolated relay that checks top-level
+placement, secure context and the `publickey-credentials-get` policy and reports
+transient user activation, and a background runtime bound to the browser-supplied sender
+origin, frame 0 and document. Every unclaimed request, failure or deadline calls the
+browser's original `get` with the caller's arguments. A synthetic source signs with the
+public WebAuthn test-vector key for `http://localhost` only. Playwright tests against a
+synthetic relying party verify Pateat assertions with Node's independent ECDSA verifier,
+including UP and UV for page-load and UV-required requests, prove delegation to a CDP
+virtual authenticator for nonzero-counter and unconfigured requests and, under a
+ceremony policy, for unattended and UV-required requests, keep the browser's rejection
+for unknown allow-list credentials and a denied permissions policy, and cover abort and
+background timeout. The Bitwarden vault source, crypto-host signing, production
+entrypoints and real-site interoperability remain open; a navigation during signing
+relies on Chrome dropping the response to the replaced document.
 
 ## Initial delivery and later scope
 
