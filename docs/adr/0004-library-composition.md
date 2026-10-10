@@ -1,6 +1,6 @@
 # ADR 0004: Compose maintained libraries around explicit domain boundaries
 
-Status: application and selected verification libraries approved; property-based and
+Status: application and verification libraries approved;
 protocol-specific crypto choices pending. PR unmerged.
 
 Date: 2026-10-10
@@ -38,8 +38,8 @@ revision checks or owner authorization.
 
 Keep Valibot application contracts and the existing Vitest/Playwright test layers.
 The owner approved Vitest Browser Mode with `vitest-browser-react`,
-`@axe-core/playwright` and Knip. Property-based tooling remains pending a comparison
-with alternatives. Native APIs remain appropriate primitives;
+`@axe-core/playwright`, Knip and fast-check after comparing property-based alternatives.
+Native APIs remain appropriate primitives;
 they are not a reason to recreate useful higher-level infrastructure.
 
 ### Delegated OTP and public-suffix selection
@@ -75,10 +75,10 @@ semantics. Provider evaluation stays in [ADR 0003](0003-service-and-ai.md) and a
 separate PR. No agent loop, automatic fallback or additional hosted infrastructure is
 implied.
 
-### Property-based alternatives awaiting a decision
+### Property-based selection and alternatives
 
 Reviewed official documentation, repositories and npm metadata on 2026-10-10.
-Recommend fast-check for this Vitest/Valibot codebase, subject to the owner's choice.
+The owner selected fast-check for this Vitest/Valibot codebase after this comparison.
 Its typed generators, shrinking, model commands and controlled async scheduling fit
 policy invariants, attempt transitions and stale-event ordering. The scheduler
 controls instrumented test operations; it does not simulate the browser lifecycle.
@@ -92,7 +92,8 @@ controls instrumented test operations; it does not simulate the browser lifecycl
 
 Newness alone does not establish superiority. Effect Arbitrary deserves evaluation
 if Effect becomes an independently justified dependency; this comparison does not
-approve adding Effect, replacing Valibot, or installing any property-testing tool.
+approve adding Effect or replacing Valibot. Only fast-check is approved for a future
+property-testing integration; this PR installs no packages.
 No candidate has been benchmarked against this project by this documentation PR.
 
 ## Alternatives and consequences

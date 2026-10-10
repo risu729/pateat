@@ -80,8 +80,8 @@ revision conflicts, validation and keyboard/focus behavior. Keep UI dependencies
 out of the background worker and content scripts. Add the approved Vitest Browser
 Mode with `vitest-browser-react`, `@axe-core/playwright` and Knip to the existing
 test stack. Keep real-extension Playwright tests and manual keyboard/focus checks;
-configure WXT entrypoints before acting on Knip findings. Property-based tooling
-remains pending the owner's comparison decision.
+configure WXT entrypoints before acting on Knip findings. Use the approved fast-check
+for policy invariants, state transitions and controlled async-ordering tests.
 
 Also approved for M2: TanStack Query for metadata loading/mutations and
 `@webext-core/messaging` for extension communication. Keep dirty form drafts

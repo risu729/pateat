@@ -99,7 +99,7 @@ costs are understood and the compatibility checks pass.
 The owner approved React, Tailwind + Base UI + selected shadcn/ui components, TanStack
 Form + Valibot, TanStack Query, XState, `@webext-core/messaging`, WXT storage,
 Hono, Drizzle, AI SDK with Valibot, Vitest Browser Mode with `vitest-browser-react`,
-`@axe-core/playwright` and Knip on 2026-10-10. The owner delegated OTP/PSL
+`@axe-core/playwright`, Knip and fast-check on 2026-10-10. The owner delegated OTP/PSL
 selection by maintenance and freshness; that review selected OTPAuth and tldts. These
 are planned integrations, not installed packages. Other new recommendations below remain
 pending; obtain the owner's decision before adopting each major addition/replacement.
@@ -119,7 +119,7 @@ use.
 | Crypto and OTP | WebCrypto; **selected under delegated authority:** OTPAuth. Argon2 implementation still requires evaluation | M3 Bitwarden adapter |
 | Service and database | **Approved:** Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
 | Inference transport | **Approved:** AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
-| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **pending:** fast-check or an alternative for policy/state invariants | M2 onward |
+| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
 | Component tests | **Approved:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **approved:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
@@ -176,8 +176,7 @@ retry/timeout limits explicitly and account for every attempt. Disable raw
 input/output/header telemetry and sanitize errors. No automatic model/provider
 fallback is introduced by a library.
 
-Property-based tooling remains pending the owner's comparison decision. If
-selected, use it for invariants such as stronger exclusions never expanding
+Use the approved fast-check for invariants such as stronger exclusions never expanding
 eligibility and stale events never authorizing a new document. Component tests
 cover drafts, conflicts, validation and keyboard behavior; Playwright covers real
 extension boundaries and lifecycle. Automated accessibility checks supplement
