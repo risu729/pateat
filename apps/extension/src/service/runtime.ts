@@ -283,24 +283,21 @@ export function createServiceRuntime(options: {
       );
     },
     /**
-     * The paired device for background sync, or nothing when unpaired or unreadable.
+     * The paired device for background sync, or nothing when unpaired. It rejects when
+     * the record cannot be read, so callers do not mistake that for a disconnect.
      * It reads storage directly, so a login lookup never waits behind a redemption or
      * revocation request in the queue; each storage read sees one whole record.
      */
     async connection(): Promise<ServiceConnection | undefined> {
-      try {
-        const record = await load();
-        return record?.kind === "connected"
-          ? {
-              origin: record.origin,
-              deviceId: record.deviceId,
-              credential: record.credential,
-              rejected: record.rejected === true,
-            }
-          : undefined;
-      } catch {
-        return undefined;
-      }
+      const record = await load();
+      return record?.kind === "connected"
+        ? {
+            origin: record.origin,
+            deviceId: record.deviceId,
+            credential: record.credential,
+            rejected: record.rejected === true,
+          }
+        : undefined;
     },
     /**
      * Records a sync outcome for the device that ran it. A record replaced meanwhile,

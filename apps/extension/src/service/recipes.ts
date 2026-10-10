@@ -74,6 +74,7 @@ export type RecipeSyncOutcome =
 
 export function createRecipeSync(options: {
   service: {
+    /** Rejects when the connection cannot be read; undefined means no device is paired. */
     connection(): Promise<ServiceConnection | undefined>;
     recordSync(deviceId: string, outcome: RecipeSyncRecord): Promise<void>;
   };
@@ -149,7 +150,7 @@ export function createRecipeSync(options: {
       cursor: 0,
       recipes: [],
     };
-    // Disconnected while reading; the old credential is not used again.
+    // Disconnected while loading the cache; the old credential is not used again.
     if (generation !== started) return "not-connected";
     for (let page = 0; page < MAX_RECIPE_PAGES_PER_SYNC; page += 1) {
       // oxlint-disable-next-line no-await-in-loop -- each page continues from the last cursor
@@ -242,7 +243,7 @@ export function createRecipeSync(options: {
 
   const recipes: LoginRecipes = {
     async recipe(origin: string, path: string, recipeId?: string) {
-      const connection = await service.connection();
+      const connection = await service.connection().catch(() => undefined);
       if (!connection) return undefined;
       if (!connection.rejected) refreshIfStale();
       const cache = await load(connection);

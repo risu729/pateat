@@ -422,11 +422,12 @@ describe("background sync access", () => {
     await pairing.runtime.handle(start);
     expect(await pairing.runtime.connection()).toBeUndefined();
     expect(await setup().runtime.connection()).toBeUndefined();
-    expect(
-      await setup({
+    // Unreadable is not unpaired: the recipe cache must not be cleared for it.
+    await expect(
+      setup({
         storage: memoryStorage({ version: 1, kind: "connected" }),
       }).runtime.connection(),
-    ).toBeUndefined();
+    ).rejects.toThrow();
   });
 
   it("shows sync outcomes for the same device only", async () => {

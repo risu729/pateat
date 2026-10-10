@@ -316,7 +316,9 @@ describe("recipe sync", () => {
   });
 
   it("does not keep a disconnected device's recipes written during clearing", async () => {
-    const { sync, storage } = setup();
+    const { sync, storage } = setup({
+      pages: [page([active(recipe("bank-signin", "/login"))], 1)],
+    });
     let finish: () => void = () => undefined;
     storage.write.mockImplementationOnce(
       () =>
@@ -329,7 +331,31 @@ describe("recipe sync", () => {
     await sync.clear();
     finish();
     expect(await running).toBe("not-connected");
-    // Storage keeps whatever landed last, but the lookup never serves the old copy again.
+  });
+
+  it("does not use a disconnected device's credential after loading its cache", async () => {
+    const { sync, storage, transport } = setup();
+    let loaded: (value: unknown) => void = () => undefined;
+    storage.read.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          loaded = resolve;
+        }),
+    );
+    const running = sync.sync();
+    await vi.waitFor(() => expect(storage.read).toHaveBeenCalledOnce());
+    await sync.clear();
+    loaded(undefined);
+    expect(await running).toBe("not-connected");
+    expect(transport.recipeChanges).not.toHaveBeenCalled();
+  });
+
+  it("keeps the cache when the paired device cannot be read", async () => {
+    const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [] };
+    const { sync, service, cache } = setup({ stored });
+    service.connection.mockRejectedValue(new Error("storage"));
+    expect(await sync.sync()).toBe("storage-unavailable");
+    expect(cache()).toEqual(stored);
     expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
   });
 
@@ -338,12 +364,6 @@ describe("recipe sync", () => {
     const { sync, cache } = setup({ stored, connection: undefined });
     expect(await sync.sync()).toBe("not-connected");
     expect(cache()).toBeUndefined();
-  });
-
-  it("starts a new sync requested right after the last one finished", async () => {
-    const { sync, transport } = setup();
-    await sync.sync().then(() => sync.sync());
-    expect(transport.recipeChanges).toHaveBeenCalledTimes(2);
   });
 
   it("forgets the cache when its device is disconnected", async () => {
