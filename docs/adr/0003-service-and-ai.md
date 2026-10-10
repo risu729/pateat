@@ -3,6 +3,10 @@
 Status: accepted in PR #1; implementation follows the milestone plan.
 Date: 2026-10-10
 
+Proposed 2026-10-10 amendment: the inference section incorporates the October 9 Clef
+announcement as research and evaluation scope, not provider adoption. Other service,
+identity and spending boundaries remain the accepted design.
+
 ## Context and options
 
 Recipes should be learned, cached and repaired without placing vault secrets in
@@ -51,13 +55,24 @@ not the existing requirement that vault secrets stay local.
 
 ### Inference and spending
 
-Prefer Claude structured generation for previously unknown recipes if usable
-Console credit is confirmed. Evaluate Jev for finite candidate decisions; do not
-require a model round trip for known recipes or declare a winner without tests.
-Preserve refusal/unavailable/abstention outcomes. No provider agent SDK is needed
-to make ordinary inference requests. A configured provider/model failure is
-returned as an error; do not automatically fall back to another provider or
-model.
+Prefer Claude structured generation for previously unknown recipes if usable Console
+credit is confirmed. Evaluate Clef-flash, Clef and Jev for finite candidate decisions.
+They score supplied options, not arbitrary new recipes. Do not require a model round
+trip for known recipes or declare a winner without task-specific tests. Keep the
+finite-choice adapter contract separate from recipe generation. A Clef adapter may use
+the Workers AI binding or REST; no agent orchestration layer is implied. Preserve
+refusal/unavailable/abstention outcomes. A configured provider/model failure is returned
+as an error; do not automatically fall back to another provider or model.
+
+Decision adapters include an explicit unknown/none option, validate returned IDs
+and probability shapes, and map unsuitable or low-confidence results to abstention.
+Confidence is not authorization or proof of correctness. Validate joint field
+mappings and all targets locally before execution. Bound the complete request,
+including questions/options, before sending; never depend on provider truncation
+of an observation. Initial evaluation uses sanitized pre-fill text/structure.
+Clef-omni media inputs and self-hosted inference are deferred; media collection
+needs a separate privacy contract and redaction/evaluation gate. See the
+[dated Clef evidence](../research/2026-10-10-feasibility.md#clef-update-reviewed-2026-10-10).
 
 Provide a monthly USD spending limit for Pateat-mediated inference. Accumulate
 provider-reported cost when available, otherwise estimate from reported usage
@@ -67,6 +82,12 @@ threshold, not a guaranteed billing ceiling: in-flight or concurrent requests
 can overshoot it. Atomic maximum-cost reservations are not an initial
 requirement. Keep estimates distinct from billed amounts, and test failure or
 missing-usage accounting explicitly before enabling paid requests.
+
+Record usage/cost for each inference attempt when available; missing usage is
+unknown, not free. Provider retries share the bounded inference budget, while
+repair attempts and website submission limits remain separate. Retrying inference
+does not authorize an additional submission. Clef input-token usage uses versioned
+model rates, not a universal output-token price assumption.
 
 ### Later interfaces
 
