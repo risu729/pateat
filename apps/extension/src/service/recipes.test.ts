@@ -1,6 +1,12 @@
 import { parseLoginRecipe, type LoginRecipe, type SyncRecipeChange } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { createRecipeSync, MAX_RECIPE_PAGES_PER_SYNC, RECIPE_SYNC_STALE_MS } from "./recipes";
+import {
+  createRecipeSync,
+  MAX_RECIPE_CACHE_BYTES,
+  MAX_RECIPE_PAGES_PER_SYNC,
+  RECIPE_SYNC_RATE_LIMIT_MS,
+  RECIPE_SYNC_STALE_MS,
+} from "./recipes";
 import type { ServiceConnection } from "./runtime";
 import type { RecipeChangesResult, ServiceTransport } from "./transport";
 
@@ -54,10 +60,18 @@ function setup(
     connection?: ServiceConnection | undefined;
     pages?: RecipeChangesResult[];
     stored?: unknown;
+    scheduled?: unknown;
     now?: () => number;
   } = {},
 ) {
   let value = options.stored;
+  let scheduled = options.scheduled;
+  const schedule = {
+    read: vi.fn(async () => structuredClone(scheduled)),
+    write: vi.fn(async (next: unknown) => {
+      scheduled = structuredClone(next);
+    }),
+  };
   const storage = {
     read: vi.fn(async () => structuredClone(value)),
     write: vi.fn(async (cache: unknown) => {
@@ -72,7 +86,7 @@ function setup(
       ? options.connection
       : { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: false };
   const service = {
-    connection: vi.fn(async () => connection),
+    connection: vi.fn<() => Promise<ServiceConnection | undefined>>(async () => connection),
     recordSync: vi.fn(async () => undefined),
   };
   const pages = [...(options.pages ?? [page([], 0)])];
@@ -85,9 +99,17 @@ function setup(
     service,
     transport,
     storage,
+    schedule,
     now: options.now ?? (() => 5_000),
   });
-  return { sync, service, transport, storage, cache: () => value as Record<string, unknown> };
+  return {
+    sync,
+    service,
+    transport,
+    storage,
+    cache: () => value as Record<string, unknown>,
+    schedule: () => scheduled,
+  };
 }
 
 describe("recipe sync", () => {
@@ -224,7 +246,125 @@ describe("recipe sync", () => {
     release(page([], 0));
     expect(await first).toBe("synced");
     expect(await second).toBe("synced");
-    expect(transport.recipeChanges).toHaveBeenCalledOnce();
+    // The joined request runs once more, so changes made meanwhile are not missed.
+    expect(transport.recipeChanges).toHaveBeenCalledTimes(2);
+  });
+
+  it("syncs a device paired while an older device's sync was running", async () => {
+    let release: (result: RecipeChangesResult) => void = () => undefined;
+    const { sync, transport, service, cache } = setup();
+    transport.recipeChanges.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const first = sync.sync();
+    await vi.waitFor(() => expect(transport.recipeChanges).toHaveBeenCalledOnce());
+    const NEXT = `pateat_device_${"N".repeat(43)}`;
+    service.connection.mockResolvedValue({
+      origin: SERVICE,
+      deviceId: OTHER_DEVICE,
+      credential: NEXT,
+      rejected: false,
+    });
+    const paired = sync.sync();
+    release({ kind: "rejected" });
+    expect(await first).toBe("synced");
+    expect(await paired).toBe("synced");
+    expect(transport.recipeChanges).toHaveBeenLastCalledWith(SERVICE, NEXT, 0);
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { rejected: true });
+    expect(service.recordSync).toHaveBeenLastCalledWith(OTHER_DEVICE, { syncedAt: 5_000 });
+    expect(cache()).toMatchObject({ deviceId: OTHER_DEVICE });
+  });
+
+  it("stops before the cache outgrows its share of local storage", async () => {
+    const stored = {
+      version: 1,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 1,
+      recipes: [recipe("bank-signin", "/login")],
+    };
+    const size = new TextEncoder().encode(JSON.stringify(recipe("site-0", "/login"))).byteLength;
+    const many = Array.from({ length: Math.ceil(MAX_RECIPE_CACHE_BYTES / size) + 1 }, (_, index) =>
+      active(recipe(`site-${index}`, "/login", 1, `https://site-${index}.example`)),
+    );
+    const { sync, service, storage, cache } = setup({ stored, pages: [page(many, 2)] });
+    expect(await sync.sync()).toBe("cache-full");
+    expect(storage.write).not.toHaveBeenCalled();
+    expect(cache()).toEqual(stored);
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { cacheFull: true });
+  });
+
+  it("forgets the cache when its device is disconnected", async () => {
+    const stored = {
+      version: 1,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 1,
+      recipes: [recipe("bank-signin", "/login")],
+    };
+    const { sync, cache } = setup({
+      stored,
+      scheduled: { version: 1, startedAt: 0, retryAt: 9e9 },
+    });
+    expect(await sync.recipes.recipe(SITE, "/login")).toBeDefined();
+    await sync.clear();
+    expect(cache()).toBeUndefined();
+    expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+  });
+});
+
+describe("recipe sync schedule", () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("keeps the schedule across worker restarts", async () => {
+    const recent = setup({
+      now: () => 10_000,
+      scheduled: { version: 1, startedAt: 9_000, retryAt: 9_000 + RECIPE_SYNC_STALE_MS },
+    });
+    recent.sync.refreshIfStale();
+    await flush();
+    expect(recent.transport.recipeChanges).not.toHaveBeenCalled();
+
+    for (const scheduled of [
+      undefined,
+      { version: 1, startedAt: 0, retryAt: RECIPE_SYNC_STALE_MS },
+      // A clock that moved backwards does not postpone syncing.
+      { version: 1, startedAt: 9e9, retryAt: 9e9 },
+    ]) {
+      const due = setup({ now: () => RECIPE_SYNC_STALE_MS, scheduled });
+      due.sync.refreshIfStale();
+      // oxlint-disable-next-line no-await-in-loop -- independent setups
+      await vi.waitFor(() => expect(due.transport.recipeChanges).toHaveBeenCalledOnce());
+    }
+  });
+
+  it("records each attempt and backs off after a rate limit", async () => {
+    const synced = setup({ now: () => 7_000 });
+    await synced.sync.sync();
+    expect(synced.schedule()).toEqual({
+      version: 1,
+      startedAt: 7_000,
+      retryAt: 7_000 + RECIPE_SYNC_STALE_MS,
+    });
+
+    let time = 7_000;
+    const limited = setup({
+      now: () => time,
+      pages: [{ kind: "failed", error: "rate-limited" }],
+    });
+    expect(await limited.sync.sync()).toBe("rate-limited");
+    expect(limited.schedule()).toEqual({
+      version: 1,
+      startedAt: 7_000,
+      retryAt: 7_000 + RECIPE_SYNC_RATE_LIMIT_MS,
+    });
+    time += RECIPE_SYNC_STALE_MS;
+    limited.sync.refreshIfStale();
+    await flush();
+    expect(limited.transport.recipeChanges).toHaveBeenCalledOnce();
   });
 });
 
@@ -287,14 +427,29 @@ describe("cached recipe lookup", () => {
     );
     // The lookup answers from the cache while the first sync is still running.
     expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
-    expect(transport.recipeChanges).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(transport.recipeChanges).toHaveBeenCalledOnce());
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
     release(page([], 2));
     await new Promise((resolve) => setTimeout(resolve, 0));
     time += RECIPE_SYNC_STALE_MS - 1;
     await sync.recipes.recipe(SITE, "/login");
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(transport.recipeChanges).toHaveBeenCalledOnce();
     time += 1;
     await sync.recipes.recipe(SITE, "/login");
     await vi.waitFor(() => expect(transport.recipeChanges).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not refresh for a device the service rejected", async () => {
+    const { sync, service, transport } = setup({ stored });
+    service.connection.mockResolvedValue({
+      origin: SERVICE,
+      deviceId: DEVICE,
+      credential: CREDENTIAL,
+      rejected: true,
+    });
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(transport.recipeChanges).not.toHaveBeenCalled();
   });
 });

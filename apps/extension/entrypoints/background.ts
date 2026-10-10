@@ -21,6 +21,7 @@ import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import {
   createBrowserRecipeCacheStorage,
+  createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
 } from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
@@ -59,9 +60,10 @@ export default defineBackground(() => {
     service,
     transport: serviceTransport,
     storage: createBrowserRecipeCacheStorage(),
+    schedule: createBrowserRecipeScheduleStorage(),
   });
-  // Each worker start refreshes the cache once; lookups refresh it when it is stale.
-  void recipeSync.sync();
+  // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
+  recipeSync.refreshIfStale();
   const login = createLoginRuntime(settings, {
     fields: combineFieldSources({
       bitwarden: createVaultFieldSource(connections),
@@ -158,6 +160,8 @@ export default defineBackground(() => {
             if (message.type === "service.pair.check") void recipeSync.sync();
             else recipeSync.refreshIfStale();
           }
+          // The previous owner's recipes are not kept once their device is gone.
+          if (response.ok && response.state.kind === "disconnected") void recipeSync.clear();
           return sendResponse(response);
         },
         () => sendResponse({ ok: false, error: "storage-unavailable" }),

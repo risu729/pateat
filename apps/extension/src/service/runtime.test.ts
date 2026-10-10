@@ -452,6 +452,36 @@ describe("background sync access", () => {
     expect(storage.value()).toEqual(before);
   });
 
+  it("shows a full cache until the next complete sync", async () => {
+    const { runtime } = setup({ storage: memoryStorage(connected) });
+    await runtime.recordSync(ISSUED.deviceId, { cacheFull: true });
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toMatchObject({
+      state: { cacheFull: true },
+    });
+    await runtime.recordSync(ISSUED.deviceId, { syncedAt: 9_000 });
+    const response = await runtime.handle({ version: 1, type: "service.get" });
+    expect(response).toMatchObject({ state: { syncedAt: 9_000 } });
+    expect(response.ok && response.state).not.toHaveProperty("cacheFull");
+  });
+
+  it("answers a lookup without waiting behind a slow revocation", async () => {
+    let finish: (result: RevokeResult) => void = () => undefined;
+    const transport = fakeTransport();
+    transport.revoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { runtime } = setup({ storage: memoryStorage(connected), transport });
+    const disconnecting = runtime.handle({ version: 1, type: "service.disconnect" });
+    await vi.waitFor(() => expect(transport.revoke).toHaveBeenCalledOnce());
+    expect(await runtime.connection()).toMatchObject({ deviceId: ISSUED.deviceId });
+    finish({ kind: "revoked" });
+    await disconnecting;
+    expect(await runtime.connection()).toBeUndefined();
+  });
+
   it("ignores a sync outcome after disconnecting", async () => {
     const { storage, runtime } = setup({ storage: memoryStorage(connected) });
     await runtime.handle({ version: 1, type: "service.disconnect" });

@@ -136,7 +136,9 @@ for personal data, such as user IDs in paths, before they are shared.
 
 ## Consequences
 
-Real logins depend on a deployed service, device pairing and the extension sync
-client, and provisioning the service needs the owner's approval. The service now
-holds provider account IDs and item and field names, in addition to the site origins
-it already held through site defaults and recipes.
+Real logins depend on a deployed service, device pairing and the extension sync client,
+and provisioning the service needs the owner's approval. The service now holds provider
+account IDs and item and field names, in addition to the site origins it already held
+through site defaults and recipes. A device the service rejects with a 401 keeps using
+its cached recipes but receives no further changes, revocations included, until it is
+disconnected and paired again; disconnecting clears the cache.

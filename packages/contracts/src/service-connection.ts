@@ -59,6 +59,8 @@ export const serviceStateSchema = v.variant("kind", [
     syncedAt: v.optional(timestamp),
     /** The service no longer accepts this device; cached recipes still apply. */
     rejected: v.optional(v.literal(true)),
+    /** The owner's recipes outgrew the local cache; newer changes are not applied. */
+    cacheFull: v.optional(v.literal(true)),
   }),
 ]);
 

@@ -155,6 +155,8 @@ test("opens the approval page and polls until paired", async () => {
   await page.getByRole("button", { name: "Open approval page", exact: true }).click();
   expect(client.openApproval).toHaveBeenCalledWith(pairing.enrollUrl);
   await vi.waitFor(() => expect(client.check).toHaveBeenCalledOnce());
+  // Once paired, the page waits for the first recipe sync through `get` instead.
+  client.get.mockResolvedValue(ok(connected));
   release();
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
   await expect
@@ -218,6 +220,25 @@ test("shows when recipes last synced and when the service rejects the device", a
     <ServiceConnection client={mockClient({ ...connected, rejected: true })} pollMs={60_000} />,
   );
   await expect.element(page.getByText(/no longer accepts this device/)).toBeVisible();
+  await cleanup();
+
+  await render(
+    <ServiceConnection client={mockClient({ ...connected, cacheFull: true })} pollMs={60_000} />,
+  );
+  await expect.element(page.getByText(/no longer fit in this device's cache/)).toBeVisible();
+});
+
+test("shows the first sync finishing without a reload", async () => {
+  const client = mockClient(connected);
+  await render(<ServiceConnection client={client} pollMs={20} />);
+  await expect
+    .element(page.getByText("Recipes have not finished syncing yet.", { exact: true }))
+    .toBeVisible();
+  client.get.mockResolvedValue(ok({ ...connected, syncedAt: Date.UTC(2026, 9, 10, 6, 0) }));
+  await expect.element(page.getByText(/Recipes last synced at/)).toBeVisible();
+  const calls = client.get.mock.calls.length;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(client.get).toHaveBeenCalledTimes(calls);
 });
 
 test("tells the owner when the service could not confirm a disconnect", async () => {

@@ -8,13 +8,20 @@ import {
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginRecipes } from "../login/runtime";
-import type { ServiceConnection } from "./runtime";
+import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { ServiceTransport, TransportFailure } from "./transport";
 
-/** A lookup older than this starts a background sync; the lookup itself never waits. */
+/** A lookup this long after the last sync attempt starts a background sync. */
 export const RECIPE_SYNC_STALE_MS = 5 * 60 * 1000;
+/** After the service asks Pateat to slow down, background syncs wait this long. */
+export const RECIPE_SYNC_RATE_LIMIT_MS = 15 * 60 * 1000;
 /** Pages read in one sync; a larger backlog continues on the next one. */
 export const MAX_RECIPE_PAGES_PER_SYNC = 50;
+/**
+ * The serialized cache stays well inside the 10 MB `storage.local` quota it shares with
+ * the vault cache, settings and login attempts.
+ */
+export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 
 // The last-known-good copy of the owner's active recipes (ADR 0013). The cursor and
 // recipes are written together, so a failed write leaves the previous consistent copy.
@@ -33,11 +40,26 @@ const cacheSchema = v.strictObject({
 });
 type RecipeCache = v.InferOutput<typeof cacheSchema>;
 
+// When the next background sync is due; it survives service worker restarts.
+const scheduleSchema = v.strictObject({
+  version: v.literal(1),
+  startedAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  retryAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
+});
+type RecipeSyncSchedule = v.InferOutput<typeof scheduleSchema>;
+
 export interface RecipeCacheStorage {
   read(): Promise<unknown>;
   write(cache: RecipeCache): Promise<void>;
   clear(): Promise<void>;
 }
+
+export interface RecipeScheduleStorage {
+  read(): Promise<unknown>;
+  write(schedule: RecipeSyncSchedule): Promise<void>;
+}
+
+const encoder = new TextEncoder();
 
 export type RecipeSyncOutcome =
   | "synced"
@@ -45,37 +67,65 @@ export type RecipeSyncOutcome =
   | "incomplete"
   | "not-connected"
   | "rejected"
+  /** The next page would grow the cache past its size limit; it was not applied. */
+  | "cache-full"
   | "storage-unavailable"
   | TransportFailure;
 
 export function createRecipeSync(options: {
   service: {
     connection(): Promise<ServiceConnection | undefined>;
-    recordSync(deviceId: string, outcome: { syncedAt: number } | { rejected: true }): Promise<void>;
+    recordSync(deviceId: string, outcome: RecipeSyncRecord): Promise<void>;
   };
   transport: Pick<ServiceTransport, "recipeChanges">;
   storage: RecipeCacheStorage;
+  schedule: RecipeScheduleStorage;
   now?: () => number;
 }) {
-  const { service, transport, storage } = options;
+  const { service, transport, storage, schedule } = options;
   const now = options.now ?? Date.now;
   let running: Promise<RecipeSyncOutcome> | undefined;
-  let lastStartedAt: number | undefined;
+  // A sync requested while one runs, for example by a new pairing, runs once more after it.
+  let rerun = false;
+  // Only this module writes the cache, so the parsed copy stays valid until the next write.
+  let memory: RecipeCache | undefined;
+  let retryAt: Promise<number> | undefined;
 
   /** The cache of exactly this paired device; another device's or a corrupt copy is ignored. */
   async function load(connection: ServiceConnection): Promise<RecipeCache | undefined> {
-    let stored: unknown;
-    try {
-      stored = await storage.read();
-    } catch {
-      return undefined;
+    if (!memory) {
+      let stored: unknown;
+      try {
+        stored = await storage.read();
+      } catch {
+        return undefined;
+      }
+      const parsed = v.safeParse(cacheSchema, stored);
+      if (!parsed.success) return undefined;
+      memory ??= parsed.output;
     }
-    const parsed = v.safeParse(cacheSchema, stored);
-    return parsed.success &&
-      parsed.output.origin === connection.origin &&
-      parsed.output.deviceId === connection.deviceId
-      ? parsed.output
+    return memory.origin === connection.origin && memory.deviceId === connection.deviceId
+      ? memory
       : undefined;
+  }
+
+  /** When the next background sync is due; a clock that moved backwards makes it due now. */
+  function dueAt(): Promise<number> {
+    retryAt ??= schedule.read().then(
+      (stored) => {
+        const parsed = v.safeParse(scheduleSchema, stored);
+        return parsed.success && parsed.output.startedAt <= now() ? parsed.output.retryAt : 0;
+      },
+      () => 0,
+    );
+    return retryAt;
+  }
+  function plan(startedAt: number, delay: number) {
+    retryAt = Promise.resolve(startedAt + delay);
+    // Best effort: a lost write only makes the next worker start sync sooner.
+    void schedule
+      .write({ version: 1, startedAt, retryAt: startedAt + delay })
+      .catch(() => undefined);
   }
 
   async function run(): Promise<RecipeSyncOutcome> {
@@ -111,12 +161,19 @@ export function createRecipeSync(options: {
         else recipes.delete(change.recipeId);
       }
       const next: RecipeCache = { ...cache, cursor, recipes: [...recipes.values()] };
+      if (encoder.encode(JSON.stringify(next)).byteLength > MAX_RECIPE_CACHE_BYTES) {
+        // oxlint-disable-next-line no-await-in-loop -- ends the loop
+        await service.recordSync(connection.deviceId, { cacheFull: true });
+        return "cache-full";
+      }
       try {
+        memory = undefined;
         // oxlint-disable-next-line no-await-in-loop -- the cursor advances only with its recipes
         await storage.write(next);
       } catch {
         return "storage-unavailable";
       }
+      memory = next;
       cache = next;
       if (complete) {
         // oxlint-disable-next-line no-await-in-loop -- ends the loop
@@ -127,26 +184,49 @@ export function createRecipeSync(options: {
     return "incomplete";
   }
 
-  /** Runs one sync, or joins the one already running. */
+  /**
+   * Runs a sync now. A call while one runs joins it and makes it run once more, so a
+   * device paired during an older device's sync is synced too.
+   */
   function sync(): Promise<RecipeSyncOutcome> {
-    lastStartedAt = now();
-    running ??= run()
-      .catch((): RecipeSyncOutcome => "storage-unavailable")
-      .finally(() => {
-        running = undefined;
-      });
+    if (running) {
+      rerun = true;
+      return running;
+    }
+    running = (async () => {
+      let outcome: RecipeSyncOutcome;
+      do {
+        rerun = false;
+        const startedAt = now();
+        plan(startedAt, RECIPE_SYNC_STALE_MS);
+        // oxlint-disable-next-line no-await-in-loop -- a rerun follows the previous run
+        outcome = await run().catch((): RecipeSyncOutcome => "storage-unavailable");
+        if (outcome === "rate-limited") plan(startedAt, RECIPE_SYNC_RATE_LIMIT_MS);
+      } while (rerun);
+      return outcome;
+    })().finally(() => {
+      running = undefined;
+    });
     return running;
   }
 
+  /** Starts a background sync when the last attempt, even in an earlier worker, is old. */
   function refreshIfStale() {
-    if (lastStartedAt === undefined || now() - lastStartedAt >= RECIPE_SYNC_STALE_MS) void sync();
+    if (running) return;
+    void dueAt().then((at) => (!running && now() >= at ? sync() : undefined));
+  }
+
+  /** Forgets the cache when its device is disconnected; a new pairing starts empty anyway. */
+  async function clear() {
+    memory = undefined;
+    await storage.clear().catch(() => undefined);
   }
 
   const recipes: LoginRecipes = {
     async recipe(origin: string, path: string, recipeId?: string) {
       const connection = await service.connection();
       if (!connection) return undefined;
-      refreshIfStale();
+      if (!connection.rejected) refreshIfStale();
       const cache = await load(connection);
       if (!cache) return undefined;
       // A resumed attempt asks for its own recipe; the executor checks its revision.
@@ -159,5 +239,5 @@ export function createRecipeSync(options: {
     },
   };
 
-  return { sync, refreshIfStale, recipes };
+  return { sync, refreshIfStale, clear, recipes };
 }
