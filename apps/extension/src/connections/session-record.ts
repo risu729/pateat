@@ -142,8 +142,9 @@ export function authenticatedFrom(
   };
 }
 
-/** Unsigned claim decoding only correlates a response with the stored binding. */
-export function tokenSubject(accessToken: string): { sub?: string; email?: string } {
+/** Unsigned claim decoding only correlates a response with the stored binding and
+ * bounds local reuse by `exp`; it never establishes authenticity. */
+export function tokenSubject(accessToken: string): { sub?: string; email?: string; exp?: number } {
   try {
     const part = accessToken.split(".")[1];
     if (!part || !/^[A-Za-z0-9_-]+$/.test(part)) return {};
@@ -155,10 +156,11 @@ export function tokenSubject(accessToken: string): { sub?: string; email?: strin
       ),
     );
     if (!claims || typeof claims !== "object") return {};
-    const { sub, email } = claims as Record<string, unknown>;
+    const { sub, email, exp } = claims as Record<string, unknown>;
     return {
       ...(typeof sub === "string" ? { sub: sub.toLowerCase() } : {}),
       ...(typeof email === "string" ? { email: email.trim().toLowerCase() } : {}),
+      ...(typeof exp === "number" && Number.isFinite(exp) ? { exp } : {}),
     };
   } catch {
     return {};

@@ -253,10 +253,8 @@ browser evidence, not an installed-profile or real-account compatibility claim.
 The connection setup slice connects manual options setup to the existing authentication,
 mapping and durable-cache components. It adds configured-provider host permissions,
 bounded manual challenges and a value-free catalog for local settings. Production site
-execution remains a separate integration gate. Provider authentication remains transient
-in this slice; service-worker restart can require sign-in again for remote sync, while
-the local cached vault restores independently. Durable provider sessions are the
-[next slice](#provider-session-progress-planned).
+execution remains a separate integration gate. Provider authentication was transient
+in this slice; [durable provider sessions](#provider-session-progress) followed.
 
 Catalog replacement preserves custom-field denies: exact unchanged encrypted field
 sequences can rebind snapshot-scoped references, while changed or ambiguous sequences
@@ -289,66 +287,24 @@ Chrome yet.
 - Real Bitwarden connections, individual MFA methods and optional host-permission
   prompts in installed Chrome remain separate gates.
 
-## Provider session progress (planned)
+## Provider session progress
 
-Planned, not implemented. Today the provider session lives only in background memory,
-so remote sync after a service-worker or browser restart requires signing in again.
-This slice persists bounded sync authentication without new dependencies. It is
-separate from offline unlock: neither state implies or clears the other.
+Implemented as [ADR 0008](adr/0008-durable-provider-sessions.md) describes. The native
+IndexedDB database is upgraded in place from version 1 to 2 and gains a
+`providerSessions` store; vault records still never contain tokens. A token-free refresh
+claim commits by compare-and-swap before HTTP, a restart or unknown outcome requires
+password sign-in instead of replaying it, rotation commits before sync, and an absent
+refresh token keeps the captured one. Local forget, permission loss for that provider,
+a rejected refresh or access token, and a mismatched account context clear only the
+sync session. Startup only reads state; the settings page shows sync sign-in and
+automatic unlock separately and labels forget as local.
 
-1. Centralize the native IndexedDB open and upgrade version 1 to 2, preserving the
-   `records` store and adding `providerSessions`. Handle blocked upgrades and
-   `versionchange`; test the upgrade from a real version 1 database in a native
-   browser.
-2. An active session record holds bounded tokens, the receipt time, the response's
-   `expires_in`, the canonical provider and subject binding, and a narrowly validated
-   encrypted authentication context. It is a separate store from the vault record,
-   which still never contains tokens.
-3. A refreshing claim records the binding, a claim ID and its time, never a token. The
-   previous token is captured only in the running worker's memory, and the claim
-   commits by compare-and-swap before any HTTP request. A restart or unknown network
-   outcome then requires re-authentication; a claim is never replayed. This is
-   single-flight on the client, not exactly-once on the server.
-4. Planned internal operations: retain an authenticated session, claim a refresh,
-   commit a refresh, sync, forget the provider session, and a value-free status. Each
-   compares the session revision and the current cache authority in one native
-   transaction, and no transaction waits for network or SDK work.
-5. Check that the refresh response's subject, client and provider match the session.
-   Decoding JWT claims is a consistency check, not signature verification. Commit a
-   rotated token before syncing; a later sync failure must not restore the old token.
-6. When the response omits a refresh token or returns null, keep the captured
-   previous token, as the official client does; replace it when a valid token is
-   returned. Use the response's expiry instead of assuming a server default.
-7. Refresh responses omit the original account-key data, so keep only a narrow
-   encrypted authentication context. Old organization claims do not authorize current
-   access. If new crypto state disagrees with the stored context, require password
-   re-authentication explicitly and keep the existing cache.
-8. Treat the cache revision as a per-operation guard, not a value the session is
-   pinned to, so a second sync after a successful first sync still works.
-9. Local forget, permission removal and server rejection clear sync authentication
-   but not offline unlock or the connection configuration. No verified server-wide
-   revocation endpoint is known, so remote revocation is explicitly unsupported; do
-   not guess a URL.
-10. Permission removal fences in-flight work immediately, rechecks each configured
-    provider's permission and forgets only connections that lost it.
-11. Startup only reads state; HTTP happens on an explicit Sync action. The UI shows
-    the provider session and offline unlock separately and never presents local
-    forget as a server logout.
-
-Required tests: native version 1 upgrade; password-free explicit sync after a full
-profile reopen; consecutive successful syncs; rotated and omitted refresh tokens;
-corrupt or rejected sync after a committed rotation; independent compare-and-swap
-writers where only one may send HTTP; crashes before and after the claim, after the
-response and after the commit; forget and permission-removal races; one provider
-losing its session while another keeps it; offline-key independence; corrupt, quota
-and uncertain storage; and no token in options or status output.
-
-Primary sources:
-[server refresh-token reuse and lifetime](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/src/Identity/IdentityServer/ApiClient.cs#L18-L35),
-[client retention of an absent refresh token](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/auth/services/token.service.ts#L190-L198),
-[refresh response model](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/auth/models/response/refresh-token.response.ts)
-and
-[refreshed membership claims](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/test/Identity.IntegrationTest/Grants/RefreshTokenGrantTests.cs#L69-L106).
+Unit tests cover claims, rotation, concurrent writers, forget and permission races,
+expiry from the token's own claims, and per-provider permission loss. Isolated Chromium
+tests cover the blocked and released version 1 upgrade, the native session store's
+guards and readback, two password-free syncs after a full profile reopen, and local
+forget and permission removal with offline unlock kept. These use synthetic providers.
+Refresh against a real account and installed Chrome remain unverified.
 
 ## Initial delivery and later scope
 

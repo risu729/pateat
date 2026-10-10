@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { withVaultProfile } from "./vault-fixture";
 import {
   beginInput,
+  heldDatabaseState,
   inspectProviderSessions,
   readSentinel,
   releaseVersionOneDatabase,
@@ -11,10 +12,13 @@ import {
 } from "./connection-fixture";
 
 test("a version 1 database upgrades in place, and a blocked upgrade fails closed until released", async () => {
+  // Each blocked native open waits for the 10 s open timeout before failing closed.
+  test.setTimeout(120_000);
   await withVaultProfile(async (open) => {
     const browser = await open();
     // Seed before the options page loads and reads connection status.
     expect(await seedVersionOneDatabase(browser.page, true)).toBe(1);
+    expect(await heldDatabaseState(browser.page)).toEqual({ version: 1, records: 1 });
     const options = await browser.context.newPage();
     await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
     // The held version 1 connection ignores versionchange, so the background cannot upgrade.
@@ -22,7 +26,8 @@ test("a version 1 database upgrades in place, and a blocked upgrade fails closed
       type: "connection.begin",
       input: beginInput(),
     });
-    expect(blocked.ok).toBe(false);
+    expect(blocked).toEqual({ ok: false, error: { code: "storage-failed" } });
+    expect(await heldDatabaseState(browser.page)).toEqual({ version: 1, records: 1 });
     await releaseVersionOneDatabase(browser.page);
     const accepted = await setupRequest(options, {
       type: "connection.begin",
@@ -60,12 +65,11 @@ test("sync after a full profile reopen uses the saved sign-in without a password
       connections: [{ providerSession: "active", autoUnlock: "enabled" }],
     });
     expect(await setupProbe(reopened.page, { action: "status" })).toMatchObject({ calls: 0 });
-    for (const _ of [1, 2]) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(
-        await setupRequest(page, { type: "connection.sync", connectionId: accepted.connectionId }),
-      ).toMatchObject({ ok: true, kind: "ready" });
-    }
+    const sync = () =>
+      setupRequest(page, { type: "connection.sync", connectionId: accepted.connectionId });
+    // Two consecutive syncs: the second uses the cache revision accepted by the first.
+    expect(await sync()).toMatchObject({ ok: true, kind: "ready" });
+    expect(await sync()).toMatchObject({ ok: true, kind: "ready" });
     expect(await setupProbe(reopened.page, { action: "status" })).toMatchObject({
       calls: 2,
       preloginCalls: 0,
@@ -107,11 +111,42 @@ test("local forget and permission removal clear sync sign-in but keep offline un
       await setupRequest(options, { type: "connection.sync", connectionId: first.connectionId }),
     ).toEqual({ ok: false, error: { code: "setup-reauthentication-required" } });
     expect((await setupProbe(browser.page, { action: "status" })).calls).toBe(before.calls);
-    await setupProbe(browser.page, { action: "configure", variant: "unchanged", permission: false });
+    await setupProbe(browser.page, {
+      action: "configure",
+      variant: "unchanged",
+      permission: false,
+    });
     expect(await inspectProviderSessions(browser.page)).toMatchObject({ records: 2, sessions: [] });
     expect(await setupProbe(browser.page, { action: "resolve", field: "password" })).toEqual({
       ok: true,
       matched: true,
+    });
+  });
+});
+
+test("the native session store guards on the cache record and its own revision", async () => {
+  await withVaultProfile(async (open) => {
+    const browser = await open();
+    expect(await setupProbe(browser.page, { action: "session-store" })).toEqual({
+      ok: true,
+      results: {
+        retain: "ok",
+        guardMismatch: "storage-conflict",
+        guardDisabled: "storage-conflict",
+        revisionConflict: "storage-conflict",
+        unchanged: true,
+        swap: "ok",
+        readback: true,
+        corruptRead: "invalid-cache-record",
+        corruptReplace: "invalid-cache-record",
+        corruptDeleteWithRevision: "invalid-cache-record",
+        corruptKept: true,
+        corruptDelete: "ok",
+        deleted: true,
+        mismatchRead: "account-mismatch",
+        mismatchReplace: "ok",
+        replaced: true,
+      },
     });
   });
 });

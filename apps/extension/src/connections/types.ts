@@ -131,7 +131,7 @@ export type ConnectionSetupDependencies = {
   };
   registry: ConnectionRegistry;
   policy: ConnectionPolicy;
-  sessions: Pick<ProviderSessions, "status" | "retain" | "acquire" | "forget">;
+  sessions: Pick<ProviderSessions, "status" | "retain" | "acquire" | "forget" | "discard">;
   nowMs?: () => number;
   randomId?: () => string;
 };

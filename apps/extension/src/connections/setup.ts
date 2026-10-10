@@ -26,6 +26,8 @@ type Flow = {
   hash?: string;
   enabled?: boolean;
   intent: "enable" | "preserve";
+  /** An explicit sync with a stored session; only such a flow may be aborted by forget. */
+  sync?: boolean;
   controller: AbortController;
   expiresAt: number;
   timer: ReturnType<typeof setTimeout>;
@@ -76,16 +78,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         }
       : { kind: "bootstrap" as const, email };
   }
-  /** Forget the persisted sync session; offline unlock and configuration stay unchanged. */
-  async function forgetSession(profile: BitwardenProfile) {
-    const forgotten = await deps.sessions.forget(profile);
-    return forgotten.ok;
-  }
   async function acceptSync(
     flow: Flow,
     authenticated: Authenticated,
     unlock: { kind: "password"; password: string } | { kind: "decrypted-key"; userKey: string },
-    source: "password" | "session",
+    source: { kind: "password"; receivedAt: number } | { kind: "session"; revision: string },
   ): Promise<SetupReply> {
     const profile = flow.configuration.profile;
     if (!(await permitted(flow)))
@@ -104,8 +101,13 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     );
     if (!synced.ok) {
       // A server rejection of the stored access token ends that sync session only.
-      if (source === "session" && synced.error.code === "http-error" && synced.error.status === 401) {
-        await forgetSession(profile);
+      // Only the session that was used is cleared; a newer one stays.
+      if (
+        source.kind === "session" &&
+        synced.error.code === "http-error" &&
+        synced.error.status === 401
+      ) {
+        await deps.sessions.discard(profile, source.revision);
         return error("setup-reauthentication-required");
       }
       return synced;
@@ -125,8 +127,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     if (!mapped.ok) {
       // The stored encrypted context no longer matches current account crypto state.
       // Require password sign-in again; the existing cache is left untouched.
-      if (source === "session" && mapped.error.code === "account-mismatch") {
-        await forgetSession(profile);
+      if (source.kind === "session" && mapped.error.code === "account-mismatch") {
+        await deps.sessions.discard(profile, source.revision);
         return error("setup-reauthentication-required");
       }
       return mapped;
@@ -190,12 +192,13 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     reviews.set(profile.connectionId, adopted.policyReviewItemIds);
     flow.published = true;
     // A failed write leaves the cache usable; status then asks for sign-in before the next sync.
-    if (source === "password")
+    if (source.kind === "password")
       await deps.sessions.retain(
         profile,
         authenticated,
         { userId: mapped.data.binding.userId, email: mapped.data.binding.email },
         accepted.data.summary.revision,
+        source.receivedAt,
       );
     return {
       ok: true,
@@ -231,6 +234,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       },
       flow.controller.signal,
     );
+    // Token lifetime counts from receipt, not from the end of sync and acceptance.
+    const receivedAt = now();
     if (!token.ok) return token;
     if (!alive(flow)) return error("cancelled");
     const outcome = token.data;
@@ -252,7 +257,12 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     if (outcome.kind === "interaction-required")
       return { ok: true, kind: outcome.kind, reason: outcome.reason };
     if (outcome.kind !== "authenticated") return error("authentication-rejected");
-    return acceptSync(flow, outcome, { kind: "password", password: flow.password }, "password");
+    return acceptSync(
+      flow,
+      outcome,
+      { kind: "password", password: flow.password },
+      { kind: "password", receivedAt },
+    );
   }
   async function status(): Promise<SetupReply> {
     const configurations = await deps.registry.list();
@@ -302,14 +312,25 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
   }
   return {
     status,
-    /** Fence in-flight work now, then forget sessions only for providers that lost access. */
+    /** Fence in-flight work now, then forget sessions only for providers that lost access.
+     * Never rejects: a failed check or forget leaves that session for status to report. */
     async permissionsRemoved() {
       for (const flow of active.values()) clear(flow);
-      for (const configuration of await deps.registry.list()) {
-        // eslint-disable-next-line no-await-in-loop
-        if (!(await deps.permissions.contains(configuration.profile)))
+      let configurations: BitwardenConnectionConfiguration[];
+      try {
+        configurations = await deps.registry.list();
+      } catch {
+        return;
+      }
+      for (const configuration of configurations) {
+        try {
           // eslint-disable-next-line no-await-in-loop
-          await forgetSession(configuration.profile);
+          if (!(await deps.permissions.contains(configuration.profile)))
+            // eslint-disable-next-line no-await-in-loop
+            await deps.sessions.forget(configuration.profile);
+        } catch {
+          // Continue with the remaining connections.
+        }
       }
     },
     createCaller() {
@@ -484,6 +505,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             )
               return error("resource-limit");
             const current = flow(configuration, "", "preserve");
+            current.sync = true;
             if (!(await permitted(current))) return error("provider-permission-required");
             const vault = deps.vaultFor(configuration.profile);
             const prior = await vault.store.read();
@@ -501,21 +523,32 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             if (!alive(current)) return error("cancelled");
             return acceptSync(
               current,
-              authorization.data,
+              authorization.data.authenticated,
               { kind: "decrypted-key", userKey: prior.data.userKey },
-              "session",
+              { kind: "session", revision: authorization.data.revision },
             );
           });
         },
-        /** Local forget only. No verified server-wide revocation endpoint is called. */
+        /** Local forget only. No verified server-wide revocation endpoint is called.
+         * It touches only the session store: a password or setup flow is never cleared
+         * (its compensation could disable a first enrollment), so it reports busy instead. */
         async forget(connectionId: string): Promise<SetupReply> {
-          if (closed || disabling.has(connectionId)) return error("resource-limit");
+          const setupActive = () => {
+            const current = active.get(connectionId);
+            return current !== undefined && !current.sync;
+          };
+          if (closed || disabling.has(connectionId) || setupActive())
+            return error("resource-limit");
           connectionEpoch.set(connectionId, (connectionEpoch.get(connectionId) ?? 0) + 1);
           const configuration = await deps.registry.get(connectionId);
           if (!configuration) return error("invalid-request");
+          if (setupActive()) return error("resource-limit");
           const current = active.get(connectionId);
-          if (current) clear(current);
-          if (owned === current) owned = undefined;
+          if (current) {
+            clear(current);
+            if (owned === current) owned = undefined;
+            await current.retirement;
+          }
           const forgotten = await deps.sessions.forget(configuration.profile);
           return forgotten.ok ? { ok: true, kind: "forgotten", connectionId } : forgotten;
         },
@@ -532,8 +565,9 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             const disabled = await deps.vaultFor(configuration.profile).manager.disableAutoUnlock();
             handles.delete(connectionId);
             // Sync needs the retained key, so its credentials go with it.
-            await forgetSession(configuration.profile);
-            return disabled.ok ? { ok: true, kind: "disabled", connectionId } : disabled;
+            const forgotten = await deps.sessions.forget(configuration.profile);
+            if (!disabled.ok) return disabled;
+            return forgotten.ok ? { ok: true, kind: "disabled", connectionId } : forgotten;
           } finally {
             disabling.delete(connectionId);
           }

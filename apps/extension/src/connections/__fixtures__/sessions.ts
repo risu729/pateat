@@ -27,7 +27,7 @@ export function memorySessionStore(options: {
       }
       const old = value === undefined ? null : admitProviderSession(value, options.profile);
       const oldRevision = old === null ? null : old.ok ? old.data.revision : undefined;
-      if (oldRevision === undefined && (next || expectedRevision !== null))
+      if (oldRevision === undefined && expectedRevision !== null)
         return vaultFailure("invalid-cache-record");
       if (oldRevision !== undefined && oldRevision !== expectedRevision)
         return vaultFailure("storage-conflict");

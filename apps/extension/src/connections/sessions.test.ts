@@ -15,12 +15,15 @@ import { createProviderSessions } from "./sessions";
 type Authenticated = Extract<PasswordTokenOutcome, { kind: "authenticated" }>;
 const cacheRevision = "50000000-0000-4000-8000-000000000001";
 
-function authenticated(refreshToken: string | null = "synthetic-refresh-token") {
+function authenticated(
+  refreshToken: string | null = "synthetic-refresh-token",
+  accessToken = rawV1Account().token.access_token,
+) {
   const raw = rawV1Account().token;
   return {
     kind: "authenticated",
     tokens: {
-      accessToken: raw.access_token,
+      accessToken,
       tokenType: "Bearer",
       expiresIn: 3600,
       ...(refreshToken ? { refreshToken } : {}),
@@ -49,12 +52,13 @@ function harness() {
     permitted: async () => true,
     signal,
   });
-  const retain = () =>
+  const retain = (value: Authenticated = authenticated()) =>
     sessions.retain(
       accountProfile,
-      authenticated(),
+      value,
       { userId: accountUserId, email: v1Email },
       cacheRevision,
+      clock,
     );
   const refreshed = (claims: Record<string, unknown> = {}, refresh?: string | null) => ({
     ok: true as const,
@@ -144,7 +148,7 @@ describe("explicit sync acquisition", () => {
     await h.retain();
     expect(await h.sessions.status(accountProfile)).toBe("active");
     const result = await h.sessions.acquire(accountProfile, h.context());
-    expect(result).toMatchObject({ ok: true, data: { kind: "authenticated" } });
+    expect(result).toMatchObject({ ok: true, data: { authenticated: { kind: "authenticated" } } });
     expect(h.refreshToken).not.toHaveBeenCalled();
   });
   it("commits a token-free claim before HTTP and commits rotation before returning", async () => {
@@ -284,6 +288,7 @@ describe("explicit sync acquisition", () => {
       authenticated(null),
       { userId: accountUserId, email: v1Email },
       cacheRevision,
+      accountNow * 1000,
     );
     h.advance(3_600_000);
     expect(await h.sessions.status(accountProfile)).toBe("reauthentication-required");
@@ -292,6 +297,73 @@ describe("explicit sync acquisition", () => {
       error: { code: "setup-reauthentication-required" },
     });
     expect(h.refreshToken).not.toHaveBeenCalled();
+  });
+  it("a caller abort after the claim commits still completes and commits the rotation", async () => {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    const controller = new AbortController();
+    h.refreshToken.mockImplementationOnce(async (_input, signal) => {
+      // The options page closes while the claimed request is in flight.
+      controller.abort();
+      expect(signal).toBeUndefined();
+      return h.refreshed({}, "synthetic-rotated-refresh");
+    });
+    expect(await h.sessions.acquire(accountProfile, h.context(controller.signal))).toEqual({
+      ok: false,
+      error: { code: "cancelled" },
+    });
+    const rotated = h.memory.raw() as { state: string; accessToken: string; refreshToken: string };
+    expect(rotated).toMatchObject({ state: "active", refreshToken: "synthetic-rotated-refresh" });
+    const next = await h.sessions.acquire(accountProfile, h.context());
+    expect(next).toMatchObject({
+      ok: true,
+      data: { authenticated: { tokens: { accessToken: rotated.accessToken } } },
+    });
+    expect(h.refreshToken).toHaveBeenCalledTimes(1);
+  });
+  it("a JWT exp earlier than the response lifetime triggers a refresh", async () => {
+    const h = harness();
+    await h.retain(
+      authenticated("synthetic-refresh-token", syntheticJwt({ exp: accountNow + 120 })),
+    );
+    expect(await h.sessions.status(accountProfile)).toBe("active");
+    // Within 60 s of `exp`, although `receivedAt + expires_in` is an hour away.
+    h.advance(61_000);
+    expect(await h.sessions.status(accountProfile)).toBe("refresh-required");
+    h.refreshToken.mockResolvedValueOnce(h.refreshed());
+    expect((await h.sessions.acquire(accountProfile, h.context())).ok).toBe(true);
+    expect(h.refreshToken).toHaveBeenCalledTimes(1);
+  });
+  it("records the response receipt time, not when the caller retains it", async () => {
+    const h = harness();
+    await h.sessions.retain(
+      accountProfile,
+      authenticated(),
+      { userId: accountUserId, email: v1Email },
+      cacheRevision,
+      accountNow * 1000 - 3_550_000,
+    );
+    expect(await h.sessions.status(accountProfile)).toBe("refresh-required");
+  });
+  it("a bound discard leaves a newer session in place", async () => {
+    const h = harness();
+    await h.retain();
+    const used = await h.sessions.acquire(accountProfile, h.context());
+    if (!used.ok) throw new Error("Synthetic acquire failed");
+    await h.retain();
+    const newer = h.memory.raw() as { revision: string };
+    expect(newer.revision).not.toBe(used.data.revision);
+    expect(await h.sessions.discard(accountProfile, used.data.revision)).toEqual({
+      ok: true,
+      data: true,
+    });
+    expect(h.memory.raw()).toMatchObject({ revision: newer.revision });
+    expect(await h.sessions.discard(accountProfile, newer.revision)).toEqual({
+      ok: true,
+      data: true,
+    });
+    expect(h.memory.raw()).toBeUndefined();
   });
   it("a missing permission sends nothing and writes no claim", async () => {
     const h = harness();
@@ -312,5 +384,31 @@ describe("forget", () => {
     expect(await h.sessions.status(accountProfile)).toBe("unavailable");
     expect(await h.sessions.forget(accountProfile)).toEqual({ ok: true, data: true });
     expect(await h.sessions.status(accountProfile)).toBe("none");
+  });
+  it("forgets or replaces a record bound to another profile, but never reuses it", async () => {
+    const h = harness();
+    await h.retain();
+    const other: Record<string, unknown> = {
+      ...(h.memory.raw() as Record<string, unknown>),
+      profile: { ...accountProfile, connectionId: crypto.randomUUID() },
+    };
+    h.memory.set(other);
+    expect(await h.sessions.status(accountProfile)).toBe("unavailable");
+    expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({
+      ok: false,
+      error: { code: "account-mismatch" },
+    });
+    expect(await h.sessions.forget(accountProfile)).toEqual({ ok: true, data: true });
+    expect(h.memory.raw()).toBeUndefined();
+    h.memory.set(other);
+    // A password sign-in replaces it.
+    expect(await h.retain()).toEqual({ ok: true, data: true });
+    expect(await h.sessions.status(accountProfile)).toBe("active");
+    h.memory.set(other);
+    // A non-null expected revision never overwrites an unadmittable record.
+    expect(await h.memory.store.compareAndSwap(String(other["revision"]), null)).toEqual({
+      ok: false,
+      error: { code: "invalid-cache-record" },
+    });
   });
 });

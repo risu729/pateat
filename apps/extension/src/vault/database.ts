@@ -13,7 +13,8 @@ export type VaultDatabaseOptions = {
   timeoutMs?: number;
 };
 
-/** One background-owned connection. Every opener upgrades through this single schema. */
+/** One lazily opened connection per caller (each vault and session store owns one).
+ * Every opener upgrades through this single schema and yields to a newer version. */
 export function createVaultDatabase(options: VaultDatabaseOptions = {}) {
   const factory = options.indexedDB ?? globalThis.indexedDB;
   const timeout = options.timeoutMs ?? 10_000;

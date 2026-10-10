@@ -17,7 +17,8 @@ export type CacheGuard = { cacheRevision: string };
 export interface ProviderSessionStore {
   read(): Promise<VaultResult<ProviderSessionEntry | null>>;
   /** Replace or delete (next = null) the session when its revision and, if given,
-   * the active vault record revision both match in one native transaction. */
+   * the active vault record revision both match in one native transaction. A stored
+   * session that fails admission matches only expectedRevision = null. */
   compareAndSwap(
     expectedRevision: string | null,
     next: ProviderSessionEntry | null,
@@ -84,11 +85,12 @@ export function createIndexedDbProviderSessionStore(options: {
             const sessions = stores(PROVIDER_SESSIONS_STORE);
             const current = sessions.get(profile.connectionId);
             current.onsuccess = () => {
-              // A corrupt stored session can still be deleted; it can never be replaced blindly.
+              // A stored session that fails admission is never reused. It has no trusted
+              // revision, so only an expected-null delete or replace may overwrite it.
               const old =
                 current.result === undefined ? null : admitProviderSession(current.result, profile);
               const oldRevision = old === null ? null : old.ok ? old.data.revision : undefined;
-              if (oldRevision === undefined && (admitted || expectedRevision !== null)) {
+              if (oldRevision === undefined && expectedRevision !== null) {
                 abort("invalid-cache-record");
                 return;
               }

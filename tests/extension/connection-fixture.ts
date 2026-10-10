@@ -116,7 +116,7 @@ export type ProbeRequest =
       permission?: boolean;
       overflow?: "group-refs";
     }
-  | { action: "status" | "inspect" }
+  | { action: "status" | "inspect" | "session-store" }
   | { action: "resolve"; field: "password" | "custom-0" | "custom-1" | "linked" };
 export function setupProbe<T = ProbeStatus>(page: Page, request: ProbeRequest): Promise<T> {
   return page.evaluate(
@@ -261,6 +261,25 @@ export function seedVersionOneDatabase(page: Page, hold: boolean) {
     else db.close();
     return db.version;
   }, hold);
+}
+/** Version from database enumeration (which does not open it), and the record count
+ * through the held version 1 connection, so neither waits behind the blocked upgrade. */
+export function heldDatabaseState(page: Page) {
+  return page.evaluate(async () => {
+    const scope = globalThis as { heldVaultDatabase?: IDBDatabase };
+    const version = (await indexedDB.databases()).find(
+      (database) => database.name === "pateat.local-vault.v1",
+    )?.version;
+    const db = scope.heldVaultDatabase;
+    if (!db) throw new Error("Synthetic version 1 database is not held");
+    const records = await new Promise<number>((resolve, reject) => {
+      const tx = db.transaction("records", "readonly");
+      const count = tx.objectStore("records").count();
+      tx.oncomplete = () => resolve(count.result);
+      tx.onerror = () => reject(new Error("Synthetic count failed"));
+    });
+    return { version, records };
+  });
 }
 export function releaseVersionOneDatabase(page: Page) {
   return page.evaluate(() => {

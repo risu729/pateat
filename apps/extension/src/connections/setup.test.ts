@@ -89,8 +89,7 @@ function harness(options: { existing?: boolean } = {}) {
       const next = syncResponses.shift();
       body = next?.body ?? raw.sync;
       status = next?.status ?? 200;
-    }
-    else throw new Error("Unexpected synthetic provider route");
+    } else throw new Error("Unexpected synthetic provider route");
     return new Response(JSON.stringify(body), {
       status,
       headers: { "content-type": "application/json" },
@@ -236,9 +235,9 @@ function harness(options: { existing?: boolean } = {}) {
     /** A new background incarnation: no in-memory state, same durable stores. */
     restart() {
       const next = build();
-      const caller = next.createCaller();
-      closers.push(() => caller.dispose());
-      return { service: next, caller };
+      const nextCaller = next.createCaller();
+      closers.push(() => nextCaller.dispose());
+      return { service: next, caller: nextCaller };
     },
     durable: () => structuredClone(durable),
     permission: (allowed: boolean) => {
@@ -879,6 +878,108 @@ describe("durable provider sessions", () => {
     expect((await h.caller.disable(accountProfile.connectionId)).ok).toBe(true);
     expect(h.sessionMemory.raw()).toBeUndefined();
   });
+  it("forget during an in-progress password setup is refused and never disables auto unlock", async () => {
+    const h = harness();
+    const held = gate();
+    const catalog = h.manager.catalog.getMockImplementation()!;
+    h.manager.catalog.mockImplementationOnce(async (handle) => {
+      await held.promise;
+      return catalog(handle);
+    });
+    const pending = h.caller.begin(newInput());
+    await vi.waitFor(() => expect(h.manager.catalog).toHaveBeenCalled());
+    const [connectionId] = [...h.configurations.keys()];
+    if (!connectionId) throw new Error("Synthetic setup did not register");
+    expect(await h.caller.forget(connectionId)).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    expect(await other.forget(connectionId)).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    held.release();
+    expect(await pending).toMatchObject({ ok: true, kind: "ready" });
+    expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
+    expect(h.durable()?.state).toBe("active");
+  });
+  it("forget aborts an in-flight sync flow, then forgets the session", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const held = gate();
+    const fetch = h.fetch.getMockImplementation()!;
+    h.fetch.mockImplementationOnce(async (url, init) => {
+      await held.promise;
+      return fetch(url, init);
+    });
+    const pending = h.caller.sync(accountProfile.connectionId);
+    await vi.waitFor(() => expect(h.fetch).toHaveBeenCalledTimes(4));
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    expect(await other.forget(accountProfile.connectionId)).toEqual({
+      ok: true,
+      kind: "forgotten",
+      connectionId: accountProfile.connectionId,
+    });
+    held.release();
+    expect((await pending).ok).toBe(false);
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
+  });
+  it("a late 401 for one session does not delete a newer session from a password sign-in", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const used = (h.sessionMemory.raw() as { revision: string }).revision;
+    const held = gate();
+    h.fetch.mockImplementationOnce(async () => {
+      await held.promise;
+      return new Response("{}", { status: 401, headers: { "content-type": "application/json" } });
+    });
+    const pending = h.caller.sync(accountProfile.connectionId);
+    await vi.waitFor(() => expect(h.fetch).toHaveBeenCalledTimes(4));
+    // Another incarnation signs in with the password and retains a newer session.
+    const fresh = h.restart();
+    expect(
+      await fresh.caller.begin({
+        kind: "existing",
+        connectionId: accountProfile.connectionId,
+        password: v1Password,
+        autoUnlock: "preserve",
+      }),
+    ).toMatchObject({ ok: true, kind: "ready" });
+    const newer = h.sessionMemory.raw() as { revision: string; state: string };
+    expect(newer.revision).not.toBe(used);
+    held.release();
+    expect(await pending).toEqual({
+      ok: false,
+      error: { code: "setup-reauthentication-required" },
+    });
+    expect(h.sessionMemory.raw()).toMatchObject({ revision: newer.revision, state: "active" });
+  });
+  it("disable reports a failed session forget instead of success", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.manager.disableAutoUnlock.mockResolvedValueOnce({
+      ok: true,
+      data: { connectionId: accountProfile.connectionId, revision: crypto.randomUUID() },
+    });
+    h.sessionMemory.failNext("storage-uncertain");
+    expect(await h.caller.disable(accountProfile.connectionId)).toEqual({
+      ok: false,
+      error: { code: "storage-uncertain" },
+    });
+  });
+  it("permission removal never rejects when the registry or permission check fails", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.registry.list.mockRejectedValueOnce(new Error("synthetic registry failure"));
+    await expect(h.service.permissionsRemoved()).resolves.toBeUndefined();
+    h.permissions.contains.mockRejectedValueOnce(new Error("synthetic permission failure"));
+    await expect(h.service.permissionsRemoved()).resolves.toBeUndefined();
+    expect(h.sessionMemory.raw()).toMatchObject({ state: "active" });
+  });
   it("permission removal forgets only connections whose provider lost access", async () => {
     const h = harness({ existing: true });
     await connected(h);
@@ -888,5 +989,56 @@ describe("durable provider sessions", () => {
     await h.service.permissionsRemoved();
     expect(h.sessionMemory.raw()).toBeUndefined();
     expect(h.durable()?.state).toBe("active");
+  });
+});
+
+describe("permission removal across connections", () => {
+  it("deletes only the session whose provider permission was lost", async () => {
+    const kept: BitwardenProfile = structuredClone(accountProfile);
+    const lost: BitwardenProfile = { ...kept, connectionId: crypto.randomUUID() };
+    const memories = new Map(
+      [kept, lost].map((profile) => {
+        const memory = memorySessionStore({ profile, cacheRevision: () => null });
+        memory.set({
+          schemaVersion: 1,
+          revision: crypto.randomUUID(),
+          profile,
+          binding: { userId: accountUserId, email: v1Email },
+          encryptedAccount: {},
+          state: "active",
+          accessToken: "a.b.c",
+          receivedAt: 1,
+          expiresIn: 60,
+        });
+        return [profile.connectionId, memory] as const;
+      }),
+    );
+    const configurations = [kept, lost].map((profile) => ({
+      profile,
+      label: "Synthetic vault",
+      email: v1Email,
+      deviceIdentifier: crypto.randomUUID(),
+    }));
+    const service = createConnectionSetupService({
+      host: { deriveAuthentication: vi.fn() },
+      transportFor: vi.fn(),
+      permissions: {
+        contains: async (profile) => profile.connectionId === kept.connectionId,
+      },
+      registry: {
+        list: async () => structuredClone(configurations),
+        get: async (id) =>
+          structuredClone(configurations.find((entry) => entry.profile.connectionId === id)),
+        put: vi.fn(),
+      },
+      policy: { adopt: vi.fn() },
+      vaultFor: vi.fn(),
+      sessions: createProviderSessions({
+        storeFor: (profile) => memories.get(profile.connectionId)!.store,
+      }),
+    });
+    await service.permissionsRemoved();
+    expect(memories.get(kept.connectionId)!.raw()).toMatchObject({ state: "active" });
+    expect(memories.get(lost.connectionId)!.raw()).toBeUndefined();
   });
 });

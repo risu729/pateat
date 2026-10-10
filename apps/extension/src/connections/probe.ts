@@ -1,8 +1,21 @@
 import * as v from "valibot";
 import type { BitwardenTransportOptions } from "@pateat/bitwarden";
+import {
+  accountProfile,
+  accountUserId,
+} from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { rawCustomAccount } from "../../../../packages/bitwarden/src/__fixtures__/connection";
 import { v1Email } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
+import {
+  createVaultDatabase,
+  PROVIDER_SESSIONS_STORE,
+  RECORDS_STORE,
+  runVaultTransaction,
+  type VaultStoreName,
+} from "../vault/database";
 import type { ConnectionRuntime } from "./runtime";
+import type { ProviderSessionEntry } from "./session-record";
+import { createIndexedDbProviderSessionStore } from "./session-store";
 
 const schema = v.variant("action", [
   v.strictObject({
@@ -13,13 +26,94 @@ const schema = v.variant("action", [
     permission: v.optional(v.boolean(), true),
     overflow: v.optional(v.literal("group-refs")),
   }),
-  v.strictObject({ type: v.literal("setup.probe"), action: v.picklist(["status", "inspect"]) }),
+  v.strictObject({
+    type: v.literal("setup.probe"),
+    action: v.picklist(["status", "inspect", "session-store"]),
+  }),
   v.strictObject({
     type: v.literal("setup.probe"),
     action: v.literal("resolve"),
     field: v.picklist(["password", "custom-0", "custom-1", "linked"]),
   }),
 ]);
+/** Native compare-and-swap of the session store in a separate synthetic database.
+ * Returns only result codes and booleans, never a stored value. */
+async function probeSessionStore() {
+  const databaseName = `pateat.session-store-probe.${crypto.randomUUID()}`;
+  const database = createVaultDatabase({ databaseName });
+  const store = createIndexedDbProviderSessionStore({ profile: accountProfile, databaseName });
+  const code = (result: { ok: boolean; error?: { code: string } }) =>
+    result.ok ? "ok" : (result.error?.code ?? "unknown");
+  const raw = async (name: VaultStoreName, value: unknown) =>
+    runVaultTransaction(
+      await database.open(),
+      name,
+      "readwrite",
+      database.timeout,
+      (stores, set) => {
+        stores(name).put(value, accountProfile.connectionId);
+        set({ ok: true, data: true });
+      },
+    );
+  const entry = (): ProviderSessionEntry => ({
+    schemaVersion: 1,
+    revision: crypto.randomUUID(),
+    profile: accountProfile,
+    binding: { userId: accountUserId, email: v1Email },
+    encryptedAccount: {},
+    state: "active",
+    accessToken: "a.b.c",
+    refreshToken: "synthetic-refresh",
+    receivedAt: 1,
+    expiresIn: 60,
+  });
+  const cache = crypto.randomUUID();
+  const guard = { cacheRevision: cache };
+  const revisionOf = async () => {
+    const read = await store.read();
+    return read.ok ? (read.data?.revision ?? null) : code(read);
+  };
+  try {
+    await raw(RECORDS_STORE, { state: "active", revision: cache });
+    const first = entry();
+    const second = entry();
+    const results: Record<string, unknown> = {};
+    results["retain"] = code(await store.compareAndSwap(null, first, guard));
+    results["guardMismatch"] = code(
+      await store.compareAndSwap(first.revision, second, { cacheRevision: crypto.randomUUID() }),
+    );
+    await raw(RECORDS_STORE, { state: "disabled", revision: cache });
+    results["guardDisabled"] = code(await store.compareAndSwap(first.revision, second, guard));
+    await raw(RECORDS_STORE, { state: "active", revision: cache });
+    results["revisionConflict"] = code(
+      await store.compareAndSwap(crypto.randomUUID(), second, guard),
+    );
+    results["unchanged"] = (await revisionOf()) === first.revision;
+    results["swap"] = code(await store.compareAndSwap(first.revision, second, guard));
+    results["readback"] = (await revisionOf()) === second.revision;
+    await raw(PROVIDER_SESSIONS_STORE, { schemaVersion: 1, state: "active", accessToken: "x" });
+    results["corruptRead"] = await revisionOf();
+    results["corruptReplace"] = code(await store.compareAndSwap(second.revision, entry(), guard));
+    results["corruptDeleteWithRevision"] = code(await store.compareAndSwap(second.revision, null));
+    results["corruptKept"] = (await revisionOf()) === "invalid-cache-record";
+    results["corruptDelete"] = code(await store.compareAndSwap(null, null));
+    results["deleted"] = (await revisionOf()) === null;
+    await raw(PROVIDER_SESSIONS_STORE, {
+      ...entry(),
+      profile: { ...accountProfile, connectionId: crypto.randomUUID() },
+    });
+    const replacement = entry();
+    results["mismatchRead"] = await revisionOf();
+    results["mismatchReplace"] = code(await store.compareAndSwap(null, replacement, guard));
+    results["replaced"] = (await revisionOf()) === replacement.revision;
+    return { ok: true, results };
+  } finally {
+    store.close();
+    database.close();
+    indexedDB.deleteDatabase(databaseName);
+  }
+}
+
 /** Fixed public synthetic responses, compiled out of production. No actual provider request. */
 export function createConnectionProbeTransport() {
   let variant: Parameters<typeof rawCustomAccount>[0] = "unchanged";
@@ -110,6 +204,7 @@ export function createConnectionProbeTransport() {
           if (!permission) await runtime.service.permissionsRemoved();
           return { ok: true };
         }
+        if (request.action === "session-store") return probeSessionStore();
         const configurations = await runtime.registry.list();
         const saved = await runtime.settings.handle({ version: 1, type: "settings.get" });
         if (request.action === "status" || request.action === "inspect")
