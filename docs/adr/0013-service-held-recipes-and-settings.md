@@ -3,8 +3,8 @@
 Status: accepted by the owner on 2026-10-10. Amends the local-first statements in
 [ADR 0001](0001-local-login-boundary.md), [ADR 0003](0003-service-and-ai.md) and
 [ADR 0009](0009-install-time-https-site-access.md). The binding format below is the
-current contract in `packages/contracts`; the executor and the service do not use it
-yet (see the [plan](../plan.md)).
+current contract in `packages/contracts`. `/v1/settings` stores it as part of the
+settings document, but the executor does not use it yet (see the [plan](../plan.md)).
 
 Date: 2026-10-10
 
@@ -34,16 +34,17 @@ scope. Designs must not rule it out.
 
 ### Device-independent references
 
-Synced data refers to vault items by provider account ID and item ID, which are the
-same on every device. This applies to account bindings and site defaults. Custom
-fields are referenced by name, because the current local IDs
-(`custom.<snapshotId>.<index>`) differ per device and per sync. When several custom
-fields share a name, the reference also stores its position among them and how many
-there are; if that count changes, the binding is not used until it is reviewed
-again. Item and field names are stored for display and logging. Still open: how the
-other synced settings that use local IDs today, such as field exclusions, are
-converted, and where custom-field review happens and keeps its state now that the
-extension page no longer edits settings.
+Synced data refers to vault items by provider account ID and item ID, which are the same
+on every device. This applies to account bindings and site defaults. Custom fields are
+referenced by name, because the current local IDs (`custom.<snapshotId>.<index>`) differ
+per device and per sync. When several custom fields share a name, the reference also
+stores its position among them and how many there are; if that count changes, the
+binding is not used until it is reviewed again. Swapping two same-name fields in the
+vault keeps the count, so the binding then fills the other field; this is a known
+limitation. Item and field names are stored for display and logging. Still open: how the
+other synced settings that use local IDs today, such as field exclusions, are converted,
+and where custom-field review happens and keeps its state now that the extension page no
+longer edits settings.
 
 ### Recipes and account bindings
 
@@ -84,7 +85,7 @@ generation maps slots, an automatic choice binds only the slots named `username`
 `password` and `totp` to the item's login username, password and TOTP; a recipe with
 any other slot needs a manual binding. Until AI
 generation exists, development writes recipes through the existing `/v1/recipes` API
-and bindings through `/v1/settings` once the settings schema gains them, both with a
+and bindings through `/v1/settings`, both with a
 paired device credential.
 
 ### Recipe lookup

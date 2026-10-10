@@ -110,7 +110,7 @@ function resolveField(
     return named[0] ? { fieldId: named[0].id } : { reason: "field-missing" };
   }
   // An added or removed duplicate needs review again. Swapping two same-name fields
-  // keeps the count and is not detected (ADR 0013).
+  // keeps the count and is not detected; ADR 0013 records this limitation.
   if (named.length !== reference.count) return { reason: "field-count-changed" };
   return { fieldId: named[reference.position - 1]!.id };
 }
@@ -144,7 +144,8 @@ const builtinSlots = new Set<string>(["username", "password", "totp"]);
 /**
  * The binding an automatic account choice uses before AI generation maps slots (ADR
  * 0013): each slot named `username`, `password` or `totp` reads the item's built-in
- * field of that name. A recipe with any other slot has no automatic binding.
+ * field of that name. A recipe with any other slot has no automatic binding, and
+ * neither has one whose origin or IDs do not fit the binding schema.
  */
 export function defaultLoginBinding(
   recipe: Pick<LoginRecipe, "id" | "origin" | "slots">,
@@ -155,35 +156,54 @@ export function defaultLoginBinding(
     recipeId: recipe.id,
     origin: recipe.origin,
     ...account,
+    // The item name is for display only.
+    itemName: (account.itemName || account.itemId).slice(0, 200),
     slots: recipe.slots.map((slot) => ({ slot, field: slot })),
   });
   return binding.success ? binding.output : undefined;
 }
 
+/** Synced bindings are unique per recipe, origin and vault item. */
+export function sameLoginBinding(left: SavedLoginBinding, right: SavedLoginBinding): boolean {
+  return (
+    left.recipeId === right.recipeId &&
+    left.origin === right.origin &&
+    left.provider === right.provider &&
+    left.userId === right.userId &&
+    left.itemId === right.itemId
+  );
+}
+
+const maxSavedEntries = 1000;
+
 /**
  * Saves an account choice after an `authenticated` outcome: the site default for the
  * binding's origin and the binding itself, each only when none exists yet. A saved
  * choice therefore keeps winning, and a binding written by the owner or by AI
- * generation is never replaced. Returns the same object when nothing changes.
+ * generation is never replaced. When the origin's saved default names another item,
+ * or a list is full, nothing is saved. The caller checks that `connectionId` holds the
+ * binding's provider account. Returns the same object when nothing changes, so the
+ * caller can skip the write.
  */
 export function saveLoginChoice(
   settings: LocalSettings,
   binding: SavedLoginBinding,
   connectionId: string,
 ): LocalSettings {
-  const hasDefault = settings.siteDefaults.some((site) => site.origin === binding.origin);
+  const saved = settings.siteDefaults.find((site) => site.origin === binding.origin);
+  if (saved && (saved.connectionId !== connectionId || saved.itemId !== binding.itemId))
+    return settings;
   const bindings = settings.bindings ?? [];
-  const hasBinding = bindings.some(
-    (entry) =>
-      entry.recipeId === binding.recipeId &&
-      entry.provider === binding.provider &&
-      entry.userId === binding.userId &&
-      entry.itemId === binding.itemId,
-  );
-  if (hasDefault && hasBinding) return settings;
+  const hasBinding = bindings.some((entry) => sameLoginBinding(entry, binding));
+  if (saved && hasBinding) return settings;
+  if (
+    (!saved && settings.siteDefaults.length >= maxSavedEntries) ||
+    (!hasBinding && bindings.length >= maxSavedEntries)
+  )
+    return settings;
   return {
     ...settings,
-    siteDefaults: hasDefault
+    siteDefaults: saved
       ? settings.siteDefaults
       : [
           ...settings.siteDefaults,

@@ -280,10 +280,14 @@ describe("automatic account choice", () => {
     expect(v.is(localSettingsSchema, saved)).toBe(true);
     expect(saveLoginChoice(saved, chosen, "live")).toBe(saved);
 
+    // A saved choice of another item or connection wins; nothing is added for this one.
     const other = { ...chosen, itemId: "00000000-0000-4000-8000-000000000003" };
-    const kept = saveLoginChoice(saved, other, "live");
-    expect(kept.siteDefaults).toEqual(saved.siteDefaults);
-    expect(kept.bindings).toEqual([chosen, other]);
+    expect(saveLoginChoice(saved, other, "live")).toBe(saved);
+    expect(saveLoginChoice(saved, chosen, "other-connection")).toBe(saved);
+
+    // A saved choice without a binding gains one.
+    const unbound = { ...saved, bindings: [] };
+    expect(saveLoginChoice(unbound, chosen, "live").bindings).toEqual([chosen]);
 
     const manual = {
       ...chosen,
@@ -292,5 +296,38 @@ describe("automatic account choice", () => {
     expect(saveLoginChoice({ ...saved, bindings: [manual] }, chosen, "live").bindings).toEqual([
       manual,
     ]);
+  });
+
+  it("keys bindings by origin, so a moved recipe can be bound again", () => {
+    const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
+    const moved = { ...chosen, origin: "https://login.bank.example" };
+    const settings = { ...createDefaultSettings({ connections: [] }), bindings: [chosen] };
+    const saved = saveLoginChoice(settings, moved, "live");
+    expect(saved.bindings).toEqual([chosen, moved]);
+    expect(v.is(localSettingsSchema, saved)).toBe(true);
+  });
+
+  it("saves nothing when a list is full instead of failing after login", () => {
+    const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
+    const settings = createDefaultSettings({ connections: [] });
+    const full = {
+      ...settings,
+      siteDefaults: Array.from({ length: 1000 }, (_, index) => ({
+        origin: `https://site${index}.example`,
+        connectionId: "live",
+        itemId: "item",
+      })),
+    };
+    expect(saveLoginChoice(full, chosen, "live")).toBe(full);
+  });
+
+  it("truncates or replaces the display-only item name", () => {
+    const signin = recipe("bank-signin", "/login");
+    expect(defaultLoginBinding(signin, { ...account, itemName: "x".repeat(300) })?.itemName).toBe(
+      "x".repeat(200),
+    );
+    expect(defaultLoginBinding(signin, { ...account, itemName: "" })?.itemName).toBe(
+      account.itemId,
+    );
   });
 });

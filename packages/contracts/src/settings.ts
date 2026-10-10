@@ -161,7 +161,13 @@ export const localSettingsSchema = v.pipe(
           (bindings) =>
             new Set(
               bindings.map((entry) =>
-                JSON.stringify([entry.recipeId, entry.provider, entry.userId, entry.itemId]),
+                JSON.stringify([
+                  entry.recipeId,
+                  entry.origin,
+                  entry.provider,
+                  entry.userId,
+                  entry.itemId,
+                ]),
               ),
             ).size === bindings.length,
           "Duplicate account bindings",
