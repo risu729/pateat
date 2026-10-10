@@ -1,5 +1,9 @@
 [default.extend-identifiers]
 OTPs = "OTPs"
+# Pinned py_webauthn revision in the passkey research.
+c9ba2b7 = "c9ba2b7"
+# Intentionally truncated PKCS #8 input in the passkey decoder rejection test.
+MIGH = "MIGH"
 
 [default.extend-words]
 COSE = "COSE"
