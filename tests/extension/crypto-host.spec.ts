@@ -169,9 +169,13 @@ async function contexts(background: Worker) {
 
 type Target = { targetId: string; type: string; url: string };
 async function observeWorkers(context: BrowserContext, page: Page, extensionId: string) {
-  const session = await context.newCDPSession(page);
+  const browser = context.browser();
+  if (!browser) throw new Error("Isolated Chromium browser unavailable");
+  const session = await browser.newBrowserCDPSession();
   const created = new Map<string, Target>();
   const destroyed = new Set<string>();
+  const attached = new Map<string, string>();
+  const detached = new Set<string>();
   const record = ({ targetInfo }: { targetInfo: Target }) => {
     if (
       targetInfo.type === "worker" &&
@@ -182,24 +186,88 @@ async function observeWorkers(context: BrowserContext, page: Page, extensionId: 
   const remove = ({ targetId }: { targetId: string }) => {
     destroyed.add(targetId);
   };
+  const attach = ({ sessionId, targetInfo }: { sessionId: string; targetInfo: Target }) => {
+    if (targetInfo.type === "worker") {
+      record({ targetInfo });
+      attached.set(sessionId, targetInfo.targetId);
+    }
+  };
+  const detach = ({ sessionId }: { sessionId: string }) => {
+    const targetId = attached.get(sessionId);
+    if (targetId) detached.add(targetId);
+  };
   session.on("Target.targetCreated", record);
   session.on("Target.targetInfoChanged", record);
   session.on("Target.targetDestroyed", remove);
+  session.on("Target.attachedToTarget", attach);
+  session.on("Target.detachedFromTarget", detach);
   await session.send("Target.setDiscoverTargets", { discover: true });
+  const run = async (action: ProbeAction) => {
+    expect(
+      await send(page, { type: "crypto.probe", action: "arm", checkpoint: "before-dispatch" }),
+    ).toEqual({ ok: true, data: { armed: true } });
+    const pending = invoke(page, action);
+    void pending.catch(() => {});
+    try {
+      // Stop at the existing probe barrier after the host handshake and before
+      // any Worker exists. Attach to its exact browser-reported parent first,
+      // so even short-lived authentication Workers cannot escape observation.
+      await expect
+        .poll(() => status(page), { timeout: 5000 })
+        .toMatchObject({
+          ready: true,
+          checkpoint: "before-dispatch",
+          reached: true,
+        });
+      const active = await page.evaluate(async () => {
+        const { chrome } = globalThis as unknown as { chrome: ExtensionChrome };
+        return chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
+      });
+      const parent = expectBrokerContext(active, extensionId);
+      const { targetInfos } = (await session.send("Target.getTargets")) as {
+        targetInfos: Target[];
+      };
+      const parents = targetInfos.filter((target) => target.url === parent.documentUrl);
+      expect(parents).toHaveLength(1);
+      expect(parents[0]!.type).toBe("background_page");
+      await session.send("Target.autoAttachRelated", {
+        targetId: parents[0]!.targetId,
+        waitForDebuggerOnStart: false,
+      });
+    } finally {
+      await invoke(page, "release");
+    }
+    return pending;
+  };
   return {
     session,
     created,
     destroyed,
+    run,
     async expectTerminated() {
-      await expect.poll(() => created.size, { timeout: 5000 }).toBeGreaterThan(0);
-      await expect
-        .poll(() => [...created.keys()].every((id) => destroyed.has(id)), { timeout: 5000 })
-        .toBe(true);
+      try {
+        await expect.poll(() => created.size, { timeout: 5000 }).toBeGreaterThan(0);
+        await expect
+          .poll(() => [...created.keys()].every((id) => destroyed.has(id)), { timeout: 5000 })
+          .toBe(true);
+      } catch (error) {
+        console.error(
+          "Pateat native Worker lifecycle metadata:",
+          JSON.stringify({
+            workers: [...created.values()],
+            destroyed: [...destroyed],
+            detached: [...detached],
+          }),
+        );
+        throw error;
+      }
     },
     async dispose() {
       session.off("Target.targetCreated", record);
       session.off("Target.targetInfoChanged", record);
       session.off("Target.targetDestroyed", remove);
+      session.off("Target.attachedToTarget", attach);
+      session.off("Target.detachedFromTarget", detach);
       await session.detach();
     },
   };
@@ -246,7 +314,7 @@ test("actual offscreen sender binds its browser document and real native session
     const bootstrap = await captureBootstrapMetadata(background);
     try {
       expect(await contexts(background)).toEqual([]);
-      const vectors = invoke(page, "vectors");
+      const vectors = observed.run("vectors");
       void vectors.catch(() => {});
       // Bootstrap should finish before expensive native work; a bounded early
       // check leaves time to attach actual sender/context evidence on failure.
@@ -342,7 +410,7 @@ for (const action of ["isolation", "lock"] as const) {
       const page = await controller(context, extensionId);
       const observed = await observeWorkers(context, page, extensionId);
       try {
-        expect(await invoke(page, action)).toEqual({ ok: true, data: { rejected: true } });
+        expect(await observed.run(action)).toEqual({ ok: true, data: { rejected: true } });
         await observed.expectTerminated();
         expect(await status(page)).toMatchObject({ pending: 0, sessions: 0 });
         expect(external).toEqual([]);
@@ -360,7 +428,7 @@ for (const action of ["cancel", "deadline"] as const) {
       const page = await controller(context, extensionId);
       const observed = await observeWorkers(context, page, extensionId);
       try {
-        expect(await invoke(page, action)).toEqual({ ok: true, data: { withheld: true } });
+        expect(await observed.run(action)).toEqual({ ok: true, data: { withheld: true } });
         // The warmup and expensive dispatched job must both have existed and died.
         await expect.poll(() => observed.created.size, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
         await observed.expectTerminated();
@@ -403,7 +471,7 @@ test("cancelling a completed field result terminates its retained native session
     const page = await controller(context, extensionId);
     const observed = await observeWorkers(context, page, extensionId);
     try {
-      expect(await invoke(page, "cancel-result")).toEqual({
+      expect(await observed.run("cancel-result")).toEqual({
         ok: true,
         data: { withheld: true, locked: true },
       });
@@ -424,6 +492,10 @@ test("service-worker restart destroys the held native session and replaces the o
     const page = await controller(context, extensionId);
     const observed = await observeWorkers(context, page, extensionId);
     try {
+      // Establish child-target reporting before arming the separate retained
+      // native-session result. Keep the actual restart barrier unchanged.
+      expect(await observed.run("vectors")).toEqual({ ok: true, data: expectedVectors });
+      await observed.expectTerminated();
       expect(
         await send(page, { type: "crypto.probe", action: "arm", checkpoint: "after-result" }),
       ).toEqual({ ok: true, data: { armed: true } });
@@ -473,7 +545,7 @@ test("service-worker restart destroys the held native session and replaces the o
         await expect
           .poll(() => retained.every((id) => observed.destroyed.has(id)), { timeout: 5000 })
           .toBe(true);
-        expect(await invoke(page, "vectors")).toEqual({ ok: true, data: expectedVectors });
+        expect(await observed.run("vectors")).toEqual({ ok: true, data: expectedVectors });
         const freshContext = expectBrokerContext(await contexts(background), extensionId);
         expect(freshContext.documentId).not.toBe(oldContext.documentId);
         expect(freshContext.documentUrl).not.toBe(oldContext.documentUrl);
