@@ -18,11 +18,18 @@ const validEmail =
 const validNumber = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 /**
- * Derives the coarse shape of a visible identifier value (ADR 0010) on the trusted
- * side. Returns undefined for values the shape contract cannot describe. Callers pass
- * only login usernames and Text fields; never Hidden, password or TOTP values.
+ * A value the shape may describe (ADR 0010): the login username or a Bitwarden Text
+ * custom field. Resolve a Linked field to its source first; Hidden, password and TOTP
+ * values have no source type here and never get a shape.
  */
-export function valueShapeOf(value: string): ValueShape | undefined {
+export type ShapeableValue = { source: "username" | "text"; value: string };
+
+/**
+ * Derives the coarse shape of a visible identifier value on the trusted side. Returns
+ * undefined for values the shape contract cannot describe.
+ */
+export function valueShapeOf({ source, value }: ShapeableValue): ValueShape | undefined {
+  if (source !== "username" && source !== "text") return undefined;
   if (value.length === 0 || value.length > 1024) return undefined;
   const present = new Set(Array.from(value, classOf));
   return {
@@ -51,9 +58,11 @@ export function checkPlanValues(
     if (candidate === undefined) throw new Error("Check a validated plan for this observation");
     const fail = (reason: ValueMismatch) => ({ ok: false as const, slot: field.slot, reason });
     if (value === undefined || value.length === 0) return fail("missing-value");
-    if (candidate.maxLength !== undefined && value.length > candidate.maxLength)
+    // Browsers ignore maxlength and minlength on number inputs.
+    const bounded = candidate.role !== "number";
+    if (bounded && candidate.maxLength !== undefined && value.length > candidate.maxLength)
       return fail("too-long");
-    if (candidate.minLength !== undefined && value.length < candidate.minLength)
+    if (bounded && candidate.minLength !== undefined && value.length < candidate.minLength)
       return fail("too-short");
     if (candidate.role === "email" && !validEmail.test(value)) return fail("not-email");
     if (candidate.role === "number" && !validNumber.test(value)) return fail("not-number");

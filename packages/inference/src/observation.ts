@@ -50,8 +50,10 @@ export const observedCandidateSchema = v.strictObject({
   ),
   group: v.optional(identifier),
   // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
-  // `pattern` is deliberately absent: evaluating a page-supplied expression locally
-  // could hang the caller.
+  // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
+  // values such as 524288) and omits both when minlength exceeds maxlength, so one odd
+  // attribute never rejects the whole observation. `pattern` is deliberately absent:
+  // evaluating a page-supplied expression locally could hang the caller.
   maxLength: v.optional(textLength),
   minLength: v.optional(textLength),
   inputMode: v.optional(

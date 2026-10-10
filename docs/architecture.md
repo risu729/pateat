@@ -254,7 +254,8 @@ are valid field roles. Prefer explicit mappings; abstain from ambiguous mappings
 instead of trying every candidate. Values never go to inference; allowed field names
 and the coarse shape of visible identifier values may
 ([ADR 0010](adr/0010-inference-field-hints.md)), and a plan is checked against the real
-values locally before filling.
+values locally before filling. After filling and before the click, the executor stops
+when the page marks a filled element invalid or shows a new alert.
 
 Local field snapshots detach supported decrypted items from caller mutation.
 References bind connection, user, item and snapshot identity; custom fields use

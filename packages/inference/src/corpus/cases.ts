@@ -42,7 +42,6 @@ const element =
 const text = element("text");
 const email = element("email");
 const tel = element("tel");
-const number = element("number");
 const password = element("password");
 const button = element("button");
 const link = element("link");
@@ -68,7 +67,7 @@ const page = (
 const customField = (slot: SemanticSlot, fieldName: string, value: string): SemanticSlot => ({
   ...slot,
   fieldName,
-  valueShape: valueShapeOf(value)!,
+  valueShape: valueShapeOf({ source: "text", value })!,
 });
 
 const submit = (fields: Record<string, string>, action: string): ExpectedResult => ({
@@ -133,8 +132,8 @@ export const evaluationCorpus: EvaluationCase[] = [
       "/ib/login",
       "ja",
       [
-        number("branch", "支店番号", { placeholder: "3桁", maxLength: 3, inputMode: "numeric" }),
-        number("account", "口座番号", { placeholder: "7桁", maxLength: 7, inputMode: "numeric" }),
+        tel("branch", "支店番号", { placeholder: "3桁", maxLength: 3, inputMode: "numeric" }),
+        tel("account", "口座番号", { placeholder: "7桁", maxLength: 7, inputMode: "numeric" }),
         password("pin", "ログインパスワード"),
         button("soft-keyboard", "ソフトウェアキーボードを使う"),
         button("login", "ログイン"),
@@ -167,7 +166,7 @@ export const evaluationCorpus: EvaluationCase[] = [
         password("field-c", undefined, { maxLength: 4, inputMode: "numeric" }),
         button("enter", "ログイン"),
       ],
-      { headings: ["インターネットバンキング", "口座番号・支店番号・暗証番号を入力"] },
+      { headings: ["インターネットバンキング", "ログイン情報を入力してください"] },
     ),
     slots: [
       customField(slots.branch, "支店番号", "045"),
