@@ -20,8 +20,8 @@ export type AssertionSigner = (
 ) => Promise<Uint8Array>;
 
 /**
- * Build a zero-counter assertion. UP is set because admission required a user gesture; UV is
- * never set; BE and BS match synced vault credentials.
+ * Build a zero-counter assertion. UP is always set and UV follows the admitted policy; neither
+ * reflects a ceremony Pateat performed. BE and BS match synced vault credentials.
  */
 export async function createPasskeyAssertion(
   request: AdmittedGetRequest,
@@ -38,7 +38,12 @@ export async function createPasskeyAssertion(
   const clientDataJSON = serializeGetClientData(request.challenge, request.origin);
   const authenticatorData = await buildAssertionAuthenticatorData(
     request.rpId,
-    { userPresent: true, userVerified: false, backupEligible: true, backupState: true },
+    {
+      userPresent: true,
+      userVerified: request.userVerified,
+      backupEligible: true,
+      backupState: true,
+    },
     0,
   );
   const signature = await sign(authenticatorData, await sha256(clientDataJSON));

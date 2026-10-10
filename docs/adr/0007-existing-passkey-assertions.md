@@ -1,8 +1,9 @@
 # ADR 0007: Assert existing passkeys through a fail-open bridge
 
-Status: proposed for M5. The bridge topology, admission rules and assertion format
-are within the accepted [ADR 0001](0001-local-login-boundary.md) scope and may be
-implemented. Unattended presence without a user gesture is an open owner decision.
+Status: accepted for M5. On 2026-10-10 the owner chose to set UP and UV on every
+claimed assertion without a user gesture, knowingly departing from the WebAuthn
+ceremony; this amends the truthful UV/UP condition in
+[ADR 0001](0001-local-login-boundary.md). A per-site setting is planned later.
 
 Date: 2026-10-10
 
@@ -28,13 +29,13 @@ ordinary browser behavior, including other installed passkey providers.
 `navigator.credentials.create` is not wrapped.
 
 The page and MAIN world are untrusted. The isolated script independently checks
-`window.top === window`, `isSecureContext`, the
-`publickey-credentials-get` permissions policy and transient user activation
-before relaying. The background derives origin, tab, frame and document from the
-browser-supplied sender, never from page data, and accepts only frame 0 of an
-`https:` origin or `http://localhost`. Each request has a short-lived operation
-ID bound to that document. Abort, timeout, navigation, policy change, lock and
-connection replacement cancel it; a late result is discarded.
+`window.top === window`, `isSecureContext` and the `publickey-credentials-get`
+permissions policy before relaying, and reports whether the document has transient user
+activation. The background derives origin, tab, frame and document from the
+browser-supplied sender, never from page data, and accepts only frame 0 of an `https:`
+origin or `http://localhost`. Each request has a short-lived operation ID bound to that
+document. Abort, timeout, navigation, policy change, lock and connection replacement
+cancel it; a late result is discarded.
 
 The background selects the credential and builds client data. Signing runs in the
 crypto host Worker that owns the decrypted vault session, so the private key is
@@ -54,8 +55,8 @@ Pateat claims a request only when all of these hold; otherwise it delegates:
   already in canonical lowercase ASCII form and is equal to, or a registrable
   domain suffix of, the effective domain according to tldts with private
   suffixes. A trailing dot is significant.
-- The challenge is 16 to 1,024 bytes; at most 64 allowed credentials are given;
-  `userVerification` is not `required`.
+- The challenge is 16 to 1,024 bytes and at most 64 allowed credentials are
+  given. Under the initial policy `userVerification` may take any value.
 - The site is not excluded, an exact-origin account default selects one item,
   and that item yields exactly one eligible credential.
 
@@ -85,29 +86,28 @@ stored user handle when present. Response objects mimic the native prototypes an
 
 ### Presence and verification
 
-UV stays clear. Pateat performs no user verification during the ceremony, and
-automatic vault unlock is not verification. Requests requiring UV delegate.
-Sites whose servers require UV for `preferred` requests will reject the
-assertion; that is reported as a site rejection, not retried with another method.
+The owner decided that Pateat sets UP and UV on every assertion it claims,
+including page-load and executor-triggered requests without a user gesture and
+requests whose `userVerification` is `required`. Pateat performs no presence test
+or user verification; automatic vault unlock and the standing per-site account
+choice are the only authorization. This does not satisfy the WebAuthn ceremony
+and tells the relying party that verification occurred when it did not. Pateat
+documents it as an owner-chosen deviation, not as verification.
 
-Initial UP policy is activation-backed. Pateat sets UP only when the isolated
-script observes transient user activation for the requesting document, the
-owner has preconfigured that origin's account, and selection is unambiguous.
-The trusted gesture that started the sign-in, combined with the standing
-credential choice, is the authorization gesture; synthetic executor clicks create
-no activation. Requests without activation, such as calls on page load, delegate
-to the browser. This is a Pateat interpretation: the gesture is not a prompt
-naming the credential.
-
-Proposed for owner decision, not implemented: an opt-in unattended mode that sets
-UP from the per-site standing authorization alone. It would complete page-load and
-executor-triggered requests, but it does not satisfy the specification's
-per-ceremony gesture. If approved, it must be a separate per-site setting that
-existing sites do not inherit and must report its status in settings.
+The flags come from a `PasskeyPolicy` with two settings: presence `always` or
+`activation`, and verification `always` or `never`. The initial policy is
+`always` for both. Under `activation`, requests without transient user
+activation delegate; under `never`, UV stays clear and requests requiring UV
+delegate. Admission records the UV decision so signing cannot diverge from it. A
+later per-site setting supplies the policy without changing admission or
+assertion code; until then every claimed request uses the initial policy.
 
 ## Alternatives
 
-- Always set UP and UV: unattended, but spoofs verification and violates ADR 0001.
+- UP only with user activation and UV always clear: follows the ceremony, but
+  page-load, executor-triggered and UV-required requests fall back to the
+  browser and cannot complete unattended. Kept as a policy for the later
+  per-site setting.
 - Drive or depend on the official Bitwarden extension: inherits its prompts and
   focus requirements and is not an independent adapter.
 - Use an SDK authenticator: the pinned WASM exposes none.
@@ -119,14 +119,15 @@ existing sites do not inherit and must report its status in settings.
 
 ## Consequences and verification
 
-Pateat never blocks a WebAuthn request it does not claim, so failures surface as
-the browser's ordinary passkey UI. Unattended page-load passkey login is
-unavailable until the open decision is made. Registration, nonzero-counter
-writeback, conditional mediation, cross-origin frames, related origins and
-extensions remain later work.
+Pateat never blocks a WebAuthn request it does not claim, so failures surface as the
+browser's ordinary passkey UI. Claimed requests complete unattended, and relying parties
+receive UV that no authenticator performed; any script running in a configured site's
+top-level page, including injected script, can obtain a verified assertion for that
+site. Registration, nonzero-counter writeback, conditional mediation, cross-origin
+frames, related origins and extensions remain later work.
 
 Verify with the WebAuthn Level 3 ES256 vectors, HTML registrable-suffix cases,
 credential mapping vectors, signature verification by an independent verifier,
-and probe-build browser tests covering activation, delegation, abort, timeout,
+and probe-build browser tests covering unattended claims, delegation, abort, timeout,
 navigation and a synthetic relying party. Real-site interoperability and
 coexistence with the official Bitwarden extension are separate gates.

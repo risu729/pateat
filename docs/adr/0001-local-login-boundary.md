@@ -46,10 +46,11 @@ passkey. External email/SMS OTP, magic links and post-login actions are also
 deferred, not excluded. Action/transaction permissions are separate from
 credential-use permissions and scoped by site and action.
 
-Existing software passkeys are planned but subject to truthful UV/UP and
-interoperability gates. Nonzero counter synchronization/writeback is deferred.
-Do not turn a desire for unattended authentication into a claim that every
-passkey ceremony can be silently satisfied.
+Existing software passkeys are planned but subject to interoperability gates. The
+original truthful UV/UP condition is amended by the owner's decision in
+[ADR 0007](0007-existing-passkey-assertions.md) to set both flags unattended. Nonzero
+counter synchronization/writeback is deferred. Requests Pateat does not claim, including
+hardware-bound credentials, still need their own ceremony.
 
 ## Consequences and verification
 

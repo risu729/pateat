@@ -430,15 +430,15 @@ embedded under an unrelated top-level site is not automatically authorized.
 
 UV is not synonymous with biometrics. Owning a software key makes flag/signature
 construction possible, but setting UV/UP without the required ceremony is not
-standards-compliant verification. Do not spoof successful verification as the
-default design. Determine which requests can complete unattended and explicitly
-block or request a supported ceremony for the rest. Hardware-bound keys cannot
-be unlocked merely by changing flags. Conditional mediation and simultaneous
+standards-compliant verification. The owner nevertheless chose to set both flags on
+every claimed request; describe this as a deliberate deviation, never as verification,
+and keep the flags behind a policy a later per-site setting can change. Hardware-bound
+keys cannot be unlocked merely by changing flags. Conditional mediation and simultaneous
 official-Bitwarden interception require separate compatibility tests.
 
-The proposed bridge, admission rules, assertion format and activation-backed
-presence policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). None
-is implemented yet.
+The bridge, admission rules, assertion format and unattended presence and
+verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). The
+assertion core is implemented but not yet connected to pages or the vault.
 
 ## Minimal service
 
