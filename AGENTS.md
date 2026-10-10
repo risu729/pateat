@@ -23,4 +23,10 @@
   the configured account, origin, tab, frame, and document.
 - Preserve the plan's initial/later boundaries and independently granted provider
   capabilities; adding an adapter or interface must not expand permissions.
+- Use Sol High subagents for implementation, tests and independent PR review
+  (`gpt-6.1-sol` with high reasoning).
 - Have an independent reviewer verify each PR. State what was actually tested.
+  Once review findings are resolved and applicable checks pass, merge authorized
+  PRs without waiting for another owner confirmation. Recheck changes made after
+  review, including material conflict resolutions. This standing merge permission
+  does not approve new library/provider choices or deployment.
