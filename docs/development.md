@@ -68,7 +68,7 @@ Focused tasks are available for diagnosis:
 | `mise run test:service` | Test sync service pairing and transport with synthetic responses |
 | `mise run test:inference` | Score AI role adapters on the synthetic corpus with fake providers |
 | `mise run typecheck:inference` | Check AI adapter, corpus and harness types |
-| `mise run bench:inference --paid` | Run the paid Claude benchmark on the synthetic corpus; needs `ANTHROPIC_API_KEY` and owner approval for each run |
+| `mise run bench:inference --paid` | Run the paid Claude benchmark on the synthetic corpus; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run generate:server-migrations` | Generate D1 migration SQL from the Drizzle schema |
 | `mise run check:server-migrations` | Fail when committed migrations differ from the schema |
