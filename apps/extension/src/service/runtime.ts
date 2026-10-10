@@ -17,6 +17,10 @@ import type { ServiceTransport } from "./transport";
 
 /** A pairing that the owner has not completed is abandoned after this long. */
 export const PAIRING_LIFETIME_MS = 15 * 60 * 1000;
+/** The service allows about 10 redemptions a minute per client address. */
+export const MIN_REDEEM_INTERVAL_MS = 6_000;
+/** The service's rate-limit window; no redemption is attempted inside it after a 429. */
+export const RATE_LIMIT_BACKOFF_MS = 60_000;
 
 // The stored record holds the only copies of the verifier and device credential.
 // It lives in trusted extension storage and never crosses to the options page.
@@ -47,16 +51,24 @@ export interface ServiceStorage {
 }
 
 class StorageUnavailable extends Error {}
+class StorageCorrupt extends Error {}
 
 export function createServiceRuntime(options: {
   storage: ServiceStorage;
   transport: ServiceTransport;
+  /** Whether Chrome currently lets the extension reach this origin. */
+  hasSiteAccess: (origin: string) => Promise<boolean>;
   now?: () => number;
 }) {
   const { storage, transport } = options;
+  const hasSiteAccess = (origin: string) => options.hasSiteAccess(origin).catch(() => false);
   const now = options.now ?? Date.now;
   // One request at a time, so a check cannot race a cancel or a second start.
   let queue: Promise<unknown> = Promise.resolve();
+  // Every open settings page polls through here, so redemption is paced once per worker.
+  let nextRedeemAt = 0;
+  // An issued credential whose write failed; the service has already spent the verifier.
+  let unsaved: ServiceRecord | undefined;
 
   async function load(): Promise<ServiceRecord | undefined> {
     let stored: unknown;
@@ -67,8 +79,8 @@ export function createServiceRuntime(options: {
     }
     if (stored === undefined) return undefined;
     const parsed = v.safeParse(recordSchema, stored);
-    // A corrupt record is kept for inspection rather than silently replaced.
-    if (!parsed.success) throw new StorageUnavailable();
+    // A corrupt record is kept until the owner explicitly forgets it.
+    if (!parsed.success) throw new StorageCorrupt();
     return parsed.output;
   }
   async function save(record: ServiceRecord) {
@@ -122,8 +134,12 @@ export function createServiceRuntime(options: {
   ): Promise<ServiceResponse> =>
     record === null ? { ok: false, error } : { ok: false, error, state: await view(record) };
 
-  /** Drops an abandoned pairing so its verifier does not linger. */
+  /** Drops an abandoned pairing on the next request after it expires. */
   async function current(): Promise<{ record: ServiceRecord | undefined; expired: boolean }> {
+    if (unsaved) {
+      await save(unsaved);
+      unsaved = undefined;
+    }
     const record = await load();
     if (record?.kind === "pairing" && now() >= record.startedAt + PAIRING_LIFETIME_MS) {
       await clear();
@@ -136,6 +152,11 @@ export function createServiceRuntime(options: {
     const parsed = v.safeParse(serviceRequestSchema, input);
     if (!parsed.success) return fail("invalid-request", null);
     const request = parsed.output;
+    if (request.type === "service.forget") {
+      unsaved = undefined;
+      await clear();
+      return ok(undefined);
+    }
     const { record, expired } = await current();
 
     switch (request.type) {
@@ -143,6 +164,7 @@ export function createServiceRuntime(options: {
         return ok(record);
       case "service.pair.start": {
         if (record?.kind === "connected") return fail("wrong-state", record);
+        if (!(await hasSiteAccess(request.origin))) return fail("site-access-needed", record);
         // Starting again replaces an unfinished pairing and its verifier.
         const pairing: ServiceRecord = {
           version: 1,
@@ -158,7 +180,14 @@ export function createServiceRuntime(options: {
       case "service.pair.check": {
         if (expired) return fail("pairing-expired", undefined);
         if (record?.kind !== "pairing") return fail("wrong-state", record);
+        if (!(await hasSiteAccess(record.origin))) return fail("site-access-needed", record);
+        if (now() < nextRedeemAt) return ok(record);
         const result = await transport.redeem(record.origin, record.verifier);
+        nextRedeemAt =
+          now() +
+          (result.kind === "failed" && result.error === "rate-limited"
+            ? RATE_LIMIT_BACKOFF_MS
+            : MIN_REDEEM_INTERVAL_MS);
         if (result.kind === "pending") return ok(record);
         if (result.kind === "code-mismatch") return fail("code-mismatch", record);
         if (result.kind === "failed") return fail(result.error, record);
@@ -171,10 +200,17 @@ export function createServiceRuntime(options: {
           deviceId: result.result.deviceId,
           credential: result.result.credential,
         };
-        await save(connected);
+        try {
+          await save(connected);
+        } catch (error) {
+          // Retried before the next request rather than losing a credential that exists.
+          unsaved = connected;
+          throw error;
+        }
         return ok(connected);
       }
       case "service.pair.cancel":
+        if (expired) return fail("pairing-expired", undefined);
         if (record?.kind !== "pairing") return fail("wrong-state", record);
         await clear();
         return ok(undefined);
@@ -195,6 +231,8 @@ export function createServiceRuntime(options: {
         run(input).catch((error: unknown) => {
           if (error instanceof StorageUnavailable)
             return { ok: false, error: "storage-unavailable" } as const;
+          if (error instanceof StorageCorrupt)
+            return { ok: false, error: "storage-corrupt" } as const;
           throw error;
         }),
       );

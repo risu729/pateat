@@ -136,12 +136,24 @@ describe("revoke", () => {
     });
   });
 
-  it("treats an already rejected credential as revoked", async () => {
-    const fetch = respond(401, { error: "device_revoked" });
-    expect(await createServiceTransport({ fetch }).revoke(ORIGIN, CREDENTIAL)).toEqual({
-      kind: "revoked",
-    });
-  });
+  it.each(["device_revoked", "unauthorized"])(
+    "treats an already rejected credential as revoked: %s",
+    async (error) => {
+      const fetch = respond(401, { error });
+      expect(await createServiceTransport({ fetch }).revoke(ORIGIN, CREDENTIAL)).toEqual({
+        kind: "revoked",
+      });
+    },
+  );
+
+  it.each([{ error: "access_denied" }, "<html>"])(
+    "does not count an unknown 401 as revoked: %j",
+    async (body) => {
+      expect(
+        await createServiceTransport({ fetch: respond(401, body) }).revoke(ORIGIN, CREDENTIAL),
+      ).toEqual({ kind: "failed", error: "unexpected-response" });
+    },
+  );
 
   it("reports other answers as unconfirmed", async () => {
     expect(

@@ -5,7 +5,13 @@ import {
   type ServiceResponse,
 } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { createServiceRuntime, PAIRING_LIFETIME_MS, type ServiceStorage } from "./runtime";
+import {
+  createServiceRuntime,
+  MIN_REDEEM_INTERVAL_MS,
+  PAIRING_LIFETIME_MS,
+  RATE_LIMIT_BACKOFF_MS,
+  type ServiceStorage,
+} from "./runtime";
 import type { RedeemResult, RevokeResult, ServiceTransport } from "./transport";
 
 // Synthetic origins, verifiers and credentials only.
@@ -48,11 +54,17 @@ function setup(
     storage?: ReturnType<typeof memoryStorage>;
     transport?: ServiceTransport;
     now?: () => number;
+    hasSiteAccess?: (origin: string) => Promise<boolean>;
   } = {},
 ) {
   const storage = options.storage ?? memoryStorage();
   const transport = options.transport ?? fakeTransport();
-  const runtime = createServiceRuntime({ storage, transport, now: options.now ?? (() => 1_000) });
+  const runtime = createServiceRuntime({
+    storage,
+    transport,
+    hasSiteAccess: options.hasSiteAccess ?? (async () => true),
+    now: options.now ?? (() => 1_000),
+  });
   return { storage, transport, runtime };
 }
 
@@ -182,6 +194,88 @@ describe("pairing", () => {
     expect(storage.value()).toBeUndefined();
   });
 
+  it("paces redemption and backs off after a rate limit", async () => {
+    let time = 1_000;
+    const transport = fakeTransport();
+    const { runtime } = setup({ transport, now: () => time });
+    await runtime.handle(start);
+    await runtime.handle(check);
+    time += MIN_REDEEM_INTERVAL_MS - 1;
+    expect(await runtime.handle(check)).toMatchObject({ ok: true, state: { kind: "pairing" } });
+    expect(transport.redeem).toHaveBeenCalledTimes(1);
+    time += 1;
+    transport.redeem.mockResolvedValueOnce({ kind: "failed", error: "rate-limited" });
+    expect(await runtime.handle(check)).toMatchObject({ ok: false, error: "rate-limited" });
+    time += RATE_LIMIT_BACKOFF_MS - 1;
+    await runtime.handle(check);
+    expect(transport.redeem).toHaveBeenCalledTimes(2);
+    time += 1;
+    await runtime.handle(check);
+    expect(transport.redeem).toHaveBeenCalledTimes(3);
+  });
+
+  it("needs Chrome site access to the service before contacting it", async () => {
+    let allowed = false;
+    const transport = fakeTransport();
+    const { storage, runtime } = setup({ transport, hasSiteAccess: async () => allowed });
+    expect(await runtime.handle(start)).toEqual({
+      ok: false,
+      error: "site-access-needed",
+      state: { kind: "disconnected" },
+    });
+    expect(storage.write).not.toHaveBeenCalled();
+    allowed = true;
+    await runtime.handle(start);
+    allowed = false;
+    expect(await runtime.handle(check)).toMatchObject({
+      ok: false,
+      error: "site-access-needed",
+      state: { kind: "pairing" },
+    });
+    expect(transport.redeem).not.toHaveBeenCalled();
+  });
+
+  it("treats a failed site access query as withheld", async () => {
+    const { runtime } = setup({
+      hasSiteAccess: async () => {
+        throw new Error("invalid pattern");
+      },
+    });
+    expect(await runtime.handle(start)).toMatchObject({ ok: false, error: "site-access-needed" });
+  });
+
+  it("keeps an issued credential whose write failed and saves it on the next request", async () => {
+    const storage = memoryStorage();
+    const { runtime } = setup({
+      storage,
+      transport: fakeTransport({ kind: "issued", result: ISSUED }),
+    });
+    await runtime.handle(start);
+    const write = storage.write;
+    storage.write = vi.fn(async () => {
+      throw new Error("quota");
+    });
+    expect(await runtime.handle(check)).toEqual({ ok: false, error: "storage-unavailable" });
+    storage.write = write;
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toMatchObject({
+      ok: true,
+      state: { kind: "connected", deviceId: ISSUED.deviceId },
+    });
+    expect(stored(storage)["credential"]).toBe(CREDENTIAL);
+  });
+
+  it("reports cancelling an expired pairing as expired", async () => {
+    let time = 1_000;
+    const { runtime } = setup({ now: () => time });
+    await runtime.handle(start);
+    time += PAIRING_LIFETIME_MS;
+    expect(await runtime.handle({ version: 1, type: "service.pair.cancel" })).toEqual({
+      ok: false,
+      error: "pairing-expired",
+      state: { kind: "disconnected" },
+    });
+  });
+
   it("cancels a pairing and forgets its verifier", async () => {
     const { storage, runtime } = setup();
     await runtime.handle(start);
@@ -271,16 +365,28 @@ describe("connected device", () => {
 });
 
 describe("storage failures", () => {
-  it("fails closed and keeps a corrupt record", async () => {
+  it("fails closed and keeps a corrupt record until the owner forgets it", async () => {
     const corrupt = { version: 1, kind: "connected", origin: ORIGIN };
-    const { storage, runtime } = setup({ storage: memoryStorage(corrupt) });
+    const transport = fakeTransport();
+    const { storage, runtime } = setup({ storage: memoryStorage(corrupt), transport });
     const responses: ServiceResponse[] = [];
-    for (const request of [{ version: 1, type: "service.get" }, start, check])
+    for (const request of [
+      { version: 1, type: "service.get" },
+      start,
+      check,
+      { version: 1, type: "service.disconnect" },
+    ])
       // oxlint-disable-next-line no-await-in-loop -- requests are serialized anyway
       responses.push(await runtime.handle(request));
-    expect(responses).toEqual(Array(3).fill({ ok: false, error: "storage-unavailable" }));
+    expect(responses).toEqual(Array(4).fill({ ok: false, error: "storage-corrupt" }));
     expect(storage.write).not.toHaveBeenCalled();
     expect(storage.clear).not.toHaveBeenCalled();
+    expect(await runtime.handle({ version: 1, type: "service.forget" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected" },
+    });
+    expect(storage.value()).toBeUndefined();
+    expect(transport.revoke).not.toHaveBeenCalled();
   });
 
   it("reports unreadable and unwritable storage", async () => {

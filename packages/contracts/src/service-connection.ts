@@ -34,15 +34,22 @@ const timestamp = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 export const serviceStateSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("disconnected") }),
-  v.strictObject({
-    kind: v.literal("pairing"),
-    origin: serviceOriginSchema,
-    label: deviceLabelSchema,
-    /** Shown to the owner to type on the approval page; not a credential. */
-    code: enrollmentCodeSchema,
-    enrollUrl: v.pipe(v.string(), v.url()),
-    expiresAt: timestamp,
-  }),
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("pairing"),
+      origin: serviceOriginSchema,
+      label: deviceLabelSchema,
+      /** Shown to the owner to type on the approval page; not a credential. */
+      code: enrollmentCodeSchema,
+      enrollUrl: v.pipe(v.string(), v.url()),
+      expiresAt: timestamp,
+    }),
+    // The options page opens this URL, so it must be the service's own approval page.
+    v.check(
+      (state) => state.enrollUrl.startsWith(`${state.origin}/enroll?`),
+      "Use the service's approval page",
+    ),
+  ),
   v.strictObject({
     kind: v.literal("connected"),
     origin: serviceOriginSchema,
@@ -62,11 +69,17 @@ export const serviceRequestSchema = v.variant("type", [
   v.strictObject({ version: v.literal(1), type: v.literal("service.pair.check") }),
   v.strictObject({ version: v.literal(1), type: v.literal("service.pair.cancel") }),
   v.strictObject({ version: v.literal(1), type: v.literal("service.disconnect") }),
+  /** Forgets an unreadable local record without contacting the service. */
+  v.strictObject({ version: v.literal(1), type: v.literal("service.forget") }),
 ]);
 
 export const serviceErrorCodeSchema = v.picklist([
   "invalid-request",
   "storage-unavailable",
+  /** The stored connection cannot be read; `service.forget` is the way out. */
+  "storage-corrupt",
+  /** Chrome site access to the service origin was withheld or declined. */
+  "site-access-needed",
   /** The request needs a different connection state; `state` says which one exists. */
   "wrong-state",
   "unreachable",

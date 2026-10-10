@@ -58,6 +58,9 @@ export default defineBackground(() => {
   const service = createServiceRuntime({
     storage: createBrowserServiceStorage(),
     transport: createServiceTransport(),
+    // Chrome match patterns do not carry ports; site access is granted per host.
+    hasSiteAccess: (origin) =>
+      browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
   });
 
   browser.runtime.onConnect.addListener((port) => {

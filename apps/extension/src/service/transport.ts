@@ -124,8 +124,11 @@ export function createServiceTransport(
         headers: { Authorization: `Bearer ${credential}` },
       });
       if ("failed" in response) return { kind: "failed", error: response.failed };
-      // 401 means the service no longer accepts this credential either way.
-      if (response.status === 204 || response.status === 401) return { kind: "revoked" };
+      if (response.status === 204) return { kind: "revoked" };
+      // Either 401 code means the service no longer accepts this credential.
+      const code = errorCode(response.body);
+      if (response.status === 401 && (code === "unauthorized" || code === "device_revoked"))
+        return { kind: "revoked" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };
     },

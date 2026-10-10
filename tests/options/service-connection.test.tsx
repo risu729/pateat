@@ -31,6 +31,8 @@ const ok = (state: ServiceState, revoked?: boolean): ServiceResponse => ({
 function mockClient(initial: ServiceState = { kind: "disconnected" }) {
   return {
     get: vi.fn<ServiceClient["get"]>().mockResolvedValue(ok(initial)),
+    requestSiteAccess: vi.fn<ServiceClient["requestSiteAccess"]>().mockResolvedValue(true),
+    forget: vi.fn<ServiceClient["forget"]>().mockResolvedValue(ok({ kind: "disconnected" })),
     start: vi.fn<ServiceClient["start"]>().mockResolvedValue(ok(pairing)),
     check: vi.fn<ServiceClient["check"]>().mockResolvedValue(ok(pairing)),
     cancel: vi.fn<ServiceClient["cancel"]>().mockResolvedValue(ok({ kind: "disconnected" })),
@@ -63,8 +65,34 @@ test("starts pairing only with an exact HTTPS address", async () => {
   await address.fill(`${ORIGIN}/`);
   await page.getByLabelText("Device name", { exact: true }).fill("Work laptop");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  expect(client.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
   expect(client.start).toHaveBeenCalledWith(ORIGIN, "Work laptop");
   await expect.element(page.getByText("ABCD-EFGH", { exact: true })).toBeVisible();
+});
+
+test("does not start pairing when site access is declined", async () => {
+  const client = mockClient();
+  client.requestSiteAccess.mockResolvedValue(false);
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await page.getByLabelText("Service address", { exact: true }).fill(ORIGIN);
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(page.getByText(/allow site access when Chrome asks/)).toBeVisible();
+  expect(client.start).not.toHaveBeenCalled();
+});
+
+test("forgets an unreadable saved connection", async () => {
+  const client = mockClient();
+  client.get.mockResolvedValue({ ok: false, error: "storage-corrupt" });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await page.getByRole("button", { name: "Forget saved connection", exact: true }).click();
+  expect(client.forget).toHaveBeenCalledOnce();
+  await expect
+    .element(page.getByText("Saved connection forgotten.", { exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Service address", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Forget saved connection" }))
+    .not.toBeInTheDocument();
 });
 
 test("opens the approval page and polls until paired", async () => {
@@ -91,6 +119,16 @@ test("opens the approval page and polls until paired", async () => {
   const calls = client.check.mock.calls.length;
   await new Promise((resolve) => setTimeout(resolve, 200));
   expect(client.check.mock.calls.length).toBe(calls);
+});
+
+test("clears a transient error once the service answers again", async () => {
+  const client = mockClient(pairing);
+  client.check.mockResolvedValueOnce({ ok: false, error: "unreachable", state: pairing });
+  await render(<ServiceConnection client={client} pollMs={50} />);
+  await expect.element(page.getByText(/could not be reached/)).toBeVisible();
+  await expect
+    .element(page.getByText("Waiting for approval on the service.", { exact: true }))
+    .toBeVisible();
 });
 
 test("explains a mismatched code and keeps the pairing", async () => {

@@ -374,8 +374,13 @@ sync service panel: it accepts only an exact HTTPS origin, asks the background t
 start pairing, and shows the short code with a button that opens the approval page in
 an ordinary tab. The background keeps the verifier and, after redemption, the device
 credential in trusted extension storage; neither crosses the runtime message boundary.
-The page polls redemption every six seconds only while it stays open and a pairing is
-pending, and an unapproved pairing is abandoned after 15 minutes. Disconnecting revokes
+Pairing asks Chrome for site access to the service host when the user has withheld it.
+The page polls redemption every ten seconds only while it stays open and a pairing is
+pending; the background allows at most one redemption every six seconds and waits a
+minute after a rate limit. A pairing is abandoned on the first request after 15
+minutes, and an issued credential whose write failed is kept in memory and saved on
+the next request. An unreadable stored connection fails closed until the owner forgets
+it. Disconnecting revokes
 the device with its own credential and forgets it locally even when the service cannot
 confirm, in which case the page points to the management page. Requests refuse
 redirects, send no cookies and bound response bodies. Unit tests use synthetic

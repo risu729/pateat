@@ -20,10 +20,13 @@ createRoot(root).render(
     <SettingsApp
       client={createSettingsClient((message) => browser.runtime.sendMessage(message))}
       connectionClient={connectionClient}
-      serviceClient={createServiceClient(
-        (message) => browser.runtime.sendMessage(message),
-        (url) => browser.tabs.create({ url }),
-      )}
+      serviceClient={createServiceClient({
+        send: (message) => browser.runtime.sendMessage(message),
+        openTab: (url) => browser.tabs.create({ url }),
+        // Chrome match patterns do not carry ports; site access is granted per host.
+        requestSiteAccess: (origin) =>
+          browser.permissions.request({ origins: [`https://${new URL(origin).hostname}/*`] }),
+      })}
     />
   </QueryClientProvider>,
 );

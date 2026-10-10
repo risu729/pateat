@@ -8,13 +8,17 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "./button";
 import type { ServiceClient } from "./service-client";
 
-/** The service allows about 10 redemption attempts a minute per address. */
-export const PAIRING_POLL_MS = 6_000;
+/** The service allows about 10 redemption attempts a minute per address; the background paces them too. */
+export const PAIRING_POLL_MS = 10_000;
 
 function errorMessage(error: ServiceErrorCode): string {
   switch (error) {
     case "storage-unavailable":
       return "Pateat could not read or save its service connection on this device.";
+    case "storage-corrupt":
+      return "Pateat cannot read its saved service connection. Forget it here, then revoke the old device on the service's management page if it was paired.";
+    case "site-access-needed":
+      return "Chrome is not letting Pateat reach this service. Pair again and allow site access when Chrome asks, or allow it in the extension's site access settings.";
     case "unreachable":
       return "The service could not be reached. Pateat keeps trying while this page is open.";
     case "rate-limited":
@@ -24,7 +28,7 @@ function errorMessage(error: ServiceErrorCode): string {
     case "code-mismatch":
       return "The approval page has a different code. Retype the code shown here on that page. If it says another account approved this request, cancel and pair again.";
     case "pairing-expired":
-      return "Pairing expired before it was approved. Start again.";
+      return "Pairing expired before this device received its credential. Start again. If you had approved it, remove the unused device on the service's management page.";
     case "wrong-state":
       return "The connection changed elsewhere. This page now shows its current state.";
     case "invalid-request":
@@ -45,6 +49,7 @@ export function ServiceConnection({
   const [address, setAddress] = useState("");
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
+  const [corrupt, setCorrupt] = useState(false);
   const mounted = useRef(true);
   const checking = useRef(false);
   // Acquire synchronously: React state alone cannot stop a double click.
@@ -52,6 +57,7 @@ export function ServiceConnection({
 
   function receive(response: ServiceResponse, success?: string) {
     if (!mounted.current) return;
+    setCorrupt(!response.ok && response.error === "storage-corrupt");
     if (response.ok) {
       setState(response.state);
       if (success !== undefined) setMessage(success);
@@ -92,7 +98,8 @@ export function ServiceConnection({
   useEffect(() => {
     if (!pairing) return;
     const timer = setInterval(() => {
-      if (checking.current) return;
+      // A tick during cancel would only report the state that cancel already changed.
+      if (checking.current || acting.current) return;
       checking.current = true;
       void client
         .check()
@@ -100,9 +107,11 @@ export function ServiceConnection({
           (response) =>
             receive(
               response,
-              response.ok && response.state.kind === "connected"
-                ? "This device is paired."
-                : undefined,
+              !response.ok
+                ? undefined
+                : response.state.kind === "connected"
+                  ? "This device is paired."
+                  : "Waiting for approval on the service.",
             ),
           () => undefined,
         )
@@ -130,9 +139,25 @@ export function ServiceConnection({
       >
         {message}
       </output>
+      {corrupt && (
+        <div>
+          <Button
+            id="service-forget"
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              void act(async () => receive(await client.forget(), "Saved connection forgotten."))
+            }
+          >
+            Forget saved connection
+          </Button>
+        </div>
+      )}
       {state?.kind === "disconnected" && (
         <form
           className="grid gap-3"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             const origin = normalizeServiceOrigin(address);
@@ -146,12 +171,17 @@ export function ServiceConnection({
               return;
             }
             setAddressError("");
-            void act(async () =>
+            void act(async () => {
+              // Requested before any other await so Chrome still sees the click.
+              if (!(await client.requestSiteAccess(origin))) {
+                if (mounted.current) setMessage(errorMessage("site-access-needed"));
+                return;
+              }
               receive(
                 await client.start(origin, name),
                 "Pairing started. Approve it with the code below.",
-              ),
-            );
+              );
+            });
           }}
         >
           <label>

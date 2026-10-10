@@ -51,6 +51,24 @@ describe("service messages", () => {
     ).toBe(false);
   });
 
+  it("accepts only the service's own approval page", () => {
+    const pairing = {
+      kind: "pairing",
+      origin: "https://pateat.example.com",
+      label: "Laptop",
+      code: "ABCD-EFGH",
+      enrollUrl: "https://pateat.example.com/enroll?challenge=x",
+      expiresAt: 1,
+    };
+    expect(parseServiceResponse({ ok: true, state: pairing }).ok).toBe(true);
+    for (const enrollUrl of [
+      "https://evil.example.com/enroll?challenge=x",
+      "https://pateat.example.com.evil.example/enroll?challenge=x",
+      "https://pateat.example.com/manage",
+    ])
+      expect(() => parseServiceResponse({ ok: true, state: { ...pairing, enrollUrl } })).toThrow();
+  });
+
   it("rejects responses carrying unknown fields", () => {
     expect(() =>
       parseServiceResponse({
