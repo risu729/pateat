@@ -102,14 +102,15 @@ test("production package permits local storage, the crypto host and one HTTPS lo
   expect(probeManifest.permissions).toEqual(["storage", "offscreen"]);
   expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toBeUndefined();
-  // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.
+  // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost,
+  // plus the intercepted synthetic Bitwarden passkey origin, which never resolves.
   // The production HTTPS login script is shared with the probe build.
   for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
     expect(script.matches).toEqual(
       script.js.join() === "content-scripts/login.js"
         ? ["https://*/*"]
         : script.js.some((file) => /\/passkey-(?:main|isolated)\.js$/u.test(file))
-          ? ["http://localhost/*"]
+          ? ["http://localhost/*", "https://synthetic.example.test/*"]
           : ["http://127.0.0.1/*"],
     );
 });

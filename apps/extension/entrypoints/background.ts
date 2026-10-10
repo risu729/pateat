@@ -17,6 +17,7 @@ import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
+import { createVaultPasskeySource } from "../src/passkeys/vault";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import {
@@ -74,7 +75,10 @@ export default defineBackground(() => {
     uris: createVaultUriMatcher(connections),
   });
   const setupProbe = syntheticSetup?.handler(connections);
-  const passkeyProbe = import.meta.env.MODE === "probe" ? createProbePasskeySource() : undefined;
+  const passkeyProbe =
+    import.meta.env.MODE === "probe"
+      ? createProbePasskeySource(createVaultPasskeySource(connections))
+      : undefined;
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
         extensionId: browser.runtime.id,
