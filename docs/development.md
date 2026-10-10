@@ -82,16 +82,16 @@ checks have passed locally; they do not establish production deployment or
 installed Chrome use compatibility. Current evidence and unresolved browser
 acceptance results are recorded in [dated research](research/2026-10-10-feasibility.md).
 
+Pass one task to each `mise run` invocation; listing several task names turns the
+later names into arguments of the first. To run every static check without the
+runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runtime`.
+
 ### Windows notes
 
-Pass one task to each `mise run` invocation on Windows; listing several task names
-can turn the later names into arguments of the first. To run every static check
-without the runtime graph, use
-`mise exec -- hk check --all --no-fail-fast --skip-step runtime`. `build:probe`
-depends on the production build. Quote `git rev-parse 'HEAD^{tree}'` in
-PowerShell. The downloaded Windows Chromium fails to launch with a missing
-SideBySide assembly; that is an environment limitation, not a code failure. Linux
-CI is the runtime acceptance environment for packaged-extension tests.
+Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. The downloaded Windows Chromium
+does not launch packaged-extension tests (see the
+[foundation progress](plan.md#foundation-progress)); Linux CI is the runtime
+acceptance environment for them. The options component tests do run on Windows.
 
 ### Installed Chrome synthetic login probe
 

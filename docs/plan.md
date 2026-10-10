@@ -24,8 +24,8 @@ installed shell status, and document-start/inactive-tab identity probe;
 [CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
 downloaded Windows Chromium still fails before launch with a missing SideBySide
 assembly. The later installed-Chrome synthetic probe passed the early login gate;
-broader coexistence remains a separate M1 gate. Code Quality setup must be
-rechecked after language detection; its existing required rule is retained.
+broader coexistence remains a separate M1 gate. Code Quality setup remains
+unavailable after language detection; see [merging](delivery.md#merging).
 
 ## Local settings progress
 

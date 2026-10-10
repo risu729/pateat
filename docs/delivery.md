@@ -61,14 +61,12 @@ are created for this PR.
 
 ### Merging
 
-Try an ordinary squash merge first. As of 2026-10-10, the required Code Quality
-rule blocks ordinary merges while the repository's Code Quality setup endpoint
-reports that the feature is unavailable. Earlier authorized implementation PRs,
-through PR #20, were merged with the administrator squash bypass only after CI,
-CodeQL and independent review passed. Recheck the live setup state before each
-bypass; do not delete or weaken the rule. The standing merge authorization in
-[AGENTS.md](../AGENTS.md) does not cover deployment or new library/provider
-choices.
+Try an ordinary squash merge first. While the required Code Quality rule blocks it
+because the repository's Code Quality setup still reports the feature as
+unavailable, an authorized PR may use the administrator squash bypass only after
+CI, CodeQL and the required independent review pass. Recheck the live setup state
+before each bypass. This is a temporary exception, not a resolution of the M1
+gate above: do not delete or weaken the rule.
 
 ## Complete-service CI requirements
 
