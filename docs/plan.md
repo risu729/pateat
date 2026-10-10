@@ -440,7 +440,9 @@ Worker and only a DER signature crosses the Port. A reply bound to another snaps
 item or credential, or with any other shape, locks the session; an unreadable or
 ambiguous item fails on its own without retiring the session. Unit tests sign through
 the pinned SDK with the synthetic FIDO2 fixture and verify against its public key.
-Bridge selection from the vault, production entrypoints and real-site interoperability
+Selecting vault items by RP ID with the site default as the tie-break, as
+[ADR 0007](adr/0007-existing-passkey-assertions.md#item-selection) records, production
+entrypoints and real-site interoperability
 remain open; a navigation during signing relies on Chrome dropping the response to the
 replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
