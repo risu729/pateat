@@ -201,6 +201,20 @@ extension-only design cannot claim native OS-keystore protection it does not use
 Initial setup and server-side session/MFA expiry remain distinct from unlocking
 a local cache. Authentication failure must not erase a usable cache silently.
 
+Use native IndexedDB revision transactions for the vault cache, as specified in
+[ADR 0006](adr/0006-atomic-local-vault-cache.md). Account verification and strict
+decryption of every supported received cipher precede durable acceptance.
+Retain only the verified SDK user key alongside encrypted data. Keep provider
+tokens, master passwords and page grants out of this record. Offline admission
+validates the saved encrypted context without depending on expired online tokens.
+Disabled records retain verified identity and security floors; an ordinary
+refresh must not re-enable automatic unlock. Atomic expected-revision writes
+prevent a stale operation from undoing a newer disable after worker restart.
+Uncertain commits invalidate both candidate and old live sessions until a fresh
+read and SDK verification. Immutable records preserve snapshot identity across
+restart, while replacement data receives a fresh snapshot and requires policy
+reconciliation before credential release.
+
 Initially vault use does not write back: passwords, TOTP and counter-zero
 assertions only. Nonzero counters produce an unsupported result. Do not reset
 them to zero or keep an unsynchronized local substitute. Later writeback needs

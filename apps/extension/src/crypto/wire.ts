@@ -25,6 +25,7 @@ export type HostOperation =
   | { kind: "derive-auth"; input: unknown }
   | { kind: "open"; prepared: PreparedBitwardenAccount; snapshotId: string; unlock: HostUnlock }
   | { kind: "decrypt" | "list"; session: HostSessionRef; itemId: string }
+  | { kind: "verify-received-ciphers" | "export-unlock"; session: HostSessionRef }
   | {
       kind: "resolve";
       session: HostSessionRef;
@@ -58,6 +59,10 @@ export const commandSchema = v.strictObject({
       ]),
     }),
     v.strictObject({ kind: v.picklist(["decrypt", "list"]), session: sessionSchema, itemId: uuid }),
+    v.strictObject({
+      kind: v.picklist(["verify-received-ciphers", "export-unlock"]),
+      session: sessionSchema,
+    }),
     v.strictObject({
       kind: v.literal("resolve"),
       session: sessionSchema,

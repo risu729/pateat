@@ -99,10 +99,10 @@ new background incarnation replaces any previous offscreen host; disconnect,
 cancellation and deadlines fence results and terminate affected Workers. Reconnection
 must not replay secret operations.
 
-This host is a prerequisite for persistent unlock, not its implementation.
-Durable cache acceptance, verified key retention and fresh operation grants
-after restoration remain separate integration gates. The browser tests must
-verify actual sender identity and restart behavior before the host is accepted.
+This host supplies the runtime for the separate
+[persistent cache and key-retention layer](0006-atomic-local-vault-cache.md).
+Fresh operation grants after restoration remain an integration gate. The browser tests
+must verify actual sender identity and restart behavior before the host is accepted.
 
 ## Sources
 
