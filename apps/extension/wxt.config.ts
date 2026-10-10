@@ -36,8 +36,8 @@ export default defineConfig({
         "probe-main",
         "probe-isolated",
         "login-probe",
-        "passkey-main",
-        "passkey-isolated",
+        "passkey-probe-main",
+        "passkey-probe-isolated",
       ]) {
         entrypoints.push({
           name,

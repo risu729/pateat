@@ -9,7 +9,10 @@ search every live login item by RP ID, and use the site default only to choose
 among several matches (see [Item selection](#item-selection)). After the official
 Bitwarden extension was found wrapping `get` outside Pateat, the owner chose on the same
 day to keep Pateat's wrapper outermost whatever the extension order (see
-[Bridge topology](#bridge-topology)).
+[Bridge topology](#bridge-topology)). Also on 2026-10-10 the owner chose to register the
+bridge in the production build on every top-level HTTPS page and to sign wherever the
+item selection allows on sites that are not excluded, rather than only on sites with a
+synced recipe.
 
 Date: 2026-10-10
 
@@ -27,11 +30,13 @@ requirements, pinned Bitwarden behavior and the SDK surface this design relies o
 ### Bridge topology
 
 Register a MAIN-world wrapper for `navigator.credentials.get` at document start in
-top-level frames only. It snapshots the request, forwards a bounded copy to the
-isolated content script, and either returns a Pateat assertion or calls the
-browser's original `get` with the original arguments. Delegation is the default
-for every case Pateat does not claim, so excluded or unsupported requests keep
-ordinary browser behavior, including other installed passkey providers.
+top-level frames only, as a static content script on `https://*/*` under the
+install-time HTTPS access of [ADR 0009](0009-install-time-https-site-access.md), with an
+isolated-world relay on the same pages. It snapshots the request, forwards a bounded
+copy to the isolated content script, and either returns a Pateat assertion or calls the
+browser's original `get` with the original arguments. Delegation is the default for
+every case Pateat does not claim, so excluded or unsupported requests keep ordinary
+browser behavior, including other installed passkey providers.
 `navigator.credentials.create` is not wrapped.
 
 Pateat stays outside other passkey providers' wrappers. Chromium decides the order in
@@ -65,8 +70,12 @@ permissions policy before relaying, and reports whether the document has transie
 activation. The background derives origin, tab, frame and document from the
 browser-supplied sender, never from page data, and accepts only frame 0 of an `https:`
 origin or `http://localhost`. Each request has a short-lived operation ID bound to that
-document, and one document may hold only a few at once. Abort, timeout, policy
-change, lock and connection replacement cancel it; a late result is discarded.
+document, and one document may hold only a few at once. Abort, timeout and a settings
+change cancel it; a late result is discarded. A lock or connection replacement during
+signing makes the Worker's signature unavailable, so the request is delegated as a
+failed assertion. Pages on an excluded site, or with no enabled connection, are answered
+from the settings metadata without reading the vault catalog, so they do not restore a
+vault.
 Navigation does not cancel it: Chrome drops a response addressed to a replaced
 document. The wrapper delegates if the relay does not acknowledge a request
 promptly, so an invalidated extension does not hold callers.

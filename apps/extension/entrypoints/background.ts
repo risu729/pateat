@@ -68,7 +68,7 @@ export default defineBackground(() => {
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
       login.settingsChanged();
-      passkeys?.cancelAll();
+      passkeys.cancelAll();
     },
     deferred: () => login.active(),
   });
@@ -100,17 +100,16 @@ export default defineBackground(() => {
     uris: createVaultUriMatcher(connections),
   });
   const setupProbe = syntheticSetup?.handler(connections);
+  const vaultPasskeys = createVaultPasskeySource(connections);
   const passkeyProbe =
-    import.meta.env.MODE === "probe"
-      ? createProbePasskeySource(createVaultPasskeySource(connections))
-      : undefined;
+    import.meta.env.MODE === "probe" ? createProbePasskeySource(vaultPasskeys) : undefined;
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
         extensionId: browser.runtime.id,
         timeoutMs: passkeyProbe.timeoutMs,
         policy: passkeyProbe.policy,
       })
-    : undefined;
+    : createPasskeyRuntime(vaultPasskeys, { extensionId: browser.runtime.id });
 
   browser.runtime.onConnect.addListener((port) => {
     connections.attach(port);
@@ -168,7 +167,7 @@ export default defineBackground(() => {
       void settings.handle(message).then((response) => {
         if (message.type === "settings.save" && response.ok) {
           login.settingsChanged();
-          passkeys?.cancelAll();
+          passkeys.cancelAll();
           void recipeSync.sync();
         }
         return sendResponse(response);
@@ -235,7 +234,6 @@ export default defineBackground(() => {
       return false;
     }
     if (
-      passkeys &&
       message !== null &&
       typeof message === "object" &&
       typeof message.type === "string" &&

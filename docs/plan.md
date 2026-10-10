@@ -551,19 +551,19 @@ ECDSA signatures from a non-extractable sign-only key. Unit tests reproduce the 
 Level 3 ES256 client data and authenticator data byte for byte, verify the published and
 produced signatures, and cover the HTML registrable-suffix examples.
 
-The probe build connects that core through a request bridge: a document-start MAIN-world
+Both builds connect that core through a request bridge: a document-start MAIN-world
 wrapper for `navigator.credentials.get`, an isolated relay that checks top-level
 placement, secure context and the `publickey-credentials-get` policy and reports
 transient user activation, and a background runtime bound to the browser-supplied sender
 origin, frame 0 and document. Every unclaimed request, failure or deadline calls the
-browser's original `get` with the caller's arguments. A synthetic source signs with the
-public WebAuthn test-vector key for `http://localhost` only. Playwright tests against a
-synthetic relying party verify Pateat assertions with Node's independent ECDSA verifier,
-including UP and UV for page-load and UV-required requests, prove delegation to a CDP
-virtual authenticator for nonzero-counter and unconfigured requests and, under a
-ceremony policy, for unattended and UV-required requests, keep the browser's rejection
-for unknown allow-list credentials and a denied permissions policy, and cover abort and
-background timeout.
+browser's original `get` with the caller's arguments. In the probe build only, a
+synthetic source signs with the public WebAuthn test-vector key for `http://localhost`
+only. Playwright tests against a synthetic relying party verify Pateat assertions with
+Node's independent ECDSA verifier, including UP and UV for page-load and UV-required
+requests, prove delegation to a CDP virtual authenticator for nonzero-counter and
+unconfigured requests and, under a ceremony policy, for unattended and UV-required
+requests, keep the browser's rejection for unknown allow-list credentials and a denied
+permissions policy, and cover abort and background timeout.
 
 The crypto Worker can search the verified, live login items of the accepted snapshot for
 stored passkeys whose RP ID equals the requested one, and sign with the passkey of one
@@ -588,14 +588,19 @@ of that search: enabled connections only, excluded sites, excluded and quarantin
 items, the exact-origin site default as the tie-break, and no single-match choice while
 a connection or eligible item could not be searched. Signing through it requires the
 same settings revision, snapshot and item eligibility before and after the Worker signs.
-Unit tests cover it with fake vault managers. The probe build wires it to pages for
-origins other than `http://localhost`, which its passkey scripts reach only on
-`https://synthetic.example.test`. A Playwright test there connects the synthetic
+Unit tests cover it with fake vault managers. Both builds register the bridge on every
+top-level `https://*/*` document and answer it from this source; the probe build keeps
+its test-vector key for `http://localhost` only. A probe-build Playwright test on
+`https://synthetic.example.test`, served by request interception, connects the synthetic
 Bitwarden account (fixture variant `passkey`, one login holding one zero-counter
 passkey), gets an assertion signed in the crypto Worker and verified with the fixture's
-public key, and gets the browser's `NotAllowedError` once the item is excluded.
-Production entrypoints and real-site interoperability remain open; a navigation during
-signing relies on Chrome dropping the response to the replaced document.
+public key, and gets the browser's own credential once the item is excluded. A
+production-build test checks that the bridge is installed at document start there, that
+no content script posts a message to the page, and that with no vault connected the
+request goes to the browser. A claimed assertion from a vault passkey is tested only
+through the probe build, which wraps the same vault source. Real-site interoperability
+and real-account use remain open; a navigation during signing relies on Chrome dropping
+the response to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
 accessor property returning a function with a different `length` and source text), which
