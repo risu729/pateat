@@ -152,6 +152,24 @@ semantics but enforce an explicit destination policy before filling. Personal
 items, custom fields, organization keys, KDF variants, and passkey formats each
 need an explicit support test; missing support is reported, never guessed.
 
+The isolated URI matcher evaluates provider candidates only, following the
+[pinned provider modes](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/models/view/login-uri.view.ts#L132-L207).
+It supports Domain,
+Host, raw-string Exact and StartsWith, and Never. Regex returns an explicit
+unsupported result without executing a pattern. Domain matching uses tldts after
+WHATWG URL parsing, including private suffixes and direct equivalent-domain
+groups from the same account. Host includes the parsed port; Exact and StartsWith
+preserve the original strings. Malformed or unsupported individual stored URIs
+receive unavailable metadata without blocking unrelated valid candidates.
+
+A provider match and its descriptive target origin are not a credential-release
+grant. Raw StartsWith can match a different host with the same prefix. Live
+integration must enforce site exclusions, account selection, recipe and document
+identity, and destination/field policy separately. This does not introduce a
+first-visit confirmation: eligible provider matches may automatically enter
+candidate scope under the agreed settings contract. URI matching alone neither
+updates settings nor authorizes a page operation.
+
 Persistent automatic unlock across browser restarts is a requirement. Store
 encrypted vault data and the necessary unlock material locally, not in browser
 sync. Restrict storage access to trusted extension contexts, exclude secrets from

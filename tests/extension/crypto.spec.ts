@@ -55,6 +55,7 @@ test("packaged Dedicated Worker executes real SDK vectors without external reque
       localFields: true,
       localTotp: true,
       localSteam: true,
+      uriMatches: true,
     });
     expect(wasmRequests).toHaveLength(1);
     expect(wasmRequests[0]).toMatch(new RegExp(`^chrome-extension://${extensionId}/`));
@@ -99,6 +100,7 @@ test("cancellation terminates the computing Worker and a fresh Worker remains us
       localFields: true,
       localTotp: true,
       localSteam: true,
+      uriMatches: true,
     });
     expect(externalRequests).toEqual([]);
   });
