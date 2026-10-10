@@ -98,7 +98,8 @@ costs are understood and the compatibility checks pass.
 
 The owner approved React, Tailwind + Base UI + selected shadcn/ui components, TanStack
 Form + Valibot, TanStack Query, XState, `@webext-core/messaging`, WXT storage,
-Hono and Drizzle on 2026-10-10. These
+Hono, Drizzle and AI SDK with Valibot on 2026-10-10. The owner delegated OTP/PSL
+selection by maintenance and freshness; that review selected OTPAuth and tldts. These
 are planned integrations, not installed packages. Other new recommendations below remain
 pending; obtain the owner's decision before adopting each major addition/replacement.
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
@@ -113,10 +114,10 @@ use.
 | Attempt lifecycle | **Approved:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
 | Storage | **Approved:** WXT storage helpers | M2 persistence integration |
-| Destination matching | WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
-| Crypto and OTP | WebCrypto and OTPAuth; evaluated Argon2 implementation | M3 Bitwarden adapter |
+| Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
+| Crypto and OTP | WebCrypto; **selected under delegated authority:** OTPAuth. Argon2 implementation still requires evaluation | M3 Bitwarden adapter |
 | Service and database | **Approved:** Hono, Standard Schema validation and Drizzle for D1 | M4 enrollment, sync and schema |
-| Inference transport | AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
+| Inference transport | **Approved:** AI SDK with `@ai-sdk/valibot` for compatible generation providers; role-specific decision adapters | M4 provider integration |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; fast-check for policy/state invariants | M2 onward |
 | Component tests | Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright plus `@axe-core/playwright` | M2 settings and executor fixtures |

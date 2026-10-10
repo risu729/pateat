@@ -1,7 +1,7 @@
 # ADR 0004: Compose maintained libraries around explicit domain boundaries
 
-Status: UI, lifecycle, transport/storage and service/database choices approved;
-other choices pending. PR unmerged.
+Status: application libraries selected; additional verification tools and
+protocol-specific crypto choices pending. PR unmerged.
 
 Date: 2026-10-10
 
@@ -25,7 +25,8 @@ introduce only approved choices; approval of one does not approve the remainder.
 
 The owner approved React, Tailwind + Base UI + selected shadcn/ui components, TanStack
 Form + Valibot, TanStack Query, XState, `@webext-core/messaging`, WXT storage,
-Hono and Drizzle on 2026-10-10. Keep
+Hono, Drizzle and AI SDK with Valibot on 2026-10-10. The owner delegated OTP/PSL
+selection by maintenance and freshness; choose OTPAuth and tldts on that basis. Keep
 React in human-operated extension pages and preserve the settings operation contracts
 and draft/conflict behavior.
 
@@ -35,12 +36,30 @@ remain application responsibilities. WXT storage and Hono/Drizzle were separatel
 approved; their convenience APIs do not replace trusted-context restrictions,
 revision checks or owner authorization.
 
-Still recommend, pending decision: tldts,
-OTPAuth and compatible AI SDK adapters for their specified
-responsibilities. Keep Valibot application contracts and the existing Vitest/Playwright
-test layers, supplemented with browser component, accessibility and property-based test
-candidates. These additional choices remain pending. Native APIs remain appropriate
-primitives; they are not a reason to recreate useful higher-level infrastructure.
+Keep Valibot application contracts and the existing Vitest/Playwright test layers.
+Additional browser component, accessibility, property-based and unused-code tools
+remain candidates awaiting the owner. Native APIs remain appropriate primitives;
+they are not a reason to recreate useful higher-level infrastructure.
+
+### Delegated OTP and public-suffix selection
+
+Reviewed official repositories/releases and npm metadata on 2026-10-10. All four
+repositories were unarchived. Release dates below are UTC; version pins will be
+rechecked in the implementation PR rather than installed by this document.
+
+| Candidate | Latest stable release | Published (UTC) | Decision evidence |
+| --- | --- | --- | --- |
+| [OTPAuth](https://github.com/hectorm/otpauth/releases) | 9.5.2 | 2026-09-03 | Maintained dependencies and browser support; selected |
+| [otplib](https://github.com/yeojz/otplib/releases) | 13.5.0 | 2026-08-21 | Also actively maintained; a valid alternative, not obsolete |
+| [tldts](https://github.com/remusao/tldts/releases) | 7.4.18 | 2026-10-07 | Continuing releases and explicit public/private suffix handling; selected |
+| [psl](https://github.com/lupomontero/psl/releases) | 1.15.0 | 2024-12-02 | Substantially older published data/package than tldts |
+
+OTPAuth's stable release is newer, while otplib has more recent default-branch
+work. Neither date alone establishes quality. Choose OTPAuth for the required
+browser TOTP/URI interface with current dependency maintenance; do not claim
+otplib is abandoned or less secure. Choose tldts for its continuing published
+updates and explicit suffix policy. These are library-selection findings, not
+Bitwarden/Steam/MV3 compatibility proof or a security audit. Preserve those tests.
 
 Independent feature implementation means owning permission policy, vault protocol
 compatibility, login semantics, recovery and output validation. It does not mean
@@ -49,7 +68,7 @@ Choose additional crypto/encoding dependencies after identifying protocol gaps.
 Libraries must not broaden permissions, expose secrets or automatically replay
 side effects after retries or restoration.
 
-If chosen, AI SDK handles compatible generation transport and structured output.
+The approved AI SDK handles compatible generation transport and structured output.
 Specialized finite-choice APIs keep direct adapters if SDK abstractions lose their
 semantics. Provider evaluation stays in [ADR 0003](0003-service-and-ai.md) and a
 separate PR. No agent loop, automatic fallback or additional hosted infrastructure is

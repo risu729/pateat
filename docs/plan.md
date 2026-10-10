@@ -95,6 +95,14 @@ Valibot boundary validation, verify generated SQL and migrations, and test owner
 isolation, conditional revision writes and D1 batch behavior. Neither dependency
 automatically supplies those application guarantees.
 
+Selected for M3/M5 under delegated maintenance review: OTPAuth for standard TOTP
+and URI handling, and tldts for public/private suffix information after WHATWG URL
+normalization. Verify Bitwarden parameters/Steam format and destination/RP policy
+separately; neither library approval expands the supported protocol scope.
+Approved for M4: AI SDK with Valibot for supported generation APIs. Preserve
+role-specific decision adapters, explicit retry/timeout limits, redacted diagnostics
+and usage accounting. This selects transport tooling, not an inference provider.
+
 Potential integration points, subject to those decisions, are M2 settings UI,
 forms, async state, attempt lifecycle and verification; M3/M5 protocol libraries;
 and M4 service/database and inference transport. Once a choice is approved, record
