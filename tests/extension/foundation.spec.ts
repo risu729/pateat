@@ -352,7 +352,12 @@ test("local policies and account defaults survive a browser restart", async () =
           { hostname: "excluded.example", includeSubdomains: true },
         ]);
         expect(response.snapshot.settings.siteDefaults).toEqual([
-          { origin: "https://bank.example", connectionId: "demo-personal", itemId: "primary" },
+          {
+            origin: "https://bank.example",
+            provider: "dummy",
+            userId: "demo-personal-account",
+            itemId: "primary",
+          },
         ]);
       },
       profile,

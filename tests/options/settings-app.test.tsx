@@ -240,6 +240,8 @@ test("keyboard add forms validate locally and recover input focus after add and 
   await control("default-origin").fill("https://bank.example");
   await userEvent.keyboard("{Enter}");
   await expect.element(control("site-defaults")).toMatchTextContent("https://bank.example");
+  // The default names the account, and is shown through this device's connection.
+  await expect.element(control("site-defaults")).toMatchTextContent("Demo personal vault");
   await expect.element(control("default-origin")).toHaveFocus();
   expect(client.saveSettings).not.toHaveBeenCalled();
 });

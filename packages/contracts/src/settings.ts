@@ -103,6 +103,21 @@ export const savedLoginBindingSchema = v.strictObject({
   ),
 });
 
+/**
+ * The saved account for one origin. New entries name the provider account and item
+ * (ADR 0013); the legacy device-local form with `connectionId` is still read so settings
+ * saved before the change keep working, but is no longer written.
+ */
+export const siteDefaultSchema = v.union([
+  v.strictObject({
+    origin: originSchema,
+    provider: identifier,
+    userId: identifier,
+    itemId: identifier,
+  }),
+  v.strictObject({ origin: originSchema, connectionId: identifier, itemId: identifier }),
+]);
+
 export const connectionSettingsSchema = v.strictObject({
   connectionId: identifier,
   enabled: v.boolean(),
@@ -143,9 +158,7 @@ export const localSettingsSchema = v.pipe(
       ),
     ),
     siteDefaults: v.pipe(
-      v.array(
-        v.strictObject({ origin: originSchema, connectionId: identifier, itemId: identifier }),
-      ),
+      v.array(siteDefaultSchema),
       v.maxLength(1000),
       v.check(
         (sites) => new Set(sites.map((site) => site.origin)).size === sites.length,
@@ -271,6 +284,7 @@ export const settingsResponseSchema = v.variant("ok", [
 
 export type LocalSettings = v.InferOutput<typeof localSettingsSchema>;
 export type ConnectionSettings = v.InferOutput<typeof connectionSettingsSchema>;
+export type SiteDefault = v.InferOutput<typeof siteDefaultSchema>;
 export type SettingsSnapshot = v.InferOutput<typeof settingsSnapshotSchema>;
 export type SettingsRequest = v.InferOutput<typeof settingsRequestSchema>;
 export type SettingsResponse = v.InferOutput<typeof settingsResponseSchema>;
@@ -295,6 +309,7 @@ export const DUMMY_VAULT_CATALOG: VaultCatalog = {
       id: "demo-personal",
       label: "Demo personal vault",
       provider: "dummy",
+      userId: "demo-personal-account",
       groups: [{ id: "everyday", label: "Everyday", kind: "folder" }],
       items: [
         {
@@ -324,6 +339,7 @@ export const DUMMY_VAULT_CATALOG: VaultCatalog = {
       id: "demo-work",
       label: "Demo work vault",
       provider: "dummy",
+      userId: "demo-work-account",
       groups: [{ id: "team", label: "Team", kind: "collection" }],
       items: [
         {
@@ -418,8 +434,37 @@ export type SiteAccountResolution =
         | "site-excluded"
         | "default-not-set"
         | "item-origin-mismatch"
+        | "account-ambiguous"
+        | "vault-unavailable"
         | EligibilityReason;
     };
+
+export type SiteDefaultConnection =
+  | { ok: true; connectionId: string }
+  | { ok: false; reason: "connection-missing" | "account-ambiguous" | "vault-unavailable" };
+
+/**
+ * The local connection a saved site default names: its own `connectionId` in the legacy
+ * form, otherwise the one catalog connection of that provider account. An account
+ * connected twice is ambiguous. With no match while a connection of that provider
+ * cannot name its account (locked or unavailable), the vault is unavailable rather than
+ * the account missing.
+ */
+export function siteDefaultConnection(
+  entry: SiteDefault,
+  catalog: VaultCatalog,
+): SiteDefaultConnection {
+  if ("connectionId" in entry) return { ok: true, connectionId: entry.connectionId };
+  const sameProvider = catalog.connections.filter(
+    (connection) => connection.provider === entry.provider,
+  );
+  const matches = sameProvider.filter((connection) => connection.userId === entry.userId);
+  if (matches.length > 1) return { ok: false, reason: "account-ambiguous" };
+  if (matches[0]) return { ok: true, connectionId: matches[0].id };
+  return sameProvider.some((connection) => connection.userId === undefined)
+    ? { ok: false, reason: "vault-unavailable" }
+    : { ok: false, reason: "connection-missing" };
+}
 
 /** Pure next-login selection. This never switches a current browser session. */
 export function resolveSiteAccount(
@@ -432,14 +477,17 @@ export function resolveSiteAccount(
   if (isSiteExcluded(settings, value)) return { ok: false, reason: "site-excluded" };
   const selected = settings.siteDefaults.find((entry) => entry.origin === url.origin);
   if (!selected) return { ok: false, reason: "default-not-set" };
-  const eligibility = getItemEligibility(settings, catalog, selected.connectionId, selected.itemId);
+  const connection = siteDefaultConnection(selected, catalog);
+  if (!connection.ok) return { ok: false, reason: connection.reason };
+  const { connectionId } = connection;
+  const eligibility = getItemEligibility(settings, catalog, connectionId, selected.itemId);
   if (!eligibility.eligible) return { ok: false, reason: eligibility.reason };
   if (!eligibility.item.allowedOrigins.includes(url.origin))
     return { ok: false, reason: "item-origin-mismatch" };
   return {
     ok: true,
     origin: url.origin,
-    connectionId: selected.connectionId,
+    connectionId,
     itemId: selected.itemId,
     fieldIds: eligibility.fieldIds,
   };

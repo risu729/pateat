@@ -275,15 +275,26 @@ describe("automatic account choice", () => {
     const settings = createDefaultSettings({ connections: [] });
     const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
     const saved = saveLoginChoice(settings, chosen, "live");
-    expect(saved.siteDefaults).toEqual([{ origin, connectionId: "live", itemId: account.itemId }]);
+    // A new default names the provider account, never the local connection.
+    expect(saved.siteDefaults).toEqual([
+      { origin, provider: "bitwarden", userId: account.userId, itemId: account.itemId },
+    ]);
     expect(saved.bindings).toEqual([chosen]);
     expect(v.is(localSettingsSchema, saved)).toBe(true);
     expect(saveLoginChoice(saved, chosen, "live")).toBe(saved);
 
-    // A saved choice of another item or connection wins; nothing is added for this one.
+    // A saved choice of another item or account wins; nothing is added for this one.
     const other = { ...chosen, itemId: "00000000-0000-4000-8000-000000000003" };
     expect(saveLoginChoice(saved, other, "live")).toBe(saved);
-    expect(saveLoginChoice(saved, chosen, "other-connection")).toBe(saved);
+    expect(saveLoginChoice(saved, { ...chosen, userId: "other-account" }, "live")).toBe(saved);
+
+    // A legacy default matches by its local connection ID.
+    const legacy = {
+      ...settings,
+      siteDefaults: [{ origin, connectionId: "live", itemId: account.itemId }],
+    };
+    expect(saveLoginChoice(legacy, chosen, "live").bindings).toEqual([chosen]);
+    expect(saveLoginChoice(legacy, chosen, "other-connection")).toBe(legacy);
 
     // A saved choice without a binding gains one.
     const unbound = { ...saved, bindings: [] };
