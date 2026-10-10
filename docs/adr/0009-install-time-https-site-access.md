@@ -15,11 +15,11 @@ synthetic loopback probe build.
 The content script only announces its document. The background admits a document only
 when its exact origin (scheme, host and port) has a saved site default, the site is not
 excluded, and Chrome still reports host access for that origin. Every other document
-gets no attempt, observation, settings read or vault lookup; its announcement is
-refused before any state is created. An admitted document still needs a saved local
-recipe and a valid account binding, and every policy check of the declarative executor
-applies unchanged. Until local recipe storage exists, admitted documents stop with
-`recipe-not-found` without reading the vault.
+gets only this local admission check: no attempt, observation, policy catalog or vault
+access. An admitted document still needs a saved local recipe for that origin, looked
+up before the policy catalog is opened, and a valid account binding; every policy check
+of the declarative executor applies unchanged. Until local recipe storage exists,
+admitted documents stop with `recipe-not-found` without opening the catalog or vault.
 
 Probe-only behavior stays confined to the probe build: the loopback origin grant, the
 probe recipe and binding, probe control messages and attempt status echoed to the page.
@@ -36,7 +36,8 @@ and the content script runs on every HTTPS page. Admission therefore depends on 
 settings, not on the browser grant. Users can still withhold site access in Chrome's
 extension settings; the background respects that per origin.
 
-The grant also covers provider HTTPS hosts, so connection setup no longer needs a
-runtime host prompt. The provider transport still enforces the configured origin,
-method and service path; the broader browser grant does not widen which endpoints a
-connection may call.
+The grant also covers provider HTTPS hosts, so connection setup prompts for host access
+only when the user has withheld site access; `optional_host_permissions` stays declared
+so that request remains valid. The provider transport still enforces the configured
+origin, method and service path; the broader browser grant does not widen which
+endpoints a connection may call.

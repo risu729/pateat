@@ -87,11 +87,12 @@ Bound response bytes while reading, support explicit cancellation and report san
 errors without request bodies or tokens. Manual connection setup requests the canonical
 provider HTTPS hosts from the options page's user gesture. The install-time HTTPS site
 access of [ADR 0009](adr/0009-install-time-https-site-access.md) normally already covers
-them, so the request rarely prompts. The background rechecks actual permission before
-each provider operation and cancels affected authentication flows when permission is
-removed. Chrome's host grant does not constrain endpoint paths, so the fixed transport
-still enforces the configured origin, method and service path. Extension CSP permits
-HTTPS connections while keeping script sources packaged locally. See Chrome's
+them, so the request prompts only when the user has withheld site access. The background
+rechecks actual permission before each provider operation and cancels affected
+authentication flows when permission is removed. Chrome's host grant does not constrain
+endpoint paths, so the fixed transport still enforces the configured origin, method and
+service path. Extension CSP permits HTTPS connections while keeping script sources
+packaged locally. See Chrome's
 [optional permissions](https://developer.chrome.com/docs/extensions/reference/api/permissions)
 and
 [network request policy](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests).

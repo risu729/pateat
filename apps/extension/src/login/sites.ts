@@ -9,8 +9,9 @@ export interface LoginSites {
 
 /**
  * Production document admission. The content script runs on every HTTPS page, but only
- * an exact origin with a saved site default is admitted; every other document gets no
- * attempt, observation or vault lookup. Account eligibility is still checked per attempt.
+ * an exact origin with a saved site default is admitted. Every other document gets only
+ * this local check: no attempt, observation, policy catalog or vault access. Account
+ * eligibility is still checked per attempt.
  */
 export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }): LoginSites {
   async function origins(): Promise<string[]> {
@@ -39,7 +40,12 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
     async admits(url) {
       if (url.protocol !== "https:") return false;
       try {
-        return (await origins()).includes(url.origin);
+        const { settings: current } = await settings.read();
+        return (
+          current.siteDefaults.some((entry) => entry.origin === url.origin) &&
+          !isSiteExcluded(current, url.origin) &&
+          (await browser.permissions.contains({ origins: [`https://${url.hostname}/*`] }))
+        );
       } catch {
         return false;
       }

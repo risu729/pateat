@@ -146,6 +146,7 @@ export function createLoginRuntime(
       storageHealthy = false;
     }
   })();
+  const hellos = new Map<number | undefined, number>();
   const probeDocument = (url: URL) =>
     probeMode && url.origin === origin && url.protocol === "http:" && url.hostname === "127.0.0.1";
   async function identify(sender: Sender): Promise<LoginDocument | undefined> {
@@ -483,9 +484,14 @@ export function createLoginRuntime(
   }
   /* eslint-enable no-await-in-loop */
   async function ready(sender: Sender, token: string): Promise<{ ok: boolean; reason?: string }> {
+    // Admission is async; a later hello from the same tab must not be overtaken by an older one.
+    const tabId = sender.tab?.id;
+    const sequence = (hellos.get(tabId) ?? 0) + 1;
+    hellos.set(tabId, sequence);
     await loaded;
     const document = await identify(sender);
     if (!document || !sender.url) return { ok: false, reason: "unauthorized-document" };
+    if (hellos.get(tabId) !== sequence) return { ok: false, reason: "stale-document" };
     const oldLive = documents.get(document.tabId);
     if (oldLive && sameLoginDocument(oldLive.document, document))
       return { ok: false, reason: "duplicate-document" };
@@ -499,6 +505,22 @@ export function createLoginRuntime(
       return { ok: false, reason };
     };
     if (!storageHealthy) return refuse("storage-unavailable");
+    const previous = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    // Look up the recipe first: a page without one never opens the policy catalog or vault.
+    const recipe =
+      probeMode && document.origin === origin
+        ? previous
+          ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
+          : probeRecipe(origin, live.path)
+        : await recipes.recipe(document.origin, live.path, previous?.recipeId);
+    if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
+    // A resumed attempt keeps its own recipe; a different saved recipe never takes it over.
+    if (
+      !recipe ||
+      recipe.origin !== document.origin ||
+      (previous && previous.recipeId !== recipe.id)
+    )
+      return refuse("recipe-not-found");
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return refuse(snapshot.error.code);
     if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
@@ -515,16 +537,6 @@ export function createLoginRuntime(
     } catch {
       return refuse("closed-tab");
     }
-    const previous = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
-    const recipe =
-      probeMode && document.origin === origin
-        ? previous
-          ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
-          : probeRecipe(origin, live.path)
-        : await recipes.recipe(document.origin, live.path, previous?.recipeId);
-    if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
-    // A resumed attempt keeps its own recipe; a different saved recipe never takes it over.
-    if (!recipe || (previous && previous.recipeId !== recipe.id)) return refuse("recipe-not-found");
     const plan = await planFor(snapshot, sender.url, recipe);
     if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
     if (!plan.ok) return refuse(plan.reason);
@@ -654,6 +666,7 @@ export function createLoginRuntime(
     }
   }
   browser.tabs.onRemoved.addListener((tabId) => {
+    hellos.delete(tabId);
     documents.delete(tabId);
     attempts.delete(tabId);
     storageQueue = storageQueue

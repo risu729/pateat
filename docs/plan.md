@@ -294,11 +294,12 @@ Chrome yet.
   `policy-changed` without filling. Production admits only top-level HTTPS documents
   whose exact origin has a saved, non-excluded site default and granted host access
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a local recipe they
-  stop with `recipe-not-found` before any vault read. Only the probe build grants its
-  loopback origin to the probe item and supplies recipes and bindings. Local recipe and
-  binding storage and provider-derived origins remain open.
-- Real Bitwarden connections, individual MFA methods and optional host-permission
-  prompts in installed Chrome remain separate gates.
+  stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
+  probe build grants its loopback origin to the probe item and supplies recipes and
+  bindings. Local recipe and binding storage and provider-derived origins remain open.
+- Real Bitwarden connections, individual MFA methods, the install-time site-access
+  warning and the setup prompt after withheld site access in installed Chrome remain
+  separate gates.
 
 ## Provider session progress (planned)
 

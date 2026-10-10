@@ -13,6 +13,7 @@ const fake = vi.hoisted(() => {
     messages: [] as { type: string; values?: { slot: string; value: string }[] }[],
     granted: true,
     pageUrl: "https://login.example/signin",
+    onExecute: undefined as undefined | ((message: Record<string, unknown>) => Promise<void>),
   };
   const browser = {
     runtime: {
@@ -40,6 +41,7 @@ const fake = vi.hoisted(() => {
         if (message["type"] === "login.observe")
           return { path: "/signin", targets: ["unique", "missing"] };
         if (message["type"] === "login.execute") {
+          await state.onExecute?.(message);
           const operation = message["operation"] as {
             operationId: string;
             document: { documentId: string };
@@ -71,13 +73,14 @@ const trusted = {
   id: "synthetic-extension",
   url: "chrome-extension://synthetic-extension/options.html",
 } as never;
-const sender = () =>
+const sender = (overrides: Record<string, unknown> = {}) =>
   ({
     id: "synthetic-extension",
     tab: { id: 1 },
     frameId: 0,
     documentId: "synthetic-document",
     url: fake.state.pageUrl,
+    ...overrides,
   }) as never;
 const target = (value: string) => ({ by: "id" as const, value });
 const recipe = parseLoginRecipe({
@@ -154,8 +157,11 @@ function harness(overrides: Partial<LocalSettings> = {}) {
     binding: vi.fn(async () => binding),
   };
   const login = createLoginRuntime(store, { fields, sites: createLoginSites(store), recipes });
-  const hello = () =>
-    login.handle({ version: 1, type: "login.document.ready", token: "synthetic-token" }, sender());
+  const hello = (from: Record<string, unknown> = {}) =>
+    login.handle(
+      { version: 1, type: "login.document.ready", token: "synthetic-token" },
+      sender(from),
+    );
   return { login, store, fields, recipes, hello };
 }
 
@@ -165,6 +171,7 @@ describe("production login document admission", () => {
     fake.state.messages = [];
     fake.state.granted = true;
     fake.state.pageUrl = "https://login.example/signin";
+    fake.state.onExecute = undefined;
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -180,7 +187,12 @@ describe("production login document admission", () => {
   });
   it.each([
     ["an origin without a saved default", "https://other.example/signin", {}],
-    ["plain HTTP", "http://login.example/signin", { siteDefaults: [] }],
+    ["a subdomain of the saved origin", "https://sub.login.example/signin", {}],
+    [
+      "plain HTTP even with a saved HTTP default",
+      "http://login.example/signin",
+      { siteDefaults: [{ origin: "http://login.example", connectionId, itemId }] },
+    ],
     [
       "an excluded site",
       "https://login.example/signin",
@@ -196,6 +208,48 @@ describe("production login document admission", () => {
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages).toEqual([]);
   });
+  it.each([
+    ["a subframe", { frameId: 1 }],
+    ["a sender without a document id", { documentId: undefined }],
+  ])("ignores %s on a saved-default origin", async (_name, overrides) => {
+    const h = harness();
+    expect(await h.hello(overrides)).toEqual({ ok: false, reason: "unauthorized-document" });
+    expect(h.store.handle).not.toHaveBeenCalled();
+    expect(fake.state.messages).toEqual([]);
+  });
+  it("never admits the loopback probe origin outside the probe build", async () => {
+    fake.state.storage["pateat.login-probe-origin.v1"] = "http://127.0.0.1:3847";
+    fake.state.pageUrl = "http://127.0.0.1:3847/signin";
+    const h = harness({ siteDefaults: [] });
+    expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
+    expect(h.recipes.recipe).not.toHaveBeenCalled();
+    expect(fake.state.messages).toEqual([]);
+  });
+  it("refuses a fill authorization once site access is withdrawn mid-attempt", async () => {
+    const h = harness();
+    const answers: unknown[] = [];
+    fake.state.onExecute = async (message) => {
+      const operation = message["operation"] as { attemptId: string; operationId: string };
+      const authorize = () =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.operation.authorize",
+            token: "synthetic-token",
+            attemptId: operation.attemptId,
+            operationId: operation.operationId,
+          },
+          sender(),
+        );
+      answers.push(await authorize());
+      fake.state.granted = false;
+      answers.push(await authorize());
+      fake.state.onExecute = undefined;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    expect(answers).toEqual([true, false]);
+  });
   it("respects site access the user withheld in Chrome", async () => {
     fake.state.granted = false;
     const h = harness();
@@ -206,6 +260,8 @@ describe("production login document admission", () => {
     fake.state.pageUrl = "https://login.example/elsewhere";
     const h = harness();
     expect(await h.hello()).toEqual({ ok: false, reason: "recipe-not-found" });
+    // The policy catalog (and with it every configured vault) is never opened.
+    expect(h.store.handle).not.toHaveBeenCalled();
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).toEqual(["login.status"]);
   });
