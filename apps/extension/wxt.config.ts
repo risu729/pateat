@@ -7,6 +7,7 @@ export default defineConfig({
     description: "Local login assistant — foundation preview. Login is not implemented.",
     minimum_chrome_version: "120",
     action: { default_title: "Open Pateat settings" },
+    permissions: ["storage"],
   },
   hooks: {
     "entrypoints:found"(wxt, entrypoints) {

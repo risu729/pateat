@@ -1,7 +1,7 @@
 # Proposed architecture
 
-Status: accepted reference design. The foundation implements only the extension
-shell, status contracts and health-only Worker. The capabilities below remain
+Status: accepted reference design. The foundation implements local metadata-only policy
+settings, status contracts and a health-only Worker. The capabilities below remain
 planned unless [the plan](plan.md) records their implementation and evidence.
 
 ## Product boundary

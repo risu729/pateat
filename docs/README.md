@@ -1,7 +1,8 @@
 # Documentation
 
-The repository contains an extension shell, shared contracts, a health-only
-Worker and CI/manual-delivery foundations. No vault connection, automatic login,
+The repository contains local policy settings backed by synthetic vault metadata,
+shared contracts, a health-only Worker and CI/manual-delivery foundations.
+No real vault connection, automatic login,
 inference or passkey execution is implemented. The service is not deployed.
 The initial design was adopted in [PR #1](https://github.com/risu729/pateat/pull/1).
 
