@@ -134,7 +134,7 @@ export function mutateNativeVault(page: Page, action: "abort" | "malformed" | "r
   return page.evaluate(
     async ({ connectionId, operation }) => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const opening = indexedDB.open("pateat.local-vault.v1", 1);
+        const opening = indexedDB.open("pateat.local-vault.v1");
         opening.onsuccess = () => resolve(opening.result);
         opening.onerror = () => reject(new Error("Synthetic database open failed"));
       });

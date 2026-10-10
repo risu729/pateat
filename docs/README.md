@@ -53,6 +53,7 @@ private page captures, or raw model requests.
 - [0005: Official OSS SDK for local Bitwarden cryptography](adr/0005-bitwarden-local-crypto.md)
 - [0006: Atomic local vault cache](adr/0006-atomic-local-vault-cache.md)
 - [0007: Existing passkey assertions](adr/0007-existing-passkey-assertions.md)
+- [0008: Durable provider sync sessions](adr/0008-durable-provider-sessions.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

@@ -52,6 +52,21 @@ function stateLabel(connection: Connection): string {
   }
 }
 
+function sessionLabel(connection: Connection): string {
+  switch (connection.providerSession) {
+    case "active":
+      return "Sync sign-in saved on this device";
+    case "refresh-required":
+      return "Sync sign-in saved · it renews on the next sync";
+    case "reauthentication-required":
+      return "Sign in again to sync";
+    case "none":
+      return "Not signed in for sync";
+    case "unavailable":
+      return "Sync sign-in unavailable · sign in again";
+  }
+}
+
 function FieldReview({
   item,
   disabled,
@@ -213,7 +228,12 @@ export function BitwardenSetup({
       setMessage(`Setup is incomplete: ${result.reason}. This interaction is not supported here.`);
     else if (result.kind === "cancelled") setMessage("Setup cancelled.");
     else if (result.kind === "status") setConnections(result.connections);
-    else if (result.kind === "disabled") {
+    else if (result.kind === "forgotten") {
+      setMessage(
+        "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.",
+      );
+      await readConnections(epoch);
+    } else if (result.kind === "disabled") {
       setMessage(
         "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.",
       );
@@ -319,8 +339,8 @@ export function BitwardenSetup({
       <h2 id="bitwarden-setup-heading">Bitwarden connections</h2>
       <p className="note">
         Connect manually to Bitwarden Cloud US/EU or an ordinary HTTPS self-hosted server. Master
-        passwords, verification codes and provider tokens are not saved. Connecting retains a local
-        unlock key and encrypted vault cache on this device. Automatic website login remains
+        passwords and verification codes are not saved. Connecting retains a local unlock key, an
+        encrypted vault cache and a sync sign-in on this device. Automatic website login remains
         unavailable.
       </p>
       <output
@@ -339,10 +359,8 @@ export function BitwardenSetup({
               <small>
                 {connection.email} · {stateLabel(connection)}
               </small>
-              <small>
-                Automatic unlock: {connection.autoUnlock}. Remote sync may require sign-in again
-                after the extension restarts.
-              </small>
+              <small>Automatic unlock: {connection.autoUnlock}.</small>
+              <small>{sessionLabel(connection)}.</small>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -393,6 +411,22 @@ export function BitwardenSetup({
                 }
               >
                 Disable automatic unlock
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || !!challenge || connection.providerSession === "none"}
+                aria-label={`${connection.label}: Forget sync sign-in`}
+                onClick={() =>
+                  start(async (epoch) => {
+                    await receive(
+                      await client.forgetProviderSession(connection.connectionId),
+                      epoch,
+                    );
+                  })
+                }
+              >
+                Forget sync sign-in
               </Button>
             </div>
           </li>

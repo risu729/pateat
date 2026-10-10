@@ -76,9 +76,12 @@ test("explicitly bound live vault fields complete a multi-page login, including 
         clickPosts: 1,
         allMatched: true,
       });
-      expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
-        attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 2 }],
-      });
+      // The page can show completion before the background records the attempt outcome.
+      await expect
+        .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({
+          attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 2 }],
+        });
 
       // The cache restores offline; persisted settings, binding and default still apply.
       const reopened = await open();

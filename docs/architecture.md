@@ -109,9 +109,10 @@ OTP values. Return bounded challenge categories and provider IDs, never raw
 challenge parameters, server descriptions or URLs. Code delivery and interactive
 providers need separate integration. Keep successful token and encrypted-account
 results local; they do not establish account ownership or unlock a vault by
-themselves. Preserve unknown encrypted format metadata
-for later crypto validation; successful HTTP parsing does not prove decryptability
-or authorize use of a newly fetched snapshot.
+themselves. Sync sessions persist apart from the vault record
+([ADR 0008](adr/0008-durable-provider-sessions.md)). Preserve unknown encrypted
+format metadata for later crypto validation; successful HTTP parsing does not prove
+decryptability or authorize use of a newly fetched snapshot.
 The server can filter sync data according to client version and device capability
 headers. Record the protocol profile and validate completeness in the later
 adapter before replacing a usable cache; an intact outer envelope alone is not
@@ -432,15 +433,15 @@ embedded under an unrelated top-level site is not automatically authorized.
 
 UV is not synonymous with biometrics. Owning a software key makes flag/signature
 construction possible, but setting UV/UP without the required ceremony is not
-standards-compliant verification. Do not spoof successful verification as the
-default design. Determine which requests can complete unattended and explicitly
-block or request a supported ceremony for the rest. Hardware-bound keys cannot
-be unlocked merely by changing flags. Conditional mediation and simultaneous
+standards-compliant verification. The owner nevertheless chose to set both flags on
+every claimed request; describe this as a deliberate deviation, never as verification,
+and keep the flags behind a policy a later per-site setting can change. Hardware-bound
+keys cannot be unlocked merely by changing flags. Conditional mediation and simultaneous
 official-Bitwarden interception require separate compatibility tests.
 
-The proposed bridge, admission rules, assertion format and activation-backed
-presence policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). None
-is implemented yet.
+The bridge, admission rules, assertion format and unattended presence and
+verification policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). The
+assertion core is implemented but not yet connected to pages or the vault.
 
 ## Minimal service
 
