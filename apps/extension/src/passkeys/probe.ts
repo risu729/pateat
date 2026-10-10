@@ -24,6 +24,7 @@ export const probeControlSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
     type: v.literal("passkey.probe.configure"),
+    /** Offers the localhost test-vector key; other origins always go to `other`. */
     enabled: v.optional(v.boolean()),
     counter: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(0xff_ff_ff_ff))),
     discoverable: v.optional(v.boolean()),
@@ -41,7 +42,8 @@ const hex = (value: string) =>
 /**
  * The probe build's source. `http://localhost` origins get the synthetic test-vector key; any
  * other origin the probe content scripts reach is answered by `other`, such as the vault source
- * over a synthetic Bitwarden account.
+ * over a synthetic Bitwarden account. `other` must not cancel vault work with the runtime's
+ * signal, since host cancellation retires the whole session; the vault source ignores it.
  */
 export function createProbePasskeySource<TOther extends PasskeyCandidate>(
   other?: PasskeySource<TOther>,
