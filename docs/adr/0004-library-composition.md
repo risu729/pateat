@@ -1,6 +1,6 @@
 # ADR 0004: Compose maintained libraries around explicit domain boundaries
 
-Status: proposal awaiting the owner's library-by-library choices; not accepted.
+Status: UI/form choices approved by the owner; remaining choices pending. PR unmerged.
 Date: 2026-10-10
 
 ## Context
@@ -17,17 +17,20 @@ concrete needs for established infrastructure.
 The owner rejected minimizing dependencies merely because development is early.
 Evaluate candidates by maintainability and the complexity they handle. The
 recommendations and integration conditions in [development](../development.md)
-await the owner's decisions. Research or a request to update the plan is not
-approval to adopt a candidate. Keep this proposal unaccepted until those choices
-are recorded; implementation PRs may introduce only approved choices.
+distinguish approved choices from pending candidates. Research or a request to
+update the plan is not approval to adopt a candidate. Implementation PRs may
+introduce only approved choices; approval of one does not approve the remainder.
 
-Recommend React/Tailwind/Base UI, selected shadcn/ui components, TanStack Form/Query,
-XState, WXT storage/messaging, tldts, OTPAuth, Hono/Drizzle and compatible AI SDK
-adapters for their specified responsibilities. Keep Valibot application contracts
-and the existing Vitest/Playwright test layers, supplemented with browser component,
-accessibility and property-based test candidates. All new choices remain pending.
-Native APIs remain appropriate primitives;
-they are not a reason to recreate useful higher-level infrastructure.
+The owner approved React, Tailwind + Base UI + selected shadcn/ui components,
+and TanStack Form + Valibot on 2026-10-10. Keep React in human-operated extension
+pages and preserve the settings operation contracts and draft/conflict behavior.
+
+Still recommend, pending decision: TanStack Query, XState, WXT storage/messaging, tldts,
+OTPAuth, Hono/Drizzle and compatible AI SDK adapters for their specified
+responsibilities. Keep Valibot application contracts and the existing Vitest/Playwright
+test layers, supplemented with browser component, accessibility and property-based test
+candidates. These additional choices remain pending. Native APIs remain appropriate
+primitives; they are not a reason to recreate useful higher-level infrastructure.
 
 Independent feature implementation means owning permission policy, vault protocol
 compatibility, login semantics, recovery and output validation. It does not mean
@@ -47,7 +50,7 @@ implied.
 Continuing native-only form/async/lifecycle code avoids migration but leaves us
 maintaining known infrastructure. React Hook Form is a credible Valibot-compatible
 alternative; TanStack Form offers native Standard Schema support and typed composition.
-Ask the owner to choose rather than using both. Base UI plus selected shadcn/ui source
+The owner chose TanStack Form. Base UI plus selected shadcn/ui source
 fits Tailwind and accessible settings controls, but copied components require our own
 maintenance. Redux/Zustand or another overlapping form/query layer is not needed without
 a distinct state ownership problem.

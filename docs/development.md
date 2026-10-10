@@ -96,17 +96,17 @@ and the maintenance work displaced. Popularity is supporting evidence, not a
 quality guarantee. Prereleases are allowed when their required APIs and upgrade
 costs are understood and the compatibility checks pass.
 
-The following are recommendations awaiting the owner's choices, not an adopted
-stack or permission to install packages. Compare alternatives and obtain the
-owner's decision for each major addition/replacement before updating the accepted
-plan or implementation. The current manifests and lockfile describe what is
-installed. WXT + TypeScript + Valibot remain confirmed choices; existing Vitest,
-Playwright and build tools remain in use.
+The owner approved React, Tailwind + Base UI + selected shadcn/ui components,
+and TanStack Form + Valibot on 2026-10-10. These are planned integrations, not
+installed packages. Other new recommendations below remain pending; obtain the
+owner's decision before adopting each major addition/replacement. The current
+manifests and lockfile describe what is installed. WXT + TypeScript + Valibot
+remain confirmed choices; existing Vitest, Playwright and build tools remain in use.
 
-| Area | Candidate recommendation, pending owner decision | Possible owning slice |
+| Area | Choice or candidate (new choices pending unless marked approved) | Owning slice |
 | --- | --- | --- |
-| Extension UI | React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with selected shadcn/ui components | M2 settings UI migration |
-| Form state | TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
+| Extension UI | **Approved:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with selected shadcn/ui components | M2 settings UI migration |
+| Form state | **Approved:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | XState with application-owned transitions and guards | M2 declarative executor |
 | Transport/storage | WXT storage and `@webext-core/messaging` around validated contracts | M2 transport and persistence integration |
@@ -120,15 +120,15 @@ Playwright and build tools remain in use.
 | Static checks | Existing Oxlint/Oxfmt and TypeScript; React/JSX accessibility rules and Knip | M2 React migration |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
-### Conditions if candidates are approved
+### Integration conditions (pending candidates remain conditional)
 
 React belongs in manually opened extension pages. Keep content scripts and the
 MV3 worker independent of UI rendering, and do not introduce automatic page UI.
 Base UI provides accessible primitives; shadcn/ui source becomes code we own and
 must review for updates. Compile Tailwind locally. Keyboard/focus tests remain
-necessary. TanStack Form is recommended for typed composition and native Standard
-Schema support; React Hook Form with its Valibot resolver is a maintained
-alternative. The owner has not selected either; compare them before adoption.
+necessary. The owner selected TanStack Form for typed composition and native
+Standard Schema support after considering React Hook Form with its Valibot resolver.
+Do not install a second form-state layer alongside it.
 
 Form drafts, Query caches and authoritative settings have different lifetimes.
 Keep dirty drafts separate from query refreshes, preserve revision conflicts,

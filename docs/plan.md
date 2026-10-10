@@ -68,10 +68,17 @@ M1; defer full signing to M5. Each milestone can be several focused PRs.
 ### Library decisions before implementation
 
 [ADR 0004](adr/0004-library-composition.md) and the
-[candidate comparison](development.md#dependency-policy) propose maintained
-libraries, not adopted dependencies. Ask the owner to decide each major addition
+[candidate comparison](development.md#dependency-policy) distinguish approved
+choices from pending recommendations. Ask the owner to decide each major addition
 or replacement after presenting its purpose, alternatives and tradeoffs. Do not
 infer adoption approval from a research or plan-update request.
+
+Approved M2 slice: migrate the settings page to React, Tailwind + Base UI with
+selected shadcn/ui components, and TanStack Form + Valibot. Pin compatible versions
+with WXT/Vite, verify MV3 CSP and emitted bundles, and retain draft preservation,
+revision conflicts, validation and keyboard/focus behavior. Keep UI dependencies
+out of the background worker and content scripts. Use the existing test stack;
+new test libraries and TanStack Query remain separate pending decisions.
 
 Potential integration points, subject to those decisions, are M2 settings UI,
 forms, async state, attempt lifecycle and verification; M3/M5 protocol libraries;
