@@ -316,7 +316,7 @@ Chrome yet.
   snapshot, and an item awaiting field review refuse as `vault-unavailable`. Static
   `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
   StartsWith rules cannot be expressed as exact origins, so do not derive them.
-  Synthetic unit tests cover this path; a native browser run waits for local recipes.
+  Synthetic unit tests cover this path; a native browser run waits for cached recipes.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. Bindings are explicit slot-to-field references;
@@ -325,10 +325,12 @@ Chrome yet.
   field read, or a replacement snapshot before delivery, blocks the attempt as
   `policy-changed` without filling. Production admits only top-level HTTPS documents
   whose exact origin has a saved, non-excluded site default and granted host access
-  ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a local recipe they
+  ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
   stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
   probe build grants its loopback origin to the probe item and supplies recipes and
-  bindings. Local recipe and binding storage and provider-derived origins remain open.
+  bindings. Recipes and account bindings come from the service cache
+  ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)); that lookup, name-based
+  custom-field bindings and provider-derived origins remain open.
 - A fill step refuses as `structural-mismatch` before writing anything unless all of its
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy
@@ -569,19 +571,23 @@ The [architecture](architecture.md) owns the product contracts. These boundaries
 order delivery; deferred capabilities remain product scope, without requiring
 their implementation in M1-M6.
 
-Initial delivery includes a human-operated extension settings page, multiple
-vault connections, connection/item/field/site policies, saved site account
-defaults, local cached-recipe execution, Bitwarden password/custom-field/TOTP
-use, and existing zero-counter software passkey assertions. The first server
-configuration uses Cloudflare Access, server-readable private settings sync and
-server-side AI. The local core must remain usable without the Pateat service.
+Initial delivery includes multiple vault connections, connection/item/field/site
+policies, saved site account defaults, cached-recipe execution, Bitwarden
+password/custom-field/TOTP use, and existing zero-counter software passkey
+assertions. The first server configuration uses Cloudflare Access, server-readable
+private settings sync and server-side AI. Per
+[ADR 0013](adr/0013-service-held-recipes-and-settings.md), the service is the
+source of truth for settings, recipes and account bindings, which are edited on its
+web UI; the extension keeps a last-known-good cache and only the pages that handle
+local secrets. Running without the service is later scope.
 
 Later work includes independently permitted vault create/update operations,
 nonzero passkey counter writeback and passkey creation; Bitwarden provider login
 with passkeys, API keys, SSO or device approval; external email/SMS OTP and magic
 links; and separately authorized post-login actions, including transactions and
-approvals. UI extensions, account switching, direct AI, additional service auth,
-E2EE settings sync and MCP are also deferred. They are extension points, not
+approvals. UI extensions, account switching, a mode without the service, direct AI,
+recipe sharing, additional service auth, E2EE settings sync and MCP are also
+deferred. They are extension points, not
 implicit permissions or initial acceptance requirements.
 
 ## Ordered milestones
@@ -592,7 +598,7 @@ implicit permissions or initial acceptance requirements.
 | M1: Tooling and runtime probes                | WXT skeleton, shared Valibot contracts, mise/hk, mandatory CI                                            | Frozen installation; full checks; packaged extension build; early injection/background execution in isolated Chromium and a small installed-Chrome/Chrome-use dummy-page coexistence probe; compatible cf/Workers test harness |
 | M2: Local login engine and settings           | Dummy vault adapter, settings page, multi-connection policies, saved site defaults, declarative executor | Multi-field/multi-page fixtures; policy precedence, excluded-site pass-through, background, navigation, interruption and concurrency tests; no automatic extension UI                                                          |
 | M3: Bitwarden passwords                       | First real adapter, local sync/crypto, persistent unlock, custom fields and TOTP                         | Synthetic protocol/crypto vectors; supported environment/authentication and TOTP cases below; restart/unlock; no vault writes; explicit unsupported cases; controlled account test only when authorized                        |
-| M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe sync, role-specific AI adapters, Clef/Jev evaluation | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; provider selection evidence |
+| M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe/binding sync and web UI, role-specific AI adapters, Clef/Jev evaluation | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; provider selection evidence |
 | M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, configured UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
 | M6: Integrated acceptance and server delivery | Chrome use coexistence, operational docs, hosted service release                                         | Installed Chrome dummy-account tests plus artifact-verified deployment and hosted synthetic smoke checks; measured limits documented                                                                                           |
 
@@ -689,6 +695,9 @@ support for every site or vault format. Keep observed limitations explicit.
   to set UP and UV on every claimed assertion without a gesture. A per-site
   setting over the existing policy shape is later work. Nonzero-counter
   synchronization is deferred.
+- Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
+  among several URI-matched items, how synced field exclusions move to
+  device-independent references, and where custom-field review happens.
 - Settle device enrollment/recovery, credential lifetime, AI pricing sources and
   the monthly monetary budget default before service deployment. Initial spending
   control aggregates usage and stops later inference after the limit is reached;
@@ -703,7 +712,7 @@ support for every site or vault format. Keep observed limitations explicit.
   measurements. Present results to the owner for provider/model selection; evaluation
   does not authorize adoption. There is no latency promise. Use only the configured
   provider/model for each role; its failure is an error, not an automatic fallback.
-  Existing local recipes continue after an AI/budget failure.
+  Cached recipes continue after an AI/budget failure.
 
 Before implementing deferred features, add their concrete slice and evidence to
 this plan: write capabilities need independent connection permissions and no
@@ -713,14 +722,14 @@ vault-unlock and PRF/RP/origin checks; external challenge adapters need explicit
 channel permissions. None requires a blanket prompt on every operation once a
 user has authorized its supported scope.
 
-Future page UI must avoid extension iframes, preserve accessible keyboard/focus
-behavior and recheck policy locally. HTTPS management UI and MCP must share the
-internal operation contracts. Before implementing MCP, verify that the target
-client can autonomously invoke allowed dummy operations after connection approval;
-MCP does not bypass client rules. One-time account overrides and automatic
-logout/re-login require shared-session/race tests. Direct AI requires trusted
-extension key storage and provider compatibility tests. Alternative service auth,
-E2EE sync and Vaultwarden require their own interoperability/recovery evidence.
+Future page UI must avoid extension iframes, preserve accessible keyboard/focus behavior
+and recheck policy locally. The service's HTTPS management UI and MCP must share the
+internal operation contracts. Before implementing MCP, verify that the target client can
+autonomously invoke allowed dummy operations after connection approval; MCP does not
+bypass client rules. One-time account overrides and automatic logout/re-login require
+shared-session/race tests. Direct AI requires trusted extension key storage and provider
+compatibility tests. Alternative service auth, E2EE sync and Vaultwarden require their
+own interoperability/recovery evidence.
 
 Extension publishing/CD, public recipe sharing and hosted browser installation
 are outside the current delivery plan. Extension build and automated tests remain

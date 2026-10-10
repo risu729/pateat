@@ -1,6 +1,9 @@
 # ADR 0003: Minimal Cloudflare recipe service with replaceable inference
 
-Status: accepted in PR #1; implementation follows the milestone plan.
+Status: accepted in PR #1; implementation follows the milestone plan. Amended by
+[ADR 0013](0013-service-held-recipes-and-settings.md): the service is required
+initially and is the source of truth; local-only use is later scope. AI input may
+include the names of fields allowed for automatic fill.
 Date: 2026-10-10
 
 Proposed 2026-10-10 amendment: the inference section incorporates the October 9 Clef

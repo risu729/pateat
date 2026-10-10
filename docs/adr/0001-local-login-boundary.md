@@ -1,6 +1,8 @@
 # ADR 0001: Local login execution with vault adapters
 
-Status: accepted in PR #1; implementation follows the milestone plan.
+Status: accepted in PR #1; implementation follows the milestone plan. Amended by
+[ADR 0013](0013-service-held-recipes-and-settings.md): the service is the source of
+truth for settings and recipes, and settings are edited on its web UI.
 Date: 2026-10-10
 
 ## Context

@@ -5,14 +5,15 @@ Auto Login for Chrome.
 A planned Chrome extension that completes configured login flows using the
 user's existing vault. Bitwarden is the first integration; the design is
 vault-neutral and covers passwords, custom fields, TOTP, and existing software
-passkeys. Human-operated settings, multiple vault connections and site/item/field
-controls are part of the initial design.
+passkeys. Multiple vault connections and site/item/field controls are part of the
+initial design.
 
 The extension executes locally, including in background tabs. AI helps identify
 form fields and repair reusable login recipes; vault values and signing keys
 remain local. WXT, TypeScript and Valibot are the chosen foundation. A minimal
-Cloudflare service is planned for private settings/recipe synchronization and
-inference. The local core and cached recipes work independently of that service.
+Cloudflare service holds settings and recipes, which are edited on its web UI, and
+provides inference. The extension keeps a cached copy, so login continues while the
+service is offline.
 
 Initial vault use is read-only. Later scope includes independently permitted
 vault writes, provider passkey login, external OTP/magic links and separately
