@@ -381,7 +381,7 @@ revocation.
 
 ## Passkey progress
 
-[ADR 0007](adr/0007-existing-passkey-assertions.md) proposes the M5 bridge and
+[ADR 0007](adr/0007-existing-passkey-assertions.md) records the M5 bridge and
 presence policy. The Bitwarden package maps one decrypted FIDO2 credential view
 per item into secret-free metadata: ECDSA P-256 public-key credentials, GUID or
 `b64.` credential IDs, canonical user handles, lowercase ASCII domain RP IDs

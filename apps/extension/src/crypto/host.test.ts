@@ -525,6 +525,8 @@ describe("fixed operations, session scope and reply fencing", () => {
     { kind: "list", data: [storedPasskey, storedPasskey] },
     { kind: "list", data: [{ ...storedPasskey, keyValue: "synthetic-key" }] },
     { kind: "sign", data: { ...passkeySignature, userId: crypto.randomUUID() } },
+    { kind: "sign", data: { ...passkeySignature, snapshotId: crypto.randomUUID() } },
+    { kind: "sign", data: { ...passkeySignature, itemId: crypto.randomUUID() } },
     { kind: "sign", data: { ...passkeySignature, credentialId: "AQID" } },
     { kind: "sign", data: { ...passkeySignature, signature: "MAYC" } },
     { kind: "sign", data: { ...passkeySignature, privateKey: "synthetic-key" } },

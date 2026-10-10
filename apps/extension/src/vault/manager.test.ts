@@ -665,6 +665,10 @@ describe("durable authority across independent managers", () => {
     });
     expect(h.host.signPasskey.mock.calls[0]?.[0].snapshotId).toBe(current.handle.snapshotId);
     expect(h.host.signPasskey.mock.calls[0]?.[1]).toEqual(input);
+    expect(
+      await h.manager.signPasskey(current.handle, undefined as unknown as typeof input),
+    ).toEqual(vaultFailure("invalid-request"));
+    expect(h.host.signPasskey).toHaveBeenCalledTimes(1);
     const held = gate();
     h.host.signPasskey.mockImplementationOnce(async (session, signed) => {
       await held.promise;

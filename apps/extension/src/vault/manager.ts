@@ -576,6 +576,7 @@ export function createLocalVaultManager(options: {
       } catch {
         return vaultFailure("invalid-request");
       }
+      if (typeof input !== "object" || input === null) return vaultFailure("invalid-request");
       if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
       const owner = live;
       const before = await checkDurable(owner);

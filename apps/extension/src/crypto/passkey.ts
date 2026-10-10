@@ -32,7 +32,9 @@ export interface PasskeySignature extends PasskeyBinding {
   readonly signature: string;
 }
 
-const failure = (code: "invalid-request" | "stale-field-reference" | "unsupported-crypto") => ({
+const failure = (
+  code: "field-missing" | "invalid-request" | "stale-field-reference" | "unsupported-crypto",
+) => ({
   ok: false as const,
   error: { code },
 });
@@ -40,9 +42,34 @@ const failure = (code: "invalid-request" | "stale-field-reference" | "unsupporte
 const ALLOWED_FLAGS = 0x01 | 0x04 | 0x08 | 0x10;
 const REQUIRED_FLAGS = 0x01 | 0x08 | 0x10;
 
+/** The Worker's received snapshot, as far as passkey item selection needs it. */
+export interface PasskeyItemSource {
+  readonly verified: boolean;
+  /** Encrypted ciphers keyed by lowercase item ID. */
+  readonly ciphers: ReadonlyMap<string, unknown>;
+  /** Live (not deleted or archived) login items keyed by SDK item ID, which is lowercase. */
+  readonly loginUris: ReadonlyMap<string, unknown>;
+}
+
+/**
+ * Select one verified, live login item: the same set URL matching considers. Deleted, archived
+ * and non-login items, and every item before verification, have no passkey operations.
+ */
+export function selectPasskeyItem(
+  source: PasskeyItemSource,
+  itemId: string,
+): BitwardenResult<{ readonly itemId: string; readonly cipher: unknown }> {
+  if (!source.verified) return failure("invalid-request");
+  const id = itemId.toLowerCase();
+  const cipher = source.ciphers.get(id);
+  if (cipher === undefined || !source.loginUris.has(id)) return failure("field-missing");
+  return { ok: true, data: { itemId: id, cipher } };
+}
+
 /**
  * The host retires a session on `crypto-failed`, so one unreadable passkey must not lock the
- * vault. Only a genuinely locked session keeps its retiring code.
+ * vault. Only a genuinely locked session keeps its retiring code. An SDK fault in these calls is
+ * therefore reported per item; the next non-passkey operation that fails still retires it.
  */
 function perItem<T>(result: BitwardenResult<T>): BitwardenResult<T> {
   if (result.ok || result.error.code === "crypto-locked") return result;

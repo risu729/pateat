@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLocalCryptoSession, type LocalCryptoSession } from "@pateat/bitwarden";
-import { listStoredPasskeys, signStoredPasskey, type PasskeySignRequest } from "./passkey";
+import {
+  listStoredPasskeys,
+  selectPasskeyItem,
+  signStoredPasskey,
+  type PasskeySignRequest,
+} from "./passkey";
 import {
   fidoCredential,
   fidoPrivateKey,
@@ -121,6 +126,40 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("passkey item selection", () => {
+  const source = (overrides: { verified?: boolean; live?: boolean } = {}) => ({
+    verified: overrides.verified ?? true,
+    ciphers: new Map([[itemId, "encrypted-cipher"]]),
+    loginUris: new Map(overrides.live === false ? [] : [[itemId, []]]),
+  });
+
+  it("selects a verified live login item by case-insensitive item ID", () => {
+    for (const id of [itemId, itemId.toUpperCase()])
+      expect(selectPasskeyItem(source(), id)).toEqual({
+        ok: true,
+        data: { itemId, cipher: "encrypted-cipher" },
+      });
+  });
+
+  it("refuses items before verification", () => {
+    expect(selectPasskeyItem(source({ verified: false }), itemId)).toEqual({
+      ok: false,
+      error: { code: "invalid-request" },
+    });
+  });
+
+  it("refuses deleted, archived, non-login and unknown items", () => {
+    expect(selectPasskeyItem(source({ live: false }), itemId)).toEqual({
+      ok: false,
+      error: { code: "field-missing" },
+    });
+    expect(selectPasskeyItem(source(), crypto.randomUUID())).toEqual({
+      ok: false,
+      error: { code: "field-missing" },
+    });
+  });
+});
+
 describe("stored passkey listing", () => {
   it("returns bound, secret-free metadata for the item's credential", async () => {
     const listed = await listStoredPasskeys(await session(), binding, itemId, cipher());
@@ -194,7 +233,8 @@ describe("stored passkey signing", () => {
     ["BS clear", async () => ({ authenticatorData: toBase64Url(await authenticatorData(0x0d)) })],
     ["AT set", async () => ({ authenticatorData: toBase64Url(await authenticatorData(0x5d)) })],
     ["ED set", async () => ({ authenticatorData: toBase64Url(await authenticatorData(0x9d)) })],
-    ["RFU set", async () => ({ authenticatorData: toBase64Url(await authenticatorData(0x1f)) })],
+    ["RFU1 set", async () => ({ authenticatorData: toBase64Url(await authenticatorData(0x1f)) })],
+    ["RFU2 set", async () => ({ authenticatorData: toBase64Url(await authenticatorData(0x3d)) })],
     [
       "nonzero counter",
       async () => ({ authenticatorData: toBase64Url(await authenticatorData(0x1d, rpId, 1)) }),

@@ -14,7 +14,7 @@ import {
   localVaultMetadataSchema,
 } from "@pateat/bitwarden";
 import { loadBrowserCryptoSdk } from "@pateat/bitwarden/browser-sdk";
-import { listStoredPasskeys, signStoredPasskey } from "./passkey";
+import { listStoredPasskeys, selectPasskeyItem, signStoredPasskey } from "./passkey";
 import { commandSchema, type HostCommand, type HostSessionRef, type UriCandidates } from "./wire";
 
 // Native SDK panic/log output can contain decrypted input. The host emits only typed results.
@@ -257,18 +257,16 @@ async function execute(command: HostCommand) {
     return { ok: true as const, data: result };
   }
   if (op.kind === "passkey-candidates" || op.kind === "passkey-sign") {
-    if (!owned.verified) return fail("invalid-request");
-    // Only verified, live login items: the same set URL matching considers.
-    const cipher = owned.ciphers.get(op.itemId.toLowerCase());
-    if (!cipher || !owned.loginUris.has(op.itemId)) return fail("field-missing");
+    const item = selectPasskeyItem(owned, op.itemId);
+    if (!item.ok) return item;
     const binding = {
       connectionId: owned.ref.connectionId,
       userId: owned.ref.userId,
       snapshotId: owned.ref.snapshotId,
     };
     if (op.kind === "passkey-candidates")
-      return listStoredPasskeys(owned.session, binding, op.itemId, cipher);
-    return signStoredPasskey(owned.session, binding, op.itemId, cipher, op);
+      return listStoredPasskeys(owned.session, binding, item.data.itemId, item.data.cipher);
+    return signStoredPasskey(owned.session, binding, item.data.itemId, item.data.cipher, op);
   }
   if (op.kind !== "resolve" && !("itemId" in op)) return fail("invalid-request");
   const itemId = (op.kind === "resolve" ? op.ref.itemId : op.itemId).toLowerCase();
