@@ -450,6 +450,21 @@ installed-Chrome acceptance procedure. Page script can detect the wrapper (an ow
 property with a different `length` and source text), which real-site testing must
 evaluate.
 
+Evidence, 2026-10-10, synthetic relying party only:
+
+- At main `2716b96`, the probe build passed steps 3 to 6 of that procedure in cloud
+  Chromium 141.0.7390.37 with no other extension, loaded unpacked in a Playwright
+  persistent context with `--headless=new`. Both buttons and the page-load request
+  reported `Pateat, flags 0x1d, signature verified`; `/denied` reported
+  `error NotAllowedError`.
+- In the owner's Chrome 154.0.8037.98 with the official Bitwarden extension 2026.6.1,
+  the request without a UV requirement reported a verified Pateat assertion, but the
+  UV-required and page-load requests reported `error Error`. Bitwarden's page script
+  had replaced `navigator.credentials.get` outside Pateat's wrapper. For the
+  UV-required request it showed its "No passkeys found" window and, when that closed,
+  rejected instead of falling back. Coexistence with that extension is unresolved
+  pending an owner decision.
+
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
