@@ -31,16 +31,22 @@ const schema = v.variant("action", [
     action: v.literal("arm"),
     checkpoint: v.picklist(["before-dispatch", "after-result"]),
   }),
+  v.strictObject({
+    type: v.literal("crypto.probe"),
+    action: v.literal("release-and-arm"),
+    checkpoint: v.literal("after-dispatch"),
+  }),
 ]);
+type Checkpoint = "before-dispatch" | "after-dispatch" | "after-result";
 /** Only probe code supplies these bounded barriers; they carry no secret data. */
 export function createCryptoProbeControls() {
-  let stage: "before-dispatch" | "after-result" | undefined;
+  let stage: Checkpoint | undefined;
   let reached = false;
   let release: (() => void) | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let budget = 30_000;
   return {
-    checkpoint(checkpoint: "before-dispatch" | "after-result") {
+    checkpoint(checkpoint: Checkpoint) {
       if (stage !== checkpoint) return Promise.resolve();
       reached = true;
       return new Promise<void>((resolve) => {
@@ -53,7 +59,7 @@ export function createCryptoProbeControls() {
         }, 30_000);
       });
     },
-    arm(checkpoint: "before-dispatch" | "after-result") {
+    arm(checkpoint: Checkpoint) {
       if (stage) return false;
       stage = checkpoint;
       reached = false;
@@ -66,6 +72,11 @@ export function createCryptoProbeControls() {
       const previous = release;
       release = undefined;
       previous?.();
+    },
+    /** Arms the next barrier before the released probe step can run past it. */
+    releaseAndArm(checkpoint: Checkpoint) {
+      this.release();
+      stage = checkpoint;
     },
     status() {
       return { checkpoint: stage ?? null, reached };
@@ -184,6 +195,10 @@ export function createCryptoProbe(
         controls.release();
         return { ok: true, data: { released: true } };
       }
+      if (action === "release-and-arm") {
+        controls.releaseAndArm(parsed.output.checkpoint);
+        return { ok: true, data: { released: true } };
+      }
       if (action === "vectors") return { ok: true, data: await vectors() };
       if (action === "cancel-result") {
         const opened = await open(rawV1Account(), "synthetic-host-result");
@@ -270,6 +285,9 @@ export function createCryptoProbe(
           // eslint-disable-next-line no-await-in-loop
           await new Promise((resolve) => setTimeout(resolve, 5));
         }
+        // A Worker terminated before it starts never becomes a browser target.
+        // Browser proof may hold here until it has observed the running Worker.
+        await controls.checkpoint("after-dispatch");
         abort.abort();
       }
       const result = await pending;
