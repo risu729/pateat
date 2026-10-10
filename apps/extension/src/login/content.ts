@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import type { LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
+import { acceptsSecret } from "./inputs";
 import { commandSchema, reconnectSchema } from "./wire";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
@@ -28,26 +29,6 @@ function writable(element: Element | undefined): element is HTMLInputElement {
     !element.readOnly &&
     !["hidden", "file", "submit", "button", "checkbox", "radio"].includes(element.type)
   );
-}
-
-function tokens(input: HTMLInputElement): string[] {
-  return input.autocomplete.toLowerCase().split(/\s+/u);
-}
-/**
- * Secret values go only where a login form expects them, so a recipe cannot place a
- * password in a search box or comment field. A TOTP code may also use a short numeric field.
- */
-function accepts(input: HTMLInputElement, secret: "password" | "otp" | undefined): boolean {
-  if (secret === "password")
-    return input.type === "password" || tokens(input).includes("current-password");
-  if (secret === "otp")
-    return (
-      tokens(input).includes("one-time-code") ||
-      ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
-        input.maxLength >= 1 &&
-        input.maxLength <= 10)
-    );
-  return true;
 }
 
 export interface LoginContentOptions {
@@ -157,7 +138,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           writableInputs.some((input) => input.form !== form) ||
           step.fields.some(
             (field, index) =>
-              !accepts(
+              !acceptsSecret(
                 writableInputs[index]!,
                 command.values.find((entry) => entry.slot === field.slot)!.secret,
               ),
@@ -178,7 +159,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             current[0] !== input ||
             !writable(input) ||
             input.form !== form ||
-            !accepts(input, value.secret)
+            !acceptsSecret(input, value.secret)
           )
             return fail("cancelled");
           // Mark uncertainty before calling into DOM/page code, including a throwing setter.

@@ -2,6 +2,9 @@ import * as v from "valibot";
 import { loginOperationSchema, loginTargetSchema } from "@pateat/contracts";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
+/** Which inputs a secret value may fill; see `acceptsSecret` in `inputs.ts`. */
+export const loginSecretKinds = ["password", "otp", "hidden"] as const;
+export type LoginSecretKind = (typeof loginSecretKinds)[number];
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
@@ -37,7 +40,7 @@ export const commandSchema = v.variant("type", [
           slot: id,
           value: v.pipe(v.string(), v.maxLength(4096)),
           /** Secret values fill only matching inputs; other values fill any writable input. */
-          secret: v.optional(v.picklist(["password", "otp"])),
+          secret: v.optional(v.picklist(loginSecretKinds)),
         }),
       ),
       v.maxLength(20),

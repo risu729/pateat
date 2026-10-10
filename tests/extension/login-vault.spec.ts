@@ -98,6 +98,32 @@ test("explicitly bound live vault fields complete a multi-page login, including 
   }
 });
 
+test("a Hidden vault field refuses a plain text input before any fill", async () => {
+  const fixture = await startLoginFixture(0, { password: vaultPassword });
+  try {
+    await withVaultProfile(async (open) => {
+      const browser = await open();
+      await setupProbe(browser.page, { action: "configure", variant: "unchanged" });
+      const options = await browser.context.newPage();
+      await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
+      await connectAndBind(options, fixture.origin);
+      const runId = fixture.createRun();
+      const page = await browser.context.newPage();
+      await page.goto(`${fixture.origin}/identity?account-input=text&runId=${runId}`);
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain("structural-mismatch");
+      await expect(page.locator("#branch")).toHaveValue("");
+      await expect(page.locator("#account")).toHaveValue("");
+      expect(fixture.evidence(runId).posts).toBe(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("a saved live field exclusion refuses the attempt before any page observation or fill", async () => {
   const fixture = await startLoginFixture(0, { password: vaultPassword });
   try {

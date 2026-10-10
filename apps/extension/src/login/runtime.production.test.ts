@@ -136,7 +136,11 @@ function harness(
     uris?: LiveUriMatcher;
     quarantined?: boolean;
     /** Replaces the item's custom fields. */
-    custom?: { name: string | null; kind: "text" | "hidden" }[];
+    custom?: {
+      name: string | null;
+      kind: "text" | "hidden" | "linked";
+      linkedFieldId?: string;
+    }[];
   } = {},
 ) {
   const current = { current: snapshotId, userId: userId as string | undefined };
@@ -656,6 +660,31 @@ describe("production login document admission", () => {
         "login.password",
       ]);
       expect(h.store.update).not.toHaveBeenCalled();
+    });
+    it.each<[string, "text" | "hidden" | "linked", Record<string, string>]>([
+      ["text", "text", {}],
+      ["Hidden", "hidden", { secret: "hidden" }],
+      ["Linked to the password", "linked", { secret: "password" }],
+    ])("marks a %s custom field's value for its input rule", async (_name, kind, secret) => {
+      const h = harness(
+        { bindings: [branchBinding] },
+        {
+          custom: [
+            {
+              name: "Branch",
+              kind,
+              ...(kind === "linked" ? { linkedFieldId: "login.password" } : {}),
+            },
+          ],
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(branchRecipe);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).not.toEqual([]));
+      expect(executes()[0]!.values).toEqual([
+        { slot: "branch", value: "synthetic-secret", ...secret },
+        { slot: "password", value: "synthetic-secret", secret: "password" },
+      ]);
     });
     it.each<[string, Parameters<typeof harness>[1], Partial<LocalSettings>, string]>([
       [
