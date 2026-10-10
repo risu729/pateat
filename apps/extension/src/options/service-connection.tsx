@@ -125,14 +125,14 @@ export function ServiceConnection({
   }, [client, pairing, pollMs]);
 
   return (
-    <section className="panel" aria-labelledby="service-heading">
-      <h2 id="service-heading">Sync service</h2>
+    <section className="panel" aria-labelledby="sync-service-heading">
+      <h2 id="sync-service-heading">Sync service</h2>
       <p className="note">
         Optional. Pair this device with your own Pateat service to sync settings and recipes later.
         Pairing never sends vault values, passwords or keys.
       </p>
       <output
-        id="service-status"
+        id="sync-service-status"
         className="settings-status block"
         aria-live="polite"
         aria-atomic="true"
@@ -142,7 +142,7 @@ export function ServiceConnection({
       {corrupt && (
         <div>
           <Button
-            id="service-forget"
+            id="sync-service-forget"
             type="button"
             variant="outline"
             disabled={busy}
@@ -187,7 +187,7 @@ export function ServiceConnection({
           <label>
             Service address
             <input
-              id="service-address"
+              id="sync-service-address"
               type="url"
               inputMode="url"
               autoComplete="off"
@@ -195,14 +195,14 @@ export function ServiceConnection({
               placeholder="https://pateat.example.com"
               value={address}
               aria-invalid={addressError ? true : undefined}
-              aria-describedby={addressError ? "service-error" : undefined}
+              aria-describedby={addressError ? "sync-service-error" : undefined}
               onChange={(event) => setAddress(event.target.value)}
             />
           </label>
           <label>
             Device name
             <input
-              id="service-label"
+              id="sync-service-label"
               maxLength={64}
               autoComplete="off"
               value={label}
@@ -210,12 +210,12 @@ export function ServiceConnection({
             />
           </label>
           {addressError && (
-            <p id="service-error" className="validation-error" role="alert">
+            <p id="sync-service-error" className="validation-error" role="alert">
               {addressError}
             </p>
           )}
           <div>
-            <Button id="service-pair" type="submit" disabled={busy}>
+            <Button id="sync-service-pair" type="submit" disabled={busy}>
               Pair this device
             </Button>
           </div>
@@ -227,7 +227,7 @@ export function ServiceConnection({
             Pairing <strong>{state.label}</strong> with {state.origin}. Open the approval page, sign
             in, and type this code:
           </p>
-          <p id="service-code" className="text-2xl font-semibold tracking-widest">
+          <p id="sync-service-code" className="text-2xl font-semibold tracking-widest">
             {state.code}
           </p>
           <p className="note">
@@ -236,7 +236,7 @@ export function ServiceConnection({
           </p>
           <div className="flex flex-wrap gap-2">
             <Button
-              id="service-open"
+              id="sync-service-open"
               type="button"
               disabled={busy}
               onClick={() => void act(() => client.openApproval(state.enrollUrl))}
@@ -244,7 +244,7 @@ export function ServiceConnection({
               Open approval page
             </Button>
             <Button
-              id="service-cancel"
+              id="sync-service-cancel"
               type="button"
               variant="outline"
               disabled={busy}
@@ -264,7 +264,7 @@ export function ServiceConnection({
           </p>
           <div>
             <Button
-              id="service-disconnect"
+              id="sync-service-disconnect"
               type="button"
               variant="outline"
               disabled={busy}
