@@ -224,6 +224,8 @@ function withItemOrigin(
   if (item && !item.allowedOrigins.includes(origin)) item.allowedOrigins.push(origin);
   return granted;
 }
+/** Internal: admit again, because an account choice was saved while admitting (ADR 0022). */
+const CHOICE_SAVED = "choice-saved";
 const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);
 
@@ -490,9 +492,9 @@ export function createLoginRuntime(
   const pending = new Map<number, PendingChoice>();
   /** By `recordKey`: tabs that logged out of an origin and have not picked an account yet. */
   const logouts = new Set<string>();
-  /** Ids of authenticated logins whose account choice is being saved. */
-  const remembering = new Set<string>();
-  /** Counts saved account choices, each of which bumps the policy revision. */
+  /** Account choices being saved; each bumps the policy revision (ADR 0022). */
+  const savingChoices = new Set<Promise<void>>();
+  /** Counts account choices saved or attempted, so a new login sees a bump it missed. */
   let remembered = 0;
   // Toolbar and session storage failures only lose the badge or a pick; never a login.
   const quietly = (work: () => Promise<unknown>) =>
@@ -883,17 +885,9 @@ export function createLoginRuntime(
       storageHealthy = false;
       throw new Error("Synthetic intent write failed");
     }
-    // Saving the choice bumps the policy revision, which would stop a login another tab
-    // starts meanwhile; such a start waits until it is saved (see `ready`).
-    const saving = run.metadata.state === "authenticated" && run.choice !== undefined;
-    if (saving) remembering.add(run.metadata.id);
-    try {
-      await save(run);
-      await publish(run.live, run.metadata);
-      if (saving) await remember(run);
-    } finally {
-      remembering.delete(run.metadata.id);
-    }
+    await save(run);
+    await publish(run.live, run.metadata);
+    if (run.metadata.state === "authenticated" && run.choice) await remember(run);
   }
   async function withdrawSwitch(run: Execution): Promise<void> {
     const tabId = run.live.document.tabId;
@@ -926,17 +920,27 @@ export function createLoginRuntime(
       [...attempts.values()].some((other) => other !== run && inProgress(other))
     )
       return;
-    // Writing bumps the policy revision for every attempt, so skip a choice already saved.
-    const latest = await settings.handle({ version: 1, type: "settings.get" });
-    if (!latest.ok || withChoice(latest.snapshot.settings, choice) === latest.snapshot.settings)
-      return;
-    await settings
-      .update(run.metadata.policyRevision, (snapshot) => ({
-        ...snapshot,
-        settings: withChoice(snapshot.settings, choice),
-      }))
-      .catch(() => undefined);
-    remembered += 1;
+    // A login another tab is admitting waits for this save, which no in-progress check above
+    // can see yet (see `admit`).
+    let finish!: () => void;
+    const saving = new Promise<void>((resolve) => (finish = resolve));
+    savingChoices.add(saving);
+    try {
+      // Writing bumps the policy revision for every attempt, so skip a choice already saved.
+      const latest = await settings.handle({ version: 1, type: "settings.get" });
+      if (!latest.ok || withChoice(latest.snapshot.settings, choice) === latest.snapshot.settings)
+        return;
+      await settings
+        .update(run.metadata.policyRevision, (snapshot) => ({
+          ...snapshot,
+          settings: withChoice(snapshot.settings, choice),
+        }))
+        .catch(() => undefined);
+    } finally {
+      remembered += 1;
+      savingChoices.delete(saving);
+      finish();
+    }
   }
   async function send(live: LiveDocument, message: Record<string, unknown>): Promise<unknown> {
     return browser.tabs.sendMessage(
@@ -2246,10 +2250,35 @@ export function createLoginRuntime(
     // once a later one from the same frame arrives (ADR 0025).
     const leave = await options.vault?.enter(start !== undefined);
     try {
-      return await admit(sender, token, helloKey, sequence, start, signIn);
+      return await admitFresh(sender, token, helloKey, sequence, start, signIn);
     } finally {
       leave?.();
     }
+  }
+  /**
+   * A new login is admitted again with fresh settings when another login's account choice
+   * was saved meanwhile.
+   */
+  async function admitFresh(
+    sender: Sender,
+    token: string,
+    helloKey: string,
+    sequence: number,
+    start?: { path: string },
+    signIn?: { path: string },
+    tries = 0,
+  ): Promise<Readiness> {
+    const result = await admit(sender, token, helloKey, sequence, start, signIn);
+    if (result.reason !== CHOICE_SAVED) return result;
+    return tries < 2
+      ? admitFresh(sender, token, helloKey, sequence, start, signIn, tries + 1)
+      : { ok: false, reason: "stale-document" };
+  }
+  /** Resolves once no account choice is being saved. */
+  async function choicesSaved(): Promise<void> {
+    if (!savingChoices.size) return;
+    await Promise.all(savingChoices);
+    return choicesSaved();
   }
   async function admit(
     sender: Sender,
@@ -2519,7 +2548,7 @@ export function createLoginRuntime(
       (previous && previous.recipeId !== recipe.id)
     )
       return refuse("recipe-not-found");
-    const choicesSaved = remembered;
+    const savedBefore = remembered;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return refuse(snapshot.error.code);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
@@ -2595,10 +2624,17 @@ export function createLoginRuntime(
       showHeld(document.tabId);
       return refuse("origin-busy");
     }
-    // Another login's account choice, saved since this snapshot was read or being saved now,
-    // bumps the revision this login would be checked against; the document announces again.
-    if (remembering.size || remembered !== choicesSaved)
-      return { ok: false, reason: "stale-document" };
+    if (!previous) {
+      // Another login's account choice, being saved now or saved since this snapshot was read,
+      // bumps the revision this new login would be checked against: it is admitted again.
+      await choicesSaved();
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (remembered !== savedBefore) return { ok: false, reason: CHOICE_SAVED };
+      if (heldElsewhere(document.tabId, document.origin)) {
+        showHeld(document.tabId);
+        return refuse("origin-busy");
+      }
+    }
     if (!previous && persisted.size >= 100) return refuse("attempt-limit");
     // Another document of the tab, such as a frame, may have started an attempt while this
     // one was checked, and the tab runs one attempt at a time. Nothing below awaits until

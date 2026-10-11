@@ -1467,15 +1467,20 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
       fake.state.tabUrls[2] = fake.state.pageUrl;
-      // The document announces again, as the content script does after `stale-document`.
-      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
-        ok: false,
-        reason: "stale-document",
-      });
+      // The other tab waits for the save, then is admitted again with the new revision.
+      const other = h.hello({ tab: { id: 2 }, documentId: "other-tab" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(executes()).toHaveLength(2);
       release();
-      await vi.waitFor(() => expect(h.settings.settings.siteDefaults).toHaveLength(1));
-      // Once saved, the other tab's form shows a session that has ended, and it logs in.
-      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+      expect(await other).toEqual({ ok: true });
+      expect(h.settings.settings.siteDefaults).toHaveLength(1);
+      // Checked against the saved revision, it is not stopped as a policy change.
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v2"]).toMatchObject([
+          { state: "authenticated", document: { tabId: 1 } },
+          { state: "authenticated", document: { tabId: 2 } },
+        ]),
+      );
       await vi.waitFor(() => expect(executes()).toHaveLength(4));
     });
     it("logs in with the only URI-matched item and saves the choice after authenticated", async () => {

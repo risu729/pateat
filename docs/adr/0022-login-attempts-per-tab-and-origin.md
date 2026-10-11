@@ -62,14 +62,14 @@ fix them now; the SSO policy itself is recorded separately.
   showing in a new tab means the site's session has ended, as when the first tab is
   closed. The tab then logs in as a new tab would, with the saved default or by asking
   when several items match. While an automatic account choice is being saved, or if one
-  was saved after the tab read its settings, the tab announces again instead of
-  starting, because the save bumps the policy revision the new login would be checked
-  against. A record in any other state keeps holding, for example one that is running,
-  still reconciling, settled as unknown, ended `interrupted` after a submission, or
-  ended `credential-rejected`, `wrong-account`, `left-origin` or `account-switched`, so
-  a password is not submitted again while a first submission may still be in flight or
-  was refused. A refused tab's tooltip says that another tab's login holds the site, and
-  is reset when the tab logs in
+  was saved after the tab read its settings, the new login waits for the save and is
+  checked again with the new settings, because the save bumps the policy revision it
+  would otherwise be stopped by. A record in any other state keeps holding, for example
+  one that is running, still reconciling, settled as unknown, ended `interrupted` after
+  a submission, or ended `credential-rejected`, `wrong-account`, `left-origin` or
+  `account-switched`, so a password is not submitted again while a first submission may
+  still be in flight or was refused. A refused tab's tooltip says that another tab's
+  login holds the site, and is reset when the tab logs in
   ([Background execution](../architecture.md#background-execution)).
 - **Generation offers.** ADR 0016's "a page is not offered while its tab holds an
   attempt record" now means a record for the page's own origin.
