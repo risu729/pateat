@@ -68,6 +68,8 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/api/devices", methodNotAllowed("GET"))
   .all("/manage/api/settings", methodNotAllowed("GET, PUT"))
   .all("/manage/api/devices/:deviceId/revoke", methodNotAllowed("POST"))
+  .all("/manage/api/recipes", methodNotAllowed("GET"))
+  .all("/manage/api/recipes/:recipeId/revoke", methodNotAllowed("POST"))
   .get("/manage/assets/*", requireAccess, appAsset)
   // Each page the app renders; any other path under /manage is not found.
   .get("/manage", requireAccess, appPage)
@@ -80,6 +82,8 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/sites", methodNotAllowed("GET"))
   .get("/manage/bindings", requireAccess, appPage)
   .all("/manage/bindings", methodNotAllowed("GET"))
+  .get("/manage/recipes", requireAccess, appPage)
+  .all("/manage/recipes", methodNotAllowed("GET"))
   // Redemption is the only anonymous write; it is rate limited and body-bounded.
   .use(
     "/redeem",

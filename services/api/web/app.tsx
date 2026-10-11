@@ -1,6 +1,7 @@
 import type { ManageClient } from "./api";
 import { BindingsPage } from "./bindings";
 import { DevicesPage } from "./devices";
+import { RecipesPage } from "./recipes";
 import { SitesPage } from "./sites";
 
 const revision = PATEAT_BUILD_REVISION;
@@ -14,6 +15,7 @@ const PAGES = [
   { path: "/manage", title: "Devices", Page: DevicesPage },
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
   { path: "/manage/bindings", title: "Account bindings", Page: BindingsPage },
+  { path: "/manage/recipes", title: "Recipes", Page: RecipesPage },
 ] as const;
 
 export function ManageApp({ client, path }: { client: ManageClient; path: string }) {

@@ -1,18 +1,12 @@
-import {
-  SYNC_PAGE_LIMIT,
-  syncRecipeChangeSchema,
-  syncRecipeIdSchema,
-  syncRecipeWriteSchema,
-  type SyncRecipeChange,
-} from "@pateat/contracts";
-import { and, asc, eq, gt, sql, type SQL } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
+import { SYNC_PAGE_LIMIT, syncRecipeIdSchema, syncRecipeWriteSchema } from "@pateat/contracts";
+import { asc, gt } from "drizzle-orm";
 import { Hono } from "hono";
 import { validator } from "hono/validator";
 import * as v from "valibot";
-import type { ApiEnv, DeviceScope } from "../auth";
-import { recipeHeads, recipeRevisions } from "../db/schema";
+import type { ApiEnv } from "../auth";
+import { recipeHeads } from "../db/schema";
 import { apiError } from "../http";
+import { selectHeads, toChange, writeRecipe } from "../recipe-store";
 import { jsonBody, requireJsonBody } from "../validation";
 
 const changesQuerySchema = v.strictObject({
@@ -31,52 +25,6 @@ const changesQuerySchema = v.strictObject({
   ),
 });
 
-type HeadRow = {
-  recipeId: string;
-  revision: number;
-  state: "active" | "revoked";
-  sequence: number;
-  document: unknown;
-};
-
-/** Every head read is owner-scoped here; callers can only narrow it further. */
-function selectHeads(db: D1Database, scope: DeviceScope, ...conditions: SQL[]) {
-  return drizzle(db)
-    .select({
-      recipeId: recipeHeads.recipeId,
-      revision: recipeHeads.revision,
-      state: recipeHeads.state,
-      sequence: recipeHeads.sequence,
-      document: recipeRevisions.document,
-    })
-    .from(recipeHeads)
-    .innerJoin(
-      recipeRevisions,
-      and(
-        eq(recipeRevisions.ownerId, recipeHeads.ownerId),
-        eq(recipeRevisions.recipeId, recipeHeads.recipeId),
-        eq(recipeRevisions.revision, recipeHeads.revision),
-      ),
-    )
-    .where(and(eq(recipeHeads.ownerId, scope.ownerId), ...conditions))
-    .$dynamic();
-}
-
-/** Stored rows are revalidated; a corrupt row fails closed as an internal error. */
-function toChange(row: HeadRow): SyncRecipeChange {
-  return v.parse(
-    syncRecipeChangeSchema,
-    row.state === "active"
-      ? { recipeId: row.recipeId, revision: row.revision, state: row.state, recipe: row.document }
-      : { recipeId: row.recipeId, revision: row.revision, state: row.state },
-  );
-}
-
-async function readHead(db: D1Database, scope: DeviceScope, recipeId: string) {
-  const [row] = await selectHeads(db, scope, eq(recipeHeads.recipeId, recipeId));
-  return row ? toChange(row) : null;
-}
-
 export const recipeRoutes = new Hono<ApiEnv>()
   .get(
     "/",
@@ -87,13 +35,13 @@ export const recipeRoutes = new Hono<ApiEnv>()
     async (c) => {
       const { after, limit } = c.req.valid("query");
       const scope = c.get("scope");
-      const rows = await selectHeads(c.env.DB, scope, gt(recipeHeads.sequence, after))
+      const rows = await selectHeads(c.env.DB, scope.ownerId, gt(recipeHeads.sequence, after))
         .orderBy(asc(recipeHeads.sequence))
         .limit(limit + 1);
       const page = rows.slice(0, limit);
       return c.json({
         version: 1 as const,
-        changes: page.map(toChange),
+        changes: page.map((row) => toChange(row)),
         cursor: page.at(-1)?.sequence ?? after,
         complete: rows.length <= limit,
       });
@@ -114,75 +62,9 @@ export const recipeRoutes = new Hono<ApiEnv>()
       if (write.state === "active" && write.recipe.id !== recipeId)
         return apiError(c, 400, { error: "bad_request" });
 
-      const db = drizzle(c.env.DB);
-      const now = Date.now();
-      const writeId = crypto.randomUUID();
-      const revision = write.expectedRevision + 1;
-      const document = write.state === "active" ? write.recipe : null;
-      // Sequences grow per owner; batches run serially in one transaction.
-      const nextSequence = sql<number>`(SELECT COALESCE(MAX(${recipeHeads.sequence}), 0) + 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${scope.ownerId})`;
-      const head = {
-        revision,
-        state: write.state,
-        sequence: nextSequence,
-        writeId,
-        updatedAt: now,
-      };
-      const claim =
-        write.expectedRevision === 0
-          ? db
-              .insert(recipeHeads)
-              .values({ ownerId: scope.ownerId, recipeId, ...head })
-              .onConflictDoNothing()
-          : db
-              .update(recipeHeads)
-              .set(head)
-              .where(
-                and(
-                  eq(recipeHeads.ownerId, scope.ownerId),
-                  eq(recipeHeads.recipeId, recipeId),
-                  eq(recipeHeads.revision, write.expectedRevision),
-                  // Re-revoking a tombstone would only add churn to every change feed.
-                  write.state === "revoked" ? eq(recipeHeads.state, "active") : undefined,
-                ),
-              );
-      // The history row is written only if this request's claim won the head.
-      // Drizzle fills INSERT ... SELECT positionally: keep these fields in the
-      // recipeRevisions column order (the stored-row test checks every column).
-      const history = db.insert(recipeRevisions).select(
-        db
-          .select({
-            ownerId: recipeHeads.ownerId,
-            recipeId: recipeHeads.recipeId,
-            revision: recipeHeads.revision,
-            state: recipeHeads.state,
-            document: sql`${document === null ? null : JSON.stringify(document)}`.as("document"),
-            createdAt: sql`${now}`.as("created_at"),
-            createdByDeviceId: sql`${scope.deviceId}`.as("created_by_device_id"),
-          })
-          .from(recipeHeads)
-          .where(
-            and(
-              eq(recipeHeads.ownerId, scope.ownerId),
-              eq(recipeHeads.recipeId, recipeId),
-              eq(recipeHeads.writeId, writeId),
-            ),
-          ),
-      );
-      const [claimed, recorded] = await db.batch([claim, history]);
-      if (claimed.meta.changes === 1 && recorded.meta.changes !== 1)
-        throw new Error("Recipe head was claimed without its history row");
-      if (claimed.meta.changes !== 1)
-        return c.json(
-          {
-            error: "recipe_conflict" as const,
-            current: await readHead(c.env.DB, scope, recipeId),
-          },
-          409,
-        );
-      return c.json({
-        version: 1 as const,
-        change: toChange({ recipeId, revision, state: write.state, sequence: 0, document }),
-      });
+      const result = await writeRecipe(c.env.DB, scope.ownerId, recipeId, write, scope.deviceId);
+      if (!result.ok)
+        return c.json({ error: "recipe_conflict" as const, current: result.current }, 409);
+      return c.json({ version: 1 as const, change: result.change });
     },
   );

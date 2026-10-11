@@ -29,6 +29,13 @@
       "when": 1791701429709,
       "tag": "0003_web_ui_settings_writer",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791704059338,
+      "tag": "0004_web_ui_recipe_writer",
+      "breakpoints": true
     }
   ]
 }
