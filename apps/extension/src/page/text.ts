@@ -102,11 +102,20 @@ export function isButton(element: Element): element is HTMLButtonElement | HTMLI
 /**
  * A control that only scripts make clickable: an `<a>` without `href` that has an
  * `onclick` attribute (MyJCB's login button is
- * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`), or any other element
- * with `role="button"`. Native buttons and `<a href>` links are not script buttons.
+ * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`), or another element
+ * with `role="button"`. Form controls, links and anything inside an `<a href>` (a click
+ * there would follow the link) are not script buttons. Only attribute locators name
+ * one, so text locators keep matching native buttons alone.
  */
 export function isScriptButton(element: Element): boolean {
-  if (!(element instanceof HTMLElement) || isButton(element) || element.hasAttribute("href"))
+  if (
+    !(element instanceof HTMLElement) ||
+    element instanceof HTMLButtonElement ||
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLTextAreaElement ||
+    element.closest("a[href]") !== null
+  )
     return false;
   return (
     (element instanceof HTMLAnchorElement && element.hasAttribute("onclick")) ||
@@ -114,39 +123,31 @@ export function isScriptButton(element: Element): boolean {
   );
 }
 
-/** Selects every element {@link isButton} or {@link isScriptButton} may accept. */
-export const buttonSelector = "button, input, a:not([href]), [role]";
-
-/** The `alt` of the shown images in a button that has no rendered text. */
-function imageText(button: HTMLElement): string {
+/** The `alt` of the shown images in a `<button>` that has no rendered text. */
+function imageText(button: HTMLButtonElement): string {
   return [...button.querySelectorAll("img[alt]")]
     .flatMap((image) => (shown(image) ? [image.getAttribute("alt")!] : []))
     .join(" ");
 }
 
 /**
- * The text a `{ by: "text" }` locator compares: a rendered button's or script button's
- * text (or, when it has none, its images' `alt`), an input button's `value`, or an
- * image button's `alt`, collapsed. A button that is not rendered, or whose text is
- * empty or longer than 120 code units, has none.
+ * The text a `{ by: "text" }` locator compares: a rendered button's text (or, for an
+ * image-only button, its images' `alt`), an input button's `value`, or an image
+ * button's `alt`, collapsed. A button that is not rendered, or whose text is empty or
+ * longer than 120 code units, has none.
  */
 export function buttonText(element: Element): string | undefined {
-  if (
-    !(element instanceof HTMLElement) ||
-    !(isButton(element) || isScriptButton(element)) ||
-    !shown(element)
-  )
-    return undefined;
+  if (!isButton(element) || !shown(element)) return undefined;
   const readLimit = buttonTextLimit * 4;
-  const rendered = !(element instanceof HTMLInputElement);
-  let raw = rendered
-    ? renderedText(element, readLimit)
-    : element.type === "image"
-      ? element.alt
-      : element.value;
+  let raw =
+    element instanceof HTMLButtonElement
+      ? renderedText(element, readLimit)
+      : element.type === "image"
+        ? element.alt
+        : element.value;
   // A read cut short could collapse to a prefix ("Sign in" of "Sign in and delete").
   if (raw === undefined || raw.length > readLimit) return undefined;
-  if (rendered && !collapseText(raw)) raw = imageText(element);
+  if (element instanceof HTMLButtonElement && !collapseText(raw)) raw = imageText(element);
   const text = collapseText(raw);
   return text && text.length <= buttonTextLimit ? text : undefined;
 }

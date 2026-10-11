@@ -7,7 +7,6 @@ import {
 } from "@pateat/contracts";
 import * as v from "valibot";
 import {
-  buttonSelector,
   buttonText,
   collapseText,
   isScriptButton,
@@ -46,6 +45,8 @@ const actionTypes = new Set(["submit", "button", "image"]);
 const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
+/** Every element `describe` may accept, script buttons included. */
+const observed = "input, select, textarea, button, a[href], a[onclick], [role]";
 /** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
 const shadowFields = Object.keys(fillTypes)
   .map((type) => `input[type='${type}' i]`)
@@ -125,7 +126,7 @@ function locatorIndex(document: Document): LocatorIndex {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
     }
-  for (const element of document.querySelectorAll(buttonSelector)) {
+  for (const element of document.querySelectorAll("button, input")) {
     const text = buttonText(element);
     if (text !== undefined) count("text", text);
   }
@@ -400,7 +401,7 @@ export function extractLoginObservation(
   if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
     return { ok: false, reason: "unsupported-page" };
 
-  const found = [...document.querySelectorAll(`select, textarea, a[href], ${buttonSelector}`)]
+  const found = [...document.querySelectorAll(observed)]
     .map(describe)
     .filter((entry) => entry !== undefined);
   const fieldForms = new Set(
@@ -422,13 +423,17 @@ export function extractLoginObservation(
         (fieldForms.has(host.closest("form")) && inShadow(host.shadowRoot, controls))),
   );
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
-  const links: { form: HTMLFormElement | null; draft: Draft }[] = [];
+  // Script buttons are often widgets (menus, toggles) and only attribute locators name
+  // them, so one without a locator is left out rather than marking the page incomplete.
+  const scripted: typeof required = [];
+  const links: typeof required = [];
   for (const entry of found) {
     if (!fieldForms.has(entry.form)) continue;
     if (entry.kind === "unsupported") complete = false;
     else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
-    } else required.push(entry);
+    } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
+    else required.push(entry);
   }
 
   const index = locatorIndex(document);
@@ -439,9 +444,10 @@ export function extractLoginObservation(
     });
   const kept = located(required);
   if (kept.length < required.length || kept.length > maxCandidates) complete = false;
+  const buttons = [...kept, ...located(scripted)].slice(0, maxCandidates);
   const chosen = [
-    ...kept.slice(0, maxCandidates),
-    ...located(links).slice(0, Math.max(0, maxCandidates - kept.length)),
+    ...buttons,
+    ...located(links).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
   return observe(document, chosen, complete);
 }
@@ -516,7 +522,7 @@ export function extractSignedInObservation(
   if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
     return { ok: false, reason: "unsupported-page" };
 
-  const found = [...document.querySelectorAll(`select, textarea, a[href], ${buttonSelector}`)]
+  const found = [...document.querySelectorAll(observed)]
     .map(describe)
     .filter((entry) => entry !== undefined);
   let complete = ![...document.querySelectorAll("*")].some(

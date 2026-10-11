@@ -1,14 +1,13 @@
 import type { LoginTarget } from "@pateat/contracts";
-import { buttonSelector, buttonText, linkText } from "./text";
+import { buttonText, isButton, linkText } from "./text";
 
 const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const;
 
 /**
  * Every element a locator names. Attribute locators compare the attribute string, so a
- * value never becomes a selector; text locators compare {@link buttonText} of buttons
- * and script buttons, and with `links` also {@link linkText} (an account switch is
- * often a link). Callers reject anything but exactly one match rather than taking the
- * first.
+ * value never becomes a selector; text locators compare {@link buttonText}, and with
+ * `links` also {@link linkText} (an account switch is often a link). Callers reject
+ * anything but exactly one match rather than taking the first.
  */
 export function findTargets(
   document: Document,
@@ -17,10 +16,9 @@ export function findTargets(
 ): Element[] {
   if (target.by === "text")
     return [
-      ...document.querySelectorAll(links ? `${buttonSelector}, a[href]` : buttonSelector),
+      ...document.querySelectorAll(links ? "button, input, a[href]" : "button, input"),
     ].filter(
-      (element) =>
-        (buttonText(element) ?? (links ? linkText(element) : undefined)) === target.value,
+      (element) => (isButton(element) ? buttonText(element) : linkText(element)) === target.value,
     );
   const attribute = attributes[target.by];
   return [...document.querySelectorAll(`[${attribute}]`)].filter(

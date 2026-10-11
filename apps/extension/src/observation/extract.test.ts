@@ -269,19 +269,23 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("observes script buttons, such as MyJCB's onclick link, as buttons", () => {
+  it("observes script buttons, such as MyJCB's onclick link, by attribute only", () => {
     page(
-      `<form name="loginForm"><input id="userId"><input id="password" type="password">
+      `<div role="button">ログイン</div>
+      <form name="loginForm"><input id="userId"><input id="password" type="password">
         <a id="loginButtonAD" onclick="document.loginForm.submit()">ログイン</a>
-        <div role="button">Next</div><a class="plain">ヘルプ</a></form>`,
+        <span role="button" aria-label="Show password"></span><a class="plain">ヘルプ</a>
+        <button>ログイン</button></form>`,
     );
     const observation = observe();
+    // A script button without a locator is left out without making the page incomplete,
+    // and never takes a native button's text locator.
     expect(observation.complete).toBe(true);
     expect(summary(observation).map(({ role, target, label }) => [role, target, label])).toEqual([
       ["text", { by: "id", value: "userId" }, undefined],
       ["password", { by: "id", value: "password" }, undefined],
       ["button", { by: "id", value: "loginButtonAD" }, "ログイン"],
-      ["button", { by: "text", value: "Next" }, "Next"],
+      ["button", { by: "text", value: "ログイン" }, "ログイン"],
     ]);
   });
 

@@ -179,7 +179,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "value",
           "alt",
           "aria-hidden",
+          "aria-disabled",
           "inert",
+          "role",
+          "onclick",
+          "href",
         ],
       });
       addEventListener("popstate", schedule);
