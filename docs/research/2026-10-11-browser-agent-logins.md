@@ -15,7 +15,7 @@ must work" in Phase 2 of the plan.
 | --- | --- | --- |
 | ChatGPT dots | OpenAI's always-on agent, rolling out in 2026, with "its own computer and browser" in the cloud ([Meet dots](https://learn.chatgpt.com/docs/dots)) | Its cloud browser; a connected PC on request |
 | ChatGPT Work | ChatGPT's task mode; the 2025 "ChatGPT agent" mode was withdrawn in its favour (help article, as quoted in search results; help.openai.com returned HTTP 403 to this session) | Cloud browser, the desktop app's built-in browser, or the user's browser through the ChatGPT extension |
-| Grok Bot | xAI's computer-use agent, early beta since 2026-08-11, distributed through Cursor ([overview](https://docs.x.ai/grok-bot/overview)) | One persistent cloud computer shared by the account's Bots ([FAQ](https://docs.x.ai/grok-bot/faq)) |
+| Grok Bot ("Grok bots") | xAI's computer-use agent; each account runs several Bots, early beta since 2026-08-11, distributed through Cursor ([overview](https://docs.x.ai/grok-bot/overview)) | One persistent cloud computer shared by the account's Bots ([FAQ](https://docs.x.ai/grok-bot/faq)) |
 | Claude in Chrome | Anthropic's extension driving the user's Chrome | The user's own Chrome profile |
 
 ## Why agents stop at logins
