@@ -901,8 +901,8 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The comparison, the stop, the
   switch click and the new attempt on the next page are implemented
   ([Background execution](architecture.md#background-execution)). Still to do:
-  generating for a page where no recipe starts (after the generation trigger lands),
-  one generated recipe per start path on the service, and naming `accountSwitch`
+  generating for a page where no recipe starts (the service keeps one generated recipe
+  per start path; the extension's trigger is next), and naming `accountSwitch`
   (including link text) in the extractor and the generator.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.

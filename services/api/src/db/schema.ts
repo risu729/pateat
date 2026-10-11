@@ -219,9 +219,10 @@ export const inferenceSpend = sqliteTable(
 );
 
 /**
- * The last generation attempt per page, for the 24-hour rule of ADR 0016. A page that
- * continues a recipe is keyed by the revision it continues (0 for a first page), so the
- * next form of a login that stays on one path is not mistaken for a retry (ADR 0018).
+ * The last generation attempt per page, for the 24-hour rule of ADR 0016. A page is
+ * keyed by the generated recipe it starts or continues and the revision it continues (0
+ * for a first page), so the next form of a login that stays on one path is not mistaken
+ * for a retry (ADR 0018), nor is the same page reached through another recipe.
  */
 export const generationAttempts = sqliteTable(
   "generation_attempts",
@@ -229,13 +230,15 @@ export const generationAttempts = sqliteTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => owners.id),
+    /** The generated recipe the page starts or continues; one origin can hold several. */
+    recipeId: text("recipe_id").notNull(),
     origin: text("origin").notNull(),
     path: text("path").notNull(),
     baseRevision: integer("base_revision").notNull(),
     attemptedAt: integer("attempted_at").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.ownerId, table.origin, table.path, table.baseRevision] }),
+    primaryKey({ columns: [table.ownerId, table.recipeId, table.path, table.baseRevision] }),
   ],
 );
 

@@ -128,34 +128,37 @@ with the stored change, `abstained`, `rejected`, `challenge` or `unclear`, `fail
 a code, or `unavailable` with a reason when no model was called.
 
 - `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base? }`. Each
-  origin has one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of
-  the origin. Without `base`, an active recipe is returned as is; with `base`, the
-  page's steps are appended after the recipe's last `advance` step. A stale `base`
-  gets the current recipe back, a revoked recipe answers `recipe-revoked`, and a
-  `base` naming another recipe is 400. The model maps the slots, the plan is checked
-  with `validatePagePlan`, and the steps are stored with a conditional write.
+  origin and start path has one generated recipe, `gen-` and the first 32 hex digits of
+  the SHA-256 of the JSON `[origin, path]`; a page without `base` is the start of its
+  own. Without `base`, an active recipe is returned as is; with `base`, the page's steps
+  are appended after the recipe's last `advance` step. A stale `base` gets the current
+  recipe back, a revoked recipe answers `recipe-revoked`, a `base` whose recipe was not
+  generated for this origin and its start path answers `recipe-conflict`, and a `base`
+  that is not a generated recipe ID is 400. The model maps the slots, the plan is
+  checked with `validatePagePlan`, and the steps are stored with a conditional write.
 - `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, observation }`
   for the page after the final `submit` step of that revision, on the recipe's origin.
   The login paths come from the stored recipe. A `signed-in` marker passes
   `addCompletion` and is stored as `completion` in the next revision.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
-(`busy` otherwise), refuses past $150 of estimated spend a month or $5 a day (UTC,
-both roles counted), and only then resolves credentials: missing, refused or failed
+(`busy` otherwise), refuses past $150 of estimated spend a month or $5 a day (UTC, both
+roles counted), and only then resolves credentials: missing, refused or failed
 credentials answer `credentials-not-configured`, `credentials-rejected`,
 `issuer-unavailable` or `token-exchange-failed`. Generation also re-reads the recipe
 under the lock, answering with a recipe another device stored meanwhile, and refuses a
 page tried in the previous 24 hours, abstentions and failures included. The attempt key
-is the origin, the path and the revision being continued (0 for a first page). A request
-that passes every check is an attempt, including one the role then refuses locally for
-its size, which would be refused again. Each call first reserves its upper bound (64 KiB
-of input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and then
-corrects it from reported usage; usage the provider does not report keeps the
-reservation. The `inference_log` row stores the provider and model, the instructions and
-input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. Rows older than 90 days are
-deleted whenever a call is logged and on every `GET /v1/recipes`, because routine
-releases do not apply cron triggers.
+is the generated recipe ID, the path and the revision being continued (0 for a first
+page), so two recipes of one origin that lead to the same page do not block each other.
+A request that passes every check is an attempt, including one the role then refuses
+locally for its size, which would be refused again. Each call first reserves its upper
+bound (64 KiB of input as tokens plus 8,192 output tokens at the ADR 0014 rates, about
+$0.43) and then corrects it from reported usage; usage the provider does not report
+keeps the reservation. The `inference_log` row stores the provider and model, the
+instructions and input as sent, the structured result, the outcome code, usage and
+estimated cost; a request refused locally before any model call is not logged. Rows
+older than 90 days are deleted whenever a call is logged and on every `GET /v1/recipes`,
+because routine releases do not apply cron triggers.
 
 ## Schema and tests
 

@@ -80,8 +80,9 @@ page is observed and sent, and the recipe generated for it logs in to `my2@examp
 ([Background execution](../architecture.md#background-execution)).
 
 Not implemented yet: the extension still offers only pages of an origin without any
-cached recipe (the implementation choice above), and the service keeps one generated
-recipe per origin.
+cached recipe (the implementation choice above). The service already keeps one
+generated recipe per origin and start path
+([API README](../../services/api/README.md#recipe-generation)).
 
 ## Consequences
 
