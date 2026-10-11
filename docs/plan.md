@@ -139,7 +139,8 @@ fields when `kdfSettings` is absent or null, which the server model allows until
 PM-28143 cleanup. On 2026-10-11 Bitwarden Cloud US (server 2026.9.2) answered
 `/accounts/prelogin/password` for a real account with only those flat fields
 (`{"kdf":0,"kdfIterations":600000,"kdfMemory":null,"kdfParallelism":null}`), and setup
-had stopped with `invalid-response` because `kdfSettings` was required.
+had stopped with `invalid-response` because `kdfSettings` was required. Real-account
+setup after this change is not yet re-verified.
 
 The transport supports explicit manual authenticator/email codes and new-device
 OTP submission as request shapes. Challenge, rejection and interactive/unsupported

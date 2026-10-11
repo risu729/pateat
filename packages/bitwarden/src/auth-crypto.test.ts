@@ -189,6 +189,8 @@ describe("local authentication admission and cancellation", () => {
     modern({ kdfSettings: { kdfType: 0, iterations: 100_000 }, salt: "\uD800" }),
     modern({ kdf: 0, kdfIterations: 4999 }),
     modern({ kdf: 1, kdfIterations: 4, kdfMemory: 32 }),
+    modern({ kdf: 1, kdfIterations: 1, kdfMemory: 32, kdfParallelism: 2 }),
+    modern({ kdf: 1, kdfIterations: 4, kdfMemory: 15, kdfParallelism: 2 }),
     modern({ salt: "synthetic" }),
   ])("rejects malformed authentication input before SDK derivation %#", async (request) => {
     const derive = vi.spyOn(sdk.PureCrypto, "derive_kdf_material");
@@ -204,6 +206,8 @@ describe("local authentication admission and cancellation", () => {
     { kdfSettings: { kdfType: 1, iterations: 21, memory: 32, parallelism: 4 } },
     { kdfSettings: { kdfType: 1, iterations: 6, memory: 257, parallelism: 4 } },
     { kdfSettings: { kdfType: 1, iterations: 6, memory: 32, parallelism: 17 } },
+    { kdf: 0, kdfIterations: 2_000_001 },
+    { kdf: 1, kdfIterations: 21, kdfMemory: 32, kdfParallelism: 4 },
   ])(
     "rejects excessive valid KDF resource parameters before SDK derivation %#",
     async (response) => {
@@ -223,6 +227,9 @@ describe("local authentication admission and cancellation", () => {
         modern({ kdfSettings: { kdfType: 99, iterations: 1 }, salt: "synthetic" }),
         sdk,
       ),
+    ).toEqual({ ok: false, error: { code: "unsupported-crypto" } });
+    expect(
+      await derivePasswordAuthentication(modern({ kdf: 2, kdfIterations: 5000 }), sdk),
     ).toEqual({ ok: false, error: { code: "unsupported-crypto" } });
     expect(derive).not.toHaveBeenCalled();
   });
