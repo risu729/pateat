@@ -92,6 +92,11 @@ export const savedLoginBindingSchema = v.strictObject({
   userId: identifier,
   itemId: identifier,
   itemName: vaultNameSchema,
+  /**
+   * The label of the vault connection the account was chosen from, for display only.
+   * Bindings made by AI generation on the service have none until a device names them.
+   */
+  accountName: v.optional(vaultNameSchema),
   slots: v.pipe(
     v.array(v.strictObject({ slot: recipeIdSchema, field: vaultFieldReferenceSchema })),
     v.minLength(1),
@@ -111,6 +116,8 @@ export const siteDefaultSchema = v.strictObject({
   itemId: identifier,
   /** For display only, such as on the service's web UI. */
   itemName: v.optional(vaultNameSchema),
+  /** The vault connection's label on the device that named it; for display only. */
+  accountName: v.optional(vaultNameSchema),
 });
 
 export const connectionSettingsSchema = v.strictObject({
@@ -444,7 +451,7 @@ export type SiteDefaultConnection =
  * is unavailable rather than the account missing.
  */
 export function siteDefaultConnection(
-  entry: SiteDefault,
+  entry: Pick<SiteDefault, "provider" | "userId">,
   catalog: VaultCatalog,
 ): SiteDefaultConnection {
   const sameProvider = catalog.connections.filter(

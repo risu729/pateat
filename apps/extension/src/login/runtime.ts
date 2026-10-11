@@ -607,7 +607,13 @@ export function createLoginRuntime(
     if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
     const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
     const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
-    const binding = saved ?? defaultLoginBinding(recipe, { ...owner, itemName: item.label });
+    const binding =
+      saved ??
+      defaultLoginBinding(recipe, {
+        ...owner,
+        itemName: item.label,
+        accountName: connection.label,
+      });
     if (!binding) return { ok: false, reason: "binding-not-found" };
     const resolved = resolveBindingFields(
       binding,
@@ -623,7 +629,9 @@ export function createLoginRuntime(
         itemId: item.id,
         slots: resolved.slots,
       },
-      synced: binding,
+      // A default saved from a stored binding is named after this device's connection
+      // too; the stored binding itself is never rewritten.
+      synced: saved ? { ...saved, accountName: connection.label } : binding,
       saved: saved !== undefined,
     };
   }
@@ -670,6 +678,7 @@ export function createLoginRuntime(
           userId: bound.synced.userId,
           itemId: bound.synced.itemId,
           itemName: bound.synced.itemName,
+          ...(bound.synced.accountName ? { accountName: bound.synced.accountName } : {}),
         });
       }
       if (!chosen.saved || !bound.saved)

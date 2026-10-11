@@ -354,16 +354,19 @@ Chrome yet.
   attempt checks, so it is skipped while another login is still running; the next login
   chooses again.
 - A site default names the provider account and item
-  (`{ origin, provider, userId, itemId, itemName? }`, ADR 0013). `itemName` is the
-  item's label when the default was saved, kept only for display, such as for an
-  account that is not connected here; a default can lack it. The executor and the
-  settings page find this device's connection through the catalog connection's
-  `userId`, and an account that is not connected here refuses as `connection-missing`,
-  one connected twice as `account-ambiguous`, and one whose vault is locked or
-  unavailable as `vault-unavailable`; the settings page refuses to save a default it
-  could not use. An automatic choice is checked in the same form, so the only URI match
-  of an account connected twice also refuses as `account-ambiguous`. The device-local
-  form with a `connectionId` was removed before release
+  (`{ origin, provider, userId, itemId, itemName?, accountName? }`, ADR 0013).
+  `itemName` is the item's label and `accountName` the vault connection's label when the
+  default was saved, kept only for display, such as for an account that is not connected
+  here; a default can lack them. A binding has the same optional `accountName` beside
+  its required `itemName`; settings sync fills in a missing name (see
+  [service sync progress](#service-sync-progress)). The executor and the settings page
+  find this device's connection through the catalog connection's `userId`, and an
+  account that is not connected here refuses as `connection-missing`, one connected
+  twice as `account-ambiguous`, and one whose vault is locked or unavailable as
+  `vault-unavailable`; the settings page refuses to save a default it could not use. An
+  automatic choice is checked in the same form, so the only URI match of an account
+  connected twice also refuses as `account-ambiguous`. The device-local form with a
+  `connectionId` was removed before release
   ([compatibility before release](development.md#compatibility-before-release)).
 - The settings page lists, as the default account for an origin, only the items its
   unsaved draft allows that could serve it: a provider URI match for `origin/`, a static
@@ -564,9 +567,16 @@ uploaded document over 120 KiB of the service's 128 KiB body limit) is not appli
 the settings page says the settings no longer fit; when a later attempt in the same sync
 goes over, an earlier upload stays. Local settings change through the settings store's
 revision check, only when the merge differs from them, so an unchanged sync does not
-stop running login attempts. While a login is running, including one between pages, the
-upload still happens but the local write waits for a later sync, for at most two minutes
-after the first wait. The time of the first wait is stored under
+stop running login attempts. Before the merge is uploaded and written, the display names
+that site defaults and bindings lack are filled in from this device's catalog when their
+provider account is connected exactly once here: the item's label and the connection's
+label. A name already set is never overwritten, since another device may label the
+account differently or hold an older item label until its vault syncs; an account that
+is not connected here, connected twice or unavailable, or a catalog that cannot be read,
+leaves the names as they are. The catalog is built only while an entry still lacks a
+name, and a settled sync writes nothing. While a login is running, including one between
+pages, the upload still happens but the local write waits for a later sync, for at most
+two minutes after the first wait. The time of the first wait is stored under
 `pateat.sync-settings-hold.v1`, so the limit holds across service worker restarts, and
 it is cleared when a sync finds no login running. A later sync starts when the recipe
 schedule is due again. Saving settings on the extension's page or saving an automatic
@@ -730,7 +740,21 @@ extension 2026.9.3, Bitwarden Cloud US.
   showed its own window. The options page's site-default account list did not filter by
   site, did not show usernames, and could not tell apart items with the same name, so
   the owner could not pick the right item; that is tracked as executor work.
-- Not tested: a primary sign-in with a discoverable (username-less) passkey.
+- Not tested at this build: a primary sign-in with a discoverable (username-less)
+  passkey. It passed later on `https://my.jcb.co.jp` (below).
+
+Evidence, 2026-10-11, `https://my.jcb.co.jp` with a saved site default, in the owner's
+Chrome 154.0.8037.98 with the official Bitwarden extension 2026.9.3 and the same real
+account, production build at main `623dc39`:
+
+- The first retry still delegated. The service-worker log (`Pateat passkey request`, see
+  [Why a passkey request was delegated](development.md#why-a-passkey-request-was-delegated))
+  showed `rpId: "my.jcb.co.jp"`, `allowCredentials: 0`, `stored: 5`, `accepted: 5`,
+  `siteDefault: 0`, `siteDefaultItem: "unset"`, `reason: "ambiguous-credential"`. The
+  default was in the options page's unsaved draft only; the page then had a separate
+  save button, which is now gone (#160).
+- After saving, the username-less primary sign-in succeeded with no Bitwarden or Windows
+  window, so Pateat signed it with the default's passkey among the five.
 
 Evidence, 2026-10-11, after the move to `@bitwarden/sdk-internal` `0.2.0-main.1099`
 (#151), in the owner's Chrome with the same real account: on a production build at main

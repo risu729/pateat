@@ -999,11 +999,21 @@ describe("production login document admission", () => {
         fieldId: "login.password",
       });
       expect(h.store.update.mock.calls[0]![0]).toBe(1);
-      // The saved default names the provider account, not this device's connection.
+      // The saved default names the provider account, not this device's connection, and
+      // keeps the connection's label for display.
       expect(h.settings.settings.siteDefaults).toEqual([
-        { origin, provider: "bitwarden", userId, itemId, itemName: "Synthetic item" },
+        {
+          origin,
+          provider: "bitwarden",
+          userId,
+          itemId,
+          itemName: "Synthetic item",
+          accountName: "Synthetic live vault",
+        },
       ]);
-      expect(h.settings.settings.bindings).toEqual([savedBinding]);
+      expect(h.settings.settings.bindings).toEqual([
+        { ...savedBinding, accountName: "Synthetic live vault" },
+      ]);
       // One query per document while every connection's snapshot is unchanged.
       expect(uris).toHaveBeenCalledTimes(1);
     });
@@ -1205,6 +1215,26 @@ describe("production login document admission", () => {
       // The saved default, which has no item name, is kept as is, never rewritten.
       expect(h.settings.settings.siteDefaults).toEqual([
         { origin, provider: "bitwarden", userId, itemId },
+      ]);
+      expect(h.settings.settings.bindings).toEqual([
+        { ...savedBinding, accountName: "Synthetic live vault" },
+      ]);
+    });
+    it("names a new default after this device's connection but keeps a stored binding", async () => {
+      // A binding made by AI generation has no account name.
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      const h = harness({ siteDefaults: [] }, { allowedOrigins: [], uris });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
+      expect(h.settings.settings.siteDefaults).toEqual([
+        {
+          origin,
+          provider: "bitwarden",
+          userId,
+          itemId,
+          itemName: "Synthetic item",
+          accountName: "Synthetic live vault",
+        },
       ]);
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
     });

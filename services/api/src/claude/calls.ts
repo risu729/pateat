@@ -13,7 +13,7 @@ import { inferenceLocks, inferenceLog, inferenceSpend } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
 
 // Every Claude call the service makes goes through here (ADR 0018): one call at a time
-// per owner, the monthly spend stop and the daily call limit, and the ADR 0012 request
+// per owner, the monthly and daily spend stops, and the ADR 0012 request
 // log with its 90-day retention.
 
 /** Request bounds shared by both roles; the same as the approved benchmark run. */
@@ -24,8 +24,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const CLAUDE_CALL_LIMITS = {
   /** $150 a month (ADR 0014), estimated from returned usage. */
   monthlyMicroUsd: 150_000_000,
-  /** Model calls a day (UTC), counting generation and judgement alike. */
-  dailyCalls: 50,
+  /** $5 a day (UTC), counting generation and judgement alike (owner decision, 2026-10-11). */
+  dailyMicroUsd: 5_000_000,
   /** Longer than the token exchange and the model timeout together. */
   lockMs: 90_000,
   logRetentionMs: 90 * DAY_MS,
@@ -103,10 +103,9 @@ async function limitReached(db: Db, ownerId: string, now: number) {
     .select()
     .from(inferenceSpend)
     .where(and(eq(inferenceSpend.ownerId, ownerId), inArray(inferenceSpend.period, [month, day])));
-  const spent = rows.find((row) => row.period === month)?.costMicroUsd ?? 0;
-  const calls = rows.find((row) => row.period === day)?.calls ?? 0;
-  if (spent >= CLAUDE_CALL_LIMITS.monthlyMicroUsd) return "monthly-limit" as const;
-  if (calls >= CLAUDE_CALL_LIMITS.dailyCalls) return "daily-limit" as const;
+  const spent = (period: string) => rows.find((row) => row.period === period)?.costMicroUsd ?? 0;
+  if (spent(month) >= CLAUDE_CALL_LIMITS.monthlyMicroUsd) return "monthly-limit" as const;
+  if (spent(day) >= CLAUDE_CALL_LIMITS.dailyMicroUsd) return "daily-limit" as const;
   return undefined;
 }
 

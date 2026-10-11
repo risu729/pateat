@@ -190,7 +190,7 @@ describe("scoped metadata eligibility and next-login defaults", () => {
     });
   });
 
-  it("keeps an optional item name on a provider-account default", () => {
+  it("keeps optional item and account names on a provider-account default", () => {
     const settings = createDefaultSettings();
     const named = {
       origin: "https://bank.example",
@@ -198,9 +198,16 @@ describe("scoped metadata eligibility and next-login defaults", () => {
       userId: "account-1",
       itemId: "primary",
       itemName: "Example Bank",
+      accountName: "Personal vault",
     };
-    settings.siteDefaults.push(named);
-    expect(parseLocalSettings(settings).siteDefaults).toEqual([named]);
+    const unnamed = {
+      origin: "https://mail.example",
+      provider: "dummy",
+      userId: "account-1",
+      itemId: "secondary",
+    };
+    settings.siteDefaults.push(named, unnamed);
+    expect(parseLocalSettings(settings).siteDefaults).toEqual([named, unnamed]);
   });
 
   it.each([
@@ -211,6 +218,11 @@ describe("scoped metadata eligibility and next-login defaults", () => {
     [
       "an item name over 200 characters",
       { provider: "dummy", userId: "a", itemName: "x".repeat(201) },
+    ],
+    ["an empty account name", { provider: "dummy", userId: "a", accountName: "" }],
+    [
+      "an account name over 200 characters",
+      { provider: "dummy", userId: "a", accountName: "x".repeat(201) },
     ],
   ])("rejects a site default with %s", (_label, fields) => {
     const settings = createDefaultSettings();

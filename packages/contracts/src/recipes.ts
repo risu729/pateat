@@ -149,15 +149,24 @@ const builtinSlots = new Set<string>(["username", "password", "totp"]);
  */
 export function defaultLoginBinding(
   recipe: Pick<LoginRecipe, "id" | "origin" | "slots">,
-  account: { provider: string; userId: string; itemId: string; itemName: string },
+  account: {
+    provider: string;
+    userId: string;
+    itemId: string;
+    itemName: string;
+    /** The chosen vault connection's label. */
+    accountName?: string;
+  },
 ): SavedLoginBinding | undefined {
   if (!recipe.slots.every((slot) => builtinSlots.has(slot))) return undefined;
+  const { accountName, ...owner } = account;
   const binding = v.safeParse(savedLoginBindingSchema, {
     recipeId: recipe.id,
     origin: recipe.origin,
-    ...account,
-    // The item name is for display only.
+    ...owner,
+    // The item and account names are for display only.
     itemName: (account.itemName || account.itemId).slice(0, 200),
+    ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
     slots: recipe.slots.map((slot) => ({ slot, field: slot })),
   });
   return binding.success ? binding.output : undefined;
@@ -182,8 +191,8 @@ const maxSavedEntries = 1000;
  * choice therefore keeps winning, and a binding written by the owner or by AI
  * generation is never replaced. When the origin's saved default names another account,
  * or a list is full, nothing is saved. A new default names the binding's provider
- * account and item. Returns the same object when nothing changes, so the caller can
- * skip the write.
+ * account and item and copies its display names. Returns the same object when nothing
+ * changes, so the caller can skip the write.
  */
 export function saveLoginChoice(
   settings: LocalSettings,
@@ -216,6 +225,7 @@ export function saveLoginChoice(
             userId: binding.userId,
             itemId: binding.itemId,
             itemName: binding.itemName,
+            ...(binding.accountName ? { accountName: binding.accountName } : {}),
           },
         ],
     bindings: hasBinding ? bindings : [...bindings, binding],

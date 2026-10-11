@@ -229,6 +229,14 @@ describe("synced account bindings", () => {
     ).toBe(false);
   });
 
+  it("keeps an optional display-only account name", () => {
+    expect(v.is(savedLoginBindingSchema, binding({ accountName: "Personal vault" }))).toBe(true);
+    // Bindings made by AI generation on the service have none.
+    expect(v.is(savedLoginBindingSchema, binding())).toBe(true);
+    for (const accountName of ["", "x".repeat(201)])
+      expect(v.is(savedLoginBindingSchema, binding({ accountName }))).toBe(false);
+  });
+
   it("keeps settings without bindings valid and rejects duplicate bindings", () => {
     const settings = createDefaultSettings({ connections: [] });
     expect(v.is(localSettingsSchema, settings)).toBe(true);
@@ -358,5 +366,36 @@ describe("automatic account choice", () => {
     expect(defaultLoginBinding(signin, { ...account, itemName: "" })?.itemName).toBe(
       account.itemId,
     );
+  });
+
+  it("names the chosen connection's account and copies the name to a new default", () => {
+    const signin = recipe("bank-signin", "/login");
+    const chosen = defaultLoginBinding(signin, { ...account, accountName: "Personal vault" })!;
+    expect(chosen.accountName).toBe("Personal vault");
+    expect(v.is(savedLoginBindingSchema, chosen)).toBe(true);
+    expect(
+      defaultLoginBinding(signin, { ...account, accountName: "x".repeat(300) })?.accountName,
+    ).toBe("x".repeat(200));
+    // An empty label is left out rather than stored.
+    expect(defaultLoginBinding(signin, { ...account, accountName: "" })).not.toHaveProperty(
+      "accountName",
+    );
+    const saved = saveLoginChoice(createDefaultSettings({ connections: [] }), chosen);
+    expect(saved.siteDefaults).toEqual([
+      {
+        origin,
+        provider: "bitwarden",
+        userId: account.userId,
+        itemId: account.itemId,
+        itemName: "Example Bank",
+        accountName: "Personal vault",
+      },
+    ]);
+    expect(v.is(localSettingsSchema, saved)).toBe(true);
+    // A binding without one, such as an AI-generated binding, saves a default without one.
+    const unnamed = defaultLoginBinding(signin, account)!;
+    expect(
+      saveLoginChoice(createDefaultSettings({ connections: [] }), unnamed).siteDefaults[0],
+    ).not.toHaveProperty("accountName");
   });
 });

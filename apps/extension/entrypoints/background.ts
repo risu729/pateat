@@ -82,6 +82,10 @@ export default defineBackground(() => {
       passkeys.cancelAll();
     },
     deferred: () => login.active(),
+    catalog: async () => {
+      const current = await settings.handle({ version: 1, type: "settings.get" });
+      return current.ok ? current.catalog : undefined;
+    },
   });
   const recipeSync = createRecipeSync({
     service,
