@@ -19,6 +19,7 @@ import {
   transitionLoginAttempt,
   withdrawAccountSwitch,
   validateLoginOperation,
+  valueShapeOf,
   type LoginAttemptEvent,
   type LoginAccountBinding,
   type LoginAttemptMetadata,
@@ -33,6 +34,7 @@ import {
   type SemanticSlot,
   type SettingsResponse,
   type SettingsSnapshot,
+  type ValueShape,
   type VaultCatalog,
   type VaultConnectionMetadata,
 } from "@pateat/contracts";
@@ -241,6 +243,18 @@ const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
   { slot: builtInLoginSlots.totp, fieldId: "login.totp-code" },
 ];
 const probeMode = import.meta.env.MODE === "probe";
+
+/** What a page without a recipe is sent with: its slots and the items that matched it. */
+type GenerationScope = {
+  slots: SemanticSlot[];
+  items: {
+    connection: VaultConnectionMetadata;
+    item: VaultCatalog["connections"][number]["items"][number];
+  }[];
+  settings: SettingsSnapshot["settings"];
+  /** Every enabled connection answered and every item's URI rules were evaluated. */
+  complete: boolean;
+};
 
 /**
  * Coordinator is packaged production code. Production admits only `sites` documents and
@@ -1557,10 +1571,10 @@ export function createLoginRuntime(
     return generation.available(live.document.origin, live.path).catch(() => false);
   }
   /**
-   * The slots to generate for when a vault item's URI matches the page, the only vault
-   * access a page without a recipe gets; no field value is read.
+   * The slots to generate for when a vault item's URI matches the page, with the
+   * matching items. No field value is read here.
    */
-  async function generationSlotsFor(live: LiveDocument): Promise<SemanticSlot[] | undefined> {
+  async function generationSlotsFor(live: LiveDocument): Promise<GenerationScope | undefined> {
     if (!uris) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return undefined;
@@ -1572,23 +1586,74 @@ export function createLoginRuntime(
     });
     if (!scope.ok) return undefined;
     const items = scope.candidates.flatMap((candidate) => {
-      const item = snapshot.catalog.connections
-        .find((entry) => entry.id === candidate.connectionId)
-        ?.items.find((entry) => entry.id === candidate.itemId);
-      return item ? [item] : [];
+      const connection = snapshot.catalog.connections.find(
+        (entry) => entry.id === candidate.connectionId,
+      );
+      const item = connection?.items.find((entry) => entry.id === candidate.itemId);
+      return connection && item ? [{ connection, item }] : [];
     });
     // Only slots a matching item can fill; built-in fields keep these IDs on every device.
     const slots = generationSlots.filter(({ fieldId }) =>
-      items.some((item) => item.fields.some((field) => field.id === fieldId)),
+      items.some(({ item }) => item.fields.some((field) => field.id === fieldId)),
     );
-    return slots.length ? slots.map(({ slot }) => slot) : undefined;
+    if (!slots.length) return undefined;
+    return {
+      slots: slots.map(({ slot }) => slot),
+      items,
+      settings: snapshot.snapshot.settings,
+      // An item that could not be checked might have another username.
+      complete: !scope.unavailableConnections.length && !scope.incompleteItems.length,
+    };
+  }
+  /**
+   * The shape of the matching items' username (ADR 0010), read locally just before the
+   * page is sent (owner decision, 2026-10-11): only when every matching item with a
+   * username gives the same length, character classes and email form. An item without
+   * a username, or whose username the user excluded, does not count; an item that
+   * could not be checked or read, or a username too long to shape, sends no shape.
+   */
+  async function usernameShape(
+    pageOrigin: string,
+    scope: GenerationScope,
+  ): Promise<ValueShape | undefined> {
+    if (!scope.complete) return undefined;
+    let shape: ValueShape | undefined;
+    for (const { connection, item } of scope.items) {
+      const excluded = scope.settings.connections
+        .find((entry) => entry.connectionId === connection.id)
+        ?.excludedFields.some(
+          (field) => field.itemId === item.id && field.fieldId === "login.username",
+        );
+      if (excluded || !item.fields.some((field) => field.id === "login.username")) continue;
+      let value: string | undefined;
+      try {
+        // Serial reads through the shared vault host, as for a fill.
+        // eslint-disable-next-line no-await-in-loop
+        value = await fields({
+          account: { origin: pageOrigin, connectionId: connection.id, itemId: item.id },
+          connection,
+          fieldId: "login.username",
+        });
+      } catch {
+        value = undefined;
+      }
+      if (value === undefined) return undefined;
+      if (!value) continue;
+      const itemShape = valueShapeOf({ source: "username", value });
+      value = "";
+      // A username too long to shape cannot be compared.
+      if (!itemShape) return undefined;
+      if (shape && JSON.stringify(shape) !== JSON.stringify(itemShape)) return undefined;
+      shape = itemShape;
+    }
+    return shape;
   }
   /**
    * Sends this page's observation for generation. A returned recipe is in the recipe
    * cache by then; the document announces again and starts it once its first step is
    * ready (ADR 0018).
    */
-  async function generateFor(live: LiveDocument, slots: SemanticSlot[]): Promise<void> {
+  async function generateFor(live: LiveDocument, scope: GenerationScope): Promise<void> {
     if (!generation) return;
     const key = frameKey(live.document);
     try {
@@ -1606,10 +1671,14 @@ export function createLoginRuntime(
         parsed.output.path !== live.path
       )
         return;
+      const shape = await usernameShape(live.document.origin, scope);
+      if (documents.get(key) !== live) return;
       const outcome = await generation.generate({
         version: 1,
         observation: parsed.output,
-        slots,
+        slots: scope.slots.map((slot) =>
+          slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+        ),
       });
       report({
         type: "generation",
@@ -1843,13 +1912,13 @@ export function createLoginRuntime(
       let offer = !recipe && (await offersGeneration(live));
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (offer && signIn?.path === live.path) {
-        const slots = await generationSlotsFor(live).catch(() => undefined);
+        const scope = await generationSlotsFor(live).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        if (slots) {
+        if (scope) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateFor(live, slots);
+          void generateFor(live, scope);
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, so it is not sent.

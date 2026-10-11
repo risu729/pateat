@@ -24,8 +24,8 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   selection and field exclusions ([ADR 0023](adr/0023-synced-vault-policy.md)), a WIF
   token exchange against Anthropic) and the remaining M4 AI work under
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
-  `advance` step, naming `accountSwitch`, ADR 0010 hints, `checkPlanValues` and the
-  post-fill check in the executor, the real-page corpus) and the finite-choice role.
+  `advance` step, a Claude baseline on the real-page corpus) and the finite-choice
+  role.
 - M5: the passkey chooser window
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
   implemented and tested in Playwright Chromium only), real sites that wrap `get`
@@ -890,9 +890,11 @@ username or Text field value, and observations carry page `maxLength`, `minLengt
 `inputMode`. `checkPlanValues` checks a plan against the real values before filling and
 turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
 carries synthetic values. The executor applies the same check to the real inputs before
-filling. The vault adapter and runtime do not supply these hints yet.
-`valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
-resolve Linked fields and never pass Hidden, password or TOTP values.
+filling. Automatic generation sends the username's shape when every matching item
+agrees ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)); `fieldName`
+waits for custom-field slots. `valueShapeOf` (`packages/contracts/src/values.ts`) takes
+`{ source: "username" | "text", value }`, so a caller must resolve Linked fields and
+never pass Hidden, password or TOTP values.
 
 For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a later
@@ -1013,9 +1015,6 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   recipe starts is offered for generation (the service keeps one generated recipe per
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
-  ([Background execution](architecture.md#background-execution)).
-- Supplying ADR 0010 hints from the vault adapter. The executor runs the local value
-  check before filling and the post-fill check before the click
   ([Background execution](architecture.md#background-execution)).
 - A Claude baseline on the real-page corpus, then Japanese pages for it. The
   finite-choice provider is chosen only after that baseline exists. The owner chose on

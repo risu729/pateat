@@ -1,43 +1,7 @@
-import {
-  isValidEmail,
-  valueCharacterClasses,
-  valueMismatch,
-  type LoginObservation,
-  type ValueMismatch,
-  type ValueShape,
-} from "@pateat/contracts";
+import { valueMismatch, type LoginObservation, type ValueMismatch } from "@pateat/contracts";
 import type { PagePlan } from "./plan";
 
-const classOf = (character: string): ValueShape["classes"][number] => {
-  if (/^[0-9]$/.test(character)) return "ascii-digit";
-  if (/^[A-Za-z]$/.test(character)) return "ascii-letter";
-  if (/^[\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]$/.test(character)) return "ascii-symbol";
-  if (/^\s$/u.test(character)) return "space";
-  if (/^[！-～]$/.test(character)) return "fullwidth";
-  return "other";
-};
-
-/**
- * A value the shape may describe (ADR 0010): the login username or a Bitwarden Text
- * custom field. Resolve a Linked field to its source first; Hidden, password and TOTP
- * values have no source type here and never get a shape.
- */
-export type ShapeableValue = { source: "username" | "text"; value: string };
-
-/**
- * Derives the coarse shape of a visible identifier value on the trusted side. Returns
- * undefined for values the shape contract cannot describe.
- */
-export function valueShapeOf({ source, value }: ShapeableValue): ValueShape | undefined {
-  if (source !== "username" && source !== "text") return undefined;
-  if (value.length === 0 || value.length > 1024) return undefined;
-  const present = new Set(Array.from(value, classOf));
-  return {
-    length: value.length,
-    classes: valueCharacterClasses.filter((entry) => present.has(entry)),
-    email: isValidEmail(value),
-  };
-}
+export { valueShapeOf, type ShapeableValue } from "@pateat/contracts";
 
 /**
  * Checks a validated plan against the real slot values before anything is filled.
