@@ -537,28 +537,38 @@ that exact page URL and returns a value-free summary
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
+- the service's own record from `GET /v1/device` with the device credential: when the
+  device was paired, the owner's live recipe count and settings revision, and whether
+  recipe generation would run now (`ok`, `credentials-not-configured`,
+  `issuer-unavailable`, `monthly-limit` or `daily-limit`), or the reason code when it
+  could not be read;
 - setting counts, `storage.local` usage, the log's size and debug state, and checks
   for site access, the crypto host, each vault cache and sync sign-in
   (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
   the token, and info without it, since Sync needs the stored unlock key), the vault
   copy's age (info, since the vault syncs only from the settings page), each
   Bitwarden server's `/config` (warn when it fails or is not checked), service
-  reachability, clock skew over 30 s against the service `Date` header, a recipe sync
+  reachability, clock skew over 30 s against the service `Date` header, recipe
+  generation (info without Claude credentials, warn when the issuer is missing or a
+  spend limit is reached), whether the cached recipes and settings revision match the
+  service (info when they differ, since the next sync catches up), a recipe sync
   older than 24 hours and errors logged in the last 24 hours. Reworded states keep the
   raw code in parentheses.
 
 The worker fetches `/health` only for a paired service with site access, and
-`{api}/config` only for an enabled connection whose provider permission sync also
-requires, with a 5 s timeout and no credentials. It never reads the config's
+`/v1/device` only then and while the service has not rejected the credential, with a 5 s
+timeout; that route reads the database only and never exchanges a Claude token. It
+fetches `{api}/config` only for an enabled connection whose provider permission sync
+also requires, with a 5 s timeout and no credentials. It never reads the config's
 `environment` (host URLs) or a third-party server's name other than Vaultwarden.
-**Copy for bug report** shows the exact text before copying it; that text leaves out
-the unlock KDF parameters. It ends with the log's last update (`Updated <time> from
-<revision>`), its warnings and errors of the last 24 hours (newest 10, one line each
-with the time, level, event and allowlisted field values) and the count of passkey
-requests left to the browser in those 24 hours by reason. The worker builds these lines
-from the log and numbers sites and recipes in them as in a download, but separately,
-so `site-1` there can be another site than in **Download logs**. Labels, emails, item
-names and IDs, URLs and host names are never part of the summary.
+**Copy for bug report** shows the exact text before copying it; that text leaves out the
+unlock KDF parameters. It ends with the log's last update
+(`Updated <time> from <revision>`), its warnings and errors of the last 24 hours (newest
+10, one line each with the time, level, event and allowlisted field values) and the
+count of passkey requests left to the browser in those 24 hours by reason. The worker
+builds these lines from the log and numbers sites and recipes in them as in a download,
+but separately, so `site-1` there can be another site than in **Download logs**. Labels,
+emails, item names and IDs, URLs and host names are never part of the summary.
 
 ### Local log
 

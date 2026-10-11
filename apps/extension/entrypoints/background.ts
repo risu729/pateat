@@ -246,6 +246,13 @@ export default defineBackground(() => {
     serviceOrigin: async () => (await service.connection())?.origin,
     hasSiteAccess: (origin) =>
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
+    async serviceDevice(origin) {
+      const connection = await service.connection();
+      // Paired again meanwhile: the credential belongs to another origin.
+      return connection?.origin === origin
+        ? serviceTransport.device(connection.origin, connection.credential)
+        : undefined;
+    },
     fetch: (input, init) => fetch(input, init),
     settings: async () => (await settings.read()).settings,
     logs: () => logger.summary(),

@@ -208,6 +208,18 @@ test("a recipe and binding synced from the service log in with the live vault an
           .poll(async () => (await settingsRequest(options)).snapshot.settings.siteDefaults)
           .toEqual([savedDefault]);
 
+        // The diagnostics page reads the service's own record for this device.
+        const diagnostics = await browser.context.newPage();
+        await diagnostics.goto(`chrome-extension://${browser.extensionId}/diagnostics.html`);
+        await expect(diagnostics.locator("#diagnostics-service-generation")).toHaveText(
+          "recipe generation off, no Claude credentials on the service (credentials-not-configured)",
+        );
+        await diagnostics.getByRole("button", { name: "Copy for bug report" }).click();
+        await expect(diagnostics.locator("#report-preview")).toContainText(
+          /Service record: paired \S+Z · 1 recipes · settings revision \d+ · recipe generation off/u,
+        );
+        await expect(diagnostics.locator("#report-preview")).not.toContainText(service.deviceId);
+
         // After a full restart the cached recipe, binding and saved account still apply,
         // with the service gone.
         await service.close();
