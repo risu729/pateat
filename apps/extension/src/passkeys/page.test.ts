@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installPasskeyPage } from "./page";
-import { PAGE_CHANNEL, type RuntimeResult } from "./wire";
+import { PAGE_CHANNEL, type PageResult } from "./wire";
 
 const origin = "https://login.example.com";
 type Message = { channel: string; type: string; id: string };
@@ -47,7 +47,7 @@ function fakePage(relay: (message: Message) => Array<Record<string, unknown>> = 
 }
 
 const publicKey = { challenge: new Uint8Array(16), allowCredentials: [] };
-const answer = (result: RuntimeResult) => (message: Message) =>
+const answer = (result: PageResult) => (message: Message) =>
   message.type === "get"
     ? [
         { type: "ack", id: message.id },
@@ -61,7 +61,7 @@ afterEach(() => {
 
 describe("MAIN-world passkey wrapper", () => {
   it("delegates with the caller's exact arguments, signal included", async () => {
-    const page = fakePage(answer({ kind: "delegate", reason: "not-configured" }));
+    const page = fakePage(answer({ kind: "delegate" }));
     const options = { publicKey, signal: new AbortController().signal };
     await expect(page.container.get(options)).resolves.toBe("native");
     expect(page.nativeGet).toHaveBeenCalledOnce();
@@ -160,7 +160,7 @@ describe("coexistence with a later passkey provider", () => {
   });
 
   it("delegates an unclaimed request to that provider, whose fallback reaches the browser once", async () => {
-    const page = fakePage(answer({ kind: "delegate", reason: "not-configured" }));
+    const page = fakePage(answer({ kind: "delegate" }));
     const later = laterProvider(page.container, "fallback");
     const options = { publicKey };
     await expect(page.container.get(options)).resolves.toBe("native");
@@ -172,7 +172,7 @@ describe("coexistence with a later passkey provider", () => {
   });
 
   it("stays outermost when the provider restores its saved function", async () => {
-    const page = fakePage(answer({ kind: "delegate", reason: "not-configured" }));
+    const page = fakePage(answer({ kind: "delegate" }));
     const wrapper = page.container.get;
     laterProvider(page.container, "reject").destroy();
     expect(page.container.get).toBe(wrapper);
@@ -183,9 +183,7 @@ describe("coexistence with a later passkey provider", () => {
   it("keeps claiming new requests while the provider holds an unclaimed one", async () => {
     let claim = false;
     const page = fakePage((message) =>
-      answer(
-        claim ? { kind: "assertion", assertion } : { kind: "delegate", reason: "not-configured" },
-      )(message),
+      answer(claim ? { kind: "assertion", assertion } : { kind: "delegate" })(message),
     );
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
@@ -208,7 +206,7 @@ describe("coexistence with a later passkey provider", () => {
   });
 
   it("routes a provider's shallow copy, as Bitwarden's conditional path makes, to the browser", async () => {
-    const page = fakePage(answer({ kind: "delegate", reason: "unsupported-mediation" }));
+    const page = fakePage(answer({ kind: "delegate" }));
     const saved = page.container.get.bind(page.container);
     const provider = vi.fn(async (options?: unknown) =>
       saved({ ...(options as object), signal: new AbortController().signal }),
@@ -223,7 +221,7 @@ describe("coexistence with a later passkey provider", () => {
   });
 
   it("stops a provider that copies deeper from looping back through Pateat", async () => {
-    const page = fakePage(answer({ kind: "delegate", reason: "not-configured" }));
+    const page = fakePage(answer({ kind: "delegate" }));
     const saved = page.container.get.bind(page.container);
     const provider = vi.fn(async (options?: unknown) => {
       const { publicKey: inner } = options as { publicKey: typeof publicKey };
@@ -238,11 +236,7 @@ describe("coexistence with a later passkey provider", () => {
   it("claims a modal request that reuses the publicKey of a held conditional one", async () => {
     let claim = false;
     const page = fakePage((message) =>
-      answer(
-        claim
-          ? { kind: "assertion", assertion }
-          : { kind: "delegate", reason: "unsupported-mediation" },
-      )(message),
+      answer(claim ? { kind: "assertion", assertion } : { kind: "delegate" })(message),
     );
     const provider = vi.fn(() => new Promise<never>(() => {}));
     page.container.get = provider;
@@ -257,11 +251,7 @@ describe("coexistence with a later passkey provider", () => {
   it("claims a modal request after the page aborts its conditional one", async () => {
     let claim = false;
     const page = fakePage((message) =>
-      answer(
-        claim
-          ? { kind: "assertion", assertion }
-          : { kind: "delegate", reason: "unsupported-mediation" },
-      )(message),
+      answer(claim ? { kind: "assertion", assertion } : { kind: "delegate" })(message),
     );
     const provider = vi.fn(
       (options?: unknown) =>
@@ -289,9 +279,7 @@ describe("coexistence with a later passkey provider", () => {
   it("sends a page call reusing a delegated publicKey with the same mediation to the browser", async () => {
     let claim = false;
     const page = fakePage((message) =>
-      answer(
-        claim ? { kind: "assertion", assertion } : { kind: "delegate", reason: "not-configured" },
-      )(message),
+      answer(claim ? { kind: "assertion", assertion } : { kind: "delegate" })(message),
     );
     page.container.get = vi.fn(() => new Promise<never>(() => {}));
     const shared = { ...publicKey };
@@ -304,9 +292,7 @@ describe("coexistence with a later passkey provider", () => {
   it("still claims a fresh request while many unrelated ones are held", async () => {
     let claim = false;
     const page = fakePage((message) =>
-      answer(
-        claim ? { kind: "assertion", assertion } : { kind: "delegate", reason: "not-configured" },
-      )(message),
+      answer(claim ? { kind: "assertion", assertion } : { kind: "delegate" })(message),
     );
     const provider = vi.fn(() => new Promise<never>(() => {}));
     page.container.get = provider;
@@ -322,7 +308,7 @@ describe("coexistence with a later passkey provider", () => {
   });
 
   it("ignores assigning a non-function or itself", async () => {
-    const page = fakePage(answer({ kind: "delegate", reason: "not-configured" }));
+    const page = fakePage(answer({ kind: "delegate" }));
     const wrapper = page.container.get;
     (page.container as { get: unknown }).get = "not a function";
     page.container.get = wrapper;

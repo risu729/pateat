@@ -617,6 +617,10 @@ test("the production build installs the bridge on HTTPS pages and leaves unclaim
       () => (window as unknown as { pageMessages: unknown[] }).pageMessages,
     );
     expect(JSON.stringify(messages)).not.toMatch(/content-script-started|contentScriptName/u);
+    // The page sees that Pateat delegated, never why.
+    expect(messages).toContainEqual(
+      expect.objectContaining({ type: "result", result: { kind: "delegate" } }),
+    );
   } finally {
     await context?.close();
     await rm(profile, { recursive: true, force: true });
