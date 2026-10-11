@@ -9,6 +9,7 @@ import { message } from "./pages";
 import { deviceRoutes } from "./routes/device";
 import { enrollRoutes } from "./routes/enroll";
 import { manageRoutes } from "./routes/manage";
+import { manageClaudeRoutes } from "./routes/manage-claude";
 import { oidcRoutes } from "./routes/oidc";
 import { recipeRoutes } from "./routes/recipes";
 import { redeemRoutes } from "./routes/redeem";
@@ -60,6 +61,9 @@ export const app = new Hono<ApiEnv>()
   )
   .route("/enroll", enrollRoutes)
   .all("/enroll", methodNotAllowed("GET, POST"))
+  .route("/manage/claude", manageClaudeRoutes)
+  .all("/manage/claude", methodNotAllowed("GET, POST"))
+  .all("/manage/claude/test", methodNotAllowed("POST"))
   .route("/manage", manageRoutes)
   .all("/manage", methodNotAllowed("GET"))
   .all("/manage/devices/:deviceId/revoke", methodNotAllowed("POST"))

@@ -82,6 +82,7 @@ Focused tasks are available for diagnosis:
 | `mise run browser:install` | Install the pinned isolated Chromium browser |
 | `mise run test:browser` | Exercise the extension against synthetic local pages |
 | `mise run test:options` | Exercise settings components with a synthetic client in Chromium |
+| `mise run test:observation` | Extract page observations from synthetic pages in Chromium |
 | `mise run typecheck:options` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 
@@ -195,6 +196,16 @@ as described in [ADR 0008](adr/0008-durable-provider-sessions.md); Sync refreshe
 when needed, and Forget sync sign-in removes it locally without a server logout.
 Forget cancels a running Sync but is refused while a password sign-in is in progress.
 Offline local-vault restoration is independent of that provider session.
+
+Delete connection, confirmed by a second click, removes one connection from this
+device: its sync sign-in, its local vault record with the retained unlock key (after
+locking any open vault session), and finally its saved configuration. Like forget, it
+is local only: no provider revocation is called, so other sessions stay signed in. It
+cancels a running Sync and is refused while a password sign-in for that connection is
+in progress. A failed step leaves the connection listed so deletion can be retried.
+Saved settings, recipes and their field-policy entries are not modified; anything that
+referred to the deleted connection resolves as an unavailable connection. This is how
+a connection left over by a failed first sign-in is removed.
 
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable

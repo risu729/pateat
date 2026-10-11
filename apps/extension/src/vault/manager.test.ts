@@ -47,6 +47,11 @@ function harness(
       entry = structuredClone(next);
       return { ok: true as const, data: { revision: next.revision } };
     }),
+    remove: vi.fn<DurableVaultStore["remove"]>(async () => {
+      events.push("remove");
+      entry = null;
+      return { ok: true as const, data: true as const };
+    }),
     close: vi.fn(),
   };
   const host = {
@@ -431,6 +436,45 @@ describe("durable disable and stale candidate races", () => {
     );
     expect(h.host.open).not.toHaveBeenCalled();
     expect((await h.manager.accept(candidate("enable"))).ok).toBe(true);
+  });
+});
+
+describe("connection record deletion", () => {
+  it("locks the live session before deleting the record and its retained unlock key", async () => {
+    const h = harness();
+    const old = await accepted(h);
+    h.events.length = 0;
+    expect(await h.manager.remove()).toEqual({ ok: true, data: true });
+    expect(h.events).toEqual(["lock", "remove"]);
+    expect(h.opened.size).toBe(0);
+    expect(h.entry()).toBeNull();
+    expect(h.manager.status()).toMatchObject({ ready: false, storageUncertain: false });
+    expect(await h.manager.restore()).not.toMatchObject({ ok: true });
+    expect(await h.manager.listFields(old.handle, itemId)).toEqual(
+      vaultFailure("stale-vault-handle"),
+    );
+  });
+  it("cancels a staged candidate so it cannot recreate the deleted record", async () => {
+    const held = gate();
+    const checkpoint = vi.fn(async (stage) => {
+      if (stage === "before-write") await held.promise;
+    });
+    const h = harness({ checkpoint });
+    const pending = h.manager.accept(candidate());
+    await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledWith("before-write"));
+    expect((await h.manager.remove()).ok).toBe(true);
+    expect(h.opened.size).toBe(0);
+    held.release();
+    expect(await pending).toEqual(vaultFailure("cancelled"));
+    expect(h.entry()).toBeNull();
+    expect(h.store.compareAndSwap).not.toHaveBeenCalled();
+  });
+  it("reports an unconfirmed deletion as storage uncertainty", async () => {
+    const h = harness();
+    await accepted(h);
+    h.store.remove.mockResolvedValueOnce(vaultFailure("storage-uncertain"));
+    expect(await h.manager.remove()).toEqual(vaultFailure("storage-uncertain"));
+    expect(h.manager.status()).toMatchObject({ ready: false, storageUncertain: true });
   });
 });
 

@@ -15,6 +15,8 @@ export interface ConnectionClient {
   disableAutoUnlock(connectionId: string): Promise<SetupReply>;
   /** Local only: removes saved sync sign-in, not a provider logout. */
   forgetProviderSession(connectionId: string): Promise<SetupReply>;
+  /** Local only: removes the connection and its local data, with no provider revocation. */
+  deleteConnection(connectionId: string): Promise<SetupReply>;
   review(
     input: Extract<v.InferInput<typeof setupRequestSchema>, { type: "connection.review" }>["input"],
   ): Promise<SetupReply>;
@@ -116,6 +118,7 @@ export function createConnectionClient(api: {
     sync: (connectionId) => send({ type: "connection.sync", connectionId }),
     disableAutoUnlock: (connectionId) => send({ type: "connection.disable", connectionId }),
     forgetProviderSession: (connectionId) => send({ type: "connection.forget", connectionId }),
+    deleteConnection: (connectionId) => send({ type: "connection.delete", connectionId }),
     review: (input) => send({ type: "connection.review", input }),
     close,
   };

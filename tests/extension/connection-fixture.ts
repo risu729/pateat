@@ -32,7 +32,10 @@ type Request =
   | { type: "connection.begin"; input: SetupBegin }
   | { type: "connection.continue"; input: SetupContinuation }
   | { type: "connection.status" }
-  | { type: "connection.sync" | "connection.disable" | "connection.forget"; connectionId: string }
+  | {
+      type: "connection.sync" | "connection.disable" | "connection.forget" | "connection.delete";
+      connectionId: string;
+    }
   | { type: "connection.cancel"; flowId: string }
   | {
       type: "connection.review";
