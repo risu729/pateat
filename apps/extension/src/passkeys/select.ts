@@ -14,6 +14,11 @@ export interface PasskeyCandidates<TCandidate extends PasskeyCandidate = Passkey
   readonly candidates: readonly TCandidate[];
   /** False when a connection or an eligible item could not be searched. */
   readonly complete: boolean;
+  /**
+   * Diagnostic only, never used for selection: whether the origin has a site default, and if so
+   * whether it resolved to one connection and an eligible item in a searched connection.
+   */
+  readonly siteDefault?: "unset" | "unresolved" | "not-searched" | "searched";
 }
 
 export type Selection<TCandidate extends PasskeyCandidate> =

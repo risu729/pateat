@@ -229,7 +229,13 @@ describe("passkey runtime reports", () => {
       { ...candidate, credentialId: "BwgJ" },
     ];
     const runtime = createPasskeyRuntime(
-      source({ candidates: vi.fn(async () => ({ candidates: stored, complete: true })) }),
+      source({
+        candidates: vi.fn(async () => ({
+          candidates: stored,
+          complete: true,
+          siteDefault: "searched" as const,
+        })),
+      }),
       { extensionId, report },
     );
     expect(await runtime.handle(get(), sender())).toEqual({
@@ -247,8 +253,11 @@ describe("passkey runtime reports", () => {
       stored: 3,
       accepted: 2,
       siteDefault: 1,
+      siteDefaultAccepted: 0,
+      siteDefaultItem: "searched",
       complete: true,
     });
+    expect(report).toHaveBeenCalledTimes(1);
     const serialized = JSON.stringify(report.mock.calls);
     for (const secret of ["AQID", "BAUG", "BwgJ", "dXNlcg"])
       expect(serialized).not.toContain(secret);
@@ -279,7 +288,20 @@ describe("passkey runtime reports", () => {
       stored: 1,
       accepted: 1,
       siteDefault: 0,
+      siteDefaultAccepted: 0,
       complete: true,
     });
+    expect(report).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports no request from an invalid sender or a cancellation", async () => {
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(source(), { extensionId, report });
+    await runtime.handle(get(), sender({ frameId: 3 }));
+    await runtime.handle(
+      { version: 1, type: "passkey.cancel", operationId: crypto.randomUUID() },
+      sender(),
+    );
+    expect(report).not.toHaveBeenCalled();
   });
 });

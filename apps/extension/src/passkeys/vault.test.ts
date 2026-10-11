@@ -153,6 +153,7 @@ describe("vault passkey candidates", () => {
     expect(find).toHaveBeenCalledWith("live", rpId);
     expect(found).toEqual({
       complete: true,
+      siteDefault: "unset",
       candidates: [first, passkeyOnly].map((itemId) => ({
         connectionId: "live",
         userId,
@@ -206,6 +207,24 @@ describe("vault passkey candidates", () => {
     });
   });
 
+  it("reports whether the site default resolved to a searched, eligible item", async () => {
+    const two = finder({ ok: true, data: matches([first, second]) });
+    const state = async (overrides: Parameters<typeof saved>[0], find = two) =>
+      (await findVaultPasskeys({ saved: saved(overrides), origin, rpId, find }))?.siteDefault;
+    expect(await state({})).toBe("unset");
+    expect(await state({ siteDefault: second })).toBe("searched");
+    expect(await state({ siteDefault: second, defaultAccount: userId })).toBe("searched");
+    // A default saved for an account that no connection here belongs to cannot resolve.
+    expect(await state({ siteDefault: second, defaultAccount: crypto.randomUUID() })).toBe(
+      "unresolved",
+    );
+    // An item the owner excluded is never searched as the default.
+    expect(await state({ siteDefault: excluded })).toBe("not-searched");
+    expect(await state({ siteDefault: second }, finder(vaultFailure("crypto-locked")))).toBe(
+      "not-searched",
+    );
+  });
+
   it("marks the search incomplete for an unreadable eligible item or connection", async () => {
     const unreadable = await findVaultPasskeys({
       saved: saved(),
@@ -234,12 +253,12 @@ describe("vault passkey candidates", () => {
     ]) {
       // eslint-disable-next-line no-await-in-loop
       const found = await findVaultPasskeys({ saved: saved(), origin, rpId, find: finder(result) });
-      expect(found).toEqual({ candidates: [], complete: false });
+      expect(found).toEqual({ candidates: [], complete: false, siteDefault: "unset" });
     }
     const locked = finder({ ok: true, data: matches([first]) });
     expect(
       await findVaultPasskeys({ saved: saved({ state: "locked" }), origin, rpId, find: locked }),
-    ).toEqual({ candidates: [], complete: false });
+    ).toEqual({ candidates: [], complete: false, siteDefault: "unset" });
     expect(locked).not.toHaveBeenCalled();
   });
 
@@ -362,14 +381,14 @@ describe("vault passkey candidates", () => {
       rpId,
       find: finder({ ok: true, data: { ...matches([first]), userId: crypto.randomUUID() } }),
     });
-    expect(found).toEqual({ candidates: [], complete: false });
+    expect(found).toEqual({ candidates: [], complete: false, siteDefault: "unset" });
   });
 
   it("skips disabled connections and answers nothing on an excluded site", async () => {
     const find = finder({ ok: true, data: matches([first]) });
     expect(
       await findVaultPasskeys({ saved: saved({ enabled: false }), origin, rpId, find }),
-    ).toEqual({ candidates: [], complete: true });
+    ).toEqual({ candidates: [], complete: true, siteDefault: "unset" });
     expect(
       await findVaultPasskeys({ saved: saved({ excludedSite: "github.com" }), origin, rpId, find }),
     ).toBeUndefined();
@@ -513,6 +532,7 @@ describe("vault passkey source", () => {
       expect(await source.candidates(origin, rpId, signal)).toEqual({
         candidates: [],
         complete: false,
+        siteDefault: "unset",
       });
       const candidate = { ...stored(first), settingsRevision: 3 };
       // eslint-disable-next-line no-await-in-loop

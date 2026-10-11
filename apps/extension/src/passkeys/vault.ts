@@ -72,6 +72,11 @@ export async function findVaultPasskeys(input: {
       : undefined;
   const candidates: VaultPasskeyCandidate[] = [];
   let complete = true;
+  let defaultState: PasskeyCandidates["siteDefault"] = !siteDefault
+    ? "unset"
+    : preferred
+      ? "not-searched"
+      : "unresolved";
   for (const connection of catalog.connections) {
     const configured = settings.connections.find((entry) => entry.connectionId === connection.id);
     if (!configured?.enabled) continue;
@@ -105,6 +110,8 @@ export async function findVaultPasskeys(input: {
       !connection.quarantinedItemIds?.includes(itemId) &&
       passkeyEligible(settings, catalog, connection.id, itemId);
     if (result.data.unavailableItemIds.some(eligible)) complete = false;
+    if (preferred?.connectionId === connection.id && eligible(preferred.itemId))
+      defaultState = "searched";
     for (const entry of result.data.candidates) {
       if (!eligible(entry.itemId)) continue;
       candidates.push({
@@ -122,7 +129,7 @@ export async function findVaultPasskeys(input: {
       });
     }
   }
-  return { candidates, complete };
+  return { candidates, complete, siteDefault: defaultState };
 }
 
 /** The unlocked vault of one registered connection, if it has a live handle. */

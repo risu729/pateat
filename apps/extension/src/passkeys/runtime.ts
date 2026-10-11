@@ -49,8 +49,15 @@ export interface PasskeyRequestReport {
   readonly stored?: number;
   readonly accepted?: number;
   readonly siteDefault?: number;
+  readonly siteDefaultAccepted?: number;
+  readonly siteDefaultItem?: PasskeyCandidates["siteDefault"];
   readonly complete?: boolean;
 }
+type ReportDetail = {
+  -readonly [
+    K in Exclude<keyof PasskeyRequestReport, "origin" | "outcome" | "reason">
+  ]?: PasskeyRequestReport[K];
+};
 
 const MAX_OPERATIONS = 32;
 /** One document cannot exhaust the shared operation budget. */
@@ -104,7 +111,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     message: { operationId: string; request: unknown; userActivation: boolean },
     origin: string,
     documentId: string,
-    detail: { -readonly [K in keyof PasskeyRequestReport]?: PasskeyRequestReport[K] },
+    detail: ReportDetail,
   ): Promise<RuntimeResult> {
     const documentOperations = [...operations.values()].filter(
       (operation) => operation.documentId === documentId,
@@ -141,6 +148,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       detail.stored = candidates.candidates.length;
       detail.accepted = accepted.length;
       detail.siteDefault = candidates.candidates.filter((entry) => entry.preferred === true).length;
+      detail.siteDefaultAccepted = accepted.filter((entry) => entry.preferred === true).length;
+      if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
       const selection = selectPasskey(admission.request, candidates);
       if (selection.kind === "delegate") return selection;
@@ -178,14 +187,14 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         operation.controller.abort();
         return { ok: true };
       }
-      const detail = {};
+      const detail: ReportDetail = {};
       const result = await get(command, origin, sender.documentId!, detail);
       try {
         options.report?.({
+          ...detail,
           origin,
           outcome: result.kind,
           ...(result.kind === "delegate" ? { reason: result.reason } : {}),
-          ...detail,
         });
       } catch {
         // A report must never change the answer.
