@@ -92,9 +92,8 @@ export const settings = sqliteTable("settings", {
   revision: integer("revision").notNull(),
   document: text("document", { mode: "json" }).notNull(),
   updatedAt: integer("updated_at").notNull(),
-  updatedByDeviceId: text("updated_by_device_id")
-    .notNull()
-    .references(() => devices.id),
+  /** Null when the owner web UI wrote the revision. */
+  updatedByDeviceId: text("updated_by_device_id").references(() => devices.id),
 });
 
 /**

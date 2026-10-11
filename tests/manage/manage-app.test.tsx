@@ -34,6 +34,12 @@ function mockClient(initial = devices()) {
         ),
       };
     }),
+    settings: vi.fn<ManageClient["settings"]>(async () => ({
+      version: 1,
+      revision: 0,
+      settings: null,
+    })),
+    saveSettings: vi.fn<ManageClient["saveSettings"]>(),
   } satisfies ManageClient;
 }
 

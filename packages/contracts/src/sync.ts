@@ -35,6 +35,14 @@ export const syncSettingsStateSchema = v.pipe(
     "Only revision 0 has no settings",
   ),
 );
+/**
+ * The largest settings document a writer stores. The service accepts request bodies up
+ * to 128 KiB; the document leaves room for the rest of the write.
+ */
+export const MAX_SETTINGS_DOCUMENT_BYTES = 120 * 1024;
+export const settingsDocumentBytes = (settings: unknown) =>
+  new TextEncoder().encode(JSON.stringify(settings)).byteLength;
+
 export const syncSettingsWriteSchema = v.strictObject({
   version: v.literal(1),
   expectedRevision: revision,
