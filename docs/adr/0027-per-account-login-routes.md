@@ -190,16 +190,22 @@ new owner decision:
 
 - **Which page is judged.** After an effect step, the pages judged are the first ones
   that reach the settle point without the route's fill fields on a route path and
-  without the completion marker, at most 2 model-judged pages per effect step. A page
-  counts once the extension holds its complete description and sends it; it is given
-  back when the answer shows the model never saw it (an `unavailable` reason such as
-  `already-judged`, `not-judgeable`, `busy` or `judgement-limit`, a failure the service
-  reports before the model call, no paired service, a rejected device, or an
-  unreachable or rate-limited service). A timeout or an unexpected answer counts, since
-  it may follow a model call. A page that is not sent, because its description is
-  incomplete, failed or belongs to another path, does not count. The count is stored in
-  the attempt before the request, so a worker restart during a request cannot send that
-  step's pages without bound. A handler's click is a new effect step.
+  without the completion marker, at most 2 counted pages per effect step. A page counts
+  once the extension holds its complete description, before the request, and stays
+  counted whatever the answer, except after a temporary refusal before any model call: a
+  busy service, the service's own request limit (its 429), an unreachable service, no
+  paired service, a rejected device, or a request that failed before the model
+  (`incomplete-observation`, `invalid-request`, `input-too-large`). Those give the page
+  back. Permanent refusals (`already-judged`, `not-judgeable`, `recipe-conflict`,
+  `recipe-revoked`, `judgement-limit`, the spend limits, credential and token errors,
+  and any other `unavailable` reason) count, and so do the provider's rate limit, a
+  timeout and an unexpected answer, since they may follow a model call. A login whose
+  result settled as unknown therefore makes at most 2 counted requests per effect step,
+  plus retries after temporary refusals, each of which needs the tab to reach a new page
+  that settles. A page that is not sent, because its description is incomplete, failed
+  or belongs to another path, does not count. The count is stored in the attempt before
+  the request, so a worker restart during a request cannot send that step's pages
+  without bound. A handler's click is a new effect step.
 - **Settled logins and the bridge.** A login whose result settled as unknown no longer
   counts as running for the passkey bridge (executor step 4) until it moves on. A
   stored record that has neither ended nor settled keeps scoping its tab and origin to

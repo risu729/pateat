@@ -256,11 +256,12 @@ export interface LoginGeneration {
     observation: LoginObservation,
   ): Promise<{
     /**
-     * `unavailable` when no model saw the page: an unavailable reason, a failure the
-     * service reports before the model call, or an unreachable or rate-limited service.
-     * `unclear` covers every other answer, including one after a model call that failed.
+     * `retry` for a temporary refusal before any model call, which gives the page back:
+     * no paired service, a rejected device, an unreachable or busy service, the service's
+     * own request limit, or a request that failed before the model. `unclear` covers
+     * every other answer, including permanent refusals and failed model calls.
      */
-    verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "unavailable";
+    verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
     recipe?: LoginRecipe;
   }>;
 }
@@ -1382,10 +1383,9 @@ export function createLoginRuntime(
    * service can judge it and learn the completion or a handler (ADR 0018, ADR 0027).
    * Returns whether the attempt settled or moved on. A page that still shows the route's
    * fields on one of its paths, or the completion marker, is not sent. At most
-   * `MAX_JUDGED_PAGES` pages the model saw are sent per effect step: a page counts in
-   * the attempt once its complete description is in hand, before the request, so a
-   * restart cannot resend without bound, and is given back when the answer shows that
-   * no model saw it.
+   * `MAX_JUDGED_PAGES` pages count per effect step: a page counts in the attempt once its
+   * complete description is in hand, before the request, so a restart cannot resend
+   * without bound, and is given back only for a temporary refusal before any model call.
    */
   async function learn(run: Execution): Promise<boolean> {
     const { recipe, metadata } = run;
@@ -1444,8 +1444,8 @@ export function createLoginRuntime(
       observation,
     );
     if (!current(run)) return true;
-    // No model saw the page, such as an `already-judged` answer: it is given back.
-    if (verdict === "unavailable") await change(run, { type: "UNJUDGED", operationId });
+    // A temporary refusal, such as a busy service, gives the page back.
+    if (verdict === "retry") await change(run, { type: "UNJUDGED", operationId });
     if (!current(run)) return true;
     if (verdict === "challenge" && added && (await takeOver(run, added, observation.path)))
       return true;

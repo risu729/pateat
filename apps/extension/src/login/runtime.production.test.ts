@@ -9,6 +9,8 @@ import {
 import type { UriCandidates } from "../crypto/wire";
 import { vaultFailure } from "../vault/record";
 import type { LiveUriMatcher } from "../vault/site-candidates";
+import { createLoginGeneration } from "../service/generation";
+import type { ServiceTransport } from "../service/transport";
 import type { LoginGeneration } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 
@@ -3134,15 +3136,52 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(judged()).toMatchObject({ pages: 1 });
       });
 
-      it("gives back a page no model saw, such as an already-judged one", async () => {
-        const { h, service } = await settledLogin(async () => ({ verdict: "unavailable" }));
+      /** The extension's own judge mapping over a service that gives these answers. */
+      function serviceAnswering(...reasons: ("busy" | "already-judged" | "recipe-conflict")[]) {
+        const judgeCompletion = vi.fn<ServiceTransport["judgeCompletion"]>(async () => {
+          const reason = reasons.shift();
+          return {
+            kind: "result",
+            result: reason
+              ? { version: 1, status: "unavailable", reason }
+              : { version: 1, status: "unclear" },
+          };
+        });
+        const service = createLoginGeneration({
+          service: {
+            connection: async () => ({
+              origin: "https://pateat.example.com",
+              deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
+              credential: `pateat_device_${"C".repeat(43)}`,
+              rejected: false,
+            }),
+          },
+          transport: { generateRecipe: vi.fn(), judgeCompletion },
+          storage: { read: async () => undefined, write: async () => undefined },
+          sync: async () => "synced",
+        });
+        return (...args: Parameters<LoginGeneration["judge"]>) => service.judge(...args);
+      }
+
+      it("gives back a page the service refused while busy", async () => {
+        const { h, service } = await settledLogin(serviceAnswering("busy"));
         expect(service.judge).toHaveBeenCalledTimes(1);
         expect(judged()).toMatchObject({ pages: 0 });
-        service.judge.mockImplementation(async () => ({ verdict: "unclear" }));
         await open(h, "/settings");
         expect(service.judge).toHaveBeenCalledTimes(2);
         expect(service.judge.mock.calls[1]![3]).toMatchObject({ path: "/settings" });
         expect(judged()).toMatchObject({ pages: 1 });
+      });
+
+      it("spends a page the service refused for good", async () => {
+        const { h, service } = await settledLogin(
+          serviceAnswering("already-judged", "recipe-conflict"),
+        );
+        expect(judged()).toMatchObject({ pages: 1 });
+        await open(h, "/settings");
+        expect(judged()).toMatchObject({ pages: 2 });
+        await open(h, "/billing");
+        expect(service.judge).toHaveBeenCalledTimes(2);
       });
 
       it("counts a page whose request a worker restart cut off", async () => {

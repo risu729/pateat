@@ -14,12 +14,11 @@ import type { ServiceTransport } from "./transport";
 export const GENERATION_RETRY_MS = 24 * 60 * 60 * 1000;
 /** Pages remembered at once; the oldest go first. */
 export const MAX_GENERATION_ATTEMPTS = 500;
-/** Failures the service reports before it calls the model (ADR 0027). */
+/** Request failures the service reports before any model call (ADR 0027). */
 const failedBeforeModel = new Set<string>([
   "incomplete-observation",
   "invalid-request",
   "input-too-large",
-  "rate-limited",
 ]);
 
 // When each origin and path was last sent, so a page is not sent again within a day.
@@ -138,7 +137,7 @@ export function createLoginGeneration(options: {
       observation: LoginObservation,
     ) {
       const connection = await connected();
-      if (!connection) return { verdict: "unavailable" };
+      if (!connection) return { verdict: "retry" };
       const answer = await transport.judgeCompletion(
         connection.origin,
         connection.credential,
@@ -160,16 +159,18 @@ export function createLoginGeneration(options: {
         result?.status === "challenge"
       )
         return { verdict: result.status };
-      // No model saw the page (ADR 0027). A timeout or an unexpected answer may follow a
-      // model call, and so may every other failure the service reports.
+      // A temporary refusal before any model call (ADR 0027): the service was busy,
+      // unreachable or over its own request limit, the device was rejected, or the request
+      // failed before the model. Every other answer, including a permanent refusal such as
+      // `already-judged` and the provider's rate limit, spends the page.
       if (
         answer.kind === "rejected" ||
         (answer.kind === "failed" &&
           (answer.error === "unreachable" || answer.error === "rate-limited")) ||
-        result?.status === "unavailable" ||
+        (result?.status === "unavailable" && result.reason === "busy") ||
         (result?.status === "failed" && failedBeforeModel.has(result.error))
       )
-        return { verdict: "unavailable" };
+        return { verdict: "retry" };
       return { verdict: "unclear" };
     },
   };
