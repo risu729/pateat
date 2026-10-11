@@ -211,6 +211,16 @@ new owner decision:
   stored record that has neither ended nor settled keeps scoping its tab and origin to
   the same item, also after a worker restart, until it ends, settles or its tab closes,
   even if no document of the tab resumes it.
+- **Settled logins and policy writes.** The same rule decides which logins hold off the
+  writes that would stop them: the settings sync's local write, the vault replacement
+  (ADR 0025) and saving a passkey site default from the chooser. A login whose result
+  settled as unknown counts again only while the extension checks or judges one of its
+  pages, so a judgement that adds a handler is not cut off. Its record stays until the
+  tab closes; if it counted, the settings sync's two-minute wait would run out once and
+  never restart, so every later login would be stopped by the next settings write, and
+  the vault's two-minute deferral would likewise force its replacement into later
+  logins. A policy write while a login is settled stops it as `POLICY_CHANGED`, and its
+  later pages are no longer judged.
 - **Recipe refresh after a judgement.** A judgement that changes the recipe pulls
   recipes only. A full sync could apply a settings change from the service, which stops
   every running login as a policy change, including the one the judged page belongs to.

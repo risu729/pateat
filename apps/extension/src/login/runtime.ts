@@ -2554,13 +2554,18 @@ export function createLoginRuntime(
     .catch(() => undefined);
   /**
    * Whether a login is in progress; a policy write now would stop it. An attempt between
-   * pages has no current document, so its saved state counts too, once it is loaded.
+   * pages has no current document, so its saved state counts too, once it is loaded. A
+   * login whose result settled as unknown counts only while this worker checks or judges
+   * one of its pages: such a record stays until its tab closes, and counting it would hold
+   * settings and vault writes until their limits run out for every later login.
    */
   async function active(): Promise<boolean> {
     await loaded;
     return (
-      [...attempts.values()].some((run) => current(run) && !terminal(run.metadata)) ||
-      [...persisted.values()].some((metadata) => !terminal(metadata))
+      [...attempts.values()].some(
+        (run) =>
+          current(run) && !terminal(run.metadata) && (run.running || !run.metadata.settled),
+      ) || [...persisted.values()].some((metadata) => !terminal(metadata) && !metadata.settled)
     );
   }
   /**

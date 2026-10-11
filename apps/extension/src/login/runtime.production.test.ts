@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createSettingsStore,
   parseLoginRecipe,
   type LocalSettings,
   type SavedLoginBinding,
@@ -9,8 +10,10 @@ import {
 import type { UriCandidates } from "../crypto/wire";
 import { vaultFailure } from "../vault/record";
 import type { LiveUriMatcher } from "../vault/site-candidates";
+import { createVaultAutoSync, createVaultSyncRecords } from "../connections/auto-sync";
 import { createLoginGeneration } from "../service/generation";
 import { createRecipeSync } from "../service/recipes";
+import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import type { LoginGeneration } from "./runtime";
 import type { LoginFieldSource } from "./vault";
@@ -3125,6 +3128,123 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         await open(h, "/billing");
         expect(service.judge).toHaveBeenCalledTimes(2);
         expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]);
+      });
+
+      it("no longer holds policy writes once the result settled, also after a restart", async () => {
+        const { h } = await settledLogin();
+        // The record stays until the tab closes; counting it would hold settings and vault
+        // writes past their limits for every later login.
+        expect(await h.login.active()).toBe(false);
+        const query = fake.browser.tabs.query;
+        fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+        try {
+          const restarted = harness({}, { passkeys: withPasskey, generation: generation() });
+          expect(await restarted.login.active()).toBe(false);
+          expect(status()).toMatchObject([{ state: "reconciling", settled: true }]);
+        } finally {
+          fake.browser.tabs.query = query;
+        }
+      });
+
+      it("lets a held settings write and vault replacement through once the result settled", async () => {
+        const { h } = await settledLogin();
+        // The settings half of a full sync, wired to the login as the background wires it.
+        const settings = (excludedSites: { hostname: string; includeSubdomains: boolean }[]) => ({
+          connections: [],
+          excludedSites,
+          siteDefaults: [],
+          bindings: [],
+        });
+        const agreed = settings([{ hostname: "intranet.example", includeSubdomains: false }]);
+        let local: SettingsSnapshot = { version: 1, revision: 7, settings: agreed };
+        const store = createSettingsStore(
+          {
+            read: async () => structuredClone(local),
+            write: async (snapshot) => {
+              local = structuredClone(snapshot) as SettingsSnapshot;
+            },
+          },
+          { connections: [] },
+        );
+        const service = {
+          origin: "https://pateat.example.com",
+          deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
+          credential: `pateat_device_${"C".repeat(43)}`,
+          rejected: false,
+        };
+        const { origin: serviceOrigin, deviceId } = service;
+        let since: unknown;
+        const settingsSync = createSettingsSync({
+          transport: {
+            settings: async () => ({
+              kind: "state",
+              state: { version: 1, revision: 5, settings: settings([]) },
+            }),
+            saveSettings: vi.fn(),
+          },
+          settings: store,
+          storage: {
+            read: async () => ({
+              version: 1,
+              origin: serviceOrigin,
+              deviceId,
+              revision: 4,
+              settings: agreed,
+              local: agreed,
+            }),
+            write: async () => undefined,
+            clear: async () => undefined,
+          },
+          hold: {
+            read: async () => since,
+            write: async (value: number) => {
+              since = value;
+            },
+            clear: async () => {
+              since = undefined;
+            },
+          },
+          deferred: () => h.login.active(),
+        });
+        expect(await settingsSync.run(service, () => false)).toBe("synced");
+        expect(local.settings.excludedSites).toEqual([]);
+        expect(since).toBeUndefined();
+        // The vault replacement is not deferred either.
+        const outcomes: string[] = [];
+        const vault = createVaultAutoSync({
+          records: createVaultSyncRecords({ read: async () => undefined, write: async () => {} }),
+          connections: async () => ["connection-1"],
+          run: async (_id, hold) => {
+            const release = await hold.take();
+            release?.();
+            return release ? "synced" : "deferred";
+          },
+          loginActive: () => h.login.active(),
+          online: () => true,
+          report: ({ outcome }) => outcomes.push(outcome),
+        });
+        vault.refreshIfStale();
+        await vault.running();
+        expect(outcomes).toEqual(["synced"]);
+      });
+
+      it("holds policy writes again while a later page of a settled login is judged", async () => {
+        let answer!: (verdict: Awaited<ReturnType<LoginGeneration["judge"]>>) => void;
+        const { h, service } = await settledLogin();
+        service.judge.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              answer = resolve;
+            }),
+        );
+        await open(h, "/settings");
+        expect(service.judge).toHaveBeenCalledTimes(2);
+        // A takeover after this answer would be stopped by a policy write meanwhile.
+        expect(await h.login.active()).toBe(true);
+        answer({ verdict: "unclear" });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(status()).toMatchObject([{ state: "reconciling", settled: true }]);
+        expect(await h.login.active()).toBe(false);
       });
 
       it("does not count a page it could not describe completely", async () => {
