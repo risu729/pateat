@@ -557,14 +557,19 @@ describe("second-factor page handlers (ADR 0027)", () => {
     it("refuses an account switch, marker or passkey button that is one of its elements", () => {
       const marker = { by: "id", value: "authenticated" } as const;
       expect(() =>
-        parseLoginRecipe({ ...withHandlers([code()]), accountSwitch: { by: "text", value: "Verify" } }),
+        parseLoginRecipe({
+          ...withHandlers([code()]),
+          accountSwitch: { by: "text", value: "Verify" },
+        }),
       ).toThrow();
       expect(() =>
         parseLoginRecipe(withHandlers([code({ path: "/authenticated", field: marker })])),
       ).toThrow();
       expect(() =>
         parseLoginRecipe({
-          ...withHandlers([code({ path: "/identity", field: { by: "id", value: "passkey-login" } })]),
+          ...withHandlers([
+            code({ path: "/identity", field: { by: "id", value: "passkey-login" } }),
+          ]),
           passkey: { path: "/identity", target: { by: "id", value: "passkey-login" } },
         }),
       ).toThrow();

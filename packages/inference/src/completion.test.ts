@@ -265,7 +265,10 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
   });
 
   it.each([
-    ["a field that is not a code field", [{ ...codeField, autocomplete: undefined, inputMode: undefined }, verify]],
+    [
+      "a field that is not a code field",
+      [{ ...codeField, autocomplete: undefined, inputMode: undefined }, verify],
+    ],
     ["a field shorter than six characters", [{ ...codeField, maxLength: 1 }, verify]],
     [
       "one of several code fields in its form",
@@ -273,7 +276,13 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
     ],
     ["a submit element that is a link", [codeField, { ...verify, role: "link" }]],
     ["a submit button in another form", [codeField, { ...verify, group: "form-2" }]],
-    ["a field that is a button", [{ ...verify, id: "code" }, { ...verify, target: { by: "id", value: "go" } }]],
+    [
+      "a field that is a button",
+      [
+        { ...verify, id: "code" },
+        { ...verify, target: { by: "id", value: "go" } },
+      ],
+    ],
   ])("drops the code for %s", async (_label, candidates) => {
     const outcome = await answer({ source: "authenticator-app" }).judge(page(candidates));
     expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });

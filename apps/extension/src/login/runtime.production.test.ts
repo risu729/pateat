@@ -4511,7 +4511,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         onClick({ login: toCode, verify: toHome });
         onCodeFill(() => {
           // The page posts the code and replaces its form, as the content script reports.
-          fake.state.executeReply = { ok: false, reason: "structural-mismatch", mutation: "possible" };
+          fake.state.executeReply = {
+            ok: false,
+            reason: "structural-mismatch",
+            mutation: "possible",
+          };
           fake.state.observedPath = "/home";
           fake.state.present = new Set(["logout"]);
         });

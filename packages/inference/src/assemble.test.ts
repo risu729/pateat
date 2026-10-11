@@ -470,7 +470,11 @@ describe("judged totp handler (ADR 0027)", () => {
   });
 
   it("refuses a field that is not a code field or not an input of the page", () => {
-    const plain = { origin, path: "/two-factor", candidates: [candidate("otp", target("otp"), "text"), candidate("verify", verify)] };
+    const plain = {
+      origin,
+      path: "/two-factor",
+      candidates: [candidate("otp", target("otp"), "text"), candidate("verify", verify)],
+    };
     expect(addHandler(recipe, plain, totp())).toEqual({ ok: false, reason: "not-code-field" });
     expect(addHandler(recipe, codePage(), totp(target("missing")))).toEqual({
       ok: false,
@@ -510,12 +514,20 @@ describe("judged totp handler (ADR 0027)", () => {
       completion: { path: "/home", target: target("account") },
     };
     expect(
-      addHandler(extended, codePage("/two-factor", candidate("error", target("error"))), totp(target("otp"), target("error"))),
+      addHandler(
+        extended,
+        codePage("/two-factor", candidate("error", target("error"))),
+        totp(target("otp"), target("error")),
+      ),
     ).toEqual({ ok: false, reason: "step-target" });
     expect(
       addHandler(
         extended,
-        { origin, path: "/two-factor", candidates: [codeInput("account"), candidate("verify", verify)] },
+        {
+          origin,
+          path: "/two-factor",
+          candidates: [codeInput("account"), candidate("verify", verify)],
+        },
         totp(target("account")),
       ),
     ).toEqual({ ok: false, reason: "step-target" });

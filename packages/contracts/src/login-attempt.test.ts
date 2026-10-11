@@ -1313,7 +1313,12 @@ describe("the totp handler in an attempt (ADR 0027)", () => {
 
   it("fills the code and clicks its button as the handler's two steps", () => {
     const attempt = entered();
-    expect(attempt).toMatchObject({ state: "ready", stepIndex: 2, stepCount: 4, maxSubmissions: 2 });
+    expect(attempt).toMatchObject({
+      state: "ready",
+      stepIndex: 2,
+      stepCount: 4,
+      maxSubmissions: 2,
+    });
     expect(attemptPlan(coded, attempt)?.slice(2)).toEqual([
       {
         step: {

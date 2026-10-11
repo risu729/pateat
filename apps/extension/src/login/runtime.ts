@@ -368,7 +368,9 @@ function codeFieldOf(
   });
   if (saved?.slots.some((entry) => entry.slot === TOTP_HANDLER_SLOT && entry.field !== "totp"))
     return undefined;
-  return item.fields.some((field) => field.id === "login.totp-code") ? "login.totp-code" : undefined;
+  return item.fields.some((field) => field.id === "login.totp-code")
+    ? "login.totp-code"
+    : undefined;
 }
 /**
  * Where the plan step at `index` stands in an entered `totp` handler (ADR 0027): its code
@@ -411,7 +413,10 @@ const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
 const probeMode = import.meta.env.MODE === "probe";
 /** The order in which handlers shown together are tried: a passkey types nothing. */
-const handlerOrder = { passkey: 0, totp: 1 } as const satisfies Record<LoginHandler["kind"], number>;
+const handlerOrder = { passkey: 0, totp: 1 } as const satisfies Record<
+  LoginHandler["kind"],
+  number
+>;
 
 /** Custom-field values read for their shapes per generation request (ADR 0027). */
 const MAX_CUSTOM_SHAPE_READS = 32;
@@ -1549,8 +1554,7 @@ export function createLoginRuntime(
       if (request.handlerSlots?.includes(TOTP_HANDLER_SLOT)) {
         const owner = catalog.connections.find((entry) => entry.id === binding.connectionId);
         const code =
-          owner &&
-          codeFieldOf(owner, binding.itemId, snapshot.snapshot.settings.bindings, recipe);
+          owner && codeFieldOf(owner, binding.itemId, snapshot.snapshot.settings.bindings, recipe);
         if (!code) return { ok: false as const, reason: "code-field-missing" as const };
         binding = {
           ...binding,
@@ -3098,10 +3102,7 @@ export function createLoginRuntime(
       // The page left the document a `totp` handler filled its code into before the click,
       // as a code input that submits on its last digit does: the page submitted the code
       // itself, and it is never filled again (ADR 0027).
-      if (
-        previous.document.documentId !== document.documentId &&
-        codeAwaitsClick(recipe, resumed)
-      )
+      if (previous.document.documentId !== document.documentId && codeAwaitsClick(recipe, resumed))
         resumed = transitionLoginAttempt(resumed, {
           type: "AUTO_SUBMITTED",
           operationId: crypto.randomUUID(),

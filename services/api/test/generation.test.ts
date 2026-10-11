@@ -1451,7 +1451,11 @@ describe("page judgement (ADR 0027)", () => {
       maxLength: 6,
     };
     const verify = element("verify", "button", "Verify");
-    const mfa = observation("/login/mfa", [code, verify, element("key", "button", "Use security key")]);
+    const mfa = observation("/login/mfa", [
+      code,
+      verify,
+      element("key", "button", "Use security key"),
+    ]);
     const answer = (source: string, passkeyButton?: string) =>
       judgeReply({
         decision: "challenge",

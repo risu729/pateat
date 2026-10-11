@@ -176,7 +176,10 @@ describe("the Hidden fill rule in plan validation (ADR 0027)", () => {
       slotAccepts("one-time-code", input("x", { role: "number", autocomplete: "one-time-code" })),
     ).toBe(true);
     expect(
-      slotAccepts("one-time-code", input("x", { role: "text", inputMode: "numeric", maxLength: 6 })),
+      slotAccepts(
+        "one-time-code",
+        input("x", { role: "text", inputMode: "numeric", maxLength: 6 }),
+      ),
     ).toBe(true);
     expect(slotAccepts("one-time-code", input("x", { role: "text" }))).toBe(false);
   });

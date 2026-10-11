@@ -85,7 +85,9 @@ function totpRecipe(origin: string, path: string): LoginRecipe {
       { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
       { kind: "click", path, target: target("login"), purpose: "submit" },
     ],
-    handlers: [{ kind: "totp", path: "/totp-code", field: target("code"), target: target("verify") }],
+    handlers: [
+      { kind: "totp", path: "/totp-code", field: target("code"), target: target("verify") },
+    ],
     completion: { path: "/authenticated", target: target("authenticated") },
     rejection: target("rejected"),
     maxSubmissions: 1,
@@ -254,11 +256,7 @@ export function grantProbeOrigin(
   const connection = granted.connections.find((entry) => entry.id === account.connectionId);
   const item = connection?.items.find((entry) => entry.id === account.itemId);
   if (item && !item.allowedOrigins.includes(origin)) item.allowedOrigins.push(origin);
-  if (
-    connection?.provider === "dummy" &&
-    item &&
-    !item.fields.some((field) => field.id === "totp")
-  )
+  if (connection?.provider === "dummy" && item && !item.fields.some((field) => field.id === "totp"))
     item.fields.push({ id: "totp", label: "TOTP", name: null, kind: "otp" });
   return granted;
 }
