@@ -27,6 +27,11 @@ export default defineConfig({
         namespace: "1001",
         simple: { limit: 10, period: 60 },
       }),
+      // Bounds device and web UI requests per owner (docs/architecture.md#service-limits).
+      OWNER_LIMITER: bindings.rateLimit({
+        namespace: "1002",
+        simple: { limit: 120, period: 60 },
+      }),
     },
     // Every request reaches the Worker first, so no built file skips the Access check.
     assets: { runWorkerFirst: true, htmlHandling: "none", notFoundHandling: "none" },

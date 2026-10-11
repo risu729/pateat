@@ -22,7 +22,7 @@ import { and, eq, gt, lt } from "drizzle-orm";
 import type { DeviceScope } from "../auth";
 import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS } from "../claude/calls";
 import { generationAttempts } from "../db/schema";
-import { readHead, writeRecipe } from "../recipe-store";
+import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
 // per origin and start path (ADR 0016), and the page after the first sign-in judged for
@@ -98,7 +98,11 @@ export async function generateRecipe(
     if (current && (!base || current.revision !== base.revision))
       // Another device already generated it, or appended this page first: use that.
       return { answer: { version: 1, status: "recipe", change: current } };
-    if (!base) return { base: undefined };
+    // A first page adds a recipe, so the owner needs room for one before any model call.
+    if (!base)
+      return (await hasRecipeRoom(env.DB, scope.ownerId))
+        ? { base: undefined }
+        : { answer: unavailable("recipe-limit") };
     const last = current?.recipe.steps.at(-1);
     if (!current || current.recipe.completion || !last || loginStepEffect(last) !== "advance")
       return { answer: unavailable("recipe-conflict") };
@@ -208,6 +212,7 @@ export async function generateRecipe(
   );
   // A write lost to another device answers with that device's recipe, as above.
   if (!written.ok) {
+    if (written.limited) return unavailable("recipe-limit");
     const lost = await decide(written.current);
     return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
   }

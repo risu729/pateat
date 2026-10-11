@@ -1,21 +1,49 @@
 # Implementation plan
 
-Status: M0 completed in [PR #1](https://github.com/risu729/pateat/pull/1). M1-M4 are in
-progress (M4 has a sync skeleton and an offline AI harness slice); M5 has a proposed
-design and its first slice; M6 is unstarted. The current foundation is not a working
-autologin product or a completed M1 acceptance claim. This plan becomes the single work
-tracker until an issue is needed for a concrete slice. Issues and PRs link to these
-gates rather than maintaining a second roadmap.
+Status on 2026-10-11 (main `9cf8356`; the service's `/health` reported `2953cff`): M0
+completed in [PR #1](https://github.com/risu729/pateat/pull/1). The production extension
+connects a real Bitwarden account, admits HTTPS sites
+([ADR 0009](adr/0009-install-time-https-site-access.md)), runs synced or generated
+recipes (verified against a local Worker only) and signs with stored passkeys; passkey
+sign-ins have passed on real sites. The service runs at `pateat.takuk.me` with automatic
+releases, the owner web UI and Claude recipe generation under spending caps; generation
+has not yet called Anthropic from the deployed service. Open gates per milestone:
+
+- M1: Chrome use coexistence in installed Chrome.
+- M2: the synthetic engine and settings gates have passed
+  ([local settings progress](#local-settings-progress)). One-time account choices and
+  choosing again after a logout
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), with tests over several
+  tabs on one origin, are not implemented.
+- M3: a password login on a real site, individual MFA methods, other KDFs, V2 keys and
+  organization items on a real account, refresh against a real account, real
+  host-access revocation, and the site-access warning and prompt in installed Chrome
+  ([remaining M3 integration gaps](#remaining-m3-integration-gaps)).
+- M4: sync against the deployed service, the
+  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing,
+  device-independent item selection and field exclusions, a WIF token exchange against
+  Anthropic) and the remaining M4 AI work under
+  [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
+  `advance` step, naming `accountSwitch`, ADR 0010
+  hints, `checkPlanValues` and the post-fill check in the executor, the real-page
+  corpus) and the finite-choice role.
+- M5: the passkey chooser window
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), real sites that wrap `get`
+  themselves, and a navigation during signing.
+- M6: Chrome use coexistence, operational docs, hosted smoke checks beyond `/health`,
+  installed-Chrome dummy-account tests and measured limits.
+
+This plan is the single work tracker until an issue is needed for a concrete slice.
+Issues and PRs link to these gates rather than maintaining a second roadmap.
 
 ## Foundation progress
 
-Implemented: WXT production shell with no site permissions, human-operated status
-page, strict Valibot status contracts, isolated localhost-only probe build,
-health-only Worker with typed cf configuration, shared mise/hk checks, CI/CodeQL,
-and delivery of a verified main-build artifact after main CI (it fails until the
-production credentials and deployment variables exist).
-Mise and Bun dependencies are locked; no native helper or production secrets are
-required to build or test.
+Implemented: WXT production shell, strict Valibot status contracts, isolated
+localhost-only probe build, a Worker with typed cf configuration, shared mise/hk checks,
+CI/CodeQL, and automatic release of the newest tested main build after main CI
+([delivery](delivery.md)). Tool versions are pinned in `mise.toml` and `mise.lock`, and
+Bun dependencies in `bun.lock`; no native helper or production secrets are required to
+build or test.
 
 Local source/Worker tests, typechecks, builds, prebuilt dry-run and emitted-bundle smoke
 checks have passed. At head `c24d82a`,
@@ -76,14 +104,16 @@ recipe's first step appears, also after a same-document URL change or in a dialo
 later, and later steps wait up to 10 seconds for their elements
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Login forms
 inside frames fill only when the frame's URL and the tab's URL both match the item
-([ADR 0017](adr/0017-login-forms-in-frames.md)). Production activation, arbitrary saved
-recipe configuration and real provider compatibility remain outstanding. The early
+([ADR 0017](adr/0017-login-forms-in-frames.md)). Production now admits HTTPS sites
+([ADR 0009](adr/0009-install-time-https-site-access.md)) and reads recipes from the
+service ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The early
 installed-Chrome run passed multi-page, background-tab, single-page, rejection,
 ambiguity, concurrency and input/change-triggered advance cases using synthetic values.
 It does not establish current SDK/setup compatibility or official Bitwarden extension
 coexistence. See the
 [dated acceptance evidence](research/2026-10-10-feasibility.md#early-installed-chrome-acceptance-2026-10-10).
-Neither M1 nor M2 is complete.
+M2's synthetic gates have passed; ADR 0021 adds account choices to it, and M1 still
+needs the Chrome use coexistence probe.
 
 ## Bitwarden transport progress
 
@@ -333,8 +363,9 @@ Independent review approved the change. The fixed browser probe substitutes prov
 responses and host permission decisions; it does not establish real optional-permission
 prompt behavior or real-account authentication. Production starts with an empty catalog
 until connections are configured. The demo catalog remains confined to the synthetic
-probe. No build containing the SDK or this setup has been installed in the owner's
-Chrome yet.
+probe. Production builds with the SDK and this setup have since connected the owner's
+real Bitwarden Cloud US account in their Chrome
+([evidence](research/2026-10-10-feasibility.md#first-real-account-sign-in-2026-10-11)).
 
 ### Remaining M3 integration gaps
 
@@ -440,9 +471,10 @@ Chrome yet.
   custom fields and other values fill any writable input. There is no per-binding
   exception, so a bank PIN rendered as `<input type="tel">` and
   bound to `login.password` is refused; revisit if such sites are common.
-- Real Bitwarden connections, individual MFA methods, the install-time site-access
-  warning and the setup prompt after withheld site access in installed Chrome remain
-  separate gates.
+- A real Bitwarden Cloud US connection passed on 2026-10-11 (see
+  [connection setup](#connection-setup-and-live-catalog-progress)). Individual MFA
+  methods, the install-time site-access warning and the setup prompt after withheld site
+  access in installed Chrome remain separate gates.
 
 ## Provider session progress
 
@@ -483,7 +515,8 @@ device isolation, stale and concurrent writes, tombstones, cursor paging, strict
 schema rejection, media type and body limits, and fail-closed handling of corrupt
 stored documents. Concurrent cases interleave within one local runtime, not hosted
 D1. A migration check regenerates SQL from the Drizzle schema. The D1 database was
-created on 2026-10-11 (see [delivery](delivery.md)); nothing is deployed yet.
+created on 2026-10-11 and the service is deployed at `pateat.takuk.me` (see
+[delivery](delivery.md)).
 
 The second slice adds the service side of
 [device enrollment](architecture.md#device-enrollment). The Worker verifies Cloudflare
@@ -515,7 +548,8 @@ cannot confirm, in which case the page points to the management page. Requests r
 redirects, send no cookies and bound response bodies. Unit tests use synthetic responses
 and in-memory storage; component tests cover address validation, polling, code mismatch,
 expiry, cancellation, site access requests, forgetting an unreadable connection and an
-unconfirmed disconnect. Pairing has not been tried against a running service.
+unconfirmed disconnect. The owner paired their Chrome with the deployed service on
+2026-10-11 ([device enrollment](architecture.md#device-enrollment)).
 
 The fourth slice syncs recipes into a last-known-good cache that the login executor
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
@@ -537,7 +571,7 @@ recipes no longer fit. A 401 marks the device as rejected: syncing stops, login 
 using the cached recipes, and the settings page says to pair again. Lookup uses
 `selectLoginRecipe` for a new attempt and the recipe ID for a resumed one; two recipes
 starting on one page find no recipe. Unit tests use synthetic pages and in-memory
-storage; no running service has been tried.
+storage; sync against the deployed service has no recorded check yet.
 
 The fifth slice syncs the device-independent settings in the same run, after recipes:
 site exclusions, site defaults that name a provider account and item, and account
@@ -583,32 +617,42 @@ schedule is due again. Saving settings on the extension's page or saving an auto
 account choice starts a sync at once. A recipe sync that cannot reach the service skips
 settings, a 401 from either request marks the device rejected, and the settings page
 shows a complete sync only when both finished. Unit tests use a synthetic service and
-the real settings store over in-memory storage; no running service has been tried.
+the real settings store over in-memory storage; sync against the deployed service has no
+recorded check yet.
+
+Device credentials expire after 90 days unused, and each use renews them (owner,
+2026-10-11; [device enrollment](architecture.md#device-enrollment)). An expired device
+gets 401 `device_expired`, which the extension treats like revocation, and the web UI
+shows each device's last use and marks expired ones. Local Worker, extension and web UI
+tests cover it.
 
 ### Remaining M4 service gaps
 
-- Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md))
-  is decided and not implemented: a manifest `key`, the Access-protected `POST /pair`,
-  then the extension switch with the typed-code flow removed. The credential
-  idle-expiry decision stays open.
+- Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md)):
+  the manifest `key` that fixes the production extension ID is implemented. The
+  Access-protected `POST /pair` and then the extension switch, with the typed-code flow
+  removed, are not.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
-- The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and
-  JSON API behind Access, with the devices, sites, account bindings and recipes pages.
-  Settings edits and recipe revocations there use the same revision checks as device
-  sync, and a stale page changes nothing.
-- Inference adapters and spending accounting remain separate slices. The inference
-  route authenticates to Claude per owner through Workload Identity Federation
+- Done: the [owner web UI](architecture.md#owner-web-ui) serves its React app, assets
+  and JSON API behind Access, with the devices, sites, account bindings and recipes
+  pages. Settings edits and recipe revocations there use the same revision checks as
+  device sync, and a stale page changes nothing.
+- Done: the generation routes stop at
+  $100 of estimated Claude spend per owner a month and $5 a day (`CLAUDE_CALL_LIMITS` in
+  `services/api/src/claude/calls.ts`,
+  [ADR 0014](adr/0014-claude-generation-provider.md)). The inference route authenticates
+  to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
-  key is a later second option. The issuer metadata routes, the
-  `inference_credentials` table and `resolveClaudeCredential` exist and are tested
-  against a fake token endpoint only. Owners enter identifiers on the temporary
-  `/manage/claude` page until the React web UI replaces it; no exchange with
-  Anthropic's real token endpoint has been made.
+  key is a later second option. The issuer metadata routes, the `inference_credentials`
+  table and `resolveClaudeCredential` exist and are tested against a fake token endpoint
+  only. Owners enter identifiers on the temporary `/manage/claude` page until the React
+  web UI replaces it; no exchange with Anthropic's real token endpoint has been made.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
-  owner on first approval. Before the service is offered to other people, it needs
-  per-owner storage and request limits; today only `/redeem` is rate limited (per
-  client address) and request bodies are size-capped.
+  owner on first approval. Per-owner [service limits](architecture.md#service-limits)
+  cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
+  sized for the owner's own use; a byte quota is still needed before the service is
+  offered to other people.
 
 ## Passkey progress
 
@@ -679,10 +723,10 @@ public key, and gets the browser's own credential once the item is excluded. A
 production-build test checks that the bridge is installed at document start there, that
 no content script posts a message to the page, and that with no vault connected the
 request goes to the browser. A claimed assertion from a vault passkey is tested only
-through the probe build, which wraps the same vault source. The first real-site and
-real-account results are listed below; a primary sign-in with a discoverable passkey is
-still untested, and a navigation during signing relies on Chrome dropping the response
-to the replaced document.
+through the probe build, which wraps the same vault source. The real-site and
+real-account results are listed below, including a primary sign-in with a discoverable
+passkey on `https://my.jcb.co.jp`; a navigation during signing relies on Chrome dropping
+the response to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
 extension ID from stack traces; the relay posts only the outcome of a request to the
@@ -763,6 +807,14 @@ Evidence, 2026-10-11, after the move to `@bitwarden/sdk-internal` `0.2.0-main.10
 Sync succeeded ("Local vault ready"). On main `59a2d12`, the `https://www.npmjs.com`
 security-key step again succeeded unattended.
 
+Evidence, 2026-10-11, a passkey-only site in the owner's Chrome with the same real
+account, production build at main `6c2eda9`: on `https://accounts.pixiv.net`, "Log in
+with passkey" with no ID entered (a username-less request). Two pixiv passkey items
+matched and no site default was set, so Pateat delegated as designed and Bitwarden
+showed its window. After the owner set and saved a site default for
+`https://accounts.pixiv.net`, the retry logged in with no Bitwarden or Windows window
+(11:48 UTC).
+
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
@@ -808,8 +860,8 @@ path learns its completion only once that form is gone, and the completion then 
 that path's fill fields as `absent` (at most four), which the executor requires to be
 missing. Both roles share `runStructuredRole` for metering, timeouts and disabled
 telemetry. The service routes call them
-([API README](../services/api/README.md#recipe-generation)); the extension does not
-call the routes yet.
+([API README](../services/api/README.md#recipe-generation)), and the extension calls
+those routes as described under the remaining M4 AI work below.
 
 A 16-page synthetic Japanese/English corpus covers bank branch/account/password
 (including an unlabeled page distinguishable only by length),
@@ -900,9 +952,9 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   recipe that starts on the page the switch leads to, generated there if none exists
   ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The comparison, the stop, the
   switch click and the new attempt on the next page are implemented
-  ([Background execution](architecture.md#background-execution)). Still to do:
-  generating for a page where no recipe starts (the service keeps one generated recipe
-  per start path; the extension's trigger is next), and naming `accountSwitch`
+  ([Background execution](architecture.md#background-execution)), and a page where no
+  recipe starts is offered for generation (the service keeps one generated recipe per
+  start path). Still to do: naming `accountSwitch`
   (including link text) in the extractor and the generator.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
@@ -1095,8 +1147,6 @@ support for every site or vault format. Keep observed limitations explicit.
 
 ## Decisions still requiring evidence
 
-- Pick and pin the compatible WXT/Vite/Node/Bun/Vitest/cf combination during M1.
-  Valibot and WXT are fixed choices, not open framework comparisons.
 - Establish the Chrome use ownership/wait mechanism before integrated automation
   claims. If no integration hook exists, document the tested wait protocol and
   remaining races rather than inventing support.
@@ -1112,12 +1162,15 @@ support for every site or vault format. Keep observed limitations explicit.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
   among several URI-matched items, how synced field exclusions
   move to device-independent references, and where custom-field review happens.
-- Settle device enrollment/recovery, credential lifetime, AI pricing sources and
-  the monthly monetary budget default before service deployment. Initial spending
-  control aggregates usage and stops later inference after the limit is reached;
-  in-flight/concurrent requests can overshoot. Atomic maximum-cost reservation is
-  not required. The owner confirmed $200 of monthly Claude API credit; ADR 0014 sets
-  the default limit to $150.
+- Enrollment and device credential lifetime (90 days unused, renewed on use; see
+  [service sync progress](#service-sync-progress)) are settled, and a lost
+  device is replaced by pairing a new one, since the service holds settings and recipes
+  ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Pricing (ADR 0014's $4
+  and $20 per million tokens) and the spending limits are settled: the owner confirmed
+  $200 of monthly Claude API credit, ADR 0014 sets the monthly limit to $100, and the
+  service also stops at $5 a day. Calls run one at a time per owner, and each is charged
+  its maximum cost before it starts and corrected afterwards
+  (`services/api/src/claude/calls.ts`), so a limit is passed by at most one call.
 - Benchmark generation/repair and finite-choice roles separately on the same
   Japanese/English synthetic login corpus. Measure the ADR 0014 Claude configuration for
   generation; Clef-flash, Clef and Jev for decisions are optional later candidates.

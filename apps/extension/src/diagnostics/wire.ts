@@ -118,7 +118,8 @@ export const diagnosticsStatusSchema = v.strictObject({
       debugUntil: v.optional(count),
     }),
   ),
-  checks: v.pipe(v.array(checkSchema), v.maxLength(64)),
+  /** Up to three per connection plus the build, service, recipe and log checks. */
+  checks: v.pipe(v.array(checkSchema), v.maxLength(256)),
 });
 export type DiagnosticsStatus = v.InferOutput<typeof diagnosticsStatusSchema>;
 

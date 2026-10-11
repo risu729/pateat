@@ -22,8 +22,8 @@ export const MAX_OUTPUT_TOKENS = 8_192;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const CLAUDE_CALL_LIMITS = {
-  /** $150 a month (ADR 0014), estimated from returned usage. */
-  monthlyMicroUsd: 150_000_000,
+  /** $100 a month (ADR 0014), estimated from returned usage. */
+  monthlyMicroUsd: 100_000_000,
   /** $5 a day (UTC), counting generation and judgement alike (owner decision, 2026-10-11). */
   dailyMicroUsd: 5_000_000,
   /** Longer than the token exchange and the model timeout together. */

@@ -175,10 +175,13 @@ export function createServiceTransport(
     const parsed = v.safeParse(errorSchema, body);
     return parsed.success ? parsed.output.error : undefined;
   }
-  /** Either 401 code means the service no longer accepts this credential. */
+  /** Each of these 401 codes means the service no longer accepts this credential. */
   function rejected(response: { status: number; body: unknown }) {
     const code = errorCode(response.body);
-    return response.status === 401 && (code === "unauthorized" || code === "device_revoked");
+    return (
+      response.status === 401 &&
+      (code === "unauthorized" || code === "device_revoked" || code === "device_expired")
+    );
   }
 
   return {

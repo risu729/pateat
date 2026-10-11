@@ -7,9 +7,8 @@ routes are implemented ([API README](../../services/api/README.md#recipe-generat
 The extension sends a recipe's first page and the page after its final submission;
 continuing a recipe on the page after an `advance` step is not implemented yet.
 Its one generated recipe per origin is amended to one per start path by
-[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts); the service
-implements that, and the extension does not yet send pages of an origin that has
-another recipe.
+[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts), which the
+service and the extension implement.
 
 Date: 2026-10-11
 
@@ -57,7 +56,7 @@ The route follows from these and from ADRs 0013 to 0016:
   appended to the same recipe in a new revision.
 - The extension writes the slot-to-field bindings itself and uploads them with settings
   sync; the service never sees item IDs.
-- Limits per owner: $150 a month (the ADR 0014 default, estimated from returned usage
+- Limits per owner: $100 a month (the ADR 0014 default, estimated from returned usage
   and a versioned price table), $5 a day (UTC), one call at a time, and the ADR 0016
   24-hour rule per origin and path, enforced again on the service. The owner replaced
   the first limit of 50 calls a day with the daily amount on 2026-10-11.

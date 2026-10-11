@@ -1,11 +1,8 @@
 # Proposed architecture
 
-Status: accepted reference design. The foundation implements local metadata-only policy
-settings, status contracts, a localhost-only synthetic executor probe and a
-device-authenticated settings/recipe sync Worker with Access-verified device enrollment
-that has not been tried against a real Access application. The
-capabilities below remain planned unless [the plan](plan.md) records their
-implementation and evidence.
+Status: accepted reference design. Sections with their own status line say what is
+implemented; otherwise the capabilities below remain planned unless
+[the plan](plan.md) records their implementation and evidence.
 
 ## Product boundary
 
@@ -379,8 +376,10 @@ sites with host access and needs a cached recipe for the exact origin before any
 or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also
 needs the tab's page admitted, and its account must match the tab's URL as well as the
 frame's ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe
-generation: a tab's own page without a recipe that shows a login field within 10 seconds
-and has a vault URI match is observed and sent at most once a day per origin and path
+generation: a tab's own page on whose path no recipe starts that shows a login field
+within 10 seconds and has a vault URI match is observed and sent at most once a day per
+origin and path, unless the tab holds an attempt record other than an account switch on
+that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
 recipe cache and starts at once; after its final submission the resulting page is sent
 once to learn its completion ([ADR 0018](adr/0018-recipe-generation-route.md)).
@@ -513,7 +512,8 @@ that exact page URL and returns a value-free summary
 
 - the manifest version with the build revision (`PATEAT_REVISION` in CI, otherwise the
   checkout's `git rev-parse HEAD`), build mode, the pinned Bitwarden SDK version and the
-  Bitwarden protocol label; the page adds the Chrome version and install type;
+  Bitwarden protocol label; the page adds the Chrome version and install type
+  (`development` is shown as `unpacked install (development)`);
 - the platform, granted API permissions, the manifest's host patterns (other granted
   origins are only counted) and the toolbar icon state;
 - per Bitwarden connection, an HMAC pseudonym of its ID (`bitwarden:5c1e9a`, keyed by a
@@ -525,9 +525,13 @@ that exact page URL and returns a value-free summary
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
 - setting counts, `storage.local` usage, the log's size and debug state, and checks
-  for site access, the crypto host, each vault cache and sync sign-in, service
+  for site access, the crypto host, each vault cache and sync sign-in
+  (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
+  the token, and info without it, since Sync needs the stored unlock key), the vault
+  copy's age (info, since the vault syncs only from the settings page), service
   reachability, clock skew over 30 s against the service `Date` header, a recipe sync
-  older than 24 hours and errors logged in the last 24 hours.
+  older than 24 hours and errors logged in the last 24 hours. Reworded states keep the
+  raw code in parentheses.
 
 The worker fetches `/health` only for a paired service with site access. **Copy for bug
 report** shows the exact text before copying it; that text leaves out the unlock KDF.
@@ -740,14 +744,14 @@ OIDC/passkey authentication is a later adapter. Self-hosting is the target, but
 owner-scoped data allows other operators to serve multiple users later.
 
 Enrollment pairs a device with a verified owner through setup. Store only hashed
-revocable high-entropy device credentials server-side; scope every query and
-write by verified owner/device. CORS is not authentication. No shared universal
-credential is shipped in the extension. Enrollment transport, expiry, and recovery
-are a pre-service acceptance gate, not an invented finished authentication flow.
-Separate Access-protected enrollment from device-authenticated API routes: a
-device token does not automatically pass an Access gate. Steady-state API access
-must not require an interactive Access cookie for each call. Service login does
-not authenticate or unlock a vault.
+revocable high-entropy device credentials server-side; scope every query and write by
+verified owner/device. CORS is not authentication. No shared universal credential is
+shipped in the extension. Enrollment is implemented and deployed
+([device enrollment](#device-enrollment)), and credentials expire after 90 days unused.
+Separate Access-protected enrollment from device-authenticated API routes: a device
+token does not automatically pass an Access gate. Steady-state API access must not
+require an interactive Access cookie for each call. Service login does not authenticate
+or unlock a vault.
 
 Initial synced settings are server-readable so service login can restore them
 without another recovery key. E2EE settings sync is a later option. Provider
@@ -782,13 +786,41 @@ Use a monthly USD limit initially; select the default amount during service
 implementation. Timeouts, request limits, bounded retries and sanitized
 diagnostics remain necessary.
 
+### Service limits
+
+Status: implemented. The owner asked on 2026-10-11 for common-sense per-owner limits
+sized for their own use; Claude chose these amounts. Revisit them, and add a byte
+quota, before the service is offered to other people.
+
+- Requests. The `OWNER_LIMITER` rate-limit binding allows 120 requests a minute per
+  owner on `/v1`, counting all of the owner's devices together, and 120 a minute per
+  verified Access identity on `/manage/api`. The check runs right after authentication
+  and before any body is read; a refused request gets 429 `rate_limited` with
+  `Retry-After: 60`. The hosted limiter is approximate and counts per Cloudflare
+  location. `/redeem` keeps its own 10 a minute per client address. Recipe generation
+  is also bounded by spend and one call at a time
+  ([ADR 0018](adr/0018-recipe-generation-route.md)).
+- Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
+  republishing a tombstone beyond that answers 409 `recipe_limit`; updating or revoking
+  an active recipe always works, and a revocation frees its place. Generation answers
+  `unavailable` with `recipe-limit` before any model call when a first page would add a
+  recipe, or after the call if the last place was taken meanwhile.
+- Recipe history. Each recipe keeps its newest 10 revisions; a winning write deletes
+  older ones in the same D1 batch, and a revocation keeps only the tombstone. Nothing
+  reads older revisions. At the 128 KiB body limit this bounds an owner's active recipes
+  to about 1.2 GiB; generated recipes are a few KiB each. Tombstones are not counted:
+  each is two small rows and one change-feed entry, left for the later byte quota.
+- Unchanged. Settings are one document of at most 120 KiB per owner. The inference
+  request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
+  counted: each pairing needs an interactive Access login.
+
 ### Device enrollment
 
 Status: the typed-code flow below is implemented and deployed, and the owner paired a
 real Chrome through Access with it on 2026-10-11. Direct pairing
-([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; it is not
-implemented yet. Both satisfy the separation above without a cookie on steady-state
-API calls.
+([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; so far only
+the fixed production extension ID is implemented. Both satisfy the separation above
+without a cookie on steady-state API calls.
 
 - Route families. One Access application covers the whole service host, so a new route
   is protected by default (owner decision, 2026-10-11). A second, more specific Access
@@ -822,25 +854,33 @@ API calls.
   unknown verifiers return the same response. The owner chose direct pairing over
   `chrome.identity.launchWebAuthFlow`, which would add the `identity` permission
   ([ADR 0020](adr/0020-direct-device-pairing.md)).
-- Lifetime and recovery. Credentials stay valid until revoked; an idle expiry is
-  an open decision. The Access-protected management page lists and revokes the
-  owner's devices, and a device can revoke itself on sign-out. A lost device is
+- Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
+  each authenticated use renews it; there is no absolute lifetime and no rotation (owner
+  decision, 2026-10-11). The service records a device's last use at most once a day
+  with a conditional update, so the recorded time can lag by up to a day and a device
+  can expire up to a day before 90 days of real non-use. An expired
+  credential gets 401 `device_expired`, which the extension handles like a revoked
+  device: it stops syncing and asks for a new pairing. A revoked device keeps getting
+  `device_revoked`. The Access-protected management page lists the owner's devices
+  with their last use, marks expired ones, and revokes devices; a device can revoke
+  itself on sign-out. A lost device is
   revoked from another Access login and a replacement re-enrolls. Revocation stops
   later requests; a request already authenticated may still complete. It stops
   service access only and neither erases offline caches nor touches any vault.
 
 Local tests cover signature, issuer, audience, expiry and subject checks, approval
 CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
-cleanup of stale approvals, cross-owner management and self-revocation. JWT
-verification worked against the real Access application when the owner paired on
-2026-10-11. Still open: the credential idle-expiry decision.
+cleanup of stale approvals, cross-owner management, self-revocation, and credential
+idle expiry with its daily renewal. JWT verification worked against the real Access
+application when the owner paired on 2026-10-11. Credential idle expiry has local
+tests only so far.
 
 ### Owner web UI
 
-Status: design approved by the owner on 2026-10-11. The app, its Access-checked
-assets and API, and the devices, sites, account bindings and recipes pages are
-implemented and tested locally. It replaces the extension's settings page for the data
-the service holds
+Status: design approved by the owner on 2026-10-11. The app, its Access-checked assets
+and API, and the devices, sites, account bindings and recipes pages are implemented,
+tested locally and deployed with the service. It replaces the extension's settings page
+for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the

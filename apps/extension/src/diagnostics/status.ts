@@ -7,6 +7,7 @@ import type { SetupReply } from "../connections/types";
 import type { VaultEntry, VaultResult } from "../vault/record";
 import type { LogSummary } from "./log";
 import type { Pseudonyms } from "./pseudonym";
+import { age, syncSignIn } from "./labels";
 import type {
   DiagnosticsCheck,
   DiagnosticsConnection,
@@ -249,7 +250,7 @@ async function service(
   return result;
 }
 
-function connectionChecks(item: DiagnosticsConnection): DiagnosticsCheck[] {
+function connectionChecks(item: DiagnosticsConnection, now: number): DiagnosticsCheck[] {
   const vault: DiagnosticsCheck = item.storageError
     ? { id: `vault:${item.id}`, level: "error", detail: `${item.id} ${item.storageError}` }
     : item.state === "review-required" || item.state === "unavailable"
@@ -257,17 +258,40 @@ function connectionChecks(item: DiagnosticsConnection): DiagnosticsCheck[] {
       : item.state === "disabled"
         ? { id: `vault:${item.id}`, level: "info", detail: `${item.id} disabled` }
         : { id: `vault:${item.id}`, level: "ok", detail: `${item.id} vault cache ${item.state}` };
+  // Sync needs the stored unlock key, so an expired token renews only with auto-unlock on.
   const session: DiagnosticsCheck =
-    item.providerSession === "active" || item.providerSession === "refresh-required"
-      ? { id: `sync:${item.id}`, level: "ok", detail: `${item.id} sync sign-in active` }
+    item.providerSession === "active" ||
+    (item.providerSession === "refresh-required" && item.autoUnlock === "enabled")
+      ? {
+          id: `sync:${item.id}`,
+          level: "ok",
+          detail: `${item.id} ${syncSignIn(item.providerSession)}`,
+        }
       : item.state === "disabled"
         ? { id: `sync:${item.id}`, level: "info", detail: `${item.id} sync sign-in not used` }
-        : {
-            id: `sync:${item.id}`,
-            level: "warn",
-            detail: `${item.id} sync sign-in ${item.providerSession}`,
-          };
-  return [vault, session];
+        : item.providerSession === "refresh-required"
+          ? {
+              id: `sync:${item.id}`,
+              level: "info",
+              detail: `${item.id} ${syncSignIn(item.providerSession)}; Sync needs auto-unlock`,
+            }
+          : {
+              id: `sync:${item.id}`,
+              level: "warn",
+              detail: `${item.id} ${syncSignIn(item.providerSession)}`,
+            };
+  // The vault syncs only from the settings page, so an old copy is expected, not a fault.
+  const synced: DiagnosticsCheck[] =
+    item.acceptedAt === undefined
+      ? []
+      : [
+          {
+            id: `vault-age:${item.id}`,
+            level: "info",
+            detail: `${item.id} vault synced ${age(now - item.acceptedAt)} ago (Sync from settings only)`,
+          },
+        ];
+  return [vault, session, ...synced];
 }
 
 function serviceChecks(value: DiagnosticsStatus["service"], now: number): DiagnosticsCheck[] {
@@ -352,7 +376,7 @@ export async function collectDiagnostics(
     ...(setup?.ok
       ? []
       : [{ id: "connections", level: "error", detail: "connections unreadable" } as const]),
-    ...connections.flatMap(connectionChecks),
+    ...connections.flatMap((item) => connectionChecks(item, collectedAt)),
     ...serviceChecks(serviceStatus, collectedAt),
     !logs
       ? { id: "logs", level: "error", detail: "logs unreadable" }
