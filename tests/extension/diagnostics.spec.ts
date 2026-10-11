@@ -131,26 +131,27 @@ test("a connection appears under a stable pseudonym and its KDF stays out of the
     for (const absent of [v1Email, "Synthetic vault", accepted.connectionId, accepted.snapshotId])
       expect(saved).not.toContain(absent);
 
-    // Only the exact diagnostics page may ask for the summary.
-    expect(
-      await options
-        .evaluate(async () => {
-          const scope = globalThis as unknown as {
-            chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
-          };
-          try {
-            return (
-              (await scope.chrome.runtime.sendMessage({
-                version: 1,
-                type: "diagnostics.status",
-              })) !== undefined
-            );
-          } catch {
-            return false;
-          }
-        })
-        .catch(() => false),
-    ).toBe(false);
+    // Only the exact diagnostics page may ask for the summary or touch the logs.
+    for (const request of [
+      { version: 1, type: "diagnostics.status" },
+      { version: 1, type: "diagnostics.logs.export", includeSites: true },
+      { version: 1, type: "diagnostics.logs.clear" },
+    ])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- one request at a time, each must fail
+        await options
+          .evaluate(async (message) => {
+            const scope = globalThis as unknown as {
+              chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
+            };
+            try {
+              return (await scope.chrome.runtime.sendMessage(message)) !== undefined;
+            } catch {
+              return false;
+            }
+          }, request)
+          .catch(() => false),
+      ).toBe(false);
 
     // The pseudonym key persists, so the same connection keeps its name after a restart.
     const reopened = await open();

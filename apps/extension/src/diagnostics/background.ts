@@ -32,6 +32,15 @@ const QUIET_REFUSALS: ReadonlySet<string> = new Set([
   "generating",
 ]);
 
+/** Unhandled errors share one rate-limit window; its origin is not logged. */
+const ERROR_SOURCE = { tabId: -1, origin: "" };
+/** States worth an entry even the first time a worker sees a connection. */
+const WARN_STATES: ReadonlySet<string> = new Set([
+  "unavailable",
+  "review-required",
+  "reauthentication-required",
+]);
+
 const recipeCacheOriginsSchema = v.looseObject({
   recipes: v.array(v.looseObject({ origin: v.string() })),
 });
@@ -71,13 +80,20 @@ export function createDiagnosticsLog(options: {
 
   const scope = options.scope ?? globalThis;
   const unhandled = (source: "error" | "rejection", error: unknown) =>
-    void logger.log("error.unhandled", {
-      source,
-      name: error instanceof Error ? error.name : typeof error,
-      message:
-        error instanceof Error && KNOWN_ERROR_CODES.has(error.message) ? error.message : undefined,
-      stack: error instanceof Error ? stackPositions(error.stack) : undefined,
-    });
+    void logger.log(
+      "error.unhandled",
+      {
+        source,
+        name: error instanceof Error ? error.name : typeof error,
+        message:
+          error instanceof Error && KNOWN_ERROR_CODES.has(error.message)
+            ? error.message
+            : undefined,
+        stack: error instanceof Error ? stackPositions(error.stack) : undefined,
+      },
+      // A fault a page can repeat must not fill the warning and error allowance.
+      { source: ERROR_SOURCE },
+    );
   scope.addEventListener("error", (event) => unhandled("error", (event as ErrorEvent).error));
   scope.addEventListener("unhandledrejection", (event) =>
     unhandled("rejection", (event as PromiseRejectionEvent).reason),
@@ -106,13 +122,13 @@ export function createDiagnosticsLog(options: {
         prior.providerSession === entry.providerSession
       )
         continue;
-      const level: LogLevel = !prior
-        ? "debug"
-        : entry.state === "unavailable" ||
-            entry.state === "review-required" ||
-            entry.providerSession === "reauthentication-required"
+      // A worker restarts often, so a warning state is logged even at its first sight.
+      const level: LogLevel =
+        WARN_STATES.has(entry.state) || WARN_STATES.has(entry.providerSession)
           ? "warn"
-          : "info";
+          : prior
+            ? "info"
+            : "debug";
       void logger.log(
         "vault.state",
         {

@@ -73,7 +73,6 @@ export const LOG_EVENTS = {
       state: "code",
       previous: "code",
       providerSession: "code",
-      storageError: "code",
       synced: "flag",
     },
   },
@@ -208,6 +207,8 @@ export type LogSummary = {
 };
 
 const KNOWN_SITES_TTL_MS = MINUTE_MS;
+const MAX_WINDOWS = 500;
+const OVERFLOW_WINDOW = "overflow";
 const BUILD_KEY = "previous-build";
 const DEBUG_KEY = "debug-until";
 
@@ -222,11 +223,16 @@ function hostMatches(hostname: string, sites: KnownSites): boolean {
 /** Script positions inside this extension, without its ID; anything else is left out. */
 export function stackPositions(stack: unknown): string | undefined {
   if (typeof stack !== "string") return undefined;
-  const positions = [
-    ...stack.matchAll(/chrome-extension:\/\/[a-p]{32}\/(?:[\w-]+\/)*([\w.-]+\.js):(\d+):(\d+)/gu),
-  ]
-    .slice(0, 5)
-    .map(([, file, line, column]) => `${file}:${line}:${column}`);
+  // Only V8 frame lines; the first line carries the message, which may quote input.
+  const positions = stack
+    .split("\n")
+    .filter((line) => /^\s+at /u.test(line))
+    .flatMap((line) => {
+      const match =
+        /chrome-extension:\/\/[a-p]{32}\/(?:[\w-]+\/)*([\w.-]+\.js):(\d+):(\d+)\)?$/u.exec(line);
+      return match ? [`${match[1]}:${match[2]}:${match[3]}`] : [];
+    })
+    .slice(0, 5);
   return positions.length ? positions.join(" ") : undefined;
 }
 
@@ -247,8 +253,10 @@ export function createLogger(deps: LoggerDependencies) {
   let sites: { at: number; value: Promise<KnownSites> } | undefined;
   const windows = new Map<
     string,
-    { start: number; count: number; dropped: number; origin: string }
+    { start: number; count: number; dropped: number; reported: number; origin: string }
   >();
+  // The debug deadline once read, so a debug event can be skipped without queueing.
+  let knownDebugUntil: number | undefined;
 
   function open(): Promise<IDBDatabase> {
     database ??= openDiagnosticsDatabase(factory, name).then((opened) => {
@@ -292,7 +300,8 @@ export function createLogger(deps: LoggerDependencies) {
   function debugDeadline(): Promise<number> {
     debugUntil ??= meta(DEBUG_KEY, integer)
       .then((value) => value ?? 0)
-      .catch(() => 0);
+      .catch(() => 0)
+      .then((value) => (knownDebugUntil = value));
     return debugUntil;
   }
 
@@ -371,30 +380,51 @@ export function createLogger(deps: LoggerDependencies) {
     await write(entry);
   }
 
-  /** Counts a page-caused event against its tab and origin; false when over the limit. */
-  function admit(source: { tabId: number; origin: string }): boolean {
+  /** Logs drops not yet counted: for windows that have ended, or for all with `all`. */
+  function flushDrops(all = false): void {
     const at = now();
-    const key = `${source.tabId}\u0000${source.origin}`;
-    let window = windows.get(key);
-    if (!window || at - window.start >= MINUTE_MS) {
-      const ended = window;
-      // Queued behind the event being admitted, which is already running.
-      if (ended?.dropped)
+    for (const [key, window] of windows) {
+      const ended = at - window.start >= MINUTE_MS;
+      if (!ended && !all) continue;
+      const pending = window.dropped - window.reported;
+      if (pending > 0) {
+        window.reported = window.dropped;
         void serial(() =>
-          record("log.dropped", { origin: ended.origin, count: ended.dropped }, "warn"),
+          record("log.dropped", { origin: window.origin, count: pending }, "warn"),
         ).catch(() => undefined);
-      if (windows.size >= 500)
-        for (const [stale, entry] of windows)
-          if (at - entry.start >= MINUTE_MS) windows.delete(stale);
-      window = { start: at, count: 0, dropped: 0, origin: source.origin };
+      }
+      if (ended) windows.delete(key);
+    }
+  }
+
+  /**
+   * Counts a page-caused event against its tab and origin; false when over the limit.
+   * The first drop in a window is logged at once, since a stopped worker loses the rest.
+   */
+  function admit(source: { tabId: number; origin: string }): boolean {
+    flushDrops();
+    const at = now();
+    let key = `${source.tabId}\u0000${source.origin}`;
+    // Pages that open many tabs or origins share one window once too many are open.
+    if (!windows.has(key) && windows.size >= MAX_WINDOWS) key = OVERFLOW_WINDOW;
+    let window = windows.get(key);
+    if (!window) {
+      window = {
+        start: at,
+        count: 0,
+        dropped: 0,
+        reported: 0,
+        origin: key === OVERFLOW_WINDOW ? "" : source.origin,
+      };
       windows.set(key, window);
     }
-    if (window.count >= PAGE_EVENTS_PER_MINUTE) {
-      window.dropped += 1;
-      return false;
+    if (window.count < PAGE_EVENTS_PER_MINUTE) {
+      window.count += 1;
+      return true;
     }
-    window.count += 1;
-    return true;
+    window.dropped += 1;
+    if (window.dropped === 1) flushDrops(true);
+    return false;
   }
 
   /**
@@ -407,14 +437,12 @@ export function createLogger(deps: LoggerDependencies) {
     options: { level?: LogLevel; source?: { tabId: number; origin: string } } = {},
   ): Promise<void> {
     const level = options.level ?? LOG_EVENTS[event].level;
-    const { source } = options;
+    // Checked before queueing, so a stalled database cannot collect page events.
+    if (level === "debug" && knownDebugUntil !== undefined && now() >= knownDebugUntil)
+      return Promise.resolve();
+    if (options.source && !admit(options.source)) return Promise.resolve();
     // A log failure never changes what the caller does.
-    return serial(async () => {
-      // Unrecorded debug events do not count against a page's allowance.
-      if (level === "debug" && now() >= (await debugDeadline())) return;
-      if (source && !admit(source)) return;
-      await record(event, fields, level);
-    }).catch(() => undefined);
+    return serial(() => record(event, fields, level)).catch(() => undefined);
   }
 
   async function deleteOldest(
@@ -447,6 +475,7 @@ export function createLogger(deps: LoggerDependencies) {
 
   /** Applies the retention rules: age first, then the per-allowance entry limits. */
   async function prune(): Promise<void> {
+    flushDrops();
     const at = now();
     const opened = await open();
     const transaction = opened.transaction(ENTRIES_STORE, "readwrite");
@@ -530,7 +559,10 @@ export function createLogger(deps: LoggerDependencies) {
       const since = now() - 24 * HOUR_MS;
       return {
         entries: all.length,
-        bytes: all.reduce((total, entry) => total + JSON.stringify(entry).length, 0),
+        bytes: all.reduce(
+          (total, entry) => total + new TextEncoder().encode(JSON.stringify(entry)).byteLength,
+          0,
+        ),
         recentErrors: all.filter((entry) => entry.level === "error" && entry.time >= since).length,
         ...(until > now() ? { debugUntil: until } : {}),
       };
@@ -553,6 +585,7 @@ export function createLogger(deps: LoggerDependencies) {
         const until = now() + DEBUG_LOGGING_MS;
         await putMeta(DEBUG_KEY, until);
         debugUntil = Promise.resolve(until);
+        knownDebugUntil = until;
         await record("log.debug", { until }, "info");
         return until;
       }),

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "../options/button";
 import { formatReport, shortRevision, utcMinute, type BrowserInfo } from "./report";
 import type {
@@ -198,15 +198,22 @@ function Logs({
   message: string;
   setMessage: (message: string) => void;
 }) {
-  const [includeSites, setIncludeSites] = useState(false);
-  const [preview, setPreview] = useState<string>();
+  // The text and the choice it was exported with, so the checkbox never disagrees with it.
+  const [preview, setPreview] = useState<{ text: string; includeSites: boolean }>();
+  // The choice being exported; Save waits for it.
+  const [pending, setPending] = useState<boolean>();
+  const latest = useRef(0);
   const [confirmClear, setConfirmClear] = useState(false);
   const { logs } = status;
-  async function open(sites: boolean) {
-    setIncludeSites(sites);
-    const response = await client.exportLogs(sites).catch(() => undefined);
+  async function open(includeSites: boolean) {
+    const request = (latest.current += 1);
+    setPending(includeSites);
+    const response = await client.exportLogs(includeSites).catch(() => undefined);
+    // Only the newest export is shown; an earlier, slower one is ignored.
+    if (request !== latest.current) return;
+    setPending(undefined);
     if (response?.ok) {
-      setPreview(response.text);
+      setPreview({ text: response.text, includeSites });
       setMessage("");
     } else {
       setPreview(undefined);
@@ -230,7 +237,7 @@ function Logs({
         </Row>
       </dl>
       <div className="mb-4 flex flex-wrap gap-3">
-        <Button id="download-logs" type="button" onClick={() => void open(includeSites)}>
+        <Button id="download-logs" type="button" onClick={() => void open(false)}>
           Download logs
         </Button>
         <Button
@@ -263,6 +270,8 @@ function Logs({
                 .catch(() => undefined)
                 .then((response) => {
                   setConfirmClear(false);
+                  latest.current += 1;
+                  setPending(undefined);
                   setPreview(undefined);
                   setMessage(response?.ok ? "Logs cleared." : "Unable to clear the logs.");
                   changed();
@@ -292,26 +301,35 @@ function Logs({
             <input
               id="include-sites"
               type="checkbox"
-              checked={includeSites}
+              checked={pending ?? preview.includeSites}
               onChange={(event) => void open(event.target.checked)}
             />
             Include site addresses and recipe IDs
           </label>
           <pre id="logs-preview" className="max-h-96 overflow-auto text-xs whitespace-pre-wrap">
-            {preview}
+            {preview.text}
           </pre>
           <div className="flex flex-wrap gap-3">
             <Button
               id="save-logs"
               type="button"
+              disabled={pending !== undefined}
               onClick={() => {
-                client.download(preview, logFilename(Date.now()));
-                setMessage("Saved.");
+                client.download(preview.text, logFilename(Date.now()));
+                setMessage("Download started.");
               }}
             >
               Save file
             </Button>
-            <Button type="button" variant="outline" onClick={() => setPreview(undefined)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                latest.current += 1;
+                setPending(undefined);
+                setPreview(undefined);
+              }}
+            >
               Close
             </Button>
           </div>

@@ -49,7 +49,7 @@ async function replaceKey(factory: IDBFactory, name: string): Promise<CryptoKey>
 }
 
 export type Pseudonyms = ((kind: string, value: string, hexLength: number) => Promise<string>) & {
-  /** Starts a new key; clearing the logs uses it. */
+  /** Starts a new key; clearing the logs uses it. Rejects if the new key was not stored. */
   rotate(): Promise<void>;
 };
 
@@ -78,8 +78,10 @@ export function createPseudonyms(
   };
   return Object.assign(pseudonym, {
     async rotate() {
-      key = replaceKey(factory, name).catch(() => generateKey());
-      await key;
+      const replaced = replaceKey(factory, name);
+      key = replaced.catch(() => generateKey());
+      // The caller learns that the old stored key could not be replaced.
+      await replaced;
     },
   });
 }

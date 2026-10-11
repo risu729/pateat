@@ -515,7 +515,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | --- | --- | --- |
 | `runtime.started` | debug | build revision |
 | `runtime.updated` | info | previous and new build revision, version |
-| `vault.state` | debug at the first sight in a worker, then info; warn for `unavailable`, `review-required` or `reauthentication-required` | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
+| `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
 | `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
@@ -527,12 +527,15 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
 when a site default, binding, excluded site or cached recipe names it; any other
-becomes `origin:7d2b91aa` or `rp:7d2b91aa`. Login and passkey events are limited to 20
-per minute per tab and origin; the next accepted event's window records the excess as
-`log.dropped`. `debug` entries are written only for 24 hours after **Enable debug
-logging**. Retention: 14 days; `debug` entries for 24 hours; at most 5,000 `debug` and
-`info` entries (oldest `debug` first, then `info`) and 1,000 `warn` and `error`
-entries, pruned at worker start and every 500 writes.
+becomes `origin:7d2b91aa` or `rp:7d2b91aa`. Login, recipe generation and passkey
+events are limited to 20 per minute per tab and origin, and unhandled errors to 20 per
+minute in all. The first event dropped in a window is logged at once as `log.dropped`
+with `count: 1`; the rest are counted when the window ends and the next event or prune
+runs, so a worker that stops first loses only that remainder. `debug` entries are
+written only for 24 hours after **Enable debug logging**. Retention: 14 days; `debug`
+entries for 24 hours; at most 5,000 `debug` and `info` entries (oldest `debug` first,
+then `info`) and 1,000 `warn` and `error` entries, pruned at worker start and every 500
+writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug`, accepted from the same page URL

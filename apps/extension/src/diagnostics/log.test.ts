@@ -137,14 +137,18 @@ describe("diagnostics log", () => {
       { origin: source.origin, reason: "origin-busy" },
       { source: { ...source, tabId: 5 } },
     );
-    expect(await logger.entries()).toHaveLength(PAGE_EVENTS_PER_MINUTE + 1);
+    // The first drop is logged at once, in case the worker stops before the window ends.
+    const first = await logger.entries();
+    expect(first).toHaveLength(PAGE_EVENTS_PER_MINUTE + 2);
+    expect(
+      first.filter((entry) => entry.event === "log.dropped").map((entry) => entry.fields),
+    ).toEqual([{ origin: source.origin, count: 1 }]);
     advance(60_000);
     await logger.log("login.refused", { origin: source.origin, reason: "tab-busy" }, { source });
-    await logger.prune();
     const entries = await logger.entries();
     expect(entries.slice(-2).map((entry) => [entry.event, entry.fields])).toEqual([
+      ["log.dropped", { origin: source.origin, count: 4 }],
       ["login.refused", { origin: source.origin, reason: "tab-busy" }],
-      ["log.dropped", { origin: source.origin, count: 5 }],
     ]);
   });
 
@@ -177,6 +181,34 @@ describe("diagnostics log", () => {
     await logger.prune();
     expect((await logger.entries()).map((entry) => entry.event)).not.toContain("log.debug");
     expect(await logger.entries()).toHaveLength(5);
+  });
+
+  it("expires debug entries after 24 hours", async () => {
+    const { logger, advance } = setup();
+    await logger.enableDebug();
+    await logger.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    await logger.log("service.sync", { outcome: "rejected" }, { level: "warn" });
+    advance(DEBUG_LOGGING_MS + 1);
+    await logger.prune();
+    expect((await logger.entries()).map((entry) => entry.level)).toEqual(["info", "warn"]);
+  });
+
+  it("keeps the pseudonym key of a version 1 database and adds the log store", async () => {
+    const databaseName = `log-test-${crypto.randomUUID()}`;
+    await new Promise<void>((resolve, reject) => {
+      const opening = indexedDB.open(databaseName, 1);
+      opening.onupgradeneeded = () => opening.result.createObjectStore("meta");
+      opening.onsuccess = () => {
+        opening.result.close();
+        resolve();
+      };
+      opening.onerror = () => reject(new Error("open failed"));
+    });
+    // Stores the key in the version 1 layout, as the diagnostics page did before logs.
+    const before = await createPseudonyms({ databaseName })("connection", "one", 6);
+    const { logger } = setup({ databaseName, pseudonym: createPseudonyms({ databaseName }) });
+    await logger.log("vault.state", { connection: "one", state: "ready" });
+    expect((await logger.entries())[0]?.fields["connection"]).toBe(`bitwarden:${before}`);
   });
 
   it("logs an update when the build revision changes", async () => {
@@ -331,12 +363,81 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs a warning state the first time a worker sees a connection", async () => {
+    let state: "ready" | "unavailable" = "unavailable";
+    let snapshotId = "snapshot-1";
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({
+        ok: true,
+        kind: "status",
+        connections: [
+          {
+            connectionId: "connection-secret-id",
+            label: "Personal vault",
+            email: "owner@example.com",
+            environment: { kind: "cloud", region: "us" },
+            autoUnlock: "enabled",
+            state,
+            providerSession: "active",
+            snapshotId,
+          },
+        ],
+      }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    log.vaultStateMayChange();
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(1));
+    state = "ready";
+    snapshotId = "snapshot-2";
+    log.vaultStateMayChange();
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    const entries = await log.logger.entries();
+    expect(entries.map((entry) => [entry.level, entry.fields])).toEqual([
+      [
+        "warn",
+        {
+          connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u),
+          state: "unavailable",
+          providerSession: "active",
+        },
+      ],
+      [
+        "info",
+        {
+          connection: entries[0]?.fields["connection"],
+          state: "ready",
+          previous: "unavailable",
+          providerSession: "active",
+          synced: true,
+        },
+      ],
+    ]);
+    const serialized = JSON.stringify(entries);
+    for (const secret of ["connection-secret-id", "Personal vault", "owner@example.com"])
+      expect(serialized).not.toContain(secret);
+    vi.restoreAllMocks();
+  });
+
   it("finds positions only inside this extension", () => {
     expect(
       stackPositions(
-        `at a (chrome-extension://${EXTENSION}/background.js:1:2)\nat b (https://site.example/app.js:3:4)`,
+        `Error\n    at a (chrome-extension://${EXTENSION}/background.js:1:2)\n    at b (https://site.example/app.js:3:4)`,
       ),
     ).toBe("background.js:1:2");
     expect(stackPositions("at b (https://site.example/app.js:3:4)")).toBeUndefined();
+    // The message line may quote input that looks like a position.
+    expect(
+      stackPositions(
+        `Error: chrome-extension://${EXTENSION}/secret.js:1:2\n    at https://site.example/app.js:3:4`,
+      ),
+    ).toBeUndefined();
   });
 });
