@@ -2563,8 +2563,7 @@ export function createLoginRuntime(
     await loaded;
     return (
       [...attempts.values()].some(
-        (run) =>
-          current(run) && !terminal(run.metadata) && (run.running || !run.metadata.settled),
+        (run) => current(run) && !terminal(run.metadata) && (run.running || !run.metadata.settled),
       ) || [...persisted.values()].some((metadata) => !terminal(metadata) && !metadata.settled)
     );
   }
