@@ -150,8 +150,11 @@ still open on 2026-10-11.
 
 - Personal data autofill beyond logins: names, addresses, email addresses and password
   generation. The owner asked on 2026-10-11 to research its scope and the existing
-  extensions and record the result. If none fits, building it into Pateat is to be
-  considered.
+  extensions; the
+  [research note](research/2026-10-11-personal-data-autofill.md) recommends deferring
+  it, relying on Chrome's autofill and the official Bitwarden extension, with password
+  generation coming with Bitwarden writes. Reconsider identity and card filling if
+  browser agents stall on sign-up or checkout forms, or Japanese forms keep failing.
 
 ### To consider, not planned
 
