@@ -1033,11 +1033,10 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
-- A Claude baseline on the real-page corpus, then Japanese pages for it. The
-  finite-choice provider is chosen only after that baseline exists. The owner chose on
-  2026-10-11 to run the baseline after the MyJCB generation fix, about five cases at a
-  time with fixes between batches, and to take Japanese pages from both public login
-  pages opened in the owner's Chrome and the request log.
+- Japanese pages for the real-page corpus. The owner chose on 2026-10-11 to take them
+  from both public login pages opened in the owner's Chrome and the request log. The
+  finite-choice provider waited for a Claude baseline, which now exists for the
+  Formasaurus pages (below).
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -1098,6 +1097,31 @@ takes for a login, and two login forms where a "create account" button follows t
 password. The real-page corpus is mostly plain username and password forms, which form
 heuristics already handle; the synthetic corpus holds the bank, decoy and multi-step
 pages where they fail.
+
+The owner approved the Claude baseline on this corpus on 2026-10-11, to run about five
+cases at a time with fixes between batches, once the MyJCB generation fix (#206) was in.
+It ran on main `c409d0a` in 19 batches of five (`--from 0 --count 5` through
+`--from 90`, cap $0.50 each). No batch had a wrong case, so nothing was changed between
+batches:
+
+| Measure | Result |
+| --- | --- |
+| Served models | `claude-opus-5-5` only (effort `low`) |
+| Verdicts (95 cases) | 78 correct, 17 correct abstentions, 0 missed, 0 false submits, 0 failed |
+| Semantic accuracy | 1.0 (95/95) |
+| Abstentions | `no-login-form` 17 |
+| Errors | none |
+| Latency | p50 2,017 ms, p95 3,543 ms (one call per case, no retries) |
+| Usage | 169,256 input and 6,560 output tokens over 95 calls |
+| Estimated cost | $0.808 at $4/$20 per million (about $0.0085 per call) |
+
+Claude gets right the four pages where the heuristic submits wrongly: it abstains on
+the two single-password sign-up pages (formasaurus-62 and -140) and picks the sign-in
+button over "create account" (formasaurus-216 and -739). On this corpus the model's
+margin over the heuristic is those four pages (accuracy 1.0 against 0.958); on the
+synthetic corpus it is 16 against 9 of 16. A page set like this one, mostly plain
+forms, cannot tell a finite-choice model apart from Claude; the synthetic and Japanese
+pages carry that comparison.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
