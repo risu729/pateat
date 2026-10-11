@@ -87,8 +87,24 @@ const builtinFieldIds = {
 } as const;
 const customFieldId = /^custom\.[^.]+\.(\d+)$/;
 
-/** Maps a device-independent reference to this device's current field ID. */
-function resolveField(
+/** An item's custom fields of one name, ordered by their vault index. */
+function sameNameFields(fields: readonly LocalItemField[], name: string): string[] {
+  return fields
+    .flatMap((field) => {
+      const index = customFieldId.exec(field.id)?.[1];
+      return index !== undefined && field.name === name
+        ? [{ id: field.id, index: Number(index) }]
+        : [];
+    })
+    .sort((left, right) => left.index - right.index)
+    .map((field) => field.id);
+}
+
+/**
+ * Maps a device-independent reference to this device's current field ID. A recipe slot's
+ * field can be resolved on its own, for example to ask which slots an item can fill.
+ */
+export function resolveFieldReference(
   reference: VaultFieldReference,
   fields: readonly LocalItemField[],
 ): { fieldId: string } | { reason: FieldRefusal } {
@@ -97,22 +113,15 @@ function resolveField(
     return fields.some((field) => field.id === fieldId) ? { fieldId } : { reason: "field-missing" };
   }
   // Same-name fields are counted over the whole item, ordered by their vault index.
-  const named = fields
-    .flatMap((field) => {
-      const index = customFieldId.exec(field.id)?.[1];
-      return index !== undefined && field.name === reference.custom
-        ? [{ id: field.id, index: Number(index) }]
-        : [];
-    })
-    .sort((left, right) => left.index - right.index);
+  const named = sameNameFields(fields, reference.custom);
   if (reference.position === undefined) {
     if (named.length > 1) return { reason: "field-ambiguous" };
-    return named[0] ? { fieldId: named[0].id } : { reason: "field-missing" };
+    return named[0] ? { fieldId: named[0] } : { reason: "field-missing" };
   }
   // An added or removed duplicate needs review again. Swapping two same-name fields
   // keeps the count and is not detected; ADR 0013 records this limitation.
   if (named.length !== reference.count) return { reason: "field-count-changed" };
-  return { fieldId: named[reference.position - 1]!.id };
+  return { fieldId: named[reference.position - 1]! };
 }
 
 /**
@@ -132,11 +141,29 @@ export function resolveBindingFields(
   }
   const slots: { slot: string; fieldId: string }[] = [];
   for (const entry of binding.slots) {
-    const resolved = resolveField(entry.field, fields);
+    const resolved = resolveFieldReference(entry.field, fields);
     if ("reason" in resolved) return { ok: false, slot: entry.slot, reason: resolved.reason };
     slots.push({ slot: entry.slot, fieldId: resolved.fieldId });
   }
   return { ok: true, slots };
+}
+
+/**
+ * The reference that names one custom field of a live item on every device (ADR 0013),
+ * the inverse of `resolveFieldReference`: its name, with its position and count when the
+ * item has several custom fields of that name, counted over the whole item as resolution
+ * counts them. A built-in, unnamed or unknown field has none.
+ */
+export function customFieldReference(
+  fields: readonly LocalItemField[],
+  fieldId: string,
+): Exclude<VaultFieldReference, string> | undefined {
+  const name = fields.find((field) => field.id === fieldId)?.name;
+  if (!name || !customFieldId.test(fieldId)) return undefined;
+  const named = sameNameFields(fields, name);
+  return named.length === 1
+    ? { custom: name }
+    : { custom: name, position: named.indexOf(fieldId) + 1, count: named.length };
 }
 
 const builtinSlots = new Set<string>(["username", "password", "totp"]);
@@ -170,6 +197,68 @@ export function defaultLoginBinding(
     slots: recipe.slots.map((slot) => ({ slot, field: slot })),
   });
   return binding.success ? binding.output : undefined;
+}
+
+/** Slot references a binding can be built from: another item's binding, or a generated map. */
+export type LoginBindingTemplate = readonly { slot: string; field: VaultFieldReference }[];
+
+/**
+ * Builds an item's binding from templates when it has none saved (ADR 0027): each slot
+ * named `username`, `password` or `totp` reads the item's built-in field of that name,
+ * and every other slot takes the template's reference to a custom field by name. The
+ * templates are tried in order, and the first one whose references all resolve on this
+ * item wins. Without one, the answer is the first resolution refusal, or
+ * `binding-not-found` when no template covers every slot. `slots` is the slot list the
+ * binding must cover; eligibility and exclusions are checked later, as for a saved binding.
+ */
+export function templateLoginBinding(
+  slots: readonly string[],
+  recipe: Pick<LoginRecipe, "id" | "origin">,
+  account: {
+    provider: string;
+    userId: string;
+    itemId: string;
+    itemName: string;
+    /** The chosen vault connection's label. */
+    accountName?: string;
+  },
+  templates: readonly LoginBindingTemplate[],
+  fields: readonly LocalItemField[],
+):
+  | { ok: true; binding: SavedLoginBinding }
+  | { ok: false; reason: "binding-not-found" }
+  | { ok: false; slot: string; reason: FieldRefusal } {
+  let refusal: { ok: false; slot: string; reason: FieldRefusal } | undefined;
+  for (const template of templates) {
+    const references = slots.map((slot) => ({
+      slot,
+      field: builtinSlots.has(slot)
+        ? (slot as "username" | "password" | "totp")
+        : template.find((entry) => entry.slot === slot)?.field,
+    }));
+    if (references.some((entry) => entry.field === undefined)) continue;
+    const bound = references as { slot: string; field: VaultFieldReference }[];
+    const failed = bound.flatMap((entry) => {
+      const resolved = resolveFieldReference(entry.field, fields);
+      return "reason" in resolved ? [{ slot: entry.slot, reason: resolved.reason }] : [];
+    })[0];
+    if (failed) {
+      refusal ??= { ok: false, ...failed };
+      continue;
+    }
+    const { accountName, ...owner } = account;
+    const binding = v.safeParse(savedLoginBindingSchema, {
+      recipeId: recipe.id,
+      origin: recipe.origin,
+      ...owner,
+      // The item and account names are for display only.
+      itemName: (account.itemName || account.itemId).slice(0, 200),
+      ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
+      slots: bound,
+    });
+    if (binding.success) return { ok: true, binding: binding.output };
+  }
+  return refusal ?? { ok: false, reason: "binding-not-found" };
 }
 
 /** Synced bindings are unique per recipe, origin and vault item. */

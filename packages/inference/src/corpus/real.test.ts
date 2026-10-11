@@ -2,7 +2,7 @@ import { loginObservationSchema, semanticSlotsSchema } from "@pateat/contracts";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { validatePagePlan } from "../plan";
-import type { EvaluationCase } from "./cases";
+import { expectedFields, type EvaluationCase } from "./cases";
 import formasaurus from "./formasaurus.json";
 import japanese from "./japanese.json";
 import { japanesePageCorpus, realPageCorpus } from "./real";
@@ -16,10 +16,7 @@ const expectCompleteWithValidTruth = (corpus: EvaluationCase[]) => {
     const slots = v.parse(semanticSlotsSchema, entry.slots);
     if (entry.expected.kind === "abstain") continue;
     const result = validatePagePlan(observation, slots, {
-      fields: Object.entries(entry.expected.fields).map(([slot, candidate]) => ({
-        slot,
-        candidate,
-      })),
+      fields: expectedFields(entry.expected),
       action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
     });
     expect(result.ok, entry.id).toBe(true);

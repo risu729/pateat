@@ -395,18 +395,21 @@ only the one recorded document that was refused for several matches, through
 `login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A vault
 check after a page with a recipe found no matching item likewise reconnects only that
 refused document, once the check applied a new snapshot within ten seconds
-([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static
-content script runs on every HTTPS page and frame; the background admits non-excluded
-sites with host access and needs a cached recipe for the exact origin before any policy
-or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also
-needs the tab's page admitted, and its account must match the tab's URL as well as the
-frame's ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe
-generation: a tab's own page on whose path no recipe starts that shows a login field
-within 10 seconds and has a vault URI match is observed and sent at most once a day per
-origin and path, unless the tab holds an attempt record other than an account switch on
-that origin
-([ADR 0016](adr/0016-recipe-generation-trigger.md)). Just before sending, it reads the
-matching items' usernames for their shape, sent only when all agree. The returned recipe
+([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static content
+script runs on every HTTPS page and frame; the background admits non-excluded sites with
+host access and needs a cached recipe for the exact origin before any policy or vault
+access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the
+tab's page admitted, and its account must match the tab's URL as well as the frame's
+([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
+tab's own page on whose path no recipe starts that shows a login field within 10 seconds
+and has a vault URI match is observed and sent at most once a day per origin and path,
+unless the tab holds an attempt record other than an account switch on that origin
+([ADR 0016](adr/0016-recipe-generation-trigger.md)). The request also offers one slot
+per custom field a matching item allows (Text, Hidden, or Linked with an allowed
+source), named by field name and position, under an opaque ID such as `custom-1`
+([ADR 0027](adr/0027-per-account-login-routes.md)). Just before sending, it reads the
+matching items' usernames and the values of Text fields and Linked fields that read the
+username for their shape, each sent only when all items agree. The returned recipe
 enters the recipe cache and starts at once. A page that an effect step leads to and no
 check explains is sent to be judged, which can learn the completion or a second-factor
 handler ([ADR 0018](adr/0018-recipe-generation-route.md),
@@ -784,8 +787,18 @@ Site recipes contain meanings such as branch-number/account-number/password. Kee
 account-specific bindings separate from recipes. They are stored in the synced settings
 document as references, never credential values, and resolved to values locally. AI
 input may name the allowed vault fields but never carries bindings, item or account IDs
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Signing in to a site
-through Google or Microsoft follows the policy in
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The generation role names
+each custom-field slot it uses with a generic ID in lowercase words (`branch-number`;
+not `username`, `password`, `totp` or a requested slot ID), the recipe stores only that
+ID, and the service answers with `customSlots`, which maps each such ID to the offered
+slot. The extension keeps that mapping as the field names it offered, per service,
+device and recipe, in `chrome.storage.local`. An item without a saved binding then binds
+from another item's saved binding of the recipe, else from that map, and the binding is
+saved after `authenticated` as for built-in slots
+([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). A `hidden`
+slot is filled only into an input the Hidden rule of ADR 0013 accepts; the decision role
+and the heuristic name no custom slot, so they abstain on pages that need one. Signing
+in to a site through Google or Microsoft follows the policy in
 [ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented).
 
 Split inference into independently configured recipe generation/repair and

@@ -77,6 +77,7 @@ function setup(
     service,
     transport,
     storage,
+    slotStorage: { read: async () => undefined, write: async () => undefined },
     sync,
     refresh,
     now: () => now,

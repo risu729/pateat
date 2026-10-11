@@ -29,7 +29,15 @@ export const generatedPlanSchema = v.strictObject({
     v.strictObject({
       decision: v.literal("plan"),
       fields: v.pipe(
-        v.array(v.strictObject({ slot: reference, candidate: reference })),
+        v.array(
+          v.strictObject({
+            slot: reference,
+            candidate: reference,
+            // The generic recipe slot ID for a slot that names a vault field; its pattern is
+            // checked locally (`validatePagePlan`), not in the provider's response format.
+            name: v.optional(reference),
+          }),
+        ),
         v.maxLength(8),
       ),
       action: v.strictObject({
@@ -60,9 +68,15 @@ export const generationInstructions = [
   "and names exactly one button candidate as the page action. Use 'advance' when",
   "the page continues to another step and 'submit' when it sends the credentials.",
   "Use only candidate IDs and slot IDs from the input. Leave out slots that this page does",
-  "not ask for. A slot may name the user's vault field and give its value's shape",
-  "(length, character classes, email form); compare them with element labels and",
-  "length or input-mode constraints. When the page already shows a chosen account, such as",
+  "not ask for. A slot may name the user's vault field (fieldName, with fieldPosition when",
+  "several of the user's fields share that name) and give its value's shape (length,",
+  "character classes, email form); compare them with element labels and length or",
+  "input-mode constraints. A 'hidden' slot is a concealed value such as a PIN. For each",
+  "slot you use that has a fieldName, also return name: a short generic English ID for",
+  "what the page asks for, in lowercase words joined by hyphens, such as branch-number or",
+  "account-number. Never transcribe the vault field name or any account data into name,",
+  "never use username, password, totp or a slot ID from the input, and give no name to a",
+  "slot without a fieldName. When the page already shows a chosen account, such as",
   "a remembered email above a password field, and offers a button or link to use another",
   "account, name that candidate as accountSwitch; otherwise leave accountSwitch out. Never",
   "name the page action, a sign-up, recovery or sign-out control as accountSwitch.",

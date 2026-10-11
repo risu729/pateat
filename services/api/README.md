@@ -180,7 +180,15 @@ a code, or `unavailable` with a reason when no model was called.
   that would exceed the active recipe limit answers `recipe-limit` (before the model
   call, or after it if the last place was taken meanwhile), and a `base` that is not a
   generated recipe ID is 400. The model maps the slots, the plan is checked with
-  `validatePagePlan`, and the steps are stored with a conditional write.
+  `validatePagePlan`, and the steps are stored with a conditional write. Up to 20 slots
+  are accepted; a slot with a `fieldName` (and `fieldPosition` for a duplicate name) is
+  a custom-field offer, and each offer names a different field
+  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). The model gives each
+  offer it uses a generic ID in lowercase words, such as `branch-number`, which the
+  steps store instead of the request's slot ID. The answer that wrote the recipe adds
+  `customSlots: [{ slot, offered }]` for those slots; an answer with a recipe another
+  request stored has none. On a continuation, a generic ID the `base` recipe already
+  uses answers `failed` with `recipe-invalid`.
 - `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, route,
   observation }` for a page an effect step of that revision led to, on the recipe's
   origin

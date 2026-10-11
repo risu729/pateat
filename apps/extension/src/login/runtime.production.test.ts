@@ -2322,15 +2322,18 @@ describe("production login document admission", () => {
         expect(h.store.update).not.toHaveBeenCalled();
       },
     );
-    it("ignores a binding saved for another vault account", async () => {
-      const h = harness({
-        bindings: [{ ...branchBinding, userId: "70000000-0000-4000-8000-000000000002" }],
-      });
-      h.recipes.recipe.mockResolvedValue(branchRecipe);
-      expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
-      expect(h.fields).not.toHaveBeenCalled();
+    it("uses a binding saved for another vault account only as a template", async () => {
+      const other = { ...branchBinding, userId: "70000000-0000-4000-8000-000000000002" };
+      // The template's field name must resolve on this item (ADR 0027).
+      const missing = harness(
+        { bindings: [other] },
+        { custom: [{ name: "Region", kind: "text" }] },
+      );
+      missing.recipes.recipe.mockResolvedValue(branchRecipe);
+      expect(await missing.hello()).toEqual({ ok: false, reason: "field-missing" });
+      expect(missing.fields).not.toHaveBeenCalled();
       expect(executes()).toEqual([]);
-      expect(h.store.update).not.toHaveBeenCalled();
+      expect(missing.store.update).not.toHaveBeenCalled();
     });
   });
   it.each([
@@ -2398,6 +2401,9 @@ describe("production login document admission", () => {
         judge: vi.fn<LoginGeneration["judge"]>(
           implementation.judge ?? (async () => ({ verdict: "unclear" })),
         ),
+        slotFields: vi.fn<LoginGeneration["slotFields"]>(
+          implementation.slotFields ?? (async () => undefined),
+        ),
       };
     }
     const uris = async () => ({ ok: true as const, data: uriMatch() });
@@ -2406,7 +2412,14 @@ describe("production login document admission", () => {
     it("sends a matching sign-in page for generation and runs the returned recipe", async () => {
       fake.state.extracted = { login: loginPage };
       const service = generation();
-      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      // An item without custom fields offers only built-in slots.
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+      });
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.firstSteps.mockResolvedValue([]);
       // The first announcement only offers generation; nothing reads the vault yet.
@@ -2480,6 +2493,7 @@ describe("production login document admission", () => {
             uris: options.uris ?? both,
             username: true,
             otherUsername: true,
+            custom: [],
             generation: service,
           },
         );
@@ -2845,6 +2859,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       available: vi.fn<LoginGeneration["available"]>(async () => false),
       generate: vi.fn<LoginGeneration["generate"]>(async () => "none"),
       judge: vi.fn<LoginGeneration["judge"]>(judge),
+      slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
     };
   }
   /** Replaces the item's catalog fields, as a vault sync would. */
@@ -3159,6 +3174,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           },
           transport: { generateRecipe: vi.fn(), judgeCompletion },
           storage: { read: async () => undefined, write: async () => undefined },
+          slotStorage: { read: async () => undefined, write: async () => undefined },
           sync: async () => "synced",
           refresh: async () => "synced",
         });
@@ -3471,7 +3487,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
               },
             ],
           },
-          { allowedOrigins: [], uris, username: true, generation: service },
+          { allowedOrigins: [], uris, username: true, custom: [], generation: service },
         );
         if (empty)
           editFields(h, (fields) =>

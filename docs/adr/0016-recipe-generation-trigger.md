@@ -4,7 +4,10 @@ Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0009](0009-install-time-https-site-access.md); amended by
 [ADR 0018](0018-recipe-generation-route.md), by the owner's account-switch decision
 of 2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)) and by
-the owner's username shape decision of 2026-10-11 ([Username shape](#username-shape)).
+the owner's username shape decision of 2026-10-11 ([Username shape](#username-shape)),
+and by [ADR 0027](0027-per-account-login-routes.md) (implemented): each request also
+offers the matching items' allowed custom fields by name and position, with the Text
+shapes all of them agree on, read just before sending as for the username.
 Implemented in the extension
 ([Background execution](../architecture.md#background-execution)), including that
 amendment; the service route enforces the 24-hour rule as well

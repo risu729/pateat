@@ -1,6 +1,6 @@
 import type { LoginObservation, ObservedCandidate, SemanticSlot } from "@pateat/contracts";
 import { valueShapeOf } from "../values";
-import { slots } from "./slots";
+import { customSlotNames, slots } from "./slots";
 
 export type ExpectedResult =
   | {
@@ -72,6 +72,17 @@ export const customField = (
   fieldName,
   valueShape: valueShapeOf({ source: "text", value })!,
 });
+
+/**
+ * The ground-truth plan's fields, each custom-field slot with its generic name. Names are
+ * free text, so scoring compares only slots and candidates.
+ */
+export const expectedFields = (expected: Extract<ExpectedResult, { kind: "plan" }>) =>
+  Object.entries(expected.fields).map(([slot, candidate]) => ({
+    slot,
+    candidate,
+    ...(customSlotNames[slot] === undefined ? {} : { name: customSlotNames[slot] }),
+  }));
 
 const submit = (fields: Record<string, string>, action: string): ExpectedResult => ({
   kind: "plan",
@@ -149,11 +160,8 @@ export const evaluationCorpus: EvaluationCase[] = [
       customField(slots.account, "口座番号", "1234567"),
       slots.password,
     ],
-    expected: submit(
-      { "branch-number": "branch", "account-number": "account", password: "pin" },
-      "login",
-    ),
-    values: { "branch-number": "123", "account-number": "1234567", password: "synthetic-pass" },
+    expected: submit({ "custom-1": "branch", "custom-2": "account", password: "pin" }, "login"),
+    values: { "custom-1": "123", "custom-2": "1234567", password: "synthetic-pass" },
   },
   {
     id: "ja-bank-unlabeled-lengths",
@@ -177,10 +185,10 @@ export const evaluationCorpus: EvaluationCase[] = [
       slots.password,
     ],
     expected: submit(
-      { "branch-number": "field-b", "account-number": "field-a", password: "field-c" },
+      { "custom-1": "field-b", "custom-2": "field-a", password: "field-c" },
       "enter",
     ),
-    values: { "branch-number": "045", "account-number": "7654321", password: "4821" },
+    values: { "custom-1": "045", "custom-2": "7654321", password: "4821" },
   },
   {
     id: "en-identifier-first",

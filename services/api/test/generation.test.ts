@@ -551,7 +551,8 @@ describe("recipe generation", () => {
       id: `${"s".repeat(62)}${index}`,
       kind: "identifier" as const,
       description: wide,
-      fieldName: wide,
+      // Each offer names a different vault field.
+      fieldName: `${"\u3042".repeat(119)}${index}`,
     }));
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,

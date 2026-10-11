@@ -34,6 +34,7 @@ import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
 import {
+  createBrowserGeneratedSlotStorage,
   createBrowserGenerationAttemptStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeScheduleStorage,
@@ -188,6 +189,7 @@ export default defineBackground(() => {
         judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
       },
       storage: createBrowserGenerationAttemptStorage(),
+      slotStorage: createBrowserGeneratedSlotStorage(),
       sync: () => recipeSync.sync(),
       refresh: () => recipeSync.sync({ settings: false }),
     }),

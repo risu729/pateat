@@ -157,29 +157,72 @@ export const valueShapeSchema = v.strictObject({
   email: v.boolean(),
 });
 
+const fieldCount = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000));
+
 /**
  * A semantic slot the caller wants mapped. Values and account bindings never enter
- * inference. `fieldName` is the user's name for an allowed vault field; `valueShape`
- * is allowed only on identifier slots backed by a visible value (ADR 0010).
+ * inference. `fieldName` is the user's name for an allowed vault field, with
+ * `fieldPosition` among the item's custom fields of that name when several share it
+ * (ADR 0013, ADR 0027). `hidden` is a Bitwarden Hidden custom field, filled under the
+ * Hidden rule of ADR 0013. `valueShape` is allowed only on identifier slots backed by a
+ * visible value (ADR 0010), so never on secret, hidden or one-time-code slots.
  */
 export const semanticSlotSchema = v.pipe(
   v.strictObject({
     id: identifier,
-    kind: v.picklist(["identifier", "secret", "one-time-code"]),
+    kind: v.picklist(["identifier", "secret", "hidden", "one-time-code"]),
     description: observedText,
     fieldName: v.optional(observedText),
+    fieldPosition: v.optional(
+      v.strictObject({ position: fieldCount, count: v.pipe(fieldCount, v.minValue(2)) }),
+    ),
     valueShape: v.optional(valueShapeSchema),
   }),
   v.check(
     (slot) => slot.valueShape === undefined || slot.kind === "identifier",
     "Only identifier slots may carry a value shape",
   ),
+  v.check(
+    (slot) =>
+      slot.fieldPosition === undefined ||
+      (slot.fieldName !== undefined && slot.fieldPosition.position <= slot.fieldPosition.count),
+    "A field position needs a field name and must be within its count",
+  ),
 );
 export const semanticSlotsSchema = v.pipe(
   v.array(semanticSlotSchema),
   v.minLength(1),
-  v.maxLength(8),
+  v.maxLength(20),
   v.check((slots) => unique(slots.map((slot) => slot.id)), "Duplicate slots"),
+  v.check(
+    (slots) =>
+      unique(
+        slots.flatMap(({ fieldName, fieldPosition }) =>
+          fieldName === undefined
+            ? []
+            : [JSON.stringify([fieldName, fieldPosition?.position, fieldPosition?.count])],
+        ),
+      ),
+    "Duplicate vault fields",
+  ),
+);
+
+/** Slot IDs a generic ID may not take: the built-in slots keep their meaning. */
+export const reservedSlotIds = ["username", "password", "totp"] as const;
+/**
+ * The ID a recipe stores for a custom-field slot (ADR 0027): a short generic English name
+ * for what the page asks for, such as `branch-number`, in lowercase ASCII words joined by
+ * hyphens. Digits and other scripts never fit, so an account number or a vault field name
+ * in Japanese cannot become a slot ID.
+ */
+export const genericSlotIdSchema = v.pipe(
+  v.string(),
+  v.maxLength(40),
+  v.regex(/^[a-z]{2,}(?:-[a-z]{2,}){0,3}$/u),
+  v.check(
+    (value) => !(reservedSlotIds as readonly string[]).includes(value),
+    "Use a slot ID other than a built-in slot",
+  ),
 );
 
 export type LoginObservation = v.InferOutput<typeof loginObservationSchema>;
@@ -200,6 +243,18 @@ export const builtInLoginSlots = {
   password: { id: "password", kind: "secret", description: "account password" },
   totp: { id: "totp", kind: "one-time-code", description: "one-time authentication code" },
 } as const satisfies Record<string, SemanticSlot>;
+
+/**
+ * Descriptions of custom-field slots by kind (ADR 0027). The field name carries the
+ * meaning, so the description only says where the value comes from. The real-page corpus
+ * sends the same ones.
+ */
+export const customFieldSlotDescriptions = {
+  identifier: "value of the user's vault field named in fieldName",
+  secret: "secret value of the user's vault field named in fieldName",
+  hidden: "concealed value of the user's vault field named in fieldName, such as a PIN",
+  "one-time-code": "one-time code from the user's vault field named in fieldName",
+} as const satisfies Record<SemanticSlot["kind"], string>;
 
 /**
  * Whether the page shows an input the executor would fill a TOTP code into (ADR 0013, the

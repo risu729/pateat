@@ -1,10 +1,18 @@
 import * as v from "valibot";
-import { loginObservationSchema, semanticSlotsSchema } from "./observation";
+import { genericSlotIdSchema, loginObservationSchema, semanticSlotsSchema } from "./observation";
 import { loginRecipeSchema, loginRouteSchema } from "./login";
 import { syncRecipeIdSchema } from "./sync";
 
 // Contracts for the service's recipe generation routes (ADR 0018). Requests carry the
 // value-free observation and slot meanings only: never values, bindings or item IDs.
+
+const slotReference = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(64),
+  v.regex(/^[a-zA-Z0-9_.:-]+$/u),
+);
+const unique = (values: string[]) => new Set(values).size === values.length;
 
 const writtenRevision = v.pipe(
   v.number(),
@@ -69,29 +77,59 @@ export const recipeGenerationRequestSchema = v.strictObject({
   base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
 });
 
-export const recipeGenerationResultSchema = v.variant("status", [
-  v.strictObject({ version: v.literal(1), status: v.literal("recipe"), change: activeChange }),
-  v.strictObject({
-    version: v.literal(1),
-    status: v.literal("abstained"),
-    reason: v.picklist([
-      "no-login-form",
-      "ambiguous",
-      "insufficient-evidence",
-      "unsafe-instructions",
-    ]),
-  }),
-  v.strictObject({
-    version: v.literal(1),
-    status: v.literal("failed"),
-    error: generationFailureSchema,
-  }),
-  v.strictObject({
-    version: v.literal(1),
-    status: v.literal("unavailable"),
-    reason: generationUnavailableReasonSchema,
-  }),
-]);
+export const recipeGenerationResultSchema = v.pipe(
+  v.variant("status", [
+    v.strictObject({
+      version: v.literal(1),
+      status: v.literal("recipe"),
+      change: activeChange,
+      /**
+       * Each recipe slot this call named for a custom-field offer, and the request slot it
+       * fills (ADR 0027). The extension turns it into a binding; the recipe itself never
+       * carries field names. Absent when the answer is a recipe another request produced.
+       */
+      customSlots: v.optional(
+        v.pipe(
+          v.array(v.strictObject({ slot: genericSlotIdSchema, offered: slotReference })),
+          v.minLength(1),
+          // One page plan fills at most 8 fields.
+          v.maxLength(8),
+          v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate slots"),
+          v.check(
+            (entries) => unique(entries.map((entry) => entry.offered)),
+            "Duplicate offered slots",
+          ),
+        ),
+      ),
+    }),
+    v.strictObject({
+      version: v.literal(1),
+      status: v.literal("abstained"),
+      reason: v.picklist([
+        "no-login-form",
+        "ambiguous",
+        "insufficient-evidence",
+        "unsafe-instructions",
+      ]),
+    }),
+    v.strictObject({
+      version: v.literal(1),
+      status: v.literal("failed"),
+      error: generationFailureSchema,
+    }),
+    v.strictObject({
+      version: v.literal(1),
+      status: v.literal("unavailable"),
+      reason: generationUnavailableReasonSchema,
+    }),
+  ]),
+  v.check(
+    (result) =>
+      result.status !== "recipe" ||
+      (result.customSlots ?? []).every((entry) => result.change.recipe.slots.includes(entry.slot)),
+    "Custom slots must be recipe slots",
+  ),
+);
 
 /**
  * `POST /v1/recipes/:recipeId/completion`: a page shown after an effect step of the given
