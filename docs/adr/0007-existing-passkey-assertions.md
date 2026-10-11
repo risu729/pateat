@@ -16,9 +16,9 @@ synced recipe. Amended on 2026-10-11 by the owner's
 [compatibility before release](../development.md#compatibility-before-release)
 decision: settings holding a site default saved with a `connectionId` are rejected as
 invalid. Amended on 2026-10-11 by
-[ADR 0021](0021-account-choice-outside-settings.md): several matches with no default,
-and username-less requests after Pateat signed in the same tab, open a Pateat chooser
-window instead of delegating at once (not implemented yet).
+[ADR 0021](0021-account-choice-outside-settings.md): several matches with no default
+open a Pateat chooser window instead of delegating at once; so will username-less
+requests after Pateat signed in the same tab (not implemented yet).
 
 Date: 2026-10-10
 
@@ -135,10 +135,10 @@ its single stored credential is eligible as below. Then:
 1. Exactly one match: use it. No site setting is needed.
 2. Several matches: use the item in `siteDefaults` for the page's exact origin if it
    is one of them.
-3. Several matches and no such default: delegate. Pateat never picks one. Once
-   [ADR 0021](0021-account-choice-outside-settings.md) is implemented, Pateat first
-   opens its chooser window and delegates only when the user closes it, picks the
-   browser, or the window cannot open (incognito).
+3. Several matches and no such default: Pateat never picks one. It opens its chooser
+   window ([ADR 0021](0021-account-choice-outside-settings.md)) and delegates when the
+   user closes it, picks the browser, or the window cannot open (incognito, or another
+   request holds it).
 
 Matches are counted after the request's allow list, or its discoverable-credential
 requirement, narrows them. A passkey-only item with no fields is eligible; an item whose

@@ -4,7 +4,7 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
-Each part lands in its own PR. Part A is implemented; B, C and D are not yet.
+Each part lands in its own PR. Parts A and C are implemented; B and D are not yet.
 
 Date: 2026-10-11
 
@@ -87,6 +87,16 @@ whichever is shorter (WebAuthn recommends 2 to 5 minutes). The window closes whe
 The worker is kept alive while the window waits. The default is saved only after the
 assertion has been returned, because a settings save cancels pending passkey requests.
 In incognito no window opens and the request is delegated as before.
+
+As implemented: the page learns nothing new while it waits. The isolated relay repeats
+its existing acknowledgement every 5 s while the background works, and the page's 15 s
+limit counts from the latest one, under an absolute limit of 2 minutes 15 s. A `timeout`
+below 10 s is raised to 10 s, as Chrome raises it for its own UI. One window is open at
+a time; a second request delegates. Leaving the page cancels its pending requests. When
+the origin already has a default that holds none of the matching passkeys, the
+checkbox starts unticked and says it replaces that default, because the same default
+also picks the password login account. The default is not saved while a password login
+is running, as for an automatic account choice.
 
 ### D. After a logout, choose again (detection L1)
 

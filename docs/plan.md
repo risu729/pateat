@@ -986,7 +986,9 @@ the same tab. They land as separate PRs in that order. The toolbar popup is impl
 clicking the icon opens `popup.html` for the active HTTPS tab, which shows whether the
 site is excluded and lists the vault items that match its origin as the default account.
 A rule for a parent domain that includes subdomains is shown but changed only in
-settings. Choosing among several matches for a refused login is not built yet.
+settings. The passkey chooser window is implemented: a request matching several
+passkeys, none of them the site default, opens `passkey-picker.html` to choose one once or
+as the default. Choosing among several matches for a refused login is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
