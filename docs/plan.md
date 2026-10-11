@@ -1049,7 +1049,7 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   #206 with no login control, so it adds no case. The finite-choice provider waited
   for a Claude baseline, which now exists for both page sets.
 - Re-observe SMBC Direct and MyJCB and relabel their cases (below), now that their
-  login links are observed as script buttons (#226).
+  login links are observed as script buttons (#226; owner decision, 2026-10-11).
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:

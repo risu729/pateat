@@ -702,7 +702,9 @@ another element with `role="button"`, but never a form control or anything insid
 as `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or
 fragment-only `href` on a link with an `onclick` attribute or `role="button"`, such as
 `<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts
-add `href="#"` after load). A text locator names a script link by its rendered
+add `href="#"` after load). The owner chose on 2026-10-11 that such `href` links are
+clicked as buttons, so pages whose login control is one, such as MyJCB and SMBC Direct,
+can get a generated recipe. A text locator names a script link by its rendered
 text, but only when no native button carries that text, shown or hidden: native buttons
 are matched first, so a login tab such as `<a href="#" onclick="...">Login</a>` never
 makes the `<input type="submit" value="Login">` below it ambiguous, and a text locator
