@@ -9,7 +9,7 @@
   "type": "module",
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
-    "@cloudflare/vite-plugin": "2.0.0-beta.sha-91c870c02",
+    "@cloudflare/vite-plugin": "2.0.0-beta.sha-c82c3efb3",
     "@cloudflare/vitest-plugin": "1.4.0",
     "@playwright/test": "1.64.0",
     "@risu729/tsconfigs": "3.0.0",
