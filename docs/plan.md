@@ -121,6 +121,9 @@ issues are created before this phase.
   official Bitwarden extension offers.
 - Bitwarden writes (with their own permission), so that the official Bitwarden
   extension can be uninstalled; vaults other than Bitwarden.
+- Low priority (owner, 2026-10-11 18:29 UTC): pages that add another account while one
+  is signed in, such as Google's AddSession or Microsoft's "Use another account", show
+  a login form and are logged in with the default account today. They should not be.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
