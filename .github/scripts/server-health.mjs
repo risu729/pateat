@@ -14,8 +14,11 @@ assert.match(
   /^[0-9a-f-]{36}$/u,
   "The action must return a version ID",
 );
+// The new version can take more than ten seconds to reach every edge; one run saw the old
+// revision for longer than six tries 2 seconds apart.
+const attempts = 30;
 let failure;
-for (let attempt = 0; attempt < 6; attempt += 1) {
+for (let attempt = 0; attempt < attempts; attempt += 1) {
   try {
     const response = await fetch(process.env.SERVER_HEALTH_URL, {
       redirect: "error",
@@ -33,7 +36,7 @@ for (let attempt = 0; attempt < 6; attempt += 1) {
     break;
   } catch (error) {
     failure = error;
-    if (attempt < 5) await setTimeout(2000);
+    if (attempt < attempts - 1) await setTimeout(2000);
   }
 }
 if (failure) throw failure;
