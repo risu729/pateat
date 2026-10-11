@@ -666,7 +666,12 @@ detected and stay. When such a page already shows a chosen account and offers a
 button or link to use another one, the generation role may name it as the plan's
 `accountSwitch`; it must be an observed button or link that the plan neither fills nor
 uses as its action. The generated recipe keeps the first switch a page names that no
-step clicks. Model
+step clicks. Only links inside the login form are observed, so a switch link outside it
+is not named. A button whose text a link elsewhere on the page shows too, and a button
+that would submit a form, are never clicked as a switch; the attempt then ends
+`wrong-account`. Locating links by text means in-form links without an `id`, `name` or
+`data-testid` are now observed as well, with their redacted labels, and a switch
+link's redacted rendered text is stored in the recipe. Model
 output must pass structural and semantic checks on the server and again locally.
 Screenshot, audio and video collection are deferred. A provider's multimodal
 support does not enable these inputs without a separate privacy/evaluation gate.
