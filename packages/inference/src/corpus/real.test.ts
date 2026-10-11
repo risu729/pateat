@@ -36,8 +36,10 @@ describe("real-page corpus", () => {
 });
 
 describe("Japanese page corpus", () => {
-  it("names each page by the origin and path it observed, with no query", () => {
+  it("names each page by its observed origin and path, with no query, and its slot set", () => {
     for (const entry of japanese.cases) {
+      expect(entry.source.dataset, entry.id).toBe("japanese");
+      expect(["login", "bank"], entry.id).toContain(entry.slots);
       expect(entry.source.url, entry.id).toBe(
         `${entry.observation.origin}${entry.observation.path}`,
       );

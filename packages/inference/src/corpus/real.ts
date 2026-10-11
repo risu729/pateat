@@ -1,6 +1,5 @@
 import { builtInLoginSlots, type LoginObservation, type SemanticSlot } from "@pateat/contracts";
-import { valueShapeOf } from "../values";
-import type { EvaluationCase, ExpectedResult } from "./cases";
+import { customField, type EvaluationCase, type ExpectedResult } from "./cases";
 import formasaurus from "./formasaurus.json";
 import japanese from "./japanese.json";
 import { slots } from "./slots";
@@ -40,16 +39,8 @@ export const realPageSlots = [builtInLoginSlots.username, builtInLoginSlots.pass
  * synthetic values only set the name and value shape the trusted side would send.
  */
 export const bankPageSlots: SemanticSlot[] = [
-  {
-    ...slots.branch,
-    fieldName: "支店番号",
-    valueShape: valueShapeOf({ source: "text", value: "123" })!,
-  },
-  {
-    ...slots.account,
-    fieldName: "口座番号",
-    valueShape: valueShapeOf({ source: "text", value: "1234567" })!,
-  },
+  customField(slots.branch, "支店番号", "123"),
+  customField(slots.account, "口座番号", "1234567"),
   builtInLoginSlots.password,
 ];
 
