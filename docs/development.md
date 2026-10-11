@@ -263,7 +263,8 @@ its own [extension ID](#extension-id) and storage, separate from a production in
    Do not fill the fields through the test controller to manufacture success.
 5. Close the owner tab before each new attempt. Another tab's login that is running
    or ended without success keeps a new tab from starting until it closes; an
-   `authenticated` one, or one that ended before submitting, lets another tab log in.
+   `authenticated` one, or one that ended `interrupted` without submitting, lets another
+   tab log in.
    Test `/single`, `/rejection`, `/unknown` and `/ambiguous`; the latter cases
    must stop or abstain without trying another account or repeating submission.
 6. Verify site/field exclusion, policy changes, navigation and concurrent Chrome

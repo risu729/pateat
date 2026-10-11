@@ -1188,6 +1188,23 @@ describe("production login document admission", () => {
       );
       expect(executes()).toHaveLength(4);
     });
+    it("keeps another tab off an origin whose login ended without success", async () => {
+      // A password the site refused is not submitted again from another tab.
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" }),
+      );
+      fake.state.executeReply = undefined;
+      const sent = executes().length;
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+        ok: false,
+        reason: "origin-busy",
+      });
+      expect(executes()).toHaveLength(sent);
+    });
     it("keeps another tab off an origin whose login still runs, and says why", async () => {
       holdClicks(origin);
       const h = twoSites();
@@ -1436,7 +1453,7 @@ describe("production login document admission", () => {
         { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
       ],
     });
-    it("keeps another tab off the site until an authenticated login saved its choice", async () => {
+    it("lets another tab start only once an authenticated login saved its choice", async () => {
       // Saving bumps the policy revision, which would stop a login started meanwhile.
       const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
       const h = harness(unsaved, { allowedOrigins: [], uris });
@@ -1450,16 +1467,15 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
       fake.state.tabUrls[2] = fake.state.pageUrl;
+      // The document announces again, as the content script does after `stale-document`.
       expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
         ok: false,
-        reason: "origin-busy",
+        reason: "stale-document",
       });
       release();
       await vi.waitFor(() => expect(h.settings.settings.siteDefaults).toHaveLength(1));
       // Once saved, the other tab's form shows a session that has ended, and it logs in.
-      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab-again" })).toEqual({
-        ok: true,
-      });
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
       await vi.waitFor(() => expect(executes()).toHaveLength(4));
     });
     it("logs in with the only URI-matched item and saves the choice after authenticated", async () => {

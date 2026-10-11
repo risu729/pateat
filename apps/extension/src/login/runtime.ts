@@ -492,8 +492,8 @@ export function createLoginRuntime(
   const logouts = new Set<string>();
   /** Ids of authenticated logins whose account choice is being saved. */
   const remembering = new Set<string>();
-  /** Tabs whose tooltip says another tab's login holds the site. */
-  const heldTitles = new Set<number>();
+  /** Counts saved account choices, each of which bumps the policy revision. */
+  let remembered = 0;
   // Toolbar and session storage failures only lose the badge or a pick; never a login.
   const quietly = (work: () => Promise<unknown>) =>
     Promise.resolve()
@@ -670,19 +670,16 @@ export function createLoginRuntime(
    * Whether another tab's login still holds the origin. Cookies can be shared across tabs,
    * so a login that is running, awaits its result, or ended without success there keeps this
    * tab from submitting until that tab closes (ADR 0022). One that authenticated, or ended
-   * before it could submit, holds only until its choice is saved: the login form showing in
-   * this tab then means the site's session has ended.
+   * without ever submitting, does not: the login form showing in this tab then means the
+   * site's session has ended.
    */
   function heldElsewhere(tabId: number, siteOrigin: string): boolean {
     return [...persisted.values()].some(
       (entry) =>
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
-        !(
-          (entry.state === "authenticated" ||
-            (entry.state === "blocked" && entry.outcome === "interrupted")) &&
-          !remembering.has(entry.id)
-        ),
+        entry.state !== "authenticated" &&
+        !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions),
     );
   }
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
@@ -693,7 +690,6 @@ export function createLoginRuntime(
   }
   /** Tells the tab why it does not log in while another tab's login holds the site. */
   function showHeld(tabId: number): void {
-    heldTitles.add(tabId);
     void quietly(() =>
       browser.action.setTitle({
         tabId,
@@ -887,8 +883,8 @@ export function createLoginRuntime(
       storageHealthy = false;
       throw new Error("Synthetic intent write failed");
     }
-    // Until its choice is saved, an authenticated login still holds its origin: the write
-    // bumps the policy revision that a login started in another tab would stop on.
+    // Saving the choice bumps the policy revision, which would stop a login another tab
+    // starts meanwhile; such a start waits until it is saved (see `ready`).
     const saving = run.metadata.state === "authenticated" && run.choice !== undefined;
     if (saving) remembering.add(run.metadata.id);
     try {
@@ -940,6 +936,7 @@ export function createLoginRuntime(
         settings: withChoice(snapshot.settings, choice),
       }))
       .catch(() => undefined);
+    remembered += 1;
   }
   async function send(live: LiveDocument, message: Record<string, unknown>): Promise<unknown> {
     return browser.tabs.sendMessage(
@@ -2522,6 +2519,7 @@ export function createLoginRuntime(
       (previous && previous.recipeId !== recipe.id)
     )
       return refuse("recipe-not-found");
+    const choicesSaved = remembered;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return refuse(snapshot.error.code);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
@@ -2597,6 +2595,10 @@ export function createLoginRuntime(
       showHeld(document.tabId);
       return refuse("origin-busy");
     }
+    // Another login's account choice, saved since this snapshot was read or being saved now,
+    // bumps the revision this login would be checked against; the document announces again.
+    if (remembering.size || remembered !== choicesSaved)
+      return { ok: false, reason: "stale-document" };
     if (!previous && persisted.size >= 100) return refuse("attempt-limit");
     // Another document of the tab, such as a frame, may have started an attempt while this
     // one was checked, and the tab runs one attempt at a time. Nothing below awaits until
@@ -2659,8 +2661,7 @@ export function createLoginRuntime(
     reportAttempt(metadata, recipe, resumedPolicy);
     clearChoice(document.tabId);
     // A hold's tooltip no longer applies once the tab logs in.
-    if (heldTitles.delete(document.tabId))
-      void quietly(() => browser.action.setTitle({ tabId: document.tabId, title: "Pateat" }));
+    void quietly(() => browser.action.setTitle({ tabId: document.tabId, title: "Pateat" }));
     const pick = picked.get(document.tabId);
     if (
       !previous &&
@@ -2788,7 +2789,6 @@ export function createLoginRuntime(
     for (const key of hellos.keys()) if (key.startsWith(`${tabId}:`)) hellos.delete(key);
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
     attempts.delete(tabId);
-    heldTitles.delete(tabId);
     void sessionLoaded.then(async () => {
       let changed = pending.delete(tabId);
       if (picked.delete(tabId)) changed = true;

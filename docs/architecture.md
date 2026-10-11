@@ -371,13 +371,13 @@ asks for a choice again instead of logging in, with the saved default first; the
 half of this is not implemented yet. Automatic logout/relogin when the user picks
 another account while logged in stays later. Cookies may be shared across tabs even
 during initial login. Another tab's login of the origin that is running or ended without
-success holds the origin until that tab closes; an `authenticated` one holds only until
-its account choice is saved. A tab keeps one attempt record per origin and runs one
-attempt at a time; a page resumes only its own origin's record, and a top-level attempt
-that may have submitted ends `left-origin` when the tab moves to another origin
-([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
-domains need explicit coordination before broader support, not a guessed relationship
-between origins.
+success holds the origin until that tab closes; an `authenticated` one, or one that
+ended `interrupted` without submitting, does not. A tab keeps one attempt record per
+origin and runs one attempt at a time; a page resumes only its own origin's record, and
+a top-level attempt that may have submitted ends `left-origin` when the tab moves to
+another origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider
+shared-session domains need explicit coordination before broader support, not a guessed
+relationship between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic
