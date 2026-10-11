@@ -1,0 +1,73 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tasks.prepare]
+description = "Generate WXT types."
+run = "node ../../node_modules/wxt/bin/wxt.mjs prepare"
+
+[tasks.build]
+description = "Package the Chrome extension shell."
+depends = [":prepare"]
+# The build rewrites .wxt, which the type check and the unit tests read.
+wait_for = [
+  ":typecheck",
+  ":test:connections",
+  ":test:crypto",
+  ":test:login",
+  ":test:passkeys",
+  ":test:service",
+  ":test:vault",
+]
+run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome"
+
+[tasks."build:probe"]
+description = "Build the isolated synthetic browser-test variant."
+depends = [":build"]
+run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome --mode probe"
+
+[tasks.typecheck]
+depends = [":prepare"]
+run = "tsc --noEmit -p tsconfig.json"
+
+[tasks."test:connections"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/connections"
+
+[tasks."test:crypto"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/crypto"
+
+[tasks."test:login"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/login"
+
+[tasks."test:passkeys"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/passkeys"
+
+[tasks."test:service"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/service"
+
+[tasks."test:vault"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/vault"
+
+[tasks."test:dom"]
+description = "Extract observations and resolve element locators on synthetic pages in Chromium."
+# Vitest Browser Mode reloads its page when a build rewrites files under watch, and the
+# browser suites share one port; run them after the builds and one at a time.
+depends = [":build:probe", "//services/api:build"]
+wait_for = ["//tests/options:test"]
+run = "node ../../node_modules/vitest/vitest.mjs run --config src/vitest.dom.config.ts"
+
+[tasks.test]
+description = "Run every extension test area."
+depends = [
+  ":test:connections",
+  ":test:crypto",
+  ":test:dom",
+  ":test:login",
+  ":test:passkeys",
+  ":test:service",
+  ":test:vault",
+]

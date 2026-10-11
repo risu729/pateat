@@ -791,13 +791,16 @@ oversized and incomplete inputs and the absence of fallback.
 `low` through `@ai-sdk/anthropic` for the generation/repair role; the finite-choice role
 has no provider yet. `createClaudeGenerationModel` in
 `packages/inference/src/providers/claude.ts` builds that model, and
-`mise run bench:inference --paid` runs the generation role over the corpus with the
-local value check. It stops before a case that could take the estimated spend past
-`--max-cost-usd` (default 2) and still prints the cases already run, the estimated cost
-and the model IDs the API reported serving. In cloud sessions the key is provided as
-the environment variable `PATEAT_ANTHROPIC_API_KEY`, because the name
-`ANTHROPIC_API_KEY` is withheld from sessions; run
-`ANTHROPIC_API_KEY="$PATEAT_ANTHROPIC_API_KEY" mise run bench:inference --paid`.
+`mise run //packages/inference:bench --paid` runs the generation role over the corpus
+with the local value check. It stops before a case that could take the estimated
+spend past `--max-cost-usd` (default 2) and still prints the cases already run, the
+estimated cost and the model IDs the API reported serving. In cloud sessions the key is
+provided as the environment variable `PATEAT_ANTHROPIC_API_KEY`, because the name
+`ANTHROPIC_API_KEY` is withheld from sessions; run:
+
+```sh
+ANTHROPIC_API_KEY="$PATEAT_ANTHROPIC_API_KEY" mise run //packages/inference:bench --paid
+```
 
 The one owner-approved run (2026-10-10, main `29ab04c`, cap $2) gave:
 
@@ -901,7 +904,8 @@ document order up to 48 candidates. A field it cannot describe marks it incomple
 buttons and links past the limit or without a locator are left out, since they are only
 possible sign-in markers. There, an attribute locator that redaction would change counts
 as no locator, so an account number in an `id` is never sent.
-`mise run test:dom` covers these cases in Chromium with synthetic pages.
+`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
+pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):

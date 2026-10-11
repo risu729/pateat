@@ -22,16 +22,46 @@ tests/extension/      Isolated synthetic browser fixtures and tests
 tests/options/        React component tests in isolated Chromium
 ```
 
-Keep feature code inside its owner until an actual shared boundary warrants
-another package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1
-schema; `mise run generate:server-migrations` writes SQL to `services/api/migrations/`
+Keep feature code inside its owner until an actual shared boundary warrants another
+package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schema;
+`mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
 `mise.toml` owns exact tool versions, installation, and task definitions. Use native
-workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
-the task graph. Bun manages dependencies; pinned supported Node executes tools
-that require it, notably cf. Commit mise and Bun lockfiles after resolving them,
-never hand-author a purported installed dependency graph.
+workspace mise tasks, not package.json scripts or wrapper scripts that duplicate the
+task graph. Bun manages dependencies; pinned supported Node executes tools that require
+it, notably cf. Commit mise and Bun lockfiles after resolving them, never hand-author a
+purported installed dependency graph.
+
+The repository is a mise monorepo (owner decision, 2026-10-11). The root `mise.toml`
+sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `packages/*` and
+`tests/*` as config roots. Each of those directories has its own `mise.toml` with the
+tasks for its code, run from that directory, and the tools and environment come from the
+root. A task's full name is its path and name, such as `//services/api:build`; inside
+that directory `mise run :build` also works. Each project has a `test` task (the
+extension's `test` runs its `test:<area>` tasks) and each except `packages/contracts`
+has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. mise
+reads the Bun workspace graph, so `mise run --affected '//...:test'` tests the workspace
+packages with changes since `HEAD~1` (including uncommitted and untracked files) and
+the packages that depend on them. A change outside a workspace package, such as
+`docs/`, `scripts/`, `tests/*` or the root `mise.toml`, selects every package, and the
+`tests/*` suites are not workspace packages, so `--affected` never selects them.
+Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`,
+`test:tools`, `browser:install`, the probe servers, `render:icons` and
+`generate:oidc-key`) stay in the root. Run them by their plain names from the root, or
+as `//:check:runtime` from inside a project.
+
+`check:runtime` is one dependency graph rather than a list of separate `mise run` calls:
+it depends on `//...:typecheck`, `//...:test`, `//services/api:check:*` and
+`test:tools`, so a new project task with one of those names joins it, each
+build runs once, and independent tasks run in parallel. Ordering is declared where it
+matters: the extension build waits for the tasks that read `.wxt`, and the Vitest
+Browser Mode and Playwright suites run after both builds and one at a time, because a
+build that rewrites watched files reloads the Vitest page and the suites share one port.
+The Vitest Browser Mode suites all use the repository root, so each sets its own Vite
+`cacheDir`; with one shared cache, a suite run after another found the other suite's
+optimized dependencies, optimized its own mid-run and reloaded a running test. CI
+still runs everything; `--affected` is for local runs only.
 
 A development tool used only as a command is a mise tool, not a devDependency: the
 TypeScript compiler is `npm:typescript` in `mise.toml`, so `tsc` comes from mise. A
@@ -72,40 +102,40 @@ Focused tasks are available for diagnosis:
 
 | Task | Purpose |
 | --- | --- |
-| `mise run prepare:extension` | Generate WXT types |
-| `mise run build:extension` | Package the Chrome extension shell |
-| `mise run build:probe` | Build the isolated synthetic browser-test variant |
+| `mise run //apps/extension:prepare` | Generate WXT types |
+| `mise run //apps/extension:build` | Package the Chrome extension shell |
+| `mise run //apps/extension:build:probe` | Build the isolated synthetic browser-test variant |
 | `mise run render:icons` | Render `apps/extension/icons/*.svg` (listed in `scripts/render-icons.mjs`) into the committed PNG icons (needs `browser:install`) |
 | `mise run probe:login` | Serve the synthetic login site on loopback port 3847 |
 | `mise run probe:passkeys` | Serve the synthetic passkey relying party on loopback port 3848 |
-| `mise run typecheck:extension` | Check extension source after WXT preparation |
-| `mise run test:contracts` | Test shared schemas, eligibility and revisioned settings storage |
-| `mise run test:bitwarden` | Test provider endpoints and bounded transport with synthetic responses |
-| `mise run typecheck:bitwarden` | Check provider source and test types |
-| `mise run test:login` | Test login executor sources with synthetic vault results |
-| `mise run test:service` | Test sync service pairing and transport with synthetic responses |
-| `mise run test:inference` | Score AI role adapters on the synthetic corpus with fake providers |
-| `mise run typecheck:inference` | Check AI adapter, corpus and harness types |
-| `mise run bench:inference --paid` | Run the paid Claude benchmark on the synthetic corpus; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
+| `mise run //apps/extension:typecheck` | Check extension source after WXT preparation |
+| `mise run //packages/contracts:test` | Test shared schemas, eligibility and revisioned settings storage |
+| `mise run //packages/bitwarden:test` | Test provider endpoints and bounded transport with synthetic responses |
+| `mise run //packages/bitwarden:typecheck` | Check provider source and test types |
+| `mise run //apps/extension:test:login` | Test login executor sources with synthetic vault results |
+| `mise run //apps/extension:test:service` | Test sync service pairing and transport with synthetic responses |
+| `mise run //packages/inference:test` | Score AI role adapters on the synthetic corpus with fake providers |
+| `mise run //packages/inference:typecheck` | Check AI adapter, corpus and harness types |
+| `mise run //packages/inference:bench --paid` | Run the paid Claude benchmark on the synthetic corpus; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run test:tools` | Test artifact/provenance helpers |
-| `mise run generate:server-migrations` | Generate D1 migration SQL from the Drizzle schema |
+| `mise run //services/api:generate:migrations` | Generate D1 migration SQL from the Drizzle schema |
 | `mise run generate:oidc-key [kid]` | Print a new ES256 key set for the `OIDC_SIGNING_KEYS` Worker secret ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) |
-| `mise run check:server-migrations` | Fail when committed migrations differ from the schema |
-| `mise run test:server` | Run Worker tests against local Miniflare D1 with committed migrations |
-| `mise run build:server` | Generate production Build Output and Worker types |
-| `mise run typecheck:server` | Check Worker/config/test types after a server build |
-| `mise run check:server-output` | Validate existing production output with cf's prebuilt dry run |
-| `mise run check:server-artifact` | Execute that emitted bundle in a fresh local runtime |
+| `mise run //services/api:check:migrations` | Fail when committed migrations differ from the schema |
+| `mise run //services/api:test` | Run Worker tests against local Miniflare D1 with committed migrations |
+| `mise run //services/api:build` | Generate production Build Output and Worker types |
+| `mise run //services/api:typecheck` | Check Worker/config/test types after a server build |
+| `mise run //services/api:check:output` | Validate existing production output with cf's prebuilt dry run |
+| `mise run //services/api:check:artifact` | Execute that emitted bundle in a fresh local runtime |
 | `mise run browser:install` | Install the pinned isolated Chromium browser |
-| `mise run test:browser` | Exercise the extension against synthetic local pages |
-| `mise run test:options` | Exercise settings components with a synthetic client in Chromium |
-| `mise run test:dom` | Extract observations and resolve element locators on synthetic pages in Chromium |
-| `mise run typecheck:options` | Check component-test and browser-provider types |
+| `mise run //tests/extension:test` | Exercise the extension against synthetic local pages |
+| `mise run //tests/options:test` | Exercise settings components with a synthetic client in Chromium |
+| `mise run //apps/extension:test:dom` | Extract observations and resolve element locators on synthetic pages in Chromium |
+| `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's
-system dependencies. Run server build before server type checking and artifact
-checks; the latter consume generated files. Set `PATEAT_REVISION` before the build
+system dependencies. Server type checking and the artifact checks depend on the server
+build, whose generated files they read. Set `PATEAT_REVISION` before the build
 and artifact check to verify a particular source revision. Without it, local
 builds use `development`. The default extension build excludes the test probe;
 neither variant grants vault or real-site login capability.
@@ -121,16 +151,16 @@ runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runti
 
 ### Windows notes
 
-Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs `mise run test:browser`
-on a GitHub-hosted Windows runner as well as on Linux, so the packaged-extension
-tests are expected to pass on Windows with the Playwright-downloaded Chromium. One
-local host on 2026-10-10 hit a missing SideBySide assembly ("side-by-side
-configuration is incorrect") before launch; it did not reproduce on the CI runner
-(see the [foundation progress](plan.md#foundation-progress)), so rely on CI for
-those runs. The
-Windows job points `TEMP` and `TMP` at the runner's work drive: browser profiles in
-the default temp directory on the system drive hit 5-25 s I/O stalls that timed out
-random tests. If browser tests time out on a slow local Windows disk, do the same.
+Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs
+`mise run //tests/extension:test` on a GitHub-hosted Windows runner as well as on Linux,
+so the packaged-extension tests are expected to pass on Windows with the
+Playwright-downloaded Chromium. One local host on 2026-10-10 hit a missing SideBySide
+assembly ("side-by-side configuration is incorrect") before launch; it did not reproduce
+on the CI runner (see the [foundation progress](plan.md#foundation-progress)), so rely
+on CI for those runs. The Windows job points `TEMP` and `TMP` at the runner's work
+drive: browser profiles in the default temp directory on the system drive hit 5-25 s I/O
+stalls that timed out random tests. If browser tests time out on a slow local Windows
+disk, do the same.
 
 ### Installed Chrome synthetic login probe
 
@@ -139,8 +169,9 @@ that installed Chrome or Chrome use has passed. Use only the synthetic probe bui
 The probe grants host access only to `http://127.0.0.1/*` so the coordinator can
 recheck browser-provided tab URLs. Production grants no host access.
 
-1. Run `mise run build:probe` and `mise run probe:login`. The latter serves only
-   `http://127.0.0.1:3847` and stops with Ctrl+C. It does not contact a vault or AI.
+1. Run `mise run //apps/extension:build:probe` and `mise run probe:login`. The latter
+   serves only `http://127.0.0.1:3847` and stops with Ctrl+C. It does not contact a
+   vault or AI.
 2. With the owner's installation approval, load
    `apps/extension/.output/chrome-mv3-probe/` as an unpacked extension in Chrome.
    Record the exact source commit, build, Chrome version and other extensions.
@@ -181,8 +212,8 @@ vault source; automated tests reach them on `https://synthetic.example.test`, wh
 never resolves, with the probe build's synthetic Bitwarden account. No real vault,
 passkey or provider is involved.
 
-1. Run `mise run build:probe` and `mise run probe:passkeys`. The latter listens
-   only on loopback `127.0.0.1:3848`, is opened as `http://localhost:3848`, and
+1. Run `mise run //apps/extension:build:probe` and `mise run probe:passkeys`. The latter
+   listens only on loopback `127.0.0.1:3848`, is opened as `http://localhost:3848`, and
    stops with Ctrl+C.
 2. With the owner's installation approval, load
    `apps/extension/.output/chrome-mv3-probe/` as an unpacked extension. Record the
@@ -268,6 +299,16 @@ catalog preserves unsaved policy edits and requires an explicit reload before
 saving those stale edits. Custom-field review must confirm the current field
 selection before releasing an item whose earlier exclusions cannot be rebound.
 Automatic website login is not activated by this setup slice.
+
+The vault access policy keeps each connection's Enabled and Item access controls
+visible. Its vault-wide lists start collapsed so the sections below stay reachable
+with a large vault: "Included groups and items" and "Item and field exclusions" are
+native disclosures whose summaries show counts, for example `1 of 3 groups, 2 of 40
+items selected` or `1 item and 2 fields excluded` (fields of an excluded item are not
+counted). Each item inside the exclusions opens on its own, with a summary such as
+`Item excluded` or `1 field excluded`. Open/closed state lasts only while the page is
+open. Custom-field reviews are not folded; they stay expanded in the connection panel
+because they block the item until saved.
 
 ## Compatibility before release
 

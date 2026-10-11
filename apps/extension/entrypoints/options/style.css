@@ -169,6 +169,30 @@
   .selection:disabled {
     color: #64748b;
   }
+  .disclosure {
+    margin: 1rem 0;
+  }
+  .disclosure > summary,
+  .item-exclusions > summary {
+    cursor: pointer;
+    font-weight: 650;
+  }
+  .disclosure > .selection {
+    margin-top: 0.75rem;
+  }
+  details.item-exclusions {
+    margin: 0.5rem 0;
+    padding: 0.6rem 1rem;
+  }
+  details.item-exclusions > summary {
+    font-weight: 500;
+  }
+  .summary-count {
+    margin-left: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: #475569;
+  }
   .checkbox-row {
     display: flex;
     align-items: start;

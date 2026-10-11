@@ -46,7 +46,7 @@ try {
     );
   if (stale) {
     console.error(
-      "services/api/migrations is out of date; run `mise run generate:server-migrations`.",
+      "services/api/migrations is out of date; run `mise run //services/api:generate:migrations`.",
     );
     process.exitCode = 1;
   } else {

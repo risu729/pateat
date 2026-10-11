@@ -1,4 +1,11 @@
-import { test, expect, chromium, type BrowserContext, type Worker } from "@playwright/test";
+import {
+  test,
+  expect,
+  chromium,
+  type BrowserContext,
+  type Page,
+  type Worker,
+} from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -42,6 +49,16 @@ async function withExtension(
   } finally {
     await context?.close();
     if (!profileDirectory) await rm(profile, { recursive: true, force: true });
+  }
+}
+
+/** Vault-wide policy lists start collapsed on the options page. */
+async function expand(page: Page, connection: string, ...summaries: string[]): Promise<void> {
+  const group = page.getByRole("group", { name: connection, exact: true });
+  for (const summary of summaries) {
+    // Nested disclosures open in order: an item's summary is hidden until its list opens.
+    // oxlint-disable-next-line no-await-in-loop
+    await group.locator("summary", { hasText: summary }).click();
   }
 }
 
@@ -176,6 +193,7 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await page
       .getByLabel("Demo personal vault: Item access", { exact: true })
       .selectOption("selected");
+    await expand(page, "Demo personal vault", "Included groups and items");
     await page.getByLabel("Demo personal vault: Include group Everyday", { exact: true }).check();
     await page.locator("#default-origin").fill("https://bank.example");
     await page
@@ -185,6 +203,8 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await page.locator("#default-origin").press("Enter");
     await expect(page.locator("#default-origin")).toHaveAttribute("aria-invalid", "true");
     await expect(page.locator("#default-origin")).toBeFocused();
+    // Axe skips closed disclosures, so open the exclusions before scanning.
+    await expand(page, "Demo personal vault", "Item and field exclusions", "Demo primary account");
     const invalid = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
       .analyze();
@@ -362,6 +382,13 @@ test("local policies and account defaults survive a browser restart", async () =
         await page
           .getByLabel("Demo personal vault: Item access", { exact: true })
           .selectOption("selected");
+        await expand(
+          page,
+          "Demo personal vault",
+          "Included groups and items",
+          "Item and field exclusions",
+          "Demo primary account",
+        );
         await page
           .getByLabel("Demo personal vault: Include group Everyday", { exact: true })
           .check();
@@ -395,6 +422,13 @@ test("local policies and account defaults survive a browser restart", async () =
         await expect(
           page.getByLabel("Demo personal vault: Item access", { exact: true }),
         ).toHaveValue("selected");
+        await expand(
+          page,
+          "Demo personal vault",
+          "Included groups and items",
+          "Item and field exclusions",
+          "Demo primary account",
+        );
         await expect(
           page.getByLabel("Demo personal vault: Include group Everyday", { exact: true }),
         ).toBeChecked();
