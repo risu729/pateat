@@ -161,14 +161,16 @@ initialization never settles when it cannot parse those COSE objects and exports
 synchronous parser, so the library first checks their COSE_Sign1 framing locally
 (`packages/bitwarden/src/cose.ts`, a strict subset of the SDK's parser) and reads the
 version from the payload the SDK has verified. Cipher views withhold the decrypted
-per-item key and passkey private keys; only the Worker's passkey signing step reads a
-private key. Disposal withholds stale results; native cleanup waits for in-flight
-operations, while Worker termination is the hard cancellation boundary. Local
-password-authorization hashing uses the SDK's primary KDF followed by native WebCrypto's
-protocol-specific single-iteration PBKDF2. Preserve the password exactly and normalize
-the authentication salt according to the pinned SDK, independently of vault-unlock
-parameters. Provider settings, cache reconciliation and persistent unlock still need
-their own integration and acceptance tests.
+cipher, attachment and passkey private keys; only the Worker's passkey signing step
+reads a private key. Ordinary cipher decryption leaves separately encrypted passkeys
+out, so an unreadable passkey makes only passkey use of that item unavailable. Disposal
+withholds stale results; native cleanup waits for in-flight operations, while Worker
+termination is the hard cancellation boundary. Local password-authorization hashing uses
+the SDK's primary KDF followed by native WebCrypto's protocol-specific single-iteration
+PBKDF2. Preserve the password exactly and normalize the authentication salt according to
+the pinned SDK, independently of vault-unlock parameters. Provider settings, cache
+reconciliation and persistent unlock still need their own integration and acceptance
+tests.
 
 The background host uses a packaged offscreen document with the `WORKERS`
 reason to construct Dedicated Workers. A private runtime Port starts in that

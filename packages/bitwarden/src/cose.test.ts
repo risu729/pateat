@@ -112,6 +112,13 @@ describe("COSE_Sign1 framing before the SDK's async boundary", () => {
     ],
     ["invalid UTF-8", sign1({ protectedHeader: join(hex("a1"), hex("62c328"), hex("01")) })],
     [
+      "a negative bignum ciborium refuses",
+      sign1({
+        protectedHeader: join(hex("a1"), hex("20"), hex("c350"), new Uint8Array(16).fill(0xff)),
+      }),
+    ],
+    ["a tagged header value", sign1({ protectedHeader: join(hex("a1"), hex("20"), hex("c100")) })],
+    [
       "a reserved additional value",
       sign1({ protectedHeader: join(hex("a1"), hex("01"), hex("1c")) }),
     ],

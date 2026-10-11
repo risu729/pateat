@@ -149,6 +149,32 @@ function verifiedAsRecordedSdk() {
   return { ...sdk, PasswordManagerClient: RecordedStateClient };
 }
 
+/** Real WASM decrypts; the returned CipherView is transformed to reach defensive branches. */
+function viewOverrideSdk(transform: (view: sdk.CipherView) => sdk.CipherView) {
+  const wrap = <T extends object>(target: T, overrides: Record<string, unknown>) =>
+    new Proxy(target, {
+      get(object, property) {
+        if (typeof property === "string" && property in overrides) return overrides[property];
+        const member: unknown = Reflect.get(object, property, object);
+        return typeof member === "function" ? member.bind(object) : member;
+      },
+    });
+  class ViewClient extends sdk.PasswordManagerClient {
+    override vault(): sdk.VaultClient {
+      const vault = super.vault();
+      return wrap(vault, {
+        ciphers: () => {
+          const ciphers = vault.ciphers();
+          return wrap(ciphers, {
+            decrypt: async (cipher: sdk.Cipher) => transform(await ciphers.decrypt(cipher)),
+          });
+        },
+      });
+    }
+  }
+  return { ...sdk, PasswordManagerClient: ViewClient };
+}
+
 async function session(input: unknown = v1Input()) {
   const created = await createLocalCryptoSession(input, sdk);
   expect(created.ok).toBe(true);
@@ -646,9 +672,82 @@ describe("strict cipher isolation and disposal", () => {
     });
     expect(view.ok).toBe(true);
     if (!view.ok) return;
-    expect(view.data.login?.fido2Credentials).toHaveLength(1);
-    expect(view.data.login?.fido2Credentials?.[0]).not.toHaveProperty("keyValue");
+    expect(view.data.login?.fido2Credentials ?? undefined).toBeUndefined();
     expect(JSON.stringify(view.data)).not.toContain(fidoPrivateKey);
+  });
+
+  it("keeps an unreadable passkey from failing the item's other fields", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      login: {
+        ...original.login,
+        fido2Credentials: [{ ...fidoCredential, keyValue: corrupt(fidoCredential.keyValue) }],
+      },
+    };
+    const view = await active.decryptCipher({ connectionId, cipher });
+    expect(view.ok).toBe(true);
+    if (view.ok) expect(view.data.login?.password).toBe("test_password");
+    expect(await active.decryptFido2Credentials({ connectionId, cipher })).toEqual({
+      ok: false,
+      error: { code: "crypto-failed" },
+    });
+  });
+
+  it.each([
+    [
+      "a partial view",
+      (view: sdk.CipherView) => ({ ...view, partial: true }),
+      "unsupported-crypto",
+    ],
+    [
+      "a dropped passkey",
+      (view: sdk.CipherView) => ({ ...view, login: { ...view.login!, fido2Credentials: [] } }),
+      "crypto-failed",
+    ],
+  ] as const)("rejects %s from the SDK", async (_name, transform, code) => {
+    const created = await createLocalCryptoSession(v1Input(), viewOverrideSdk(transform));
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    sessions.push(created.data);
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      login: { ...original.login, fido2Credentials: [fidoCredential] },
+    };
+    expect(await created.data.decryptFido2Credentials({ connectionId, cipher })).toEqual({
+      ok: false,
+      error: { code },
+    });
+  });
+
+  it("refuses an empty passkey private key from the SDK", async () => {
+    const created = await createLocalCryptoSession(
+      v1Input(),
+      viewOverrideSdk((view) => ({
+        ...view,
+        login: {
+          ...view.login!,
+          fido2Credentials: view.login!.fido2Credentials!.map((credential) => ({
+            ...credential,
+            keyValue: "",
+          })),
+        },
+      })),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    sessions.push(created.data);
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      login: { ...original.login, fido2Credentials: [fidoCredential] },
+    };
+    expect(await created.data.decryptFido2PrivateKey({ connectionId, cipher })).toEqual({
+      ok: false,
+      error: { code: "crypto-failed" },
+    });
   });
 
   it("rejects authenticated FIDO2 private-key corruption", async () => {

@@ -5,8 +5,8 @@
  * `initialize_user_crypto` export. A parse failure there throws outside the returned Promise, which
  * then never settles. The SDK no longer exports a synchronous parser, so this module rejects any
  * input that its COSE parser (coset 0.4.2 over ciborium 0.2.2) would refuse before the SDK sees it.
- * It accepts a strict subset of that parser: definite lengths only, no counter signatures, IVs or
- * critical headers, and only the signature algorithms Bitwarden signs with.
+ * It accepts a strict subset of that parser: definite lengths only, no tags, no counter signatures,
+ * IVs or critical headers, and only the signature algorithms Bitwarden signs with.
  *
  * Parsing grants no trust. Signatures are verified only by the SDK during initialization.
  */
@@ -17,7 +17,6 @@ type CborItem =
   | { kind: "text"; value: string }
   | { kind: "array"; items: CborItem[] }
   | { kind: "map"; entries: [CborItem, CborItem][] }
-  | { kind: "tag"; tag: bigint; item: CborItem }
   /** CBOR major type 7, keyed by its additional information (22 is null). */
   | { kind: "simple"; info: number };
 
@@ -82,7 +81,8 @@ class CborReader {
         return { kind: "map", entries };
       }
       case 6:
-        return { kind: "tag", tag: this.argument(info), item: this.item(depth + 1) };
+        // The SDK signer never emits tags, and ciborium reinterprets bignum tags 2 and 3.
+        throw new Error();
       default:
         // false, true, null, undefined and half/single/double floats; other simple values are
         // outside the accepted subset.
@@ -180,7 +180,7 @@ export function isCoseSign1(bytes: Uint8Array): boolean {
 
 /**
  * Reads `SecurityState.version` from a signed security state the SDK has ALREADY verified during
- * initialization. The payload is the SDK's CBOR map, e.g. `{"entityId": h'..', "version": 2}`.
+ * initialization. The payload is the SDK's CBOR map, e.g. `{"version": 2}`; other fields are ignored.
  * Anything else returns undefined, so callers fail closed.
  */
 export function verifiedSecurityStateVersion(bytes: Uint8Array): number | undefined {

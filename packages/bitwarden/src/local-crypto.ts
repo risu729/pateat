@@ -13,15 +13,16 @@ export type LocalCryptoSdk = Pick<
 /** Decrypted passkey metadata. The SDK view's decrypted private key (`keyValue`) is withheld. */
 export type LocalFido2CredentialMetadata = Omit<Sdk.Fido2CredentialView, "keyValue">;
 /**
- * The SDK's strict CipherView without the decrypted cipher key or passkey private keys, which the
- * pinned SDK now places in the view. Neither leaves the crypto boundary through this view.
+ * The SDK's strict CipherView without the decrypted cipher, attachment and passkey private keys,
+ * which the pinned SDK places in the view. None leaves the crypto boundary through this view.
  */
-export type LocalCipherView = Omit<Sdk.CipherView, "key" | "login"> & {
+export type LocalCipherView = Omit<Sdk.CipherView, "key" | "login" | "attachments"> & {
   login:
     | (Omit<Sdk.LoginView, "fido2Credentials"> & {
         fido2Credentials: LocalFido2CredentialMetadata[] | undefined;
       })
     | undefined;
+  attachments: Omit<Sdk.AttachmentView, "key">[] | undefined;
 };
 
 export interface LocalCryptoSession {
@@ -688,15 +689,24 @@ export async function createLocalCryptoSession(
     const knownOrganizations = new Set(organizationKeys.keys());
     organizationKeys.clear();
 
-    const decrypt = async (request: unknown): Promise<BitwardenResult<Sdk.CipherView>> => {
+    const decrypt = async (
+      request: unknown,
+      passkeys: "decrypt" | "omit" = "decrypt",
+    ): Promise<BitwardenResult<Sdk.CipherView>> => {
       if (locked) return failure("crypto-locked");
       const checked = parsed(decryptSchema, request);
       if (!checked) return failure("invalid-crypto-input");
       if (checked.connectionId !== connectionId) return failure("connection-mismatch");
-      const cipher = checked.cipher;
+      const admittedCipher = checked.cipher;
+      // Strict decryption also decrypts each separately encrypted legacy passkey. Outside the
+      // passkey operations, leave them out so one unreadable passkey affects only passkey use.
+      const cipher =
+        passkeys === "omit" && admittedCipher.login?.fido2Credentials
+          ? { ...admittedCipher, login: { ...admittedCipher.login, fido2Credentials: null } }
+          : admittedCipher;
       if (cipher.organizationId && !knownOrganizations.has(cipher.organizationId))
         return failure("crypto-failed");
-      const admitted = admitLocalCryptoCipher(cipher);
+      const admitted = admitLocalCryptoCipher(admittedCipher);
       if (!admitted.ok) return admitted;
       pendingCalls += 1;
       try {
@@ -761,17 +771,19 @@ export async function createLocalCryptoSession(
           return { ok: true as const, data: { userKey, metadata } };
         },
         decryptCipher: async (request: unknown): Promise<BitwardenResult<LocalCipherView>> => {
-          const decrypted = await decrypt(request);
+          const decrypted = await decrypt(request, "omit");
           if (!decrypted.ok) return decrypted;
-          const { key: _cipherKey, login, ...view } = decrypted.data;
+          const { key: _cipherKey, login, attachments, ...view } = decrypted.data;
           return {
             ok: true,
             data: {
               ...view,
               login: login && {
                 ...login,
+                // Sealed-blob ciphers still carry their passkeys inside the authenticated blob.
                 fido2Credentials: login.fido2Credentials?.map(passkeyMetadata),
               },
+              attachments: attachments?.map(({ key: _attachmentKey, ...attachment }) => attachment),
             },
           };
         },
