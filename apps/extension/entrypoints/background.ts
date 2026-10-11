@@ -13,12 +13,13 @@ import {
 import { createBrowserCryptoHost } from "../src/crypto/browser";
 import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/probe";
 import { createVaultProbe } from "../src/vault/probe";
+import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
-import { createVaultPasskeySource } from "../src/passkeys/vault";
+import { createVaultPasskeyFinder, createVaultPasskeySource } from "../src/passkeys/vault";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
@@ -98,17 +99,25 @@ export default defineBackground(() => {
         return snapshot;
       }),
   };
+  const vaultUris = createVaultUriMatcher(connections);
+  const vaultFields = createVaultFieldSource(connections);
   const login = createLoginRuntime(loginSettings, {
     fields: combineFieldSources({
-      bitwarden: createVaultFieldSource(connections),
+      bitwarden: vaultFields,
       ...(catalog ? { dummy: dummyFieldSource } : {}),
     }),
     sites: createLoginSites(settings),
     recipes: recipeSync.recipes,
-    uris: createVaultUriMatcher(connections),
+    uris: vaultUris,
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const vaultPasskeys = createVaultPasskeySource(connections);
+  const siteAccounts = createSiteAccountsHandler({
+    settings,
+    matchUris: vaultUris,
+    findPasskeys: createVaultPasskeyFinder(connections),
+    readField: vaultFields,
+  });
   const passkeyProbe =
     import.meta.env.MODE === "probe" ? createProbePasskeySource(vaultPasskeys) : undefined;
   const passkeys = passkeyProbe
@@ -184,6 +193,18 @@ export default defineBackground(() => {
         }
         return sendResponse(response);
       });
+      return true;
+    }
+    if (
+      sender.id === browser.runtime.id &&
+      sender.url === browser.runtime.getURL("/options.html") &&
+      message !== null &&
+      typeof message === "object" &&
+      message.type === "settings.site-accounts"
+    ) {
+      void siteAccounts(message).then(sendResponse, () =>
+        sendResponse({ version: 1, ok: false, reason: "unavailable" }),
+      );
       return true;
     }
     if (

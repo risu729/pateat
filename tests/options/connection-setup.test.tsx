@@ -312,6 +312,11 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
       getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(saved(0)),
       saveSettings: vi.fn<SettingsClient["saveSettings"]>().mockResolvedValue(saved(1)),
       getStatus: vi.fn<SettingsClient["getStatus"]>().mockResolvedValue(getFoundationStatus()),
+      findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+        version: 1,
+        ok: false,
+        reason: "unavailable",
+      }),
     };
     await render(
       <QueryClientProvider client={createMetadataQueryClient()}>
