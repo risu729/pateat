@@ -237,7 +237,12 @@ export function SitePolicy({
     return () => clearTimeout(timer);
   }, [accountOrigin]);
   // The draft's connections, items and exclusions decide what is searched.
-  const scope = JSON.stringify([draft.connections, draft.excludedSites]);
+  // A vault sync changes the answer too, so each connection's snapshot is part of the key.
+  const scope = JSON.stringify([
+    draft.connections,
+    draft.excludedSites,
+    catalog.connections.map((entry) => entry.snapshotId ?? null),
+  ]);
   const accounts = useQuery({
     queryKey: ["settings", "site-accounts", queriedOrigin, scope],
     queryFn: () => findSiteAccounts(queriedOrigin!, draft),
@@ -418,7 +423,10 @@ export function SitePolicy({
               status = `Unavailable under this draft policy: ${unavailableReason(resolved.reason)}`;
             else if (match)
               status = `Matches this origin by ${matchedBy({ uri: match.uri, passkey: match.passkey })}; checked again on each login`;
-            else if (matches?.complete)
+            else if (
+              matches?.complete &&
+              !connection?.quarantinedItemIds?.includes(selected.itemId)
+            )
               status =
                 "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login";
             else

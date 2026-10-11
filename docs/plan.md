@@ -377,9 +377,11 @@ Chrome yet.
   as not matching. A saved default for a live vault item is not shown as an origin
   mismatch, since its URI rules are checked on each page. Its row asks the same question
   for its origin: when its item matches, the row shows how and the login username,
-  looked up again on each visit and never saved (the same 2026-10-11 decision); when it
-  does not match `origin/` or a vault cannot be searched, the row says so and shows no
-  username.
+  looked up again on each visit and never saved (the same 2026-10-11 decision); when
+  every vault was searched and it does not match `origin/`, the row says so; otherwise
+  the row keeps the neutral note. Either way it shows no username. The background
+  answers these lookups one at a time, since a vault's crypto Worker takes one job at a
+  time.
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is

@@ -145,7 +145,7 @@ export function createSiteAccountsHandler(options: {
   findPasskeys: PasskeyFinder;
   readField?: LoginFieldSource;
 }) {
-  return async (message: unknown): Promise<SiteAccountsResponse> => {
+  const answer = async (message: unknown): Promise<SiteAccountsResponse> => {
     const request = v.safeParse(siteAccountsRequestSchema, message);
     if (!request.success) return { version: 1, ok: false, reason: "invalid-request" };
     const saved = await options.settings.handle({ version: 1, type: "settings.get" });
@@ -158,5 +158,13 @@ export function createSiteAccountsHandler(options: {
       findPasskeys: options.findPasskeys,
       ...(options.readField ? { readField: options.readField } : {}),
     });
+  };
+  // A vault's crypto Worker takes one job at a time, so concurrent lookups (one per saved
+  // default, plus the picker) would refuse each other; answer them one after another.
+  let queue: Promise<unknown> = Promise.resolve();
+  return (message: unknown): Promise<SiteAccountsResponse> => {
+    const run = queue.then(() => answer(message));
+    queue = run.catch(() => undefined);
+    return run;
   };
 }

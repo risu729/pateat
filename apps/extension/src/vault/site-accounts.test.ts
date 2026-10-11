@@ -281,6 +281,28 @@ describe("createSiteAccountsHandler", () => {
   });
 });
 
+describe("createSiteAccountsHandler queue", () => {
+  it("answers concurrent lookups one after another", async () => {
+    let running = 0;
+    let overlapped = false;
+    const handle = createSiteAccountsHandler({
+      settings: { handle: async () => saved() },
+      matchUris: async () => {
+        running += 1;
+        if (running > 1) overlapped = true;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        running -= 1;
+        return { ok: true, data: uris() };
+      },
+      findPasskeys: passkeys(),
+    });
+    const request = { version: 1, type: "settings.site-accounts", origin, settings: draft() };
+    const answers = await Promise.all([handle(request), handle({}), handle(request)]);
+    expect(overlapped).toBe(false);
+    expect(answers.map((entry) => entry.ok)).toEqual([true, false, true]);
+  });
+});
+
 describe("rpIdsFor", () => {
   it("lists the host and its registrable parent domains only", () => {
     expect(rpIdsFor("https://my.jcb.co.jp")).toEqual(["my.jcb.co.jp", "jcb.co.jp"]);
