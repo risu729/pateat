@@ -484,8 +484,9 @@ IndexedDB database at version 2 holds a `records` store and a `providerSessions`
 vault records still never contain tokens. A version 1 database from an earlier build
 fails to open until the extension is reinstalled
 ([compatibility before release](development.md#compatibility-before-release)). A
-token-free refresh claim commits by compare-and-swap before HTTP, a restart or unknown
-outcome requires password sign-in instead of replaying it, rotation commits before sync,
+token-free refresh claim commits by compare-and-swap before HTTP, a network failure,
+timeout, 429 or 5xx restores the previous session so a later sync retries it, a restart
+or other failure requires password sign-in, rotation commits before sync,
 and an absent refresh token keeps the captured one. Local forget, permission loss for
 that provider, a rejected refresh or access token, and a mismatched account context
 clear only the sync session. Startup only reads state; the settings page shows sync
