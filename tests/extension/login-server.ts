@@ -217,6 +217,11 @@ export async function startLoginFixture(
             fixtureUrl.searchParams.has("shown")
               ? `<p>Signed in as ${fixtureUrl.searchParams.get("shown")!.replace(/[^A-Za-z0-9@.*]/gu, "")}</p>`
               : ""
+          }${
+            // `switch` names the account the "Use another account" link shows next.
+            fixtureUrl.searchParams.has("switch")
+              ? `<a href="/single?${new URLSearchParams({ shown: fixtureUrl.searchParams.get("switch")!.replace(/[^A-Za-z0-9@.*]/gu, ""), switch: fixtureUrl.searchParams.get("switch")!.replace(/[^A-Za-z0-9@.*]/gu, "") }).toString().replace(/&/gu, "&amp;")}">Use another account</a>`
+              : ""
           }<label>Password<input id="password" ${
             {
               text: 'type="text"',

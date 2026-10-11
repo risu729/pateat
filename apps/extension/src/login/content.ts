@@ -35,6 +35,9 @@ function writable(element: Element | undefined): element is HTMLInputElement {
 function clickable(element: Element | undefined): element is HTMLElement {
   return element !== undefined && isButton(element) && visible(element) && !element.disabled;
 }
+function followable(element: Element | undefined): element is HTMLAnchorElement {
+  return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
+}
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
   if (location.pathname !== readiness.path) return false;
@@ -57,6 +60,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const token = crypto.randomUUID();
   let cancelled = false;
   const used = new Set<string>();
+  // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
+  let pendingSwitch: { operationId: string; element: HTMLElement } | undefined;
   // First steps of the origin's recipes. A new attempt starts only once one is ready on
   // the current path, including after a same-document URL change or a dialog opening.
   let starts: LoginReadiness[] = [];
@@ -184,6 +189,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       respond({ ok: true });
       return false;
     }
+    if (command.type === "login.switch") {
+      const pending = pendingSwitch;
+      pendingSwitch = undefined;
+      const click =
+        !cancelled &&
+        pending?.operationId === command.operationId &&
+        (clickable(pending.element) || followable(pending.element));
+      if (click) pending.element.click();
+      respond({ ok: click });
+      return false;
+    }
     if (command.type === "login.await") {
       // Polls the current DOM serially until the step's elements are ready; never mutates.
       void (async () => {
@@ -297,7 +313,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             },
           );
           command.account.username = "";
-          if (other) return fail("wrong-account");
+          if (other) {
+            // The recipe's account switch is clicked once the background has recorded the
+            // switch, so a recipe that starts on the page it leads to can log in.
+            const found = command.accountSwitch
+              ? findTargets(document, command.accountSwitch, { links: true })
+              : [];
+            const element = found.length === 1 ? found[0] : undefined;
+            if (clickable(element) || followable(element)) {
+              pendingSwitch = { operationId: operation.operationId, element };
+              return { ...fail("wrong-account"), switchable: true as const };
+            }
+            return fail("wrong-account");
+          }
         }
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch");

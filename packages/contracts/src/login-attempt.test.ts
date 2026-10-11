@@ -617,6 +617,15 @@ describe("submission and failure reconciliation", () => {
     expect(wrong).toMatchObject({ state: "blocked", outcome: "wrong-account", submissions: 0 });
     expect(wrong.mutationIntent).toBeUndefined();
     expect(transitionLoginAttempt(wrong, { type: "RETRY" })).toEqual(wrong);
+    // A clicked account switch ends it the same way, under its own outcome.
+    expect(
+      transitionLoginAttempt(intent, {
+        type: "WRONG_ACCOUNT",
+        operationId: "fill-one",
+        document,
+        switched: true,
+      }),
+    ).toMatchObject({ state: "blocked", outcome: "account-switched", submissions: 0 });
     // An input-triggered secret fill gives back the submission it reserved.
     const inputRecipe: LoginRecipe = {
       ...recipe,

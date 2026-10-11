@@ -691,6 +691,39 @@ test("a password-only page that shows another account is not filled", async () =
   }
 });
 
+test("clicks the account switch once and logs in on the page it leads to", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      // The demo account's username is 00001234; the link leads to a page showing it.
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/single?shown=****9999&switch=****1234`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      expect(new URL(page.url()).searchParams.get("shown")).toBe("****1234");
+      expect(await clicks(page)).toBe(1);
+      await page.close();
+      await expect.poll(status).not.toContain("authenticated");
+      // A page that still shows another account after the switch is not switched again.
+      const loop = await context.newPage();
+      let loads = 0;
+      loop.on("load", () => {
+        loads += 1;
+      });
+      await loop.goto(`${fixture.origin}/single?shown=****9999&switch=****9999`);
+      await expect.poll(status).toContain('"outcome":"wrong-account"');
+      expect(loads).toBe(2);
+      await expect(loop.locator("#password")).toHaveValue("");
+      expect(await clicks(loop)).toBe(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("clicks a submit button or image button named by its text, and refuses a duplicate", async () => {
   const fixture = await startLoginFixture();
   try {

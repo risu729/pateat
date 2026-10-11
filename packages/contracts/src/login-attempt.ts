@@ -60,6 +60,8 @@ export const attemptMetadataSchema = v.pipe(
     operationEffect: v.optional(v.picklist(["prepare", "advance", "submit"])),
     mutationIntent: v.optional(v.literal(true)),
     outcome: v.optional(loginOutcomeSchema),
+    /** This attempt follows an account switch in its tab; it never clicks another one. */
+    accountSwitched: v.optional(v.literal(true)),
   }),
   v.check(
     (metadata) =>
@@ -138,12 +140,14 @@ export const loginAttemptEventSchema = v.variant("type", [
   }),
   /**
    * The page shows another account than the selected one, found before any mutation of
-   * this fill. It ends the attempt without a retry.
+   * this fill. It ends the attempt without a retry; `switched` records that the recipe's
+   * account switch was clicked.
    */
   v.strictObject({
     type: v.literal("WRONG_ACCOUNT"),
     operationId: identifier,
     document: loginDocumentSchema,
+    switched: v.optional(v.literal(true)),
   }),
   v.strictObject({ type: v.literal("RETRY") }),
   v.strictObject({ type: v.literal("POLICY_CHANGED") }),
@@ -251,7 +255,7 @@ function record(
       };
     case "WRONG_ACCOUNT":
       return {
-        outcome: "wrong-account",
+        outcome: event.switched ? "account-switched" : "wrong-account",
         // Like a confirmed preflight failure, the reserved fill effect never started.
         submissions:
           context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
@@ -473,6 +477,7 @@ export function createAttemptMetadata(input: {
   policyRevision: number;
   account: LoginAccount;
   document: LoginDocument;
+  accountSwitched?: boolean;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
   if (input.account.origin !== recipe.origin)
@@ -493,6 +498,7 @@ export function createAttemptMetadata(input: {
     retries: 0,
     maxRetries: 2,
     usedOperationIds: [],
+    ...(input.accountSwitched ? { accountSwitched: true } : {}),
   });
 }
 

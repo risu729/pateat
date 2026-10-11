@@ -2,8 +2,10 @@
 
 Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0009](0009-install-time-https-site-access.md); amended by
-[ADR 0018](0018-recipe-generation-route.md). Not implemented yet in the extension: the
-extractor exists but nothing calls it. The service route enforces the 24-hour rule
+[ADR 0018](0018-recipe-generation-route.md) and by the owner's account-switch decision
+of 2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)). Not
+implemented yet in the extension: the extractor exists but nothing calls it. The service
+route enforces the 24-hour rule
 ([API README](../../services/api/README.md#recipe-generation)).
 
 Date: 2026-10-11
@@ -43,6 +45,25 @@ The observation is the value-free `LoginObservation`
 observation is not sent.
 When the generated recipe is used, and the service route, are decided in
 [ADR 0018](0018-recipe-generation-route.md).
+
+## Pages where no recipe starts
+
+Amended by the owner on 2026-10-11, choosing how a login continues after an account
+switch. A page is now eligible when no cached recipe of its origin starts on its path,
+not only when its origin has no recipe at all. Conditions 1 to 4 still apply, and a page
+an attempt in its tab is executing is not observed. The recipe generated there is a
+separate recipe that starts on that path, so one origin can hold several generated
+recipes, one per start path; this amends ADR 0018's one generated recipe per origin.
+
+Example: the recipe for `https://accounts.example` starts on `/signin/pwd`, a password
+page that shows a remembered `myaccount@example.com`. The selected item is
+`my2@example.com`, so the executor clicks the recipe's `accountSwitch` ("Use another
+account"), which leads to `/signin/id`, an email page. No recipe starts there, so that
+page is observed and sent, and the recipe generated for it logs in to `my2@example.com`
+([Background execution](../architecture.md#background-execution)).
+
+Not implemented yet: the extension does not call the extractor, and the service keeps
+one generated recipe per origin.
 
 ## Consequences
 

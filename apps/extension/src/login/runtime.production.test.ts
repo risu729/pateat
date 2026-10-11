@@ -18,9 +18,11 @@ const fake = vi.hoisted(() => {
       type: string;
       values?: { slot: string; value: string }[];
       account?: { username: string };
+      accountSwitch?: unknown;
+      outcome?: string;
     }[],
     /** Overrides the document's answer to an execution, such as a wrong-account refusal. */
-    executeReply: undefined as undefined | { ok: boolean; reason?: string },
+    executeReply: undefined as undefined | { ok: boolean; reason?: string; switchable?: true },
     granted: true,
     pageUrl: "https://login.example/signin",
     onExecute: undefined as
@@ -380,6 +382,38 @@ describe("production login document admission", () => {
       "login.password",
       "login.username",
     ]);
+  });
+  it("clicks the recipe's account switch only after recording it, then starts afresh once", async () => {
+    const accountSwitch = { by: "text", value: "Use another account" } as const;
+    fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
+    const h = harness({}, { username: true });
+    h.recipes.recipe.mockResolvedValue(parseLoginRecipe({ ...recipe, accountSwitch }));
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+    );
+    const attempts = () => fake.state.storage["pateat.login-attempts.v1"];
+    const types = () => fake.state.messages.map((entry) => entry.type);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(types()).toContain("login.switch"));
+    expect(attempts()).toMatchObject([
+      { state: "blocked", outcome: "account-switched", submissions: 0 },
+    ]);
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    expect(executes()[0]!.accountSwitch).toEqual(accountSwitch);
+    // The switch is stored and published before the page is asked to click it.
+    expect(
+      fake.state.messages.findIndex((entry) => entry.outcome === "account-switched"),
+    ).toBeLessThan(types().indexOf("login.switch"));
+    // The page it leads to starts a new attempt, which never switches again.
+    expect(await h.hello({ documentId: "next-page" })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(attempts()).toMatchObject([
+        { state: "blocked", outcome: "wrong-account", accountSwitched: true },
+      ]),
+    );
+    expect(executes()).toHaveLength(2);
+    expect(executes()[1]!.accountSwitch).toBeUndefined();
+    expect(types().filter((type) => type === "login.switch")).toHaveLength(1);
   });
   it("does not compare the page when the item has no username", async () => {
     const h = harness();

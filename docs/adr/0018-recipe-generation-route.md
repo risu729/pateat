@@ -4,7 +4,10 @@ Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (which pages are observed) and settles
 the retention left open by [ADR 0012](0012-inference-request-log.md). The service
 routes are implemented ([API README](../../services/api/README.md#recipe-generation));
-the extension does not call them yet.
+the extension does not call them yet. Its one generated recipe per origin is amended to
+one per start path by
+[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts) (not
+implemented yet).
 
 Date: 2026-10-11
 
