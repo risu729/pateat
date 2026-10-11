@@ -6,6 +6,7 @@ import {
   recoverLoginAttempt,
   transitionLoginAttempt,
   validateLoginOperation,
+  withdrawAccountSwitch,
 } from "./login-attempt";
 import type { LoginDocument, LoginRecipe } from "./login";
 
@@ -617,6 +618,36 @@ describe("submission and failure reconciliation", () => {
     expect(wrong).toMatchObject({ state: "blocked", outcome: "wrong-account", submissions: 0 });
     expect(wrong.mutationIntent).toBeUndefined();
     expect(transitionLoginAttempt(wrong, { type: "RETRY" })).toEqual(wrong);
+    // A clicked account switch ends it the same way, under its own outcome.
+    expect(
+      transitionLoginAttempt(intent, {
+        type: "WRONG_ACCOUNT",
+        operationId: "fill-one",
+        document,
+        switched: true,
+      }),
+    ).toMatchObject({ state: "blocked", outcome: "account-switched", submissions: 0 });
+    // Only once per sign-in, and only before anything was submitted.
+    for (const spent of [{ accountSwitched: true }, { submissions: 1 }]) {
+      const switched = transitionLoginAttempt(parseAttemptMetadata({ ...intent, ...spent }), {
+        type: "WRONG_ACCOUNT",
+        operationId: "fill-one",
+        document,
+        switched: true,
+      });
+      expect(switched).toMatchObject({ state: "blocked", outcome: "wrong-account" });
+    }
+    // A switch that was not clicked after all ends as `wrong-account`.
+    const withdrawn = withdrawAccountSwitch(
+      transitionLoginAttempt(intent, {
+        type: "WRONG_ACCOUNT",
+        operationId: "fill-one",
+        document,
+        switched: true,
+      }),
+    );
+    expect(withdrawn).toEqual({ ...wrong, outcome: "wrong-account" });
+    expect(withdrawAccountSwitch(intent)).toEqual(intent);
     // An input-triggered secret fill gives back the submission it reserved.
     const inputRecipe: LoginRecipe = {
       ...recipe,

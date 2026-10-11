@@ -51,8 +51,8 @@ compatibility claim or an alternative cloud-browser implementation.
 | Isolated content script | Extract sanitized form structure, validate document identity, execute fixed DOM operations | Only the specific values being filled, briefly                  |
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
 | Settings page           | Vault connection, re-authentication, unlock and service pairing                            | Deliberate user setup only; no auto-opening during login        |
-| Toolbar popup           | Current site's default account and exclusion; choosing among several matches (ADR 0020) | Item names and login usernames only; opened only by the user    |
-| Passkey chooser window  | Choosing among several passkeys for one pending request (ADR 0020)                       | Item names and passkey user names only                           |
+| Toolbar popup           | Current site's default account and exclusion; choosing among several matches (ADR 0021) | Item names and login usernames only; opened only by the user    |
+| Passkey chooser window  | Choosing among several passkeys for one pending request (ADR 0021)                       | Item names and passkey user names only                           |
 | Worker API + D1         | Settings, recipes and account bindings, owner web UI, device authorization, inference, request log | Service credentials only; no vault values or keys               |
 | AI provider             | Match observed elements and propose declarative steps                                      | No vault values, account bindings, cookies, or assertions       |
 
@@ -327,7 +327,7 @@ service's owner-authenticated web UI
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's own page
 covers only vault connection, re-authentication, unlock and service pairing. The toolbar
 popup is a third place that edits the current site's default account and exclusion
-([ADR 0020](adr/0020-account-choice-outside-settings.md), not implemented yet). Chrome
+([ADR 0021](adr/0021-account-choice-outside-settings.md), not implemented yet). Chrome
 use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
@@ -349,7 +349,7 @@ a single eligible provider URI match is used and saved only after the login is
 `authenticated`; a saved choice keeps winning when more items match later
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not
 log out the current session. No match or several matches require a choice rather than
-trying accounts in turn. Under [ADR 0020](adr/0020-account-choice-outside-settings.md)
+trying accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md)
 (not implemented yet) the choice is made in the toolbar popup for the refused document
 and may be one-time; after a finished login in a tab, the recipe's first step appearing
 again in that tab asks for a choice again instead of logging in. Automatic
@@ -372,7 +372,7 @@ Never select the target by whichever tab happens to be active. Use declarative c
 scripts/host permissions and browser events, not a popup or focus event as the execution
 trigger. The one exception is a choice the user makes in the toolbar popup: it restarts
 only the one recorded document that was refused for several matches, through
-`login.reconnect` ([ADR 0020](adr/0020-account-choice-outside-settings.md)). A static
+`login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A static
 content script runs on every HTTPS page and frame; the background admits non-excluded
 sites with host access and needs a cached recipe for the exact origin before any policy
 or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also
@@ -389,7 +389,7 @@ documents can execute.
 Do not inject `chrome-extension://` iframes, automatic overlays or unlock windows into
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
 settings. The one extension window is the passkey chooser of
-[ADR 0020](adr/0020-account-choice-outside-settings.md), opened for a pending request
+[ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
 with several matches and none in incognito. Do not attach our own debugger in normal
 operation. Another installed extension can still inject a conflicting frame; coexistence
 requires an explicit compatibility test and documented settings.
@@ -449,6 +449,24 @@ masked value consistent with the username (`m***@example.com`, `****1234`) proce
 as does an item without a username, a username of another kind (`taro99`) or a page that
 shows no comparable identifier. A masked number that is not the account, such as a card
 number on a password page, still stops a digits-only username: a known limitation.
+A recipe can name an `accountSwitch` target: the button or `<a href>` link that switches
+to another account (`{ "by": "text", "value": "Use another account" }`; text locators
+match link text only here; the recipe must not use it for a click step or `rejection`).
+When the page shows another account, nothing was submitted in the attempt, and that
+target matches exactly one shown link or button that does not submit a form, the
+background first records the attempt as `account-switched` (blocked, no submission
+spent) and then has the content script click it. The click happens only within 10
+seconds, on the same path, while the target still matches exactly that element;
+otherwise the record becomes `wrong-account` and keeps holding the tab. After the click,
+the tab's next document of that origin that reports ready starts a new attempt instead
+of resuming, so
+a recipe that starts on the page the switch leads to logs in, such as an email page at
+`/signin/id` after a password page at `/signin/pwd` that showed `myaccount@example.com`
+(owner decision, 2026-10-11). That attempt carries the switch and never clicks another:
+a page that still shows another account ends it `wrong-account`. Without the target,
+or when it is missing or ambiguous, the attempt ends `wrong-account` as above. A switch
+that changes the account in place, without loading a new document, does not continue
+the login.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.
@@ -714,10 +732,11 @@ diagnostics remain necessary.
 
 ### Device enrollment
 
-Status: the service side and the extension's pairing flow are implemented and tested
-locally with synthetic Access keys and responses; a real Access probe and the open
-decisions below remain. Nothing is configured or deployed. It satisfies the separation
-above without a cookie on steady-state API calls.
+Status: the typed-code flow below is implemented and deployed, and the owner paired a
+real Chrome through Access with it on 2026-10-11. Direct pairing
+([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; it is not
+implemented yet. Both satisfy the separation above without a cookie on steady-state
+API calls.
 
 - Route families. One Access application covers the whole service host, so a new route
   is protected by default (owner decision, 2026-10-11). A second, more specific Access
@@ -748,9 +767,9 @@ above without a cookie on steady-state API calls.
   its credential once; only its hash is stored, as today. So a link carrying someone
   else's challenge, or a challenge another account saw and approved, yields no device. A
   wrong code is reported only to the verifier holder; unapproved, expired, redeemed and
-  unknown verifiers return the same response. `chrome.identity.launchWebAuthFlow` would
-  avoid typing a code but adds the `identity` permission, so it remains an alternative
-  for the owner to choose.
+  unknown verifiers return the same response. The owner chose direct pairing over
+  `chrome.identity.launchWebAuthFlow`, which would add the `identity` permission
+  ([ADR 0020](adr/0020-direct-device-pairing.md)).
 - Lifetime and recovery. Credentials stay valid until revoked; an idle expiry is
   an open decision. The Access-protected management page lists and revokes the
   owner's devices, and a device can revoke itself on sign-out. A lost device is
@@ -760,9 +779,9 @@ above without a cookie on steady-state API calls.
 
 Local tests cover signature, issuer, audience, expiry and subject checks, approval
 CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
-cleanup of stale approvals, cross-owner management and self-revocation. Still open:
-probing JWT verification against a real Access application with the owner's approval,
-the credential idle-expiry decision, and the optional `launchWebAuthFlow` variant.
+cleanup of stale approvals, cross-owner management and self-revocation. JWT
+verification worked against the real Access application when the owner paired on
+2026-10-11. Still open: the credential idle-expiry decision.
 
 ### Owner web UI
 

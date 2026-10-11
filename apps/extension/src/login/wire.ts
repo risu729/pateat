@@ -101,6 +101,8 @@ export const commandSchema = v.variant("type", [
      * The page must not show another account; it never leaves the content script.
      */
     account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
+    /** The recipe's account switch, clicked when the page shows another account. */
+    accountSwitch: v.optional(loginTargetSchema),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -110,6 +112,16 @@ export const commandSchema = v.variant("type", [
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("login.cancel"), token: id }),
+  /**
+   * Clicks the account switch a `wrong-account` result of `operationId` reported as
+   * `switchable`, once the attempt has recorded the switch.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.switch"),
+    token: id,
+    operationId: id,
+  }),
   /**
    * Describes the page without values: a login page to generate a recipe from, or the
    * page after a generated recipe's final submission (ADR 0018).
@@ -135,6 +147,11 @@ export const executionResultSchema = v.strictObject({
   documentId: id,
   mutation: v.picklist(["none", "possible"]),
   reason: v.optional(v.picklist(["structural-mismatch", "timeout", "cancelled", "wrong-account"])),
+  /**
+   * With `wrong-account`: the command's account switch is on the page and can be clicked
+   * with `login.switch`. Nothing was filled or clicked.
+   */
+  switchable: v.optional(v.literal(true)),
 });
 export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),

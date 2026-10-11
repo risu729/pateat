@@ -6,6 +6,9 @@ the retention left open by [ADR 0012](0012-inference-request-log.md). The servic
 routes are implemented ([API README](../../services/api/README.md#recipe-generation)).
 The extension sends a recipe's first page and the page after its final submission;
 continuing a recipe on the page after an `advance` step is not implemented yet.
+Its one generated recipe per origin is amended to one per start path by
+[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts) (not
+implemented yet).
 
 Date: 2026-10-11
 

@@ -215,12 +215,22 @@ export async function startLoginFixture(
       path === "/unknown" ||
       path === "/delayed-result"
     ) {
-      // A masked login ID such as `****1234`; anything else is left out.
+      // Masked login IDs such as `****1234`; anything else is left out.
       const shown = fixtureUrl.searchParams.get("shown");
+      const switchTo = fixtureUrl.searchParams.get("switch");
+      const masked = /^[A-Za-z0-9@.*]+$/u;
       response.end(
         html(
           `<h1>Synthetic single-page login</h1>${
-            shown !== null && /^[A-Za-z0-9@.*]+$/u.test(shown) ? `<p>Signed in as ${shown}</p>` : ""
+            shown !== null && masked.test(shown) ? `<p>Signed in as ${shown}</p>` : ""
+          }${
+            // `switch` names the account the "Use another account" link shows next;
+            // `switch-submit` makes it the submit button of its own form instead.
+            switchTo === null || !masked.test(switchTo)
+              ? ""
+              : fixtureUrl.searchParams.has("switch-submit")
+                ? `<form action="/single"><input type="hidden" name="shown" value="${switchTo}"><button>Use another account</button></form>`
+                : `<a href="/single?${new URLSearchParams({ shown: switchTo, switch: switchTo }).toString().replace(/&/gu, "&amp;")}">Use another account</a>`
           }<label>Password<input id="password" ${
             {
               text: 'type="text"',

@@ -1,4 +1,4 @@
-# ADR 0020: Choosing an account outside the settings page
+# ADR 0021: Choosing an account outside the settings page
 
 Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected

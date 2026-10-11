@@ -587,9 +587,10 @@ the real settings store over in-memory storage; no running service has been trie
 
 ### Remaining M4 service gaps
 
-- Device enrollment has not been tried against a real Access application; that probe
-  needs the owner's approval, as do the credential idle-expiry decision and the
-  optional `launchWebAuthFlow` variant.
+- Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md))
+  is decided and not implemented: a manifest `key`, the Access-protected `POST /pair`,
+  then the extension switch with the typed-code flow removed. The credential
+  idle-expiry decision stays open.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and
@@ -892,12 +893,17 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   fills a secret but no username, the executor compares the account shown in that
   form and the page headings with the selected account's username, locally only. If
   they differ (`myaccount@example.com` shown while `my2@example.com` is selected), it
-  fills nothing, clicks the recipe's optional `accountSwitch` target and restarts from
-  the first step; without one it stops with `wrong-account`. A masked value consistent
-  with the username (`m***@example.com`) cannot be told apart and proceeds. The
-  comparison and the `wrong-account` stop are implemented
-  ([Background execution](architecture.md#background-execution)); `accountSwitch` and
-  the restart are not yet.
+  fills nothing and stops with `wrong-account`. A masked value consistent with the
+  username (`m***@example.com`) cannot be told apart and proceeds. The owner chose on
+  2026-10-11 how the switch continues: the executor clicks the recipe's optional
+  `accountSwitch` target once and ends the attempt, and the login continues with the
+  recipe that starts on the page the switch leads to, generated there if none exists
+  ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The comparison, the stop, the
+  switch click and the new attempt on the next page are implemented
+  ([Background execution](architecture.md#background-execution)). Still to do:
+  generating for a page where no recipe starts (after the generation trigger lands),
+  one generated recipe per start path on the service, and naming `accountSwitch`
+  (including link text) in the extractor and the generator.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
 - A real-page corpus per ADR 0012.
@@ -973,7 +979,7 @@ the service is the source of truth for settings, recipes and account bindings, w
 edited on its web UI; the extension keeps a last-known-good cache and only the pages
 that handle local secrets. Running without the service is later scope. On 2026-10-11 the
 owner added account choice outside the settings page to initial delivery
-([ADR 0020](adr/0020-account-choice-outside-settings.md)): a toolbar popup for the
+([ADR 0021](adr/0021-account-choice-outside-settings.md)): a toolbar popup for the
 current site's default and exclusion, choosing among several password matches there
 (once or as the default), a passkey chooser window, and choosing again after a logout in
 the same tab. They land as separate PRs in that order.
@@ -983,7 +989,7 @@ passkey counter writeback and passkey creation; Bitwarden provider login with pa
 API keys, SSO or device approval; external email/SMS OTP and magic links; and separately
 authorized post-login actions, including transactions and approvals. UI extensions,
 automatic account switching (logging out and in again when another account is picked
-while logged in, recorded in ADR 0020), a mode without the service, direct AI, recipe
+while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe
 sharing, additional service auth, E2EE settings sync, MCP and Vaultwarden support are
 also deferred. They are extension points, not implicit permissions or initial acceptance
 requirements.
@@ -1130,7 +1136,7 @@ Future page UI must avoid extension iframes, preserve accessible keyboard/focus 
 and recheck policy locally. The service's HTTPS management UI and MCP must share the
 internal operation contracts. Before implementing MCP, verify that the target client can
 autonomously invoke allowed dummy operations after connection approval; MCP does not
-bypass client rules. One-time account choices and choosing again after logout (ADR 0020)
+bypass client rules. One-time account choices and choosing again after logout (ADR 0021)
 need tests that cover several tabs on one origin; automatic logout/re-login also
 requires shared-session/race tests. Direct AI requires trusted extension key storage and
 provider compatibility tests. Alternative service auth, E2EE sync and Vaultwarden
