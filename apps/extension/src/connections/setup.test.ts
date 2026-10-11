@@ -1137,6 +1137,69 @@ describe("durable provider sessions", () => {
     expect(h.fetch).not.toHaveBeenCalled();
     expect(h.durable()).toBeNull();
   });
+  it("a sign-in that read the registry during delete cannot recreate the connection", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const removing = gate();
+    const remove = h.manager.remove.getMockImplementation()!;
+    h.manager.remove.mockImplementationOnce(async () => {
+      await removing.promise;
+      return remove();
+    });
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    const removed = other.remove(accountProfile.connectionId);
+    await vi.waitFor(() => expect(h.manager.remove).toHaveBeenCalledTimes(1));
+    const reading = gate();
+    const get = h.registry.get.getMockImplementation()!;
+    h.registry.get.mockImplementationOnce(async (id) => {
+      const stale = await get(id);
+      await reading.promise;
+      return stale;
+    });
+    const fetches = h.fetch.mock.calls.length;
+    const reads = h.registry.get.mock.calls.length;
+    const pending = h.caller.begin({
+      kind: "existing",
+      connectionId: accountProfile.connectionId,
+      password: v1Password,
+      autoUnlock: "preserve",
+    });
+    await vi.waitFor(() => expect(h.registry.get).toHaveBeenCalledTimes(reads + 1));
+    removing.release();
+    expect(await removed).toMatchObject({ ok: true, kind: "deleted" });
+    reading.release();
+    expect(await pending).toEqual({ ok: false, error: { code: "cancelled" } });
+    expect(h.fetch).toHaveBeenCalledTimes(fetches);
+    expect(h.durable()).toBeNull();
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.configurations.size).toBe(0);
+  });
+  it("disable, sync and forget during a delete are refused and leave no record", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const removing = gate();
+    const remove = h.manager.remove.getMockImplementation()!;
+    h.manager.remove.mockImplementationOnce(async () => {
+      await removing.promise;
+      return remove();
+    });
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    const removed = other.remove(accountProfile.connectionId);
+    await vi.waitFor(() => expect(h.manager.remove).toHaveBeenCalledTimes(1));
+    const refused = { ok: false, error: { code: "resource-limit" } };
+    expect(await h.caller.disable(accountProfile.connectionId)).toEqual(refused);
+    expect(await h.caller.sync(accountProfile.connectionId)).toEqual(refused);
+    expect(await h.caller.forget(accountProfile.connectionId)).toEqual(refused);
+    expect(await h.caller.remove(accountProfile.connectionId)).toEqual(refused);
+    removing.release();
+    expect(await removed).toMatchObject({ ok: true, kind: "deleted" });
+    expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
+    expect(h.durable()).toBeNull();
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.configurations.size).toBe(0);
+  });
   it("a failed vault deletion keeps the connection listed for another attempt", async () => {
     const h = harness({ existing: true });
     await connected(h);

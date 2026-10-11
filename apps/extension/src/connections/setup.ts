@@ -602,6 +602,9 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             }
             return { ok: true, kind: "deleted", connectionId };
           } finally {
+            // A begin or sync that read the registry while this ran saw the stale entry;
+            // a second bump makes its epoch check fail after disabling is cleared.
+            connectionEpoch.set(connectionId, (connectionEpoch.get(connectionId) ?? 0) + 1);
             disabling.delete(connectionId);
           }
         },
