@@ -12,8 +12,8 @@ description = "Benchmark generation on a corpus: Claude (paid, owner approval pe
 usage = '''
 flag "--paid" help="Confirm the owner approved this paid Claude run."
 flag "--max-cost-usd <usd>" default="2" help="Stop before a call that could exceed this estimated spend."
-flag "--corpus <name>" default="synthetic" help="The synthetic corpus or the real-page corpus." {
-  choices "synthetic" "real"
+flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus or the Japanese pages." {
+  choices "synthetic" "real" "japanese"
 }
 flag "--provider <name>" default="claude" help="Claude, or the model-free heuristic comparator." {
   choices "claude" "heuristic"

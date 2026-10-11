@@ -374,7 +374,9 @@ real Bitwarden Cloud US account in their Chrome
 - The executor chooses the account for each admitted document. A saved site default
   wins. Without one, it asks every enabled connection for provider URI candidates for
   the document's own URL and uses the item only when exactly one eligible item matches
-  (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`;
+  (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`
+  (which asks for a vault check,
+  [ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches));
   an unevaluated item (including Regex rules) as `item-uri-unevaluated`; and a
   connection that cannot answer, or a locked vault, as `vault-unavailable`. Each
   document asks once and reuses the answer while every connection's snapshot is
@@ -426,15 +428,15 @@ real Bitwarden Cloud US account in their Chrome
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
   matched again, so an Exact rule refuses a later page at another path. No match refuses
-  as `item-origin-mismatch`. Page URLs over 8192 characters and answers from another
-  snapshot refuse as `vault-unavailable`. Static `allowedOrigins` remain empty for live
-  items; Domain-mode subdomains and raw StartsWith rules cannot be expressed as exact
-  origins, so do not derive them. Synthetic unit tests cover these paths, and
-  `tests/extension/login-service.spec.ts` runs the chain in Chromium: the built API
-  Worker, served locally over HTTPS with a local D1 database, holds a recipe and a
-  binding; the extension syncs both, chooses the synthetic Bitwarden item by its single
-  URI match, logs in on a routed HTTPS site, uploads the saved account and logs in again
-  after a full browser restart.
+  as `item-origin-mismatch` and asks for the same vault check. Page URLs over 8192
+  characters and answers from another snapshot refuse as `vault-unavailable`. Static
+  `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
+  StartsWith rules cannot be expressed as exact origins, so do not derive them.
+  Synthetic unit tests cover these paths, and `tests/extension/login-service.spec.ts`
+  runs the chain in Chromium: the built API Worker, served locally over HTTPS with a
+  local D1 database, holds a recipe and a binding; the extension syncs both, chooses the
+  synthetic Bitwarden item by its single URI match, logs in on a routed HTTPS site,
+  uploads the saved account and logs in again after a full browser restart.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. An unavailable connection or an item awaiting field review
@@ -500,8 +502,12 @@ cover the schedule, the replacement hold, the revision outcomes and manual Sync;
 isolated Chromium test fires the alarm against the synthetic probe. The comparison of
 protected items' decrypted custom fields is covered by unit tests and an isolated
 Chromium sync of a synthetic item whose password changed and whose custom fields were
-re-encrypted. The trigger after a missing item is not implemented, and automatic sync is
-not yet verified in installed Chrome or against a real account.
+re-encrypted. After a page with a recipe finds no matching item, a check runs at most
+every ten seconds and reconnects only the refused document once it applied a new
+snapshot; unit tests cover the gate, the window and the reconnect target, and
+`tests/extension/login-service.spec.ts` logs in on a routed site once the item's URI
+arrives through that check. Automatic sync is not yet verified in installed Chrome or
+against a real account.
 
 Unit tests cover claims, rotation, concurrent writers, forget and permission races,
 expiry from the token's own claims, and per-provider permission loss. Isolated Chromium
@@ -1036,10 +1042,14 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
-- Japanese pages for the real-page corpus. The owner chose on 2026-10-11 to take them
-  from both public login pages opened in the owner's Chrome and the request log. The
-  finite-choice provider waited for a Claude baseline, which now exists for the
-  Formasaurus pages (below).
+- More Japanese pages. The owner chose on 2026-10-11 to take them from both public
+  login pages opened in Chrome on the owner's PC and the request log; six public pages
+  are in (below). On 2026-10-11 the request log held one Japanese row, a MyJCB
+  generation that abstained (`insufficient-evidence`) on an observation from before
+  #206 with no login control, so it adds no case. The finite-choice provider waited
+  for a Claude baseline, which now exists for both page sets.
+- Re-observe SMBC Direct and MyJCB and relabel their cases (below), now that their
+  login links are observed as script buttons (#226).
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -1125,6 +1135,41 @@ margin over the heuristic is those four pages (accuracy 1.0 against 0.958); on t
 synthetic corpus it is 16 against 9 of 16. A page set like this one, mostly plain
 forms, cannot tell a finite-choice model apart from Claude; the synthetic and Japanese
 pages carry that comparison.
+
+Japanese pages are in `packages/inference/src/corpus/japanese.json`
+(`--corpus japanese`). On 2026-10-11 a session on the owner's PC loaded 18 public
+Japanese login pages with Playwright in the installed Chrome, one empty browser context
+per page (no profile, cookies or account, locale `ja-JP`), and observed each with the
+probe from main `9ac17c4`. Nothing was typed or clicked. Nine gave no observation: MUFG
+rendered no field, Japan Post Bank showed a service-unavailable page, Monex, SMBC Card
+and Eki-net answered 403, Yahoo! JAPAN redirected to a captcha, Yodobashi failed with an
+HTTP/2 error, au ID landed on a 404 page and Mercari showed only a reCAPTCHA frame.
+Three gave incomplete observations, which inference rejects without a call: SBI
+Securities (its top page, not a login form), niconico and pixiv. The six complete ones
+are the cases. Each keeps the observation, its label and the page's origin and path,
+with no query; the page text holds no account or personal data (reviewed 2026-10-11).
+PayPay Bank and SMBC send branch and account number custom fields and a password, as the
+synthetic bank case does; the others send the username and password slots. SMBC and
+MyJCB are labelled abstain because, when they were observed, the extractor saw their
+login control as a link, and the plan check accepts only a button. SMBC's is
+`<a href="javascript:;" onclick=...>`, and MyJCB's script sets `href="#"` on its
+`onclick` link at load, so the script-button rule of #206 did not reach either; #226
+observes both as script buttons, so the labels and results below predate it.
+
+| Case | Expected | Heuristic | Claude |
+| --- | --- | --- | --- |
+| SMBC Direct (bank fields) | abstain | false submit (modal button) | failed (`incompatible-role`) |
+| Mizuho Direct | `advance` after the customer number | missed | correct |
+| docomo SMTB Net Bank | submit | correct | correct |
+| PayPay Bank (bank fields) | submit | false submit (branch number in the account number field) | correct |
+| Rakuten Securities | submit, not "クリア" | correct | correct |
+| MyJCB | abstain | false submit (passkey button) | failed (`incompatible-role`) |
+
+The heuristic scored 2 of 6 with 3 false submits. Claude (`claude-opus-5-5`, effort
+`low`, this corpus on main `c2cc684`, one batch, $0.063 for 6 calls) scored 4 of 6
+with no false submit. On SMBC and MyJCB it named the login link as the action, which the
+plan check rejects as `incompatible-role`, so no recipe would be saved; a rerun of those
+two cases ($0.026) recorded that reason, which each failed case now reports as `detail`.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete

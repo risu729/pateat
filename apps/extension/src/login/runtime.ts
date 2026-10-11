@@ -296,7 +296,16 @@ export function createLoginRuntime(
      * holds vault replacement off while it is handled; a page that may start a login
      * first waits briefly for a running check.
      */
-    vault?: { refreshIfStale(): void; enter(waitForCheck: boolean): Promise<() => void> };
+    vault?: {
+      refreshIfStale(): void;
+      enter(waitForCheck: boolean): Promise<() => void>;
+      /**
+       * Asked when a page with a recipe found no matching vault item: a check limited to
+       * once every ten seconds. Answers true when a check applied a new snapshot within
+       * ten seconds, after which the refused document is asked to announce again.
+       */
+      checkAfterMiss?(): Promise<boolean>;
+    };
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
@@ -781,7 +790,14 @@ export function createLoginRuntime(
     };
   }
   type Choice = { connectionId: string; itemId: string; saved: boolean; pick?: PickedAccount };
-  type Refusal = { reason: string; candidates?: PendingChoice["candidates"]; logout?: true };
+  /** `noUriMatch` marks a refusal because no vault item matches the page, which a vault
+   * sync may change; it is never reported. */
+  type Refusal = {
+    reason: string;
+    candidates?: PendingChoice["candidates"];
+    logout?: true;
+    noUriMatch?: true;
+  };
   /**
    * The account for this document. A saved site default wins. Without one, a single
    * eligible provider URI match across all enabled connections is used for this attempt
@@ -856,7 +872,7 @@ export function createLoginRuntime(
         })),
       };
     const [only] = candidates;
-    if (!only) return { reason: "default-not-set" };
+    if (!only) return { reason: "default-not-set", noUriMatch: true };
     // The same answer covers the item origin check below; no second query is needed.
     live.uriMatch = {
       connectionId: only.connectionId,
@@ -1030,6 +1046,7 @@ export function createLoginRuntime(
     let policy = snapshot.snapshot;
     let binding: LoginAccountBinding | undefined;
     let choice: UnsavedChoice | undefined;
+    let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
       binding = probeBinding(recipe, account);
@@ -1043,7 +1060,9 @@ export function createLoginRuntime(
           reason: chosen.reason,
           ...(chosen.candidates ? { candidates: chosen.candidates } : {}),
           ...(chosen.logout ? { logout: true as const } : {}),
+          ...(chosen.noUriMatch ? { noUriMatch: true as const } : {}),
         };
+      savedDefault = chosen.saved;
       const scope = await liveScope(snapshot, live, chosen);
       if ("reason" in scope) return { ok: false as const, reason: scope.reason };
       const top = await topScope(snapshot, live, chosen, snapshot.catalog);
@@ -1086,6 +1105,10 @@ export function createLoginRuntime(
         };
     }
     const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding);
+    // A saved default's item that no longer matches the page, as after its URI was edited
+    // on another device, is also no matching item.
+    if (!plan.ok && plan.reason === "item-origin-mismatch" && savedDefault)
+      return { ...plan, noUriMatch: true as const };
     if (!plan.ok) return plan;
     const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
     if (
@@ -1702,6 +1725,38 @@ export function createLoginRuntime(
       // The document went away or the service could not answer; nothing was started.
     }
   }
+  /**
+   * After a refusal because no vault item matches, a vault check may bring the item from
+   * another device. Once a check applied a new snapshot in time, only the refused document
+   * is asked to announce again, and only while it is still that refused document.
+   */
+  function retryAfterSync(live: LiveDocument, reason: string): void {
+    // A document replaced while the refusal was published could never be reconnected.
+    if (documents.get(frameKey(live.document)) !== live) return;
+    let synced: Promise<boolean> | undefined;
+    try {
+      synced = options.vault?.checkAfterMiss?.();
+    } catch {
+      return;
+    }
+    void synced
+      ?.then(async (applied) => {
+        if (
+          !applied ||
+          documents.get(frameKey(live.document)) !== live ||
+          live.state !== "denied" ||
+          live.reason !== reason
+        )
+          return undefined;
+        await browser.tabs.sendMessage(
+          live.document.tabId,
+          { version: 1, type: "login.reconnect" },
+          { frameId: live.document.frameId, documentId: live.document.documentId },
+        );
+        return undefined;
+      })
+      .catch(() => undefined);
+  }
   type Readiness = { ok: boolean; reason?: string; starts?: LoginReadiness[]; generate?: true };
   async function ready(
     sender: Sender,
@@ -2000,7 +2055,12 @@ export function createLoginRuntime(
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates)
         offerChoice(document, plan.candidates, "logout" in plan && plan.logout === true);
-      return refuse(plan.reason);
+      const refused = await refuse(plan.reason);
+      // Asked while the page still holds vault replacement off, so a check started by
+      // this page's announcement cannot apply before the miss is registered.
+      if (!previous && !switched && "noUriMatch" in plan && plan.noUriMatch)
+        retryAfterSync(live, plan.reason);
+      return refused;
     }
     // Cookies can be shared across tabs. Preserve this conservative origin owner even at
     // terminal state until tab closure, and while a tab that logged out of it still asks.

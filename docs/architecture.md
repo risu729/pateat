@@ -392,7 +392,10 @@ Never select the target by whichever tab happens to be active. Use declarative c
 scripts/host permissions and browser events, not a popup or focus event as the execution
 trigger. The one exception is a choice the user makes in the toolbar popup: it restarts
 only the one recorded document that was refused for several matches, through
-`login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A static
+`login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A vault
+check after a page with a recipe found no matching item likewise reconnects only that
+refused document, once the check applied a new snapshot within ten seconds
+([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static
 content script runs on every HTTPS page and frame; the background admits non-excluded
 sites with host access and needs a cached recipe for the exact origin before any policy
 or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also
@@ -693,13 +696,12 @@ buttons and hidden text inside a button do not count, and text over 120 characte
 no locator. A script button is a control only scripts make clickable: a script link, or
 another element with `role="button"`, but never a form control or anything inside an
 `<a href>`. A script link is an `<a>` without `href` that has an `onclick` attribute or
-`role="button"`, such as MyJCB's passkey button
-`<a id="passkeyLoginButtonAD" onclick="callPasskeyLoginServlet(event)">`, or an
+`role="button"`, such as `<a id="login" onclick="document.loginForm.submit()">`, or an
 `<a href>` that runs a script instead of following the link: a `javascript:` URL, such
-as SMBC Direct's `<a href="javascript:;" onclick="...">ログイン</a>`, or an empty or
+as `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or
 fragment-only `href` on a link with an `onclick` attribute or `role="button"`, such as
-MyJCB's `<a id="loginButtonAD" href="#" onclick="document.loginForm.submit()">` (its
-script adds `href="#"` after load). A text locator names a script link by its rendered
+`<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts
+add `href="#"` after load). A text locator names a script link by its rendered
 text, but only when no native button carries that text, shown or hidden: native buttons
 are matched first, so a login tab such as `<a href="#" onclick="...">Login</a>` never
 makes the `<input type="submit" value="Login">` below it ambiguous, and a text locator

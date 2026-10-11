@@ -73,6 +73,115 @@ function storedRecipes(background: Worker) {
   );
 }
 
+type SyncService = Awaited<ReturnType<typeof startSyncService>>;
+type VaultBrowser = {
+  context: BrowserContext;
+  background: Worker;
+  page: Page;
+  extensionId: string;
+};
+
+/**
+ * Connects the synthetic Bitwarden account, publishes the recipe and a binding to the
+ * service and pairs the device, so the site's recipe and binding come only from the
+ * service and no site default is saved.
+ */
+async function prepare(browser: VaultBrowser, service: SyncService) {
+  const options = await browser.context.newPage();
+  await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
+  const accepted = await setupRequest(options, {
+    type: "connection.begin",
+    input: beginInput(),
+  });
+  if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
+  const initial = await settingsRequest(options);
+  // The probe build's bundled demo vaults cannot answer URI queries; a choice by URI
+  // match refuses while any enabled connection is unanswered, so leave only Bitwarden.
+  const settings = initial.snapshot.settings;
+  settings.connections = settings.connections.map((entry) => ({
+    ...entry,
+    enabled: entry.connectionId === accepted.connectionId,
+  }));
+  const local = await settingsRequest(options, {
+    version: 1,
+    type: "settings.save",
+    expectedRevision: initial.snapshot.revision,
+    settings,
+  });
+  expect(local.snapshot.settings.connections.filter((entry) => entry.enabled)).toHaveLength(1);
+  const connection = local.catalog.connections.find((entry) => entry.id === accepted.connectionId);
+  const item = connection?.items[0];
+  if (!connection?.userId || !item) throw new Error("Synthetic vault item missing");
+  // Nothing local names this site: the default and binding come only from the service.
+  expect(local.snapshot.settings.siteDefaults).toEqual([]);
+  expect(local.snapshot.settings.bindings).toEqual([]);
+
+  const published = await service.request(`/v1/recipes/${recipeId}`, {
+    method: "PUT",
+    body: { version: 1, expectedRevision: 0, state: "active", recipe },
+  });
+  expect(published.status).toBe(200);
+  const account = { provider: "bitwarden", userId: connection.userId, itemId: item.id };
+  const binding = {
+    recipeId,
+    origin: site,
+    ...account,
+    itemName: item.label,
+    slots: [
+      { slot: "branch", field: { custom: "duplicate", position: 1, count: 3 } },
+      { slot: "account", field: { custom: "duplicate", position: 2, count: 3 } },
+      { slot: "password", field: "password" },
+    ],
+  };
+  const stored = await service.request("/v1/settings", {
+    method: "PUT",
+    body: {
+      version: 1,
+      expectedRevision: 0,
+      settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [binding] },
+    },
+  });
+  expect(stored.status).toBe(200);
+
+  // A paired device: the background reads this record and syncs over HTTPS.
+  await browser.background.evaluate(
+    async (record) =>
+      (
+        globalThis as unknown as {
+          chrome: { storage: { local: { set(value: unknown): Promise<void> } } };
+        }
+      ).chrome.storage.local.set({ "pateat.sync-service.v1": record }),
+    {
+      version: 1,
+      kind: "connected",
+      origin: service.origin,
+      label: "Synthetic test device",
+      deviceId: service.deviceId,
+      credential: service.credential,
+    },
+  );
+  expect(await send(options, { version: 1, type: "service.get" })).toMatchObject({
+    ok: true,
+    state: { kind: "connected" },
+  });
+  // Saving settings syncs at once; the earlier save already scheduled the next one.
+  await settingsRequest(options, {
+    version: 1,
+    type: "settings.save",
+    expectedRevision: local.snapshot.revision,
+    settings: local.snapshot.settings,
+  });
+  await expect
+    .poll(async () => JSON.stringify(await storedRecipes(browser.background)))
+    .toContain(recipeId);
+  // The sync names the binding's account after this device's connection.
+  const named = { ...binding, accountName: connection.label };
+  await expect
+    .poll(async () => (await settingsRequest(options)).snapshot.settings.bindings)
+    .toEqual([named]);
+  return { options, accepted, connection, item, account, binding, named };
+}
+
 test("a recipe and binding synced from the service log in with the live vault and upload the chosen account", async () => {
   const fixture = await startLoginFixture(0, { password: "test_password" });
   const service = await startSyncService();
@@ -82,102 +191,7 @@ test("a recipe and binding synced from the service log in with the live vault an
         const browser = await open();
         await serveSite(browser.context, fixture);
         await setupProbe(browser.page, { action: "configure", variant: "uri" });
-        const options = await browser.context.newPage();
-        await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
-        const accepted = await setupRequest(options, {
-          type: "connection.begin",
-          input: beginInput(),
-        });
-        if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
-        const initial = await settingsRequest(options);
-        // The probe build's bundled demo vaults cannot answer URI queries; a choice by URI
-        // match refuses while any enabled connection is unanswered, so leave only Bitwarden.
-        const settings = initial.snapshot.settings;
-        settings.connections = settings.connections.map((entry) => ({
-          ...entry,
-          enabled: entry.connectionId === accepted.connectionId,
-        }));
-        const local = await settingsRequest(options, {
-          version: 1,
-          type: "settings.save",
-          expectedRevision: initial.snapshot.revision,
-          settings,
-        });
-        expect(local.snapshot.settings.connections.filter((entry) => entry.enabled)).toHaveLength(
-          1,
-        );
-        const connection = local.catalog.connections.find(
-          (entry) => entry.id === accepted.connectionId,
-        );
-        const item = connection?.items[0];
-        if (!connection?.userId || !item) throw new Error("Synthetic vault item missing");
-        // Nothing local names this site: the default and binding come only from the service.
-        expect(local.snapshot.settings.siteDefaults).toEqual([]);
-        expect(local.snapshot.settings.bindings).toEqual([]);
-
-        const published = await service.request(`/v1/recipes/${recipeId}`, {
-          method: "PUT",
-          body: { version: 1, expectedRevision: 0, state: "active", recipe },
-        });
-        expect(published.status).toBe(200);
-        const account = { provider: "bitwarden", userId: connection.userId, itemId: item.id };
-        const binding = {
-          recipeId,
-          origin: site,
-          ...account,
-          itemName: item.label,
-          slots: [
-            { slot: "branch", field: { custom: "duplicate", position: 1, count: 3 } },
-            { slot: "account", field: { custom: "duplicate", position: 2, count: 3 } },
-            { slot: "password", field: "password" },
-          ],
-        };
-        const stored = await service.request("/v1/settings", {
-          method: "PUT",
-          body: {
-            version: 1,
-            expectedRevision: 0,
-            settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [binding] },
-          },
-        });
-        expect(stored.status).toBe(200);
-
-        // A paired device: the background reads this record and syncs over HTTPS.
-        await browser.background.evaluate(
-          async (record) =>
-            (
-              globalThis as unknown as {
-                chrome: { storage: { local: { set(value: unknown): Promise<void> } } };
-              }
-            ).chrome.storage.local.set({ "pateat.sync-service.v1": record }),
-          {
-            version: 1,
-            kind: "connected",
-            origin: service.origin,
-            label: "Synthetic test device",
-            deviceId: service.deviceId,
-            credential: service.credential,
-          },
-        );
-        expect(await send(options, { version: 1, type: "service.get" })).toMatchObject({
-          ok: true,
-          state: { kind: "connected" },
-        });
-        // Saving settings syncs at once; the earlier save already scheduled the next one.
-        await settingsRequest(options, {
-          version: 1,
-          type: "settings.save",
-          expectedRevision: local.snapshot.revision,
-          settings: local.snapshot.settings,
-        });
-        await expect
-          .poll(async () => JSON.stringify(await storedRecipes(browser.background)))
-          .toContain(recipeId);
-        // The sync names the binding's account after this device's connection.
-        const named = { ...binding, accountName: connection.label };
-        await expect
-          .poll(async () => (await settingsRequest(options)).snapshot.settings.bindings)
-          .toEqual([named]);
+        const { options, connection, item, account, named } = await prepare(browser, service);
 
         const runId = fixture.createRun();
         const page = await browser.context.newPage();
@@ -238,6 +252,72 @@ test("a recipe and binding synced from the service log in with the live vault an
         expect(fixture.evidence(again)).toMatchObject({ posts: 1, allMatched: true });
         // Only the routed site and the loopback service were contacted.
         expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
+test("a page whose recipe finds no matching item checks the vault again and logs in once the item's URI arrives", async () => {
+  const fixture = await startLoginFixture(0, { password: "test_password" });
+  const service = await startSyncService();
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        // The item stores no URI yet, so no item matches the site.
+        await setupProbe(browser.page, { action: "configure", variant: "unchanged" });
+        const { accepted } = await prepare(browser, service);
+        // The URI is added on another device, which moves the account's revision date.
+        await setupProbe(browser.page, { action: "configure", variant: "uri" });
+        // The last check was 20 seconds ago: a regular check waits a minute, while a check
+        // after a page found no matching item waits ten seconds (ADR 0025).
+        await browser.background.evaluate(async (id) => {
+          const { chrome } = globalThis as unknown as {
+            chrome: {
+              storage: {
+                local: {
+                  get(key: string): Promise<Record<string, unknown>>;
+                  set(items: Record<string, unknown>): Promise<void>;
+                };
+              };
+            };
+          };
+          const key = "pateat.vault-sync-schedule.v1";
+          const record = (await chrome.storage.local.get(key))[key] as
+            | { version: 1; connections: Record<string, Record<string, unknown>> }
+            | undefined;
+          const { revisionMs } = record?.connections[id] ?? {};
+          await chrome.storage.local.set({
+            [key]: {
+              version: 1,
+              connections: {
+                ...record?.connections,
+                [id]: {
+                  checkedAt: Date.now() - 20_000,
+                  outcome: "unchanged",
+                  ...(revisionMs === undefined ? {} : { revisionMs }),
+                },
+              },
+            },
+          });
+        }, accepted.connectionId);
+        const before = await setupProbe(browser.page, { action: "status" });
+
+        const runId = fixture.createRun();
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/identity?runId=${runId}`);
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+        expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+        // One revision check found the change and one full sync brought the URI.
+        expect(await setupProbe(browser.page, { action: "status" })).toMatchObject({
+          revisionCalls: before.revisionCalls + 1,
+          syncCalls: before.syncCalls + 1,
+        });
       },
       { args: ["--ignore-certificate-errors"] },
     );

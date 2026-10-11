@@ -5,6 +5,8 @@ import {
   VAULT_DEFER_LIMIT_MS,
   VAULT_DEFERRED_RETRY_MS,
   VAULT_IDLE_WAIT_MS,
+  VAULT_MISS_RETRY_MS,
+  VAULT_MISS_WINDOW_MS,
   VAULT_RATE_LIMIT_MS,
   createVaultAutoSync,
   createVaultSyncRecords,
@@ -55,6 +57,13 @@ function harness(options: { ids?: string[]; online?: boolean } = {}) {
 }
 
 afterEach(() => vi.useRealTimers());
+
+/** A run that takes the replacement hold and applies a new snapshot, as a sync does. */
+async function applied(_id: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
+  const release = await hold.take();
+  release?.();
+  return release ? "synced" : "deferred";
+}
 
 describe("vault check schedule", () => {
   it("checks each connection at most once per interval and records the outcome", async () => {
@@ -246,5 +255,198 @@ describe("vault replacement hold", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(entered).toBe(true);
     finish();
+  });
+});
+
+describe("vault check after a page finds no matching item", () => {
+  /** Settles every pass, including one that a miss asked for during another. */
+  async function settleAll(h: ReturnType<typeof harness>) {
+    for (let pass = h.auto.running(); pass; pass = h.auto.running())
+      // oxlint-disable-next-line no-await-in-loop -- one pass after another
+      await pass;
+  }
+  it("checks again after ten seconds while a regular check still waits a minute", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.auto.refreshIfStale();
+    await settleAll(h);
+    h.advance(VAULT_MISS_RETRY_MS - 1);
+    void h.auto.checkAfterMiss();
+    await settleAll(h);
+    expect(h.run).toHaveBeenCalledTimes(1);
+    h.advance(1);
+    h.auto.refreshIfStale();
+    await settleAll(h);
+    expect(h.run).toHaveBeenCalledTimes(1);
+    void h.auto.checkAfterMiss();
+    await settleAll(h);
+    expect(h.run).toHaveBeenCalledTimes(2);
+    // The miss check moved the stored check time, which the regular limit counts from.
+    h.advance(VAULT_CHECK_INTERVAL_MS - 1);
+    h.auto.refreshIfStale();
+    await settleAll(h);
+    expect(h.run).toHaveBeenCalledTimes(2);
+  });
+  it("runs once more when a miss is asked for during a running check", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    let finish!: () => void;
+    h.run.mockImplementationOnce(
+      () =>
+        new Promise<VaultSyncOutcome>((resolve) => {
+          finish = () => resolve("unchanged");
+        }),
+    );
+    h.auto.refreshIfStale();
+    await vi.waitFor(() => expect(h.run).toHaveBeenCalledTimes(1));
+    h.advance(VAULT_MISS_RETRY_MS);
+    h.run.mockImplementationOnce(applied);
+    const synced = h.auto.checkAfterMiss();
+    void h.auto.checkAfterMiss();
+    expect(h.run).toHaveBeenCalledTimes(1);
+    finish();
+    await settleAll(h);
+    // The running check counted from its own start; one follow-up checks after ten seconds.
+    expect(h.run).toHaveBeenCalledTimes(2);
+    expect(await synced).toBe(true);
+  });
+  it("answers true only when a check applies a new snapshot within ten seconds", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.run.mockImplementationOnce(applied);
+    expect(await h.auto.checkAfterMiss()).toBe(true);
+    for (const outcome of [
+      "unchanged",
+      "deferred",
+      "failed",
+      "skipped",
+      "reauthentication-required",
+    ] as const) {
+      h.advance(VAULT_MISS_RETRY_MS);
+      h.run.mockResolvedValueOnce(outcome);
+      let answered: boolean | undefined;
+      void h.auto.checkAfterMiss().then((value) => {
+        answered = value;
+        return undefined;
+      });
+      // oxlint-disable-next-line no-await-in-loop -- one outcome after another
+      await settleAll(h);
+      // oxlint-disable-next-line no-await-in-loop -- one outcome after another
+      await vi.advanceTimersByTimeAsync(VAULT_MISS_WINDOW_MS - 1);
+      expect(answered).toBeUndefined();
+      // oxlint-disable-next-line no-await-in-loop -- one outcome after another
+      await vi.advanceTimersByTimeAsync(1);
+      expect(answered).toBe(false);
+    }
+  });
+  it("answers false when the snapshot is applied only after ten seconds", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    let finish!: () => void;
+    h.run.mockImplementationOnce(
+      () =>
+        new Promise<VaultSyncOutcome>((resolve) => {
+          finish = () => resolve("synced");
+        }),
+    );
+    const synced = h.auto.checkAfterMiss();
+    await vi.advanceTimersByTimeAsync(VAULT_MISS_WINDOW_MS);
+    expect(await synced).toBe(false);
+    finish();
+    await settleAll(h);
+    expect(h.stored()?.connections["a"]?.["outcome"]).toBe("synced");
+  });
+  it("is answered by a regular check that applies a new snapshot after the miss", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    let proceed!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      proceed = resolve;
+    });
+    h.run.mockImplementationOnce(async (id, hold) => {
+      await gate;
+      return applied(id, hold);
+    });
+    h.auto.refreshIfStale();
+    await vi.waitFor(() => expect(h.run).toHaveBeenCalledTimes(1));
+    // Asked while the regular check is still fetching; its replacement comes after.
+    const synced = h.auto.checkAfterMiss();
+    proceed();
+    await settleAll(h);
+    expect(await synced).toBe(true);
+  });
+  it("is not answered by a snapshot applied before the miss was asked", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    let finish!: () => void;
+    const recorded = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let missed: Promise<boolean> | undefined;
+    h.run.mockImplementationOnce(async (_id, hold) => {
+      const release = await hold.take();
+      release?.();
+      // A page plans with the new snapshot, still finds nothing and asks.
+      missed = h.auto.checkAfterMiss();
+      finish();
+      return "synced";
+    });
+    h.auto.refreshIfStale();
+    await recorded;
+    await settleAll(h);
+    await vi.advanceTimersByTimeAsync(VAULT_MISS_WINDOW_MS);
+    expect(await missed).toBe(false);
+  });
+  it.each<[string, (h: ReturnType<typeof harness>) => void]>([
+    [
+      "after a 429",
+      (h) =>
+        h.setStored({
+          version: 1,
+          connections: {
+            a: { checkedAt: h.now() - 60_000, outcome: "rate-limited", retryAt: h.now() + 60_000 },
+          },
+        }),
+    ],
+    [
+      "for a deleted account",
+      (h) =>
+        h.setStored({
+          version: 1,
+          connections: { a: { checkedAt: h.now() - 60_000, outcome: "account-deleted" } },
+        }),
+    ],
+  ])("sends nothing %s and answers false", async (_name, setup) => {
+    vi.useFakeTimers();
+    const h = harness();
+    setup(h);
+    const synced = h.auto.checkAfterMiss();
+    await settleAll(h);
+    await vi.advanceTimersByTimeAsync(VAULT_MISS_WINDOW_MS);
+    expect(await synced).toBe(false);
+    expect(h.run).not.toHaveBeenCalled();
+  });
+  it("sends nothing while offline and answers false", async () => {
+    vi.useFakeTimers();
+    const h = harness({ online: false });
+    const synced = h.auto.checkAfterMiss();
+    await settleAll(h);
+    await vi.advanceTimersByTimeAsync(VAULT_MISS_WINDOW_MS);
+    expect(await synced).toBe(false);
+    expect(h.run).not.toHaveBeenCalled();
+  });
+  it("is not answered by a connection removed during its check", async () => {
+    vi.useFakeTimers();
+    const ids = ["a"];
+    const h = harness({ ids });
+    h.run.mockImplementationOnce(async (id, hold) => {
+      ids.length = 0;
+      return applied(id, hold);
+    });
+    const synced = h.auto.checkAfterMiss();
+    await settleAll(h);
+    await vi.advanceTimersByTimeAsync(VAULT_MISS_WINDOW_MS);
+    expect(await synced).toBe(false);
+    expect(h.stored()?.connections["a"]).toBeUndefined();
   });
 });
