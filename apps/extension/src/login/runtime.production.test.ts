@@ -1544,7 +1544,7 @@ describe("production login document admission", () => {
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
     });
 
-    it("offers nothing for a page sent recently, an origin with a recipe, a frame or an incomplete description", async () => {
+    it("offers nothing for a page sent recently, a path a recipe starts on, a frame or an incomplete description", async () => {
       const service = generation({ available: async () => false });
       const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
       h.recipes.recipe.mockResolvedValue(undefined);
@@ -1553,9 +1553,9 @@ describe("production login document admission", () => {
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
 
       service.available.mockResolvedValue(true);
-      // A recipe for the origin that starts on another path, or an unreadable cache.
+      // Recipes that start on this path (two, so neither is selected), or an unreadable cache.
       fake.state.extracted = { login: loginPage };
-      h.recipes.firstSteps.mockResolvedValue([{ ...generated.steps[0]!, path: "/elsewhere" }]);
+      h.recipes.firstSteps.mockResolvedValue([generated.steps[0]!, generated.steps[0]!]);
       expect(await h.signIn()).not.toHaveProperty("generate");
       h.recipes.firstSteps.mockRejectedValue(new Error("cache"));
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
@@ -1589,6 +1589,35 @@ describe("production login document admission", () => {
         ),
       ).toEqual({ ok: false, reason: "recipe-not-found" });
       expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("offers the page an account switch leads to when no recipe starts on its path", async () => {
+      const service = generation();
+      const h = harness({}, { uris, username: true, generation: service });
+      const switching = parseLoginRecipe({
+        ...recipe,
+        accountSwitch: { by: "text", value: "Use another account" },
+      });
+      h.recipes.recipe.mockImplementation(async (_origin, path) =>
+        path === "/signin" ? switching : undefined,
+      );
+      h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+      );
+      fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.switch"),
+      );
+      // The switch leads to an email page; the origin's only recipe starts on `/signin`.
+      fake.state.pageUrl = "https://login.example/signin/id";
+      expect(await h.hello({ documentId: "next-page" }, false)).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+        starts: [expect.objectContaining({ path: "/signin" })],
+        generate: true,
+      });
+      expect(service.available).toHaveBeenCalledWith(origin, "/signin/id");
     });
 
     it("learns the completion from the page after the final submission", async () => {

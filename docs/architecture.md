@@ -368,7 +368,8 @@ origin before any policy or vault access
 ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the tab's
 page admitted, and its account must match the tab's URL as well as the frame's
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
-tab's own page without a recipe that shows a login field within 10 seconds and has a
+tab's own page on whose path no recipe starts that shows a login field within 10
+seconds and has a
 vault URI match is observed and sent at most once a day per origin and path
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
 recipe cache and starts at once; after its final submission the resulting page is sent
