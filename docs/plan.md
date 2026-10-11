@@ -223,22 +223,21 @@ before account resolution, exclusions win, and a denied/missing default never
 falls back to a different account. This is the selection boundary for a future
 executor, not evidence of automatic filling or current-session switching.
 
-Policy/storage unit tests and isolated browser tests cover these boundaries,
-including browser restart, stale settings pages and content-script denial.
-The settings UI uses the approved React, Tailwind/Base UI and TanStack Form/Query
-composition. The draft is independent of the metadata query cache; automatic
-refetch/retry is disabled. Browser component tests cover error recovery and
-keyboard behavior, while extension tests retain the worker/storage boundary
-checks and add automated accessibility inspection.
-The first executor slice adds strict bounded recipe, account-binding and operation
-contracts, an XState lifecycle, and fixed DOM operations behind the separate
-localhost-only probe build. It uses explicit saved account defaults and bundled
-synthetic values. A metadata journal precedes every fill and click; input-triggered
-advance/submission declares its effect and event explicitly. Recovery observes
-the current document and never blindly replays an uncertain mutation or pending
-submit. Same-origin attempts
-remain locked to one owner tab until that tab closes, including terminal results; a tab
-keeps one record per origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
+Policy/storage unit tests and isolated browser tests cover these boundaries, including
+browser restart, stale settings pages and content-script denial. The settings UI uses
+the approved React, Tailwind/Base UI and TanStack Form/Query composition. The draft is
+independent of the metadata query cache; automatic refetch/retry is disabled. Browser
+component tests cover error recovery and keyboard behavior, while extension tests retain
+the worker/storage boundary checks and add automated accessibility inspection. The first
+executor slice adds strict bounded recipe, account-binding and operation contracts, an
+XState lifecycle, and fixed DOM operations behind the separate localhost-only probe
+build. It uses explicit saved account defaults and bundled synthetic values. A metadata
+journal precedes every fill and click; input-triggered advance/submission declares its
+effect and event explicitly. Recovery observes the current document and never blindly
+replays an uncertain mutation or pending submit. Another tab's attempt of the same
+origin that is running or ended without success holds the origin until that tab closes;
+an `authenticated` one does not, and a tab keeps one record per origin
+([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
 
 The shared synthetic site verifies field values, click counts and server-observed
 POST counts independently of the executor. Interruption fixtures distinguish
@@ -1549,9 +1548,10 @@ still showing does not count until it shows again. When a first step then shows,
 tab's record for that origin is released and the tab asks with reason `logged-out`: the
 badge and popup list the saved default first and every URI match, even a single one. The
 tab and origin are kept in `pateat.login-logouts.v1` in `chrome.storage.session`, so a
-reload or a restarted worker asks again until a pick logs in. Another tab's record still
-blocks the site with `origin-busy`, and the tab's tooltip says so; while the tab asks,
-other tabs of the site are refused `origin-busy` as well. If the URI matches cannot be
+reload or a restarted worker asks again until a pick logs in. Another tab's record that
+still holds the site (running, or ended without success) blocks it with `origin-busy`,
+and the tab's tooltip says so; while the tab asks, other tabs of the site that show a
+first step ask as well (2026-10-11). If the URI matches cannot be
 listed, the saved default alone is offered. A login whose result is still `reconciling`
 is resumed, not taken as a logout. Frame logins and sites whose logout page shows only a
 password step are not detected.
