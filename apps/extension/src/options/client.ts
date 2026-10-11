@@ -1,9 +1,11 @@
 import {
   parseRuntimeStatus,
   parseSettingsResponse,
+  parseSiteAccountsResponse,
   type RuntimeStatus,
   type SettingsRequest,
   type SettingsResponse,
+  type SiteAccountsResponse,
 } from "@pateat/contracts";
 import { QueryClient } from "@tanstack/react-query";
 
@@ -16,6 +18,8 @@ export interface SettingsClient {
     request: Extract<SettingsRequest, { type: "settings.save" }>,
   ): Promise<SettingsResponse>;
   getStatus(): Promise<RuntimeStatus>;
+  /** Items the saved settings allow as the default account for one origin; IDs only. */
+  findSiteAccounts(origin: string): Promise<SiteAccountsResponse>;
 }
 
 /** Only metadata contracts may cross this UI boundary. Never cache vault field values. */
@@ -26,6 +30,8 @@ export function createSettingsClient(send: (message: unknown) => Promise<unknown
     saveSettings: async (request) => parseSettingsResponse(await send(request)),
     getStatus: async () =>
       parseRuntimeStatus(await send({ version: 1, type: "runtime.status.get" })),
+    findSiteAccounts: async (origin) =>
+      parseSiteAccountsResponse(await send({ version: 1, type: "settings.site-accounts", origin })),
   };
 }
 

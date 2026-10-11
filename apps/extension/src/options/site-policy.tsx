@@ -4,9 +4,11 @@ import {
   resolveSiteAccount,
   siteDefaultConnection,
   type LocalSettings,
+  type SiteAccountsResponse,
   type VaultCatalog,
 } from "@pateat/contracts";
-import { useForm } from "@tanstack/react-form";
+import { useForm, useStore } from "@tanstack/react-form";
+import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import * as v from "valibot";
 import { Button } from "./button";
@@ -45,21 +47,69 @@ function unavailableReason(reason: string): string {
   return descriptions[reason] ?? "This account is unavailable.";
 }
 
+type SiteAccountOption = {
+  connectionId: string;
+  connectionLabel: string;
+  provider: string;
+  userId: string | undefined;
+  itemId: string;
+  itemName: string;
+  uri: boolean;
+  passkey: boolean;
+  value: string;
+};
+
+/** Matched items that are still in the catalog, grouped in catalog order. */
+function siteAccountOptions(
+  catalog: VaultCatalog,
+  found: Extract<SiteAccountsResponse, { ok: true }> | undefined,
+): SiteAccountOption[] {
+  if (!found) return [];
+  return catalog.connections.flatMap((connection) =>
+    connection.items.flatMap((item) => {
+      const match = found.accounts.find(
+        (entry) => entry.connectionId === connection.id && entry.itemId === item.id,
+      );
+      return match
+        ? [
+            {
+              connectionId: connection.id,
+              connectionLabel: connection.label,
+              provider: connection.provider,
+              userId: connection.userId,
+              itemId: item.id,
+              itemName: item.label,
+              uri: match.uri,
+              passkey: match.passkey,
+              value: JSON.stringify([connection.id, item.id]),
+            },
+          ]
+        : [];
+    }),
+  );
+}
+
+function matchedBy(option: SiteAccountOption): string {
+  if (option.uri && option.passkey) return "URI and passkey";
+  return option.uri ? "URI" : "passkey";
+}
+
 export function SitePolicy({
   draft,
   catalog,
   edit,
+  findSiteAccounts,
 }: {
   draft: LocalSettings;
   catalog: VaultCatalog;
   edit: (update: (value: LocalSettings) => void) => boolean;
+  /** Asks the background which saved-settings items match an origin. */
+  findSiteAccounts: (origin: string) => Promise<SiteAccountsResponse>;
 }) {
   const hostnameInput = useRef<HTMLInputElement>(null);
   const originInput = useRef<HTMLInputElement>(null);
   const [siteError, setSiteError] = useState("");
   const [defaultError, setDefaultError] = useState("");
-  const firstConnection = catalog.connections.find((connection) => connection.items.length);
-  const firstItem = firstConnection?.items[0];
   const siteForm = useForm({
     defaultValues: { hostname: "", includeSubdomains: false },
     onSubmit: ({ value }) => {
@@ -84,11 +134,7 @@ export function SitePolicy({
     },
   });
   const defaultForm = useForm({
-    defaultValues: {
-      origin: "",
-      account:
-        firstConnection && firstItem ? JSON.stringify([firstConnection.id, firstItem.id]) : "",
-    },
+    defaultValues: { origin: "", account: "" },
     onSubmit: ({ value }) => {
       const validated = v.safeParse(originSchema, value.origin);
       if (!validated.success) {
@@ -96,18 +142,11 @@ export function SitePolicy({
         originInput.current?.focus();
         return;
       }
-      const selected = catalog.connections
-        .flatMap((connection) =>
-          connection.items.map((item) => ({
-            connectionId: connection.id,
-            provider: connection.provider,
-            userId: connection.userId,
-            itemId: item.id,
-            itemName: item.label,
-            value: JSON.stringify([connection.id, item.id]),
-          })),
-        )
-        .find((entry) => entry.value === value.account);
+      // Only an item that matches the origin entered can be chosen.
+      const selected =
+        found?.origin === validated.output.trim()
+          ? (accountOptions.find((entry) => entry.value === value.account) ?? accountOptions[0])
+          : undefined;
       const userId = selected?.userId;
       if (!selected || !userId) {
         setDefaultError("Choose an available default account.");
@@ -139,6 +178,44 @@ export function SitePolicy({
       originInput.current?.focus();
     },
   });
+
+  const enteredOrigin = useStore(defaultForm.store, (state) => state.values.origin.trim());
+  const accountOrigin = v.is(originSchema, enteredOrigin) ? enteredOrigin : undefined;
+  const accounts = useQuery({
+    queryKey: ["settings", "site-accounts", accountOrigin],
+    queryFn: () => findSiteAccounts(accountOrigin!),
+    enabled: accountOrigin !== undefined,
+    // Vault syncs and saved settings change the answer; ask again for each origin entered.
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const found =
+    accountOrigin !== undefined && accounts.data?.ok && accounts.data.origin === accountOrigin
+      ? accounts.data
+      : undefined;
+  const accountOptions = siteAccountOptions(catalog, found);
+  const selectedAccount = useStore(defaultForm.store, (state) => state.values.account);
+  const shownAccount = accountOptions.some((entry) => entry.value === selectedAccount)
+    ? selectedAccount
+    : (accountOptions[0]?.value ?? "");
+  let accountNote: string;
+  if (accountOrigin === undefined)
+    accountNote = "Enter an origin to list the accounts that match it.";
+  else if (accounts.isPending) accountNote = "Finding the vault items that match this origin…";
+  else if (accounts.isError || (accounts.data && !accounts.data.ok))
+    accountNote =
+      accounts.data && !accounts.data.ok && accounts.data.reason === "site-excluded"
+        ? "This site is excluded."
+        : "The matching accounts could not be listed.";
+  else if (!accountOptions.length)
+    accountNote =
+      "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.";
+  else
+    accountNote = `${accountOptions.length} matching ${
+      accountOptions.length === 1 ? "item" : "items"
+    }.`;
+  if (found && !found.complete)
+    accountNote += " Some vaults could not be searched because they are locked or unavailable.";
 
   return (
     <>
@@ -247,6 +324,14 @@ export function SitePolicy({
               : undefined;
             const item = connection?.items.find((entry) => entry.id === selected.itemId);
             const resolved = resolveSiteAccount(draft, catalog, selected.origin);
+            // A live vault item has no static origins; its URI rules (or a passkey) are
+            // checked against each page, so the draft policy cannot call it a mismatch.
+            const liveItem = Boolean(item && connection?.snapshotId);
+            const status = resolved.ok
+              ? "Available under this draft policy"
+              : liveItem && resolved.reason === "item-origin-mismatch"
+                ? "Available under this draft policy; the vault's URI rules or passkey are checked on each page"
+                : `Unavailable under this draft policy: ${unavailableReason(resolved.reason)}`;
             return (
               <li key={selected.origin}>
                 <span>
@@ -259,11 +344,7 @@ export function SitePolicy({
                   {item?.label ??
                     ("itemName" in selected ? selected.itemName : undefined) ??
                     selected.itemId}
-                  <small>
-                    {resolved.ok
-                      ? "Available under this draft policy"
-                      : `Unavailable under this draft policy: ${unavailableReason(resolved.reason)}`}
-                  </small>
+                  <small>{status}</small>
                 </span>
                 <Button
                   type="button"
@@ -320,20 +401,30 @@ export function SitePolicy({
                 <label htmlFor="default-account">Default account</label>
                 <select
                   id="default-account"
-                  value={field.state.value}
+                  aria-describedby="default-account-note"
+                  disabled={!accountOptions.length}
+                  value={shownAccount}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
                 >
-                  {catalog.connections.map((connection) => (
-                    <optgroup key={connection.id} label={connection.label}>
-                      {connection.items.map((item) => (
-                        <option key={item.id} value={JSON.stringify([connection.id, item.id])}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
+                  {catalog.connections.map((connection) => {
+                    const options = accountOptions.filter(
+                      (entry) => entry.connectionId === connection.id,
+                    );
+                    return options.length ? (
+                      <optgroup key={connection.id} label={connection.label}>
+                        {options.map((option) => (
+                          <option key={option.itemId} value={option.value}>
+                            {option.itemName} ({matchedBy(option)})
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null;
+                  })}
                 </select>
+                <p id="default-account-note" className="note" aria-live="polite">
+                  {accountNote}
+                </p>
               </>
             )}
           </defaultForm.Field>
@@ -347,9 +438,11 @@ export function SitePolicy({
           </Button>
         </form>
         <p id="default-help" className="note">
-          Use an HTTP(S) origin without a path or trailing slash. The demo accounts match
-          https://bank.example and, for the secondary account, https://mail.example. Setting an
-          existing origin replaces only that draft default.
+          Use an HTTP(S) origin without a path or trailing slash. Only items whose vault URI matches
+          the origin, or that hold a passkey for it, are listed; saved settings decide which vaults
+          and items are searched. The demo accounts match https://bank.example and, for the
+          secondary account, https://mail.example. Setting an existing origin replaces only that
+          draft default.
         </p>
       </section>
     </>
