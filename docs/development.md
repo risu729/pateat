@@ -220,6 +220,28 @@ saving those stale edits. Custom-field review must confirm the current field
 selection before releasing an item whose earlier exclusions cannot be rebound.
 Automatic website login is not activated by this setup slice.
 
+## Compatibility before release
+
+Pateat has not been released. Until the first public release, the owner decided on
+2026-10-11 that no change keeps backward compatibility with anything an earlier build
+wrote or served:
+
+- extension storage: `chrome.storage` keys and record shapes, IndexedDB versions and
+  cached vault, session, recipe and settings records;
+- the service: older Worker versions, older `/v1/*` request and response shapes, and
+  extensions built against them;
+- D1 data and schema written by an earlier migration.
+
+Change a format in place and delete the old one; do not add a version branch, a
+fallback read, a migration of stored records or an optional field whose only purpose
+is older data. Code that exists only for such compatibility is removed. An extension
+and a service built from different revisions need not work together, and stored data
+from an older build may be discarded, so a reinstall, a new vault connection or a new
+pairing is acceptable after an update. Committed D1 migration files are still never
+edited after they could have been applied, because cf tracks them by name
+([delivery](delivery.md#current-foundation-workflows)). The first public release ends
+this rule; compatibility from then on needs its own decision.
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other
