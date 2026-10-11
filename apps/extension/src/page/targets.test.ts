@@ -26,14 +26,58 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, { by: "id", value: "a" }))).toEqual(["a"]);
   });
 
-  it("matches links by text only when asked, for an account switch", () => {
+  it("matches links by text only when asked and no button shows the text, for an account switch", () => {
     page(
       `<a id="a" href="/switch"> Use another <b>account</b> </a><a id="b">Use another account</a>
       <a id="c" href="/x" hidden>Use another account</a><button id="d">Use another account</button>`,
     );
     const target = { by: "text", value: "Use another account" } as const;
     expect(ids(findTargets(document, target))).toEqual(["d"]);
-    expect(ids(findTargets(document, target, { links: true }))).toEqual(["a", "d"]);
+    // A button with the text hides the link; without one, the link alone matches.
+    expect(ids(findTargets(document, target, { links: true }))).toEqual(["d"]);
+    document.getElementById("d")!.remove();
+    expect(ids(findTargets(document, target, { links: true }))).toEqual(["a"]);
+  });
+
+  it("matches links that run a script by text when no native button shows it", () => {
+    page(
+      `<a id="a" href="javascript:;" onclick="login()"><span>ログイン</span></a>
+      <a id="b" onclick="login()">パスキー</a><a id="c" href="#" onclick="go()">次へ</a>
+      <a id="d" href="/help">次へ</a><div id="e" role="button">ログイン</div>
+      <a id="f" href="#" onclick="tab()">Login</a><input id="g" type="submit" value="Login">`,
+    );
+    expect(ids(findTargets(document, { by: "text", value: "ログイン" }))).toEqual(["a"]);
+    expect(ids(findTargets(document, { by: "text", value: "パスキー" }))).toEqual(["b"]);
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual(["c"]);
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }, { links: true }))).toEqual([
+      "c",
+    ]);
+    // A button of either kind hides other links from an account switch.
+    page(`<a id="h" href="#" onclick="sw()">Switch</a><a id="i" href="/other">Switch</a>`);
+    expect(ids(findTargets(document, { by: "text", value: "Switch" }, { links: true }))).toEqual([
+      "h",
+    ]);
+    // A hidden native button with the text hides script links too, so a click waits for it.
+    page(
+      `<a id="j" href="#" role="button">次へ</a><button id="k" style="display:none">次へ</button>`,
+    );
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual([]);
+    // A switch link still matches: the hidden button holds back script links only.
+    page(`<a id="l" href="/switch">Switch</a><button id="m" type="button" hidden>Switch</button>`);
+    expect(ids(findTargets(document, { by: "text", value: "Switch" }, { links: true }))).toEqual([
+      "l",
+    ]);
+    page(
+      `<a id="j" href="#" role="button">次へ</a><button id="k" style="display:none">次へ</button>`,
+    );
+    document.getElementById("k")!.style.display = "";
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual(["k"]);
+    page(`<a id="f" href="#" onclick="tab()">Login</a><input id="g" type="submit" value="Login">`);
+    // A native button with the text hides script links, also from an account switch.
+    expect(ids(findTargets(document, { by: "text", value: "Login" }))).toEqual(["g"]);
+    expect(ids(findTargets(document, { by: "text", value: "Login" }, { links: true }))).toEqual([
+      "g",
+    ]);
   });
 
   it("matches buttons by collapsed rendered text, input value or image alt", () => {

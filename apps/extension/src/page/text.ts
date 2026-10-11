@@ -100,12 +100,36 @@ export function isButton(element: Element): element is HTMLButtonElement | HTMLI
 }
 
 /**
- * A control that only scripts make clickable: an `<a>` without `href` that has an
- * `onclick` attribute (MyJCB's login button is
- * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`), or another element
- * with `role="button"`. Form controls, links and anything inside an `<a href>` (a click
- * there would follow the link) are not script buttons. Only attribute locators name
- * one, so text locators keep matching native buttons alone.
+ * True for an `<a href>` that runs a script instead of following the link: a
+ * `javascript:` (or `data:` or `vbscript:`) URL (SMBC Direct's login is `<a href="javascript:;" onclick="...">`), or
+ * an empty or fragment-only `href` on a link with an `onclick` attribute or
+ * `role="button"` (MyJCB's login script sets `href="#"` on
+ * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`).
+ */
+function scriptHref(link: HTMLAnchorElement): boolean {
+  // A `data:` or `vbscript:` link does not navigate either: Chrome blocks top-level
+  // `data:` navigations and has no `vbscript:`, so a click runs only the page's script.
+  if (["javascript:", "data:", "vbscript:"].includes(link.protocol)) return true;
+  // As URL parsing does: tabs and newlines go anywhere, C0 controls and spaces at the
+  // ends. A `<base href>` naming another document would make `#` navigate; that is rare.
+  const href = link
+    .getAttribute("href")!
+    .replace(/[\t\n\r]/gu, "")
+    .replace(/^[\0-\x20]+|[\0-\x20]+$/gu, "");
+  return (
+    (href === "" || href.startsWith("#")) && (link.hasAttribute("onclick") || roleButton(link))
+  );
+}
+
+const roleButton = (element: Element) =>
+  element.getAttribute("role")?.trim().toLowerCase() === "button";
+
+/**
+ * A control that only scripts make clickable: a script link (an `<a>` without `href`
+ * that has an `onclick` attribute or `role="button"`, or an `<a href>` that runs a
+ * script, see {@link scriptHref}), or another element with `role="button"`. Form
+ * controls, links that navigate and anything inside an `<a href>` (a click there would
+ * follow the link, or reach the outer link's script) are not script buttons.
  */
 export function isScriptButton(element: Element): boolean {
   if (
@@ -113,14 +137,45 @@ export function isScriptButton(element: Element): boolean {
     element instanceof HTMLButtonElement ||
     element instanceof HTMLInputElement ||
     element instanceof HTMLSelectElement ||
-    element instanceof HTMLTextAreaElement ||
-    element.closest("a[href]") !== null
+    element instanceof HTMLTextAreaElement
   )
     return false;
-  return (
-    (element instanceof HTMLAnchorElement && element.hasAttribute("onclick")) ||
-    element.getAttribute("role")?.trim().toLowerCase() === "button"
-  );
+  if (element instanceof HTMLAnchorElement)
+    return element.hasAttribute("href")
+      ? scriptHref(element)
+      : element.hasAttribute("onclick") || roleButton(element);
+  return element.closest("a[href]") === null && roleButton(element);
+}
+
+/**
+ * A script button that text locators name like a native button: any `<a>` that
+ * {@link isScriptButton} accepts. Other `role="button"` elements are often widgets such
+ * as menus and toggles, so only attribute locators name them.
+ */
+export function isScriptLink(element: Element): element is HTMLAnchorElement {
+  return element instanceof HTMLAnchorElement && isScriptButton(element);
+}
+
+/**
+ * True when a native button, shown or not, may carry `text`: its whole collapsed text
+ * content (hidden descendants included), one of its images' `alt`, or an input button's
+ * `value` or `alt`. It is a loose guard only: a hidden native button with a script
+ * link's text, such as one revealed after an animation, keeps a text locator from
+ * falling back to the script link meanwhile. Which shown native button a locator names
+ * still comes from {@link buttonText}.
+ */
+export function hasNativeButton(document: Document, text: string): boolean {
+  return [...document.querySelectorAll("button, input")].some((element) => {
+    if (!isButton(element)) return false;
+    const raw =
+      element instanceof HTMLButtonElement
+        ? [
+            element.textContent ?? "",
+            ...[...element.querySelectorAll("img[alt]")].map((image) => image.getAttribute("alt")!),
+          ]
+        : [element.type === "image" ? element.alt : element.value];
+    return raw.some((part) => collapseText(part) === text);
+  });
 }
 
 /** The `alt` of the shown images in a `<button>` that has no rendered text. */
@@ -131,16 +186,16 @@ function imageText(button: HTMLButtonElement): string {
 }
 
 /**
- * The text a `{ by: "text" }` locator compares: a rendered button's text (or, for an
- * image-only button, its images' `alt`), an input button's `value`, or an image
- * button's `alt`, collapsed. A button that is not rendered, or whose text is empty or
- * longer than 120 code units, has none.
+ * The text a `{ by: "text" }` locator compares: a rendered button's or script link's
+ * text (or, for an image-only `<button>`, its images' `alt`), an input button's
+ * `value`, or an image button's `alt`, collapsed. A button that is not rendered, or
+ * whose text is empty or longer than 120 code units, has none.
  */
 export function buttonText(element: Element): string | undefined {
-  if (!isButton(element) || !shown(element)) return undefined;
+  if (!(isButton(element) || isScriptLink(element)) || !shown(element)) return undefined;
   const readLimit = buttonTextLimit * 4;
   let raw =
-    element instanceof HTMLButtonElement
+    !isButton(element) || element instanceof HTMLButtonElement
       ? renderedText(element, readLimit)
       : element.type === "image"
         ? element.alt

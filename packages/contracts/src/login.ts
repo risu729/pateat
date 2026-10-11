@@ -56,10 +56,14 @@ export const loginAttributeTargetSchema = v.variant("by", [
 ]);
 /**
  * A button locator: the one button whose text equals the value. The text is a
- * `<button>`'s rendered text, an `<input type="submit|button">`'s value or an
- * `<input type="image">`'s alt, with whitespace collapsed to single spaces and
- * format characters removed. It matches buttons only, so fills never use it; a recipe's
- * `accountSwitch` alone also matches an `<a href>` link by its rendered text.
+ * `<button>`'s rendered text, an `<input type="submit|button">`'s value, an
+ * `<input type="image">`'s alt, or the rendered text of an `<a>` that runs a script
+ * instead of following a link (no `href` but an `onclick` or `role="button"`, a
+ * `javascript:` URL, or an empty or fragment-only `href` with either), with whitespace
+ * collapsed to single spaces and format characters removed. Native buttons are matched
+ * first; such links only when no native button shows the text. It matches buttons only,
+ * so fills never use it; a recipe's `accountSwitch` alone also matches another
+ * `<a href>` link by its rendered text when no button shows it.
  */
 export const loginTextTargetSchema = v.strictObject({
   by: v.literal("text"),

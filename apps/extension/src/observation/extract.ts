@@ -9,7 +9,9 @@ import * as v from "valibot";
 import {
   buttonText,
   collapseText,
+  hasNativeButton,
   isScriptButton,
+  isScriptLink,
   linkText,
   renderedText,
   shown,
@@ -112,10 +114,9 @@ type LocatorIndex = Map<string, Map<string, number>>;
 /** Counts every locator value once, as the executor's whole-document lookup sees them. */
 function locatorIndex(document: Document): LocatorIndex {
   const index: LocatorIndex = new Map(
-    [...locators.map(([, attribute]) => attribute), "text", "link-text"].map((key) => [
-      key,
-      new Map(),
-    ]),
+    [...locators.map(([, attribute]) => attribute), "text", "script-text", "link-text"].map(
+      (key) => [key, new Map()],
+    ),
   );
   const count = (key: string, value: string) => {
     const counts = index.get(key)!;
@@ -126,12 +127,12 @@ function locatorIndex(document: Document): LocatorIndex {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
     }
-  for (const element of document.querySelectorAll("button, input")) {
+  for (const element of document.querySelectorAll("button, input, a")) {
     const text = buttonText(element);
-    if (text !== undefined) count("text", text);
+    if (text !== undefined) count(isScriptLink(element) ? "script-text" : "text", text);
   }
   for (const element of document.querySelectorAll("a[href]")) {
-    const text = linkText(element);
+    const text = isScriptLink(element) ? undefined : linkText(element);
     if (text !== undefined) count("link-text", text);
   }
   return index;
@@ -139,8 +140,9 @@ function locatorIndex(document: Document): LocatorIndex {
 
 /**
  * Mirrors the executor's lookup: an attribute value, or else a button's text, that
- * matches exactly one element. Button text is used only when redaction leaves it
- * unchanged, so a locator never carries an email address or a long number. With
+ * matches exactly one element. A script link's text must also name no native button,
+ * shown or not, which the executor would take first. Button text is used only when redaction leaves
+ * it unchanged, so a locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account. With `links`, a link is located by its text too,
  * which only an account switch uses: the text must name no other link and no button.
@@ -157,12 +159,17 @@ function locate(
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
-  if (element instanceof HTMLAnchorElement && element.hasAttribute("href")) {
+  if (
+    element instanceof HTMLAnchorElement &&
+    element.hasAttribute("href") &&
+    !isScriptLink(element)
+  ) {
     const text = links ? linkText(element) : undefined;
     if (
       text === undefined ||
       index.get("link-text")!.get(text) !== 1 ||
       index.get("text")!.has(text) ||
+      index.get("script-text")!.has(text) ||
       observedText(text) !== text
     )
       return undefined;
@@ -170,8 +177,13 @@ function locate(
     return v.is(loginTargetSchema, target) ? target : undefined;
   }
   const text = buttonText(element);
-  if (text === undefined || index.get("text")!.get(text) !== 1 || observedText(text) !== text)
-    return undefined;
+  if (text === undefined || observedText(text) !== text) return undefined;
+  const unique = isScriptLink(element)
+    ? !index.get("text")!.has(text) &&
+      !hasNativeButton(element.ownerDocument, text) &&
+      index.get("script-text")!.get(text) === 1
+    : index.get("text")!.get(text) === 1;
+  if (!unique) return undefined;
   const target = { by: "text" as const, value: text };
   return v.is(loginTargetSchema, target) ? target : undefined;
 }
@@ -514,8 +526,9 @@ export function extractLoginObservation(
       flawed.add(host.closest("form"));
   }
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
-  // Script buttons are often widgets (menus, toggles) and only attribute locators name
-  // them, so one without a locator is left out rather than marking the page incomplete.
+  // Script buttons are often widgets (menus, toggles), and text locators name only the
+  // `<a>` ones, so one without a locator is left out rather than marking the page
+  // incomplete.
   const scripted: typeof required = [];
   const links: typeof required = [];
   for (const entry of found) {

@@ -1048,10 +1048,8 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   generation that abstained (`insufficient-evidence`) on an observation from before
   #206 with no login control, so it adds no case. The finite-choice provider waited
   for a Claude baseline, which now exists for both page sets.
-- Proposal, awaiting the owner's decision: let a recipe click an `onclick` link whose
-  `href` is `#` or `javascript:`, as on SMBC Direct and MyJCB (below). Without it
-  neither page can get a generated recipe; it would narrow the executor's rule that it
-  never clicks links ([architecture](architecture.md#declarative-recipes-and-ai)).
+- Re-observe SMBC Direct and MyJCB and relabel their cases (below), now that their
+  login links are observed as script buttons (#226; owner decision, 2026-10-11).
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -1152,10 +1150,11 @@ are the cases. Each keeps the observation, its label and the page's origin and p
 with no query; the page text holds no account or personal data (reviewed 2026-10-11).
 PayPay Bank and SMBC send branch and account number custom fields and a password, as the
 synthetic bank case does; the others send the username and password slots. SMBC and
-MyJCB must abstain: the extractor observes their login control as a link, and the plan
-check accepts only a button, so neither page has a valid action. SMBC's is
+MyJCB are labelled abstain because, when they were observed, the extractor saw their
+login control as a link, and the plan check accepts only a button. SMBC's is
 `<a href="javascript:;" onclick=...>`, and MyJCB's script sets `href="#"` on its
-`onclick` link at load, so the script-button rule (#206) does not reach either.
+`onclick` link at load, so the script-button rule of #206 did not reach either; #226
+observes both as script buttons, so the labels and results below predate it.
 
 | Case | Expected | Heuristic | Claude |
 | --- | --- | --- | --- |
@@ -1200,47 +1199,56 @@ that carry no session, such as Microsoft Entra tenant IDs
 (`/<tenant UUID>/oauth2/v2.0/authorize`), mixed-case Azure AD B2C policy names such as
 `B2C_1A_SignUpOrSignIn`, Okta authorization server IDs and long numeric IDs, so
 generation is not offered there. On the Formasaurus pages of the real-page corpus it
-refused 10 of 954 paths (2026-10-11). Label text is rendered text
-only: scripts, styles, `<noscript>`, SVG, hidden elements and select or text area
-contents never contribute. Only forms that hold a field count, or every control outside
-a form when a field is outside one. There the candidates are visible text, email, tel,
-number and password inputs, checkboxes, buttons (disabled ones too, since many enable
-after typing), script buttons with an `id`, `name` or `data-testid` (an `<a>` without
-`href` that has an `onclick` attribute, or an element with `role="button"`, as
+refused 10 of 954 paths (2026-10-11). Label text is rendered text only: scripts, styles,
+`<noscript>`, SVG, hidden elements and select or text area contents never contribute.
+Only forms that hold a field count, or every control outside a form when a field is
+outside one. There the candidates are visible text, email, tel, number and password
+inputs, checkboxes, buttons (disabled ones too, since many enable after typing), script
+links (an `<a>` without `href` that has an `onclick` attribute or `role="button"`, or an
+`<a href>` with a `javascript:` URL or with an empty or fragment-only `href` and an
+`onclick` attribute or `role="button"`) as buttons, other elements with `role="button"`
+that have an `id`, `name` or `data-testid` (as
 [architecture](architecture.md#declarative-recipes-and-ai) describes) and, as context
-only, links. Hidden, collapsed, `aria-hidden` and before-the-page-start inputs are
-skipped as likely traps. Labels come from `aria-labelledby`, `aria-label`, `<label>`,
-the text next to a field (the preceding table cell, `<dt>` or sibling, at most three
-levels up, never across another control or its label), then `title`; image `alt` names
-buttons, including `<input type="image">`. Text is redacted as
-[architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is the
-first of `id`, `name` and `data-testid` that matches exactly one element, as the
-executor resolves it; a button without one gets a text locator when its text matches
-exactly one button and redaction leaves it unchanged. In a login form, a field, button
-or checkbox without a target, a control the executor cannot act on (a select, radio,
-text area, another input type, or a read-only, disabled, transparent or tiny field) or a
-control in a shadow root makes the observation incomplete, as do more than 48
-candidates, so inference rejects it; a page without a field is refused. The login forms
-are those with one password field that is not `new-password`, or with a `username` or
-`one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
-field; otherwise every form that holds a field. Any other form with such a control, such
-as a search form with a category select or a sign-up form with a birth-date select, is
-left out entirely, so every form the observation describes is complete. On the 233
-observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
-incomplete ones from 108 to 52: 55 became complete, each still showing the form
-Formasaurus labels as the login form, and one whose login form has no locatable control
-now gives no observation. A field in any open shadow root
-marks it incomplete too, as it may be the real login. Links are context only: the plan
-check accepts only a button as the page action. Known limits: a read-only username shown
-again on a password step makes that step incomplete, and honeypot inputs moved to the
-right or clipped by `overflow: hidden` stay candidates. `extractSignedInObservation`
-describes the page after a generated recipe's final submission the same way, but over
-the whole page: every field, then buttons and links in document order up to 48
-candidates. A field it cannot describe marks it incomplete; buttons and links past the
-limit or without a locator are left out, since they are only possible sign-in markers.
-There, an attribute locator that redaction would change counts as no locator, so an
-account number in an `id` is never sent. `mise run //apps/extension:test:dom` covers
-these cases in Chromium with synthetic pages.
+only, links. Script links with `href` were added after observing public Japanese login
+pages on 2026-10-11 showed the login buttons of MyJCB (`href="#"`) and SMBC Direct
+(`href="javascript:;"`) as links, which generation cannot name as the page action. On
+the 954 Formasaurus pages of the real-page corpus (2026-10-11) this turned 371
+candidates on 121 pages, 32 of them login pages, into buttons, mostly from links; no
+page's completeness changed, and five pages that are not login pages lost some context
+links to the 48-candidate limit or to shared text. Hidden, collapsed, `aria-hidden` and
+before-the-page-start inputs are skipped as likely traps. Labels come from
+`aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
+table cell, `<dt>` or sibling, at most three levels up, never across another control or
+its label), then `title`; image `alt` names buttons, including `<input type="image">`.
+Text is redacted as [architecture](architecture.md#declarative-recipes-and-ai)
+describes. Each target is the first of `id`, `name` and `data-testid` that matches
+exactly one element, as the executor resolves it; a button without one gets a text
+locator when its text matches exactly one button and redaction leaves it unchanged, and
+a script link when its text matches no button and exactly one script link. In a login
+form, a field, button or checkbox without a target, a control the executor cannot act on
+(a select, radio, text area, another input type, or a read-only, disabled, transparent
+or tiny field) or a control in a shadow root makes the observation incomplete, as do
+more than 48 candidates, so inference rejects it; a page without a field is refused. The
+login forms are those with one password field that is not `new-password`, or with a
+`username` or `one-time-code` field, as ADR 0016 detects a login; failing that, any with
+a password field; otherwise every form that holds a field. Any other form with such a
+control, such as a search form with a category select or a sign-up form with a
+birth-date select, is left out entirely, so every form the observation describes is
+complete. On the 233 observed Formasaurus login pages of the real-page corpus
+(2026-10-11), this cut the incomplete ones from 108 to 52: 55 became complete, each
+still showing the form Formasaurus labels as the login form, and one whose login form
+has no locatable control now gives no observation. A field in any open shadow root marks
+it incomplete too, as it may be the real login. Links are context only: the plan check
+accepts only a button as the page action. Known limits: a read-only username shown again
+on a password step makes that step incomplete, and honeypot inputs moved to the right or
+clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
+the page after a generated recipe's final submission the same way, but over the whole
+page: every field, then buttons and links in document order up to 48 candidates. A field
+it cannot describe marks it incomplete; buttons and links past the limit or without a
+locator are left out, since they are only possible sign-in markers. There, an attribute
+locator that redaction would change counts as no locator, so an account number in an
+`id` is never sent. `mise run //apps/extension:test:dom` covers these cases in Chromium
+with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
