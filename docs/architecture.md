@@ -442,10 +442,20 @@ installed Chrome on 2026-10-11 (main 863ad90 or later).
 
 Share Valibot contracts for observations, recipes, inference results, and sync.
 A recipe contains schema/version, allowed origin/path applicability, structural
-fingerprint, semantic slots, stable element candidates, bounded steps, completion
-and failure conditions, and provenance. The vocabulary is packaged code such as
+fingerprint, semantic slots, stable element candidates, bounded steps, an optional
+completion and a failure condition, and provenance. The vocabulary is packaged code such as
 fill, click, wait-for-state, and assert-state. There is no eval, remote JavaScript,
 arbitrary fetch, or model-selected secret destination.
+
+A generated recipe has no completion target until the page after its first sign-in
+is judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
+never reports `authenticated` with it: a submission ends `credential-rejected`, moves
+to a later step, or stays unknown (`unknown-submit`), so no account choice is saved.
+An unknown attempt stays in `reconciling` until its tab closes, as any unknown outcome
+does today: meanwhile it holds the origin, blocks saving account choices from other
+tabs and defers settings sync for up to two minutes per run. Sending the page after
+the final submission for judgment, which settles such attempts, is the next step of
+ADR 0018 and is not implemented yet.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name`
 (any ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
@@ -683,7 +693,8 @@ extension's settings page for the data the service holds
   - Account bindings: list and delete `bindings` entries. Deleting one makes that item
     fall back to the built-in-slot binding.
   - Recipes: list active and revoked recipes, show one recipe's steps, completion and
-    rejection targets and its JSON, and revoke it with a tombstone.
+    rejection targets and its JSON, and revoke it with a tombstone. A generated recipe
+    may have no completion yet (ADR 0018).
 
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI

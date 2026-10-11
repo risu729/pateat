@@ -684,18 +684,22 @@ export function createLoginRuntime(
     const next = run.recipe.steps[nextIndex];
     const nextTargets =
       next?.kind === "fill" ? next.fields.map((field) => field.target) : next ? [next.target] : [];
+    const { completion, rejection } = run.recipe;
     const targets = [
-      run.recipe.completion.target,
-      ...(run.recipe.rejection ? [run.recipe.rejection] : []),
+      ...(completion ? [completion.target] : []),
+      ...(rejection ? [rejection] : []),
       ...nextTargets,
     ];
     const observed = await observe(run, targets);
     if (!observed) return;
-    if (observed.path === run.recipe.completion.path && observed.targets[0] === "unique") {
+    // Without a completion target nothing proves a sign-in, so the attempt can settle
+    // only as rejected, continued or unknown.
+    if (completion && observed.path === completion.path && observed.targets[0] === "unique") {
       await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
       return;
     }
-    if (run.recipe.rejection && observed.targets[1] === "unique") {
+    const rejectionIndex = completion ? 1 : 0;
+    if (rejection && observed.targets[rejectionIndex] === "unique") {
       await change(run, {
         type: "OBSERVED",
         result: "credential-rejected",
@@ -703,7 +707,7 @@ export function createLoginRuntime(
       });
       return;
     }
-    const offset = run.recipe.rejection ? 2 : 1;
+    const offset = rejectionIndex + (rejection ? 1 : 0);
     if (
       next &&
       observed.path === next.path &&
