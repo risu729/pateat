@@ -257,7 +257,10 @@ export async function startLoginFixture(
       const form =
         '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
       const body = {
-        "/spa": `<h1>Synthetic app home</h1><button id="open-login" type="button">Go to sign-in</button><main id="app"></main><template id="login-form">${form}</template>`,
+        // `?static` renders the form at load, so only the URL change can start the login.
+        "/spa": fixtureUrl.searchParams.has("static")
+          ? `<h1>Synthetic app home</h1><button id="open-login" type="button">Go to sign-in</button><main id="app">${form}</main>`
+          : `<h1>Synthetic app home</h1><button id="open-login" type="button">Go to sign-in</button><main id="app"></main><template id="login-form">${form}</template>`,
         "/spa-login": `<h1>Synthetic app sign-in</h1><main id="app">${form}</main>`,
         "/dialog": `<h1>Synthetic dialog login</h1><button id="open-login" type="button">Sign in</button><div id="app" hidden>${form}</div>`,
         "/slow-button":
@@ -277,7 +280,12 @@ export async function startLoginFixture(
         }
         ${
           path === "/spa"
-            ? `document.getElementById('open-login').addEventListener('click', () => {
+            ? fixtureUrl.searchParams.has("static")
+              ? `bindLogin();
+        document.getElementById('open-login').addEventListener('click', () => {
+          history.pushState({}, '', '/spa-login');
+        });`
+              : `document.getElementById('open-login').addEventListener('click', () => {
           history.pushState({}, '', '/spa-login');
           setTimeout(() => {
             document.getElementById('app').append(document.getElementById('login-form').content.cloneNode(true));

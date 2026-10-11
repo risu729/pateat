@@ -26,6 +26,8 @@ const fake = vi.hoisted(() => {
     observed: ["unique", "missing"],
     /** The document's answer while it waits for a step's elements. */
     awaited: { ok: true } as { ok: boolean; reason?: string },
+    /** Runs while the document waits for a step's elements. */
+    onAwait: undefined as undefined | (() => void),
   };
   const browser = {
     runtime: {
@@ -50,7 +52,10 @@ const fake = vi.hoisted(() => {
       get: async (id: number) => ({ id, url: state.tabUrls[id] ?? state.pageUrl }),
       sendMessage: async (_tabId: number, message: Record<string, unknown>) => {
         state.messages.push(structuredClone(message) as (typeof state.messages)[number]);
-        if (message["type"] === "login.await") return state.awaited;
+        if (message["type"] === "login.await") {
+          state.onAwait?.();
+          return state.awaited;
+        }
         if (message["type"] === "login.observe")
           return { path: "/signin", targets: [...state.observed] };
         if (message["type"] === "login.execute") {
@@ -264,6 +269,7 @@ describe("production login document admission", () => {
     fake.state.tabUrls = {};
     fake.state.observed = ["unique", "missing"];
     fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -429,13 +435,32 @@ describe("production login document admission", () => {
       ),
     ).toEqual({ ok: false, reason: "duplicate-document" });
   });
+  it("a policy change while waiting for elements stops before any intent or vault read", async () => {
+    const h = harness();
+    fake.state.onAwait = () => {
+      h.settings.revision += 1;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        { state: "blocked", outcome: "policy-changed", usedOperationIds: [] },
+      ]),
+    );
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
+  });
   it("stops before any vault read or page change when a step's elements never appear", async () => {
     fake.state.awaited = { ok: false, reason: "timeout" };
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
       expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
-        { state: "retryable", outcome: "structural-mismatch", submissions: 0 },
+        {
+          state: "retryable",
+          outcome: "structural-mismatch",
+          submissions: 0,
+          usedOperationIds: [],
+        },
       ]),
     );
     expect(h.fields).not.toHaveBeenCalled();

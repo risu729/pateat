@@ -76,7 +76,10 @@ const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) 
 type LiveDocument = {
   document: LoginDocument;
   token: string;
-  /** The browser-provided URL this document announced; provider URI rules match against it. */
+  /**
+   * The document's browser-provided URL: the tab's committed URL for a same-origin top
+   * document (it follows history.pushState), else `sender.url`. Provider URI rules match it.
+   */
   url: string;
   path: string;
   state?: string;
@@ -627,10 +630,12 @@ export function createLoginRuntime(
     const until =
       Date.now() + (run.metadata.operationEffect === "advance" ? LOGIN_STEP_WAIT_MS : 3000);
     const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
+    // Each round re-authorizes against settings, so the longer advance budget polls slower.
+    const interval = run.metadata.operationEffect === "advance" ? 200 : 50;
     while (current(run) && observing() && Date.now() < until) {
       await reconcile(run);
       if (!observing()) return;
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      await new Promise<void>((resolve) => setTimeout(resolve, interval));
     }
     if (current(run) && observing()) await reconcile(run, true);
   }

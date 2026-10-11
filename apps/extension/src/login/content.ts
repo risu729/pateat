@@ -7,7 +7,8 @@ import { commandSchema, readySchema, reconnectSchema, type LoginReadiness } from
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget): Element[] {
   const attribute = target.by === "test-id" ? "data-testid" : target.by;
-  return [...document.querySelectorAll(`[${attribute}]`)].filter(
+  // Locator values are limited to [A-Za-z0-9_.:-], so the quoted selector is exact.
+  return [...document.querySelectorAll(`[${attribute}="${target.value}"]`)].filter(
     (element) => element.getAttribute(attribute) === target.value,
   );
 }
@@ -76,7 +77,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     clearTimeout(timer);
     timer = undefined;
     removeEventListener("popstate", schedule);
-    navigation?.removeEventListener("navigatesuccess", schedule);
+    navigation?.removeEventListener("currententrychange", schedule);
   }
   function watch(list: LoginReadiness[]): void {
     starts = list;
@@ -86,17 +87,42 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (!observer) {
       observer = new MutationObserver(schedule);
-      observer.observe(document, { subtree: true, childList: true, attributes: true });
+      // Only attributes that can change whether a target matches, shows or accepts input.
+      observer.observe(document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: [
+          "id",
+          "name",
+          "data-testid",
+          "type",
+          "hidden",
+          "style",
+          "class",
+          "open",
+          "disabled",
+          "readonly",
+        ],
+      });
       addEventListener("popstate", schedule);
-      navigation?.addEventListener("navigatesuccess", schedule);
+      navigation?.addEventListener("currententrychange", schedule);
     }
-    check();
+  }
+  /** Checks again shortly; used when a start could not be confirmed for a passing reason. */
+  function retry(): void {
+    if (!observer) return;
+    announced = false;
+    clearTimeout(timer);
+    timer = setTimeout(check, 500);
   }
   // Announce once per appearance; a form that disappears and reappears announces again.
   function check(): void {
+    clearTimeout(timer);
     timer = undefined;
+    if (!observer) return;
     const startable = starts.some(ready);
-    if (startable && !announced) void announce(true).catch(() => undefined);
+    if (startable && !announced) void announce(true).catch(retry);
     else if (!startable) announced = false;
   }
   async function announce(start: boolean): Promise<unknown> {
@@ -108,10 +134,21 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ...(start ? { start: { path: location.pathname } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
-    if (!parsed.success || parsed.output.ok) unwatch();
-    else if (parsed.output.starts) watch(parsed.output.starts);
-    else if (["unauthorized-document", "duplicate-document"].includes(parsed.output.reason ?? ""))
+    if (!parsed.success || parsed.output.ok) {
       unwatch();
+    } else if (parsed.output.starts) {
+      watch(parsed.output.starts);
+      // A refused start means the background did not see the form on this path yet, for
+      // example while the tab still shows the previous URL.
+      if (start) retry();
+      else check();
+    } else if (["stale-document", "closed-tab"].includes(parsed.output.reason ?? "")) {
+      retry();
+    } else {
+      // A policy refusal (no account, another tab owns the site, ...) holds until the page
+      // is loaded again; re-announcing on every re-render would only repeat it.
+      unwatch();
+    }
     return result;
   }
   const listener: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (

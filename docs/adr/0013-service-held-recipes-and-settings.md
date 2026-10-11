@@ -104,13 +104,18 @@ The owner decided on 2026-10-11 when an attempt starts and how long it waits:
   while it is open, so a form rendered after a same-document URL change
   (`history.pushState`) or inside a dialog that opens later still starts an attempt. A
   `fill` step is ready when each target is one writable input, a `click` step when its
-  target is one enabled visible button; a `wait` step starts as soon as the path
-  matches. Pages on origins without recipes do not watch.
+  target is one enabled visible button and an `assert` step for a present element when
+  that element exists; a `wait` step or an `assert` step for an absent element starts
+  as soon as the path matches. Pages on origins without recipes do not watch. A
+  document stops watching once it starts an attempt or the attempt is refused for
+  account or policy reasons, and a tab that already has an attempt resumes it instead.
 - After an attempt starts, each `fill` and `click` step waits up to 10 seconds for its
-  elements, checking every 50 ms and continuing as soon as they are ready. The same
-  limit applies to confirming an advance by the next step's elements. When it passes,
-  the attempt stops with `structural-mismatch` without filling or clicking. The page is
-  never blocked while Pateat waits; a person can keep using it.
+  elements, checking every 50 ms and continuing as soon as they are ready. When the
+  limit passes, the step fails with `structural-mismatch` without filling or clicking,
+  and the tab does not try again. Confirming an advance by the next step's elements
+  has the same 10-second limit; when that passes, the outcome is unknown, as for any
+  submission whose result cannot be seen. The page is never blocked while Pateat
+  waits; a person can keep using it.
 
 ### Fill restrictions
 

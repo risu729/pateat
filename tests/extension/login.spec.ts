@@ -935,6 +935,8 @@ test("a competing tab cannot race the existing owner of the same site session", 
 
 for (const { name, path } of [
   { name: "a same-document URL change renders the form", path: "/spa" },
+  // The form is already on the page; only history.pushState changes, with no DOM mutation.
+  { name: "a same-document URL change reaches the form's path", path: "/spa?static" },
   { name: "a hidden login dialog opens", path: "/dialog" },
 ]) {
   test(`an attempt starts only when ${name}`, async () => {
@@ -950,7 +952,9 @@ for (const { name, path } of [
         await page.click("#open-login");
         await expect(page.locator("#authenticated")).toBeVisible();
         expect(await clicks(page)).toBe(1);
-        expect(page.url()).toBe(`${fixture.origin}${path === "/spa" ? "/spa-login" : path}`);
+        expect(page.url()).toBe(
+          `${fixture.origin}${path.startsWith("/spa") ? "/spa-login" : path}`,
+        );
         await expect
           .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
           .toMatchObject({ attempts: [{ state: "authenticated", submissions: 1 }] });
