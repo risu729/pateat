@@ -25,7 +25,8 @@ import { generationAttempts } from "../db/schema";
 import { readHead, writeRecipe } from "../recipe-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
-// per origin, and the page after the first sign-in judged for the recipe's completion.
+// per origin and start path (ADR 0016), and the page after the first sign-in judged for
+// the recipe's completion.
 
 const ATTEMPT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -38,9 +39,16 @@ const roleConfig = {
   refusalCategory: claudeRefusalCategory,
 };
 
-/** One generated recipe per origin, so devices generating together converge on it. */
-export async function generatedRecipeId(origin: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(origin));
+/**
+ * One generated recipe per origin and start path, so devices generating together
+ * converge on it, and a page where another recipe of the origin does not start gets its
+ * own (ADR 0016, "Pages where no recipe starts").
+ */
+export async function generatedRecipeId(origin: string, startPath: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify([origin, startPath])),
+  );
   const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0"));
   return `gen-${hex.join("").slice(0, 32)}`;
 }
@@ -56,7 +64,7 @@ const active = (change: SyncRecipeChange | null) =>
 
 /**
  * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe other
- * than this origin's generated one, which the route answers as a bad request.
+ * than one generated for this origin, which the route answers as a bad request.
  */
 export async function generateRecipe(
   env: GenerationEnv,
@@ -65,21 +73,27 @@ export async function generateRecipe(
 ): Promise<RecipeGenerationResult | undefined> {
   const { observation, slots, base } = request;
   const { origin, path } = observation;
-  const recipeId = await generatedRecipeId(origin);
-  if (base && base.recipeId !== recipeId) return undefined;
+  // A first page starts its own recipe; a later page continues the one in `base`.
+  const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
+  if (!/^gen-[0-9a-f]{32}$/u.test(recipeId)) return undefined;
   if (!observation.complete) return failed("incomplete-observation");
+  /** Whether a stored recipe is the one generated for this origin under this ID. */
+  const generatedHere = async (recipe: LoginRecipe) =>
+    recipe.origin === origin &&
+    recipe.id === recipeId &&
+    (await generatedRecipeId(origin, recipe.steps[0]!.path)) === recipeId;
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
    * recipe to continue (`undefined` for a first page). Checked again under the lock.
    */
-  const decide = (
+  const decide = async (
     head: SyncRecipeChange | null,
-  ): { answer: RecipeGenerationResult } | { base: LoginRecipe | undefined } => {
+  ): Promise<{ answer: RecipeGenerationResult } | { base: LoginRecipe | undefined }> => {
     if (head?.state === "revoked") return { answer: unavailable("recipe-revoked") };
     const current = active(head);
-    // Only this origin's recipe answers; a device write under the ID cannot redirect it.
-    if (current && current.recipe.origin !== origin)
+    // Only the recipe generated here answers; a device write under the ID cannot redirect it.
+    if (current && !(await generatedHere(current.recipe)))
       return { answer: unavailable("recipe-conflict") };
     if (current && (!base || current.revision !== base.revision))
       // Another device already generated it, or appended this page first: use that.
@@ -90,7 +104,7 @@ export async function generateRecipe(
       return { answer: unavailable("recipe-conflict") };
     return { base: current.recipe };
   };
-  const before = decide(await readHead(env.DB, scope.ownerId, recipeId));
+  const before = await decide(await readHead(env.DB, scope.ownerId, recipeId));
   if ("answer" in before) return before.answer;
   const baseRecipe = before.base;
   const baseRevision = baseRecipe?.revision ?? 0;
@@ -103,7 +117,7 @@ export async function generateRecipe(
     request: { instructions: generationInstructions, slots, observation },
     gate: async (db, now) => {
       // Another device may have stored this recipe while this request waited for the lock.
-      const latest = decide(await readHead(env.DB, scope.ownerId, recipeId));
+      const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
       if ("answer" in latest) {
         raced = latest.answer;
         return "recipe-conflict";
@@ -187,7 +201,7 @@ export async function generateRecipe(
   );
   // A write lost to another device answers with that device's recipe, as above.
   if (!written.ok) {
-    const lost = decide(written.current);
+    const lost = await decide(written.current);
     return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
   }
   const change = active(written.change);

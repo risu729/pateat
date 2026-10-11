@@ -207,7 +207,7 @@ async function twoPageRecipe(device: Device) {
 describe("recipe generation", () => {
   it("builds a recipe page by page, learns its completion and logs every call", async () => {
     const device = await owner();
-    const recipeId = await generatedRecipeId(ORIGIN);
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
 
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     const first = await generate(device, emailPage);
@@ -437,7 +437,7 @@ describe("recipe generation", () => {
 
   it("generates the next form of a login that stays on one path", async () => {
     const device = await owner();
-    const recipeId = await generatedRecipeId(ORIGIN);
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     await generate(device, emailPage);
     // The password form replaces the email form on the same path.
@@ -458,7 +458,7 @@ describe("recipe generation", () => {
 
   it("answers with another device's recipe stored during the call", async () => {
     const device = await owner();
-    const recipeId = await generatedRecipeId(ORIGIN);
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
     const other = {
       version: 1,
       id: recipeId,
@@ -582,7 +582,7 @@ describe("recipe generation", () => {
 
   it("answers a conflict when this origin's recipe ID holds another origin", async () => {
     const device = await owner();
-    const recipeId = await generatedRecipeId(ORIGIN);
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
     const elsewhere = {
       version: 1,
       id: recipeId,
@@ -640,23 +640,31 @@ describe("recipe generation", () => {
     ).toEqual([]);
   });
 
-  it("refuses a revoked recipe, a stale base and another origin's recipe", async () => {
+  it("refuses a revoked recipe, a stale base, a non-generated base and another origin's recipe", async () => {
     const device = await owner();
-    const recipeId = await generatedRecipeId(ORIGIN);
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     await generate(device, emailPage);
 
     // A stale base gets the current recipe back without a call.
     const stale = await generate(device, passwordPage, { recipeId, revision: 7 });
     expect(stale).toMatchObject({ status: "recipe", change: { revision: 1 } });
-    const otherId = await generatedRecipeId("https://other.example.test");
+    const otherId = await generatedRecipeId("https://other.example.test", "/login");
     const mismatch = await post(device, "/v1/recipes/generate", {
       version: 1,
       observation: passwordPage,
       slots,
       base: { recipeId: otherId, revision: 1 },
     });
-    expect(mismatch.status).toBe(400);
+    expect(await mismatch.json()).toMatchObject({ reason: "recipe-conflict" });
+    // Only a generated recipe can be continued.
+    const manual = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: passwordPage,
+      slots,
+      base: { recipeId: "synthetic-identity", revision: 1 },
+    });
+    expect(manual.status).toBe(400);
 
     const revoke = await post(
       device,
@@ -667,6 +675,54 @@ describe("recipe generation", () => {
     expect(revoke.status).toBe(200);
     expect(await generate(device, emailPage)).toMatchObject({ reason: "recipe-revoked" });
     expect(sent).toHaveLength(1);
+  });
+
+  it("generates a separate recipe for a page where no recipe of the origin starts", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    // After an account switch the password page of another account is a new start.
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const second = await generate(device, passwordPage);
+    if (second.status !== "recipe") throw new Error(second.status);
+    expect(second.change).toMatchObject({
+      recipeId: await generatedRecipeId(ORIGIN, "/password"),
+      revision: 1,
+      recipe: { steps: [{ path: "/password" }, { path: "/password" }] },
+    });
+    expect(second.change.recipeId).not.toBe(first.change.recipeId);
+    // Each start path answers with its own recipe from then on, without a call.
+    expect(await generate(device, emailPage)).toMatchObject({
+      change: { recipeId: first.change.recipeId },
+    });
+    expect(await generate(device, passwordPage)).toMatchObject({
+      change: { recipeId: second.change.recipeId },
+    });
+    expect(sent).toHaveLength(2);
+
+    // A recipe stored under the ID of a path it does not start on is not continued.
+    const misplacedId = await generatedRecipeId(ORIGIN, "/elsewhere");
+    expect(
+      (
+        await writeRecipe(
+          env.DB,
+          device.ownerId,
+          misplacedId,
+          {
+            version: 1,
+            expectedRevision: 0,
+            state: "active",
+            recipe: { ...first.change.recipe, id: misplacedId, revision: 1 },
+          },
+          device.deviceId,
+        )
+      ).ok,
+    ).toBe(true);
+    expect(
+      await generate(device, passwordPage, { recipeId: misplacedId, revision: 1 }),
+    ).toMatchObject({ reason: "recipe-conflict" });
+    expect(sent).toHaveLength(2);
   });
 
   it("stops generating once the owner revokes the recipe in the web UI", async () => {

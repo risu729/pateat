@@ -74,8 +74,8 @@ new owner decision:
 - A page that continues a recipe after an `advance` step counts toward the 24-hour rule
   under that recipe revision, not under its path alone, so the password form of a login
   that stays on `/login` is not refused as a retry of the email form.
-- Revoking a generated recipe stops generation for its origin, because each origin has
-  one generated recipe ID; a later design can let the owner reset it.
+- Revoking a generated recipe stops generation on its start path, because each origin
+  and start path has one generated recipe ID; a later design can let the owner reset it.
 - Log rows older than 90 days are deleted whenever a call is logged and whenever a
   device reads the recipe change feed, since routine releases do not apply scheduled
   triggers. Requests refused locally before any model call are not logged.

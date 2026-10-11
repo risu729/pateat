@@ -128,12 +128,14 @@ with the stored change, `abstained`, `rejected`, `challenge` or `unclear`, `fail
 a code, or `unavailable` with a reason when no model was called.
 
 - `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base? }`. Each
-  origin has one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of
-  the origin. Without `base`, an active recipe is returned as is; with `base`, the
-  page's steps are appended after the recipe's last `advance` step. A stale `base`
-  gets the current recipe back, a revoked recipe answers `recipe-revoked`, and a
-  `base` naming another recipe is 400. The model maps the slots, the plan is checked
-  with `validatePagePlan`, and the steps are stored with a conditional write.
+  origin and start path has one generated recipe, `gen-` and the first 32 hex digits of
+  the SHA-256 of the JSON `[origin, path]`; a page without `base` is the start of its
+  own. Without `base`, an active recipe is returned as is; with `base`, the page's steps
+  are appended after the recipe's last `advance` step. A stale `base` gets the current
+  recipe back, a revoked recipe answers `recipe-revoked`, a `base` whose recipe was not
+  generated for this origin and its start path answers `recipe-conflict`, and a `base`
+  that is not a generated recipe ID is 400. The model maps the slots, the plan is
+  checked with `validatePagePlan`, and the steps are stored with a conditional write.
 - `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, observation }`
   for the page after the final `submit` step of that revision, on the recipe's origin.
   The login paths come from the stored recipe. A `signed-in` marker passes
