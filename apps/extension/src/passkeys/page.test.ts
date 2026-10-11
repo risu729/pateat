@@ -220,17 +220,62 @@ describe("coexistence with a later passkey provider", () => {
     expect(page.posted.filter((message) => message.type === "get")).toHaveLength(1);
   });
 
-  it("stops a provider that copies deeper from looping back through Pateat", async () => {
+  it("sends a wrapper's synchronous call with rebuilt options straight to the browser", async () => {
+    const page = fakePage(answer({ kind: "delegate" }));
+    const saved = page.container.get.bind(page.container);
+    // A page shim that converts the options, here with a fresh challenge, before calling `get`.
+    const provider = vi.fn((options?: unknown) => {
+      const { publicKey: inner } = options as { publicKey: typeof publicKey };
+      return saved({
+        publicKey: { ...inner, challenge: crypto.getRandomValues(new Uint8Array(16)) },
+      });
+    });
+    page.container.get = provider;
+    await expect(page.container.get({ publicKey })).resolves.toBe("native");
+    expect(provider).toHaveBeenCalledOnce();
+    expect(page.nativeGet).toHaveBeenCalledOnce();
+    expect(page.posted.filter((message) => message.type === "get")).toHaveLength(1);
+  });
+
+  it("stops a wrapper that rebuilds the options asynchronously from looping", async () => {
     const page = fakePage(answer({ kind: "delegate" }));
     const saved = page.container.get.bind(page.container);
     const provider = vi.fn(async (options?: unknown) => {
+      await Promise.resolve();
       const { publicKey: inner } = options as { publicKey: typeof publicKey };
-      return saved({ publicKey: { ...inner, challenge: inner.challenge.slice() } });
+      return saved({
+        publicKey: { ...inner, challenge: crypto.getRandomValues(new Uint8Array(16)) },
+      });
     });
     page.container.get = provider;
     await expect(page.container.get({ publicKey })).resolves.toBe("native");
     expect(provider).toHaveBeenCalledTimes(4);
     expect(page.nativeGet).toHaveBeenCalledOnce();
+  });
+
+  it("still claims a call beyond the delegation limit", async () => {
+    let claims = 0;
+    const page = fakePage((message) =>
+      answer(
+        page.posted.filter((entry) => entry.type === "get").length === 5
+          ? (claims++, { kind: "assertion", assertion })
+          : { kind: "delegate" },
+      )(message),
+    );
+    const saved = page.container.get.bind(page.container);
+    const provider = vi.fn(async (options?: unknown) => {
+      await Promise.resolve();
+      const { publicKey: inner } = options as { publicKey: typeof publicKey };
+      return saved({
+        publicKey: { ...inner, challenge: crypto.getRandomValues(new Uint8Array(16)) },
+      });
+    });
+    page.container.get = provider;
+    const credential = (await page.container.get({ publicKey })) as { id: string };
+    expect(credential.id).toBe("AQID");
+    expect(claims).toBe(1);
+    expect(provider).toHaveBeenCalledTimes(4);
+    expect(page.nativeGet).not.toHaveBeenCalled();
   });
 
   it("claims a modal request that reuses the publicKey of a held conditional one", async () => {
