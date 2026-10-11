@@ -3159,6 +3159,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           transport: { generateRecipe: vi.fn(), judgeCompletion },
           storage: { read: async () => undefined, write: async () => undefined },
           sync: async () => "synced",
+          refresh: async () => "synced",
         });
         return (...args: Parameters<LoginGeneration["judge"]>) => service.judge(...args);
       }

@@ -72,11 +72,13 @@ function setup(
     connection: vi.fn(async (): Promise<ServiceConnection | undefined> => connection),
   };
   const sync = vi.fn(async () => "synced");
+  const refresh = vi.fn(async () => "synced");
   const generation = createLoginGeneration({
     service,
     transport,
     storage,
     sync,
+    refresh,
     now: () => now,
   });
   return {
@@ -85,6 +87,7 @@ function setup(
     service,
     storage,
     sync,
+    refresh,
     advance: (ms: number) => {
       now += ms;
     },
@@ -189,7 +192,7 @@ describe("recipe generation requests", () => {
       recipeChange.recipeId,
       { version: 1, revision: 1, route: "password", observation: home },
     );
-    await vi.waitFor(() => expect(h.sync).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(h.refresh).toHaveBeenCalledTimes(1));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge" },
@@ -288,7 +291,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
 
   it("hands a judged handler's recipe to the login without waiting for the cache", async () => {
     const h = setup();
-    h.sync.mockImplementationOnce(() => new Promise<string>(() => {}));
+    h.refresh.mockImplementationOnce(() => new Promise<string>(() => {}));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge", change: handled },
@@ -297,7 +300,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       verdict: "challenge",
       recipe: handled.recipe,
     });
-    expect(h.sync).toHaveBeenCalledTimes(1);
+    expect(h.refresh).toHaveBeenCalledTimes(1);
     expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,
@@ -305,7 +308,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       { version: 1, revision: 1, route: "password", observation: webauthn },
     );
     // A failed refresh still hands the recipe over; the login checks it before use.
-    h.sync.mockRejectedValueOnce(new Error("offline"));
+    h.refresh.mockRejectedValueOnce(new Error("offline"));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge", change: handled },
@@ -318,7 +321,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
 
   it("answers signed-in without a change and does not wait for the cache", async () => {
     const h = setup();
-    h.sync.mockImplementationOnce(() => new Promise<string>(() => {}));
+    h.refresh.mockImplementationOnce(() => new Promise<string>(() => {}));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "signed-in" },

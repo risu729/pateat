@@ -97,6 +97,8 @@ export function createRecipeSync(options: {
   let running: Promise<RecipeSyncOutcome> | undefined;
   // A sync requested while one runs, for example by a new pairing, runs once more after it.
   let rerun = false;
+  // Whether that further run includes settings; a recipes-only request does not add them.
+  let rerunSettings = false;
   // Only this module writes the cache, so the parsed copy stays valid until the next write.
   let memory: RecipeCache | undefined;
   // Bumped by clear(), so a sync or read that started before it cannot restore the cache.
@@ -142,7 +144,7 @@ export function createRecipeSync(options: {
       .catch(() => undefined);
   }
 
-  async function run(): Promise<RecipeSyncOutcome> {
+  async function run(withSettings: boolean): Promise<RecipeSyncOutcome> {
     const started = generation;
     const connection = await service.connection();
     if (!connection) {
@@ -154,6 +156,8 @@ export function createRecipeSync(options: {
     const recipesOutcome = await pullRecipes(connection, started);
     if (["not-connected", "rejected", "unreachable", "rate-limited"].includes(recipesOutcome))
       return recipesOutcome;
+    // Recipes alone do not complete a sync, so nothing is recorded for them.
+    if (!withSettings) return recipesOutcome;
     const settingsOutcome = options.settings
       ? await options.settings.run(connection, () => generation !== started)
       : "synced";
@@ -230,27 +234,37 @@ export function createRecipeSync(options: {
   /**
    * Runs a sync now. A call while one runs joins it and makes it run once more, so a
    * device paired during an older device's sync is synced too.
+   *
+   * `settings: false` pulls recipe changes only. A login in progress uses it after the
+   * service changed its recipe (ADR 0027): a settings write would stop that login as a
+   * policy change, so settings wait for the next full sync.
    */
-  function sync(): Promise<RecipeSyncOutcome> {
+  function sync(scope: { settings?: boolean } = {}): Promise<RecipeSyncOutcome> {
+    const withSettings = scope.settings ?? true;
     if (running) {
       rerun = true;
+      rerunSettings ||= withSettings;
       return running;
     }
     running = (async () => {
       try {
         let outcome: RecipeSyncOutcome;
+        let settingsNow = withSettings;
         do {
           rerun = false;
+          rerunSettings = false;
           const startedAt = now();
-          plan(startedAt, RECIPE_SYNC_STALE_MS);
+          // Only a full sync moves the background schedule, which also covers settings.
+          if (settingsNow) plan(startedAt, RECIPE_SYNC_STALE_MS);
           // oxlint-disable-next-line no-await-in-loop -- a rerun follows the previous run
-          outcome = await run().catch((): RecipeSyncOutcome => "storage-unavailable");
+          outcome = await run(settingsNow).catch((): RecipeSyncOutcome => "storage-unavailable");
           try {
             options.report?.(outcome);
           } catch {
             // A report must never change the sync.
           }
           if (outcome === "rate-limited") plan(startedAt, RECIPE_SYNC_RATE_LIMIT_MS);
+          settingsNow = rerunSettings;
         } while (rerun);
         return outcome;
       } finally {

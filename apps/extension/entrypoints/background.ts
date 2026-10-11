@@ -189,6 +189,7 @@ export default defineBackground(() => {
       },
       storage: createBrowserGenerationAttemptStorage(),
       sync: () => recipeSync.sync(),
+      refresh: () => recipeSync.sync({ settings: false }),
     }),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),

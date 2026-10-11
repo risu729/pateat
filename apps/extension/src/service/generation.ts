@@ -53,9 +53,14 @@ export function createLoginGeneration(options: {
   storage: GenerationAttemptStorage;
   /** Pulls recipe changes into the cache; resolves once the cache holds them. */
   sync(): Promise<unknown>;
+  /**
+   * Pulls recipe changes only. A judged page belongs to a login in progress, which a
+   * settings write would stop as a policy change (ADR 0027).
+   */
+  refresh(): Promise<unknown>;
   now?: () => number;
 }): LoginGeneration {
-  const { service, transport, storage, sync } = options;
+  const { service, transport, storage, sync, refresh } = options;
   const now = options.now ?? Date.now;
   // Writes are serialized so two pages sent together are both remembered.
   let queue: Promise<unknown> = Promise.resolve();
@@ -147,10 +152,10 @@ export function createLoginGeneration(options: {
       const result: RecipeCompletionResult | undefined =
         answer.kind === "result" ? answer.result : undefined;
       // Later runs use the learned completion; this attempt settles without waiting.
-      if (result?.status === "signed-in") void sync().catch(() => undefined);
+      if (result?.status === "signed-in") void refresh().catch(() => undefined);
       // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
       if (result?.status === "challenge" && result.change) {
-        void sync().catch(() => undefined);
+        void refresh().catch(() => undefined);
         return { verdict: "challenge", recipe: result.change.recipe };
       }
       if (
