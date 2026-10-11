@@ -802,8 +802,8 @@ nonzero passkey counter writeback and passkey creation; Bitwarden provider login
 with passkeys, API keys, SSO or device approval; external email/SMS OTP and magic
 links; and separately authorized post-login actions, including transactions and
 approvals. UI extensions, account switching, a mode without the service, direct AI,
-recipe sharing, additional service auth, E2EE settings sync and MCP are also
-deferred. They are extension points, not
+recipe sharing, additional service auth, E2EE settings sync, MCP and Vaultwarden
+support are also deferred. They are extension points, not
 implicit permissions or initial acceptance requirements.
 
 ## Ordered milestones
@@ -878,6 +878,10 @@ claiming compatibility. This provider setup is separate from website OTP
 automation. Preserve supported Bitwarden TOTP forms, including raw Base32,
 `otpauth://totp/` parameters and Steam form; verify algorithms, digits, periods
 and clock boundaries. Do not imply HOTP support from URI parsing alone.
+Vaultwarden support is later work (owner request, 2026-10-11). A self-hosted
+connection to a Vaultwarden URL is accepted, but Pateat is tested only against
+official Bitwarden server response shapes, so Vaultwarden compatibility is
+unverified until its own response shapes and sign-in flow are tested.
 
 ## Mandatory acceptance matrix
 
