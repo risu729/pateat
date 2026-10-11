@@ -587,9 +587,10 @@ the real settings store over in-memory storage; no running service has been trie
 
 ### Remaining M4 service gaps
 
-- Device enrollment has not been tried against a real Access application; that probe
-  needs the owner's approval, as do the credential idle-expiry decision and the
-  optional `launchWebAuthFlow` variant.
+- Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md))
+  is decided and not implemented: a manifest `key`, the Access-protected `POST /pair`,
+  then the extension switch with the typed-code flow removed. The credential
+  idle-expiry decision stays open.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and

@@ -720,10 +720,11 @@ diagnostics remain necessary.
 
 ### Device enrollment
 
-Status: the service side and the extension's pairing flow are implemented and tested
-locally with synthetic Access keys and responses; a real Access probe and the open
-decisions below remain. Nothing is configured or deployed. It satisfies the separation
-above without a cookie on steady-state API calls.
+Status: the typed-code flow below is implemented and deployed, and the owner paired a
+real Chrome through Access with it on 2026-10-11. Direct pairing
+([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; it is not
+implemented yet. Both satisfy the separation above without a cookie on steady-state
+API calls.
 
 - Route families. One Access application covers the whole service host, so a new route
   is protected by default (owner decision, 2026-10-11). A second, more specific Access
@@ -754,9 +755,9 @@ above without a cookie on steady-state API calls.
   its credential once; only its hash is stored, as today. So a link carrying someone
   else's challenge, or a challenge another account saw and approved, yields no device. A
   wrong code is reported only to the verifier holder; unapproved, expired, redeemed and
-  unknown verifiers return the same response. `chrome.identity.launchWebAuthFlow` would
-  avoid typing a code but adds the `identity` permission, so it remains an alternative
-  for the owner to choose.
+  unknown verifiers return the same response. The owner chose direct pairing over
+  `chrome.identity.launchWebAuthFlow`, which would add the `identity` permission
+  ([ADR 0020](adr/0020-direct-device-pairing.md)).
 - Lifetime and recovery. Credentials stay valid until revoked; an idle expiry is
   an open decision. The Access-protected management page lists and revokes the
   owner's devices, and a device can revoke itself on sign-out. A lost device is
@@ -766,9 +767,9 @@ above without a cookie on steady-state API calls.
 
 Local tests cover signature, issuer, audience, expiry and subject checks, approval
 CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
-cleanup of stale approvals, cross-owner management and self-revocation. Still open:
-probing JWT verification against a real Access application with the owner's approval,
-the credential idle-expiry decision, and the optional `launchWebAuthFlow` variant.
+cleanup of stale approvals, cross-owner management and self-revocation. JWT
+verification worked against the real Access application when the owner paired on
+2026-10-11. Still open: the credential idle-expiry decision.
 
 ### Owner web UI
 
