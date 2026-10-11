@@ -1072,24 +1072,26 @@ Before publishing, every case was reviewed for personal data (2026-10-11, by an
 independent review agent and the importer's author). Held back: a private person's
 homepage, a forum for cashing out stolen funds, and a page whose path carried an encoded
 session ID (Magento's `/referer/<base64>/`); the importer now skips long opaque path
-segments. The corpus holds 113 plans and 18 abstentions. Two pages are Japanese
-(`buyee.jp`, `zeiri4.com`); `language` comes from the extractor's script heuristic,
-which also marks one Chinese page `ja` and every other non-Japanese page `en`. The owner
-chose on 2026-10-11 to publish the derived page text (titles, headings and labels) as
-is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
-sites appear twice with the same login form. It was regenerated on 2026-10-11 with the
-extractor of main `84df607`, which locates links by their text (#184) and observes
-script buttons (#206); the first import used an extractor from before #184. The cases,
-their plans and their abstentions are unchanged. The observations gained 132 links that
-only their text can locate, which the probe now resolves among links as the executor
-does; candidate IDs shifted with them. The 132 link texts were reviewed for personal
-data and hold none. It was regenerated again on 2026-10-11 with main `e48b4e7`: judging
-completeness by the login form (#211) made 36 more pages complete cases, observing
-script links as buttons (#226) added one more, and the stricter path rule (#214) now
-refuses formasaurus-836, whose path carries a base64 segment. In 12 earlier cases links
-became buttons and in one (formasaurus-848) candidate IDs shifted; no earlier label
-changed. The 37 new cases and the changed observations were reviewed for personal data
-by an independent review agent and hold none.
+segments. The corpus holds 113 plans and 18 abstentions. Three cases are Japanese (two
+from `buyee.jp`, one from `zeiri4.com`); `language` comes from the extractor's script
+heuristic, which also marks one Chinese page `ja` and every other non-Japanese page
+`en`. The owner chose on 2026-10-11 to publish the derived page text (titles, headings
+and labels) as is, with the attribution in
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some sites appear twice with the
+same login form. It was regenerated on 2026-10-11 with the extractor of main `84df607`,
+which locates links by their text (#184) and observes script buttons (#206); the first
+import used an extractor from before #184. The cases, their plans and their abstentions
+are unchanged. The observations gained 132 links that only their text can locate, which
+the probe now resolves among links as the executor does; candidate IDs shifted with
+them. The 132 link texts were reviewed for personal data and hold none. It was
+regenerated again on 2026-10-11 with main `e48b4e7`: judging completeness by the login
+form (#211) made 36 more pages complete cases, observing script links as buttons (#226)
+gave one more login form (formasaurus-33) its submit control, and the stricter path rule
+(#214) now refuses formasaurus-836, whose path carries a base64 segment. In 11 earlier
+cases links became buttons; in formasaurus-799 and -848 newly observed script buttons
+shifted candidate IDs, and 848's label was renumbered to the same controls. No earlier
+label changed its meaning. The 37 new cases and the changed observations were reviewed
+for personal data by an independent review agent and hold none.
 `mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
 it; `--from` and `--count` run a slice of the corpus in its fixed order, so it can be
 run in batches. Each case in the report carries the plan in candidate IDs.
@@ -1170,7 +1172,7 @@ are labelled plans:
 | SMBC Direct (bank fields) | submit with "ログイン" | false submit (branch number in the account number field, software keyboard button) | correct |
 | Mizuho Direct | `advance` after the customer number | missed | correct |
 | docomo SMTB Net Bank | submit | correct | correct |
-| PayPay Bank (bank fields) | submit | false submit (branch number in the account number field, reset button) | correct |
+| PayPay Bank (bank fields) | submit | false submit (branch number in the account number field, password-reset button) | correct |
 | Rakuten Securities | submit, not "クリア" | correct | correct |
 | MyJCB | submit, not the passkey button | correct | correct |
 
@@ -1185,8 +1187,9 @@ only shown select, radio button, text area or other unsupported input was outsid
 login form, for example a search form's category select. In 42 none was shown, so a
 control without a unique `id`, `name` or `data-testid` is the likely cause (inferred,
 not measured). The saved pages have no stylesheets, so elements a live page hides may
-count here. The extractor refuses `;jsessionid=` and ASP.NET session segments but not
-other session IDs in a path, such as Magento's `/referer/<base64>/`.
+count here. At `9cf8356` the extractor refused only `;jsessionid=` and ASP.NET session
+segments, not other session IDs in a path such as Magento's `/referer/<base64>/`; #214
+added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
