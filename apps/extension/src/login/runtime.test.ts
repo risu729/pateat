@@ -207,26 +207,62 @@ describe("login runtime with a live vault field source", () => {
       },
     ],
   ])("blocks without any page operation when the source %s", async (_name, source) => {
-    const run = await start(source);
+    const report = vi.fn<(report: LoginReport) => void>();
+    const run = await start(source, {}, report);
     await vi.waitFor(async () =>
       expect(await run.attempt()).toMatchObject({ state: "blocked", outcome: "policy-changed" }),
     );
     expect(executions()).toEqual([]);
+    expect(report.mock.calls.at(-1)![0]).toMatchObject({
+      state: "blocked",
+      operation: "fill",
+      cause: "field-unavailable",
+    });
   });
   it("withdraws resolved values when the catalog snapshot is replaced before delivery", async () => {
     let snapshot = first;
+    const report = vi.fn<(report: LoginReport) => void>();
     const run = await start(
       async () => {
         snapshot = second;
         return "synthetic-secret";
       },
       { snapshot: () => snapshot },
+      report,
     );
     await vi.waitFor(async () =>
       expect(await run.attempt()).toMatchObject({ state: "blocked", outcome: "policy-changed" }),
     );
     expect(executions()).toEqual([]);
+    expect(report.mock.calls.at(-1)![0]).toMatchObject({
+      state: "blocked",
+      cause: "vault-replaced",
+    });
   });
+  it.each(["synced", "saved"] as const)(
+    "names settings %s while a login runs as the cause that stopped it",
+    async (source) => {
+      let release!: (value: string) => void;
+      const pending = new Promise<string>((resolve) => (release = resolve));
+      const report = vi.fn<(report: LoginReport) => void>();
+      const fields = vi.fn<LoginFieldSource>(() => pending);
+      const run = await start(fields, {}, report);
+      await vi.waitFor(() => expect(fields).toHaveBeenCalled());
+      run.login.settingsChanged(source);
+      await vi.waitFor(async () =>
+        expect(await run.attempt()).toMatchObject({ state: "blocked", outcome: "policy-changed" }),
+      );
+      release("synthetic-secret");
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "attempt",
+          state: "blocked",
+          cause: source === "synced" ? "settings-synced" : "settings-saved",
+        }),
+      );
+      expect(executions()).toEqual([]);
+    },
+  );
   it.each<[string, Catalog]>([
     ["an item that awaits field review", { state: "review-required", quarantined: [itemId] }],
     ["a quarantined item even if the connection reports ready", { quarantined: [itemId] }],
