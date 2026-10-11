@@ -174,6 +174,26 @@ account in the popup while logged in would log out and log in again automaticall
 is the "automatic logout/re-login" operation that the [plan](../plan.md) keeps for
 later. It needs per-site logout steps and shared-session/race tests.
 
+The owner also asked on 2026-10-11 (17:05 UTC) to record, not build, a toolbar badge
+that counts the matching items on every HTTPS site with at least one match, not only
+while a login waits for a choice (part B). The owner expects it to help two later
+features: the automatic account switching above, by showing whether there is another
+account to switch to, and replacing the official Bitwarden extension, whose own badge
+counts matching logins. Until then the badge shows only while a login waits for a
+choice. Building it would:
+
+- reverse the rule in [ADR 0009](0009-install-time-https-site-access.md) and
+  [ADR 0016](0016-recipe-generation-trigger.md) that a page without a recipe gets no
+  vault access; the vault would match URIs locally on almost every HTTPS page, since the
+  vault is normally unlocked ([ADR 0006](0006-atomic-local-vault-cache.md));
+- run each count through the login runtime's serialized vault path, because a vault
+  session's worker takes one job at a time and a concurrent lookup can make a login
+  refuse with `vault-unavailable`;
+- show the waiting state in another color, because the site's count (origin-level, with
+  passkeys and static items) and the waiting count (the document's URI matches) can
+  differ;
+- show no number when a vault could not be checked.
+
 ## Consequences
 
 - The [architecture](../architecture.md) now allows:

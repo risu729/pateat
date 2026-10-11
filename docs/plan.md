@@ -1376,13 +1376,14 @@ password step are not detected.
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
 API keys, SSO or device approval; signing in to sites through an identity provider
-(policy in ADR 0026); external email/SMS OTP and magic links; and separately
-authorized post-login actions, including transactions and approvals. UI extensions,
-automatic account switching (logging out and in again when another account is picked
-while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe
-sharing, additional service auth, E2EE settings sync, MCP, Vaultwarden support and
-vaults other than Bitwarden are also deferred. They are extension points, not implicit
-permissions or initial acceptance requirements.
+(policy in ADR 0026); external email/SMS OTP and magic links; and separately authorized
+post-login actions, including transactions and approvals. UI extensions, automatic
+account switching (logging out and in again when another account is picked while logged
+in, recorded in ADR 0021), a badge counting the matching items on every site that has
+one (also recorded in ADR 0021), a mode without the service, direct AI, recipe sharing,
+additional service auth, E2EE settings sync, MCP, Vaultwarden support and vaults other
+than Bitwarden are also deferred. They are extension points, not implicit permissions or
+initial acceptance requirements.
 
 ## Ordered milestones
 
