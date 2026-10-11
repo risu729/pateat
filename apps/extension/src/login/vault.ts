@@ -85,7 +85,7 @@ export function loginSecretKind(
   return undefined;
 }
 
-/** The item's login username field, which a secret-only fill compares with the page. */
+/** The item's login username field, which a fill of a secret but no username compares with the page. */
 export function loginUsernameFieldId(
   connection: Pick<VaultConnectionMetadata, "provider" | "items">,
   itemId: string,
@@ -94,6 +94,20 @@ export function loginUsernameFieldId(
   if (connection.provider !== "bitwarden") return undefined;
   const item = connection.items.find((entry) => entry.id === itemId);
   return item?.fields.some((field) => field.id === "login.username") ? "login.username" : undefined;
+}
+
+/** Whether filling `fieldId` writes the item's login username, directly or through a Linked field. */
+export function loginFillsUsername(
+  connection: Pick<VaultConnectionMetadata, "provider" | "items">,
+  itemId: string,
+  fieldId: string,
+): boolean {
+  if (connection.provider === "dummy") return fieldId === "username";
+  if (connection.provider !== "bitwarden") return false;
+  const field = connection.items
+    .find((item) => item.id === itemId)
+    ?.fields.find((entry) => entry.id === fieldId);
+  return (field?.kind === "linked" ? field.linkedFieldId : fieldId) === "login.username";
 }
 
 /** Bundled synthetic values; the probe build is the only caller. */

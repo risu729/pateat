@@ -1058,6 +1058,31 @@ describe("production login document admission", () => {
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
     });
+    it.each<[string, Parameters<typeof harness>[1], boolean]>([
+      ["a text custom field", { username: true, custom: [{ name: "Branch", kind: "text" }] }, true],
+      [
+        "a custom field Linked to the username",
+        {
+          username: true,
+          custom: [{ name: "Branch", kind: "linked", linkedFieldId: "login.username" }],
+        },
+        false,
+      ],
+    ])(
+      "compares the page on a password step with %s only when it fills no username",
+      async (_name, live, compared) => {
+        const h = harness({ bindings: [branchBinding] }, live);
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(branchRecipe);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).not.toEqual([]));
+        expect(executes()[0]!.account).toEqual(
+          compared ? { username: "my2@example.com" } : undefined,
+        );
+      },
+    );
     it.each<[string, Parameters<typeof harness>[1], Partial<LocalSettings>, string]>([
       [
         "two custom fields share the bound name",

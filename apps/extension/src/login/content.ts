@@ -286,12 +286,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           return fail("structural-mismatch");
         // A secret goes only to the account the page shows, when it shows one (owner
         // decision, 2026-10-11). The comparison stays in this content script.
-        if (
-          command.account &&
-          showsOtherAccount(shownAccounts(accountText(document, form)), command.account.username)
-        )
-          return fail("wrong-account");
-        if (command.account) command.account.username = "";
+        if (command.account) {
+          const other = showsOtherAccount(
+            shownAccounts(accountText(document, form)),
+            command.account.username,
+            {
+              masked: command.values.some(
+                (entry) => entry.secret === "password" || entry.secret === "hidden",
+              ),
+            },
+          );
+          command.account.username = "";
+          if (other) return fail("wrong-account");
+        }
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch");
         for (const [index, field] of step.fields.entries()) {

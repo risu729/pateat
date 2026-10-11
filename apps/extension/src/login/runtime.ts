@@ -56,7 +56,12 @@ import {
 } from "./dummy";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import type { LoginSites } from "./sites";
-import { loginSecretKind, loginUsernameFieldId, type LoginFieldSource } from "./vault";
+import {
+  loginFillsUsername,
+  loginSecretKind,
+  loginUsernameFieldId,
+  type LoginFieldSource,
+} from "./vault";
 
 const STORAGE_KEY = "pateat.login-attempts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
@@ -836,14 +841,28 @@ export function createLoginRuntime(
               );
               values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
             }
-            // A step that fills only secrets, such as a password page for a remembered
-            // account, must not show another account. Without a readable username the
-            // page is not compared.
+            // A step that fills a secret but no username, such as a password page for a
+            // remembered account, must not show another account (owner decision,
+            // 2026-10-11). Without a readable username the page is not compared.
             const usernameField = loginUsernameFieldId(
               authorized.connection,
               run.metadata.account.itemId,
             );
-            if (values.every((entry) => entry.secret) && usernameField) {
+            if (
+              usernameField &&
+              values.some((entry) => entry.secret) &&
+              !operation.step.fields.some((field) =>
+                authorized.binding.slots.some(
+                  (entry) =>
+                    entry.slot === field.slot &&
+                    loginFillsUsername(
+                      authorized.connection,
+                      run.metadata.account.itemId,
+                      entry.fieldId,
+                    ),
+                ),
+              )
+            ) {
               let username: string | undefined;
               try {
                 username = await fields({

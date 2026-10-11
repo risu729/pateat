@@ -90,8 +90,8 @@ export const commandSchema = v.variant("type", [
       v.maxLength(20),
     ),
     /**
-     * The selected account's username, sent only with a fill of secrets alone. The page
-     * must not show another account; it never leaves the content script.
+     * The selected account's username, sent only with a fill of a secret but no username.
+     * The page must not show another account; it never leaves the content script.
      */
     account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
   }),
