@@ -282,6 +282,15 @@ export function createRecipeSync(options: {
       const selection = selectLoginRecipe(cache.recipes, origin, path);
       return selection.ok ? selection.recipe : undefined;
     },
+    async firstSteps(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      return loginRecipesForOrigin(cache.recipes, origin).flatMap((recipe) =>
+        recipe.steps[0] ? [recipe.steps[0]] : [],
+      );
+    },
   };
 
   return { sync, refreshIfStale, clear, recipes };

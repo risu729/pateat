@@ -96,6 +96,18 @@ async function observeInputEffects(
   /* eslint-enable no-await-in-loop */
 }
 
+async function expectWatchingWithoutAttempt(options: Page) {
+  await expect
+    .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+    .toMatchObject({ attempts: [], documents: [{ state: "watching" }] });
+  // Cover several watch checks before the negative assertions.
+  await options.waitForTimeout(1000);
+  expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+    attempts: [],
+    documents: [{ state: "watching" }],
+  });
+}
+
 async function expectInputOutcome(
   options: Page,
   result: "authenticated" | "credential-rejected" | "unknown-submit",
@@ -371,7 +383,7 @@ for (const outcome of ["authenticated", "credential-rejected", "unknown"] as con
   });
 }
 
-test("a missing input target fails before any mutation or POST", async () => {
+test("a missing first-step input never starts an attempt, mutation or POST", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -380,11 +392,7 @@ test("a missing input target fails before any mutation or POST", async () => {
       const runId = fixture.createRun();
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/input-submit?runId=${runId}&missing=1`);
-      await expect
-        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-        .toMatchObject({
-          attempts: [{ state: "retryable", outcome: "structural-mismatch", submissions: 0 }],
-        });
+      await expectWatchingWithoutAttempt(options);
       expect(fixture.evidence(runId).posts).toBe(0);
       expect(await mutations(page)).toBe(0);
       await expect(page.locator("input")).toHaveValue("");
@@ -698,7 +706,7 @@ test("waits for delayed same-page success and rejection without resubmitting", a
   }
 });
 
-test("ambiguous fields stop without filling either candidate or submitting", async () => {
+test("ambiguous first-step fields never start an attempt, fill or submission", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -706,11 +714,7 @@ test("ambiguous fields stop without filling either candidate or submitting", asy
       await configure(options, id, fixture.origin);
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/ambiguous`);
-      await expect
-        .poll(async () =>
-          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
-        )
-        .toContain("structural-mismatch");
+      await expectWatchingWithoutAttempt(options);
       expect(
         await page
           .locator('input[name="password"]')
@@ -923,6 +927,100 @@ test("a competing tab cannot race the existing owner of the same site session", 
         (attempt) => attempt.state === "authenticated",
       );
       expect(authenticated).toHaveLength(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+for (const { name, path } of [
+  { name: "a same-document URL change renders the form", path: "/spa" },
+  // The form is already on the page; only history.pushState changes, with no DOM mutation.
+  { name: "a same-document URL change reaches the form's path", path: "/spa?static" },
+  { name: "a hidden login dialog opens", path: "/dialog" },
+]) {
+  test(`an attempt starts only when ${name}`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin);
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}${path}`);
+        await expectWatchingWithoutAttempt(options);
+        // The person opens the form; the attempt starts from the already loaded document.
+        await page.click("#open-login");
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await clicks(page)).toBe(1);
+        expect(page.url()).toBe(
+          `${fixture.origin}${path.startsWith("/spa") ? "/spa-login" : path}`,
+        );
+        await expect
+          .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [{ state: "authenticated", submissions: 1 }] });
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+}
+
+test("a submit button that renders late is clicked once it appears", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/slow-button?delay=4000`);
+      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
+      expect(await clicks(page)).toBe(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a later page that renders its form late continues the multi-page login", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/identity?slow-password`);
+      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+      expect(
+        await page.evaluate(() => ({
+          identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+          passwordMatched: sessionStorage.getItem("passwordMatched"),
+        })),
+      ).toEqual({ identityClicks: 1, submitClicks: 1, passwordMatched: "true" });
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a step whose element never appears stops after ten seconds without a click", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      const started = Date.now();
+      await page.goto(`${fixture.origin}/slow-button?never`);
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }), {
+          timeout: 15_000,
+        })
+        .toMatchObject({
+          attempts: [{ state: "retryable", outcome: "structural-mismatch", submissions: 0 }],
+        });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(9_500);
+      expect(await clicks(page)).toBe(0);
     });
   } finally {
     await fixture.close();
