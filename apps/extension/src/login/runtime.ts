@@ -262,6 +262,8 @@ export interface LoginGeneration {
      * every other answer, including permanent refusals and failed model calls.
      */
     verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+    /** For `retry` and `unclear`: the refusal or failure code, for the local log. */
+    reason?: string;
     recipe?: LoginRecipe;
   }>;
 }
@@ -338,10 +340,60 @@ export type LoginReport =
       state: LoginAttemptMetadata["state"];
       stepIndex: number;
       stepCount: number;
+      /** The current step's kind and effect, and the entered handler it belongs to. */
+      operation?: string;
+      effect?: string;
+      handler?: number;
       outcome?: string;
+      /** For a `policy-changed` outcome: its cause, and a refused plan's reason. */
+      cause?: PolicyChangeCause;
+      reason?: string;
     }
   | { type: "refused"; tabId: number; origin: string; reason: string }
-  | { type: "generation"; tabId: number; origin: string; outcome: "recipe" | "none" };
+  | { type: "generation"; tabId: number; origin: string; outcome: "recipe" | "none" }
+  | {
+      type: "judge";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      route: LoginRoute;
+      /** `sent` when the page goes out; the service's verdict when it answers. */
+      verdict: "sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+      reason?: string;
+      /** For a returned revision: whether this login took it over. */
+      takenOver?: boolean;
+    }
+  | {
+      type: "handler";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      handler: number;
+      kind: string;
+      /**
+       * `entered`; `shown-again` after this login already ran it; `missing-fact` when the
+       * item lacks what the handler needs; `no-room` when the attempt's budget is spent.
+       */
+      outcome: "entered" | "shown-again" | "missing-fact" | "no-room";
+      steps: number;
+    };
+/**
+ * What withdrew a running login's authorization (`POLICY_CHANGED`): a settings sync or a
+ * save on the settings page; a settings revision other than the login's, or settings that
+ * could not be read; a plan the
+ * settings or vault no longer allow; a vault snapshot replaced before delivery; or a
+ * vault field that could not be read.
+ */
+export type PolicyChangeCause =
+  | "settings-synced"
+  | "settings-saved"
+  | "settings-revision"
+  | "settings-unavailable"
+  | "plan"
+  | "vault-replaced"
+  | "field-unavailable";
+type PolicyChange = { cause: PolicyChangeCause; reason?: string };
 
 export function createLoginRuntime(
   settings: SettingsRuntime,
@@ -385,7 +437,9 @@ export function createLoginRuntime(
       // A report must never change the answer.
     }
   };
-  const reportAttempt = (metadata: LoginAttemptMetadata) =>
+  const reportAttempt = (metadata: LoginAttemptMetadata, policy?: PolicyChange) => {
+    // Entered handlers are kept in order, so the last one starting at or before the step owns it.
+    const handler = metadata.handlers.findLast((entry) => entry.start <= metadata.stepIndex);
     report({
       type: "attempt",
       tabId: metadata.document.tabId,
@@ -394,8 +448,13 @@ export function createLoginRuntime(
       state: metadata.state,
       stepIndex: metadata.stepIndex,
       stepCount: metadata.stepCount,
+      ...(metadata.operationKind ? { operation: metadata.operationKind } : {}),
+      ...(metadata.operationEffect ? { effect: metadata.operationEffect } : {}),
+      ...(handler ? { handler: handler.index } : {}),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
+      ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
     });
+  };
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<string, LiveDocument>();
@@ -747,11 +806,15 @@ export function createLoginRuntime(
       throw new Error("Attempt storage unavailable");
     }
   }
-  async function change(run: Execution, event: LoginAttemptEvent): Promise<void> {
+  async function change(
+    run: Execution,
+    event: LoginAttemptEvent,
+    policy?: PolicyChange,
+  ): Promise<void> {
     if (!current(run)) return;
     const previous = run.metadata.state;
     run.metadata = transitionLoginAttempt(run.metadata, event);
-    if (run.metadata.state !== previous) reportAttempt(run.metadata);
+    if (run.metadata.state !== previous) reportAttempt(run.metadata, policy);
     if (
       import.meta.env.MODE === "probe" &&
       armed === "intent-write-failure" &&
@@ -1199,7 +1262,11 @@ export function createLoginRuntime(
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!current(run)) return undefined;
     if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) {
-      await change(run, { type: "POLICY_CHANGED" });
+      await change(
+        run,
+        { type: "POLICY_CHANGED" },
+        { cause: snapshot.ok ? "settings-revision" : "settings-unavailable" },
+      );
       return undefined;
     }
     const plan = await planFor(snapshot, run.live, run.recipe);
@@ -1208,7 +1275,11 @@ export function createLoginRuntime(
       plan.account.connectionId !== run.metadata.account.connectionId ||
       plan.account.itemId !== run.metadata.account.itemId
     ) {
-      await change(run, { type: "POLICY_CHANGED" });
+      await change(
+        run,
+        { type: "POLICY_CHANGED" },
+        { cause: "plan", reason: plan.ok ? "account-changed" : plan.reason },
+      );
       return undefined;
     }
     return { connection: plan.connection, binding: plan.binding };
@@ -1349,6 +1420,20 @@ export function createLoginRuntime(
       return states.length === entry.targets.length && states.every((state) => state === "unique");
     });
     if (!shown.length) return false;
+    const reportHandler = (
+      entry: (typeof entries)[number],
+      outcome: Extract<LoginReport, { type: "handler" }>["outcome"],
+    ) =>
+      report({
+        type: "handler",
+        tabId: run.live.document.tabId,
+        origin: run.live.document.origin,
+        recipeId: run.recipe.id,
+        handler: entry.index,
+        kind: entry.handler.kind,
+        outcome,
+        steps: handlerSteps(entry.handler).length,
+      });
     const challenge = () =>
       change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
     // A handler page shown again after its handler ran is left to the person, so a wrong
@@ -1357,6 +1442,7 @@ export function createLoginRuntime(
       (entry) => !run.metadata.handlers.some((entered) => entered.index === entry.index),
     );
     if (!fresh || !run.metadata.facts[handlerFact[fresh.handler.kind]]) {
+      reportHandler(fresh ?? shown[0]!, fresh ? "missing-fact" : "shown-again");
       await challenge();
       return true;
     }
@@ -1372,9 +1458,11 @@ export function createLoginRuntime(
       document: run.live.document,
     };
     if (transitionLoginAttempt(run.metadata, event).state !== "ready") {
+      reportHandler(fresh, "no-room");
       await challenge();
       return true;
     }
+    reportHandler(fresh, "entered");
     await change(run, event);
     return true;
   }
@@ -1437,18 +1525,48 @@ export function createLoginRuntime(
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
     if (judgedPages(run.metadata, operationId) !== pages + 1) return false;
-    const { verdict, recipe: added } = await generation.judge(
-      recipe.id,
-      recipe.revision,
-      metadata.route,
-      observation,
-    );
-    if (!current(run)) return true;
+    const reportJudge = (
+      verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
+      detail: { reason?: string; takenOver?: boolean } = {},
+    ) =>
+      report({
+        type: "judge",
+        tabId: run.live.document.tabId,
+        origin: run.live.document.origin,
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        route: metadata.route,
+        verdict,
+        ...detail,
+      });
+    reportJudge("sent");
+    const {
+      verdict,
+      reason,
+      recipe: added,
+    } = await generation.judge(recipe.id, recipe.revision, metadata.route, observation);
+    if (!current(run)) {
+      reportJudge(verdict, reason ? { reason } : {});
+      return true;
+    }
     // A temporary refusal, such as a busy service, gives the page back.
     if (verdict === "retry") await change(run, { type: "UNJUDGED", operationId });
-    if (!current(run)) return true;
-    if (verdict === "challenge" && added && (await takeOver(run, added, observation.path)))
-      return true;
+    // Reported before the takeover's own entries, once whether it is taken over is known.
+    let reported = false;
+    const movedOn =
+      verdict === "challenge" &&
+      added !== undefined &&
+      current(run) &&
+      (await takeOver(run, added, observation.path, () => {
+        reported = true;
+        reportJudge(verdict, { takenOver: true });
+      }));
+    if (!reported)
+      reportJudge(verdict, {
+        ...(reason ? { reason } : {}),
+        ...(added ? { takenOver: false } : {}),
+      });
+    if (movedOn || !current(run)) return true;
     await change(run, {
       type: "OBSERVED",
       result:
@@ -1468,10 +1586,16 @@ export function createLoginRuntime(
    * the handler on the page it is on (ADR 0027). Only a revision that keeps the routes and
    * their steps is taken over. Returns whether the attempt moved on.
    */
-  async function takeOver(run: Execution, next: LoginRecipe, path: string): Promise<boolean> {
+  async function takeOver(
+    run: Execution,
+    next: LoginRecipe,
+    path: string,
+    taking: () => void,
+  ): Promise<boolean> {
     if (next.id !== run.recipe.id || !extendsRecipe(run.recipe, next)) return false;
     const event: LoginAttemptEvent = { type: "REVISED", recipeRevision: next.revision };
     if (transitionLoginAttempt(run.metadata, event).recipeRevision !== next.revision) return false;
+    taking();
     // The recipe is replaced before the record that names its revision is written.
     run.recipe = next;
     await change(run, event);
@@ -1590,7 +1714,7 @@ export function createLoginRuntime(
               if (!current(run)) return;
               // Locked, resynchronized or newly denied vault access withdraws this grant.
               if (value === undefined) {
-                await change(run, { type: "POLICY_CHANGED" });
+                await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
                 return;
               }
               const secret = loginSecretKind(
@@ -1643,7 +1767,7 @@ export function createLoginRuntime(
           if (!latest) return;
           // Values belong to the snapshot that authorized them; a replacement withdraws them.
           if (latest.connection.snapshotId !== authorized.connection.snapshotId) {
-            await change(run, { type: "POLICY_CHANGED" });
+            await change(run, { type: "POLICY_CHANGED" }, { cause: "vault-replaced" });
             return;
           }
           response = await send(run.live, {
@@ -2335,6 +2459,7 @@ export function createLoginRuntime(
     )
       return refuse("tab-busy");
     let metadata: LoginAttemptMetadata;
+    let resumedPolicy: PolicyChange | undefined;
     if (previous) {
       metadata = transitionLoginAttempt(recoverLoginAttempt(previous), {
         type: "NAVIGATED",
@@ -2345,8 +2470,10 @@ export function createLoginRuntime(
           type: "REVISED",
           recipeRevision: recipe.revision,
         });
-      if (metadata.policyRevision !== snapshot.snapshot.revision)
+      if (metadata.policyRevision !== snapshot.snapshot.revision && !terminal(metadata)) {
         metadata = transitionLoginAttempt(metadata, { type: "POLICY_CHANGED" });
+        resumedPolicy = { cause: "settings-revision" };
+      }
     } else {
       metadata = transitionLoginAttempt(
         createAttemptMetadata({
@@ -2380,7 +2507,7 @@ export function createLoginRuntime(
         : {}),
     };
     attempts.set(document.tabId, run);
-    reportAttempt(metadata);
+    reportAttempt(metadata, resumedPolicy);
     clearChoice(document.tabId);
     const pick = picked.get(document.tabId);
     if (
@@ -2491,12 +2618,17 @@ export function createLoginRuntime(
       run.metadata.policyRevision,
     );
   }
-  function settingsChanged(): void {
+  /** Stops every running login: settings were synced from the service or saved locally. */
+  function settingsChanged(source: "synced" | "saved"): void {
     for (const run of attempts.values()) {
       if (!terminal(run.metadata)) {
         // Stop in-flight DOM waits promptly; the journal write may be slower.
         void send(run.live, { type: "login.cancel" }).catch(() => undefined);
-        void change(run, { type: "POLICY_CHANGED" }).catch(() => undefined);
+        void change(
+          run,
+          { type: "POLICY_CHANGED" },
+          { cause: source === "synced" ? "settings-synced" : "settings-saved" },
+        ).catch(() => undefined);
       }
     }
   }

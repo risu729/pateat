@@ -128,19 +128,31 @@ describe("recipe sync", () => {
     const { sync, transport, report } = setup({ connection: undefined });
     expect(await sync.sync()).toBe("not-connected");
     expect(transport.recipeChanges).not.toHaveBeenCalled();
-    expect(report).toHaveBeenCalledExactlyOnceWith("not-connected");
+    expect(report).toHaveBeenCalledExactlyOnceWith("not-connected", {
+      scope: "full",
+      added: 0,
+      updated: 0,
+      removed: 0,
+    });
   });
 
   it("applies pages of changes and records a complete sync", async () => {
     const first = recipe("bank-signin", "/login");
     const second = recipe("bank-otp", "/otp");
-    const { sync, transport, service, cache } = setup({
+    const { sync, transport, service, cache, report } = setup({
       pages: [
         page([active(first), active(second)], 2, false),
         page([revoked("bank-otp", 2), active(recipe("bank-signin", "/login", 2))], 4),
       ],
     });
     expect(await sync.sync()).toBe("synced");
+    // The log counts both pages' changes against the cache they were applied to.
+    expect(report).toHaveBeenCalledExactlyOnceWith("synced", {
+      scope: "full",
+      added: 2,
+      updated: 1,
+      removed: 1,
+    });
     expect(transport.recipeChanges.mock.calls).toEqual([
       [SERVICE, CREDENTIAL, 0],
       [SERVICE, CREDENTIAL, 2],
@@ -302,11 +314,13 @@ describe("recipe sync", () => {
     const many = Array.from({ length: Math.ceil(MAX_RECIPE_CACHE_BYTES / size) + 1 }, (_, index) =>
       active(recipe(`site-${index}`, "/login", 1, `https://site-${index}.example`)),
     );
-    const { sync, service, storage, cache } = setup({ stored, pages: [page(many, 2)] });
+    const { sync, service, storage, cache, report } = setup({ stored, pages: [page(many, 2)] });
     expect(await sync.sync()).toBe("cache-full");
     expect(storage.write).not.toHaveBeenCalled();
     expect(cache()).toEqual(stored);
     expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { cacheFull: true });
+    // A page that was not written changed nothing.
+    expect(report).toHaveBeenCalledWith("cache-full", expect.objectContaining({ added: 0 }));
   });
 
   it("does not write a disconnected device's recipes back after clearing", async () => {
@@ -492,7 +506,12 @@ describe("recipes-only sync after a judged page (ADR 0027)", () => {
     expect(h.settingsSync.run).not.toHaveBeenCalled();
     expect(h.service.recordSync).not.toHaveBeenCalled();
     expect(h.schedule()).toBeUndefined();
-    expect(h.report).toHaveBeenCalledExactlyOnceWith("synced");
+    expect(h.report).toHaveBeenCalledExactlyOnceWith("synced", {
+      scope: "recipes",
+      added: 1,
+      updated: 0,
+      removed: 0,
+    });
   });
 
   it("runs settings once after a recipes-only sync that a full sync joined", async () => {

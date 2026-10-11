@@ -582,6 +582,130 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs what a sync changed, a judged page, a handler and what stopped a login", async () => {
+    const recipeOrigin = "https://login.example";
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => ({
+        revision: 7,
+        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+      }),
+      recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const unchanged = { scope: "full", added: 0, updated: 0, removed: 0 } as const;
+    log.recipeSync("synced", unchanged);
+    log.recipeSync("synced", { scope: "recipes", added: 0, updated: 1, removed: 0 });
+    log.settingsChanged("synced");
+    // The revision is read first, so the entry is awaited to keep the order.
+    await vi.waitFor(async () =>
+      expect((await log.logger.entries()).map((entry) => entry.event)).toContain(
+        "settings.changed",
+      ),
+    );
+    const page = { tabId: 3, origin: recipeOrigin, recipeId: "synthetic-recipe" };
+    log.login({
+      type: "judge",
+      ...page,
+      recipeRevision: 1,
+      route: "password",
+      verdict: "sent",
+    });
+    log.login({
+      type: "judge",
+      ...page,
+      recipeRevision: 1,
+      route: "password",
+      verdict: "unclear",
+      reason: "already-judged",
+    });
+    log.login({
+      type: "handler",
+      ...page,
+      handler: 0,
+      kind: "passkey",
+      outcome: "entered",
+      steps: 1,
+    });
+    log.login({
+      type: "attempt",
+      ...page,
+      state: "blocked",
+      stepIndex: 2,
+      stepCount: 3,
+      operation: "click",
+      effect: "submit",
+      handler: 0,
+      outcome: "policy-changed",
+      cause: "settings-synced",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(8));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
+      // An unchanged sync is a debug entry; one that changed a recipe is info.
+      ["service.sync", "debug", { outcome: "synced", scope: "full" }],
+      ["service.sync", "info", { outcome: "synced", scope: "recipes", updated: 1 }],
+      ["settings.changed", "info", { source: "synced", revision: 7 }],
+      [
+        "recipe.judge",
+        "debug",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          verdict: "sent",
+        },
+      ],
+      [
+        "recipe.judge",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          verdict: "unclear",
+          reason: "already-judged",
+        },
+      ],
+      [
+        "login.handler",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          handler: 0,
+          kind: "passkey",
+          outcome: "entered",
+          steps: 1,
+        },
+      ],
+      [
+        "login.attempt",
+        "warn",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          state: "blocked",
+          step: 2,
+          steps: 3,
+          operation: "click",
+          effect: "submit",
+          handler: 0,
+          outcome: "policy-changed",
+          cause: "settings-synced",
+        },
+      ],
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("finds positions only inside this extension", () => {
     expect(
       stackPositions(

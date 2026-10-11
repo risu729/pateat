@@ -74,6 +74,15 @@ export type RecipeSyncOutcome =
   | SettingsSyncOutcome
   | TransportFailure;
 
+/** What one sync run changed in the recipe cache, for the local log. */
+export type RecipeSyncChanges = {
+  /** `recipes` for a recipes-only run, `full` when settings ran too. */
+  scope: "recipes" | "full";
+  added: number;
+  updated: number;
+  removed: number;
+};
+
 export function createRecipeSync(options: {
   service: {
     /** Rejects when the connection cannot be read; undefined means no device is paired. */
@@ -88,8 +97,8 @@ export function createRecipeSync(options: {
     run(connection: ServiceConnection, stale: () => boolean): Promise<SettingsSyncOutcome>;
     clear(): Promise<void>;
   };
-  /** Receives the outcome of each sync run, for the local log. */
-  report?: (outcome: RecipeSyncOutcome) => void;
+  /** Receives the outcome of each sync run and what it changed, for the local log. */
+  report?: (outcome: RecipeSyncOutcome, changes: RecipeSyncChanges) => void;
   now?: () => number;
 }) {
   const { service, transport, storage, schedule } = options;
@@ -144,7 +153,10 @@ export function createRecipeSync(options: {
       .catch(() => undefined);
   }
 
-  async function run(withSettings: boolean): Promise<RecipeSyncOutcome> {
+  async function run(
+    withSettings: boolean,
+    changed: RecipeSyncChanges,
+  ): Promise<RecipeSyncOutcome> {
     const started = generation;
     const connection = await service.connection();
     if (!connection) {
@@ -153,7 +165,7 @@ export function createRecipeSync(options: {
       return "not-connected";
     }
     if (connection.rejected) return "rejected";
-    const recipesOutcome = await pullRecipes(connection, started);
+    const recipesOutcome = await pullRecipes(connection, started, changed);
     if (["not-connected", "rejected", "unreachable", "rate-limited"].includes(recipesOutcome))
       return recipesOutcome;
     // Recipes alone do not complete a sync, so nothing is recorded for them.
@@ -173,10 +185,14 @@ export function createRecipeSync(options: {
     return outcome;
   }
 
-  /** Pulls recipe pages into the cache; recording a complete sync is left to `run`. */
+  /**
+   * Pulls recipe pages into the cache; recording a complete sync is left to `run`. Counts
+   * each written page's changes in `changed`.
+   */
   async function pullRecipes(
     connection: ServiceConnection,
     started: number,
+    changed: RecipeSyncChanges,
   ): Promise<RecipeSyncOutcome> {
     // A new pairing starts from an empty cache, so another owner's recipes never linger.
     let cache: RecipeCache = (await load(connection)) ?? {
@@ -204,9 +220,13 @@ export function createRecipeSync(options: {
       const { changes, cursor, complete } = result.page;
       if (!complete && cursor === cache.cursor) return "unexpected-response";
       const recipes = new Map(cache.recipes.map((recipe) => [recipe.id, recipe]));
+      const counts = { added: 0, updated: 0, removed: 0 };
       for (const change of changes) {
-        if (change.state === "active") recipes.set(change.recipeId, change.recipe);
-        else recipes.delete(change.recipeId);
+        const held = recipes.has(change.recipeId);
+        if (change.state === "active") {
+          recipes.set(change.recipeId, change.recipe);
+          counts[held ? "updated" : "added"] += 1;
+        } else if (recipes.delete(change.recipeId)) counts.removed += 1;
       }
       const next: RecipeCache = { ...cache, cursor, recipes: [...recipes.values()] };
       if (encoder.encode(JSON.stringify(next)).byteLength > MAX_RECIPE_CACHE_BYTES) {
@@ -226,6 +246,9 @@ export function createRecipeSync(options: {
       if (generation !== started) return "not-connected";
       memory = next;
       cache = next;
+      changed.added += counts.added;
+      changed.updated += counts.updated;
+      changed.removed += counts.removed;
       if (complete) return "synced";
     }
     return "incomplete";
@@ -256,10 +279,18 @@ export function createRecipeSync(options: {
           const startedAt = now();
           // Only a full sync moves the background schedule, which also covers settings.
           if (settingsNow) plan(startedAt, RECIPE_SYNC_STALE_MS);
+          const changed: RecipeSyncChanges = {
+            scope: settingsNow ? "full" : "recipes",
+            added: 0,
+            updated: 0,
+            removed: 0,
+          };
           // oxlint-disable-next-line no-await-in-loop -- a rerun follows the previous run
-          outcome = await run(settingsNow).catch((): RecipeSyncOutcome => "storage-unavailable");
+          outcome = await run(settingsNow, changed).catch(
+            (): RecipeSyncOutcome => "storage-unavailable",
+          );
           try {
-            options.report?.(outcome);
+            options.report?.(outcome, changed);
           } catch {
             // A report must never change the sync.
           }

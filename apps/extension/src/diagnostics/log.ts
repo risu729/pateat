@@ -80,7 +80,17 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { connection: "connection", outcome: "code", check: "code" },
   },
-  "service.sync": { level: "info", fields: { outcome: "code" } },
+  "service.sync": {
+    level: "info",
+    fields: {
+      outcome: "code",
+      scope: "code",
+      added: "count",
+      updated: "count",
+      removed: "count",
+    },
+  },
+  "settings.changed": { level: "info", fields: { source: "code", revision: "count" } },
   "login.attempt": {
     level: "info",
     fields: {
@@ -89,11 +99,39 @@ export const LOG_EVENTS = {
       state: "code",
       step: "count",
       steps: "count",
+      operation: "code",
+      effect: "code",
+      handler: "count",
       outcome: "code",
+      cause: "code",
+      reason: "code",
+    },
+  },
+  "login.handler": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      handler: "count",
+      kind: "code",
+      outcome: "code",
+      steps: "count",
     },
   },
   "login.refused": { level: "info", fields: { origin: "origin", reason: "code" } },
   "recipe.generate": { level: "info", fields: { origin: "origin", outcome: "code" } },
+  "recipe.judge": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      route: "code",
+      verdict: "code",
+      reason: "code",
+      takenOver: "flag",
+    },
+  },
   "passkey.request": {
     level: "info",
     fields: {

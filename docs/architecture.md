@@ -669,10 +669,13 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
 | `vault.sync` | info for a result and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
-| `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
-| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
+| `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy` unless a recipe was added, updated or removed, then info; info for `unreachable`; else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache |
+| `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision now in effect. Running logins and passkey requests stop |
+| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
+| `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
 | `recipe.generate` | info | origin, `recipe` or `none` |
+| `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
 | `log.dropped` | warn | origin, events dropped over the page limit |
@@ -682,9 +685,19 @@ Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in fu
 when a site default, binding, excluded site or cached recipe names it; any other
 becomes `origin:7d2b91aa` or `rp:7d2b91aa`. The rule applies when the entry is
 written, so a site set up later keeps its earlier pseudonymous entries, also in a
-download with site addresses included. Login, recipe generation and passkey
-events are limited to 20 per minute per tab and origin, and unhandled errors to 20 per
-minute in all. The first event dropped in a window is logged at once as `log.dropped`
+download with site addresses included.
+
+The causes of `policy-changed` are `settings-synced` and `settings-saved` (the
+settings changed while the login ran), `settings-revision` (a check found a settings
+revision other than the login's, also when a page resumes the login),
+`settings-unavailable`, `plan` (the settings or vault no longer allow the login's account
+on this page, with the plan's refusal reason such as `connection-disabled`, or
+`account-changed`), `vault-replaced` (a vault sync replaced the snapshot that authorized
+a value before it was delivered) and `field-unavailable` (a vault field could not be
+read).
+
+Login, judgement, handler, recipe generation and passkey events are limited to 20 per
+minute per tab and origin, and unhandled errors to 20 per minute in all. The first event dropped in a window is logged at once as `log.dropped`
 with `count: 1`; the rest are counted when the window ends and the next event or prune
 runs, so a worker that stops first loses only that remainder. `debug` entries are
 written only for 24 hours after **Enable debug logging**. Retention: 14 days; `debug`
