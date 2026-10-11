@@ -3,8 +3,9 @@
 Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (which pages are observed) and settles
 the retention left open by [ADR 0012](0012-inference-request-log.md). The service
-routes are implemented ([API README](../../services/api/README.md#recipe-generation));
-the extension does not call them yet.
+routes are implemented ([API README](../../services/api/README.md#recipe-generation)).
+The extension sends a recipe's first page and the page after its final submission;
+continuing a recipe on the page after an `advance` step is not implemented yet.
 
 Date: 2026-10-11
 
@@ -70,6 +71,13 @@ new owner decision:
 - Log rows older than 90 days are deleted whenever a call is logged and whenever a
   device reads the recipe change feed, since routine releases do not apply scheduled
   triggers. Requests refused locally before any model call are not logged.
+- The extension sends the page after the final submission once the usual three-second
+  observation finds no other result. A page that still shows one of the recipe's fields
+  on one of its paths is not sent, since the sign-in has not finished there. Each
+  attempt sends at most one such page.
+- That page is described by `extractSignedInObservation`: every field on the page, which
+  the judge needs to refuse a page that still shows a sign-in field, then buttons and
+  links as possible markers up to the 48-candidate limit.
 
 ## Consequences
 

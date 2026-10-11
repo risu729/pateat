@@ -1,9 +1,15 @@
 import {
   enrollmentRedeemResultSchema,
+  recipeCompletionResultSchema,
+  recipeGenerationResultSchema,
   SYNC_PAGE_LIMIT,
   syncRecipeChangesSchema,
   syncSettingsStateSchema,
   type EnrollmentRedeemResult,
+  type RecipeCompletionRequest,
+  type RecipeCompletionResult,
+  type RecipeGenerationRequest,
+  type RecipeGenerationResult,
   type SyncRecipeChanges,
   type SyncSettingsState,
   type SyncSettingsWrite,
@@ -33,6 +39,12 @@ export type SettingsResult =
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure };
 
+/** A recipe generation route's answer (ADR 0018); every answer is a 200 with a status. */
+export type InferenceResult<T> =
+  | { kind: "result"; result: T }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
+
 export interface ServiceTransport {
   redeem(origin: string, verifier: string): Promise<RedeemResult>;
   revoke(origin: string, credential: string): Promise<RevokeResult>;
@@ -46,6 +58,19 @@ export interface ServiceTransport {
     credential: string,
     write: SyncSettingsWrite,
   ): Promise<SettingsResult>;
+  /** `POST /v1/recipes/generate`: one login page's observation (ADR 0018). */
+  generateRecipe(
+    origin: string,
+    credential: string,
+    request: RecipeGenerationRequest,
+  ): Promise<InferenceResult<RecipeGenerationResult>>;
+  /** `POST /v1/recipes/:recipeId/completion`: the page after a recipe's final submission. */
+  judgeCompletion(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    request: RecipeCompletionRequest,
+  ): Promise<InferenceResult<RecipeCompletionResult>>;
 }
 
 const errorSchema = v.object({ error: v.string() });
@@ -54,6 +79,8 @@ const MAX_RESPONSE_BYTES = 16 * 1024;
 const MAX_RECIPE_PAGE_BYTES = 16 * 1024 * 1024;
 /** The service accepts settings writes up to 128 KiB; reads stay within twice that. */
 const MAX_SETTINGS_BYTES = 256 * 1024;
+/** A generated recipe change; the service accepts recipes up to 128 KiB. */
+const MAX_INFERENCE_BYTES = 256 * 1024;
 const settingsConflictSchema = v.strictObject({
   error: v.literal("settings_conflict"),
   current: syncSettingsStateSchema,
@@ -94,20 +121,23 @@ async function readBounded(response: Response, limit: number): Promise<string | 
  * referrers are refused; bodies are size-bounded and validated before use.
  */
 export function createServiceTransport(
-  options: { fetch?: typeof fetch; timeoutMs?: number } = {},
+  options: { fetch?: typeof fetch; timeoutMs?: number; inferenceTimeoutMs?: number } = {},
 ): ServiceTransport {
   const fetchResponse = options.fetch ?? globalThis.fetch.bind(globalThis);
   const timeoutMs = options.timeoutMs ?? 15_000;
+  // The service allows the model 60 seconds after exchanging the owner's token.
+  const inferenceTimeoutMs = options.inferenceTimeoutMs ?? 90_000;
 
   async function call(
     origin: string,
     path: string,
     init: RequestInit,
     limit: number = MAX_RESPONSE_BYTES,
+    timeout = timeoutMs,
   ) {
     const url = new URL(path, origin).href;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await fetchResponse(url, {
         ...init,
@@ -226,7 +256,55 @@ export function createServiceTransport(
         ),
       );
     },
+    generateRecipe(origin, credential, request) {
+      return infer(
+        origin,
+        credential,
+        "/v1/recipes/generate",
+        request,
+        recipeGenerationResultSchema,
+      );
+    },
+    judgeCompletion(origin, credential, recipeId, request) {
+      return infer(
+        origin,
+        credential,
+        `/v1/recipes/${encodeURIComponent(recipeId)}/completion`,
+        request,
+        recipeCompletionResultSchema,
+      );
+    },
   };
+
+  async function infer<T>(
+    origin: string,
+    credential: string,
+    path: string,
+    body: unknown,
+    schema: v.GenericSchema<unknown, T>,
+  ): Promise<InferenceResult<T>> {
+    const response = await call(
+      origin,
+      path,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      MAX_INFERENCE_BYTES,
+      inferenceTimeoutMs,
+    );
+    if ("failed" in response) return { kind: "failed", error: response.failed };
+    if (response.status === 200) {
+      const parsed = v.safeParse(schema, response.body);
+      return parsed.success
+        ? { kind: "result", result: parsed.output }
+        : { kind: "failed", error: "unexpected-response" };
+    }
+    if (rejected(response)) return { kind: "rejected" };
+    if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+    return { kind: "failed", error: "unexpected-response" };
+  }
 
   function settingsResult(response: Awaited<ReturnType<typeof call>>): SettingsResult {
     if ("failed" in response) return { kind: "failed", error: response.failed };

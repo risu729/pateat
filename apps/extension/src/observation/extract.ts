@@ -400,7 +400,16 @@ export function extractLoginObservation(
   const chosen = [
     ...kept.slice(0, maxCandidates),
     ...located(links).slice(0, Math.max(0, maxCandidates - kept.length)),
-  ].sort((left, right) =>
+  ];
+  return observe(document, chosen, complete);
+}
+
+type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget };
+
+/** Numbers the chosen elements in document order and adds the page's title and headings. */
+function observe(document: Document, chosen: Chosen[], complete: boolean): ObservationResult {
+  const location = document.location!;
+  chosen.sort((left, right) =>
     left.draft.element.compareDocumentPosition(right.draft.element) &
     Node.DOCUMENT_POSITION_FOLLOWING
       ? -1
@@ -445,4 +454,53 @@ export function extractLoginObservation(
   return parsed.success
     ? { ok: true, observation: parsed.output }
     : { ok: false, reason: "unsupported-page" };
+}
+
+/**
+ * Builds the observation of the page shown after a generated recipe's final submission,
+ * which the service judges for a signed-in marker (ADR 0018). It reads the same
+ * value-free details as `extractLoginObservation`, but from the whole page: every field,
+ * then buttons and links in document order up to the candidate limit.
+ *
+ * The judge refuses a page that still shows a sign-in field, so every field must be
+ * described: a field that cannot be located or filled, a field in a shadow root, or more
+ * fields than the limit marks the observation incomplete. Buttons and links are only
+ * possible markers; those past the limit or without a locator are left out.
+ */
+export function extractSignedInObservation(
+  document: Document = globalThis.document,
+): ObservationResult {
+  const location = document.location;
+  if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
+    return { ok: false, reason: "unsupported-page" };
+
+  const found = [...document.querySelectorAll("input, select, textarea, button, a[href]")]
+    .map(describe)
+    .filter((entry) => entry !== undefined);
+  let complete = ![...document.querySelectorAll("*")].some(
+    (host) => host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields),
+  );
+  const fieldEntries: { form: HTMLFormElement | null; draft: Draft }[] = [];
+  const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
+  for (const entry of found) {
+    if (entry.kind === "unsupported") {
+      if (entry.field) complete = false;
+    } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
+    else if (entry.draft.role !== "checkbox") markers.push(entry);
+  }
+  const index = locatorIndex(document);
+  const located = (entries: typeof fieldEntries) =>
+    entries.flatMap((entry) => {
+      const target = locate(entry.draft.element, index);
+      return target ? [{ ...entry, target }] : [];
+    });
+  const fieldsFound = located(fieldEntries);
+  if (fieldsFound.length < fieldEntries.length || fieldsFound.length > maxCandidates)
+    complete = false;
+  const chosen = [
+    ...fieldsFound.slice(0, maxCandidates),
+    ...located(markers).slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
+  ];
+  if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
+  return observe(document, chosen, complete);
 }

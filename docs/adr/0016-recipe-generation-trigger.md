@@ -2,8 +2,9 @@
 
 Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0009](0009-install-time-https-site-access.md); amended by
-[ADR 0018](0018-recipe-generation-route.md). Not implemented yet in the extension: the
-extractor exists but nothing calls it. The service route enforces the 24-hour rule
+[ADR 0018](0018-recipe-generation-route.md). Implemented in the extension
+([Background execution](../architecture.md#background-execution)); the service route
+enforces the 24-hour rule as well
 ([API README](../../services/api/README.md#recipe-generation)).
 
 Date: 2026-10-11
@@ -43,6 +44,19 @@ The observation is the value-free `LoginObservation`
 observation is not sent.
 When the generated recipe is used, and the service route, are decided in
 [ADR 0018](0018-recipe-generation-route.md).
+
+Implementation choices that follow from this decision, made on 2026-10-11 without a
+new owner decision:
+
+- Only a page that shows such an input within 10 seconds of loading is sent, the same
+  wait a login step gets; a form shown later, for example after a click, is not.
+- The vault match is checked only once the input shows, and only matching items'
+  built-in fields decide which of the `username`, `password` and `totp` slots are
+  offered.
+- The extension remembers a page as attempted when it sends it. It forgets the attempt
+  only when the service could not be reached or answered `busy`, since no model call
+  was made.
+- Frames are not sent; only the tab's own page is.
 
 ## Consequences
 

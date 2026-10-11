@@ -20,10 +20,12 @@ import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createVaultPasskeyFinder, createVaultPasskeySource } from "../src/passkeys/vault";
+import { createLoginGeneration } from "../src/service/generation";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
 import {
+  createBrowserGenerationAttemptStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
@@ -109,6 +111,12 @@ export default defineBackground(() => {
     sites: createLoginSites(settings),
     recipes: recipeSync.recipes,
     uris: vaultUris,
+    generation: createLoginGeneration({
+      service,
+      transport: serviceTransport,
+      storage: createBrowserGenerationAttemptStorage(),
+      sync: () => recipeSync.sync(),
+    }),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const vaultPasskeys = createVaultPasskeySource(connections);

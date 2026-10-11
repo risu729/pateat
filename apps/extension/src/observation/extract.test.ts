@@ -1,7 +1,7 @@
 import type { LoginObservation } from "@pateat/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findTargets } from "../page/targets";
-import { extractLoginObservation } from "./extract";
+import { extractLoginObservation, extractSignedInObservation } from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
 const page = (html: string, title = "") => {
@@ -616,5 +616,70 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates[0]!.label).toBe("Customer Number");
     page(`<label for="u">${"<span>ラベル</span>".repeat(20000)}</label><input id="u">`);
     expect(observe().candidates[0]!.label!.length).toBeLessThanOrEqual(120);
+  });
+});
+
+describe("extractSignedInObservation", () => {
+  const signedIn = (): LoginObservation => {
+    const result = extractSignedInObservation();
+    if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+    return result.observation;
+  };
+
+  it("describes a page without a form by its buttons and links", () => {
+    page(
+      `<header><nav><a id="home" href="/home">Home</a>
+        <a id="account" href="/account">Account 1234-5678</a></nav>
+        <button id="logout" type="button">Sign out</button></header>
+      <h1>Welcome back</h1>
+      <select id="lang"><option>English</option></select>
+      <p>Balance</p>`,
+      "Accounts",
+    );
+    const observation = signedIn();
+    expect(observation).toMatchObject({
+      complete: true,
+      title: "Accounts",
+      headings: ["Welcome back"],
+    });
+    expect(summary(observation)).toEqual([
+      { role: "link", target: { by: "id", value: "home" }, label: "Home" },
+      { role: "link", target: { by: "id", value: "account" }, label: "Account [number]-[number]" },
+      { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
+    ]);
+  });
+
+  it("keeps every field ahead of markers and drops markers past the limit", () => {
+    const links = Array.from(
+      { length: 60 },
+      (_, index) => `<a id="link${index}" href="/p${index}">Page ${index}</a>`,
+    ).join("");
+    page(`${links}<form><input id="q" type="text" aria-label="Search"></form>`);
+    const observation = signedIn();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates).toHaveLength(48);
+    // The field comes last in the page, yet it is kept; the last links are dropped.
+    expect(observation.candidates.at(-1)).toMatchObject({ role: "text", target: { value: "q" } });
+    expect(observation.candidates.at(-2)).toMatchObject({ target: { value: "link46" } });
+  });
+
+  it("marks a page incomplete when a field cannot be described", () => {
+    page(`<button id="logout">Sign out</button><input type="password">`);
+    expect(signedIn().complete).toBe(false);
+    page(`<button id="logout">Sign out</button><input id="pin" type="password" readonly>`);
+    expect(signedIn().complete).toBe(false);
+  });
+
+  it("reports a still-visible sign-in field so the service can refuse the page", () => {
+    page(`<form><input id="pw" type="password"><button id="go">Sign in</button></form>`);
+    expect(summary(signedIn())).toEqual([
+      { role: "password", target: { by: "id", value: "pw" }, group: "f1" },
+      { role: "button", target: { by: "id", value: "go" }, label: "Sign in", group: "f1" },
+    ]);
+  });
+
+  it("refuses a page with nothing to describe", () => {
+    page(`<p>Loading</p>`);
+    expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 });
