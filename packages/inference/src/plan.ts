@@ -178,10 +178,11 @@ export function validatePagePlan(
  * passkey", "Set up security key", "Manage passkeys", "パスキーを登録", "パスキーを設定",
  * "パスキーを有効にする"). The model is told not to name one; this local check also refuses
  * it, and can refuse a sign-in button whose text happens to match. Latin words match whole
- * words, Japanese ones anywhere.
+ * words, Japanese ones anywhere except 設定済み ("already set up") and 有効な ("valid"),
+ * which describe the passkey a sign-in button uses.
  */
 const registration =
-  /\b(?:add|register|create|set\s*up|new|enrol?l|manage|enable|turn\s*on)\b|登録|追加|作成|設定|有効|管理/iu;
+  /\b(?:add|register|create|set\s*up|new|enrol?l|manage|enable|turn\s*on)\b|登録|追加|作成|設定(?!済)|有効(?!な)|管理/iu;
 /**
  * A locator value as words: `addPasskey`, `register_key` and `#set-up-key` read as
  * "add Passkey", "register key" and "set up key".

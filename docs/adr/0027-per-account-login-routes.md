@@ -402,16 +402,19 @@ new owner decision:
   words match whole words: of a label or text locator as written, and of an `id`, `name`
   or test ID locator split at camelCase, hyphens and underscores, so
   `passkeyLoginButtonAD` names a passkey but a label "MyFido" or "Fidor" does not;
-  Japanese words match anywhere. A label that turns on or manages a passkey, such as
-  "パスキーを設定" or "Manage passkeys", is therefore never a sign-in button or a
-  `passkey` handler. The wording check keeps a mislabelled "Sign in with Google" or SSO
-  button from becoming a passkey click outside ADR 0026; it is a shared helper the
-  judge's `passkey` handler check does not use yet. A button that fails these checks is
-  dropped silently and does not fail the answer. On a continuation the service ignores
-  it. The service stores it as the recipe's `passkey` route on the first page, and the
-  request log records the kept button. The corpus case `ja-myjcb` expects its passkey
-  sign-in button, and the evaluation reports passkey buttons as a separate count
-  (expected, correct, missed, wrong) that does not change a case's result.
+  Japanese words match anywhere, except that 設定済み ("already set up") and 有効な
+  ("valid") describe the passkey of a sign-in button, as in
+  "設定済みのパスキーでログイン", and are not registration words. A label that turns on
+  or manages a passkey, such as "パスキーを設定" or "Manage passkeys", is therefore
+  never a sign-in button or a `passkey` handler. The wording check keeps a mislabelled
+  "Sign in with Google" or SSO button from becoming a passkey click outside ADR 0026; it
+  is a shared helper the judge's `passkey` handler check does not use yet. A button that
+  fails these checks is dropped silently and does not fail the answer. On a continuation
+  the service ignores it. The service stores it as the recipe's `passkey` route on the
+  first page, and the request log records the kept button. The corpus case `ja-myjcb`
+  expects its passkey sign-in button, and the evaluation reports passkey buttons as a
+  separate count (expected, correct, missed, wrong) that does not change a case's
+  result.
 - **Synthetic passkey fact.** The probe build's configure message takes an optional
   `passkey` (`discoverable` or `second-factor`) that stands in for the vault search for
   the synthetic item, since the probe vault holds no passkey; no key is created or

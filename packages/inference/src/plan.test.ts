@@ -600,6 +600,9 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
       ["セキュリティキーでログイン", "login"],
       ["生体認証でログイン", "login"],
       ["Sign in with a passkey", "login"],
+      ["パスキー（設定済みの方）でログイン", "login"],
+      ["設定済みのパスキーでログイン", "login"],
+      ["有効なパスキーでログイン", "login"],
     ] as const)
       expect(registersPasskey(button(label, value)), `${label} ${value}`).toBe(false);
   });
