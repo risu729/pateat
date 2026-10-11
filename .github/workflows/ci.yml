@@ -25,14 +25,17 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - &mise
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           version: 2026.10.7
           install_args: --locked
-      - name: Install frozen dependencies
+      - &install
+        name: Install frozen dependencies
         run: bun install --frozen-lockfile
       - name: Install isolated browser runtime
         run: mise run browser:install --with-deps
@@ -60,15 +63,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
-        with:
-          version: 2026.10.7
-          install_args: --locked
-      - name: Install frozen dependencies
-        run: bun install --frozen-lockfile
+      - *checkout
+      - *mise
+      - *install
       - name: Install isolated browser runtime
         run: mise run browser:install
       - name: Run the packaged-extension browser tests
@@ -90,7 +87,7 @@ jobs:
     name: CI Check
     needs: [verify, windows-browser]
     if: ${{ always() }}
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     permissions: {}
     steps:

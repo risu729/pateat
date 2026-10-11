@@ -9,6 +9,8 @@ concurrency:
   group: codeql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 permissions: {}
+# CodeQL restores no dependency cache; keep this workflow out of the cache entirely.
+cache-mode: none
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})

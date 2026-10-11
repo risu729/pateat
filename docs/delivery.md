@@ -9,8 +9,13 @@ remains optional for the eventual local login core.
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
 and main push, and repeats the packaged-extension browser tests on Windows. `CI Check`
 requires both jobs to succeed, including when an upstream job failed, skipped or was
-cancelled. `codeql.yml` analyzes TypeScript/JavaScript and Actions separately. GitHub
-Code Quality is not used: since its
+cancelled. `codeql.yml` analyzes TypeScript/JavaScript and Actions separately. Linux
+jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares results, so it runs on
+the single-CPU `ubuntu-slim` runner. CodeQL uses no Actions cache and sets
+`cache-mode: none`. In `ci.yml` the two jobs share their checkout, mise and Bun install
+steps through YAML anchors (`&checkout`, `&mise`, `&install`), so each Action pin
+appears once; zizmor warns that it audits anchored workflows on a best-effort basis.
+GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
