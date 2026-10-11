@@ -585,12 +585,17 @@ settings, a 401 from either request marks the device rejected, and the settings 
 shows a complete sync only when both finished. Unit tests use a synthetic service and
 the real settings store over in-memory storage; no running service has been tried.
 
+Device credentials expire after 90 days unused, and each use renews them (owner,
+2026-10-11; [device enrollment](architecture.md#device-enrollment)). An expired device
+gets 401 `device_expired`, which the extension treats like revocation, and the web UI
+shows each device's last use and marks expired ones. Local Worker, extension and web UI
+tests cover it.
+
 ### Remaining M4 service gaps
 
 - Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md))
   is decided and not implemented: a manifest `key`, the Access-protected `POST /pair`,
-  then the extension switch with the typed-code flow removed. The credential
-  idle-expiry decision stays open.
+  then the extension switch with the typed-code flow removed.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and

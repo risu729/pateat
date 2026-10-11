@@ -53,6 +53,7 @@ export const redeemRoutes = new Hono<ApiEnv>().post(
             tokenHash: sql`${tokenHash}`.as("token_hash"),
             label: enrollments.label,
             createdAt: sql`${now}`.as("created_at"),
+            lastUsedAt: sql`${now}`.as("last_used_at"),
             revokedAt: sql`NULL`.as("revoked_at"),
           })
           .from(enrollments)

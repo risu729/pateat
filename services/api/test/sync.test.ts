@@ -1,5 +1,6 @@
 import {
   createDefaultSettings,
+  DEVICE_IDLE_LIMIT_MS,
   type LocalSettings,
   type LoginRecipe,
   type SyncRecipeChanges,
@@ -21,16 +22,25 @@ async function enrollOwner(): Promise<Device> {
   return addDevice(ownerId);
 }
 
-async function addDevice(ownerId: string): Promise<Device> {
+async function addDevice(ownerId: string, lastUsedAt = Date.now()): Promise<Device> {
   const deviceId = `device-${crypto.randomUUID()}`;
   const token = createDeviceToken();
   await env.DB.prepare(
-    "INSERT INTO devices (id, owner_id, token_hash, created_at) VALUES (?, ?, ?, ?)",
+    "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
   )
-    .bind(deviceId, ownerId, await hashDeviceToken(token), Date.now())
+    .bind(deviceId, ownerId, await hashDeviceToken(token), lastUsedAt, lastUsedAt)
     .run();
   return { ownerId, deviceId, token };
 }
+
+async function recordedUse(device: Device): Promise<number | undefined> {
+  const row = await env.DB.prepare("SELECT last_used_at FROM devices WHERE id = ?")
+    .bind(device.deviceId)
+    .first<{ last_used_at: number }>();
+  return row?.last_used_at;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function api(device: Device | undefined, path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -120,6 +130,46 @@ describe("device authentication", () => {
 
     const read = await api(second, "/v1/settings");
     expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+  });
+
+  it("renews a device used 89 days ago", async () => {
+    const owner = await enrollOwner();
+    const device = await addDevice(owner.ownerId, Date.now() - 89 * DAY_MS);
+    const before = Date.now();
+    expect((await api(device, "/v1/settings")).status).toBe(200);
+    expect(await recordedUse(device)).toBeGreaterThanOrEqual(before);
+  });
+
+  it("expires a device unused for more than 90 days", async () => {
+    const owner = await enrollOwner();
+    const idleSince = Date.now() - DEVICE_IDLE_LIMIT_MS - 60_000;
+    const device = await addDevice(owner.ownerId, idleSince);
+    const response = await api(device, "/v1/settings");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe('Bearer realm="pateat"');
+    expect(await response.json()).toEqual({ error: "device_expired" });
+    // A refused request does not renew the credential.
+    expect(await recordedUse(device)).toBe(idleSince);
+    expect((await api(owner, "/v1/settings")).status).toBe(200);
+  });
+
+  it("does not rewrite a device used within the last day", async () => {
+    const owner = await enrollOwner();
+    const recent = Date.now() - DAY_MS + 60_000;
+    const device = await addDevice(owner.ownerId, recent);
+    expect((await api(device, "/v1/settings")).status).toBe(200);
+    expect(await recordedUse(device)).toBe(recent);
+  });
+
+  it("reports a revoked device as revoked even after it went idle", async () => {
+    const owner = await enrollOwner();
+    const device = await addDevice(owner.ownerId, Date.now() - DEVICE_IDLE_LIMIT_MS - DAY_MS);
+    await env.DB.prepare("UPDATE devices SET revoked_at = ? WHERE id = ?")
+      .bind(Date.now(), device.deviceId)
+      .run();
+    const response = await api(device, "/v1/settings");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "device_revoked" });
   });
 
   it("accepts the bearer scheme case-insensitively", async () => {

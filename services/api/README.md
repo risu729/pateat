@@ -33,7 +33,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
 | `POST /redeem` | Exchange an approved verifier for a device credential, once |
 | `GET /manage`, `/manage/sites`, `/manage/bindings`, `/manage/recipes` | Owner web UI (React app): devices, excluded sites and site defaults, account bindings, recipes |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
-| `GET /manage/api/devices` | The owner's devices, newest first |
+| `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
@@ -43,14 +43,16 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
 
-`/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only
-the SHA-256 digest of each 256-bit device credential and derives the owner from it;
-paths and bodies never name an owner. Unknown credentials return 401 `unauthorized`
-and revoked ones 401 `device_revoked`, before any body is read. Bodies must be
+`/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only the
+SHA-256 digest of each 256-bit device credential and derives the owner from it; paths
+and bodies never name an owner. Unknown credentials return 401 `unauthorized`, revoked
+ones 401 `device_revoked` and ones unused for 90 days 401 `device_expired`, before any
+body is read. Each accepted request renews the device's `last_used_at`, at most once a
+day; migration 0007 started existing devices at their pairing time. Bodies must be
 `application/json` and at most 128 KiB. Synced settings are server-readable policy
-metadata; device-local field policies, vault values and provider sessions are
-rejected by the strict schemas. Stored documents are revalidated on read and fail
-closed with a 500 `internal_error`.
+metadata; device-local field policies, vault values and provider sessions are rejected
+by the strict schemas. Stored documents are revalidated on read and fail closed with a
+500 `internal_error`.
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/redeem`, `/health`, `/.well-known/openid-configuration`

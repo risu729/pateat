@@ -225,4 +225,7 @@ These need the owner's answer:
   decision and is not planned. A separate admin view of every user's devices is a
   different feature; the owner suggested it would be its own page behind its own Access
   rule.
-- **Credential idle expiry** stays open, unchanged by this ADR.
+
+Credential idle expiry, which this ADR left open, was decided separately on
+2026-10-11: a credential expires after 90 days unused and each use renews it (see the
+architecture's [device enrollment](../architecture.md#device-enrollment)).

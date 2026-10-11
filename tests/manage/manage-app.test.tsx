@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
-import type { ManageDevices } from "../../packages/contracts/src/index";
+import { DEVICE_IDLE_LIMIT_MS, type ManageDevices } from "../../packages/contracts/src/index";
 import { createManageClient, ManageApiError, type ManageClient } from "../../services/api/web/api";
 import { ManageApp } from "../../services/api/web/app";
 
@@ -11,13 +11,27 @@ import { ManageApp } from "../../services/api/web/app";
 const LAPTOP = "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41";
 const PHONE = "7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52";
 const PAIRED = Date.UTC(2026, 9, 10, 12, 30);
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Relative to the real clock, so these devices never age into expiry.
+const LAPTOP_USED = Date.now() - DAY_MS;
+const PHONE_USED = Date.now() - 2 * DAY_MS;
+
+function formatted(milliseconds: number) {
+  return `${new Date(milliseconds).toISOString().replace("T", " ").slice(0, 16)} UTC`;
+}
 
 function devices(revokedAt: number | null = null): ManageDevices {
   return {
     version: 1,
     devices: [
-      { id: LAPTOP, label: "Work laptop", createdAt: PAIRED, revokedAt: null },
-      { id: PHONE, label: "", createdAt: PAIRED, revokedAt },
+      {
+        id: LAPTOP,
+        label: "Work laptop",
+        createdAt: PAIRED,
+        lastUsedAt: LAPTOP_USED,
+        revokedAt: null,
+      },
+      { id: PHONE, label: "", createdAt: PAIRED, lastUsedAt: PHONE_USED, revokedAt },
     ],
   };
 }
@@ -69,11 +83,27 @@ test("lists devices and revokes one", async () => {
   await expect
     .element(page.getByRole("cell", { name: "2026-10-10 12:30 UTC" }).first())
     .toBeVisible();
+  await expect.element(page.getByRole("columnheader", { name: "Last used" })).toBeVisible();
+  await expect.element(page.getByRole("cell", { name: formatted(LAPTOP_USED) })).toBeVisible();
+  await expect.element(page.getByRole("cell", { name: formatted(PHONE_USED) })).toBeVisible();
 
   await page.getByRole("button", { name: /^Revoke Unnamed device, paired / }).click();
   expect(client.revokeDevice).toHaveBeenCalledWith(PHONE);
   await expect.element(page.getByText("Revoked 2026-10-10 12:31 UTC")).toBeVisible();
   await expect.element(page.getByRole("status")).toHaveTextContent("Unnamed device was revoked.");
+  await expect
+    .element(page.getByRole("button", { name: /^Revoke Work laptop, paired / }))
+    .toBeEnabled();
+});
+
+test("shows a device unused past the idle limit as expired, not revocable", async () => {
+  const listed = devices();
+  listed.devices[1]!.lastUsedAt = Date.now() - DEVICE_IDLE_LIMIT_MS - DAY_MS;
+  await mount(mockClient(listed));
+  await expect.element(page.getByRole("cell", { name: "Expired" })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: /^Revoke Unnamed device, paired / }))
+    .not.toBeInTheDocument();
   await expect
     .element(page.getByRole("button", { name: /^Revoke Work laptop, paired / }))
     .toBeEnabled();

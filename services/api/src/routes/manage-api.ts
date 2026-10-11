@@ -35,6 +35,7 @@ export const manageApiRoutes = new Hono<ApiEnv>()
             id: devices.id,
             label: devices.label,
             createdAt: devices.createdAt,
+            lastUsedAt: devices.lastUsedAt,
             revokedAt: devices.revokedAt,
           })
           .from(devices)

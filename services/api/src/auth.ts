@@ -1,4 +1,5 @@
-import { eq } from "drizzle-orm";
+import { DEVICE_IDLE_LIMIT_MS } from "@pateat/contracts";
+import { and, eq, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { createMiddleware } from "hono/factory";
 import { devices } from "./db/schema";
@@ -30,22 +31,43 @@ export async function hashDeviceToken(token: string): Promise<string> {
 
 const challenge = { "WWW-Authenticate": 'Bearer realm="pateat"' };
 
+/** Renewing a device's last use at most this often keeps D1 writes low. */
+const LAST_USED_GRANULARITY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Resolves the device credential to its owner. Every later query must use this
- * scope; request bodies and paths never select an owner or device.
+ * scope; request bodies and paths never select an owner or device. A device unused
+ * for `DEVICE_IDLE_LIMIT_MS` is expired; each use renews it.
  */
 export const requireDevice = createMiddleware<ApiEnv>(async (c, next) => {
   const match = /^Bearer (\S+)$/i.exec(c.req.header("Authorization") ?? "");
   const token = match?.[1];
   if (!token || !TOKEN_PATTERN.test(token))
     return apiError(c, 401, { error: "unauthorized" }, challenge);
-  const [device] = await drizzle(c.env.DB)
-    .select({ id: devices.id, ownerId: devices.ownerId, revokedAt: devices.revokedAt })
+  const db = drizzle(c.env.DB);
+  const [device] = await db
+    .select({
+      id: devices.id,
+      ownerId: devices.ownerId,
+      lastUsedAt: devices.lastUsedAt,
+      revokedAt: devices.revokedAt,
+    })
     .from(devices)
     .where(eq(devices.tokenHash, await hashDeviceToken(token)))
     .limit(1);
   if (!device) return apiError(c, 401, { error: "unauthorized" }, challenge);
   if (device.revokedAt !== null) return apiError(c, 401, { error: "device_revoked" }, challenge);
+  const now = Date.now();
+  if (now - device.lastUsedAt > DEVICE_IDLE_LIMIT_MS)
+    return apiError(c, 401, { error: "device_expired" }, challenge);
+  if (now - device.lastUsedAt > LAST_USED_GRANULARITY_MS) {
+    // Conditional, so concurrent requests write at most once and never move it back.
+    const stale = now - LAST_USED_GRANULARITY_MS;
+    await db
+      .update(devices)
+      .set({ lastUsedAt: now })
+      .where(and(eq(devices.id, device.id), lte(devices.lastUsedAt, stale)));
+  }
   c.set("scope", { ownerId: device.ownerId, deviceId: device.id });
   return next();
 });

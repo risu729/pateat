@@ -15,6 +15,11 @@ export const deviceCredentialSchema = v.pipe(
   v.regex(/^pateat_device_[A-Za-z0-9_-]{43}$/),
 );
 export const deviceIdSchema = v.pipe(v.string(), v.uuid());
+/**
+ * A device credential expires after this long without an authenticated use; each
+ * use renews it. There is no absolute lifetime.
+ */
+export const DEVICE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
 export const deviceLabelSchema = v.pipe(
   v.string(),
   v.trim(),

@@ -471,7 +471,7 @@ describe("credential redemption", () => {
     const result = v.parse(enrollmentRedeemResultSchema, await response.json());
 
     const device = await env.DB.prepare(
-      "SELECT id, owner_id, token_hash, label, created_at, revoked_at FROM devices WHERE id = ?",
+      "SELECT id, owner_id, token_hash, label, created_at, last_used_at, revoked_at FROM devices WHERE id = ?",
     )
       .bind(result.deviceId)
       .first();
@@ -481,6 +481,7 @@ describe("credential redemption", () => {
       token_hash: await hashDeviceToken(result.credential),
       label: "Work laptop",
       created_at: expect.any(Number),
+      last_used_at: device?.["created_at"],
       revoked_at: null,
     });
     const enrollment = await env.DB.prepare(
@@ -650,6 +651,8 @@ describe("owner web UI", () => {
       [newer.deviceId, "First owner phone", null],
       [older.deviceId, "First owner laptop", null],
     ]);
+    // A new device counts as used when it is paired.
+    for (const device of body.devices) expect(device.lastUsedAt).toBe(device.createdAt);
   });
 
   it("revokes an owned device", async () => {
