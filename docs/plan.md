@@ -347,8 +347,12 @@ Chrome yet.
   as `item-origin-mismatch`. Page URLs over 8192 characters and answers from another
   snapshot refuse as `vault-unavailable`. Static `allowedOrigins` remain empty for live
   items; Domain-mode subdomains and raw StartsWith rules cannot be expressed as exact
-  origins, so do not derive them. Synthetic unit tests cover these paths; a native
-  browser run waits for cached recipes.
+  origins, so do not derive them. Synthetic unit tests cover these paths, and
+  `tests/extension/login-service.spec.ts` runs the chain in Chromium: the built API
+  Worker, served locally over HTTPS with a local D1 database, holds a recipe and a
+  binding; the extension syncs both, chooses the synthetic Bitwarden item by its single
+  URI match, logs in on a routed HTTPS site, uploads the saved account and logs in again
+  after a full browser restart.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. An unavailable connection or an item awaiting field review

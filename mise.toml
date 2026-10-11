@@ -122,7 +122,8 @@ usage = 'flag "--with-deps" help="Install Linux system dependencies as well."'
 run = "node node_modules/@playwright/test/cli.js install {% if usage.with_deps %}--with-deps{% endif %} chromium"
 
 [tasks."test:browser"]
-depends = ["build:probe"]
+# The service login test serves the built API Worker locally.
+depends = ["build:probe", "build:server"]
 run = "node node_modules/@playwright/test/cli.js test --config tests/extension/playwright.config.ts"
 
 [tasks."probe:login"]
