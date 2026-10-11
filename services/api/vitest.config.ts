@@ -28,6 +28,12 @@ export default defineConfig({
         compatibilityFlags,
         // Local Miniflare storage only; tests never touch a provisioned database.
         d1Databases: ["DB"],
+        // A stand-in for the built web UI, so tests do not depend on a client build.
+        assets: {
+          directory: fileURLToPath(new URL("./test/fixtures/assets", import.meta.url)),
+          binding: "ASSETS",
+          routerConfig: { invoke_user_worker_ahead_of_assets: true, has_user_worker: true },
+        },
         // Synthetic Access settings; tests serve their own signing keys.
         bindings: {
           TEST_MIGRATIONS: migrations,

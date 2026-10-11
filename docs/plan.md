@@ -565,8 +565,9 @@ the real settings store over in-memory storage; no running service has been trie
   optional `launchWebAuthFlow` variant.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
-- The owner web UI for settings, bindings and recipes is designed
-  ([architecture](architecture.md#owner-web-ui)) but not implemented.
+- The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and
+  JSON API behind Access, with the devices page. The sites, bindings and recipes pages
+  are not implemented.
 - Inference adapters and spending accounting remain separate slices. The inference
   route authenticates to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API

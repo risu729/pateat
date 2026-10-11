@@ -35,6 +35,12 @@ export async function startSyncService(): Promise<SyncService> {
       {
         config: {
           ...config,
+          // The owner web UI's built assets; device sync does not use them.
+          assets: {
+            ...config.assets,
+            directory: join(workerDirectory, "assets"),
+            hasUserWorker: true,
+          },
           manifest: {
             mainModule,
             modules: {

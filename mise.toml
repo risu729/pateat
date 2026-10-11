@@ -146,6 +146,12 @@ run = "node scripts/passkey-fixture.mjs"
 [tasks."test:options"]
 run = "node node_modules/vitest/vitest.mjs run --config tests/options/vitest.config.ts"
 
+[tasks."test:manage"]
+run = "node node_modules/vitest/vitest.mjs run --config tests/manage/vitest.config.ts"
+
+[tasks."typecheck:manage"]
+run = "node node_modules/typescript/bin/tsc --noEmit -p tests/manage/tsconfig.json"
+
 [tasks."typecheck:options"]
 run = "node node_modules/typescript/bin/tsc --noEmit -p tests/options/tsconfig.json"
 
@@ -155,7 +161,7 @@ run = "node scripts/render-icons.mjs"
 
 [tasks."check:runtime"]
 description = "Run implementation checks without recursing into hk."
-run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run typecheck:options", "mise run typecheck:bitwarden", "mise run typecheck:inference", "mise run test:contracts", "mise run test:bitwarden", "mise run test:inference", "mise run test:crypto-host", "mise run test:vault", "mise run test:connections", "mise run test:login", "mise run test:service", "mise run test:passkeys", "mise run test:tools", "mise run check:server-migrations", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:options", "mise run test:dom", "mise run test:browser"]
+run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run typecheck:options", "mise run typecheck:manage", "mise run typecheck:bitwarden", "mise run typecheck:inference", "mise run test:contracts", "mise run test:bitwarden", "mise run test:inference", "mise run test:crypto-host", "mise run test:vault", "mise run test:connections", "mise run test:login", "mise run test:service", "mise run test:passkeys", "mise run test:tools", "mise run check:server-migrations", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:options", "mise run test:dom", "mise run test:manage", "mise run test:browser"]
 
 [tasks."test:tools"]
 run = "node --test .github/scripts/*.test.mjs"
@@ -164,7 +170,10 @@ run = "node --test .github/scripts/*.test.mjs"
 run = "node node_modules/typescript/bin/tsc --noEmit -p tests/extension/tsconfig.json"
 
 [tasks."typecheck:server"]
-run = "node node_modules/typescript/bin/tsc -p services/api/tsconfig.json"
+run = [
+  "node node_modules/typescript/bin/tsc -p services/api/tsconfig.json",
+  "node node_modules/typescript/bin/tsc -p services/api/web/tsconfig.json",
+]
 
 [tasks."check:server-output"]
 dir = "services/api"
