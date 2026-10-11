@@ -128,7 +128,7 @@ export async function generateRecipe(
         .where(
           and(
             eq(generationAttempts.ownerId, scope.ownerId),
-            eq(generationAttempts.origin, origin),
+            eq(generationAttempts.recipeId, recipeId),
             eq(generationAttempts.path, path),
             eq(generationAttempts.baseRevision, baseRevision),
             gt(generationAttempts.attemptedAt, now - ATTEMPT_WINDOW_MS),
@@ -140,11 +140,18 @@ export async function generateRecipe(
     reserved: (db, now) => [
       db
         .insert(generationAttempts)
-        .values({ ownerId: scope.ownerId, origin, path, baseRevision, attemptedAt: now })
+        .values({
+          ownerId: scope.ownerId,
+          recipeId,
+          origin,
+          path,
+          baseRevision,
+          attemptedAt: now,
+        })
         .onConflictDoUpdate({
           target: [
             generationAttempts.ownerId,
-            generationAttempts.origin,
+            generationAttempts.recipeId,
             generationAttempts.path,
             generationAttempts.baseRevision,
           ],

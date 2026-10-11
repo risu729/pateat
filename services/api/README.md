@@ -142,22 +142,23 @@ a code, or `unavailable` with a reason when no model was called.
   `addCompletion` and is stored as `completion` in the next revision.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
-(`busy` otherwise), refuses past $150 of estimated spend a month or $5 a day (UTC,
-both roles counted), and only then resolves credentials: missing, refused or failed
+(`busy` otherwise), refuses past $150 of estimated spend a month or $5 a day (UTC, both
+roles counted), and only then resolves credentials: missing, refused or failed
 credentials answer `credentials-not-configured`, `credentials-rejected`,
 `issuer-unavailable` or `token-exchange-failed`. Generation also re-reads the recipe
 under the lock, answering with a recipe another device stored meanwhile, and refuses a
 page tried in the previous 24 hours, abstentions and failures included. The attempt key
-is the origin, the path and the revision being continued (0 for a first page). A request
-that passes every check is an attempt, including one the role then refuses locally for
-its size, which would be refused again. Each call first reserves its upper bound (64 KiB
-of input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and then
-corrects it from reported usage; usage the provider does not report keeps the
-reservation. The `inference_log` row stores the provider and model, the instructions and
-input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. Rows older than 90 days are
-deleted whenever a call is logged and on every `GET /v1/recipes`, because routine
-releases do not apply cron triggers.
+is the generated recipe ID, the path and the revision being continued (0 for a first
+page), so two recipes of one origin that lead to the same page do not block each other.
+A request that passes every check is an attempt, including one the role then refuses
+locally for its size, which would be refused again. Each call first reserves its upper
+bound (64 KiB of input as tokens plus 8,192 output tokens at the ADR 0014 rates, about
+$0.43) and then corrects it from reported usage; usage the provider does not report
+keeps the reservation. The `inference_log` row stores the provider and model, the
+instructions and input as sent, the structured result, the outcome code, usage and
+estimated cost; a request refused locally before any model call is not logged. Rows
+older than 90 days are deleted whenever a call is logged and on every `GET /v1/recipes`,
+because routine releases do not apply cron triggers.
 
 ## Schema and tests
 

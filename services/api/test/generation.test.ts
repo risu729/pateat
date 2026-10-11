@@ -640,7 +640,7 @@ describe("recipe generation", () => {
     ).toEqual([]);
   });
 
-  it("refuses a revoked recipe, a stale base, a non-generated base and another origin's recipe", async () => {
+  it("refuses a revoked recipe, a stale base, a base with no recipe and a non-generated base", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -701,6 +701,26 @@ describe("recipe generation", () => {
     });
     expect(sent).toHaveLength(2);
 
+    // Two recipes that both lead to the same page each get it generated once.
+    const widgetPage = { ...emailPage, path: "/" };
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const widget = await generate(device, widgetPage);
+    if (widget.status !== "recipe") throw new Error(widget.status);
+    const next = observation("/next", [
+      element("password", "password", "Password"),
+      element("sign-in", "button", "Sign in"),
+    ]);
+    // Sequential: one call at a time per owner.
+    const continueAt = async (started: typeof first) => {
+      replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+      expect(
+        await generate(device, next, { recipeId: started.change.recipeId, revision: 1 }),
+      ).toMatchObject({ status: "recipe", change: { recipeId: started.change.recipeId } });
+    };
+    await continueAt(first);
+    await continueAt(widget);
+    expect(sent).toHaveLength(5);
+
     // A recipe stored under the ID of a path it does not start on is not continued.
     const misplacedId = await generatedRecipeId(ORIGIN, "/elsewhere");
     expect(
@@ -722,7 +742,7 @@ describe("recipe generation", () => {
     expect(
       await generate(device, passwordPage, { recipeId: misplacedId, revision: 1 }),
     ).toMatchObject({ reason: "recipe-conflict" });
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(5);
   });
 
   it("stops generating once the owner revokes the recipe in the web UI", async () => {
