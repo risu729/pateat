@@ -410,7 +410,9 @@ matching items' usernames for their shape, sent only when all agree. The returne
 enters the recipe cache and starts at once. A page that an effect step leads to and no
 check explains is sent to be judged, which can learn the completion or a second-factor
 handler ([ADR 0018](adr/0018-recipe-generation-route.md),
-[ADR 0027](adr/0027-per-account-login-routes.md); see below).
+[ADR 0027](adr/0027-per-account-login-routes.md); see below). A judgement that changes
+the recipe pulls recipes only; settings wait for the next full sync, since a settings
+write would stop the login the page belongs to.
 Inactive, frozen, discarded, and navigated documents are different states; only live
 documents can execute.
 
@@ -706,7 +708,8 @@ to a later step, or stays unknown (`unknown-submit`), so no account choice is sa
 An unknown attempt stays in `reconciling` until its tab closes or, for a top-level
 attempt, until the tab shows a page of another origin that Pateat may run on
 (`left-origin`, ADR 0022): meanwhile it holds the origin, blocks saving account
-choices from other tabs and defers settings sync for up to two minutes per run. The
+choices from other tabs and defers settings writes for at most two minutes, counted
+from the first deferred write until a sync runs with no login in progress. The
 extension sends a page no check explains to be judged, which settles such attempts
 ([Background execution](#background-execution)).
 

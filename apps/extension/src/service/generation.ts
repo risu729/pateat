@@ -45,13 +45,13 @@ export interface GenerationAttemptStorage {
 /**
  * The extension side of the recipe generation routes (ADR 0018). Requests go only to the
  * paired service with the device credential; a returned recipe reaches the login runtime
- * through the recipe cache, which `sync` refreshes.
+ * through the recipe cache, which `sync` and `refresh` update.
  */
 export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "generateRecipe" | "judgeCompletion">;
   storage: GenerationAttemptStorage;
-  /** Pulls recipe changes into the cache; resolves once the cache holds them. */
+  /** A full sync of recipes and settings; resolves once the recipe cache holds them. */
   sync(): Promise<unknown>;
   /**
    * Pulls recipe changes only. A judged page belongs to a login in progress, which a
