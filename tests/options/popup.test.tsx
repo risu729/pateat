@@ -6,6 +6,7 @@ import {
   createMetadataQueryClient,
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
+import type { ChoiceClient } from "../../apps/extension/src/login/choice-wire";
 import { popupOrigin, SiteApp, type PopupHost } from "../../apps/extension/src/popup/site-app";
 import {
   createDefaultSettings,
@@ -71,14 +72,26 @@ function store(initial = saved(0)) {
   };
 }
 
-async function mount(client: SettingsClient, url: string | undefined) {
+function noChoice() {
+  return {
+    get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
+    pick: vi.fn<ChoiceClient["pick"]>().mockResolvedValue({ ok: true }),
+  };
+}
+
+async function mount(
+  client: SettingsClient,
+  url: string | undefined,
+  choices: ChoiceClient = noChoice(),
+  incognito = false,
+) {
   const host = {
-    currentTabUrl: vi.fn<PopupHost["currentTabUrl"]>().mockResolvedValue(url),
+    currentTab: vi.fn<PopupHost["currentTab"]>().mockResolvedValue({ id: 7, url, incognito }),
     openSettings: vi.fn<PopupHost["openSettings"]>(),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
-      <SiteApp client={client} host={host} />
+      <SiteApp client={client} choices={choices} host={host} />
     </QueryClientProvider>,
   );
   return host;
@@ -214,9 +227,9 @@ test("an HTTP page is not a site Pateat runs on", async () => {
   expect(client.findSiteAccounts).not.toHaveBeenCalled();
 });
 
-test("a saved default whose item does not match the origin keeps its vault labels", async () => {
+test("a saved default missing from the site's matches keeps its vault labels", async () => {
   const settings = createDefaultSettings();
-  // Saved elsewhere without display names; the item matches only mail.example.
+  // Saved elsewhere without display names; the site's matches are reported empty.
   settings.siteDefaults.push({
     origin: "https://bank.example",
     provider: "dummy",
@@ -269,4 +282,106 @@ test("settings that cannot be loaded change nothing", async () => {
   await expect.element(page.getByText("Pateat settings could not be loaded.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Open settings" })).toBeVisible();
   expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("a login refused for several matches is restarted with the account picked here", async () => {
+  const { client, current } = store();
+  const choices = noChoice();
+  const offer = {
+    ok: true as const,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  };
+  choices.get.mockResolvedValue(offer);
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  expect(choices.get).toHaveBeenCalledWith(7);
+  // Only the refused login's candidates are offered, not every matching item.
+  await expect.element(page.getByRole("radio")).toHaveLength(2);
+  await expect
+    .element(page.getByRole("checkbox", { name: "Make it the default for this site" }))
+    .toBeChecked();
+  await userEvent.click(page.getByRole("radio", { name: "Demo team account (Demo work vault)" }));
+  await userEvent.click(page.getByRole("checkbox", { name: "Make it the default for this site" }));
+  choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  await expect.element(page.getByText("Logging in with Demo team account.")).toBeVisible();
+  expect(choices.pick).toHaveBeenCalledWith({
+    tabId: 7,
+    documentId: "refused-document",
+    connectionId: "demo-work",
+    itemId: "primary",
+    makeDefault: false,
+  });
+  // The pick itself saves no settings; a default is saved only after the login succeeds.
+  expect(client.saveSettings).not.toHaveBeenCalled();
+  expect(current().snapshot.revision).toBe(0);
+  await expect
+    .element(page.getByRole("heading", { name: "Choose an account" }))
+    .not.toBeInTheDocument();
+});
+
+test("a pick in a private window is not made the default unless asked", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-personal", itemId: "secondary" },
+    ],
+  });
+  choices.pick.mockResolvedValue({ ok: false, reason: "document-gone" });
+  await mount(client, "https://bank.example/", choices, true);
+  const asDefault = page.getByRole("checkbox", { name: "Make it the default for this site" });
+  await expect.element(asDefault).not.toBeChecked();
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  expect(choices.pick).toHaveBeenCalledWith(
+    expect.objectContaining({ itemId: "primary", makeDefault: false }),
+  );
+  await expect
+    .element(page.getByText("The page changed, so nothing was started.", { exact: false }))
+    .toBeVisible();
+});
+
+test("a pick that starts nothing says so, and a default set here ends the choice", async () => {
+  const { client, current } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  choices.pick.mockResolvedValue({ ok: false, reason: "not-started" });
+  await mount(client, "https://bank.example/", choices);
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  await expect
+    .element(
+      page.getByText(
+        "Pateat could not log in with Demo primary account on this page. Reload the page to choose again.",
+      ),
+    )
+    .toBeVisible();
+  // The background ends the waiting choice once the site has a default.
+  choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
+  const calls = choices.get.mock.calls.length;
+  await userEvent.click(page.getByRole("button", { name: "Use as default" }));
+  await expect
+    .element(page.getByText("is now the default for this site.", { exact: false }))
+    .toBeVisible();
+  expect(current().snapshot.settings.siteDefaults).toHaveLength(1);
+  await expect.poll(() => choices.get.mock.calls.length).toBeGreaterThan(calls);
+  await expect
+    .element(page.getByRole("heading", { name: "Choose an account" }))
+    .not.toBeInTheDocument();
 });
