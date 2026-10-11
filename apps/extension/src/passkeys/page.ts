@@ -13,6 +13,8 @@ import type { PasskeyAssertion } from "./assertion";
 
 type PageScope = Window & typeof globalThis;
 const MAX_ALLOW_CREDENTIALS = 64;
+const NOT_ALLOWED_MESSAGE =
+  "The operation either timed out or was not allowed. See: https://www.w3.org/TR/webauthn-2/#sctn-privacy-considerations-client.";
 const MAX_BUFFER_BYTES = 4096;
 // Delegations of one mediation that may be in flight before an unclaimed call skips later wrappers.
 const MAX_CHAIN_DELEGATIONS = 4;
@@ -194,6 +196,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
   const origin = scope.location.origin;
   const post = (message: unknown) => scope.postMessage(message, origin);
   const AbortSignalClass = scope.AbortSignal;
+  const DOMExceptionClass = scope.DOMException;
   const pending = new Map<
     string,
     { finish(result: PageResult | { kind: "aborted" }): void; acknowledge(): void }
@@ -262,7 +265,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
         clearTimeout(limit);
         clearTimeout(ackTimer);
         signal?.removeEventListener("abort", onAbort);
-        if (outcome.kind !== "assertion" && outcome.kind !== "delegate")
+        if (outcome.kind === "cancelled" || outcome.kind === "aborted")
           post({ channel: PAGE_CHANNEL, type: "cancel", id });
         resolve(outcome);
       };
@@ -285,6 +288,9 @@ export function installPasskeyPage(scope: PageScope = window): void {
       post({ channel: PAGE_CHANNEL, type: "get", id, request });
     });
     if (result.kind === "aborted") throw signal?.reason;
+    // Chrome's own rejection when its prompt times out or is dismissed.
+    if (result.kind === "not-allowed")
+      throw new DOMExceptionClass(NOT_ALLOWED_MESSAGE, "NotAllowedError");
     if (result.kind === "assertion") {
       try {
         return toCredential(result.assertion, credentialPrototype, responsePrototype);

@@ -343,8 +343,8 @@ written while it is open: turn on **Developer mode** in `chrome://extensions`, c
 **service worker** under Pateat, then make the passkey request on the site. Each entry
 holds:
 
-- `origin`, `outcome` (`assertion`, `delegate` or `cancelled`) and the delegate
-  `reason`;
+- `origin`, `outcome` (`assertion`, `delegate`, `cancelled`, or `not-allowed` when the
+  chooser window was still open as the wait ran out) and the delegate `reason`;
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in
@@ -353,10 +353,14 @@ holds:
   for the origin's site default item), `siteDefaultItem` (`unset`, `unresolved` when
   the saved account matches no connection, `not-searched` when the item is ineligible
   or its connection was not searched, or `searched`) and `complete`;
-- when the chooser window opened, `chooser`: `chosen`, `browser` (the user picked the
-  browser), `closed` (the window, its tab or the request ended) or `unavailable` (the
-  window could not open, or another request held it). A delegation after the window
-  has the reason `chooser-` plus that value, or `timeout`;
+- when the chooser window opened, `chooser`: `chosen`, `browser` (the user pressed "Use
+  the browser or another extension"), `closed` (the window or its tab was closed),
+  `unavailable` (the window could not open, or another request held it), `timeout` (the
+  wait ran out; the outcome is `not-allowed`) or `cancelled` (the page cancelled the
+  request). A `browser`, `closed` or `unavailable` ending delegates with the reason
+  `chooser-` plus that value; a choice that the settings no longer offer when it is
+  looked up again delegates with `settings-changed`, or `vault-incomplete` when the
+  vault could not be searched in full;
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
   again. Such a request that cannot open the window is delegated with
   `chooser-unavailable`.

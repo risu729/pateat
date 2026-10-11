@@ -150,17 +150,17 @@ describe("passkey runtime cancellation", () => {
     expect(await runtime.handle(get(), sender())).toEqual({ kind: "delegate", reason: "busy" });
     const other = runtime.handle(get(), sender({ documentId: "document-b" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    runtime.cancelAll();
+    runtime.settingsChanged();
     expect(await Promise.all([...pending, other])).toEqual(
       Array.from({ length: 5 }, () => ({ kind: "cancelled" })),
     );
   });
 
-  it("cancels every in-flight operation on a policy change", async () => {
+  it("cancels every in-flight operation on a settings change", async () => {
     const runtime = createPasskeyRuntime(slowSign(), { extensionId });
     const pending = [runtime.handle(get(), sender()), runtime.handle(get(), sender())];
     await new Promise((resolve) => setTimeout(resolve, 0));
-    runtime.cancelAll();
+    runtime.settingsChanged();
     expect(await Promise.all(pending)).toEqual([{ kind: "cancelled" }, { kind: "cancelled" }]);
   });
 });
@@ -444,7 +444,7 @@ describe("passkey chooser window", () => {
     expect(choose.choose).not.toHaveBeenCalled();
   });
 
-  it("closes the window when the page cancels or settings change", async () => {
+  it("closes the window when the page cancels", async () => {
     const signals: AbortSignal[] = [];
     const choose = chooser(
       (input) =>
@@ -452,26 +452,135 @@ describe("passkey chooser window", () => {
           signals.push(input.signal);
         }),
     );
-    const runtime = createPasskeyRuntime(several(), { extensionId, chooser: choose });
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(several(), { extensionId, chooser: choose, report });
     const operationId = crypto.randomUUID();
     const pending = runtime.handle(get(operationId), sender());
     await vi.waitFor(() => expect(signals).toHaveLength(1));
     await runtime.handle({ version: 1, type: "passkey.cancel", operationId }, sender());
     expect(await pending).toEqual({ kind: "cancelled" });
     expect(signals[0]!.aborted).toBe(true);
-    const second = runtime.handle(get(), sender());
-    await vi.waitFor(() => expect(signals).toHaveLength(2));
-    runtime.cancelAll();
-    expect(await second).toEqual({ kind: "cancelled" });
-    expect(signals[1]!.aborted).toBe(true);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", chooser: "cancelled" }),
+    );
   });
 
-  it("waits past the lookup budget up to the caller's timeout", async () => {
+  it("keeps the window open when settings change, and signs if the choice is still offered", async () => {
+    let choose!: (choice: PasskeyChoice) => void;
+    const signals: AbortSignal[] = [];
+    const backing = several();
+    const remember = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      remember,
+      chooser: chooser((input) => {
+        signals.push(input.signal);
+        return new Promise<PasskeyChoice>((resolve) => (choose = resolve));
+      }),
+    });
+    const pending = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    runtime.settingsChanged();
+    expect(signals[0]!.aborted).toBe(false);
+    // The new settings already make the chosen passkey the site default.
+    const current = { ...pair[1]!, preferred: true, display: { item: "Looked up again" } };
+    let lookedUp!: () => void;
+    vi.mocked(backing.candidates).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          lookedUp = () => resolve({ candidates: [pair[0]!, current], complete: true });
+        }),
+    );
+    choose({ kind: "chosen", index: 1, makeDefault: true });
+    await vi.waitFor(() => expect(lookedUp).toBeDefined());
+    // Another change while the choice is looked up does not cancel it either.
+    runtime.settingsChanged();
+    lookedUp();
+    expect(await pending).toMatchObject({ kind: "assertion", assertion: { credentialId: "BAUG" } });
+    expect(backing.sign).toHaveBeenCalledWith(
+      current,
+      expect.anything(),
+      expect.anything(),
+      expect.any(AbortSignal),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).not.toHaveBeenCalled();
+  });
+
+  it("tries a failed lookup or signing after a choice once more", async () => {
+    const backing = several();
+    vi.mocked(backing.sign).mockRejectedValueOnce(new Error("passkey-stale"));
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: chooser(async () => ({ kind: "chosen", index: 0, makeDefault: false })),
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(backing.candidates).toHaveBeenCalledTimes(3);
+    expect(backing.sign).toHaveBeenCalledTimes(2);
+
+    // A lookup that throws is tried again too.
+    vi.mocked(backing.candidates)
+      .mockResolvedValueOnce({ candidates: pair, complete: true })
+      .mockRejectedValueOnce(new Error("vault-unavailable"));
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(backing.candidates).toHaveBeenCalledTimes(6);
+    expect(backing.sign).toHaveBeenCalledTimes(3);
+
+    // A lookup that could not search the whole vault says so.
+    vi.mocked(backing.candidates)
+      .mockResolvedValueOnce({ candidates: pair, complete: true })
+      .mockResolvedValueOnce({ candidates: [], complete: false });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "vault-incomplete",
+    });
+
+    vi.mocked(backing.sign).mockRejectedValue(new Error("passkey-unavailable"));
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "assertion-failed",
+    });
+    expect(backing.sign).toHaveBeenCalledTimes(5);
+  });
+
+  it("delegates a choice the changed settings no longer offer", async () => {
+    const answers: ((choice: PasskeyChoice) => void)[] = [];
+    const backing = several();
+    const remember = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      remember,
+      chooser: chooser(() => new Promise<PasskeyChoice>((resolve) => answers.push(resolve))),
+    });
+    const excluded = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(answers).toHaveLength(1));
+    runtime.settingsChanged();
+    // The site is now excluded.
+    vi.mocked(backing.candidates).mockResolvedValueOnce(undefined);
+    answers[0]!({ kind: "chosen", index: 0, makeDefault: true });
+    expect(await excluded).toEqual({ kind: "delegate", reason: "settings-changed" });
+
+    // Settings can also change without a sync, for example when another tab's login saves
+    // a choice; the lookup after the choice catches that too.
+    const removed = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    // The chosen passkey's item was removed from the vault or the settings.
+    vi.mocked(backing.candidates).mockResolvedValueOnce({ candidates: [pair[0]!], complete: true });
+    answers[1]!({ kind: "chosen", index: 1, makeDefault: false });
+    expect(await removed).toEqual({ kind: "delegate", reason: "settings-changed" });
+    expect(backing.sign).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).not.toHaveBeenCalled();
+  });
+
+  it("waits past the lookup budget up to the caller's timeout, then fails", async () => {
     vi.useFakeTimers();
     try {
       const signals: AbortSignal[] = [];
+      const report = vi.fn();
       const runtime = createPasskeyRuntime(several(), {
         extensionId,
+        report,
         chooser: chooser(
           (input) =>
             new Promise<PasskeyChoice>(() => {
@@ -486,8 +595,12 @@ describe("passkey chooser window", () => {
       await vi.advanceTimersByTimeAsync(29_999);
       expect(settled).toBeUndefined();
       await vi.advanceTimersByTimeAsync(1);
-      expect(settled).toEqual({ kind: "delegate", reason: "timeout" });
+      // As with the browser's own prompt, an unanswered window fails the request (ADR 0021).
+      expect(settled).toEqual({ kind: "not-allowed" });
       expect(signals[0]!.aborted).toBe(true);
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "not-allowed", chooser: "timeout" }),
+      );
     } finally {
       vi.useRealTimers();
     }

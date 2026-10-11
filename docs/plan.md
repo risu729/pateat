@@ -915,6 +915,14 @@ at main `8581f1d`, on `https://accounts.pixiv.net` (two pixiv passkey items):
   account.
 - In a new tab, "Log in with passkey" logged in with no window. Which account it used
   was not recorded, so that the default stayed unchanged is by design, not observed.
+- Waiting in the window failed: after about 30 s it closed and Bitwarden's window
+  appeared by itself. The extension log shows the request `cancelled` at 16:58:32 UTC,
+  the same second as the last recipe sync, which applied a default removed on
+  `/manage` shortly before. That settings change cancelled the waiting request, and the
+  page then handed it to the browser. Since then a settings change leaves the window
+  open, and a wait that runs out fails the request with `NotAllowedError` instead of
+  handing it to the browser (ADR 0021 part C); neither is checked in installed Chrome
+  yet.
 
 ## AI evaluation harness progress
 

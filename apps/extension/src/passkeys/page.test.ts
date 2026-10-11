@@ -21,6 +21,7 @@ function fakePage(relay: (message: Message) => Array<Record<string, unknown>> = 
     PublicKeyCredential,
     AuthenticatorAssertionResponse,
     AbortSignal,
+    DOMException,
     location: { origin },
     addEventListener: (_type: string, listener: (event: unknown) => void) =>
       listeners.push(listener),
@@ -122,6 +123,16 @@ describe("MAIN-world passkey wrapper", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(page.posted.map((message) => message.type)).toEqual(["get", "cancel"]);
     expect(page.nativeGet).not.toHaveBeenCalled();
+  });
+
+  it("fails like the browser's prompt when the chooser window's wait runs out", async () => {
+    const page = fakePage(answer({ kind: "not-allowed" }));
+    const result = page.container.get({ publicKey });
+    await expect(result).rejects.toBeInstanceOf(DOMException);
+    await expect(result).rejects.toMatchObject({ name: "NotAllowedError" });
+    expect(page.nativeGet).not.toHaveBeenCalled();
+    // The background already ended the request; nothing is left to cancel.
+    expect(page.posted.map((message) => message.type)).toEqual(["get"]);
   });
 
   it("leaves a non-AbortSignal signal to the browser without relaying", async () => {

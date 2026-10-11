@@ -116,7 +116,7 @@ export default defineBackground(() => {
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
       login.settingsChanged();
-      passkeys.cancelAll();
+      passkeys.settingsChanged();
     },
     deferred: () => login.active(),
     catalog: async () => {
@@ -383,7 +383,7 @@ export default defineBackground(() => {
       void settings.handle(message).then((response) => {
         if (message.type === "settings.save" && response.ok) {
           login.settingsChanged();
-          passkeys.cancelAll();
+          passkeys.settingsChanged();
           void recipeSync.sync();
         }
         return sendResponse(response);

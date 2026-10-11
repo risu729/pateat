@@ -103,8 +103,11 @@ export interface PasskeyRequestReport {
   readonly siteDefaultAccepted?: number;
   readonly siteDefaultItem?: PasskeyCandidates["siteDefault"];
   readonly complete?: boolean;
-  /** How the chooser window ended, when one was opened. */
-  readonly chooser?: PasskeyChoice["kind"];
+  /**
+   * How the chooser window ended, when one was opened: a choice, or the request's wait running
+   * out (`timeout`) or the request being cancelled (`cancelled`) while it was open.
+   */
+  readonly chooser?: PasskeyChoice["kind"] | "timeout" | "cancelled";
   /** Pateat signed for this RP ID in this tab before, so the request asks again. */
   readonly signedBefore?: boolean;
 }
@@ -144,7 +147,10 @@ function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-/** Background coordinator for bridged `get()` requests. Every non-assertion outcome delegates. */
+/**
+ * Background coordinator for bridged `get()` requests. Every outcome but an assertion delegates,
+ * except a chooser window left unanswered until the request's wait ran out, which fails.
+ */
 export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   source: PasskeySource<TCandidate>,
   options: {
@@ -173,10 +179,22 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     signedTabs?: SignedTabs;
   },
 ) {
-  const operations = new Map<string, { documentId: string; controller: AbortController }>();
-  const cancelAll = () => {
-    for (const operation of operations.values()) operation.controller.abort();
-    operations.clear();
+  type Operation = {
+    documentId: string;
+    controller: AbortController;
+    /** The chooser window opened for it, so a person decides or has decided. */
+    asked: boolean;
+    /** The window is open, waiting for that person. */
+    choosing: boolean;
+  };
+  const operations = new Map<string, Operation>();
+  const settingsChanged = () => {
+    for (const [id, operation] of operations) {
+      // A person deciding is not interrupted; their choice is checked against the new settings.
+      if (operation.asked) continue;
+      operation.controller.abort();
+      operations.delete(id);
+    }
   };
 
   async function get(
@@ -206,7 +224,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const controller = new AbortController();
-    operations.set(message.operationId, { documentId, controller });
+    const operation: Operation = { documentId, controller, asked: false, choosing: false };
+    operations.set(message.operationId, operation);
     const received = Date.now();
     const expire = () =>
       controller.abort(new DOMException("Passkey bridge timed out", "TimeoutError"));
@@ -242,7 +261,43 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           signal,
         ));
       if (again) detail.signedBefore = true;
+      const signWith = (candidate: TCandidate) =>
+        abortable(
+          createPasskeyAssertion(admission.request, candidate, (data, hash) =>
+            source.sign(candidate, data, hash, signal),
+          ),
+          signal,
+        );
+      type Signed = { credential: TCandidate; assertion: Awaited<ReturnType<typeof signWith>> };
+      // Looks the chosen passkey up under the current settings and signs with it. A lookup or
+      // signing that throws, as when settings change meanwhile, gets one more try.
+      const signCurrent = async (
+        credentialId: string,
+        retry: boolean,
+      ): Promise<Signed | { reason: string }> => {
+        try {
+          const current = await abortable(
+            source.candidates(origin, admission.request.rpId, signal),
+            signal,
+          );
+          const same = current
+            ? matchingPasskeys(admission.request, current.candidates).filter(
+                (entry) => entry.credentialId === credentialId && entry.counter === 0,
+              )
+            : [];
+          if (same.length !== 1)
+            return {
+              reason: current?.complete === false ? "vault-incomplete" : "settings-changed",
+            };
+          const candidate = same[0]!;
+          return { credential: candidate, assertion: await signWith(candidate) };
+        } catch (error) {
+          if (signal.aborted || !retry) throw error;
+          return signCurrent(credentialId, false);
+        }
+      };
       let credential: TCandidate;
+      let assertion: Signed["assertion"] | undefined;
       let makeDefault = false;
       if (selection.kind === "credential" && !again) credential = selection.credential;
       // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
@@ -282,6 +337,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         // The window waits for a person, so the lookup budget no longer applies.
         clearTimeout(timer);
         timer = setTimeout(expire, remaining);
+        operation.asked = true;
+        operation.choosing = true;
         const choice = await abortable(
           options.chooser.choose({
             tabId: context.tabId,
@@ -298,30 +355,37 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           }),
           signal,
         );
+        operation.choosing = false;
         detail.chooser = choice.kind;
         if (choice.kind !== "chosen") return { kind: "delegate", reason: `chooser-${choice.kind}` };
         const chosen = offered[choice.index];
         if (!chosen) return { kind: "delegate", reason: "chooser-invalid" };
-        credential = chosen;
-        // The site default is saved already.
-        makeDefault = choice.makeDefault && chosen.preferred !== true;
         // Signing gets its own budget, so a choice made near the deadline still answers.
         clearTimeout(timer);
         timer = setTimeout(expire, options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
+        // Settings may have changed while the person decided, by a sync, a save or another
+        // tab's login, and signing refuses a candidate from older settings. So the chosen
+        // passkey is looked up again and used only if the current settings still offer it.
+        const signed = await signCurrent(chosen.credentialId, true);
+        if ("reason" in signed) return { kind: "delegate", reason: signed.reason };
+        ({ credential, assertion } = signed);
+        // The site default is saved already.
+        makeDefault = choice.makeDefault && credential.preferred !== true;
       }
-      const assertion = await abortable(
-        createPasskeyAssertion(admission.request, credential, (data, hash) =>
-          source.sign(credential, data, hash, signal),
-        ),
-        signal,
-      );
+      assertion ??= await signWith(credential);
       if (signal.aborted) return { kind: "cancelled" };
       if (makeDefault) after.remember = credential;
       return { kind: "assertion", assertion };
     } catch {
       const reason = controller.signal.reason as unknown;
-      if (reason instanceof DOMException && reason.name === "TimeoutError")
-        return { kind: "delegate", reason: "timeout" };
+      const timedOut = reason instanceof DOMException && reason.name === "TimeoutError";
+      if (operation.choosing && controller.signal.aborted) {
+        detail.chooser = timedOut ? "timeout" : "cancelled";
+        // The person did not choose in time. As with the browser's own prompt, the request
+        // fails instead of opening another prompt (ADR 0021).
+        if (timedOut) return { kind: "not-allowed" };
+      }
+      if (timedOut) return { kind: "delegate", reason: "timeout" };
       return controller.signal.aborted
         ? { kind: "cancelled" }
         : { kind: "delegate", reason: "assertion-failed" };
@@ -332,8 +396,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   }
 
   return {
-    /** Policy, lock or connection changes invalidate every in-flight operation. */
-    cancelAll,
+    /**
+     * Settings changed, so in-flight operations no longer follow them and are cancelled. One
+     * that opened the chooser window is left to its person; the passkey chosen there is looked
+     * up again under the settings current then.
+     */
+    settingsChanged,
     async handle(message: unknown, sender: Sender): Promise<RuntimeResult | { ok: boolean }> {
       const parsed = v.safeParse(runtimeMessageSchema, message);
       const origin = senderOrigin(sender, options.extensionId);

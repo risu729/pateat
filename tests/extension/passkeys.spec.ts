@@ -499,7 +499,7 @@ test("after Pateat signed in a tab, the next username-less request there asks ag
   }
 });
 
-test("the chooser keeps the request open past the page's 15-second backstop", async () => {
+test("the chooser keeps the request open past the page's 15-second backstop and a settings change", async () => {
   test.setTimeout(60_000);
   const { server, origin } = await startRelyingParty();
   try {
@@ -510,9 +510,45 @@ test("the chooser keeps the request open past the page's 15-second backstop", as
       const challenge = challengeHex();
       // Without a heartbeat, the page would give up after 15 seconds and the background after 10.
       const waiting = await requestWithChooser(context, page, { challenge, timeout: 60_000 });
-      await page.waitForTimeout(17_000);
+      await page.waitForTimeout(8_000);
+      // A settings save, as a sync from the server also makes, leaves the window open.
+      const options = await context.newPage();
+      await options.goto(`chrome-extension://${extensionId}/options.html`);
+      const current = await settingsRequest(options);
+      await settingsRequest(options, {
+        version: 1,
+        type: "settings.save",
+        expectedRevision: current.snapshot.revision,
+        settings: current.snapshot.settings,
+      });
+      await options.close();
+      await page.waitForTimeout(9_000);
+      expect(waiting.chooser.isClosed()).toBe(false);
       await choose(waiting.chooser.getByRole("button", { name: /Synthetic passkey 1/u }));
       expectPateatAssertion(await waiting.settle(), origin, challenge);
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("an unanswered chooser fails the request when the site's timeout runs out", async () => {
+  test.setTimeout(60_000);
+  const { server, origin } = await startRelyingParty();
+  try {
+    await withLoginExtension(async (context, _worker, extensionId) => {
+      const probe = await probeControls(context, extensionId);
+      await probe.configure({ count: 2 });
+      const page = await openRelyingParty(context, origin);
+      // Chrome's own prompt rejects with NotAllowedError; the browser is not asked instead.
+      const waiting = await requestWithChooser(context, page, {
+        challenge: challengeHex(),
+        timeout: 12_000,
+      });
+      const closed = waiting.chooser.waitForEvent("close", { timeout: 20_000 });
+      expect(await waiting.settle()).toEqual({ error: "NotAllowedError" });
+      await closed;
+      expect(await probe.signatures()).toBe(0);
     });
   } finally {
     server.close();

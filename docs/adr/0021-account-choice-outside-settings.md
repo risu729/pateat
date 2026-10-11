@@ -90,7 +90,8 @@ whichever is shorter (WebAuthn recommends 2 to 5 minutes). The window closes whe
 
 - the request is cancelled or aborted;
 - the page navigates or the tab closes;
-- settings change (`cancelAll`).
+- settings change (`cancelAll`). Superseded below: the window stays open, and the
+  choice is checked against the new settings.
 
 The worker is kept alive while the window waits. The default is saved only after the
 assertion has been returned, because a settings save cancels pending passkey requests.
@@ -109,6 +110,20 @@ the origin already has a default that holds none of the matching passkeys, the
 checkbox starts unticked and says it replaces that default, because the same default
 also picks the password login account. The default is not saved while a password login
 is running, as for an automatic account choice.
+
+Changed by the owner on 2026-10-11 (17:03 UTC), after the check in installed Chrome:
+when the wait ends with the window still open, Pateat closes it and the request fails
+with `NotAllowedError`, as Chrome's own prompt does when it times out. The browser and
+Bitwarden are not asked instead, so no second prompt appears by itself.
+
+Changed on 2026-10-11 by Claude as a fix, after the same check found a settings sync
+from the service closing the window: a settings change no longer cancels a request
+once its window has opened. It still cancels requests that never opened one. After a
+choice, the chosen passkey is looked up again under the settings current then, since
+they may have changed meanwhile, and is used only if they still offer it; otherwise the
+request is delegated with `settings-changed` (or `vault-incomplete` when the vault could
+not be searched in full). A lookup or signing after a choice that fails is tried once
+more.
 
 ### D. After a logout, choose again (detection L1)
 

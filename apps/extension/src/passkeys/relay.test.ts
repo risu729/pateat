@@ -59,6 +59,19 @@ describe("isolated passkey relay", () => {
     ]);
   });
 
+  it("passes on a failure after the chooser window's wait ran out", async () => {
+    const { scope, posted } = fakeWindow();
+    installPasskeyRelay(vi.fn(async () => ({ kind: "not-allowed" })));
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id, request: { challenge: "AA" } });
+    await vi.waitFor(() => expect(posted).toHaveLength(3));
+    expect(posted[2]).toEqual({
+      channel: PAGE_CHANNEL,
+      type: "result",
+      id,
+      result: { kind: "not-allowed" },
+    });
+  });
+
   it("drops the reason of delegations the relay decides itself", async () => {
     const { scope, posted } = fakeWindow();
     vi.stubGlobal("document", { featurePolicy: { allowsFeature: () => false } });
