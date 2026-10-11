@@ -1593,3 +1593,254 @@ describe("the passkey route in an attempt (ADR 0027)", () => {
     ).toThrow();
   });
 });
+
+describe("totp handler attempt contracts, probed independently (ADR 0027)", () => {
+  const verify = { by: "text", value: "Verify" } as const;
+  const code = {
+    kind: "totp",
+    path: "/login",
+    field: { by: "id", value: "otp" },
+    target: verify,
+  } as const;
+  const key = { kind: "passkey", path: "/webauthn", target: { by: "id", value: "key" } } as const;
+  /** A two-page route; the code form shows on the first page after its advance click. */
+  const twoPages: LoginRecipe = {
+    ...recipe,
+    slots: ["username", "password"],
+    steps: [
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login",
+        fields: [{ slot: "username", target: { by: "id", value: "username" } }],
+      },
+      { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/password",
+        fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+      },
+      { kind: "click", path: "/password", target: { by: "id", value: "go" }, purpose: "submit" },
+    ],
+    handlers: [code, key],
+    maxSubmissions: 2,
+  };
+  const codePage = { ...document, documentId: "document-code" };
+  const run = (attempt: LoginAttemptMetadataLike, events: Record<string, unknown>[]) =>
+    events.reduce<LoginAttemptMetadataLike>(
+      (current, event) => transitionLoginAttempt(current, event),
+      attempt,
+    );
+  const fill = (operationId: string) => [
+    { type: "PREPARE", operationId, kind: "fill" },
+    { type: "MUTATION_INTENT", operationId },
+    { type: "OPERATION_OK", operationId },
+  ];
+  const click = (operationId: string) => [
+    { type: "PREPARE", operationId, kind: "click" },
+    { type: "SUBMIT_INTENT", operationId },
+    { type: "SUBMITTED", operationId },
+  ];
+  const enter = (handler: number, steps: number) => ({
+    type: "HANDLER",
+    handler,
+    steps,
+    effects: 1,
+    document: codePage,
+  });
+  /** After the route's advance click, with the totp handler entered at step 2. */
+  const entered = () =>
+    run(transitionLoginAttempt(detected(twoPages), { type: "RESOLVE" }), [
+      ...fill("fill-one"),
+      ...click("click-one"),
+      enter(0, 2),
+    ]);
+  const autoSubmitted = { type: "AUTO_SUBMITTED", operationId: "page-one" } as const;
+
+  it("inserts two steps and one effect where the handler was entered, before the route's rest", () => {
+    const attempt = entered();
+    expect(attempt).toMatchObject({
+      state: "ready",
+      stepIndex: 2,
+      stepCount: 6,
+      maxSubmissions: 3,
+      handlers: [{ index: 0, start: 2 }],
+    });
+    const plan = attemptPlan(twoPages, attempt)!;
+    expect(plan.map((entry) => [entry.step.kind, entry.step.path, entry.handler])).toEqual([
+      ["fill", "/login", undefined],
+      ["click", "/login", undefined],
+      ["fill", "/login", 0],
+      ["click", "/login", 0],
+      ["fill", "/password", undefined],
+      ["click", "/password", undefined],
+    ]);
+    expect(nextLoginOperation(attempt, twoPages, codePage, "code-one")?.step).toEqual(
+      plan[2]!.step,
+    );
+  });
+
+  it("names the totp slot once, whichever other handlers the attempt entered", () => {
+    const keyFirst = run(transitionLoginAttempt(detected(twoPages), { type: "RESOLVE" }), [
+      ...fill("fill-one"),
+      ...click("click-one"),
+      { ...enter(1, 1), document: codePage },
+    ]);
+    expect(handlerSlots(twoPages, keyFirst)).toEqual([]);
+    expect(attemptUsesCode(twoPages, keyFirst)).toBe(false);
+    const both = run(keyFirst, [...click("key-one"), enter(0, 2)]);
+    expect(both.handlers).toEqual([
+      { index: 1, start: 2 },
+      { index: 0, start: 3 },
+    ]);
+    expect(handlerSlots(twoPages, both)).toEqual(["totp"]);
+    expect(attemptUsesCode(twoPages, both)).toBe(true);
+    expect(attemptPlan(twoPages, both)!.map((entry) => entry.handler)).toEqual([
+      undefined,
+      undefined,
+      1,
+      0,
+      0,
+      undefined,
+      undefined,
+    ]);
+    // An entered index the recipe no longer has names no slot.
+    expect(handlerSlots(twoPages, { handlers: [{ index: 5, start: 2 }] })).toEqual([]);
+  });
+
+  it("counts a code only on the variant whose slots include it, and never on the passkey route", () => {
+    const varied: LoginRecipe = {
+      ...recipe,
+      alternatives: [
+        {
+          slots: ["password", "totp"],
+          steps: [
+            {
+              kind: "fill",
+              effect: "prepare",
+              path: "/login",
+              fields: [
+                { slot: "password", target: { by: "id", value: "password" } },
+                { slot: "totp", target: { by: "id", value: "otp" } },
+              ],
+            },
+            recipe.steps[1]!,
+          ],
+        },
+      ],
+      passkey: { path: "/login", target: { by: "id", value: "passkey-login" } },
+    };
+    const meta = (route: "password" | "passkey", variant?: number) => ({
+      route,
+      ...(variant === undefined ? {} : { variant }),
+      handlers: [],
+    });
+    expect(attemptUsesCode(varied, meta("password", 0))).toBe(false);
+    expect(attemptUsesCode(varied, meta("password", 1))).toBe(true);
+    expect(attemptUsesCode(varied, meta("passkey"))).toBe(false);
+  });
+
+  it("refuses the page's submission once the click was prepared or sent", () => {
+    const filled = run(entered(), fill("code-one"));
+    const preparing = transitionLoginAttempt(filled, {
+      type: "PREPARE",
+      operationId: "verify-one",
+      kind: "click",
+    });
+    expect(transitionLoginAttempt(preparing, autoSubmitted)).toEqual(preparing);
+    const sending = transitionLoginAttempt(preparing, {
+      type: "SUBMIT_INTENT",
+      operationId: "verify-one",
+    });
+    expect(transitionLoginAttempt(sending, autoSubmitted)).toEqual(sending);
+  });
+
+  it("takes the page's submission once only", () => {
+    const once = transitionLoginAttempt(run(entered(), fill("code-one")), autoSubmitted);
+    expect(once).toMatchObject({ state: "reconciling", operationKind: "click", submissions: 2 });
+    expect(
+      transitionLoginAttempt(once, { type: "AUTO_SUBMITTED", operationId: "page-two" }),
+    ).toEqual(once);
+  });
+
+  it("refuses the page's submission while a failed code fill awaits its retry", () => {
+    const prepared = run(entered(), [{ type: "PREPARE", operationId: "code-one", kind: "fill" }]);
+    // The content script proves nothing was typed.
+    const failed = transitionLoginAttempt(prepared, {
+      type: "FAILED",
+      operationId: "code-one",
+      reason: "structural-mismatch",
+      mutation: "none",
+      document: codePage,
+    });
+    expect(failed.state).toBe("retryable");
+    expect(transitionLoginAttempt(failed, autoSubmitted)).toEqual(failed);
+  });
+
+  it("moves past the code to the route's next step and never fills the code again", () => {
+    for (const before of [
+      run(entered(), fill("code-one")),
+      run(entered(), [
+        { type: "PREPARE", operationId: "code-one", kind: "fill" },
+        { type: "MUTATION_INTENT", operationId: "code-one" },
+      ]),
+    ]) {
+      const submitted = transitionLoginAttempt(before, autoSubmitted);
+      expect(submitted).toMatchObject({ state: "reconciling", stepIndex: 3, submissions: 2 });
+      // The page asks for the password next, as after the handler's click.
+      const next = transitionLoginAttempt(submitted, {
+        type: "OBSERVED",
+        result: "continue",
+        document: codePage,
+      });
+      expect(next).toMatchObject({ state: "ready", stepIndex: 4 });
+      const operation = nextLoginOperation(next, twoPages, codePage, "fill-two");
+      expect(operation?.step).toEqual(twoPages.steps[2]);
+      // The page's operation ID is spent.
+      expect(
+        transitionLoginAttempt(next, { type: "PREPARE", operationId: "page-one", kind: "fill" }),
+      ).toEqual(next);
+      // A restart afterwards keeps it as a possible submission.
+      expect(recoverLoginAttempt(submitted)).toMatchObject({
+        state: "reconciling",
+        outcome: "unknown-submit",
+      });
+    }
+  });
+
+  // Bug: `canAutoSubmit` accepts AUTO_SUBMITTED whenever no operation is in flight, so the
+  // contract itself does not hold the documented rule "between a totp handler's fill and its
+  // click". Right after HANDLER the code was never typed, yet the attempt records the click
+  // as done; only the runtime's `codeStep` check keeps it from sending the event.
+  it.fails("refuses the page's submission before the code fill was prepared", () => {
+    const attempt = entered();
+    expect(transitionLoginAttempt(attempt, autoSubmitted)).toEqual(attempt);
+  });
+  it.fails("refuses the page's submission once a failed code fill is retried", () => {
+    const retrying = run(entered(), [
+      { type: "PREPARE", operationId: "code-one", kind: "fill" },
+      {
+        type: "FAILED",
+        operationId: "code-one",
+        reason: "structural-mismatch",
+        mutation: "none",
+        document: codePage,
+      },
+      { type: "RETRY" },
+    ]);
+    expect(retrying).toMatchObject({ state: "ready", stepIndex: 2 });
+    expect(transitionLoginAttempt(retrying, autoSubmitted)).toEqual(retrying);
+  });
+
+  // Bug: same guard; an attempt that entered no handler at all accepts AUTO_SUBMITTED on its
+  // route's own click, and while its route's password fill is in flight.
+  it.fails("refuses the page's submission on a route step when no handler was entered", () => {
+    const routeClick = run(transitionLoginAttempt(detected(twoPages), { type: "RESOLVE" }), [
+      ...fill("fill-one"),
+    ]);
+    expect(transitionLoginAttempt(routeClick, autoSubmitted)).toEqual(routeClick);
+  });
+});
+
+type LoginAttemptMetadataLike = ReturnType<typeof transitionLoginAttempt>;

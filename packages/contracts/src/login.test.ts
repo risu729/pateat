@@ -3,6 +3,7 @@ import * as v from "valibot";
 import {
   chooseLoginRoute,
   extendsRecipe,
+  handlerFact,
   handlerSteps,
   handlerTargets,
   passwordVariants,
@@ -23,6 +24,7 @@ import {
   parseLoginOperation,
   parseLoginRecipe,
   resolveLoginPlan,
+  TOTP_HANDLER_SLOT,
   type LoginAccountBinding,
   type LoginRecipe,
   type LoginTarget,
@@ -1444,5 +1446,130 @@ describe("the passkey route (ADR 0027)", () => {
       ok: false,
       reason: "binding-slots-mismatch",
     });
+  });
+});
+
+describe("totp handler recipe checks, probed independently (ADR 0027)", () => {
+  const verify = { by: "text", value: "Verify" } as const;
+  const totp = (change: Record<string, unknown> = {}) => ({
+    kind: "totp" as const,
+    path: "/two-factor",
+    field: { by: "id" as const, value: "otp" },
+    target: verify,
+    ...change,
+  });
+  const key = (change: Record<string, unknown> = {}) => ({
+    kind: "passkey" as const,
+    path: "/two-factor",
+    target: { by: "text" as const, value: "Use security key" },
+    ...change,
+  });
+  const parses = (value: Record<string, unknown>) =>
+    v.safeParse(loginRecipeSchema, { ...recipe(), ...value }).success;
+
+  it("refuses a field equal to its button under every attribute locator", () => {
+    for (const element of [
+      { by: "id", value: "code" },
+      { by: "name", value: "code" },
+      { by: "test-id", value: "code" },
+    ])
+      expect(parses({ handlers: [totp({ field: element, target: element })] })).toBe(false);
+    // The same value under another locator is another element.
+    expect(
+      parses({
+        handlers: [
+          totp({ field: { by: "id", value: "code" }, target: { by: "name", value: "code" } }),
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      parses({
+        handlers: [
+          totp({ field: { by: "id", value: "code" }, target: { by: "text", value: "code" } }),
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts name and test-id code fields and refuses a text-located one", () => {
+    for (const field of [
+      { by: "name", value: "otp" },
+      { by: "test-id", value: "otp-input" },
+    ])
+      expect(parses({ handlers: [totp({ field })] })).toBe(true);
+    expect(parses({ handlers: [totp({ field: { by: "text", value: "otp" } })] })).toBe(false);
+    // The field is required, and the passkey shape carries none.
+    expect(parses({ handlers: [{ kind: "totp", path: "/two-factor", target: verify }] })).toBe(
+      false,
+    );
+    expect(parses({ handlers: [key({ field: { by: "id", value: "otp" } })] })).toBe(false);
+  });
+
+  it("lets a passkey and a totp handler share a path in either order", () => {
+    for (const handlers of [
+      [totp(), key()],
+      [key(), totp()],
+    ])
+      expect(parseLoginRecipe({ ...recipe(), handlers }).handlers).toEqual(handlers);
+    // Two code pages on different paths are two handlers.
+    expect(parses({ handlers: [totp(), totp({ path: "/two-factor/again" })] })).toBe(true);
+  });
+
+  it("refuses a second handler of the same kind on one path, whatever its elements", () => {
+    expect(
+      parses({
+        handlers: [
+          totp(),
+          totp({ field: { by: "id", value: "other" }, target: { by: "id", value: "go" } }),
+        ],
+      }),
+    ).toBe(false);
+    expect(parses({ handlers: [key(), totp(), key({ target: { by: "id", value: "k2" } })] })).toBe(
+      false,
+    );
+  });
+
+  it("lists a totp handler's field before its button, and a passkey handler's button", () => {
+    expect(handlerTargets(totp())).toEqual([{ by: "id", value: "otp" }, verify]);
+    expect(handlerTargets(key())).toEqual([{ by: "text", value: "Use security key" }]);
+    expect(handlerFact).toEqual({ passkey: "passkey", totp: "totp" });
+    expect(TOTP_HANDLER_SLOT).toBe("totp");
+    expect(handlerSteps(totp())[0]).toMatchObject({
+      kind: "fill",
+      effect: "prepare",
+      fields: [{ slot: TOTP_HANDLER_SLOT }],
+    });
+  });
+
+  it("refuses an account switch that is the code field, on any path", () => {
+    expect(parses({ handlers: [totp()], accountSwitch: { by: "id", value: "otp" } })).toBe(false);
+    expect(
+      parses({
+        handlers: [totp({ path: "/elsewhere" })],
+        accountSwitch: { by: "id", value: "otp" },
+      }),
+    ).toBe(false);
+    // An unrelated switch is fine.
+    expect(parses({ handlers: [totp()], accountSwitch: { by: "id", value: "switch" } })).toBe(true);
+  });
+
+  it("refuses a completion marker that is the handler's button on its own page only", () => {
+    const marker = { by: "id", value: "authenticated" } as const;
+    expect(parses({ handlers: [totp({ path: "/authenticated", target: marker })] })).toBe(false);
+    expect(parses({ handlers: [totp({ path: "/authenticated", field: marker })] })).toBe(false);
+    expect(parses({ handlers: [totp({ target: marker })] })).toBe(true);
+    expect(parses({ handlers: [totp({ field: marker })] })).toBe(true);
+  });
+
+  it("refuses a passkey route button that is either of the handler's elements on its path", () => {
+    const button = { by: "id", value: "passkey-login" } as const;
+    const passkey = { path: "/identity", target: button };
+    expect(parses({ passkey, handlers: [totp({ path: "/identity", target: button })] })).toBe(
+      false,
+    );
+    expect(parses({ passkey, handlers: [totp({ path: "/identity", field: button })] })).toBe(false);
+    // On another path the same element is not the route's button.
+    expect(parses({ passkey, handlers: [totp({ target: button })] })).toBe(true);
+    expect(parses({ passkey, handlers: [totp({ field: button })] })).toBe(true);
   });
 });

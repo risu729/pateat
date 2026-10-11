@@ -1530,6 +1530,185 @@ describe("page judgement (ADR 0027)", () => {
     expect(await head(device, change.recipeId)).toBe(3);
   });
 
+  describe("totp handlers, probed independently", () => {
+    const appCode = {
+      ...element("app-code", "text", "Authentication code"),
+      autocomplete: "one-time-code" as const,
+      inputMode: "numeric" as const,
+      maxLength: 6,
+    };
+    const verify = element("verify", "button", "Verify");
+    const code = (source: string) => ({ field: "app-code", submit: "verify", source });
+    const revisions = (device: Device, recipeId: string) =>
+      rows(
+        "SELECT revision FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ? ORDER BY revision",
+        device.ownerId,
+        recipeId,
+      );
+
+    it("writes both handlers as one revision, with no revision skipped", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const mfa = observation("/login/mfa", [
+        appCode,
+        verify,
+        element("key", "button", "Use security key"),
+      ]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "key",
+          code: code("authenticator-app"),
+        }),
+      );
+      const judged = await complete(device, change.recipeId, 2, mfa);
+      expect(judged.body).toMatchObject({ change: { revision: 3, recipe: { revision: 3 } } });
+      expect(await revisions(device, change.recipeId)).toEqual([
+        { revision: 1 },
+        { revision: 2 },
+        { revision: 3 },
+      ]);
+      // The next judgement, against revision 3, is accepted as the head.
+      replies.push(judgeReply({ decision: "rejected" }));
+      expect((await complete(device, change.recipeId, 3)).body).toEqual({
+        version: 1,
+        status: "rejected",
+      });
+    });
+
+    it("keeps the code when the named passkey button fails its checks, and the reverse", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      // A registration button stores no passkey handler; the code still lands.
+      const register = observation("/login/mfa", [
+        appCode,
+        verify,
+        element("add", "button", "Add a passkey"),
+      ]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "add",
+          code: code("authenticator-app"),
+        }),
+      );
+      const first = await complete(device, change.recipeId, 2, register);
+      expect(first.body).toMatchObject({
+        status: "challenge",
+        change: {
+          revision: 3,
+          recipe: {
+            handlers: [
+              {
+                kind: "totp",
+                path: "/login/mfa",
+                field: { by: "id", value: "app-code" },
+                target: { by: "id", value: "verify" },
+              },
+            ],
+          },
+        },
+      });
+      // A field the TOTP fill rule refuses stores no totp handler; the passkey button lands.
+      const plain = observation("/login/key", [
+        element("plain", "text", "Code"),
+        verify,
+        element("key", "button", "Use security key"),
+      ]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "key",
+          code: { field: "plain", submit: "verify", source: "authenticator-app" },
+        }),
+      );
+      const second = await complete(device, change.recipeId, 3, plain);
+      expect(second.body).toMatchObject({ change: { revision: 4 } });
+      if (!("change" in second.body) || !second.body.change) throw new Error("no change");
+      expect(second.body.change.recipe.handlers?.map((handler) => handler.kind)).toEqual([
+        "totp",
+        "passkey",
+      ]);
+    });
+
+    it("stores nothing for a code sent by email", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "challenge", code: code("email") }));
+      expect(
+        (await complete(device, change.recipeId, 2, observation("/login/mfa", [appCode, verify])))
+          .body,
+      ).toEqual({ version: 1, status: "challenge" });
+      expect(await head(device, change.recipeId)).toBe(2);
+    });
+
+    it("stores a code step in the sign-in form that reuses the route's button", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const sameForm = observation("/password", [appCode, element("sign-in", "button", "Sign in")]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          code: { field: "app-code", submit: "sign-in", source: "authenticator-app" },
+        }),
+      );
+      expect((await complete(device, change.recipeId, 2, sameForm)).body).toMatchObject({
+        change: {
+          revision: 3,
+          recipe: {
+            steps: change.recipe.steps,
+            handlers: [
+              {
+                kind: "totp",
+                path: "/password",
+                field: { by: "id", value: "app-code" },
+                target: { by: "id", value: "sign-in" },
+              },
+            ],
+          },
+        },
+      });
+    });
+
+    it("logs the kept handler's locators only, and refuses a page carrying values", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "challenge", code: code("authenticator-app") }));
+      await complete(device, change.recipeId, 2, observation("/login/mfa", [appCode, verify]));
+      replies.push(judgeReply({ decision: "challenge", code: code("sms") }));
+      await complete(device, change.recipeId, 3, observation("/login/sms", [appCode, verify]));
+      const logged = await rows(
+        "SELECT request, result FROM inference_log WHERE owner_id = ? AND role = 'judge' ORDER BY created_at",
+        device.ownerId,
+      );
+      expect(logged.map((row) => JSON.parse(String(row.result)))).toEqual([
+        {
+          decision: "challenge",
+          totp: { field: { by: "id", value: "app-code" }, target: { by: "id", value: "verify" } },
+        },
+        { decision: "challenge" },
+      ]);
+      // A synthetic code typed into the page never reaches the service or its log.
+      const calls = sent.length;
+      const withValue = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
+        version: 1,
+        revision: 3,
+        route: "password",
+        observation: observation("/login/other", [
+          { ...appCode, value: "012345" } as never,
+          verify,
+        ]),
+      });
+      expect(withValue.status).toBe(400);
+      expect(sent).toHaveLength(calls);
+      const all = await rows(
+        "SELECT request, result FROM inference_log WHERE owner_id = ?",
+        device.ownerId,
+      );
+      expect(JSON.stringify(all)).not.toContain("012345");
+    });
+  });
+
   it("checks the head again under the lock and names a revocation meanwhile", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

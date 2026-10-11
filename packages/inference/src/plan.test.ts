@@ -185,6 +185,39 @@ describe("the Hidden fill rule in plan validation (ADR 0027)", () => {
   });
 });
 
+describe("the one-time-code slot in plan validation, probed independently (ADR 0027)", () => {
+  const coded = (extra: Partial<Candidate>): LoginObservation => ({
+    ...observation,
+    candidates: [...observation.candidates, input("otp", extra)],
+  });
+  const plan = (extra: Partial<Candidate>) =>
+    validatePagePlan(coded(extra), [...slots, builtInLoginSlots.totp], {
+      fields: [
+        { slot: "password", candidate: "password" },
+        { slot: "totp", candidate: "otp" },
+      ],
+      action,
+    });
+
+  it.each<[string, Partial<Candidate>]>([
+    ["autocomplete=one-time-code", { autocomplete: "one-time-code" }],
+    ["a numeric text input of 6", { inputMode: "numeric", maxLength: 6 }],
+    ["a tel input of 8", { role: "tel", maxLength: 8 }],
+  ])("maps the code into %s", (_label, extra) => {
+    expect(plan(extra)).toMatchObject({ ok: true });
+  });
+
+  it.each<[string, Partial<Candidate>]>([
+    ["a plain text input", {}],
+    ["a text input of 6 without a numeric hint", { maxLength: 6 }],
+    ["a numeric text input of 11", { inputMode: "numeric", maxLength: 11 }],
+    ["a tel input without a length", { role: "tel" }],
+    ["a number input without the hint", { role: "number" }],
+  ])("refuses the code in %s", (_label, extra) => {
+    expect(plan(extra)).toEqual({ ok: false, reason: "incompatible-role" });
+  });
+});
+
 describe("several identifier sets on one page (ADR 0027)", () => {
   const contract: SemanticSlot = {
     id: "custom-4",
