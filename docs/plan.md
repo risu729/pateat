@@ -1214,6 +1214,13 @@ requires shared-session/race tests. Direct AI requires trusted extension key sto
 provider compatibility tests. Alternative service auth, E2EE sync and Vaultwarden
 require their own interoperability/recovery evidence.
 
-Extension publishing/CD, public recipe sharing and hosted browser installation
-are outside the current delivery plan. Extension build and automated tests remain
-in CI scope. Native helpers are not required by the product.
+Extension publishing/CD, public recipe sharing and hosted browser installation are
+outside the current delivery plan. A simple docs website comes after the extension is
+finished and is not an initial acceptance gate. The owner chose VitePress for it on
+2026-10-11, as risu729/biwa uses, so biwa's Bun and mise build, assets-only Cloudflare
+Worker and per-PR previews can be reused. The owner chose VitePress 2 even before its
+stable release (on 2026-10-11 the npm `next` tag was 2.0.0-alpha.20, as biwa uses), and
+nothing is installed before the site is built. Starlight and Docusaurus were the
+alternatives. The docs/ pages are written for development, so user-facing pages
+(installation, setup, permissions) are still to be written for the site. Extension build
+and automated tests remain in CI scope. Native helpers are not required by the product.
