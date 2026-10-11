@@ -2773,6 +2773,64 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(clicks("Use security key")).toBe(1);
     });
 
+    describe("each effect step's page is judged once", () => {
+      const settingsPage = observation("/settings", [
+        { id: "c1", role: "button", target: target("save"), label: "Save" },
+      ]);
+      const elsewhere = observation("/elsewhere", [
+        { id: "c1", role: "link", target: target("help"), label: "Help" },
+      ]);
+      /** Signs in with an unclear judgement, so the attempt settles as unknown. */
+      async function settledLogin() {
+        vi.useFakeTimers();
+        onClick({ login: { path: "/elsewhere", present: [], extracted: elsewhere } });
+        const service = generation();
+        const h = harness({}, { passkeys: withPasskey, generation: service });
+        h.recipes.recipe.mockResolvedValue(plain);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("reconciling", "unknown-submit"), 10_000);
+        expect(service.judge).toHaveBeenCalledTimes(1);
+        expect(status()![0]).toMatchObject({ settled: true });
+        expect(status()![0]!["judgedOperationId"]).toBe(status()![0]!["operationId"]);
+        return { h, service };
+      }
+      /** The tab opens another page of the origin. */
+      function openSettings() {
+        fake.state.pageUrl = `${origin}/settings`;
+        fake.state.observedPath = "/settings";
+        fake.state.present = new Set(["save"]);
+        fake.state.extracted = { "signed-in": settingsPage };
+      }
+
+      it("does not send a later page of the tab after the result settled", async () => {
+        const { h, service } = await settledLogin();
+        openSettings();
+        await h.hello({ documentId: "settings" }, false);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(service.judge).toHaveBeenCalledTimes(1);
+        expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]);
+      });
+
+      it("does not send a later page after a worker restart either", async () => {
+        const { service } = await settledLogin();
+        const query = fake.browser.tabs.query;
+        fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+        try {
+          const again = generation(async () => ({ verdict: "signed-in" }));
+          const restarted = harness({}, { passkeys: withPasskey, generation: again });
+          restarted.recipes.recipe.mockResolvedValue(plain);
+          openSettings();
+          await restarted.hello({ documentId: "settings" }, false);
+          await vi.advanceTimersByTimeAsync(30_000);
+          expect(again.judge).not.toHaveBeenCalled();
+          expect(service.judge).toHaveBeenCalledTimes(1);
+          expect(status()).toMatchObject([{ state: "reconciling", settled: true }]);
+        } finally {
+          fake.browser.tabs.query = query;
+        }
+      });
+    });
+
     it("judges the page after an advance whose next step never appeared", async () => {
       vi.useFakeTimers();
       const advancing = parseLoginRecipe({
@@ -3011,6 +3069,39 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(await h.login.loginAccount(1, origin)).toEqual({ connectionId, itemId });
       await until(settled("reconciling", "unknown-submit"), 10_000);
       expect(await h.login.loginAccount(1, origin)).toBeUndefined();
+    });
+
+    it("keeps naming a running login's item after a worker restart", async () => {
+      onClick({ login: "hang" });
+      const h = harness({}, { passkeys: withPasskey });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(clicks("login")).toBe(1));
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = harness({}, { passkeys: withPasskey });
+        expect(await restarted.login.loginAccount(1, origin)).toEqual({ connectionId, itemId });
+        expect(status()).toMatchObject([{ state: "reconciling" }]);
+        expect(await restarted.login.loginAccount(1, "https://other.example")).toBeUndefined();
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+
+    it("does not name a settled login's item after a worker restart", async () => {
+      vi.useFakeTimers();
+      onClick({ login: { path: "/elsewhere", present: [] } });
+      const h = harness({}, { passkeys: withPasskey });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("reconciling", "unknown-submit"), 10_000);
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = harness({}, { passkeys: withPasskey });
+        expect(await restarted.login.loginAccount(1, origin)).toBeUndefined();
+      } finally {
+        fake.browser.tabs.query = query;
+      }
     });
 
     it("is not named once the login ended", async () => {

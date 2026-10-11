@@ -521,12 +521,13 @@ again after it ran, the attempt ends `challenge`. While a handler's clicked butt
 shows in the document that clicked it, the page is neither judged nor settled for up to
 two minutes; then it ends `challenge`. A new document of the tab that shows the button
 of a handler that already ran ends `challenge` at once. A page no check explains is
-judged once per attempt, revision and path, unless it still shows the route's fill
-fields on a route path or the completion marker. A `challenge` verdict that added a
-handler hands back the newer revision: the attempt takes it over (`REVISED`) when it
-only adds handlers or a completion, and runs the handler on the page it is on. A resumed
-attempt accepts a newer cached revision on the same terms only while the worker still
-holds its recorded revision; after a worker restart only the recorded revision resumes.
+judged only if it is the first page reached after its effect step, unless it still shows
+the route's fill fields on a route path or the completion marker. A `challenge` verdict
+that added a handler hands back the newer revision: the attempt takes it over
+(`REVISED`) when it only adds handlers or a completion, and runs the handler on the page
+it is on. A resumed attempt accepts a newer cached revision on the same terms only while
+the worker still holds its recorded revision; after a worker restart only the recorded
+revision resumes.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already
@@ -835,14 +836,12 @@ ending delegates to the browser.
 
 While a login is running, a request from its tab and top-level origin is answered with
 that login's own vault item only, never the site default or the chooser
-([ADR 0027](adr/0027-per-account-login-routes.md)). A login counts as running while the
-worker holds the tab's attempt for that origin in memory, the attempt is neither
-`authenticated` nor `blocked`, and its result has not settled as unknown since it last
-moved on. A record the worker only read back from storage after a restart does not count
-until a document of the tab resumes it; requests outside a running login get the usual
-handling. When that item holds no single
-signable match, or its search is incomplete, the request is delegated, so Pateat never
-signs in as another account.
+([ADR 0027](adr/0027-per-account-login-routes.md)). A login counts as running while its
+stored attempt record for that tab and origin is neither `authenticated` nor `blocked`
+and its result has not settled as unknown since it last moved on. The record carries
+that settled mark, so the rule holds the same after a worker restart. When that item
+holds no single signable match, or its search is incomplete, the request is delegated,
+so Pateat never signs in as another account.
 
 ## Minimal service
 

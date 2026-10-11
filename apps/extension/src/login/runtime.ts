@@ -363,8 +363,6 @@ export function createLoginRuntime(
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
-  /** Attempts whose result settled as unknown and that have not moved on since. */
-  const settledUnknown = new Set<string>();
   /** By `recordKey`, in the order they were last written. */
   const persisted = new Map<string, LoginAttemptMetadata>();
   const picked = new Map<number, PickedAccount>();
@@ -717,10 +715,6 @@ export function createLoginRuntime(
     const previous = run.metadata.state;
     run.metadata = transitionLoginAttempt(run.metadata, event);
     if (run.metadata.state !== previous) reportAttempt(run.metadata);
-    // A result settled as unknown stays settled until the attempt moves on.
-    if (event.type === "OBSERVED" && event.result === "unknown")
-      settledUnknown.add(run.metadata.id);
-    else if (run.metadata.state !== "reconciling") settledUnknown.delete(run.metadata.id);
     if (
       import.meta.env.MODE === "probe" &&
       armed === "intent-write-failure" &&
@@ -1333,17 +1327,25 @@ export function createLoginRuntime(
     await change(run, event);
     return true;
   }
-  /** Pages already sent, per attempt, recipe revision and path; each is sent once. */
-  const judged = new Set<string>();
   /**
    * After an effect step that no check explained, sends the resulting page so the
    * service can judge it and learn the completion or a handler (ADR 0018, ADR 0027).
    * Returns whether the attempt settled or moved on. A page that still shows the route's
-   * fields on one of its paths, or the completion marker, is not sent.
+   * fields on one of its paths, or the completion marker, is not sent. Only the first
+   * page reached after an effect step is sent: the attempt records the step before the
+   * request, so later pages of a login that settled as unknown are never sent, even
+   * after a worker restart.
    */
   async function learn(run: Execution): Promise<boolean> {
     const { recipe, metadata } = run;
-    if (!generation || !effectful(metadata)) return false;
+    const { operationId } = metadata;
+    if (
+      !generation ||
+      !effectful(metadata) ||
+      !operationId ||
+      metadata.judgedOperationId === operationId
+    )
+      return false;
     const steps = routeSteps(recipe, metadata.route);
     const marker = recipe.completion ? [recipe.completion.target] : [];
     const fills = steps
@@ -1351,15 +1353,14 @@ export function createLoginRuntime(
       .slice(0, 24 - marker.length);
     const remaining = await observe(run, [...fills, ...marker]);
     if (!remaining) return false;
-    const key = `${metadata.id}:${metadata.recipeRevision}:${remaining.path}`;
     if (
-      judged.has(key) ||
       (steps.some((step) => step.path === remaining.path) &&
         remaining.targets.slice(0, fills.length).some((state) => state !== "missing")) ||
       (marker.length > 0 && remaining.targets[fills.length] !== "missing")
     )
       return false;
-    judged.add(key);
+    await change(run, { type: "JUDGING", operationId });
+    if (!current(run) || run.metadata.judgedOperationId !== operationId) return !current(run);
     let observation: LoginObservation | undefined;
     try {
       const extracted = v.safeParse(
@@ -1381,7 +1382,7 @@ export function createLoginRuntime(
       observation = undefined;
     }
     if (!current(run)) return true;
-    // A page that cannot be described completely is not sent; the next run tries again.
+    // A page that cannot be described completely is not sent; a later login tries again.
     if (!observation) return false;
     const { verdict, recipe: added } = await generation.judge(
       recipe.id,
@@ -2390,21 +2391,17 @@ export function createLoginRuntime(
   }
   /**
    * The vault item of the login a tab is running on an origin. The passkey bridge answers
-   * that login's requests with this item only (ADR 0027). A login runs while this worker
-   * holds it in memory, it is neither authenticated nor blocked, and its result has not
-   * settled as unknown since it last moved on; a record read back from storage after a
-   * worker restart does not run until a document of the tab resumes it.
+   * that login's requests with this item only (ADR 0027). A login runs while its record,
+   * in memory or read back from storage after a worker restart, is neither authenticated
+   * nor blocked and its result has not settled as unknown since it last moved on.
    */
   async function loginAccount(
     tabId: number,
     siteOrigin: string,
   ): Promise<{ connectionId: string; itemId: string } | undefined> {
     await loaded;
-    const metadata = attempts.get(tabId)?.metadata;
-    return metadata &&
-      metadata.account.origin === siteOrigin &&
-      !terminal(metadata) &&
-      !settledUnknown.has(metadata.id)
+    const metadata = recordFor(tabId, siteOrigin);
+    return metadata && !terminal(metadata) && !metadata.settled
       ? { connectionId: metadata.account.connectionId, itemId: metadata.account.itemId }
       : undefined;
   }

@@ -87,6 +87,13 @@ export const attemptMetadataSchema = v.pipe(
     operationEffect: v.optional(v.picklist(["prepare", "advance", "submit"])),
     mutationIntent: v.optional(v.literal(true)),
     outcome: v.optional(loginOutcomeSchema),
+    /**
+     * The result of the current effect step settled as unknown; cleared once the attempt
+     * moves on. A settled login no longer scopes the passkey bridge (ADR 0027).
+     */
+    settled: v.optional(v.literal(true)),
+    /** The effect step whose resulting page was sent to be judged; each is sent once. */
+    judgedOperationId: v.optional(identifier),
     /** This attempt follows an account switch in its tab; it never clicks another one. */
     accountSwitched: v.optional(v.literal(true)),
   }),
@@ -106,6 +113,12 @@ export const attemptMetadataSchema = v.pipe(
       metadata.operationId === undefined ||
       metadata.usedOperationIds.includes(metadata.operationId),
     "Operation ID is not recorded",
+  ),
+  v.check(
+    (metadata) =>
+      metadata.judgedOperationId === undefined ||
+      metadata.usedOperationIds.includes(metadata.judgedOperationId),
+    "Judged operation ID is not recorded",
   ),
   v.check(
     (metadata) =>
@@ -201,6 +214,11 @@ export const loginAttemptEventSchema = v.variant("type", [
    * recipe's handlers): its `steps` follow the effect step, and its `effects` grow the
    * submission budget (ADR 0027).
    */
+  /**
+   * The page after the current effect step is sent to be judged. It is recorded before
+   * the request, so no later page of that step is sent, even after a restart (ADR 0027).
+   */
+  v.strictObject({ type: v.literal("JUDGING"), operationId: identifier }),
   v.strictObject({
     type: v.literal("HANDLER"),
     handler: integer(15),
@@ -280,10 +298,12 @@ function record(
           operationEffect: undefined,
           mutationIntent: undefined,
           outcome: undefined,
+          settled: undefined,
         };
       return {
         document: event.document ?? context.document,
         outcome: event.result === "unknown" ? "unknown-submit" : event.result,
+        settled: event.result === "unknown" ? true : undefined,
       };
     case "NAVIGATED":
       if (leftOrigin(context.document, event.document))
@@ -344,6 +364,8 @@ function record(
       };
     case "REVISED":
       return { recipeRevision: event.recipeRevision };
+    case "JUDGING":
+      return { judgedOperationId: event.operationId };
     case "HANDLER":
       return {
         handlers: [...context.handlers, { index: event.handler, start: context.stepIndex + 1 }],
@@ -357,6 +379,7 @@ function record(
         mutationIntent: undefined,
         outcome: undefined,
         retryRequired: undefined,
+        settled: undefined,
       };
     case "RETRY":
       return {
@@ -489,6 +512,14 @@ function createLoginAttemptMachine() {
         event.type === "OBSERVED" &&
         event.result === "unknown" &&
         (!event.document || sameScope(context.document, event.document)),
+      // Only an effect step's result is judged, and only once.
+      canJudge: ({ context, event }) =>
+        event.type === "JUDGING" &&
+        operationMatches(context, event) &&
+        (context.operationKind === "click" ||
+          context.operationEffect === "advance" ||
+          context.operationEffect === "submit") &&
+        context.judgedOperationId !== event.operationId,
       newerRevision: ({ context, event }) =>
         event.type === "REVISED" && event.recipeRevision > context.recipeRevision,
       // A handler follows only an effect step that may have submitted, runs once per
@@ -577,6 +608,7 @@ function createLoginAttemptMachine() {
       "awaiting-result": {
         on: {
           OBSERVED: observedTransitions,
+          JUDGING: { guard: "canJudge", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
         },
@@ -584,6 +616,7 @@ function createLoginAttemptMachine() {
       reconciling: {
         on: {
           OBSERVED: observedTransitions,
+          JUDGING: { guard: "canJudge", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
         },
       },

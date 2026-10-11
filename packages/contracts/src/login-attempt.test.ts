@@ -1109,6 +1109,44 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
       expect(() => transitionLoginAttempt(before, malformed)).toThrow();
   });
 
+  it("records the judged effect step once and keeps it across later documents", () => {
+    const before = awaiting();
+    const judging = { type: "JUDGING" as const, operationId: "click-one" };
+    const judged = transitionLoginAttempt(before, judging);
+    expect(judged).toEqual({ ...before, judgedOperationId: "click-one" });
+    // The same step is never judged twice, and only the current effect step is judged.
+    expect(transitionLoginAttempt(judged, judging)).toEqual(judged);
+    expect(transitionLoginAttempt(before, { type: "JUDGING", operationId: "fill-one" })).toEqual(
+      before,
+    );
+    const unknown = transitionLoginAttempt(judged, {
+      type: "OBSERVED",
+      result: "unknown",
+      document,
+    });
+    const moved = transitionLoginAttempt(unknown, { type: "NAVIGATED", document: webauthn });
+    expect(moved).toMatchObject({ state: "reconciling", judgedOperationId: "click-one" });
+    expect(transitionLoginAttempt(moved, judging)).toEqual(moved);
+    expect(() => parseAttemptMetadata({ ...before, judgedOperationId: "never-used" })).toThrow();
+  });
+
+  it("marks a result settled as unknown until the attempt moves on", () => {
+    const unknown = transitionLoginAttempt(awaiting(), {
+      type: "OBSERVED",
+      result: "unknown",
+      document,
+    });
+    expect(unknown).toMatchObject({ state: "reconciling", settled: true });
+    // A new document or a restart keeps it settled.
+    const navigated = transitionLoginAttempt(unknown, { type: "NAVIGATED", document: webauthn });
+    expect(recoverLoginAttempt(navigated)).toMatchObject({ settled: true });
+    // Entering a handler on the new page moves the attempt on.
+    expect(transitionLoginAttempt(navigated, handler())).toMatchObject({ state: "ready" });
+    expect(transitionLoginAttempt(navigated, handler())).not.toHaveProperty("settled", true);
+    // A result still being reconciled after a restart has not settled.
+    expect(recoverLoginAttempt(awaiting())).not.toHaveProperty("settled", true);
+  });
+
   it("takes over only a newer recipe revision", () => {
     const before = awaiting();
     expect(transitionLoginAttempt(before, { type: "REVISED", recipeRevision: 3 })).toEqual({

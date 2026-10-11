@@ -110,11 +110,12 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
      the clicked button is still there. This waits out a slow WebAuthn exchange or a
      chooser the person is answering.
 4. **Passkeys during a login.** For a passkey request from the tab and origin of a login
-   that has not ended, the bridge uses that login's own vault item instead of the site
-   default or the ADR 0021 chooser. That includes pages that ask by themselves, such as
-   a passkey prompt after the username. Frames on another origin and ended records do
-   not count. A request this item cannot answer is passed to the browser or Bitwarden
-   as today, so Pateat never signs in as another account.
+   that has not ended and whose result has not settled as unknown, the bridge uses that
+   login's own vault item instead of the site default or the ADR 0021 chooser. That
+   includes pages that ask by themselves, such as a passkey prompt after the username.
+   Frames on another origin and ended records do not count. A request this item cannot
+   answer is passed to the browser or Bitwarden as today, so Pateat never signs in as
+   another account.
 5. **Bindings** cover the recorded route's slots, not every recipe slot.
    `resolveBindingFields`, `resolveLoginPlan` and `allowed()` change from "exactly
    `recipe.slots`" to that, so the `passkey` and `sso` routes need no password field.
@@ -150,7 +151,10 @@ These rules work from any account, in any order.
 
 - **When a page is judged:** after an effect step, if none of the checks in executor
   step 3 matched. That includes a recipe that already has a completion, and an
-  `advance` whose next step never appeared.
+  `advance` whose next step never appeared. Only the first page reached after an effect
+  step is judged: the attempt records the step before the request, so later pages of a
+  login whose result settled as unknown are never sent, even after a worker restart. A
+  handler's click is a new effect step.
 - **Checked on the service:** the request names the login's route, and the service
   checks that the stored recipe has it. It then checks the judged page against the
   stored recipe, not against the request: the page shows none of that route's fill
