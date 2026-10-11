@@ -232,6 +232,10 @@ wrote or served:
   extensions built against them;
 - D1 data and schema written by an earlier migration.
 
+The rule covers only what Pateat itself writes and serves. Vault providers are external:
+keep every branch for Bitwarden server, account, KDF, key and vault-format versions and
+response shapes, such as V1/V2 keys, PascalCase or `null` fields and older ciphers.
+
 Change a format in place and delete the old one; do not add a version branch, a
 fallback read, a migration of stored records or an optional field whose only purpose
 is older data. Code that exists only for such compatibility is removed. An extension

@@ -12,7 +12,8 @@
   PR for it until the owner explicitly approves the decisions. Work on decisions
   already approved continues.
 - Pateat is unreleased: keep no backward compatibility with older extension storage,
-  service versions, API shapes or D1 data, and remove code that exists only for it
+  service versions, API shapes or D1 data, and remove code that exists only for it;
+  Bitwarden and other provider version handling stays
   ([compatibility before release](docs/development.md#compatibility-before-release)).
 - Use WXT, TypeScript, and Valibot. Prefer maintained, established dependencies;
   do not copy feature code from small similar projects.
