@@ -379,7 +379,7 @@ describe("custom-field comparison with the replaced snapshot", () => {
     // The live session is not tied to the sync's cancellation.
     expect(h.host.customFieldDigests.mock.calls[0]![2]).toBeUndefined();
   });
-  it.each(["different", "missing", "rejected", "thrown"] as const)(
+  it.each(["different", "missing", "live-rejected", "live-thrown"] as const)(
     "accepts without reporting the item when the digests are %s",
     async (mode) => {
       const h = harness();
@@ -394,7 +394,7 @@ describe("custom-field comparison with the replaced snapshot", () => {
           ok: true,
           data: { digests: { [itemId]: null } },
         });
-      else if (mode === "rejected")
+      else if (mode === "live-rejected")
         h.host.customFieldDigests.mockResolvedValueOnce({
           ok: false,
           error: { code: "crypto-locked" },
@@ -449,8 +449,49 @@ describe("custom-field comparison with the replaced snapshot", () => {
       expect(h.entry()).toEqual(durable);
       expect(h.manager.status().ready).toBe(true);
       expect((await h.manager.listFields(old.handle, itemId)).ok).toBe(true);
+      // The candidate was retired; only the live session stays open.
+      expect(h.opened.size).toBe(1);
+      // The next sync skips the comparison so a repeating failure cannot block it.
+      h.host.customFieldDigests.mockClear();
+      const next = await h.manager.accept(compare());
+      expect(next.ok && next.data.sameCustomFields).toEqual([]);
+      expect(h.host.customFieldDigests).not.toHaveBeenCalled();
+      // Only once: the sync after that compares again.
+      h.host.customFieldDigests.mockImplementation(async (_session, ids) => ({
+        ok: true,
+        data: { digests: Object.fromEntries(ids.map((id) => [id, "A".repeat(43)])) },
+      }));
+      const later = await h.manager.accept(compare());
+      expect(later.ok && later.data.sameCustomFields).toEqual([itemId]);
     },
   );
+  it("commits without reporting the item when the candidate digest fails without ending it", async () => {
+    const h = harness();
+    const old = await accepted(h);
+    h.host.customFieldDigests.mockImplementation(async (session, ids) =>
+      session.snapshotId === old.handle.snapshotId
+        ? {
+            ok: true,
+            data: { digests: Object.fromEntries(ids.map((id) => [id, "A".repeat(43)])) },
+          }
+        : { ok: false, error: { code: "resource-limit" } },
+    );
+    const result = await h.manager.accept(compare());
+    expect(result.ok && result.data.sameCustomFields).toEqual([]);
+    expect(h.manager.status().ready).toBe(true);
+  });
+  it("fails before the write and forgets the live session when both digests ended them", async () => {
+    const h = harness();
+    const old = await accepted(h);
+    const durable = h.entry();
+    h.events.length = 0;
+    h.host.customFieldDigests.mockResolvedValue({ ok: false, error: { code: "crypto-failed" } });
+    expect(await h.manager.accept(compare())).toEqual(vaultFailure("crypto-failed"));
+    expect(h.events).not.toContain("commit");
+    expect(h.entry()).toEqual(durable);
+    expect(h.manager.status().ready).toBe(false);
+    expect((await h.manager.listFields(old.handle, itemId)).ok).toBe(false);
+  });
   it("compares nothing without an open session for the record being replaced", async () => {
     const h = harness();
     await accepted(h);

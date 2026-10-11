@@ -85,6 +85,9 @@ export function createLocalVaultManager(options: {
   // An overlapping disable must not acknowledge while an earlier lock is pending.
   const retirements = new Set<Promise<void>>();
   let uncertain = false;
+  // Set when a comparison may have ended the candidate, so a failure that repeats cannot
+  // block every sync: the next accept skips the comparison and relies on review.
+  let skipComparison = false;
   const summary = (entry: VaultEntry): LocalVaultSummary => ({
     connectionId: entry.profile.connectionId,
     revision: entry.revision,
@@ -382,6 +385,7 @@ export function createLocalVaultManager(options: {
         const old = live;
         const comparison =
           compared.length &&
+          !skipComparison &&
           old &&
           !uncertain &&
           previous.data?.accepted &&
@@ -391,7 +395,8 @@ export function createLocalVaultManager(options: {
             : { items: [], candidateEnded: false };
         if (!current(captured, op.signal)) return vaultFailure("cancelled");
         // A candidate the crypto host may have ended cannot serve logins; fail before the
-        // write so the live snapshot stays and the next sync retries.
+        // write so the stored snapshot stays and the next sync retries without comparing.
+        skipComparison = comparison.candidateEnded;
         if (comparison.candidateEnded) return vaultFailure("crypto-failed");
         const sameFields = comparison.items;
         await options.checkpoint?.("before-write");
