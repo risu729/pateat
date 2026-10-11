@@ -13,6 +13,7 @@ import {
   boundedMessage,
   commandSchema,
   CRYPTO_PORT,
+  customDigestsSchema,
   lifecycleSchema,
   progressSchema,
   replySchema,
@@ -20,6 +21,7 @@ import {
   passkeySignatureSchema,
   sessionSchema,
   uriCandidatesSchema,
+  type CustomDigests,
   type HostOperation,
   type UriCandidates,
   type HostSessionRef,
@@ -340,6 +342,18 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           return;
         }
       }
+      if (job.operation.kind === "custom-digest") {
+        const requested = job.operation.itemIds;
+        const checked = v.safeParse(customDigestsSchema, result.data);
+        if (
+          !checked.success ||
+          Object.keys(checked.output.digests).length !== requested.length ||
+          !requested.every((id) => Object.hasOwn(checked.output.digests, id))
+        ) {
+          cancelOwned(parsed.output.requestId, "crypto-locked");
+          return;
+        }
+      }
       if (job.operation.kind === "passkey-find" || job.operation.kind === "passkey-sign") {
         const operation = job.operation;
         const bound = (entry: { connectionId: string; userId: string; snapshotId: string }) =>
@@ -561,6 +575,8 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     )
       return fail("invalid-request");
     operation = command.operation;
+    if (operation.kind === "custom-digest" && !unique(operation.itemIds))
+      return fail("invalid-request");
     if (
       operation.kind === "open" &&
       operation.prepared?.binding?.profile?.connectionId !== connectionId
@@ -708,6 +724,15 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<UriCandidates>(
         session.connectionId,
         { kind: "match-uris", session, targetUrl },
+        signal,
+      );
+    },
+    /** Per item, a digest of its decrypted custom fields keyed inside the offscreen
+     * document: two sessions' digests show only whether the fields are equal. */
+    customFieldDigests(session: HostSessionRef, itemIds: readonly string[], signal?: AbortSignal) {
+      return request<CustomDigests>(
+        session.connectionId,
+        { kind: "custom-digest", session, itemIds: [...itemIds] },
         signal,
       );
     },

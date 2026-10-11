@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import {
   admitPreparedBitwardenAccount,
   normalizeBitwardenProfile,
@@ -28,6 +29,7 @@ export type VaultCryptoHost = Pick<
   | "resolveField"
   | "catalog"
   | "matchUris"
+  | "customFieldDigests"
   | "findPasskeys"
   | "signPasskey"
 >;
@@ -51,6 +53,7 @@ export type LocalVaultSummary = {
   coverage?: "received-envelope";
 };
 export type VaultCheckpoint = "before-write" | "after-write";
+const itemIdSchema = v.pipe(v.string(), v.uuid());
 export function createLocalVaultManager(options: {
   profile: BitwardenProfile;
   host: VaultCryptoHost;
@@ -237,6 +240,31 @@ export function createLocalVaultManager(options: {
     }
     return opened;
   }
+  /**
+   * Items whose decrypted custom fields are equal in the old live and the candidate
+   * session. Only equality leaves the crypto host; any failure yields no item.
+   */
+  async function sameCustomFields(
+    old: OpenedHostSession,
+    next: OpenedHostSession,
+    itemIds: string[],
+    signal: AbortSignal,
+  ): Promise<string[]> {
+    try {
+      const [before, after] = await Promise.all([
+        // Cancelling the sync must not cancel, and so terminate, the live session.
+        options.host.customFieldDigests(old.session, itemIds),
+        options.host.customFieldDigests(next.session, itemIds, signal),
+      ]);
+      if (!before.ok || !after.ok) return [];
+      return itemIds.filter((id) => {
+        const digest = before.data.digests[id];
+        return typeof digest === "string" && digest === after.data.digests[id];
+      });
+    } catch {
+      return [];
+    }
+  }
   function operation(signal?: AbortSignal) {
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -258,9 +286,19 @@ export function createLocalVaultManager(options: {
         prepared: PreparedBitwardenAccount;
         unlock: HostUnlock;
         autoUnlock: "enable" | "preserve";
+        /** Protected item IDs whose decrypted custom fields are compared with the live
+         * snapshot's, when it is the one being replaced. */
+        compareCustomFields?: string[];
       },
       signal?: AbortSignal,
-    ): Promise<VaultResult<{ handle: LocalVaultHandle; summary: LocalVaultSummary }>> {
+    ): Promise<
+      VaultResult<{
+        handle: LocalVaultHandle;
+        summary: LocalVaultSummary;
+        /** Compared items whose custom fields are unchanged; empty when none were compared. */
+        sameCustomFields: string[];
+      }>
+    > {
       if (!profile) return vaultFailure("invalid-profile");
       if (disposed || disabling) return vaultFailure("crypto-locked");
       if (busy) return vaultFailure("resource-limit");
@@ -323,6 +361,21 @@ export function createLocalVaultManager(options: {
         };
         const ready = admitVaultEntry(entry, profile);
         if (!ready.ok) return ready;
+        // Only item UUIDs can be compared; one other ID must not stop the rest.
+        const compared = Array.isArray(capturedInput.compareCustomFields)
+          ? [...new Set(capturedInput.compareCustomFields.filter((id) => v.is(itemIdSchema, id)))]
+          : [];
+        const old = live;
+        const sameFields =
+          compared.length &&
+          old &&
+          !uncertain &&
+          previous.data?.accepted &&
+          old.handle.recordId === previous.data.accepted.recordId &&
+          old.handle.snapshotId === previous.data.accepted.snapshotId
+            ? await sameCustomFields(old.opened, candidate, compared, op.signal)
+            : [];
+        if (!current(captured, op.signal)) return vaultFailure("cancelled");
         await options.checkpoint?.("before-write");
         if (!current(captured, op.signal)) return vaultFailure("cancelled");
         writeAttempted = true;
@@ -373,7 +426,11 @@ export function createLocalVaultManager(options: {
         candidate = undefined;
         return {
           ok: true,
-          data: { handle: structuredClone(handle), summary: summary(ready.data) },
+          data: {
+            handle: structuredClone(handle),
+            summary: summary(ready.data),
+            sameCustomFields: sameFields,
+          },
         };
       } catch {
         if (writeAttempted) {

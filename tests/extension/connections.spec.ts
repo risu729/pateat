@@ -250,7 +250,13 @@ for (const challenge of ["mfa", "new-device"] as const) {
   });
 }
 
-for (const variant of ["unchanged", "builtin-changed", "changed", "reordered"] as const) {
+for (const variant of [
+  "unchanged",
+  "builtin-changed",
+  "reencrypted",
+  "changed",
+  "reordered",
+] as const) {
   test(`custom exclusion replacement ${variant} preserves exact identity or quarantines the affected item`, async () => {
     await withVaultProfile(async (open, requests) => {
       const browser = await open();
@@ -283,7 +289,8 @@ for (const variant of ["unchanged", "builtin-changed", "changed", "reordered"] a
       expect(refreshed).toMatchObject({ ok: true, kind: "ready" });
       if (!refreshed.ok || refreshed.kind !== "ready") throw new Error("Synthetic sync failed");
       expect(refreshed.snapshotId).not.toBe(first.snapshotId);
-      const unchanged = variant === "unchanged" || variant === "builtin-changed";
+      // Re-encrypted fields are found equal by decrypting both snapshots in the crypto host.
+      const unchanged = ["unchanged", "builtin-changed", "reencrypted"].includes(variant);
       expect(refreshed.policyReviewItemIds).toEqual(unchanged ? [] : [item.id]);
       expect(await setupProbe(browser.page, { action: "resolve", field: "custom-1" })).toEqual({
         ok: false,

@@ -19,6 +19,7 @@ it.each([
   "changed",
   "removed",
   "builtin-changed",
+  "reencrypted",
 ] satisfies CustomAccountVariant[])(
   "setup custom-field %s fixture remains a genuinely decryptable provider DTO",
   async (variant) => {
@@ -77,8 +78,15 @@ it.each([
             ? ["00001234", "true", undefined]
             : ["007", "00001234", "true", undefined];
     expect(values).toEqual(expected);
+    expect(decrypted.data.fields?.map((field) => field.name)).toEqual(
+      Array.from(expected, (_, index) =>
+        index === expected.length - 1 ? "linked-password" : "duplicate",
+      ),
+    );
     expect(decrypted.data.login?.password).toBe(
-      variant === "builtin-changed" ? "test_username" : "test_password",
+      variant === "builtin-changed" || variant === "reencrypted"
+        ? "test_username"
+        : "test_password",
     );
     expect(network).not.toHaveBeenCalled();
   },

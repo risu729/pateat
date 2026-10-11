@@ -148,6 +148,24 @@ function harness(
         ? { ok: true as const, data: { kind: "text" as const, value: "synthetic-unit-password" } }
         : { ok: false as const, error: { code: "field-denied" as const } },
     ),
+    // Stands in for the offscreen-keyed digest: equal for an item present in both sessions.
+    customFieldDigests: vi.fn<VaultCryptoHost["customFieldDigests"]>(async (session, ids) => {
+      events.push("digest");
+      const active = opened.get(session.sessionId);
+      return {
+        ok: true as const,
+        data: {
+          digests: Object.fromEntries(
+            ids.map((id) => [
+              id,
+              active?.prepared.ciphers.some((cipher) => String(cipher.id) === id)
+                ? "A".repeat(43)
+                : null,
+            ]),
+          ),
+        },
+      };
+    }),
     findPasskeys: vi.fn<VaultCryptoHost["findPasskeys"]>(async (session, rpId) => {
       const binding = {
         connectionId: session.connectionId,
@@ -326,6 +344,78 @@ describe("acceptance verification and publication", () => {
     );
     expect(h.opened.size).toBe(0);
     expect((await h.manager.listFields(old.handle, itemId)).ok).toBe(false);
+  });
+});
+
+describe("custom-field comparison with the replaced snapshot", () => {
+  const compare = (ids: string[] = [itemId]) => ({
+    ...candidate("preserve"),
+    compareCustomFields: ids,
+  });
+  it("reports items whose digests are equal in the live and candidate sessions before the write", async () => {
+    const h = harness();
+    const old = await accepted(h);
+    expect(old.sameCustomFields).toEqual([]);
+    expect(h.host.customFieldDigests).not.toHaveBeenCalled();
+    h.events.length = 0;
+    const other = crypto.randomUUID();
+    const result = await h.manager.accept(compare([itemId, other, "not-a-uuid", itemId]));
+    expect(result.ok && result.data.sameCustomFields).toEqual([itemId]);
+    expect(h.events).toEqual([
+      "open",
+      "verify-all",
+      "export",
+      "digest",
+      "digest",
+      "commit",
+      "lock",
+    ]);
+    const sessions = h.host.customFieldDigests.mock.calls.map(([session, ids]) => {
+      expect(ids).toEqual([itemId, other]);
+      return session.snapshotId;
+    });
+    expect(sessions).toEqual([old.handle.snapshotId, result.ok && result.data.handle.snapshotId]);
+    // The live session is not tied to the sync's cancellation.
+    expect(h.host.customFieldDigests.mock.calls[0]![2]).toBeUndefined();
+  });
+  it.each(["different", "missing", "rejected", "thrown"] as const)(
+    "accepts without reporting the item when the digests are %s",
+    async (mode) => {
+      const h = harness();
+      await accepted(h);
+      if (mode === "different")
+        h.host.customFieldDigests.mockImplementationOnce(async (_session, ids) => ({
+          ok: true,
+          data: { digests: Object.fromEntries(ids.map((id) => [id, "B".repeat(43)])) },
+        }));
+      else if (mode === "missing")
+        h.host.customFieldDigests.mockResolvedValue({
+          ok: true,
+          data: { digests: { [itemId]: null } },
+        });
+      else if (mode === "rejected")
+        h.host.customFieldDigests.mockResolvedValueOnce({
+          ok: false,
+          error: { code: "crypto-locked" },
+        });
+      else h.host.customFieldDigests.mockRejectedValueOnce(new Error("synthetic"));
+      const result = await h.manager.accept(compare());
+      expect(result.ok && result.data.sameCustomFields).toEqual([]);
+      expect(h.manager.status().ready).toBe(true);
+    },
+  );
+  it("compares nothing without an open session for the record being replaced", async () => {
+    const h = harness();
+    await accepted(h);
+    const fresh = createLocalVaultManager({
+      profile: accountProfile,
+      host: h.host,
+      store: h.store,
+    });
+    managers.push(fresh);
+    const result = await fresh.accept(compare());
+    expect(result.ok && result.data.sameCustomFields).toEqual([]);
+    expect(h.host.customFieldDigests).not.toHaveBeenCalled();
   });
 });
 
