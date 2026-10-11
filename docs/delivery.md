@@ -82,21 +82,26 @@ scope. The release limits itself to the recorded database ID, and routine releas
 not touch the Custom Domain, so the token needs no zone permission. This repository
 does not supply or provision them.
 
-The workflow takes the CI run that triggered it, or the `ci_run_id` of a manual
-dispatch, and fails before any change when the token is empty or the account ID is not a
-32-character hex ID. It verifies the run's identity, event and conclusion, restores only
-its hashed artifact, rechecks main within a non-cancelling release lock, applies the
-released migrations, deploys through the pinned action without rebuilding, and verifies
-returned deployment IDs and the hosted revision. Before `cf d1 migrations apply`, it
-reads the database by the recorded ID and requires the name `pateat`; afterwards no
-migration may remain unapplied. A failed migration stops the release before activation.
-Before the first public release, migrations need not be additive and the previously
-serving Worker need not keep running on the new schema
-([compatibility before release](development.md#compatibility-before-release)); cf
+An automatic run releases the current main revision, not necessarily the one whose CI
+run started it: main CI runs can finish out of order, and the release lock keeps only
+the newest pending run. It uses main's successful push CI run, and does nothing when
+that run has not finished yet (its own completion starts a release) or when `/health`
+already reports that revision. A manual dispatch releases the `ci_run_id` it is given
+for the main revision it started on. The workflow fails before any change when the token
+is empty or the account ID is not a 32-character hex ID. It verifies the run's identity,
+event and conclusion, restores only its hashed artifact, rechecks main within a
+non-cancelling release lock, applies the released migrations, deploys through the pinned
+action without rebuilding, and verifies returned deployment IDs and the hosted revision.
+Before `cf d1 migrations apply`, it reads the database by the recorded ID and requires
+the name `pateat`; afterwards no migration may remain unapplied. A failed migration
+stops the release before activation. Before the first public release, migrations need
+not be additive and the previously serving Worker need not keep running on the new
+schema ([compatibility before release](development.md#compatibility-before-release)); cf
 compares applied migrations by name only, so an applied migration file is never edited.
 `cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
-is updated. Failed delivery stays failed; a retry requires an explicit dispatch, and the
-next merge starts a new release. Routine releases never change the Custom Domain or
+is updated. A failed release is not retried on purpose: retry with an explicit dispatch,
+or let the next merge start a new release (a late CI run for an older revision can also
+retry it, because it releases main). Routine releases never change the Custom Domain or
 other triggers; the bootstrap applies them once. The complete service release gates
 below remain planned, including automatic promotion/failure acknowledgement.
 
