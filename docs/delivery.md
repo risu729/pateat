@@ -80,7 +80,10 @@ created on 2026-10-11 is "pateat-github-actions-production" with Individual Work
 Editor on `pateat-api` only and D1 Write for the whole account, because the dashboard
 offers no per-database D1 scope. The release limits itself to the recorded database ID,
 and routine releases do not touch the Custom Domain, so the token needs no zone
-permission. This repository does not supply or provision them.
+permission. The `production` environment accepts deployments only from `main`
+(Deployment branches and tags: selected branch rule `main`, set by the owner on
+2026-10-11), so a workflow on another branch cannot read the token. This repository
+does not supply or provision them.
 
 An automatic run releases the current main revision, not necessarily the one whose CI
 run started it: main CI runs can finish out of order, and the release lock keeps only
