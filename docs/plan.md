@@ -1209,7 +1209,17 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   pages without a code field. Unit, service and extension runtime tests cover these
   with synthetic pages and fakes, and the 122 existing extension E2E specs pass; no E2E
   spec drives a security-key page, and nothing has run in real Chrome yet. Its
-  real-Chrome check on npmjs.com's security-key page is still open.
+  real-Chrome check on npmjs.com's security-key page is still open. Delivery 3 part A
+  is implemented: `password` route variants (the recipe's own slots and steps plus up to
+  3 `alternatives`), the per-variant checks, the first fitting variant chosen once from
+  the item's facts and recorded in the attempt, bindings per variant, start detection
+  over every variant, generation of alternatives for identifier sets the start page
+  shows at once, and the synthetic corpus case `ja-bank-two-identifier-sets`. Unit,
+  service and extension runtime tests and one probe E2E spec (the second identifier set
+  filled for an account that maps only that one) cover it with synthetic data; no paid
+  generation call or real-account login has used it. An identifier set behind a tab, as
+  SMBC's contract-number tab appears to be, is not generated. Delivery 3 part B, the
+  `passkey` route, is next.
 - Continuing a generated recipe on the page after an `advance` step, through the
   generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
   extension already sends a recipe's first page under the automatic send rule of

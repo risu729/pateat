@@ -428,16 +428,16 @@ debugger in normal operation. Another installed extension can still inject a con
 frame; coexistence requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->
-awaiting-result -> authenticated / retryable / blocked. One writer owns an
-attempt for a tab/document, and a tab runs one attempt across all of its frames; other
-tabs can progress independently. Revalidate
-origin, account binding, target elements, and document immediately before each
-fill or click. Expire late AI results after navigation and cancel outstanding
-work. Synthetic events and lack of trusted user activation may limit some sites.
-An attempt starts when a recipe's first step is ready on the page, including after a
-same-document URL change, and each later fill or click waits a bounded time for its
-elements ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)).
-The browser-provided `sender.url` keeps a document's load URL, so the executor takes a
+awaiting-result -> authenticated / retryable / blocked. One writer owns an attempt for a
+tab/document, and a tab runs one attempt across all of its frames; other tabs can
+progress independently. Revalidate origin, account binding, target elements, and
+document immediately before each fill or click. Expire late AI results after navigation
+and cancel outstanding work. Synthetic events and lack of trusted user activation may
+limit some sites. An attempt starts when a recipe's first step, that of any of its
+`password` variants, is ready on the page, including after a same-document URL change,
+and each later fill or click waits a bounded time for its elements
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). The
+browser-provided `sender.url` keeps a document's load URL, so the executor takes a
 top-level document's current path from the tab's committed URL.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to
@@ -522,25 +522,34 @@ Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.
 
-A new login reads its item's facts once and records them in its attempt ([ADR
-0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password and
-TOTP field from the catalog's value-free `empty` flags (an allowed Linked field that
+A new login reads its item's facts once and records them in its attempt
+([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
+and TOTP field from the catalog's value-free `empty` flags (an allowed Linked field that
 reads one counts like it), and any usable or discoverable passkey from one item-scoped
 vault search per RP ID the origin may use. The facts never leave the extension. The
-attempt also records its route; only `password` exists yet, and it fits when every bound
-password or TOTP field, built in or Linked to one, has its fact, else the page is
-refused `no-route`. After each effect step the executor checks the completion, the
-rejection and the plan's next step, then the recipe's handlers on the page's path: a
-handler whose first element is unique is entered once per login, its steps follow the
-effect step and grow the attempt's step and submission budget (at most 4 handlers, 40
-steps and 12 submissions). The `passkey` handler clicks a button such as "Use security
-key" only for an item with a usable passkey; otherwise, and when a handler's page shows
-again after it ran, the attempt ends `challenge`. While a handler's clicked button still
-shows in the document that clicked it, the page is neither judged nor settled for up to
-two minutes; then it ends `challenge`. A new document of the tab that shows the button
-of a handler that already ran ends `challenge` at once. When the result settles, a page
-no check explains is sent to be judged unless it still shows the route's fill fields on
-a route path or the completion marker; this applies to later documents of the tab too,
+attempt also records its route; only `password` exists yet. A recipe's `password` route
+has one to four variants, one per identifier set its start page offers (such as branch
+and account numbers, or a contract number), and the attempt records the variant it took:
+the first, in recipe order, whose binding resolves on the item and whose every bound
+password or TOTP field, built in or Linked to one, has its fact; the item's own password
+must also be present. A saved binding is the only source for its item, so a variant
+whose slots it does not hold is skipped. When none fits, a recipe with one variant
+refuses the page with that variant's reason, and a recipe with several refuses it
+`no-route`, with the first variant's reason as the logged refusal's detail. A running or
+resumed login checks only its recorded variant and never reads the facts again
+([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). After each
+effect step the executor checks the completion, the rejection and the plan's next step,
+then the recipe's handlers on the page's path: a handler whose first element is unique
+is entered once per login, its steps follow the effect step and grow the attempt's step
+and submission budget (at most 4 handlers, 40 steps and 12 submissions). The `passkey`
+handler clicks a button such as "Use security key" only for an item with a usable
+passkey; otherwise, and when a handler's page shows again after it ran, the attempt ends
+`challenge`. While a handler's clicked button still shows in the document that clicked
+it, the page is neither judged nor settled for up to two minutes; then it ends
+`challenge`. A new document of the tab that shows the button of a handler that already
+ran ends `challenge` at once. When the result settles, a page no check explains is sent
+to be judged unless it still shows a fill field of any of the route's variants on a
+route path or the completion marker; this applies to later documents of the tab too,
 while the attempt has not ended. At most 2 pages count per effect step: the attempt
 counts a page once its complete description is in hand, before the request, so a restart
 during the request cannot resend without bound. A page is given back only after a
@@ -673,9 +682,9 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `vault.sync` | info for a result and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy` unless a recipe was added, updated or removed, then info; info for `unreachable`; else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop |
-| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
+| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
 | `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs) or `no-room` (the attempt's step or submission budget is spent) |
-| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
+| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail |
 | `recipe.generate` | info | origin, `recipe` or `none` |
 | `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
@@ -818,7 +827,13 @@ slot. The extension keeps that mapping as the field names it offered, per servic
 device and recipe, in `chrome.storage.local`. An item without a saved binding then binds
 from another item's saved binding of the recipe, else from that map, and the binding is
 saved after `authenticated` as for built-in slots
-([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). A `hidden`
+([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). When a
+start page shows several identifier sets at once (branch and account numbers, or a
+contract number), the generation role may also return up to 3 alternative sets, each
+with its own fields and submit action; they become the further variants of the recipe's
+`password` route. An element is filled under one slot name in every set and no two sets
+fill the same slots or elements; an answer that hedges an ambiguous mapping that way
+fails as invalid output. A `hidden`
 slot is filled only into an input the Hidden rule of ADR 0013 accepts; the decision role
 and the heuristic name no custom slot, so they abstain on pages that need one. Signing
 in to a site through Google or Microsoft follows the policy in

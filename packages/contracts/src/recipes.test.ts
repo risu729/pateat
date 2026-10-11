@@ -61,9 +61,13 @@ const fields = [
   { id: `custom.${snapshotId}.2`, name: "PIN" },
   { id: `custom.${snapshotId}.3`, name: null },
 ];
-/** Resolves a binding against a recipe with exactly the binding's slots. */
+/** Resolves every slot of a binding. */
 const resolve = (entry: SavedLoginBinding, live: readonly LocalItemField[] = fields) =>
-  resolveBindingFields(entry, { slots: entry.slots.map((slot) => slot.slot) }, live);
+  resolveBindingFields(
+    entry,
+    entry.slots.map((slot) => slot.slot),
+    live,
+  );
 
 describe("recipe selection", () => {
   const recipes = [
@@ -188,15 +192,27 @@ describe("synced account bindings", () => {
     });
   });
 
-  it("refuses a binding whose slots differ from the recipe's", () => {
+  it("refuses a binding that lacks a route slot and ignores its other slots", () => {
     const entry = binding();
-    expect(resolveBindingFields(entry, { slots: ["branch", "password", "otp"] }, fields)).toEqual({
+    expect(resolveBindingFields(entry, ["branch", "password", "otp"], fields)).toEqual({
       ok: false,
       reason: "binding-slots-mismatch",
     });
-    expect(resolveBindingFields(entry, { slots: ["password"] }, fields)).toEqual({
+    // Another variant's slot is neither resolved nor refused when it no longer resolves.
+    const stale = binding({
+      slots: [
+        { slot: "branch", field: { custom: "Gone" } },
+        { slot: "password", field: "password" },
+      ],
+    });
+    expect(resolveBindingFields(stale, ["password"], fields)).toEqual({
+      ok: true,
+      slots: [{ slot: "password", fieldId: "login.password" }],
+    });
+    expect(resolveBindingFields(stale, ["branch", "password"], fields)).toEqual({
       ok: false,
-      reason: "binding-slots-mismatch",
+      slot: "branch",
+      reason: "field-missing",
     });
   });
 
@@ -260,7 +276,8 @@ describe("automatic account choice", () => {
   it("binds built-in slot names to the item's built-in fields only", () => {
     expect(
       defaultLoginBinding(
-        { ...recipe("bank-signin", "/login"), slots: ["username", "password", "totp"] },
+        ["username", "password", "totp"],
+        recipe("bank-signin", "/login"),
         account,
       ),
     ).toEqual({
@@ -274,16 +291,17 @@ describe("automatic account choice", () => {
       ],
     });
     expect(
-      defaultLoginBinding(
-        { ...recipe("bank-signin", "/login"), slots: ["username", "branch"] },
-        account,
-      ),
+      defaultLoginBinding(["username", "branch"], recipe("bank-signin", "/login"), account),
     ).toBeUndefined();
   });
 
   it("saves the choice and binding once and never replaces existing ones", () => {
     const settings = createDefaultSettings({ connections: [] });
-    const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
+    const chosen = defaultLoginBinding(
+      recipe("bank-signin", "/login").slots,
+      recipe("bank-signin", "/login"),
+      account,
+    )!;
     const saved = saveLoginChoice(settings, chosen);
     // A new default names the provider account, never the local connection, and keeps
     // the item name for display.
@@ -355,7 +373,11 @@ describe("automatic account choice", () => {
   });
 
   it("keys bindings by origin, so a moved recipe can be bound again", () => {
-    const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
+    const chosen = defaultLoginBinding(
+      recipe("bank-signin", "/login").slots,
+      recipe("bank-signin", "/login"),
+      account,
+    )!;
     const moved = { ...chosen, origin: "https://login.bank.example" };
     const settings = { ...createDefaultSettings({ connections: [] }), bindings: [chosen] };
     const saved = saveLoginChoice(settings, moved);
@@ -364,7 +386,11 @@ describe("automatic account choice", () => {
   });
 
   it("saves nothing when a list is full instead of failing after login", () => {
-    const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
+    const chosen = defaultLoginBinding(
+      recipe("bank-signin", "/login").slots,
+      recipe("bank-signin", "/login"),
+      account,
+    )!;
     const settings = createDefaultSettings({ connections: [] });
     const full = {
       ...settings,
@@ -380,26 +406,31 @@ describe("automatic account choice", () => {
 
   it("truncates or replaces the display-only item name", () => {
     const signin = recipe("bank-signin", "/login");
-    expect(defaultLoginBinding(signin, { ...account, itemName: "x".repeat(300) })?.itemName).toBe(
-      "x".repeat(200),
-    );
-    expect(defaultLoginBinding(signin, { ...account, itemName: "" })?.itemName).toBe(
+    expect(
+      defaultLoginBinding(signin.slots, signin, { ...account, itemName: "x".repeat(300) })
+        ?.itemName,
+    ).toBe("x".repeat(200));
+    expect(defaultLoginBinding(signin.slots, signin, { ...account, itemName: "" })?.itemName).toBe(
       account.itemId,
     );
   });
 
   it("names the chosen connection's account and copies the name to a new default", () => {
     const signin = recipe("bank-signin", "/login");
-    const chosen = defaultLoginBinding(signin, { ...account, accountName: "Personal vault" })!;
+    const chosen = defaultLoginBinding(signin.slots, signin, {
+      ...account,
+      accountName: "Personal vault",
+    })!;
     expect(chosen.accountName).toBe("Personal vault");
     expect(v.is(savedLoginBindingSchema, chosen)).toBe(true);
     expect(
-      defaultLoginBinding(signin, { ...account, accountName: "x".repeat(300) })?.accountName,
+      defaultLoginBinding(signin.slots, signin, { ...account, accountName: "x".repeat(300) })
+        ?.accountName,
     ).toBe("x".repeat(200));
     // An empty label is left out rather than stored.
-    expect(defaultLoginBinding(signin, { ...account, accountName: "" })).not.toHaveProperty(
-      "accountName",
-    );
+    expect(
+      defaultLoginBinding(signin.slots, signin, { ...account, accountName: "" }),
+    ).not.toHaveProperty("accountName");
     const saved = saveLoginChoice(createDefaultSettings({ connections: [] }), chosen);
     expect(saved.siteDefaults).toEqual([
       {
@@ -413,7 +444,7 @@ describe("automatic account choice", () => {
     ]);
     expect(v.is(localSettingsSchema, saved)).toBe(true);
     // A binding without one, such as an AI-generated binding, saves a default without one.
-    const unnamed = defaultLoginBinding(signin, account)!;
+    const unnamed = defaultLoginBinding(signin.slots, signin, account)!;
     expect(
       saveLoginChoice(createDefaultSettings({ connections: [] }), unnamed).siteDefaults[0],
     ).not.toHaveProperty("accountName");

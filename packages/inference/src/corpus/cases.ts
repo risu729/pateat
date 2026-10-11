@@ -8,6 +8,11 @@ export type ExpectedResult =
       fields: Record<string, string>;
       action: string;
       purpose: "advance" | "submit";
+      /**
+       * Other identifier sets the page shows for the same sign-in (ADR 0027), each
+       * submitting. Scoring compares the primary set only.
+       */
+      alternatives?: { fields: Record<string, string>; action: string }[];
     }
   | { kind: "abstain" };
 
@@ -82,6 +87,13 @@ export const expectedFields = (expected: Extract<ExpectedResult, { kind: "plan" 
     slot,
     candidate,
     ...(customSlotNames[slot] === undefined ? {} : { name: customSlotNames[slot] }),
+  }));
+
+/** The ground truth's alternatives as a generated plan names them. */
+export const expectedAlternatives = (expected: Extract<ExpectedResult, { kind: "plan" }>) =>
+  (expected.alternatives ?? []).map((alternative) => ({
+    fields: expectedFields({ ...expected, fields: alternative.fields }),
+    action: { candidate: alternative.action, purpose: "submit" as const },
   }));
 
 const submit = (fields: Record<string, string>, action: string): ExpectedResult => ({
@@ -189,6 +201,44 @@ export const evaluationCorpus: EvaluationCase[] = [
       "enter",
     ),
     values: { "custom-1": "045", "custom-2": "7654321", password: "4821" },
+  },
+  {
+    id: "ja-bank-two-identifier-sets",
+    locale: "ja",
+    summary: "支店番号・口座番号、または契約者番号のどちらかとログインパスワード",
+    observation: page(
+      "two-way-bank",
+      "/login",
+      "ja",
+      [
+        tel("branch", "支店番号", { maxLength: 3, inputMode: "numeric" }),
+        tel("account", "口座番号", { maxLength: 7, inputMode: "numeric" }),
+        tel("contract", "または契約者番号", { maxLength: 10, inputMode: "numeric" }),
+        password("pin", "ログインパスワード"),
+        button("login", "ログイン"),
+        link("first-time", "初めてご利用の方"),
+      ],
+      { title: "ログイン", headings: ["支店番号・口座番号または契約者番号でログイン"] },
+    ),
+    slots: [
+      customField(slots.branch, "支店番号", "123"),
+      customField(slots.account, "口座番号", "1234567"),
+      customField(slots.contract, "契約者番号", "1234567890"),
+      slots.password,
+    ],
+    expected: {
+      kind: "plan",
+      fields: { "custom-1": "branch", "custom-2": "account", password: "pin" },
+      action: "login",
+      purpose: "submit",
+      alternatives: [{ fields: { "custom-3": "contract", password: "pin" }, action: "login" }],
+    },
+    values: {
+      "custom-1": "123",
+      "custom-2": "1234567",
+      "custom-3": "1234567890",
+      password: "synthetic-pass",
+    },
   },
   {
     id: "en-identifier-first",

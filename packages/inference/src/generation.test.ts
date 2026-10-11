@@ -2,7 +2,7 @@ import { APICallError } from "ai";
 import { describe, expect, it } from "vitest";
 import { evaluationCorpus } from "./corpus/cases";
 import { evaluateRole } from "./evaluate";
-import { createRecipeGenerator } from "./generation";
+import { createRecipeGenerator, generationInstructions } from "./generation";
 import {
   generationRequest,
   oracleGenerator,
@@ -214,6 +214,120 @@ describe("recipe generation role", () => {
     );
   });
 
+  it("returns the other identifier sets a page shows as validated alternatives", async () => {
+    const twoSets = evaluationCorpus.find((entry) => entry.id === "ja-bank-two-identifier-sets")!;
+    const twoRequest = { observation: twoSets.observation, slots: twoSets.slots };
+    const answer = (alternative: Record<string, unknown>) => {
+      const model = textModel(async () =>
+        textResult(
+          JSON.stringify({
+            result: {
+              decision: "plan",
+              fields: [
+                { slot: "custom-1", candidate: "branch", name: "branch-number" },
+                { slot: "custom-2", candidate: "account", name: "account-number" },
+                { slot: "password", candidate: "pin" },
+              ],
+              action: { candidate: "login", purpose: "submit" },
+              alternatives: [alternative],
+            },
+          }),
+        ),
+      );
+      return createRecipeGenerator({ model, limits, maxOutputTokens: 512 })(twoRequest);
+    };
+    const byContract = {
+      fields: [
+        { slot: "custom-3", candidate: "contract", name: "contract-number" },
+        { slot: "password", candidate: "pin" },
+      ],
+      action: { candidate: "login", purpose: "submit" },
+    };
+    const outcome = await answer(byContract);
+    if (outcome.status !== "ok") throw new Error("expected a plan");
+    expect(outcome.value.alternatives?.map((entry) => entry.steps)).toEqual([
+      [
+        {
+          kind: "fill",
+          path: "/login",
+          effect: "prepare",
+          fields: [
+            { slot: "contract-number", target: { by: "id", value: "contract" } },
+            { slot: "password", target: { by: "id", value: "pin" } },
+          ],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "login" }, purpose: "submit" },
+      ],
+    ]);
+    // An alternative that fails a check refuses the whole plan.
+    expect(
+      await answer({ ...byContract, action: { candidate: "login", purpose: "advance" } }),
+    ).toMatchObject({ status: "failed", error: "invalid-output", detail: "variant-advance" });
+    expect(
+      await answer({
+        ...byContract,
+        fields: [{ slot: "custom-3", candidate: "first-time", name: "contract-number" }],
+      }),
+    ).toMatchObject({ status: "failed", error: "invalid-output", detail: "incompatible-role" });
+  });
+
+  it("bounds the alternatives in the response format the provider receives", async () => {
+    const { model, generate } = generatorReturning(plan([["email", "email"]]));
+    await generate(request);
+    const format = model.doGenerateCalls[0]!.responseFormat as { schema?: unknown };
+    const find = (value: unknown): unknown => {
+      if (!value || typeof value !== "object") return undefined;
+      const record = value as Record<string, unknown>;
+      const properties = record["properties"] as Record<string, unknown> | undefined;
+      if (properties?.["alternatives"]) return properties["alternatives"];
+      for (const entry of Object.values(record)) {
+        const found = find(entry);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    expect(find(format.schema)).toMatchObject({
+      type: "array",
+      maxItems: 3,
+      items: {
+        properties: {
+          fields: { type: "array", maxItems: 8 },
+          action: { properties: { purpose: { enum: ["advance", "submit"] } } },
+        },
+      },
+    });
+    // A fourth alternative fails the response format itself, before any plan check names a
+    // reason.
+    const four = generatorReturning(
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [
+            { slot: "email", candidate: "email" },
+            { slot: "password", candidate: "password" },
+          ],
+          action: { candidate: "sign-in", purpose: "submit" },
+          alternatives: Array.from({ length: 4 }, () => ({
+            fields: [{ slot: "email", candidate: "email" }],
+            action: { candidate: "sign-in", purpose: "submit" },
+          })),
+        },
+      }),
+    );
+    const outcome = await four.generate(request);
+    expect(outcome).toMatchObject({ status: "failed", error: "invalid-output" });
+    expect(outcome).not.toHaveProperty("detail");
+  });
+
+  it("asks for alternatives only for identifier sets the page shows now", () => {
+    expect(generationInstructions).toContain("alternatives");
+    expect(generationInstructions).toContain("never a sign-up, recovery, registration or");
+    expect(generationInstructions).toContain("a field belongs to one slot name only");
+    expect(generationInstructions).toContain(
+      "no set may fill exactly the same slots as another or only some of another's",
+    );
+  });
+
   it.each([
     ["malformed JSON", '{"result":', undefined, "invalid-output"],
     [
@@ -225,6 +339,22 @@ describe("recipe generation role", () => {
     [
       "extra properties",
       JSON.stringify({ result: { decision: "abstain", reason: "ambiguous", note: "x" } }),
+      undefined,
+      "invalid-output",
+    ],
+    [
+      "four alternatives",
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "password", candidate: "password" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+          alternatives: Array.from({ length: 4 }, () => ({
+            fields: [{ slot: "email", candidate: "email" }],
+            action: { candidate: "sign-in", purpose: "submit" },
+          })),
+        },
+      }),
       undefined,
       "invalid-output",
     ],

@@ -9,6 +9,7 @@ import {
   loginOutcomeSchema,
   loginRouteSchema,
   loginStepEffect,
+  MAX_PASSWORD_ALTERNATIVES,
   parseLoginRecipe,
   routeSteps,
   sameLoginDocument,
@@ -17,7 +18,7 @@ import {
   type LoginItemFacts,
   type LoginOperation,
   type LoginRecipe,
-  type LoginRoute,
+  type LoginRouteChoice,
   type LoginStep,
 } from "./login";
 
@@ -61,6 +62,8 @@ export const attemptMetadataSchema = v.pipe(
     account: loginAccountSchema,
     /** The route chosen when the login started (ADR 0027). */
     route: loginRouteSchema,
+    /** The password route's variant chosen with it: 0 for the recipe's own steps. */
+    variant: v.optional(integer(MAX_PASSWORD_ALTERNATIVES)),
     /** The item's facts read when the login started; never sent anywhere. */
     facts: loginItemFactsSchema,
     /**
@@ -115,6 +118,10 @@ export const attemptMetadataSchema = v.pipe(
       metadata.stepIndex <= metadata.stepCount &&
       metadata.submissions <= metadata.maxSubmissions,
     "Inconsistent attempt scope or budget",
+  ),
+  v.check(
+    (metadata) => metadata.route !== "password" || metadata.variant !== undefined,
+    "A password route needs its variant",
   ),
   v.check(
     (metadata) => (metadata.operationId === undefined) === (metadata.operationKind === undefined),
@@ -673,7 +680,8 @@ export function createAttemptMetadata(input: {
   recipe: LoginRecipe;
   policyRevision: number;
   account: LoginAccount;
-  route: LoginRoute;
+  /** The route and variant chosen when the login starts. */
+  choice: LoginRouteChoice;
   facts: LoginItemFacts;
   document: LoginDocument;
   accountSwitched?: boolean;
@@ -688,13 +696,14 @@ export function createAttemptMetadata(input: {
     recipeRevision: recipe.revision,
     policyRevision: input.policyRevision,
     account: input.account,
-    route: input.route,
+    route: input.choice.route,
+    variant: input.choice.variant,
     facts: input.facts,
     handlers: [],
     document: input.document,
     state: "detected",
     stepIndex: 0,
-    stepCount: routeSteps(recipe, input.route).length,
+    stepCount: routeSteps(recipe, input.choice).length,
     submissions: 0,
     maxSubmissions: recipe.maxSubmissions,
     retries: 0,
@@ -743,6 +752,14 @@ export function recoverLoginAttempt(value: unknown): LoginAttemptMetadata {
   return transitionLoginAttempt(metadata, { type: "INTERRUPTED" });
 }
 
+/** The route and variant an attempt recorded when it started. */
+export function attemptRouteChoice(
+  metadata: Pick<LoginAttemptMetadata, "route" | "variant">,
+): LoginRouteChoice {
+  // The schema requires a variant for the password route.
+  return { route: metadata.route, variant: metadata.variant ?? 0 };
+}
+
 /**
  * The attempt's steps: its route's steps, with each entered handler's steps inserted at
  * its `start`, in the order they were entered. `handler` is the recipe handler index of a
@@ -750,11 +767,12 @@ export function recoverLoginAttempt(value: unknown): LoginAttemptMetadata {
  */
 export function attemptPlan(
   recipe: LoginRecipe,
-  metadata: Pick<LoginAttemptMetadata, "route" | "handlers">,
+  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers">,
 ): { step: LoginStep; handler?: number }[] | undefined {
-  const plan: { step: LoginStep; handler?: number }[] = routeSteps(recipe, metadata.route).map(
-    (step) => ({ step }),
-  );
+  const plan: { step: LoginStep; handler?: number }[] = routeSteps(
+    recipe,
+    attemptRouteChoice(metadata),
+  ).map((step) => ({ step }));
   for (const entry of metadata.handlers) {
     const handler = recipe.handlers?.[entry.index];
     if (!handler || entry.start > plan.length) return undefined;

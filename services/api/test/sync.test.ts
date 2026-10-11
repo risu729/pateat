@@ -589,6 +589,55 @@ describe("recipe sync", () => {
     expect(response.status).toBe(400);
   });
 
+  it("syncs a recipe with password route variants and refuses an unchecked variant", async () => {
+    const device = await enrollOwner();
+    const contract = {
+      slots: ["contract", "password"],
+      steps: [
+        {
+          kind: "fill" as const,
+          effect: "prepare" as const,
+          path: "/login",
+          fields: [
+            { slot: "contract", target: { by: "id" as const, value: "contract" } },
+            { slot: "password", target: { by: "id" as const, value: "password" } },
+          ],
+        },
+        {
+          kind: "click" as const,
+          path: "/login",
+          target: { by: "id" as const, value: "submit" },
+          purpose: "submit" as const,
+        },
+      ],
+    };
+    const varied = { ...recipe("bank-variants", 1), alternatives: [contract] };
+    const written = await put(device, "/v1/recipes/bank-variants", {
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: varied,
+    });
+    expect(written.status).toBe(200);
+    const changes = await api(device, "/v1/recipes");
+    expect(await changes.json()).toMatchObject({
+      changes: [{ recipeId: "bank-variants", recipe: varied }],
+    });
+    // A variant on another start path is refused like any other invalid recipe.
+    const elsewhere = await put(device, "/v1/recipes/bank-elsewhere", {
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: {
+        ...recipe("bank-elsewhere", 1),
+        alternatives: [
+          { ...contract, steps: contract.steps.map((step) => ({ ...step, path: "/contract" })) },
+        ],
+      },
+    });
+    expect(elsewhere.status).toBe(400);
+  });
+
   it("rejects an invalid recipe identifier and unsupported methods", async () => {
     const device = await enrollOwner();
     const invalid = await put(device, "/v1/recipes/bad%20id", {

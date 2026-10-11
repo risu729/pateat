@@ -134,23 +134,66 @@ describe("custom slots in a generated recipe (ADR 0027)", () => {
         { slot: "pin-code", offered: "custom-1" },
       ]),
     ).toBe(false);
-    const nine = Array.from({ length: 9 }, (_, index) => ({
-      slot: `slot-${"abcdefghi"[index]!.repeat(2)}`,
+    // Up to 16: 8 fields in each of several variants, within one request's 16 offers.
+    const seventeen = Array.from({ length: 17 }, (_, index) => ({
+      slot: `slot-${"abcdefghijklmnopq"[index]!.repeat(2)}`,
       offered: `custom-${index + 1}`,
     }));
     const wide = {
       ...change,
-      recipe: { ...custom, slots: [...custom.slots, ...nine.map((entry) => entry.slot)] },
+      recipe: { ...custom, slots: [...custom.slots, ...seventeen.map((entry) => entry.slot)] },
     };
-    const many = (entries: typeof nine) =>
+    const many = (entries: typeof seventeen) =>
       v.is(recipeGenerationResultSchema, {
         version: 1,
         status: "recipe",
         change: wide,
         customSlots: entries,
       });
-    expect(many(nine.slice(0, 8))).toBe(true);
-    expect(many(nine)).toBe(false);
+    expect(many(seventeen.slice(0, 16))).toBe(true);
+    expect(many(seventeen)).toBe(false);
+  });
+
+  it("maps the slots of every password variant", () => {
+    const submit = { ...recipe.steps[1], purpose: "submit" };
+    const varied = {
+      ...change,
+      recipe: {
+        ...custom,
+        steps: [custom.steps[0], submit],
+        alternatives: [
+          {
+            slots: ["contract-number", "pin-code"],
+            steps: [
+              {
+                kind: "fill",
+                path: "/login",
+                fields: [
+                  { slot: "contract-number", target: { by: "id", value: "contract" } },
+                  { slot: "pin-code", target: { by: "id", value: "pin" } },
+                ],
+              },
+              submit,
+            ],
+          },
+        ],
+      },
+    };
+    const mapped = (customSlots: unknown) =>
+      v.is(recipeGenerationResultSchema, {
+        version: 1,
+        status: "recipe",
+        change: varied,
+        customSlots,
+      });
+    expect(
+      mapped([
+        { slot: "branch-number", offered: "custom-1" },
+        { slot: "contract-number", offered: "custom-2" },
+        { slot: "pin-code", offered: "custom-3" },
+      ]),
+    ).toBe(true);
+    expect(answer([{ slot: "contract-number", offered: "custom-2" }])).toBe(false);
   });
 
   it("refuses a slot the recipe lacks, a non-generic slot or an unsafe offered ID", () => {

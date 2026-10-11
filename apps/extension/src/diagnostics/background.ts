@@ -215,7 +215,7 @@ export function createDiagnosticsLog(options: {
       if (report.type === "refused")
         void logger.log(
           "login.refused",
-          { origin: report.origin, reason: report.reason },
+          { origin: report.origin, reason: report.reason, detail: report.detail },
           { source, level: QUIET_REFUSALS.has(report.reason) ? "debug" : "info" },
         );
       else if (report.type === "generation")
@@ -258,6 +258,8 @@ export function createDiagnosticsLog(options: {
           {
             origin: report.origin,
             recipe: report.recipeId,
+            route: report.route,
+            variant: report.variant,
             state: report.state,
             step: report.stepIndex,
             steps: report.stepCount,

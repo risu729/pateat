@@ -1,8 +1,8 @@
 import { loginObservationSchema, semanticSlotsSchema } from "@pateat/contracts";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { validatePagePlan } from "../plan";
-import { evaluationCorpus, expectedFields } from "./cases";
+import { validateGeneratedPage } from "../plan";
+import { evaluationCorpus, expectedAlternatives, expectedFields } from "./cases";
 
 describe("synthetic corpus", () => {
   it("parses, covers both languages and has consistent ground truth", () => {
@@ -21,11 +21,23 @@ describe("synthetic corpus", () => {
       const observation = v.parse(loginObservationSchema, entry.observation);
       const slots = v.parse(semanticSlotsSchema, entry.slots);
       if (entry.expected.kind === "abstain") continue;
-      const result = validatePagePlan(observation, slots, {
+      const result = validateGeneratedPage(observation, slots, {
         fields: expectedFields(entry.expected),
         action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
+        alternatives: expectedAlternatives(entry.expected),
       });
       expect(result.ok, entry.id).toBe(true);
+      expect(result.ok && (result.plan.alternatives ?? []).length, entry.id).toBe(
+        entry.expected.alternatives?.length ?? 0,
+      );
     }
+  });
+
+  it("has a page with two identifier sets for one sign-in (ADR 0027)", () => {
+    expect(
+      evaluationCorpus
+        .filter((entry) => entry.expected.kind === "plan" && entry.expected.alternatives?.length)
+        .map((entry) => entry.id),
+    ).toEqual(["ja-bank-two-identifier-sets"]);
   });
 });

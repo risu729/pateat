@@ -144,19 +144,54 @@ export const loginHandlerSchema = v.variant("kind", [
 ]);
 const handlerKey = (handler: v.InferOutput<typeof loginHandlerSchema>) =>
   `${handler.kind} ${handler.path}`;
+const recipeSlotList = v.pipe(
+  v.array(identifier),
+  v.minLength(1),
+  v.maxLength(20),
+  v.check(unique, "Duplicate recipe slots"),
+);
+const routeStepList = v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32));
+/** At most 3 alternatives, so a password route has at most 4 variants (ADR 0027). */
+export const MAX_PASSWORD_ALTERNATIVES = 3;
+const stepEffects = (steps: readonly v.InferOutput<typeof loginStepSchema>[]) =>
+  steps.filter(
+    (step) => step.kind === "click" || (step.kind === "fill" && step.effect !== "prepare"),
+  ).length;
+const filledSlotsOf = (steps: readonly v.InferOutput<typeof loginStepSchema>[]) => [
+  ...new Set(
+    steps.flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.slot) : [])),
+  ),
+];
+/** Variant 0 is the recipe's own `slots` and `steps`; the alternatives follow in order. */
+const variantsOf = (recipe: {
+  slots: string[];
+  steps: v.InferOutput<typeof loginStepSchema>[];
+  alternatives?: { slots: string[]; steps: v.InferOutput<typeof loginStepSchema>[] }[] | undefined;
+}) => [{ slots: recipe.slots, steps: recipe.steps }, ...(recipe.alternatives ?? [])];
+const targetKey = (target: v.InferOutput<typeof loginTargetSchema>) => JSON.stringify(target);
 export const loginRecipeSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
     id: identifier,
     revision,
     origin: loginOriginSchema,
-    slots: v.pipe(
-      v.array(identifier),
-      v.minLength(1),
-      v.maxLength(20),
-      v.check(unique, "Duplicate recipe slots"),
+    /** The slots of the password route's first variant (variant 0). */
+    slots: recipeSlotList,
+    /** The password route's first variant (variant 0): its steps. */
+    steps: routeStepList,
+    /**
+     * Further variants of the password route (ADR 0027), one per other identifier set the
+     * start page offers, such as a contract number beside a branch and account number.
+     * Each names the slots its fill steps use; the executor takes the first variant the
+     * item's binding fills.
+     */
+    alternatives: v.optional(
+      v.pipe(
+        v.array(v.strictObject({ slots: recipeSlotList, steps: routeStepList })),
+        v.minLength(1),
+        v.maxLength(MAX_PASSWORD_ALTERNATIVES),
+      ),
     ),
-    steps: v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32)),
     // A generated recipe has no completion until the page after its first sign-in is
     // judged (ADR 0018); until then no attempt with it can end authenticated.
     completion: v.optional(
@@ -207,36 +242,99 @@ export const loginRecipeSchema = v.pipe(
   }),
   v.check(
     (recipe) =>
-      recipe.steps.every(
-        (step) =>
-          step.kind !== "fill" || step.fields.every((field) => recipe.slots.includes(field.slot)),
+      variantsOf(recipe).every((variant) =>
+        variant.steps.every(
+          (step) =>
+            step.kind !== "fill" ||
+            step.fields.every((field) => variant.slots.includes(field.slot)),
+        ),
       ),
     "Unknown semantic slot",
   ),
   v.check(
     (recipe) =>
-      recipe.steps.filter(
-        (step) => step.kind === "click" || (step.kind === "fill" && step.effect !== "prepare"),
-      ).length <= recipe.maxSubmissions,
+      variantsOf(recipe).every((variant) => stepEffects(variant.steps) <= recipe.maxSubmissions),
     "Effect attempt budget is too small",
   ),
   v.check(
     (recipe) =>
-      recipe.steps.every(
-        (step, index) =>
-          step.kind !== "fill" ||
-          step.effect === "prepare" ||
-          !recipe.steps
-            .slice(index + 1)
-            .find((next) => next.path === step.path && next.kind === "click"),
+      variantsOf(recipe).every(({ steps }) =>
+        steps.every(
+          (step, index) =>
+            step.kind !== "fill" ||
+            step.effect === "prepare" ||
+            !steps
+              .slice(index + 1)
+              .find((next) => next.path === step.path && next.kind === "click"),
+        ),
       ),
     "Input-triggered effects cannot have a fallback click on the same path",
+  ),
+  // Variants are told apart by their slots, and every variant starts on the recipe's start
+  // page. Each one submits, so a later page can never continue one variant of several.
+  v.check(
+    (recipe) =>
+      !recipe.alternatives ||
+      variantsOf(recipe).every(({ slots, steps }) => {
+        const filled = filledSlotsOf(steps);
+        return (
+          filled.length === slots.length &&
+          slots.every((slot) => filled.includes(slot)) &&
+          steps[0]!.path === recipe.steps[0]!.path &&
+          loginStepEffect(steps.at(-1)!) === "submit"
+        );
+      }),
+    "Each variant fills exactly its slots, starts on the start path and submits",
+  ),
+  v.check(
+    (recipe) =>
+      variantsOf(recipe).every((variant, index, all) =>
+        all.every(
+          (other, otherIndex) =>
+            otherIndex === index || !variant.slots.every((slot) => other.slots.includes(slot)),
+        ),
+      ),
+    "A variant's slots repeat or are a subset of another variant's",
+  ),
+  // An element is filled as one slot whatever the variant, and no two variants fill the
+  // same elements, so an ambiguous mapping never becomes two variants.
+  v.check((recipe) => {
+    if (!recipe.alternatives) return true;
+    const filled = variantsOf(recipe).map(({ steps }) =>
+      steps.flatMap((step) =>
+        step.kind === "fill"
+          ? step.fields.map((field) => ({
+              key: `${step.path}\n${targetKey(field.target)}`,
+              slot: field.slot,
+            }))
+          : [],
+      ),
+    );
+    const slotOf = new Map<string, string>();
+    for (const { key, slot } of filled.flat()) {
+      if ((slotOf.get(key) ?? slot) !== slot) return false;
+      slotOf.set(key, slot);
+    }
+    const keys = filled.map((entries) => new Set(entries.map((entry) => entry.key)));
+    return keys.every((set, index) =>
+      keys.every(
+        (other, otherIndex) =>
+          otherIndex === index ||
+          set.size !== other.size ||
+          [...set].some((key) => !other.has(key)),
+      ),
+    );
+  }, "A fill target maps to several slots, or two variants fill the same targets"),
+  // A binding covers one variant, and bindings hold at most 20 slots.
+  v.check(
+    (recipe) => new Set(variantsOf(recipe).flatMap((variant) => variant.slots)).size <= 20,
+    "Too many recipe slots",
   ),
   // The executor checks the result elements and the next step's elements in one
   // observation of at most 24 elements.
   v.check(
     (recipe) =>
-      Math.max(0, ...recipe.steps.map(stepTargetCount)) +
+      Math.max(0, ...variantsOf(recipe).flatMap((variant) => variant.steps.map(stepTargetCount))) +
         (recipe.completion ? 1 + (recipe.completion.absent?.length ?? 0) : 0) +
         (recipe.rejection ? 1 : 0) <=
       24,
@@ -245,13 +343,35 @@ export const loginRecipeSchema = v.pipe(
   // The switch is clicked instead of signing in, so it must not be a step's own button.
   v.check((recipe) => {
     if (!recipe.accountSwitch) return true;
-    const key = JSON.stringify(recipe.accountSwitch);
+    const key = targetKey(recipe.accountSwitch);
     return ![
-      ...recipe.steps.flatMap((step) => (step.kind === "click" ? [step.target] : [])),
+      ...variantsOf(recipe).flatMap((variant) =>
+        variant.steps.flatMap((step) => (step.kind === "click" ? [step.target] : [])),
+      ),
       ...(recipe.handlers ?? []).map((handler) => handler.target),
       ...(recipe.rejection ? [recipe.rejection] : []),
-    ].some((target) => JSON.stringify(target) === key);
+    ].some((target) => targetKey(target) === key);
   }, "Account switch target is a step or rejection target"),
+  // The completion and rejection are checked after every step, so a variant's own element
+  // must never prove or refuse the sign-in.
+  v.check((recipe) => {
+    if (!recipe.alternatives) return true;
+    const used = variantsOf(recipe).flatMap((variant) =>
+      variant.steps.flatMap((step) =>
+        (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
+          (target) => ({ path: step.path, key: targetKey(target) }),
+        ),
+      ),
+    );
+    return (
+      !used.some(
+        (entry) =>
+          recipe.completion &&
+          entry.path === recipe.completion.path &&
+          entry.key === targetKey(recipe.completion.target),
+      ) && !used.some((entry) => recipe.rejection && entry.key === targetKey(recipe.rejection))
+    );
+  }, "Completion or rejection target is a variant's step target"),
   // A handler's button showing would otherwise prove the sign-in on its own page.
   v.check(
     (recipe) =>
@@ -335,13 +455,81 @@ export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
 export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
 
-/** A route's steps. Delivery 3 of ADR 0027 adds start-page routes beside `password`. */
-export function routeSteps(recipe: LoginRecipe, route: LoginRoute): LoginStep[] {
-  return route === "password" ? recipe.steps : [];
+/**
+ * One way through a route, as the executor records it when a login starts (ADR 0027).
+ * `variant` indexes the password route's variants: 0 is the recipe's own `slots` and
+ * `steps`, 1 to 3 its `alternatives`.
+ */
+// The `passkey` and `sso` routes of ADR 0027 add their own members here.
+export type LoginRouteChoice = { route: "password"; variant: number };
+/** One identifier set of the password route: the slots it fills and its steps. */
+export type PasswordVariant = { slots: string[]; steps: LoginStep[] };
+/** The password route's variants in order: the recipe's own, then its alternatives. */
+export function passwordVariants(recipe: LoginRecipe): PasswordVariant[] {
+  return variantsOf(recipe);
+}
+/** The chosen route's steps, or none when the recipe lacks it. */
+export function routeSteps(recipe: LoginRecipe, choice: LoginRouteChoice): LoginStep[] {
+  return choice.route === "password" ? (passwordVariants(recipe)[choice.variant]?.steps ?? []) : [];
+}
+/** The slots the chosen route fills; a binding for a login on it covers exactly these. */
+export function routeSlots(recipe: LoginRecipe, choice: LoginRouteChoice): string[] {
+  return choice.route === "password" ? (passwordVariants(recipe)[choice.variant]?.slots ?? []) : [];
+}
+/** Every slot of every route and variant, each once, in order. */
+export function recipeSlots(recipe: LoginRecipe): string[] {
+  return [...new Set(passwordVariants(recipe).flatMap((variant) => variant.slots))];
+}
+/**
+ * Every fill target of a route, over all its variants, each once. A page that still shows
+ * one is a sign-in page of the route, whichever variant ran, so it is not judged.
+ */
+export function routeFillTargets(recipe: LoginRecipe, route: LoginRoute): LoginTarget[] {
+  if (route !== "password") return [];
+  const targets = passwordVariants(recipe).flatMap((variant) =>
+    variant.steps.flatMap((step) =>
+      step.kind === "fill" ? step.fields.map((field) => field.target) : [],
+    ),
+  );
+  return targets.filter(
+    (target, index) => targets.findIndex((other) => sameLoginTarget(other, target)) === index,
+  );
+}
+/** Every path a route's steps use, over all its variants, each once. */
+export function routePaths(recipe: LoginRecipe, route: LoginRoute): string[] {
+  if (route !== "password") return [];
+  return [
+    ...new Set(
+      passwordVariants(recipe).flatMap((variant) => variant.steps.map((step) => step.path)),
+    ),
+  ];
+}
+/**
+ * The first step of every route and variant: a new login starts once any of them is
+ * ready on the page. All of them are on the recipe's start path.
+ */
+export function recipeStartSteps(recipe: LoginRecipe): LoginStep[] {
+  return passwordVariants(recipe).map((variant) => variant.steps[0]!);
 }
 /** Whether the recipe offers the route; every recipe has the `password` route. */
 export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean {
-  return routeSteps(recipe, route).length > 0;
+  return route === "password" && passwordVariants(recipe).length > 0;
+}
+/**
+ * The route a new login takes (ADR 0027), from the item's facts and, for each password
+ * variant in order, whether the item's binding fills it (`fits[variant]`): the first
+ * fitting variant, when the item has a password. Undefined means `no-route`.
+ */
+// The owner's order is passkey, then SSO, then password; the passkey and SSO routes come
+// before this check when they exist.
+export function chooseLoginRoute(
+  recipe: LoginRecipe,
+  facts: Pick<LoginItemFacts, "password">,
+  fits: readonly boolean[],
+): LoginRouteChoice | undefined {
+  if (!facts.password) return undefined;
+  const variant = passwordVariants(recipe).findIndex((_, index) => fits[index] === true);
+  return variant === -1 ? undefined : { route: "password", variant };
 }
 /** The steps a handler runs. */
 export function handlerSteps(handler: LoginHandler): LoginStep[] {
@@ -453,13 +641,17 @@ export function sameLoginDocument(left: LoginDocument, right: LoginDocument): bo
   );
 }
 
-/** Policy selects one saved account before any recipe or field lookup. No fallback. */
+/**
+ * Policy selects one saved account before any recipe or field lookup. No fallback. The
+ * binding covers exactly `slots`, the slots of the route the login takes (ADR 0027).
+ */
 export function resolveLoginPlan(
   snapshot: SettingsSnapshot,
   catalog: VaultCatalog,
   url: string,
   recipeValue: unknown,
   bindingValue: unknown,
+  slots: readonly string[],
 ) {
   const account = resolveSiteAccount(snapshot.settings, catalog, url);
   if (!account.ok) return account;
@@ -476,8 +668,8 @@ export function resolveLoginPlan(
   )
     return { ok: false as const, reason: "binding-account-mismatch" as const };
   if (
-    binding.output.slots.length !== recipe.output.slots.length ||
-    !recipe.output.slots.every((slot) => binding.output.slots.some((entry) => entry.slot === slot))
+    binding.output.slots.length !== slots.length ||
+    !slots.every((slot) => binding.output.slots.some((entry) => entry.slot === slot))
   )
     return { ok: false as const, reason: "binding-slots-mismatch" as const };
   if (!binding.output.slots.every((entry) => account.fieldIds.includes(entry.fieldId)))

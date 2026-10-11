@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { genericSlotIdSchema, loginObservationSchema, semanticSlotsSchema } from "./observation";
-import { loginRecipeSchema, loginRouteSchema } from "./login";
+import { loginRecipeSchema, loginRouteSchema, recipeSlots } from "./login";
 import { syncRecipeIdSchema } from "./sync";
 
 // Contracts for the service's recipe generation routes (ADR 0018). Requests carry the
@@ -92,8 +92,9 @@ export const recipeGenerationResultSchema = v.pipe(
         v.pipe(
           v.array(v.strictObject({ slot: genericSlotIdSchema, offered: slotReference })),
           v.minLength(1),
-          // One page plan fills at most 8 fields.
-          v.maxLength(8),
+          // One page plan fills at most 8 fields in each of up to 4 variants, and a request
+          // offers at most 16 custom fields (ADR 0027).
+          v.maxLength(16),
           v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate slots"),
           v.check(
             (entries) => unique(entries.map((entry) => entry.offered)),
@@ -126,7 +127,9 @@ export const recipeGenerationResultSchema = v.pipe(
   v.check(
     (result) =>
       result.status !== "recipe" ||
-      (result.customSlots ?? []).every((entry) => result.change.recipe.slots.includes(entry.slot)),
+      (result.customSlots ?? []).every((entry) =>
+        recipeSlots(result.change.recipe).includes(entry.slot),
+      ),
     "Custom slots must be recipe slots",
   ),
 );

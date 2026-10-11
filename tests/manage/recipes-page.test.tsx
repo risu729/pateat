@@ -129,6 +129,52 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   await expect.element(page.getByText("(revision 3, revoked 2026-10-11 08:16 UTC)")).toBeVisible();
 });
 
+test("lists each identifier set of a recipe with several (ADR 0027)", async () => {
+  const varied = recipe("bank-signin", 1);
+  varied.alternatives = [
+    {
+      slots: ["contract-number", "password"],
+      steps: [
+        {
+          kind: "fill",
+          effect: "prepare",
+          path: "/login",
+          fields: [
+            { slot: "contract-number", target: { by: "id", value: "contract" } },
+            { slot: "password", target: { by: "name", value: "pass" } },
+          ],
+        },
+        {
+          kind: "click",
+          path: "/login",
+          target: { by: "test-id", value: "go" },
+          purpose: "submit",
+        },
+      ],
+    },
+  ];
+  const client = mockClient({
+    version: 1,
+    recipes: [
+      {
+        change: { recipeId: "bank-signin", revision: 1, state: "active", recipe: varied },
+        updatedAt: UPDATED,
+      },
+    ],
+  });
+  await mount(client);
+  await page.getByText("Steps and JSON for bank-signin").click();
+  const details = page.getByRole("group").first();
+  for (const text of [
+    "Slotsusername, password, contract-number",
+    "Identifier set 1: username, password",
+    "Identifier set 2: contract-number, password",
+    'Fill contract-number into id "contract", password into name "pass" (prepare)',
+  ])
+    // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
+    await expect.element(details).toMatchTextContent(text);
+});
+
 test("reports a revocation that lost to another write and shows the current recipes", async () => {
   const client = mockClient({ version: 1, recipes: [active("bank-signin")] });
   await mount(client);

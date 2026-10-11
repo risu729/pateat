@@ -122,27 +122,26 @@ function resolveField(
 }
 
 /**
- * Resolves every slot of a binding against one live item, or refuses on the first
- * slot that cannot be resolved exactly. The binding must cover exactly the recipe's
- * slots, and `fields` must be the item's full field list, not a filtered one.
- * Eligibility and exclusions are checked later.
+ * Resolves the binding's entries for `slots`, the slots of the route a login takes (ADR
+ * 0027), against one live item, or refuses on the first slot that cannot be resolved
+ * exactly. The binding must hold every one of `slots`; entries for other slots, such as
+ * another variant's, are ignored and never resolved. `fields` must be the item's full
+ * field list, not a filtered one. Eligibility and exclusions are checked later.
  */
 export function resolveBindingFields(
   binding: Pick<SavedLoginBinding, "slots">,
-  recipe: Pick<LoginRecipe, "slots">,
+  slots: readonly string[],
   fields: readonly LocalItemField[],
 ): BindingFieldResolution {
-  const bound = new Set(binding.slots.map((entry) => entry.slot));
-  if (bound.size !== recipe.slots.length || recipe.slots.some((slot) => !bound.has(slot))) {
-    return { ok: false, reason: "binding-slots-mismatch" };
-  }
-  const slots: { slot: string; fieldId: string }[] = [];
-  for (const entry of binding.slots) {
+  const used = binding.slots.filter((entry) => slots.includes(entry.slot));
+  if (used.length !== slots.length) return { ok: false, reason: "binding-slots-mismatch" };
+  const resolvedSlots: { slot: string; fieldId: string }[] = [];
+  for (const entry of used) {
     const resolved = resolveField(entry.field, fields);
     if ("reason" in resolved) return { ok: false, slot: entry.slot, reason: resolved.reason };
-    slots.push({ slot: entry.slot, fieldId: resolved.fieldId });
+    resolvedSlots.push({ slot: entry.slot, fieldId: resolved.fieldId });
   }
-  return { ok: true, slots };
+  return { ok: true, slots: resolvedSlots };
 }
 
 /**
@@ -167,12 +166,14 @@ const builtinSlots = new Set<string>(["username", "password", "totp"]);
 
 /**
  * The binding an automatic account choice uses before AI generation maps slots (ADR
- * 0013): each slot named `username`, `password` or `totp` reads the item's built-in
- * field of that name. A recipe with any other slot has no automatic binding, and
- * neither has one whose origin or IDs do not fit the binding schema.
+ * 0013): each of `slots`, the slots of the route a login takes, named `username`,
+ * `password` or `totp` reads the item's built-in field of that name. Slots with any other
+ * name have no automatic binding, and neither has a recipe whose origin or IDs do not fit
+ * the binding schema.
  */
 export function defaultLoginBinding(
-  recipe: Pick<LoginRecipe, "id" | "origin" | "slots">,
+  slots: readonly string[],
+  recipe: Pick<LoginRecipe, "id" | "origin">,
   account: {
     provider: string;
     userId: string;
@@ -182,7 +183,7 @@ export function defaultLoginBinding(
     accountName?: string;
   },
 ): SavedLoginBinding | undefined {
-  if (!recipe.slots.every((slot) => builtinSlots.has(slot))) return undefined;
+  if (!slots.every((slot) => builtinSlots.has(slot))) return undefined;
   const { accountName, ...owner } = account;
   const binding = v.safeParse(savedLoginBindingSchema, {
     recipeId: recipe.id,
@@ -191,7 +192,7 @@ export function defaultLoginBinding(
     // The item and account names are for display only.
     itemName: (account.itemName || account.itemId).slice(0, 200),
     ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
-    slots: recipe.slots.map((slot) => ({ slot, field: slot })),
+    slots: slots.map((slot) => ({ slot, field: slot })),
   });
   return binding.success ? binding.output : undefined;
 }

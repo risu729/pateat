@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attemptPlan,
+  attemptRouteChoice,
   createAttemptMetadata,
   nextLoginOperation,
   parseAttemptMetadata,
@@ -46,7 +47,7 @@ function detected(selected = recipe) {
     recipe: selected,
     policyRevision: 3,
     account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
-    route: "password",
+    choice: { route: "password", variant: 0 },
     facts,
     document,
   });
@@ -483,7 +484,7 @@ describe("submission and failure reconciliation", () => {
       recipe: twoPage,
       policyRevision: 3,
       account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
-      route: "password",
+      choice: { route: "password", variant: 0 },
       facts,
       document,
     });
@@ -706,7 +707,7 @@ describe("submission and failure reconciliation", () => {
           recipe,
           policyRevision: 3,
           account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
-          route: "password",
+          choice: { route: "password", variant: 0 },
           facts,
           document: top,
         }),
@@ -917,7 +918,7 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
         recipe: selected,
         policyRevision: 3,
         account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
-        route: "password",
+        choice: { route: "password", variant: 0 },
         facts: factsWithKey,
         document,
       }),
@@ -945,12 +946,13 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
       recipe: handled,
       policyRevision: 3,
       account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
-      route: "password",
+      choice: { route: "password", variant: 0 },
       facts: factsWithKey,
       document,
     });
     expect(attempt).toMatchObject({
       route: "password",
+      variant: 0,
       facts: factsWithKey,
       handlers: [],
       // Only the route's steps; a handler's steps join when it is entered.
@@ -960,6 +962,8 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
     expect(parseAttemptMetadata(attempt)).toEqual(attempt);
     for (const malformed of [
       { ...attempt, route: "passkey" },
+      { ...attempt, variant: undefined },
+      { ...attempt, variant: 4 },
       { ...attempt, facts: { ...facts, sso: true } },
       { ...attempt, facts: { password: true } },
       {
@@ -1260,5 +1264,61 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
       stepIndex: 2,
       step: { kind: "fill", path: "/login" },
     });
+  });
+});
+
+describe("password route variants in an attempt (ADR 0027)", () => {
+  const contract = {
+    slots: ["contract"],
+    steps: [
+      {
+        kind: "fill" as const,
+        effect: "prepare" as const,
+        path: "/login",
+        fields: [{ slot: "contract", target: { by: "id" as const, value: "contract" } }],
+      },
+      {
+        kind: "wait" as const,
+        path: "/login",
+        target: { by: "id" as const, value: "login" },
+        present: true,
+        timeoutMs: 1000,
+      },
+      {
+        kind: "click" as const,
+        path: "/login",
+        target: { by: "id" as const, value: "login" },
+        purpose: "submit" as const,
+      },
+    ],
+  };
+  const varied: LoginRecipe = { ...recipe, alternatives: [contract] };
+  const create = (variant: number) =>
+    createAttemptMetadata({
+      id: "attempt-variant",
+      recipe: varied,
+      policyRevision: 3,
+      account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+      choice: { route: "password", variant },
+      facts,
+      document,
+    });
+
+  it("records the chosen variant and runs only its steps", () => {
+    const attempt = create(1);
+    expect(attempt).toMatchObject({ route: "password", variant: 1, stepCount: 3 });
+    expect(attemptRouteChoice(attempt)).toEqual({ route: "password", variant: 1 });
+    expect(attemptPlan(varied, attempt)?.map(({ step }) => step)).toEqual(contract.steps);
+    const ready = transitionLoginAttempt(attempt, { type: "RESOLVE" });
+    expect(nextLoginOperation(ready, varied, document, "operation-one", 0)?.step).toEqual(
+      contract.steps[0],
+    );
+    expect(create(0)).toMatchObject({ variant: 0, stepCount: 2 });
+    expect(attemptPlan(varied, create(0))?.map(({ step }) => step)).toEqual(recipe.steps);
+  });
+
+  it("refuses a variant the recipe lacks", () => {
+    expect(() => create(2)).toThrow();
+    expect(() => create(-1)).toThrow();
   });
 });

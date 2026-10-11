@@ -921,6 +921,45 @@ describe("custom-field slots (ADR 0027)", () => {
     });
   });
 
+  it("drops the alternatives of a continuation's answer", async () => {
+    const device = await owner();
+    replies.push({
+      text: named(
+        [{ slot: "custom-1", candidate: "branch", name: "branch-number" }],
+        "next",
+        "advance",
+      ),
+    });
+    const first = await generateCustom(device, branchPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "custom-2", candidate: "pin", name: "pin-code" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+          alternatives: [
+            {
+              fields: [{ slot: "custom-1", candidate: "again", name: "branch-number" }],
+              action: { candidate: "sign-in", purpose: "submit" },
+            },
+          ],
+        },
+      }),
+    });
+    const second = await generateCustom(device, pinPage, {
+      recipeId: first.change.recipeId,
+      revision: 1,
+    });
+    expect(second).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { slots: ["branch-number", "pin-code"] } },
+      customSlots: [{ slot: "pin-code", offered: "custom-2" }],
+    });
+    if (second.status !== "recipe") return;
+    expect(second.change.recipe).not.toHaveProperty("alternatives");
+  });
+
   it("answers no mapping for a recipe without custom slots", async () => {
     const device = await owner();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -1418,5 +1457,259 @@ describe("page judgement (ADR 0027)", () => {
       reason: "already-judged",
     });
     expect(sent).toHaveLength(calls + 1);
+  });
+});
+
+describe("password route variants (ADR 0027)", () => {
+  const custom = (id: string, fieldName: string): SemanticSlot => ({
+    id,
+    kind: "identifier",
+    description: "value of the user's vault field named in fieldName",
+    fieldName,
+  });
+  const variantSlots = [
+    ...slots,
+    custom("custom-1", "Synthetic branch field"),
+    custom("custom-2", "Synthetic account field"),
+    custom("custom-3", "Synthetic contract field"),
+  ];
+  const twoSetsPage = observation("/login", [
+    element("branch", "text", "Branch"),
+    element("account", "text", "Account"),
+    element("contract", "text", "Or contract number"),
+    element("password", "password", "Password"),
+    element("sign-in", "button", "Sign in"),
+  ]);
+  const byBranch = [
+    { slot: "custom-1", candidate: "branch", name: "branch-number" },
+    { slot: "custom-2", candidate: "account", name: "account-number" },
+    { slot: "password", candidate: "password" },
+  ];
+  const byContract = [
+    { slot: "custom-3", candidate: "contract", name: "contract-number" },
+    { slot: "password", candidate: "password" },
+  ];
+  const twoSets = (alternative = byContract, purpose: "advance" | "submit" = "submit") =>
+    JSON.stringify({
+      result: {
+        decision: "plan",
+        fields: byBranch,
+        action: { candidate: "sign-in", purpose: "submit" },
+        alternatives: [{ fields: alternative, action: { candidate: "sign-in", purpose } }],
+      },
+    });
+  async function generateVariants(device: Device) {
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: twoSetsPage,
+      slots: variantSlots,
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()) as RecipeGenerationResult;
+  }
+
+  it("stores each identifier set as a variant and maps the custom slots of all of them", async () => {
+    const device = await owner();
+    replies.push({ text: twoSets() });
+    const result = await generateVariants(device);
+    expect(result).toMatchObject({
+      status: "recipe",
+      change: {
+        revision: 1,
+        recipe: {
+          slots: ["branch-number", "account-number", "password"],
+          alternatives: [{ slots: ["contract-number", "password"] }],
+          maxSubmissions: 1,
+        },
+      },
+      // The password slot is named in both sets but is no custom slot; each name once.
+      customSlots: [
+        { slot: "branch-number", offered: "custom-1" },
+        { slot: "account-number", offered: "custom-2" },
+        { slot: "contract-number", offered: "custom-3" },
+      ],
+    });
+    if (result.status !== "recipe") return;
+    expect(JSON.stringify(result.change)).not.toContain("Synthetic");
+    // The request log keeps the sets the model returned.
+    const [logged] = await rows(
+      "SELECT result FROM inference_log WHERE owner_id = ? AND role = 'generate'",
+      device.ownerId,
+    );
+    expect(JSON.parse(String(logged!.result))).toEqual({
+      fields: byBranch,
+      action: { candidate: "sign-in", purpose: "submit" },
+      alternatives: [{ fields: byContract, action: { candidate: "sign-in", purpose: "submit" } }],
+    });
+    // A recipe whose sets all submit is never continued.
+    expect(
+      await generate(device, passwordPage, { recipeId: result.change.recipeId, revision: 1 }),
+    ).toEqual({ version: 1, status: "unavailable", reason: "recipe-conflict" });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("fails the whole plan when an alternative does not pass the checks", async () => {
+    const device = await owner();
+    replies.push({ text: twoSets(byContract, "advance") });
+    expect(await generateVariants(device)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+    });
+    const other = await owner();
+    replies.push({
+      text: twoSets([
+        { slot: "custom-3", candidate: "contract", name: "branch-number" },
+        { slot: "password", candidate: "password" },
+      ]),
+    });
+    expect(await generateVariants(other)).toMatchObject({ status: "failed" });
+    expect(
+      await rows(
+        "SELECT * FROM recipe_revisions WHERE owner_id IN (?, ?)",
+        device.ownerId,
+        other.ownerId,
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not judge a page that shows any variant's fill field, and never takes a variant", async () => {
+    const device = await owner();
+    replies.push({ text: twoSets() });
+    const result = await generateVariants(device);
+    if (result.status !== "recipe") throw new Error(result.status);
+    const calls = sent.length;
+    const contractAgain = observation("/error", [
+      element("contract", "text", "Contract number"),
+      element("retry", "button", "Try again"),
+    ]);
+    expect((await complete(device, result.change.recipeId, 1, contractAgain)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "not-judgeable",
+    });
+    const named = await post(device, `/v1/recipes/${result.change.recipeId}/completion`, {
+      version: 1,
+      revision: 1,
+      route: "password",
+      variant: 1,
+      observation: homePage,
+    });
+    expect(named.status).toBe(400);
+    expect(sent).toHaveLength(calls);
+    // A signed-in page elsewhere learns the completion and keeps the alternatives.
+    replies.push({ text: JSON.stringify({ result: { decision: "signed-in", marker: "logout" } }) });
+    expect((await complete(device, result.change.recipeId, 1)).body).toMatchObject({
+      status: "signed-in",
+      change: {
+        revision: 2,
+        recipe: {
+          completion: { path: "/home", target: { by: "id", value: "logout" } },
+          alternatives: [{ slots: ["contract-number", "password"] }],
+        },
+      },
+    });
+    const [logged] = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      device.ownerId,
+    );
+    expect(JSON.parse(String(logged!.request))).toMatchObject({
+      route: "password",
+      loginPaths: ["/login"],
+    });
+    expect(JSON.parse(String(logged!.request))).not.toHaveProperty("variant");
+  });
+
+  it("maps a custom slot that several sets share once", async () => {
+    const device = await owner();
+    // Both sets ask for the branch number; the second adds a contract number instead of
+    // the account number.
+    replies.push({
+      text: twoSets([
+        { slot: "custom-1", candidate: "branch", name: "branch-number" },
+        { slot: "custom-3", candidate: "contract", name: "contract-number" },
+        { slot: "password", candidate: "password" },
+      ]),
+    });
+    expect(await generateVariants(device)).toMatchObject({
+      status: "recipe",
+      change: {
+        recipe: {
+          slots: ["branch-number", "account-number", "password"],
+          alternatives: [{ slots: ["branch-number", "contract-number", "password"] }],
+        },
+      },
+      customSlots: [
+        { slot: "branch-number", offered: "custom-1" },
+        { slot: "account-number", offered: "custom-2" },
+        { slot: "contract-number", offered: "custom-3" },
+      ],
+    });
+  });
+
+  it("names every variant's path to the judge and refuses a page on any of them", async () => {
+    const device = await owner();
+    // An owner-written recipe whose second variant continues on its own page.
+    const recipeId = "shop-variants";
+    const fill = (path: string, slot: string) => ({
+      kind: "fill" as const,
+      effect: "prepare" as const,
+      path,
+      fields: [{ slot, target: { by: "id" as const, value: slot } }],
+    });
+    const click = (path: string, value: string, purpose: "advance" | "submit") => ({
+      kind: "click" as const,
+      path,
+      target: { by: "id" as const, value },
+      purpose,
+    });
+    const stored = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      {
+        version: 1,
+        expectedRevision: 0,
+        state: "active",
+        recipe: {
+          version: 1,
+          id: recipeId,
+          revision: 1,
+          origin: ORIGIN,
+          slots: ["email"],
+          steps: [fill("/login", "email"), click("/login", "sign-in", "submit")],
+          alternatives: [
+            {
+              slots: ["member", "pin"],
+              steps: [
+                fill("/login", "member"),
+                click("/login", "next", "advance"),
+                fill("/verify", "pin"),
+                click("/verify", "confirm", "submit"),
+              ],
+            },
+          ],
+          maxSubmissions: 2,
+        },
+      },
+      "PUT",
+    );
+    expect(stored.status).toBe(200);
+    // The alternative's later field, shown on another path, is still a sign-in page.
+    const pinAgain = observation("/retry", [element("pin", "password", "PIN")]);
+    expect((await complete(device, recipeId, 1, pinAgain)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "not-judgeable",
+    });
+    expect(sent).toEqual([]);
+    replies.push({ text: JSON.stringify({ result: { decision: "signed-in", marker: "logout" } }) });
+    expect((await complete(device, recipeId, 1)).body).toMatchObject({ status: "signed-in" });
+    const [logged] = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      device.ownerId,
+    );
+    expect(JSON.parse(String(logged!.request))).toMatchObject({
+      loginPaths: ["/login", "/verify"],
+    });
   });
 });
