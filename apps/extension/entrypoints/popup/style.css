@@ -1,0 +1,26 @@
+.popup {
+  box-sizing: border-box;
+  width: 22rem;
+  padding: 1rem 1.25rem;
+}
+.popup h1 {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.popup h2 {
+  margin: 1rem 0 0.25rem;
+  font-size: 1rem;
+}
+.popup p {
+  margin: 0.5rem 0;
+  line-height: 1.5;
+}
+.popup .saved-list > li {
+  padding: 0.5rem 0;
+}
+.popup-footer {
+  padding-top: 0.5rem;
+  border-top: 1px solid #e2e8f0;
+}

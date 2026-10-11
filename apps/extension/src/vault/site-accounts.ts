@@ -138,7 +138,7 @@ export async function findSiteAccounts(input: {
   return { version: 1, ok: true, origin: input.origin, accounts: [...accounts.values()], complete };
 }
 
-/** Answers `settings.site-accounts` from the settings page; callers check the sender. */
+/** Answers `settings.site-accounts` from the settings page or the toolbar popup; callers check the sender. */
 export function createSiteAccountsHandler(options: {
   settings: { handle(request: SettingsRequest): Promise<SettingsResponse> };
   matchUris: LiveUriMatcher;

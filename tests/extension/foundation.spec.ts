@@ -27,6 +27,7 @@ type TestChrome = {
   };
   tabs: {
     create: (options: { url: string; active: boolean }) => Promise<{ id: number }>;
+    get: (id: number) => Promise<{ url?: string }>;
   };
 };
 
@@ -100,6 +101,8 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     48: "icon/48.png",
     128: "icon/128.png",
   });
+  // The toolbar icon opens the current-site popup (ADR 0020).
+  expect(manifest.action).toMatchObject({ default_popup: "popup.html", default_title: "Pateat" });
   // The worker switches to the unlocked icon once a vault can unlock automatically.
   expect(manifest.action.default_icon).toEqual({
     16: "icon-locked/16.png",
@@ -244,6 +247,71 @@ test("packaged toolbar icons for both vault lock states load in Chrome", async (
     expect(results.slice(0, 2)).toEqual(["loaded", "loaded"]);
     // A missing file is rejected, so the loads above prove the packaged PNG files exist.
     expect(results[2]).not.toBe("loaded");
+  });
+});
+
+test("the toolbar popup edits the active tab's site through the settings store", async () => {
+  await withExtension(extensionDirectory, async (context, _worker, id) => {
+    await context.route("https://bank.example/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<title>Bank</title><p>Bank</p>" }),
+    );
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${id}/popup.html`);
+    // Opened as a tab, the active tab is its own extension page, whose URL Pateat cannot read.
+    await expect(popup.locator("#popup-unsupported")).toBeVisible();
+    const get = (page: Page) =>
+      page.evaluate(() =>
+        (globalThis as unknown as { chrome: TestChrome }).chrome.runtime
+          .sendMessage({ version: 1, type: "settings.get" })
+          .then(
+            (response) => response ?? "unanswered",
+            () => "unanswered",
+          ),
+      );
+    expect(await get(popup)).toMatchObject({ ok: true, snapshot: { revision: 0 } });
+    // Other extension pages still cannot read or save settings.
+    const diagnostics = await context.newPage();
+    await diagnostics.goto(`chrome-extension://${id}/diagnostics.html`);
+    expect(await get(diagnostics)).toBe("unanswered");
+    await diagnostics.close();
+
+    // A popup reads the active tab of its window; here it stays an inactive tab.
+    const bank = await popup.evaluate(
+      (url) =>
+        (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.create({ url, active: true }),
+      "https://bank.example/login",
+    );
+    // A tab's `url` appears once its page commits.
+    await expect
+      .poll(() =>
+        popup.evaluate(
+          async (tabId) =>
+            (await (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.get(tabId)).url,
+          bank.id,
+        ),
+      )
+      .toBe("https://bank.example/login");
+    const opened = context.waitForEvent("page", (page) => page.url().endsWith("/popup.html"));
+    await popup.evaluate(
+      (url) =>
+        (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.create({
+          url,
+          active: false,
+        }),
+      `chrome-extension://${id}/popup.html`,
+    );
+    const site = await opened;
+    await expect(site.locator("#popup-origin")).toHaveText("bank.example");
+    await expect(site.locator("#popup-accounts-note")).toContainText("No vault item matches");
+    await site.getByRole("button", { name: "Exclude bank.example" }).click();
+    await expect(site.locator("#popup-site-status")).toContainText("Excluded");
+    expect(await get(site)).toMatchObject({
+      ok: true,
+      snapshot: {
+        revision: 1,
+        settings: { excludedSites: [{ hostname: "bank.example", includeSubdomains: false }] },
+      },
+    });
   });
 });
 
