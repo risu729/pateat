@@ -46,6 +46,11 @@ The owner decided these on 2026-10-11, following the kogane repository:
   verifies the Access token itself on the owner pages.
 - Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
   `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
+  cf refuses to create a Worker without its declared secrets, so the first deploy
+  passes all four at once with `cf deploy --prebuilt --mode production --secrets-file
+  <file>` (JSON) and deletes the file afterwards; later changes use
+  `cf workers secrets update`. With several accounts visible to the login, cf also
+  needs `CLOUDFLARE_ACCOUNT_ID`. Versions created by routine releases keep the secrets.
 - Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
   as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
 - Preview: there is no preview deployment for now. Without the owner web UI there is
