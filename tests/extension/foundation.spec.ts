@@ -261,6 +261,11 @@ test("the toolbar popup edits the active tab's site through the settings store",
     await popup.goto(`chrome-extension://${id}/popup.html`);
     // Opened as a tab, the active tab is the popup's own extension page, not a website.
     await expect(popup.locator("#popup-unsupported")).toBeVisible();
+    // Chrome shrinks text on extension pages to 75%; the shared stylesheet keeps it at 1rem.
+    const rootSize = await popup.evaluate(
+      () => getComputedStyle(document.documentElement).fontSize,
+    );
+    await expect(popup.locator("#popup-unsupported")).toHaveCSS("font-size", rootSize);
     const send = (page: Page, message: unknown) =>
       page.evaluate(
         (request) =>
