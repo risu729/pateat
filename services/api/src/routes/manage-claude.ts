@@ -48,7 +48,9 @@ const STATUS_TEXT = {
 
 function validFor(milliseconds: number) {
   const seconds = Math.max(0, Math.round(milliseconds / 1000));
-  return seconds < 120 ? `${seconds} seconds` : `${Math.round(seconds / 60)} minutes`;
+  return seconds < 120
+    ? `${seconds} second${seconds === 1 ? "" : "s"}`
+    : `${Math.round(seconds / 60)} minutes`;
 }
 
 function settingsPage(
@@ -133,7 +135,19 @@ export const manageClaudeRoutes = new Hono<ApiEnv>()
   .get("/", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     if (!ownerId) return message(c, 404, "Not found", "Pair a device with this account first.");
-    return settingsPage(c, 200, ownerId, await readWifCredential(c.env.DB, ownerId));
+    try {
+      return settingsPage(c, 200, ownerId, await readWifCredential(c.env.DB, ownerId));
+    } catch (error) {
+      if (!v.isValiError(error)) throw error;
+      // Keep the form reachable so the owner can replace a row the schema no longer accepts.
+      return settingsPage(
+        c,
+        200,
+        ownerId,
+        null,
+        "The stored identifiers are no longer valid. Enter them again.",
+      );
+    }
   })
   .post("/", requireFormBody, async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));

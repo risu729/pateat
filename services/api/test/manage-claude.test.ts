@@ -123,6 +123,7 @@ describe("Claude settings page", () => {
   });
 
   it("guards itself without the app-wide /manage middleware", async () => {
+    const exchangesBefore = tokenRequests.length;
     const { ownerId, access } = await signedInOwner();
     const alone = new Hono<ApiEnv>().route("/manage/claude", manageClaudeRoutes);
     const send = (path: string, init: RequestInit) => alone.request(`${ORIGIN}${path}`, init, env);
@@ -150,7 +151,7 @@ describe("Claude settings page", () => {
     });
     expect(oversized.status).toBe(413);
     expect(await storedRow(ownerId)).toBeNull();
-    expect(tokenRequests).toHaveLength(0);
+    expect(tokenRequests).toHaveLength(exchangesBefore);
   });
 
   it("answers other methods with 405", async () => {
@@ -195,6 +196,20 @@ describe("Claude settings page", () => {
     expect(await (await request("/manage/claude", access)).text()).toContain(
       `value="${ids.serviceAccountId}"`,
     );
+  });
+
+  it("keeps the form reachable when the stored row is no longer valid", async () => {
+    const { ownerId, access } = await signedInOwner();
+    await env.DB.prepare(
+      "INSERT INTO inference_credentials (owner_id, kind, federation_rule_id, organization_id, service_account_id, workspace_id, updated_at) VALUES (?, 'wif', 'bad', ?, ?, ?, ?)",
+    )
+      .bind(ownerId, ids.organizationId, ids.serviceAccountId, ids.workspaceId, Date.now())
+      .run();
+    const response = await request("/manage/claude", access);
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("The stored identifiers are no longer valid.");
+    expect(body).not.toContain('value="bad"');
   });
 
   it("rejects malformed identifiers, escapes them and stores nothing", async () => {
