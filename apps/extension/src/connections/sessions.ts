@@ -171,8 +171,8 @@ export function createProviderSessions(deps: {
       });
       const receivedAt = now();
       if (!refreshed.ok) {
-        // Bitwarden reuses refresh tokens, so after a failure that carries no rejection the
-        // captured one is still valid: put it back so a later sync can retry without a
+        // The provider never invalidates a presented refresh token, so after a failure that
+        // carries no rejection the captured one is still valid: put it back so a later sync can retry without a
         // password. The restore compares only the claim, so a forget in between still wins.
         if (retryable(refreshed.error))
           await store.compareAndSwap(claim.revision, { ...entry, revision: random() });

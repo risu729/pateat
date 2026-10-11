@@ -190,11 +190,11 @@ describe("explicit sync acquisition", () => {
     },
   );
   it.each([
-    { code: "network" },
-    { code: "timeout" },
-    { code: "http-error", status: 429 },
-    { code: "http-error", status: 503 },
-  ] as const)("a refresh that fails with $code $status restores the session", async (error) => {
+    { label: "network", error: { code: "network" } },
+    { label: "timeout", error: { code: "timeout" } },
+    { label: "429", error: { code: "http-error", status: 429 } },
+    { label: "503", error: { code: "http-error", status: 503 } },
+  ] as const)("a refresh that fails with $label restores the session", async ({ error }) => {
     const h = harness();
     await h.retain();
     const before = h.memory.raw() as Record<string, unknown>;
@@ -202,8 +202,7 @@ describe("explicit sync acquisition", () => {
     h.refreshToken.mockResolvedValueOnce({ ok: false, error });
     expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({ ok: false, error });
     const restored = h.memory.raw() as Record<string, unknown>;
-    expect(restored["state"]).toBe("active");
-    expect(restored["refreshToken"]).toBe("synthetic-refresh-token");
+    expect(restored).toEqual({ ...before, revision: expect.any(String) });
     expect(restored["revision"]).not.toBe(before["revision"]);
     expect(await h.sessions.status(accountProfile)).toBe("refresh-required");
     // The same refresh token is sent again; the provider reuses it.
@@ -216,10 +215,10 @@ describe("explicit sync acquisition", () => {
     });
   });
   it.each([
-    { code: "http-error", status: 401 },
-    { code: "redirect" },
-    { code: "invalid-response" },
-  ] as const)("a refresh that fails with $code $status leaves the claim", async (error) => {
+    { label: "401", error: { code: "http-error", status: 401 } },
+    { label: "redirect", error: { code: "redirect" } },
+    { label: "invalid-response", error: { code: "invalid-response" } },
+  ] as const)("a refresh that fails with $label leaves the claim", async ({ error }) => {
     const h = harness();
     await h.retain();
     h.advance(3_600_000);
@@ -231,6 +230,42 @@ describe("explicit sync acquisition", () => {
       error: { code: "setup-reauthentication-required" },
     });
     expect(h.refreshToken).toHaveBeenCalledTimes(1);
+  });
+  it("a password session retained during a failing refresh is not overwritten", async () => {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    h.refreshToken.mockImplementationOnce(async () => {
+      await held;
+      return { ok: false, error: { code: "network" } };
+    });
+    const pending = h.sessions.acquire(accountProfile, h.context());
+    await vi.waitFor(() => expect(h.refreshToken).toHaveBeenCalled());
+    const retained = await h.retain(authenticated("synthetic-new-refresh-token"));
+    expect(retained.ok).toBe(true);
+    release();
+    expect(await pending).toEqual({ ok: false, error: { code: "network" } });
+    expect((h.memory.raw() as Record<string, unknown>)["refreshToken"]).toBe(
+      "synthetic-new-refresh-token",
+    );
+  });
+  it("a restore that cannot be written leaves the claim and still reports the failure", async () => {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    h.refreshToken.mockImplementationOnce(async () => {
+      h.memory.failNext("storage-uncertain");
+      return { ok: false, error: { code: "network" } };
+    });
+    expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({
+      ok: false,
+      error: { code: "network" },
+    });
+    expect(await h.sessions.status(accountProfile)).toBe("reauthentication-required");
   });
   it("forget during a refresh that later fails is not undone by the restore", async () => {
     const h = harness();
