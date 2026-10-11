@@ -261,7 +261,7 @@ describe("diagnostics status", () => {
       "Pateat 0.1.0 (1c42ad3) · production build · Web Store install (normal)",
     );
     expect(report).toContain("· sync sign-in active ·");
-    expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted sites");
+    expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted site\n");
     expect(report).toContain("warn clock 95 s behind the service");
     expect(report).toContain("3 items (login 2, TOTP 1, passkey 1) + 1 unsupported");
     // The KDF family is copied; its parameters stay on the page.
@@ -359,7 +359,7 @@ describe("diagnostics status", () => {
     });
     const report = formatReport(status, { name: "Chrome", version: "156", installType: "normal" });
     expect(report).toContain(
-      "Service record: paired 2026-10-11T08:30Z · 1 recipes · settings revision 57 · recipe generation stopped for today (daily-limit)",
+      "Service record: paired 2026-10-11T08:30Z · 1 recipe · settings revision 57 · recipe generation stopped for today (daily-limit)",
     );
     expect(report).toContain("  warn recipe generation stopped for today (daily-limit)");
 

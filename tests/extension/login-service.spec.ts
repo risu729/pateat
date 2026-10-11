@@ -236,7 +236,7 @@ test("a recipe and binding synced from the service log in with the live vault an
         );
         await diagnostics.getByRole("button", { name: "Copy for bug report" }).click();
         await expect(diagnostics.locator("#report-preview")).toContainText(
-          /Service record: paired \S+Z · 1 recipes · settings revision \d+ · recipe generation off/u,
+          /Service record: paired \S+Z · 1 recipe · settings revision \d+ · recipe generation off/u,
         );
         await expect(diagnostics.locator("#report-preview")).not.toContainText(service.deviceId);
 

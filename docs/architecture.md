@@ -646,6 +646,13 @@ builds these lines from the log and numbers sites and recipes in them as in a do
 but separately, so `site-1` there can be another site than in **Download logs**. Labels,
 emails, item names and IDs, URLs and host names are never part of the summary.
 
+The owner checked the page in installed Chrome on 2026-10-11 against production
+(extension main 8581f1d, service e48b4e7). The Bitwarden cloud server showed as
+`Bitwarden server 2026.9.2`, and the report carried only the KDF family. The service
+record matched `/manage/recipes` and the local settings revision, with recipe generation
+`ok`. A settings-page Sync logged `vault.sync` with outcome `ready`. No email, label,
+item name, host or ID appeared.
+
 ### Local log
 
 The service worker keeps a log in the `entries` store of the same IndexedDB database
@@ -671,7 +678,9 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
 when a site default, binding, excluded site or cached recipe names it; any other
-becomes `origin:7d2b91aa` or `rp:7d2b91aa`. Login, recipe generation and passkey
+becomes `origin:7d2b91aa` or `rp:7d2b91aa`. The rule applies when the entry is
+written, so a site set up later keeps its earlier pseudonymous entries, also in a
+download with site addresses included. Login, recipe generation and passkey
 events are limited to 20 per minute per tab and origin, and unhandled errors to 20 per
 minute in all. The first event dropped in a window is logged at once as `log.dropped`
 with `count: 1`; the rest are counted when the window ends and the next event or prune

@@ -4,6 +4,7 @@ import {
   deviceFailureLabel,
   generationLabel,
   installLabel,
+  plural,
   serverLabel,
   syncSignIn,
 } from "./labels";
@@ -33,7 +34,7 @@ function connectionLine(entry: DiagnosticsConnection): string {
   if (entry.kdfType) parts.push(`KDF ${entry.kdfType}`);
   if (entry.items)
     parts.push(
-      `${entry.items.total} items (login ${entry.items.login}, TOTP ${entry.items.totp}, passkey ${entry.items.passkey}) + ${entry.items.unsupported} unsupported`,
+      `${plural(entry.items.total, "item")} (login ${entry.items.login}, TOTP ${entry.items.totp}, passkey ${entry.items.passkey}) + ${entry.items.unsupported} unsupported`,
     );
   return `${entry.id}: ${parts.join(" · ")}`;
 }
@@ -52,14 +53,14 @@ function serviceLine(service: DiagnosticsStatus["service"]): string {
   if (service.settingsRevision !== undefined)
     parts.push(`settings revision ${service.settingsRevision}`);
   if (service.holdSince !== undefined) parts.push(`held since ${utcMinute(service.holdSince)}`);
-  if (service.recipes) parts.push(`${service.recipes.count} recipes`);
+  if (service.recipes) parts.push(plural(service.recipes.count, "recipe"));
   return `Pateat service: ${parts.join(" · ")}`;
 }
 
 /** What the service itself holds, beside the device's copy on the line above. */
 function serviceRecordLine(record: NonNullable<DiagnosticsStatus["service"]["device"]>): string {
   if (!record.ok) return `Service record: ${deviceFailureLabel(record.error)}`;
-  return `Service record: paired ${utcMinute(record.pairedAt)} · ${record.recipes} recipes · settings revision ${record.settingsRevision} · ${generationLabel(record.generation)}`;
+  return `Service record: paired ${utcMinute(record.pairedAt)} · ${plural(record.recipes, "recipe")} · settings revision ${record.settingsRevision} · ${generationLabel(record.generation)}`;
 }
 
 export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): string {
@@ -67,7 +68,7 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
   const lines = [
     `Pateat ${build.version} (${shortRevision(build.revision)}) · ${build.mode} build · ${installLabel(browser.installType)} (${browser.installType})`,
     `${browser.name} ${browser.version} · ${status.platform.os} ${status.platform.arch}`,
-    `Permissions: ${[...status.permissions.permissions, ...status.permissions.origins].join(", ")}${status.permissions.otherOrigins ? ` + ${status.permissions.otherOrigins} granted sites` : ""}`,
+    `Permissions: ${[...status.permissions.permissions, ...status.permissions.origins].join(", ")}${status.permissions.otherOrigins ? ` + ${plural(status.permissions.otherOrigins, "granted site")}` : ""}`,
     `Bitwarden SDK ${build.bitwardenSdk} · protocol ${build.bitwardenProtocol}`,
     ...status.connections.map(connectionLine),
     serviceLine(status.service),
@@ -91,7 +92,7 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
     lines.push(`Storage: storage.local ${Math.ceil(status.storage.localBytes / 1024)} KB`);
   if (status.logs)
     lines.push(
-      `Logs: ${status.logs.entries} entries (${Math.ceil(status.logs.bytes / 1024)} KB), ${status.logs.recentErrors} errors in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${utcMinute(status.logs.debugUntil)}`}`,
+      `Logs: ${plural(status.logs.entries, "entry", "entries")} (${Math.ceil(status.logs.bytes / 1024)} KB), ${plural(status.logs.recentErrors, "error")} in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${utcMinute(status.logs.debugUntil)}`}`,
     );
   const { recent } = status;
   if (recent?.updated)
