@@ -82,7 +82,7 @@ Focused tasks are available for diagnosis:
 | `mise run browser:install` | Install the pinned isolated Chromium browser |
 | `mise run test:browser` | Exercise the extension against synthetic local pages |
 | `mise run test:options` | Exercise settings components with a synthetic client in Chromium |
-| `mise run test:dom`         | Extract observations and resolve element locators on synthetic pages in Chromium |
+| `mise run test:dom` | Extract observations and resolve element locators on synthetic pages in Chromium |
 | `mise run typecheck:options` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 

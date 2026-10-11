@@ -25,6 +25,9 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
       contentVisibilityAuto: true,
       opacityProperty: opacity,
       visibilityProperty: true,
+      // Chrome 120, the minimum version, knows only the older option names.
+      checkOpacity: opacity,
+      checkVisibilityCSS: true,
     })
   );
 }
@@ -83,19 +86,31 @@ export function isButton(element: Element): element is HTMLButtonElement | HTMLI
   );
 }
 
+/** The `alt` of the shown images in a `<button>` that has no rendered text. */
+function imageText(button: HTMLButtonElement): string {
+  return [...button.querySelectorAll("img[alt]")]
+    .flatMap((image) => (shown(image) ? [image.getAttribute("alt")!] : []))
+    .join(" ");
+}
+
 /**
- * The text a `{ by: "text" }` locator compares: a rendered button's text, an input
- * button's `value`, or an image button's `alt`, collapsed. A button that is not
- * rendered, or whose text is empty or longer than 120 code units, has none.
+ * The text a `{ by: "text" }` locator compares: a rendered button's text (or, for an
+ * image-only button, its images' `alt`), an input button's `value`, or an image
+ * button's `alt`, collapsed. A button that is not rendered, or whose text is empty or
+ * longer than 120 code units, has none.
  */
 export function buttonText(element: Element): string | undefined {
   if (!isButton(element) || !shown(element)) return undefined;
-  const raw =
+  const readLimit = buttonTextLimit * 4;
+  let raw =
     element instanceof HTMLButtonElement
-      ? renderedText(element, buttonTextLimit * 4)
+      ? renderedText(element, readLimit)
       : element.type === "image"
         ? element.alt
         : element.value;
-  const text = raw === undefined ? "" : collapseText(raw);
+  // A read cut short could collapse to a prefix ("Sign in" of "Sign in and delete").
+  if (raw === undefined || raw.length > readLimit) return undefined;
+  if (element instanceof HTMLButtonElement && !collapseText(raw)) raw = imageText(element);
+  const text = collapseText(raw);
   return text && text.length <= buttonTextLimit ? text : undefined;
 }

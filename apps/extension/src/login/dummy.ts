@@ -26,6 +26,7 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
       "/input-submit",
       "/change-submit",
       "/input-advance",
+      "/text-submit",
     ].includes(path)
   )
     return undefined;
@@ -126,7 +127,12 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
                   },
                 ],
               },
-              { kind: "click", path, target: target("login"), purpose: "submit" },
+              {
+                kind: "click",
+                path,
+                target: path === "/text-submit" ? { by: "text", value: "Log in" } : target("login"),
+                purpose: "submit",
+              },
             ],
     completion: {
       path: multi || inputAdvance ? "/authenticated" : path,

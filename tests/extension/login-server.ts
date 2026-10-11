@@ -221,6 +221,25 @@ export async function startLoginFixture(
         });`,
         ),
       );
+    } else if (path === "/text-submit") {
+      // The submit button has no id or name; the recipe names it by its text.
+      const variant = fixtureUrl.searchParams.get("button");
+      const button =
+        variant === "image"
+          ? '<input class="login" type="image" src="data:," alt="Log in" width="40" height="20">'
+          : '<button class="login" type="button"> Log <span>in</span> </button>';
+      response.end(
+        html(
+          `<h1>Synthetic text-located login</h1><label>Password<input id="password" type="password"></label>${button}${variant === "duplicate" ? '<button class="login" type="button">Log in</button>' : ""}`,
+          `document.querySelectorAll('.login').forEach((button) => button.addEventListener('click', (event) => {
+          event.preventDefault();
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
+          updateFixtureStatus();
+        }));`,
+        ),
+      );
     } else if (path === "/delayed") {
       response.end(
         html(

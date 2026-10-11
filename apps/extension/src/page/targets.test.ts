@@ -33,13 +33,17 @@ describe("findTargets", () => {
         in ">
       <input id="c" type="image" src="data:," alt="次へ" width="20" height="20">
       <input id="d" type="button" value="Back">
-      <button id="e"><img src="data:," alt="ignored">Help<script>x</script><span hidden>!</span></button>`,
+      <button id="e"><img src="data:," alt="ignored">Help<script>x</script><span hidden>!</span></button>
+      <button id="f"><img src="data:," alt="ログイン" width="20" height="20"></button>`,
     );
-    expect(ids(findTargets(document, { by: "text", value: "ログイン" }))).toEqual(["a"]);
     expect(ids(findTargets(document, { by: "text", value: "Sign in" }))).toEqual(["b"]);
     expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual(["c"]);
     expect(ids(findTargets(document, { by: "text", value: "Back" }))).toEqual(["d"]);
     expect(ids(findTargets(document, { by: "text", value: "Help" }))).toEqual(["e"]);
+    // A text button and an image-only button with the same name are ambiguous.
+    expect(ids(findTargets(document, { by: "text", value: "ログイン" }))).toEqual(["a", "f"]);
+    document.getElementById("a")!.remove();
+    expect(ids(findTargets(document, { by: "text", value: "ログイン" }))).toEqual(["f"]);
   });
 
   it("never matches non-buttons, hidden buttons or partial text, and returns every duplicate", () => {
@@ -57,13 +61,11 @@ describe("findTargets", () => {
   it("gives no text to buttons whose text is empty or longer than the locator limit", () => {
     page(
       `<button id="a"></button><input id="b" type="submit"><button id="c">${"x".repeat(121)}</button>
-      <button id="d">${"x".repeat(120)}</button>`,
+      <button id="d">${"x".repeat(120)}</button>
+      <button id="e"><span>Sign in</span>${" ".repeat(500)}<span>and delete account</span></button>`,
     );
-    expect(["a", "b", "c", "d"].map((id) => buttonText(document.getElementById(id)!))).toEqual([
-      undefined,
-      undefined,
-      undefined,
-      "x".repeat(120),
-    ]);
+    expect(["a", "b", "c", "d", "e"].map((id) => buttonText(document.getElementById(id)!))).toEqual(
+      [undefined, undefined, undefined, "x".repeat(120), undefined],
+    );
   });
 });
