@@ -544,8 +544,9 @@ the real settings store over in-memory storage; no running service has been trie
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the
   `inference_credentials` table and `resolveClaudeCredential` exist and are tested
-  against a fake token endpoint only; no owner can enter identifiers yet, and no
-  exchange with Anthropic's real token endpoint has been made.
+  against a fake token endpoint only. Owners enter identifiers on the temporary
+  `/manage/claude` page until the React web UI replaces it; no exchange with
+  Anthropic's real token endpoint has been made.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first approval. Before the service is offered to other people, it needs
   per-owner storage and request limits; today only `/redeem` is rate limited (per
