@@ -7,12 +7,11 @@ import { useSettings, useSettingsEdit } from "./settings";
 type SiteDefault = LocalSettings["siteDefaults"][number];
 
 function defaultAccount(entry: SiteDefault): string {
-  if ("connectionId" in entry) return `a device-local connection ${entry.connectionId}`;
   return `${entry.provider} account ${entry.userId}`;
 }
 
 function defaultItem(entry: SiteDefault): string {
-  return "provider" in entry && entry.itemName ? entry.itemName : entry.itemId;
+  return entry.itemName || entry.itemId;
 }
 
 export function SitesPage({ client }: { client: ManageClient }) {

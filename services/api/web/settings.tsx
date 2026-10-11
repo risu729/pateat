@@ -11,7 +11,12 @@ import { ManageApiError, type ManageClient } from "./api";
 export const SETTINGS_QUERY_KEY = ["settings"] as const;
 
 /** The document a first write starts from; the service never holds vault connections. */
-const EMPTY_SETTINGS: LocalSettings = { connections: [], excludedSites: [], siteDefaults: [] };
+const EMPTY_SETTINGS: LocalSettings = {
+  connections: [],
+  excludedSites: [],
+  siteDefaults: [],
+  bindings: [],
+};
 
 export function useSettings(client: ManageClient) {
   return useQuery({ queryKey: SETTINGS_QUERY_KEY, queryFn: () => client.settings() });

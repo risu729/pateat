@@ -330,9 +330,8 @@ subdomain option and stop Pateat analysis, inference, filling, submission and
 passkey handling while preserving ordinary browser authentication. Apply them
 before collecting observations; policy changes cancel stale work.
 
-The account choice is a saved site default applied on the next login. New defaults
-name the provider account and item, not this device's connection; defaults saved
-earlier with a connection ID still work. Without one,
+The account choice is a saved site default applied on the next login. A default names
+the provider account and item, not this device's connection. Without one,
 a single eligible provider URI match is used and saved only after the login is
 `authenticated`; a saved choice keeps winning when more items match later
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not
@@ -409,6 +408,23 @@ form). A provider password goes only into a password input, and a TOTP code only
 into a one-time-code or short numeric input, so a recipe cannot place them in a
 search box. A Hidden custom field goes only into a password or short numeric input,
 and a Linked custom field follows the field it reads.
+Before a fill step that writes a secret but not the username (a site that remembers
+the account and asks only for the password), the background sends the selected item's
+username to the content script with that one fill. The content script compares it with
+the account identifiers shown in the form, or the page when there is no form, and the
+first eight `h1`-`h3` headings; every element boundary separates words, and `mailto:`
+links, `<address>` and `<footer>` are skipped as contact addresses. The username never
+leaves the content script or reaches status. An email username is compared with shown
+email addresses. A username of digits only is compared with masked IDs that show at
+least two characters (`****1234`), and only on a step that fills a password or Hidden
+field, because a one-time-code page usually shows the masked phone number the code was
+sent to. If comparable identifiers are shown and none fits (`myaccount@example.com` or
+`****9999` shown while `my2@example.com` or `00001234` is selected), the step fills
+nothing and the attempt ends `wrong-account` without a retry or a spent submission. A
+masked value consistent with the username (`m***@example.com`, `****1234`) proceeds,
+as does an item without a username, a username of another kind (`taro99`) or a page that
+shows no comparable identifier. A masked number that is not the account, such as a card
+number on a password page, still stops a digits-only username: a known limitation.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.
@@ -686,9 +702,9 @@ the credential idle-expiry decision, and the optional `launchWebAuthFlow` varian
 ### Owner web UI
 
 Status: design approved by the owner on 2026-10-11. The app, its Access-checked
-assets and API, and the devices, sites and account bindings pages are implemented and
-tested locally; the recipes page and the nullable recipe writer column are not. It
-replaces the extension's settings page for the data the service holds
+assets and API, and the devices, sites, account bindings and recipes pages are
+implemented and tested locally. It replaces the extension's settings page for the data
+the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
@@ -723,7 +739,7 @@ replaces the extension's settings page for the data the service holds
   within the 120 KiB document size devices upload. An identity with no paired device has
   no settings to edit and is told to pair one. Devices receive the change on their next
   settings or recipe sync. The device ID columns recording who wrote a settings or
-  recipe revision become nullable; null means the web UI wrote it.
+  recipe revision are nullable; null means the web UI wrote it.
 - Display names. A site default stores an optional `itemName` beside its item ID, as
   bindings already do, so the page can name the item; entries without it show the ID.
 - Authentication. The host-wide Access application also covers the app's assets and

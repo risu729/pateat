@@ -12,7 +12,12 @@ import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
-const emptySettings: LocalSettings = { connections: [], excludedSites: [], siteDefaults: [] };
+const emptySettings: LocalSettings = {
+  connections: [],
+  excludedSites: [],
+  siteDefaults: [],
+  bindings: [],
+};
 
 function RuntimeStatus({
   client,

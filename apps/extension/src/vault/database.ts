@@ -1,7 +1,7 @@
 import { vaultFailure, type VaultErrorCode, type VaultResult } from "./record";
 
 export const VAULT_DATABASE_NAME = "pateat.local-vault.v1";
-/** Version 2 adds provider sessions beside the unchanged version 1 vault records. */
+/** The only schema: vault records and provider sessions. */
 export const VAULT_DATABASE_VERSION = 2;
 export const RECORDS_STORE = "records";
 export const PROVIDER_SESSIONS_STORE = "providerSessions";
@@ -35,10 +35,8 @@ export function createVaultDatabase(options: VaultDatabaseOptions = {}) {
       }, timeout);
       request.onupgradeneeded = () => {
         const db = request.result;
-        // Preserve existing version 1 records; only add missing stores.
-        if (!db.objectStoreNames.contains(RECORDS_STORE)) db.createObjectStore(RECORDS_STORE);
-        if (!db.objectStoreNames.contains(PROVIDER_SESSIONS_STORE))
-          db.createObjectStore(PROVIDER_SESSIONS_STORE);
+        db.createObjectStore(RECORDS_STORE);
+        db.createObjectStore(PROVIDER_SESSIONS_STORE);
       };
       request.onerror = () => {
         clearTimeout(timer);

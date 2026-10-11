@@ -158,7 +158,7 @@ describe("offline encrypted prepared-context admission", () => {
     expect(admitPreparedBitwardenAccount(prepared, accountProfile).ok).toBe(false);
   });
 
-  it("retains URI context and still admits older caches without it", () => {
+  it("retains URI context and admits a record whose context was dropped", () => {
     const prepared = preparedVault();
     prepared.uriMatchContext = {
       equivalentDomains: [["example.com", "example.net"]],
@@ -167,9 +167,9 @@ describe("offline encrypted prepared-context admission", () => {
     const admitted = admitPreparedBitwardenAccount(prepared, accountProfile);
     expect(admitted.ok && admitted.data.uriMatchContext).toEqual(prepared.uriMatchContext);
     delete prepared.uriMatchContext;
-    const older = admitPreparedBitwardenAccount(prepared, accountProfile);
-    expect(older.ok).toBe(true);
-    expect(older.ok && "uriMatchContext" in older.data).toBe(false);
+    const dropped = admitPreparedBitwardenAccount(prepared, accountProfile);
+    expect(dropped.ok).toBe(true);
+    expect(dropped.ok && "uriMatchContext" in dropped.data).toBe(false);
   });
 
   it.each([

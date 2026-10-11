@@ -136,6 +136,15 @@ export const loginAttemptEventSchema = v.variant("type", [
     operationId: v.optional(identifier),
     document: v.optional(loginDocumentSchema),
   }),
+  /**
+   * The page shows another account than the selected one, found before any mutation of
+   * this fill. It ends the attempt without a retry.
+   */
+  v.strictObject({
+    type: v.literal("WRONG_ACCOUNT"),
+    operationId: identifier,
+    document: loginDocumentSchema,
+  }),
   v.strictObject({ type: v.literal("RETRY") }),
   v.strictObject({ type: v.literal("POLICY_CHANGED") }),
   v.strictObject({ type: v.literal("CANCEL") }),
@@ -240,6 +249,16 @@ function record(
             ? true
             : context.retryRequired,
       };
+    case "WRONG_ACCOUNT":
+      return {
+        outcome: "wrong-account",
+        // Like a confirmed preflight failure, the reserved fill effect never started.
+        submissions:
+          context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
+            ? context.submissions - 1
+            : context.submissions,
+        mutationIntent: undefined,
+      };
     case "RETRY":
       return {
         retries: context.retries + 1,
@@ -312,6 +331,11 @@ function createLoginAttemptMachine() {
         context.submissions < context.maxSubmissions,
       clickMatches: ({ context, event }) =>
         operationMatches(context, event) && context.operationKind === "click",
+      wrongAccount: ({ context, event }) =>
+        event.type === "WRONG_ACCOUNT" &&
+        operationMatches(context, event) &&
+        context.operationKind === "fill" &&
+        sameLoginDocument(context.document, event.document),
       retryAvailable: ({ context }) => context.retries < context.maxRetries,
       failedPossibleMutation: ({ context, event }) =>
         context.operationKind === "click" ||
@@ -400,6 +424,7 @@ function createLoginAttemptMachine() {
             { guard: "failedPossibleMutation", target: "reconciling", actions: "record" },
             { target: "retryable", actions: "record" },
           ],
+          WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
         },
       },
       "submit-intent": {
@@ -415,6 +440,7 @@ function createLoginAttemptMachine() {
             },
             { target: "reconciling", actions: "record" },
           ],
+          WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
         },
       },
       "awaiting-result": {

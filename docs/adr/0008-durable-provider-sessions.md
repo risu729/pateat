@@ -1,16 +1,20 @@
 # ADR 0008: Persist provider sync sessions beside the vault cache
 
 Status: accepted and implemented in the provider-session PR. Native browser acceptance
-uses synthetic providers; real-account refresh behavior is unverified.
+uses synthetic providers; real-account refresh behavior is unverified. Amended on
+2026-10-11 by the owner's
+[compatibility before release](../development.md#compatibility-before-release)
+decision: the version 1 database is no longer upgraded in place.
 
 Date: 2026-10-10
 
 ## Decision
 
 Persist the Bitwarden access and refresh tokens needed for an explicit sync in a
-separate `providerSessions` store of the existing native IndexedDB database, upgraded
-from version 1 to 2 in place. The upgrade is one-way: an older build opening the
-version 2 database fails with `VersionError`. The vault record of
+separate `providerSessions` store of the existing native IndexedDB database, at version
+2 beside the `records` store. A version 1 database from an earlier build fails to open
+until the extension is reinstalled, and an older build opening the version 2 database
+fails with `VersionError`. The vault record of
 [ADR 0006](0006-atomic-local-vault-cache.md) still never contains a token. A session
 also keeps the binding (user ID and email) and the narrow encrypted account fields
 the mapper needs, because refresh responses omit them.

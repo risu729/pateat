@@ -31,7 +31,7 @@ async function configure(options: Page, extensionId: string, origin: string, sel
   if (!response.ok) throw new Error("Synthetic settings unavailable");
   const settings = response.snapshot.settings;
   settings.siteDefaults = selectAccount
-    ? [{ origin, connectionId: "demo-personal", itemId: "primary" }]
+    ? [{ origin, provider: "dummy", userId: "demo-personal-account", itemId: "primary" }]
     : [];
   const saved = (await send(options, {
     version: 1,
@@ -659,6 +659,32 @@ test("abstains without a saved account and does not try another eligible item", 
       expect(await clicks(page)).toBe(0);
       const status = await send(options, { version: 1, type: "login.probe.status" });
       expect(JSON.stringify(status)).not.toContain('"authenticated"');
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a password-only page that shows another account is not filled", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      // The demo account's username is 00001234.
+      const other = await context.newPage();
+      await other.goto(`${fixture.origin}/single?shown=****9999`);
+      await expect.poll(status).toContain("wrong-account");
+      await expect(other.locator("#password")).toHaveValue("");
+      expect(await clicks(other)).toBe(0);
+      await other.close();
+      await expect.poll(status).not.toContain("wrong-account");
+      const same = await context.newPage();
+      await same.goto(`${fixture.origin}/single?shown=****1234`);
+      await expect(same.locator("#authenticated")).toBeVisible();
+      expect(await clicks(same)).toBe(1);
     });
   } finally {
     await fixture.close();

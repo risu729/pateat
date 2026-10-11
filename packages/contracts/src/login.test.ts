@@ -59,7 +59,12 @@ function binding(): LoginAccountBinding {
 function snapshot(): SettingsSnapshot {
   const settings = createDefaultSettings();
   settings.siteDefaults = [
-    { origin: "https://bank.example", connectionId: "demo-personal", itemId: "primary" },
+    {
+      origin: "https://bank.example",
+      provider: "dummy",
+      userId: "demo-personal-account",
+      itemId: "primary",
+    },
   ];
   return { version: 1, revision: 4, settings };
 }

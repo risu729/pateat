@@ -182,24 +182,21 @@ const maxSavedEntries = 1000;
  * choice therefore keeps winning, and a binding written by the owner or by AI
  * generation is never replaced. When the origin's saved default names another account,
  * or a list is full, nothing is saved. A new default names the binding's provider
- * account and item; `connectionId`, the local connection of that account, only matches
- * a legacy default saved with a connection ID. Returns the same object when nothing
- * changes, so the caller can skip the write.
+ * account and item. Returns the same object when nothing changes, so the caller can
+ * skip the write.
  */
 export function saveLoginChoice(
   settings: LocalSettings,
   binding: SavedLoginBinding,
-  connectionId: string,
 ): LocalSettings {
   const saved = settings.siteDefaults.find((site) => site.origin === binding.origin);
   const sameAccount =
     saved &&
     saved.itemId === binding.itemId &&
-    ("connectionId" in saved
-      ? saved.connectionId === connectionId
-      : saved.provider === binding.provider && saved.userId === binding.userId);
+    saved.provider === binding.provider &&
+    saved.userId === binding.userId;
   if (saved && !sameAccount) return settings;
-  const bindings = settings.bindings ?? [];
+  const { bindings } = settings;
   const hasBinding = bindings.some((entry) => sameLoginBinding(entry, binding));
   if (saved && hasBinding) return settings;
   if (
