@@ -915,6 +915,249 @@ describe("production login document admission", () => {
       await vi.waitFor(() => expect(authorized).toBe(false));
     });
   });
+  describe("a tab that moves to another origin", () => {
+    const second = "https://second.example";
+    const secondUrl = `${second}/signin`;
+    const secondRecipe = parseLoginRecipe({ ...recipe, id: "second-signin", origin: second });
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    type Stored = { id: string; state: string; outcome?: string; submissions: number } & {
+      account: { origin: string };
+      document: { tabId: number; documentId: string };
+    };
+    const stored = () => (fake.state.storage["pateat.login-attempts.v1"] ?? []) as Stored[];
+    const at = (from: string) => stored().find((entry) => entry.account.origin === from);
+    /** Both origins have their own recipe, binding and saved default for the same item. */
+    const twoSites = () => {
+      const h = harness(
+        {
+          siteDefaults: [
+            { origin, provider: "bitwarden", userId, itemId },
+            { origin: second, provider: "bitwarden", userId, itemId },
+          ],
+          bindings: [savedBinding, { ...savedBinding, recipeId: secondRecipe.id, origin: second }],
+        },
+        { allowedOrigins: [origin, second] },
+      );
+      h.recipes.recipe.mockImplementation(async (from: string, path: string) =>
+        path !== "/signin"
+          ? undefined
+          : from === origin
+            ? recipe
+            : from === second
+              ? secondRecipe
+              : undefined,
+      );
+      h.recipes.firstSteps.mockImplementation(async (from: string) =>
+        from === origin ? [recipe.steps[0]!] : from === second ? [secondRecipe.steps[0]!] : [],
+      );
+      return h;
+    };
+    /** The tab's page is replaced by a new top-level document at `url`. */
+    const navigate = (h: ReturnType<typeof harness>, url: string, documentId: string) => {
+      fake.state.tabUrls[1] = url;
+      return h.hello({ documentId, url });
+    };
+    /** Clicks on `from` never answer, as when the page leaves while submitting. */
+    const holdClicks = (...from: string[]) => {
+      fake.state.onExecute = (message) => {
+        const operation = message["operation"] as {
+          step: { kind: string };
+          document: { origin: string };
+        };
+        return operation.step.kind === "click" && from.includes(operation.document.origin)
+          ? new Promise(() => undefined)
+          : Promise.resolve();
+      };
+    };
+    it("starts the next origin's login after an authenticated attempt in the tab", async () => {
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "authenticated" }));
+      expect(await navigate(h, secondUrl, "second-document")).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+      expect(executes()).toHaveLength(4);
+      expect(h.fields.mock.calls.map(([request]) => request.account.origin)).toEqual([
+        origin,
+        second,
+      ]);
+      // The first origin's record is kept as it was.
+      expect(at(origin)).toMatchObject({ state: "authenticated", document: { tabId: 1 } });
+      expect(await h.login.active()).toBe(false);
+    });
+    it("ends a submitted attempt as left-origin and lets the next origin log in", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(at(origin)).toMatchObject({ state: "submit-intent", submissions: 1 });
+      expect(await h.login.active()).toBe(true);
+      expect(await navigate(h, secondUrl, "second-document")).toEqual({ ok: true });
+      expect(at(origin)).toMatchObject({
+        state: "blocked",
+        outcome: "left-origin",
+        submissions: 1,
+        document: { tabId: 1, documentId: "synthetic-document" },
+      });
+      await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+      expect(stored()).toHaveLength(2);
+      // Nothing is left running, so a deferred policy write may proceed.
+      expect(await h.login.active()).toBe(false);
+      expect(executes().map((entry) => (entry as { operation?: unknown }).operation)).toEqual([
+        expect.objectContaining({ document: expect.objectContaining({ origin }) }),
+        expect.objectContaining({ document: expect.objectContaining({ origin }) }),
+        expect.objectContaining({ document: expect.objectContaining({ origin: second }) }),
+        expect.objectContaining({ document: expect.objectContaining({ origin: second }) }),
+      ]);
+    });
+    it("ends a submitted attempt when the next origin has no recipe", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(await navigate(h, "https://elsewhere.example/home", "elsewhere-document")).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+      });
+      expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      expect(stored()).toHaveLength(1);
+      expect(await h.login.active()).toBe(false);
+      expect(executes()).toHaveLength(2);
+    });
+    it("never submits again when the tab returns to an origin it left", async () => {
+      holdClicks(origin, second);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(await navigate(h, secondUrl, "second-document")).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(4));
+      expect(at(second)).toMatchObject({ state: "submit-intent", submissions: 1 });
+      // Back on the first origin, which resumes its own ended record.
+      expect(await navigate(h, fake.state.pageUrl, "returned-document")).toEqual({ ok: true });
+      expect(at(second)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      expect(at(origin)).toMatchObject({
+        state: "blocked",
+        outcome: "left-origin",
+        submissions: 1,
+      });
+      // And once more to the second origin, which also stays ended.
+      expect(await navigate(h, secondUrl, "second-again")).toEqual({ ok: true });
+      await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+      expect(stored()).toHaveLength(2);
+      expect(executes()).toHaveLength(4);
+      expect(h.fields).toHaveBeenCalledTimes(2);
+    });
+    it("keeps another tab off an origin the tab left until the tab closes", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(await navigate(h, secondUrl, "second-document")).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+      fake.state.onExecute = undefined;
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+        ok: false,
+        reason: "origin-busy",
+      });
+      for (const listener of fake.state.removed) listener(1);
+      await vi.waitFor(() => expect(stored()).toEqual([]));
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab-again" })).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() =>
+        expect(stored()).toMatchObject([{ state: "authenticated", document: { tabId: 2 } }]),
+      );
+    });
+    it("keeps each origin's record of a tab across a restart", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(await navigate(h, secondUrl, "second-document")).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+      const before = stored();
+      expect(before.map((entry) => [entry.document.tabId, entry.account.origin])).toEqual([
+        [1, origin],
+        [1, second],
+      ]);
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        fake.state.onExecute = undefined;
+        const restarted = twoSites();
+        expect(await restarted.login.active()).toBe(false);
+        expect(stored()).toEqual(before);
+        // Each origin's document resumes its own ended record; nothing runs again.
+        const sent = executes().length;
+        expect(await navigate(restarted, fake.state.pageUrl, "after-restart")).toEqual({
+          ok: true,
+        });
+        expect(at(origin)).toMatchObject({ id: before[0]!.id, outcome: "left-origin" });
+        expect(await navigate(restarted, secondUrl, "second-after-restart")).toEqual({ ok: true });
+        expect(at(second)).toMatchObject({ id: before[1]!.id, state: "authenticated" });
+        expect(executes()).toHaveLength(sent);
+        // The origin the tab left still holds against another tab.
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: false,
+          reason: "origin-busy",
+        });
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+    it("ends a running attempt left behind by a restart when the tab moves to another origin", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(at(origin)).toMatchObject({ state: "submit-intent", submissions: 1 });
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        fake.state.onExecute = undefined;
+        const restarted = twoSites();
+        // The restart only observes the attempt it found; it is still running.
+        expect(await restarted.login.active()).toBe(true);
+        expect(at(origin)).toMatchObject({ state: "reconciling", outcome: "unknown-submit" });
+        expect(await navigate(restarted, secondUrl, "second-document")).toEqual({ ok: true });
+        expect(at(origin)).toMatchObject({
+          state: "blocked",
+          outcome: "left-origin",
+          submissions: 1,
+        });
+        await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+        expect(stored()).toHaveLength(2);
+        expect(await restarted.login.active()).toBe(false);
+        expect(executes()).toHaveLength(4);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+    it("treats two stored records of one tab and origin as unavailable storage", async () => {
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "authenticated" }));
+      const [record] = stored();
+      fake.state.storage["pateat.login-attempts.v1"] = [
+        record,
+        { ...record, id: crypto.randomUUID(), document: { ...record!.document, documentId: "x" } },
+      ];
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = twoSites();
+        fake.state.tabUrls[1] = secondUrl;
+        expect(await restarted.hello({ documentId: "after-restart", url: secondUrl })).toEqual({
+          ok: false,
+          reason: "storage-unavailable",
+        });
+        expect(executes()).toHaveLength(2);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+  });
   describe("live provider URI matches", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     it("let the saved default fill when its URI matches this page", async () => {

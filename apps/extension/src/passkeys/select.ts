@@ -7,6 +7,15 @@ export interface PasskeyCandidate {
   readonly counter: number;
   /** The item is the page origin's entry in `siteDefaults`. */
   readonly preferred?: boolean;
+  /** What the chooser window shows for this passkey; never used for selection. */
+  readonly display?: PasskeyDisplay;
+}
+
+/** Display-only names: the vault item, the account stored with the passkey, the connection. */
+export interface PasskeyDisplay {
+  readonly item: string;
+  readonly userName?: string;
+  readonly account?: string;
 }
 
 /** Every eligible stored passkey for one RP ID, from all enabled connections. */

@@ -50,13 +50,14 @@ the frame's URL and the tab's URL match the chosen vault item:
   URLs. As for any automatic choice, it is saved as the frame origin's site default
   after `authenticated` (ADR 0013), so a later visit to that origin uses it even where
   the frame's URL alone matches several items.
-- A tab still runs one attempt at a time. While a frame holds it, the page around the
-  frame and any other frame (an advertisement, a widget) are refused with `tab-busy`.
-  The same applies to frames while the top-level page holds the attempt. A new
-  top-level document ends an attempt held by a frame only when that frame no longer
-  answers, because a frame of the new page may announce before its own page does. A
-  prerendered page, which Chrome also reports with a nonzero frame ID, is not treated
-  as a frame.
+- A tab still runs one attempt at a time (its records are kept per origin since
+  [ADR 0022](0022-login-attempts-per-tab-and-origin.md)). While a frame holds it, the
+  page around the frame and any other frame (an advertisement, a widget) are refused
+  with `tab-busy`. The same applies to frames while the top-level page holds the
+  attempt. A new top-level document ends an attempt held by a frame only when that frame
+  no longer answers, because a frame of the new page may announce before its own page
+  does. A prerendered page, which Chrome also reports with a nonzero frame ID, is not
+  treated as a frame.
 - Completion and rejection are judged inside the same frame. When the whole tab
   navigates after a login inside a frame, the attempt ends `blocked` with outcome
   `cancelled`, whatever origin the new page has. It is neither resubmitted nor counted

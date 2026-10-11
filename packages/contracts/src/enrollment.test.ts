@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   createEnrollmentChallenge,
   createEnrollmentVerifier,
-  deviceLabelSchema,
   enrollmentCode,
   enrollmentRedeemResultSchema,
   enrollmentRedeemSchema,
@@ -74,13 +73,6 @@ describe("enrollment code", () => {
 });
 
 describe("enrollment schemas", () => {
-  it("trims labels and rejects control characters", () => {
-    expect(v.parse(deviceLabelSchema, "  Work laptop ")).toBe("Work laptop");
-    expect(v.safeParse(deviceLabelSchema, "   ").success).toBe(false);
-    expect(v.safeParse(deviceLabelSchema, "line\nbreak").success).toBe(false);
-    expect(v.safeParse(deviceLabelSchema, "x".repeat(65)).success).toBe(false);
-  });
-
   it("keeps redemption bodies strict", () => {
     const verifier = createEnrollmentVerifier();
     expect(v.safeParse(enrollmentRedeemSchema, { version: 1, verifier }).success).toBe(true);

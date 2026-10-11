@@ -53,7 +53,13 @@ The owner decided these on 2026-10-11, following the kogane repository:
   extension's background), `/redeem` (anonymous pairing), `/health` (release check),
   and `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
   anonymously by Anthropic for Workload Identity Federation). The Worker still
-  verifies the Access token itself on the owner pages.
+  verifies the Access token itself on the owner pages. `POST /pair` (direct pairing,
+  [ADR 0020](adr/0020-direct-device-pairing.md)) stays under the host-wide application
+  and must not be added to the Bypass application: it needs the owner's Access session.
+- Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
+  `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a
+  secret, workflows do not synchronize it, and it needs no GitHub environment variable
+  or Worker secret; a release deploys the committed list.
 - Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
   `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
   cf refuses to create a Worker without its declared secrets, so the first deploy

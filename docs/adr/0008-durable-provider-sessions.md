@@ -4,7 +4,10 @@ Status: accepted and implemented in the provider-session PR. Native browser acce
 uses synthetic providers; real-account refresh behavior is unverified. Amended on
 2026-10-11 by the owner's
 [compatibility before release](../development.md#compatibility-before-release)
-decision: the version 1 database is no longer upgraded in place.
+decision: the version 1 database is no longer upgraded in place. Amended again on
+2026-10-11 by the owner's decision to restore the session after a refresh that got no
+rejection, made together with the approval of automatic vault sync, which a later ADR
+records.
 
 Date: 2026-10-10
 
@@ -19,18 +22,24 @@ fails with `VersionError`. The vault record of
 also keeps the binding (user ID and email) and the narrow encrypted account fields
 the mapper needs, because refresh responses omit them.
 
-Before a refresh request, commit a token-free claim by compare-and-swap; only the
-writer whose claim committed sends the request. Keep the previous refresh token only
-in that worker's memory. A restart or an unknown network outcome leaves the claim,
-which then requires password sign-in; a claim is never replayed. Once the claim has
-committed, closing the options page does not abort the request or the rotation commit;
-only the transport timeout bounds them. Commit a rotated token before syncing and keep
-the captured token when the response omits it. A session is usable only until 60
-seconds before the earlier of its receipt time plus `expires_in` and the access
-token's `exp` claim. Claim and retain writes compare the session revision and the
-current active vault record revision in one transaction, so a session is never
-pinned to an older cache; rotation commits and deletes compare only the session
-revision.
+Before a refresh request, commit a token-free claim by compare-and-swap; only the writer
+whose claim committed sends the request. Keep the previous refresh token only in that
+worker's memory. When the refresh fails with a network error, a timeout, HTTP 429 or a
+5xx status, the provider has not rejected the token, so the claim is swapped back to the
+previous session (same refresh token, new revision) and a later sync sends it again. The
+Bitwarden server reuses refresh tokens (`TokenUsage.ReUse`), so a refresh never
+invalidates the presented token, even if the server processed the lost request.
+Vaultwarden returns a new refresh token on each refresh but keeps the old one valid
+until its own expiry, so a restore is safe there too. Any other failure, or a worker
+restart while the request is in flight, leaves the claim, which then requires password
+sign-in. Once the claim has committed, closing the options page does not abort the
+request or the rotation commit; only the transport timeout bounds them. Commit a rotated
+token before syncing and keep the captured token when the response omits it. A session
+is usable only until 60 seconds before the earlier of its receipt time plus `expires_in`
+and the access token's `exp` claim. Claim and retain writes compare the session revision
+and the current active vault record revision in one transaction, so a session is never
+pinned to an older cache; rotation commits, restores and deletes compare only the
+session revision.
 
 Local forget, permission loss for that provider, a rejected refresh or access token,
 and a stored context that no longer matches the account clear only the sync session.
@@ -59,4 +68,5 @@ this extension; they do not make the server operation exactly-once.
 - [Server refresh-token reuse and lifetime](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/src/Identity/IdentityServer/ApiClient.cs#L18-L35)
 - [Client retention of an absent refresh token](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/auth/services/token.service.ts#L190-L198)
 - [Refresh response model](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/auth/models/response/refresh-token.response.ts)
+- [Vaultwarden refresh grant](https://github.com/dani-garcia/vaultwarden/blob/64895524e481492130061b95aa4433118f6b1c59/src/auth.rs#L1342-L1382)
 - [Refreshed membership claims](https://github.com/bitwarden/server/blob/9ee4e0ebf502fd1c8bf5c1bbcbc2942c3b66bbcc/test/Identity.IntegrationTest/Grants/RefreshTokenGrantTests.cs#L69-L106)

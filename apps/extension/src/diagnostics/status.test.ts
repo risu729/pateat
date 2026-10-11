@@ -121,6 +121,16 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         bindings: [],
       }) as never,
     logs: async () => ({ entries: 120, bytes: 18_000, recentErrors: 2 }),
+    recentLog: async () => ({
+      problems: [
+        "2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch",
+      ],
+      updated: { time: NOW - 3 * 60 * 60_000, from: "9cf8356de6a0cf2c82dae5c4e70f15ea3dbc5d4b" },
+      passkeyDelegations: [
+        { reason: "no-credential", count: 3 },
+        { reason: "ambiguous-credential", count: 1 },
+      ],
+    }),
     storage: {
       localBytes: async () => 412 * 1024,
       recipeCache: async () => ({ version: 1, recipes: [{ id: "bank-signin" }] }),
@@ -225,6 +235,9 @@ describe("diagnostics status", () => {
     expect(report).toContain("· KDF PBKDF2 ·");
     expect(report).toContain("self-hosted · Bitwarden server 2026.9.2 · ready");
     expect(report).not.toContain("600000");
+    expect(report).toContain(
+      "Updated 2026-10-11T06:30Z from 9cf8356\nRecent problems (24 h, newest first):\n  2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch\nPasskey delegations (24 h): no-credential 3 · ambiguous-credential 1\n",
+    );
   });
 
   it("explains an expired sync token that the next Sync tries to renew", async () => {

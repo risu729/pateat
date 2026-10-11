@@ -329,7 +329,9 @@ service's owner-authenticated web UI
 page handles vault connection, re-authentication, unlock and service pairing, and still
 edits local policy, exclusions and account defaults. The toolbar popup edits only the
 active tab's site default account and exclusion, through the same worker-owned store
-([ADR 0021](adr/0021-account-choice-outside-settings.md)). Chrome
+([ADR 0021](adr/0021-account-choice-outside-settings.md)). Item selection, field
+exclusions and custom-field review stay on the extension's settings page once synced
+([ADR 0023](adr/0023-synced-vault-policy.md)). Chrome
 use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
@@ -358,8 +360,12 @@ again in that tab asks for a choice again instead of logging in. Automatic
 logout/relogin when the user picks another account while logged in stays later. Cookies
 may be shared across
 tabs even during initial login. The first executor conservatively locks an origin
-to one owner tab until closure; wider shared-session domains need explicit
-coordination before broader support, not a guessed relationship between origins.
+to one owner tab until closure. A tab keeps one attempt record per origin and runs one
+attempt at a time; a page resumes only its own origin's record, and a top-level attempt
+that may have submitted ends `left-origin` when the tab moves to another origin
+([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
+domains need explicit coordination before broader support, not a guessed relationship
+between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic
@@ -394,9 +400,9 @@ Do not inject `chrome-extension://` iframes, automatic overlays or unlock window
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
 settings. The one extension window is the passkey chooser of
 [ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
-with several matches and none in incognito. Do not attach our own debugger in normal
-operation. Another installed extension can still inject a conflicting frame; coexistence
-requires an explicit compatibility test and documented settings.
+with several matches from a focused page, and never in incognito. Do not attach our own
+debugger in normal operation. Another installed extension can still inject a conflicting
+frame; coexistence requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->
 awaiting-result -> authenticated / retryable / blocked. One writer owns an
@@ -461,7 +467,8 @@ target matches exactly one shown link or button that does not submit a form, the
 background first records the attempt as `account-switched` (blocked, no submission
 spent) and then has the content script click it. The click happens only within 10
 seconds, on the same path, while the target still matches exactly that element;
-otherwise the record becomes `wrong-account` and keeps holding the tab. After the click,
+otherwise the record becomes `wrong-account` and keeps holding that origin in the tab.
+After the click,
 the tab's next document of that origin that reports ready starts a new attempt instead
 of resuming, so
 a recipe that starts on the page the switch leads to logs in, such as an email page at
@@ -564,8 +571,13 @@ The worker fetches `/health` only for a paired service with site access, and
 requires, with a 5 s timeout and no credentials. It never reads the config's
 `environment` (host URLs) or a third-party server's name other than Vaultwarden.
 **Copy for bug report** shows the exact text before copying it; that text leaves out
-the unlock KDF parameters. Labels, emails, item names and IDs, URLs and host names are
-never part of the summary.
+the unlock KDF parameters. It ends with the log's last update (`Updated <time> from
+<revision>`), its warnings and errors of the last 24 hours (newest 10, one line each
+with the time, level, event and allowlisted field values) and the count of passkey
+requests left to the browser in those 24 hours by reason. The worker builds these lines
+from the log and numbers sites and recipes in them as in a download, but separately,
+so `site-1` there can be another site than in **Download logs**. Labels, emails, item
+names and IDs, URLs and host names are never part of the summary.
 
 ### Local log
 
@@ -580,6 +592,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `runtime.started` | debug | build revision |
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
+| `vault.sync` | info for a result and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
 | `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
@@ -623,11 +636,12 @@ A generated recipe has no completion target until the page after its first sign-
 is judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
 never reports `authenticated` with it: a submission ends `credential-rejected`, moves
 to a later step, or stays unknown (`unknown-submit`), so no account choice is saved.
-An unknown attempt stays in `reconciling` until its tab closes, as any unknown outcome
-does today: meanwhile it holds the origin, blocks saving account choices from other
-tabs and defers settings sync for up to two minutes per run. The service can judge the
-page after the final submission, which settles such attempts, but the extension does
-not send it yet.
+An unknown attempt stays in `reconciling` until its tab closes or, for a top-level
+attempt, until the tab shows a page of another origin that Pateat may run on
+(`left-origin`, ADR 0022): meanwhile it holds the origin, blocks saving account
+choices from other tabs and defers settings sync for up to two minutes per run. The
+service can judge the page after the final submission, which settles such attempts, but
+the extension does not send it yet.
 
 A completion may also list up to four `absent` elements. The executor reports
 `authenticated` only when the completion target is unique on its path and every
@@ -666,8 +680,9 @@ Site recipes contain meanings such as branch-number/account-number/password. Kee
 account-specific bindings separate from recipes. They are stored in the synced settings
 document as references, never credential values, and resolved to values locally. AI
 input may name the allowed vault fields but never carries bindings, item or account IDs
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Multi-origin SSO needs an
-explicit configured transition policy.
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Signing in to a site
+through Google or Microsoft follows the policy in
+[ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented).
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
@@ -756,6 +771,15 @@ selection. The crypto Worker signs with the stored vault passkey, keeping the pr
 key inside the Worker and signing only zero-counter assertion data for that credential's
 RP ID. The probe build adds `http://localhost/*` scripts and a synthetic test-vector key
 for that origin.
+
+When several signable passkeys match and none is the site default, the background opens
+the chooser window `passkey-picker.html`
+([ADR 0021](adr/0021-account-choice-outside-settings.md)) with `chrome.windows.create`.
+It shows only item names, passkey user names and connection labels. The background
+answers its messages only from that page, for the request token in its URL and from the
+window it opened, and keeps the worker alive while the window waits. Choosing signs with
+that passkey; a ticked checkbox then saves it as the origin's site default. Any other
+ending delegates to the browser.
 
 ## Minimal service
 
@@ -850,8 +874,9 @@ quota, before the service is offered to other people.
 
 Status: the typed-code flow below is implemented and deployed, and the owner paired a
 real Chrome through Access with it on 2026-10-11. Direct pairing
-([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; so far only
-the fixed production extension ID is implemented. Both satisfy the separation above
+([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; so far the
+fixed production extension ID and the service's `POST /pair` route are implemented, and
+the extension still uses the typed code. Both satisfy the separation above
 without a cookie on steady-state API calls.
 
 - Route families. One Access application covers the whole service host, so a new route
@@ -913,7 +938,9 @@ Status: design approved by the owner on 2026-10-11. The app, its Access-checked 
 and API, and the devices, sites, account bindings and recipes pages are implemented,
 tested locally and deployed with the service. It replaces the extension's settings page
 for the data the service holds
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)), except item selection,
+field exclusions and custom-field review, which need the device's vault catalog
+([ADR 0023](adr/0023-synced-vault-policy.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
@@ -931,9 +958,9 @@ for the data the service holds
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI
   generation. Creating or editing recipe JSON is not offered; development keeps using
-  `PUT /v1/recipes/:recipeId`. Settings that still use device-local IDs (connections,
-  item selection and field exclusions) are not shown until their device-independent
-  form is decided.
+  `PUT /v1/recipes/:recipeId`. Item selection and field exclusions are not shown yet;
+  once synced ([ADR 0023](adr/0023-synced-vault-policy.md)) the web UI first only lists
+  them, and they are edited on the extension's settings page.
 
   Claude credentials are entered on `/manage/claude`, a temporary script-free page
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,

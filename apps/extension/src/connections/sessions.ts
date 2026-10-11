@@ -29,6 +29,13 @@ const UNADMITTABLE = new Set<VaultErrorCode>([
   "invalid-profile",
 ]);
 type Acquired = { authenticated: Authenticated; revision: string };
+/** No response, a rate limit or a server error: the provider did not reject the token. */
+const retryable = (error: { code: string; status?: number }) =>
+  error.code === "network" ||
+  error.code === "timeout" ||
+  (error.code === "http-error" &&
+    error.status !== undefined &&
+    (error.status === 429 || error.status >= 500));
 
 export function createProviderSessions(deps: {
   storeFor(profile: BitwardenProfile): ProviderSessionStore;
@@ -109,8 +116,10 @@ export function createProviderSessions(deps: {
     },
     /**
      * Return a usable authorization for one explicit sync, refreshing it at most once.
-     * The refresh claim is committed before HTTP, holds no token, and is never replayed:
-     * a restart or unknown outcome leaves it in place and requires password sign-in.
+     * The refresh claim is committed before HTTP and holds no token. A network failure,
+     * timeout, 429 or 5xx puts the session back with the captured refresh token, which
+     * the provider reuses; a restart or any other failure leaves the claim, which then
+     * requires password sign-in.
      * The caller signal only bounds the pre-claim checks; once claimed, the request and
      * rotation commit run to completion (bounded by the transport timeout) so closing the
      * options page cannot strand a rotated token. Forget still wins by the claim revision.
@@ -161,7 +170,14 @@ export function createProviderSessions(deps: {
         refreshToken: captured,
       });
       const receivedAt = now();
-      if (!refreshed.ok) return refreshed;
+      if (!refreshed.ok) {
+        // The provider never invalidates a presented refresh token, so after a failure that
+        // carries no rejection the captured one is still valid: put it back so a later sync can retry without a
+        // password. The restore compares only the claim, so a forget in between still wins.
+        if (retryable(refreshed.error))
+          await store.compareAndSwap(claim.revision, { ...entry, revision: random() });
+        return refreshed;
+      }
       if (refreshed.data.kind !== "authenticated") {
         await store.compareAndSwap(claim.revision, null);
         return { ok: false, error: { code: "setup-reauthentication-required" } };

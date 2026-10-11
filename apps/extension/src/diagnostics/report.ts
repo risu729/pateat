@@ -80,6 +80,20 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
     lines.push(
       `Logs: ${status.logs.entries} entries (${Math.ceil(status.logs.bytes / 1024)} KB), ${status.logs.recentErrors} errors in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${utcMinute(status.logs.debugUntil)}`}`,
     );
+  const { recent } = status;
+  if (recent?.updated)
+    lines.push(
+      `Updated ${utcMinute(recent.updated.time)} from ${shortRevision(recent.updated.from)}`,
+    );
+  if (recent?.problems.length)
+    lines.push(
+      "Recent problems (24 h, newest first):",
+      ...recent.problems.map((line) => `  ${line}`),
+    );
+  if (recent?.passkeyDelegations.length)
+    lines.push(
+      `Passkey delegations (24 h): ${recent.passkeyDelegations.map(({ reason, count }) => `${reason} ${count}`).join(" · ")}`,
+    );
   lines.push(`Collected ${utcMinute(status.collectedAt)}`);
   return lines.join("\n");
 }

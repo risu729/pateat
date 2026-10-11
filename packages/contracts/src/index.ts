@@ -8,6 +8,7 @@ export * from "./login";
 export * from "./login-attempt";
 export * from "./manage";
 export * from "./observation";
+export * from "./pairing";
 export * from "./recipes";
 export * from "./service-connection";
 export * from "./sync";

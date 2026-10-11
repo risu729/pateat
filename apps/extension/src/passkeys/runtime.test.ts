@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPasskeyRuntime, type PasskeySource } from "./runtime";
+import {
+  chooserWaitMs,
+  createPasskeyRuntime,
+  type PasskeyChoice,
+  type PasskeyChooser,
+  type PasskeySource,
+} from "./runtime";
+import type { PasskeyCandidates } from "./select";
+import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS } from "./wire";
 import { snapshotGetOptions } from "./page";
 
 const extensionId = "synthetic-extension";
@@ -9,6 +17,7 @@ const sender = (overrides: Record<string, unknown> = {}) => ({
   tab: { id: 7 },
   frameId: 0,
   documentId: "document-a",
+  documentLifecycle: "active",
   origin,
   url: `${origin}/sign-in?next=%2F`,
   ...overrides,
@@ -21,12 +30,13 @@ const candidate = {
   counter: 0,
 };
 const request = { challenge: "AAECAwQFBgcICQoLDA0ODw", rpId: "example.com", allowCredentials: [] };
-const get = (operationId = crypto.randomUUID(), userActivation = true) => ({
+const get = (operationId = crypto.randomUUID(), userActivation = true, focused = true) => ({
   version: 1,
   type: "passkey.get",
   operationId,
   request,
   userActivation,
+  focused,
 });
 
 function source(overrides: Partial<PasskeySource> = {}): PasskeySource {
@@ -177,6 +187,7 @@ describe("page option snapshots", () => {
       rpId: "example.com",
       userVerification: "preferred",
       mediation: "optional",
+      timeout: 1000,
       allowCredentials: [{ type: "public-key", id: "AQID", transports: ["internal"] }],
     });
   });
@@ -306,5 +317,233 @@ describe("passkey runtime reports", () => {
       sender(),
     );
     expect(report).not.toHaveBeenCalled();
+  });
+});
+
+describe("passkey chooser window", () => {
+  const pair = [
+    { ...candidate, display: { item: "Work", userName: "alice", account: "Personal" } },
+    { ...candidate, credentialId: "BAUG" },
+  ];
+  const several = (overrides: Partial<PasskeySource> = {}, siteDefault?: "searched" | "unset") =>
+    source({
+      candidates: vi.fn(async () => ({
+        candidates: pair,
+        complete: true,
+        ...(siteDefault ? { siteDefault } : {}),
+      })),
+      ...overrides,
+    });
+  const chooser = (
+    answer: (input: Parameters<PasskeyChooser["choose"]>[0]) => Promise<PasskeyChoice>,
+  ) => ({
+    choose: vi.fn(answer),
+  });
+
+  it("signs with the chosen passkey and saves it only after answering", async () => {
+    const backing = several({}, "searched");
+    const choose = chooser(async () => ({ kind: "chosen", index: 1, makeDefault: true }));
+    const remember = vi.fn(async () => {});
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: choose,
+      remember,
+      report,
+    });
+    const result = await runtime.handle(get(), sender());
+    expect(result).toMatchObject({ kind: "assertion", assertion: { credentialId: "BAUG" } });
+    expect(choose.choose).toHaveBeenCalledWith({
+      tabId: 7,
+      origin,
+      rpId: "example.com",
+      entries: [{ item: "Work", userName: "alice", account: "Personal" }, { item: "Passkey 2" }],
+      replacesDefault: true,
+      signal: expect.any(AbortSignal),
+    });
+    expect(backing.sign).toHaveBeenCalledWith(
+      pair[1],
+      expect.anything(),
+      expect.anything(),
+      expect.any(AbortSignal),
+    );
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ chooser: "chosen" }));
+    expect(remember).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).toHaveBeenCalledWith(origin, pair[1]);
+  });
+
+  it("does not save a one-time choice", async () => {
+    const remember = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(several(), {
+      extensionId,
+      chooser: chooser(async () => ({ kind: "chosen", index: 0, makeDefault: false })),
+      remember,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({
+      assertion: { credentialId: "AQID" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).not.toHaveBeenCalled();
+  });
+
+  it.each(["browser", "closed", "unavailable"] as const)(
+    "delegates when the window ends with %s",
+    async (kind) => {
+      const backing = several();
+      const runtime = createPasskeyRuntime(backing, {
+        extensionId,
+        chooser: chooser(async () => ({ kind })),
+      });
+      expect(await runtime.handle(get(), sender())).toEqual({
+        kind: "delegate",
+        reason: `chooser-${kind}`,
+      });
+      expect(backing.sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it("delegates an out-of-range answer", async () => {
+    const runtime = createPasskeyRuntime(several(), {
+      extensionId,
+      chooser: chooser(async () => ({ kind: "chosen", index: 2, makeDefault: true })),
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "chooser-invalid",
+    });
+  });
+
+  it("opens no window in incognito, unfocused or prerendered, or with fewer than two signable passkeys", async () => {
+    const choose = chooser(async () => ({ kind: "closed" }));
+    const runtime = createPasskeyRuntime(several(), { extensionId, chooser: choose });
+    const ambiguous = { kind: "delegate", reason: "ambiguous-credential" };
+    expect(await runtime.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toEqual(
+      ambiguous,
+    );
+    expect(await runtime.handle(get(undefined, true, false), sender())).toEqual(ambiguous);
+    expect(await runtime.handle(get(), sender({ documentLifecycle: "prerender" }))).toEqual(
+      ambiguous,
+    );
+    const counted = createPasskeyRuntime(
+      source({
+        candidates: vi.fn(async () => ({
+          candidates: [pair[0]!, { ...pair[1]!, counter: 3 }],
+          complete: true,
+        })),
+      }),
+      { extensionId, chooser: choose },
+    );
+    expect(await counted.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "ambiguous-credential",
+    });
+    expect(choose.choose).not.toHaveBeenCalled();
+  });
+
+  it("closes the window when the page cancels or settings change", async () => {
+    const signals: AbortSignal[] = [];
+    const choose = chooser(
+      (input) =>
+        new Promise<PasskeyChoice>(() => {
+          signals.push(input.signal);
+        }),
+    );
+    const runtime = createPasskeyRuntime(several(), { extensionId, chooser: choose });
+    const operationId = crypto.randomUUID();
+    const pending = runtime.handle(get(operationId), sender());
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    await runtime.handle({ version: 1, type: "passkey.cancel", operationId }, sender());
+    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(signals[0]!.aborted).toBe(true);
+    const second = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(signals).toHaveLength(2));
+    runtime.cancelAll();
+    expect(await second).toEqual({ kind: "cancelled" });
+    expect(signals[1]!.aborted).toBe(true);
+  });
+
+  it("waits past the lookup budget up to the caller's timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const signals: AbortSignal[] = [];
+      const runtime = createPasskeyRuntime(several(), {
+        extensionId,
+        chooser: chooser(
+          (input) =>
+            new Promise<PasskeyChoice>(() => {
+              signals.push(input.signal);
+            }),
+        ),
+      });
+      let settled: unknown;
+      void runtime
+        .handle({ ...get(), request: { ...request, timeout: 30_000 } }, sender())
+        .then((result) => (settled = result));
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toEqual({ kind: "delegate", reason: "timeout" });
+      expect(signals[0]!.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips the window when little of the wait is left, and gives signing its own budget", async () => {
+    // Only the runtime's timers are fake; hashing and polling run on real time.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
+    const until = async (condition: () => boolean) => {
+      for (let step = 0; step < 1000 && !condition(); step++)
+        // eslint-disable-next-line no-await-in-loop
+        await tick();
+      expect(condition()).toBe(true);
+    };
+    try {
+      let lookedUp!: (value: PasskeyCandidates) => void;
+      const slowLookup = several({
+        candidates: vi.fn(() => new Promise<PasskeyCandidates>((resolve) => (lookedUp = resolve))),
+      });
+      const unused = chooser(async () => ({ kind: "closed" }));
+      const late = createPasskeyRuntime(slowLookup, { extensionId, chooser: unused });
+      const skipped = late.handle({ ...get(), request: { ...request, timeout: 10_000 } }, sender());
+      await until(() => lookedUp !== undefined);
+      await vi.advanceTimersByTimeAsync(6_000);
+      lookedUp({ candidates: pair, complete: true });
+      expect(await skipped).toEqual({ kind: "delegate", reason: "ambiguous-credential" });
+      expect(unused.choose).not.toHaveBeenCalled();
+
+      // Chosen 0.5 s before the chooser's deadline; signing still has its own 10 s.
+      let choose!: (choice: PasskeyChoice) => void;
+      let signed!: (signature: Uint8Array) => void;
+      const signing = several({
+        sign: vi.fn(() => new Promise<Uint8Array>((resolve) => (signed = resolve))),
+      });
+      const runtime = createPasskeyRuntime(signing, {
+        extensionId,
+        chooser: chooser(() => new Promise<PasskeyChoice>((resolve) => (choose = resolve))),
+      });
+      const answer = runtime.handle(
+        { ...get(), request: { ...request, timeout: 10_000 } },
+        sender(),
+      );
+      await until(() => choose !== undefined);
+      await vi.advanceTimersByTimeAsync(9_500);
+      choose({ kind: "chosen", index: 0, makeDefault: false });
+      await until(() => signed !== undefined);
+      await vi.advanceTimersByTimeAsync(1_000);
+      signed(Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01));
+      expect(await answer).toMatchObject({ kind: "assertion" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds the wait by Pateat's limits", () => {
+    expect(chooserWaitMs(undefined)).toBe(CHOOSER_MAX_WAIT_MS);
+    expect(chooserWaitMs(600_000)).toBe(CHOOSER_MAX_WAIT_MS);
+    expect(chooserWaitMs(0)).toBe(CHOOSER_MIN_WAIT_MS);
+    expect(chooserWaitMs(45_000)).toBe(45_000);
   });
 });

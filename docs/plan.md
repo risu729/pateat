@@ -20,15 +20,15 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   host-access revocation, and the site-access warning and prompt in installed Chrome
   ([remaining M3 integration gaps](#remaining-m3-integration-gaps)).
 - M4: sync against the deployed service, the
-  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing,
-  device-independent item selection and field exclusions, a WIF token exchange against
-  Anthropic) and the remaining M4 AI work under
+  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing, synced item
+  selection and field exclusions ([ADR 0023](adr/0023-synced-vault-policy.md)), a WIF
+  token exchange against Anthropic) and the remaining M4 AI work under
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
-  `advance` step, naming `accountSwitch`, ADR 0010
-  hints, `checkPlanValues` and the post-fill check in the executor, the real-page
-  corpus) and the finite-choice role.
+  `advance` step, naming `accountSwitch`, ADR 0010 hints, `checkPlanValues` and the
+  post-fill check in the executor, the real-page corpus) and the finite-choice role.
 - M5: the passkey chooser window
-  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), real sites that wrap `get`
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
+  implemented and tested in Playwright Chromium only), real sites that wrap `get`
   themselves, and a navigation during signing.
 - M6: Chrome use coexistence, operational docs, hosted smoke checks beyond `/health`,
   installed-Chrome dummy-account tests and measured limits.
@@ -92,7 +92,8 @@ synthetic values. A metadata journal precedes every fill and click; input-trigge
 advance/submission declares its effect and event explicitly. Recovery observes
 the current document and never blindly replays an uncertain mutation or pending
 submit. Same-origin attempts
-remain locked to one owner tab until that tab closes, including terminal results.
+remain locked to one owner tab until that tab closes, including terminal results; a tab
+keeps one record per origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
 
 The shared synthetic site verifies field values, click counts and server-observed
 POST counts independently of the executor. Interruption fixtures distinguish
@@ -483,8 +484,9 @@ IndexedDB database at version 2 holds a `records` store and a `providerSessions`
 vault records still never contain tokens. A version 1 database from an earlier build
 fails to open until the extension is reinstalled
 ([compatibility before release](development.md#compatibility-before-release)). A
-token-free refresh claim commits by compare-and-swap before HTTP, a restart or unknown
-outcome requires password sign-in instead of replaying it, rotation commits before sync,
+token-free refresh claim commits by compare-and-swap before HTTP, a network failure,
+timeout, 429 or 5xx restores the previous session so a later sync retries it, a restart
+or other failure requires password sign-in, rotation commits before sync,
 and an absent refresh token keeps the captured one. Local forget, permission loss for
 that provider, a rejected refresh or access token, and a mismatched account context
 clear only the sync session. Startup only reads state; the settings page shows sync
@@ -629,11 +631,14 @@ tests cover it.
 ### Remaining M4 service gaps
 
 - Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md)):
-  the manifest `key` that fixes the production extension ID is implemented. The
-  Access-protected `POST /pair` and then the extension switch, with the typed-code flow
-  removed, are not.
+  the manifest `key` that fixes the production extension ID and the Access-protected
+  `POST /pair` route, beside the typed-code flow, are implemented and covered by local
+  Worker tests; the route is not deployed. The extension switch, with the typed-code
+  flow removed, is not implemented.
 - Settings that use device-local connection IDs, such as item selection and field
-  exclusions, have no device-independent form yet and are not synced (ADR 0013).
+  exclusions, are not synced yet.
+  [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
+  review; it is not implemented.
 - Done: the [owner web UI](architecture.md#owner-web-ui) serves its React app, assets
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
@@ -645,9 +650,15 @@ tests cover it.
   to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the `inference_credentials`
-  table and `resolveClaudeCredential` exist and are tested against a fake token endpoint
-  only. Owners enter identifiers on the temporary `/manage/claude` page until the React
-  web UI replaces it; no exchange with Anthropic's real token endpoint has been made.
+  table and `resolveClaudeCredential` exist. Owners enter identifiers on the temporary
+  `/manage/claude` page until the React web UI replaces it. On 2026-10-11 at 12:26 UTC
+  the deployed service at `pateat.takuk.me` exchanged a real assertion with Anthropic.
+  The owner's federation rule is scoped to `workspace:developer`, because the Console
+  offered no `workspace:inference`, and the token was valid for 10 minutes. The first
+  real generation call followed at 12:27 UTC for `https://my.jcb.co.jp/Login`. The model
+  abstained (`insufficient-evidence`, $0.008), because the installed build's extractor
+  skipped the page's login control: an `<a>` without `href` that submits the form
+  from `onclick`.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first approval. Per-owner [service limits](architecture.md#service-limits)
   cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
@@ -1055,11 +1066,14 @@ the attempt it started, wins over a saved default there, and still has to match 
 page and pass every policy check; a pick that starts nothing is dropped, so the form's
 next appearance asks again. "Make it the default for this site" (on by default,
 off in a private window) saves the pick through the existing choice save after
-`authenticated`. Choosing again after a logout (part D) is not built yet.
+`authenticated`. The passkey chooser window is implemented: a request matching several
+passkeys, none of them the site default, opens `passkey-picker.html` to choose one once
+or as the default. Choosing again after a logout (part D) is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
-API keys, SSO or device approval; external email/SMS OTP and magic links; and separately
+API keys, SSO or device approval; signing in to sites through an identity provider
+(policy in ADR 0026); external email/SMS OTP and magic links; and separately
 authorized post-login actions, including transactions and approvals. UI extensions,
 automatic account switching (logging out and in again when another account is picked
 while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe
@@ -1175,8 +1189,9 @@ support for every site or vault format. Keep observed limitations explicit.
   setting over the existing policy shape is later work. Nonzero-counter
   synchronization is deferred.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
-  among several URI-matched items, how synced field exclusions
-  move to device-independent references, and where custom-field review happens.
+  among several URI-matched items. How synced field exclusions move to
+  device-independent references, and where custom-field review happens, are decided in
+  [ADR 0023](adr/0023-synced-vault-policy.md).
 - Enrollment and device credential lifetime (90 days unused, renewed on use; see
   [service sync progress](#service-sync-progress)) are settled, and a lost
   device is replaced by pairing a new one, since the service holds settings and recipes
