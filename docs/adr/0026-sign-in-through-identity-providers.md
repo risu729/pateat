@@ -1,4 +1,4 @@
-# ADR 0023: Signing in to a site through an identity provider
+# ADR 0026: Signing in to a site through an identity provider
 
 Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented. The
 owner set it as low priority: this record fixes the direction, and implementation waits.

@@ -655,7 +655,7 @@ document as references, never credential values, and resolved to values locally.
 input may name the allowed vault fields but never carries bindings, item or account IDs
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Signing in to a site
 through Google or Microsoft follows the policy in
-[ADR 0023](adr/0023-sign-in-through-identity-providers.md) (not implemented).
+[ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented).
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
