@@ -476,7 +476,7 @@ for those input types (`valueMismatch` in `packages/contracts/src/values.ts`). A
 22-character password and an input with `maxlength="8"` fills nothing and ends the
 attempt `value-mismatch` without a retry or a spent submission. After a preparing fill,
 the content script waits 500 ms for the page's own handlers and ends the attempt
-`fill-rejected`, without a retry or the click, when a filled input was replaced, is
+`fill-rejected`, without a retry or the click, when a filled input is
 invalid (`validity.valid`, which unlike `checkValidity()` fires no `invalid` event),
 became `aria-invalid="true"`, or a visible alert shows text that no such region showed
 before the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions
@@ -484,7 +484,8 @@ anywhere, and `role="status"` and polite regions inside the filled form or named
 filled input's `aria-describedby` or `aria-errormessage`. A message the page already
 showed and renders again is not new, nor is a mark the input had before the fill. The
 text stays in the content script; only the outcome leaves it. A fill that submits
-through its own event is checked only before filling.
+through its own event is checked only before filling. When a filled input was replaced
+during the wait, nothing is clicked and the attempt observes the page instead.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.

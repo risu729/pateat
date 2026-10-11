@@ -56,9 +56,6 @@ describe("rejectsFill", () => {
     document.querySelector("#hint")!.textContent = "Digits only";
     expect(rejectsFill([field], before)).toBe(true);
     document.querySelector("#hint")!.textContent = "";
-    // A replaced input is not the one that was filled.
-    field.remove();
-    expect(rejectsFill([field], before)).toBe(true);
   });
 
   it("ignores messages already shown, unrelated status regions and earlier marks", () => {

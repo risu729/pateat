@@ -92,15 +92,15 @@ export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline 
 }
 
 /**
- * Whether the page rejected a fill once its own handlers ran: a filled input was
- * replaced or removed, fails its constraint validation (read without firing `invalid`),
- * became `aria-invalid="true"`, or an alert or relevant live region shows text that none
- * showed before the fill. A mark the input already had before the fill, such as one
- * left by an earlier failed sign-in that no script clears, is not the page's answer.
+ * Whether the page rejected a fill once its own handlers ran: a filled input fails its
+ * constraint validation (read without firing `invalid`), became `aria-invalid="true"`,
+ * or an alert or relevant live region shows text that none showed before the fill. A
+ * mark the input already had before the fill, such as one left by an earlier failed
+ * sign-in that no script clears, is not the page's answer. The caller handles a filled
+ * input that is no longer connected first.
  */
 export function rejectsFill(inputs: readonly HTMLInputElement[], before: FillBaseline): boolean {
   const rejected = inputs.some((input, index) => {
-    if (!input.isConnected) return true;
     const previous = before.inputs[index]!;
     if (ariaInvalid(input) && !previous.ariaInvalid) return true;
     const { validity } = input;

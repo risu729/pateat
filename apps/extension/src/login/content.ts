@@ -480,6 +480,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (baseline) {
           await pause(fillSettleMs);
           if (cancelled) return fail("cancelled");
+          // The page replaced the form, perhaps signing in by itself; the background
+          // observes the page instead of clicking.
+          if (writableInputs.some((input) => !input.isConnected))
+            return fail("structural-mismatch");
           if (rejectsFill(writableInputs, baseline)) return fail("fill-rejected");
         }
         return { ok: true, mutation: "possible" };

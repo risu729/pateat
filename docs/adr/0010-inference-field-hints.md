@@ -73,8 +73,9 @@ decision:
   `validity.valid`, which fires no `invalid` event for the page to react to.
   `aria-invalid="true"` counts only when the fill turned it on, and a custom validity
   message only when it is new, so a mark left by an earlier failed sign-in that no
-  script clears does not stop the fill. A filled input that was replaced or removed
-  counts as a rejection.
+  script clears does not stop the fill. When a filled input was replaced or removed,
+  for example by a page that signs in by itself, nothing is clicked and the attempt
+  observes the page as after any uncertain fill.
 - `role="alert"` and `aria-live="assertive"` regions count anywhere on the page.
   `role="status"` and `aria-live="polite"` regions count only inside the filled form
   or when a filled input names them in `aria-describedby` or `aria-errormessage`,
