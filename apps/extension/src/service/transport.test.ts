@@ -136,7 +136,7 @@ describe("revoke", () => {
     });
   });
 
-  it.each(["device_revoked", "unauthorized"])(
+  it.each(["device_revoked", "device_expired", "unauthorized"])(
     "treats an already rejected credential as revoked: %s",
     async (error) => {
       const fetch = respond(401, { error });
@@ -215,15 +215,18 @@ describe("recipe changes", () => {
     ).toEqual({ kind: "failed", error });
   });
 
-  it.each(["device_revoked", "unauthorized"])("reports a rejected device: %s", async (error) => {
-    expect(
-      await createServiceTransport({ fetch: respond(401, { error }) }).recipeChanges(
-        ORIGIN,
-        CREDENTIAL,
-        0,
-      ),
-    ).toEqual({ kind: "rejected" });
-  });
+  it.each(["device_revoked", "device_expired", "unauthorized"])(
+    "reports a rejected device: %s",
+    async (error) => {
+      expect(
+        await createServiceTransport({ fetch: respond(401, { error }) }).recipeChanges(
+          ORIGIN,
+          CREDENTIAL,
+          0,
+        ),
+      ).toEqual({ kind: "rejected" });
+    },
+  );
 });
 
 describe("settings", () => {

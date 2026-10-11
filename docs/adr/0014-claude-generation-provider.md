@@ -31,8 +31,9 @@ monthly Claude API credit and chose the model. The offline harness in
   extension never holds it. [ADR 0015](0015-per-owner-claude-credentials.md) replaces
   this operator key with credentials each owner brings, starting with Workload
   Identity Federation.
-- The default monthly spending limit is $150 against the $200 credit, leaving room
-  for the overshoot ADR 0003 allows from in-flight and concurrent requests.
+- The default monthly spending limit is $100 against the $200 credit, leaving room
+  for the overshoot ADR 0003 allows from in-flight and concurrent requests. The owner
+  first set $150 and lowered it to $100 on 2026-10-11.
 - Anthropic's server-side `fallbacks` parameter is not used. A refusal, overload or
   other failure of the configured model ends as `refused` or an error, with no
   automatic switch to another model, as ADR 0003 requires.

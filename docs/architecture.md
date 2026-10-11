@@ -324,10 +324,11 @@ codes are distinct from future automatic email/SMS challenge retrieval.
 
 Settings, exclusions, account defaults and inference settings are edited on the
 service's owner-authenticated web UI
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's own page
-covers only vault connection, re-authentication, unlock and service pairing. The toolbar
-popup is a third place that edits the current site's default account and exclusion
-([ADR 0021](adr/0021-account-choice-outside-settings.md), not implemented yet). Chrome
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's settings
+page handles vault connection, re-authentication, unlock and service pairing, and still
+edits local policy, exclusions and account defaults. The toolbar popup edits only the
+active tab's site default account and exclusion, through the same worker-owned store
+([ADR 0021](adr/0021-account-choice-outside-settings.md)). Chrome
 use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
@@ -378,8 +379,10 @@ sites with host access and needs a cached recipe for the exact origin before any
 or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also
 needs the tab's page admitted, and its account must match the tab's URL as well as the
 frame's ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe
-generation: a tab's own page without a recipe that shows a login field within 10 seconds
-and has a vault URI match is observed and sent at most once a day per origin and path
+generation: a tab's own page on whose path no recipe starts that shows a login field
+within 10 seconds and has a vault URI match is observed and sent at most once a day per
+origin and path, unless the tab holds an attempt record other than an account switch on
+that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
 recipe cache and starts at once; after its final submission the resulting page is sent
 once to learn its completion ([ADR 0018](adr/0018-recipe-generation-route.md)).
@@ -512,7 +515,8 @@ that exact page URL and returns a value-free summary
 
 - the manifest version with the build revision (`PATEAT_REVISION` in CI, otherwise the
   checkout's `git rev-parse HEAD`), build mode, the pinned Bitwarden SDK version and the
-  Bitwarden protocol label; the page adds the Chrome version and install type;
+  Bitwarden protocol label; the page adds the Chrome version and install type
+  (`development` is shown as `unpacked install (development)`);
 - the platform, granted API permissions, the manifest's host patterns (other granted
   origins are only counted) and the toolbar icon state;
 - per Bitwarden connection, an HMAC pseudonym of its ID (`bitwarden:5c1e9a`, keyed by a
@@ -524,9 +528,13 @@ that exact page URL and returns a value-free summary
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
 - setting counts, `storage.local` usage, the log's size and debug state, and checks
-  for site access, the crypto host, each vault cache and sync sign-in, service
+  for site access, the crypto host, each vault cache and sync sign-in
+  (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
+  the token, and info without it, since Sync needs the stored unlock key), the vault
+  copy's age (info, since the vault syncs only from the settings page), service
   reachability, clock skew over 30 s against the service `Date` header, a recipe sync
-  older than 24 hours and errors logged in the last 24 hours.
+  older than 24 hours and errors logged in the last 24 hours. Reworded states keep the
+  raw code in parentheses.
 
 The worker fetches `/health` only for a paired service with site access. **Copy for bug
 report** shows the exact text before copying it; that text leaves out the unlock KDF.
@@ -773,6 +781,34 @@ Use a monthly USD limit initially; select the default amount during service
 implementation. Timeouts, request limits, bounded retries and sanitized
 diagnostics remain necessary.
 
+### Service limits
+
+Status: implemented. The owner asked on 2026-10-11 for common-sense per-owner limits
+sized for their own use; Claude chose these amounts. Revisit them, and add a byte
+quota, before the service is offered to other people.
+
+- Requests. The `OWNER_LIMITER` rate-limit binding allows 120 requests a minute per
+  owner on `/v1`, counting all of the owner's devices together, and 120 a minute per
+  verified Access identity on `/manage/api`. The check runs right after authentication
+  and before any body is read; a refused request gets 429 `rate_limited` with
+  `Retry-After: 60`. The hosted limiter is approximate and counts per Cloudflare
+  location. `/redeem` keeps its own 10 a minute per client address. Recipe generation
+  is also bounded by spend and one call at a time
+  ([ADR 0018](adr/0018-recipe-generation-route.md)).
+- Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
+  republishing a tombstone beyond that answers 409 `recipe_limit`; updating or revoking
+  an active recipe always works, and a revocation frees its place. Generation answers
+  `unavailable` with `recipe-limit` before any model call when a first page would add a
+  recipe, or after the call if the last place was taken meanwhile.
+- Recipe history. Each recipe keeps its newest 10 revisions; a winning write deletes
+  older ones in the same D1 batch, and a revocation keeps only the tombstone. Nothing
+  reads older revisions. At the 128 KiB body limit this bounds an owner's active recipes
+  to about 1.2 GiB; generated recipes are a few KiB each. Tombstones are not counted:
+  each is two small rows and one change-feed entry, left for the later byte quota.
+- Unchanged. Settings are one document of at most 120 KiB per owner. The inference
+  request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
+  counted: each pairing needs an interactive Access login.
+
 ### Device enrollment
 
 Status: the typed-code flow below is implemented and deployed, and the owner paired a
@@ -813,18 +849,26 @@ API calls.
   unknown verifiers return the same response. The owner chose direct pairing over
   `chrome.identity.launchWebAuthFlow`, which would add the `identity` permission
   ([ADR 0020](adr/0020-direct-device-pairing.md)).
-- Lifetime and recovery. Credentials stay valid until revoked; an idle expiry is
-  an open decision. The Access-protected management page lists and revokes the
-  owner's devices, and a device can revoke itself on sign-out. A lost device is
+- Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
+  each authenticated use renews it; there is no absolute lifetime and no rotation (owner
+  decision, 2026-10-11). The service records a device's last use at most once a day
+  with a conditional update, so the recorded time can lag by up to a day and a device
+  can expire up to a day before 90 days of real non-use. An expired
+  credential gets 401 `device_expired`, which the extension handles like a revoked
+  device: it stops syncing and asks for a new pairing. A revoked device keeps getting
+  `device_revoked`. The Access-protected management page lists the owner's devices
+  with their last use, marks expired ones, and revokes devices; a device can revoke
+  itself on sign-out. A lost device is
   revoked from another Access login and a replacement re-enrolls. Revocation stops
   later requests; a request already authenticated may still complete. It stops
   service access only and neither erases offline caches nor touches any vault.
 
 Local tests cover signature, issuer, audience, expiry and subject checks, approval
 CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
-cleanup of stale approvals, cross-owner management and self-revocation. JWT
-verification worked against the real Access application when the owner paired on
-2026-10-11. Still open: the credential idle-expiry decision.
+cleanup of stale approvals, cross-owner management, self-revocation, and credential
+idle expiry with its daily renewal. JWT verification worked against the real Access
+application when the owner paired on 2026-10-11. Credential idle expiry has local
+tests only so far.
 
 ### Owner web UI
 

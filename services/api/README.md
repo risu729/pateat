@@ -33,7 +33,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
 | `POST /redeem` | Exchange an approved verifier for a device credential, once |
 | `GET /manage`, `/manage/sites`, `/manage/bindings`, `/manage/recipes` | Owner web UI (React app): devices, excluded sites and site defaults, account bindings, recipes |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
-| `GET /manage/api/devices` | The owner's devices, newest first |
+| `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
@@ -43,14 +43,16 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
 
-`/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only
-the SHA-256 digest of each 256-bit device credential and derives the owner from it;
-paths and bodies never name an owner. Unknown credentials return 401 `unauthorized`
-and revoked ones 401 `device_revoked`, before any body is read. Bodies must be
+`/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only the
+SHA-256 digest of each 256-bit device credential and derives the owner from it; paths
+and bodies never name an owner. Unknown credentials return 401 `unauthorized`, revoked
+ones 401 `device_revoked` and ones unused for 90 days 401 `device_expired`, before any
+body is read. Each accepted request renews the device's `last_used_at`, at most once a
+day; migration 0007 started existing devices at their pairing time. Bodies must be
 `application/json` and at most 128 KiB. Synced settings are server-readable policy
-metadata; device-local field policies, vault values and provider sessions are
-rejected by the strict schemas. Stored documents are revalidated on read and fail
-closed with a 500 `internal_error`.
+metadata; device-local field policies, vault values and provider sessions are rejected
+by the strict schemas. Stored documents are revalidated on read and fail closed with a
+500 `internal_error`.
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/redeem`, `/health`, `/.well-known/openid-configuration`
@@ -86,6 +88,14 @@ and writes the history row in the same D1 batch, guarded by a per-request write 
 so a losing writer changes nothing. Each head write takes the owner's next sequence
 number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
 its revision, and only an explicit later write can republish the recipe.
+
+[Per-owner limits](../../docs/architecture.md#service-limits) live in `src/limits.ts`.
+The `OWNER_LIMITER` binding allows 120 requests a minute per owner on `/v1` and per
+Access identity on `/manage/api`, checked before any body is read; over it, 429
+`rate_limited` with `Retry-After: 60`. An owner holds at most 1,000 active recipes: a
+write that would add one more answers 409 `recipe_limit`, checked in the claim
+statement itself. The same batch deletes revisions older than the newest 10, and every
+earlier revision when the write revokes the recipe.
 
 ## Claude credentials
 
@@ -133,16 +143,18 @@ a code, or `unavailable` with a reason when no model was called.
   own. Without `base`, an active recipe is returned as is; with `base`, the page's steps
   are appended after the recipe's last `advance` step. A stale `base` gets the current
   recipe back, a revoked recipe answers `recipe-revoked`, a `base` whose recipe was not
-  generated for this origin and its start path answers `recipe-conflict`, and a `base`
-  that is not a generated recipe ID is 400. The model maps the slots, the plan is
-  checked with `validatePagePlan`, and the steps are stored with a conditional write.
+  generated for this origin and its start path answers `recipe-conflict`, a first page
+  that would exceed the active recipe limit answers `recipe-limit` (before the model
+  call, or after it if the last place was taken meanwhile), and a `base` that is not a
+  generated recipe ID is 400. The model maps the slots, the plan is checked with
+  `validatePagePlan`, and the steps are stored with a conditional write.
 - `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, observation }`
   for the page after the final `submit` step of that revision, on the recipe's origin.
   The login paths come from the stored recipe. A `signed-in` marker passes
   `addCompletion` and is stored as `completion` in the next revision.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
-(`busy` otherwise), refuses past $150 of estimated spend a month or $5 a day (UTC, both
+(`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both
 roles counted), and only then resolves credentials: missing, refused or failed
 credentials answer `credentials-not-configured`, `credentials-rejected`,
 `issuer-unavailable` or `token-exchange-failed`. Generation also re-reads the recipe

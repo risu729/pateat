@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { createDeviceToken, hashDeviceToken, type ApiEnv } from "../auth";
 import { devices, enrollments } from "../db/schema";
 import { apiError } from "../http";
+import { limitBy } from "../limits";
 import { jsonBody, requireJsonBody } from "../validation";
 
 /**
@@ -17,12 +18,10 @@ import { jsonBody, requireJsonBody } from "../validation";
  */
 export const redeemRoutes = new Hono<ApiEnv>().post(
   "/",
-  async (c, next) => {
-    const client = c.req.header("CF-Connecting-IP") ?? "unknown";
-    const { success } = await c.env.REDEEM_LIMITER.limit({ key: client });
-    if (!success) return apiError(c, 429, { error: "rate_limited" }, { "Retry-After": "60" });
-    return next();
-  },
+  limitBy(
+    (env) => env.REDEEM_LIMITER,
+    (c) => c.req.header("CF-Connecting-IP") ?? "unknown",
+  ),
   requireJsonBody,
   jsonBody(enrollmentRedeemSchema),
   async (c) => {
@@ -53,6 +52,7 @@ export const redeemRoutes = new Hono<ApiEnv>().post(
             tokenHash: sql`${tokenHash}`.as("token_hash"),
             label: enrollments.label,
             createdAt: sql`${now}`.as("created_at"),
+            lastUsedAt: sql`${now}`.as("last_used_at"),
             revokedAt: sql`NULL`.as("revoked_at"),
           })
           .from(enrollments)

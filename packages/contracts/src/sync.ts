@@ -115,11 +115,15 @@ export const syncErrorCodeSchema = v.picklist([
   "bad_request",
   "unauthorized",
   "device_revoked",
+  /** Unused for `DEVICE_IDLE_LIMIT_MS`; the device must pair again. */
+  "device_expired",
   "not_found",
   "method_not_allowed",
   "payload_too_large",
   "unsupported_media_type",
   "rate_limited",
+  /** The write would make the owner hold more active recipes than the service keeps. */
+  "recipe_limit",
   "enrollment_not_found",
   "enrollment_code_mismatch",
   "internal_error",

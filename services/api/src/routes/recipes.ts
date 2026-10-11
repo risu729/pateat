@@ -94,6 +94,8 @@ export const recipeRoutes = new Hono<ApiEnv>()
 
     const result = await writeRecipe(c.env.DB, scope.ownerId, recipeId, write, scope.deviceId);
     if (!result.ok)
-      return c.json({ error: "recipe_conflict" as const, current: result.current }, 409);
+      return result.limited
+        ? apiError(c, 409, { error: "recipe_limit" })
+        : c.json({ error: "recipe_conflict" as const, current: result.current }, 409);
     return c.json({ version: 1 as const, change: result.change });
   });

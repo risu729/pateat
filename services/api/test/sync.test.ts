@@ -1,5 +1,6 @@
 import {
   createDefaultSettings,
+  DEVICE_IDLE_LIMIT_MS,
   type LocalSettings,
   type LoginRecipe,
   type SyncRecipeChanges,
@@ -7,6 +8,7 @@ import {
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
+import { KEPT_RECIPE_REVISIONS, MAX_ACTIVE_RECIPES } from "../src/limits";
 
 // Synthetic owners, devices and recipes only. Each test creates its own owner so
 // results never depend on storage shared with another test.
@@ -21,16 +23,25 @@ async function enrollOwner(): Promise<Device> {
   return addDevice(ownerId);
 }
 
-async function addDevice(ownerId: string): Promise<Device> {
+async function addDevice(ownerId: string, lastUsedAt = Date.now()): Promise<Device> {
   const deviceId = `device-${crypto.randomUUID()}`;
   const token = createDeviceToken();
   await env.DB.prepare(
-    "INSERT INTO devices (id, owner_id, token_hash, created_at) VALUES (?, ?, ?, ?)",
+    "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
   )
-    .bind(deviceId, ownerId, await hashDeviceToken(token), Date.now())
+    .bind(deviceId, ownerId, await hashDeviceToken(token), lastUsedAt, lastUsedAt)
     .run();
   return { ownerId, deviceId, token };
 }
+
+async function recordedUse(device: Device): Promise<number | undefined> {
+  const row = await env.DB.prepare("SELECT last_used_at FROM devices WHERE id = ?")
+    .bind(device.deviceId)
+    .first<{ last_used_at: number }>();
+  return row?.last_used_at;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function api(device: Device | undefined, path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -86,6 +97,35 @@ function publish(device: Device, id: string, expectedRevision: number) {
   });
 }
 
+/** Adds `count` active recipe heads without history; only the active count reads them. */
+async function seedActiveRecipes(ownerId: string, count: number) {
+  await env.DB.prepare(
+    `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+     INSERT INTO recipe_heads (owner_id, recipe_id, revision, state, sequence, write_id, updated_at)
+     SELECT ?, 'seeded-' || i, 1, 'active', 1000000 + i, 'seed-' || i, ? FROM n`,
+  )
+    .bind(count, ownerId, Date.now())
+    .run();
+}
+
+/**
+ * The local limiter counts in wall-clock minutes, so a loop that crosses a minute
+ * boundary would start a fresh count; start the loop at least 10 s before one.
+ */
+async function awaitRoomInMinute() {
+  const left = 60_000 - (Date.now() % 60_000);
+  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
+}
+
+async function revisions(ownerId: string, recipeId: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT revision, state FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ? ORDER BY revision",
+  )
+    .bind(ownerId, recipeId)
+    .all<{ revision: number; state: string }>();
+  return results;
+}
+
 describe("device authentication", () => {
   it.each([
     ["no credential", undefined],
@@ -120,6 +160,46 @@ describe("device authentication", () => {
 
     const read = await api(second, "/v1/settings");
     expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+  });
+
+  it("renews a device used 89 days ago", async () => {
+    const owner = await enrollOwner();
+    const device = await addDevice(owner.ownerId, Date.now() - 89 * DAY_MS);
+    const before = Date.now();
+    expect((await api(device, "/v1/settings")).status).toBe(200);
+    expect(await recordedUse(device)).toBeGreaterThanOrEqual(before);
+  });
+
+  it("expires a device unused for more than 90 days", async () => {
+    const owner = await enrollOwner();
+    const idleSince = Date.now() - DEVICE_IDLE_LIMIT_MS - 60_000;
+    const device = await addDevice(owner.ownerId, idleSince);
+    const response = await api(device, "/v1/settings");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe('Bearer realm="pateat"');
+    expect(await response.json()).toEqual({ error: "device_expired" });
+    // A refused request does not renew the credential.
+    expect(await recordedUse(device)).toBe(idleSince);
+    expect((await api(owner, "/v1/settings")).status).toBe(200);
+  });
+
+  it("does not rewrite a device used within the last day", async () => {
+    const owner = await enrollOwner();
+    const recent = Date.now() - DAY_MS + 60_000;
+    const device = await addDevice(owner.ownerId, recent);
+    expect((await api(device, "/v1/settings")).status).toBe(200);
+    expect(await recordedUse(device)).toBe(recent);
+  });
+
+  it("reports a revoked device as revoked even after it went idle", async () => {
+    const owner = await enrollOwner();
+    const device = await addDevice(owner.ownerId, Date.now() - DEVICE_IDLE_LIMIT_MS - DAY_MS);
+    await env.DB.prepare("UPDATE devices SET revoked_at = ? WHERE id = ?")
+      .bind(Date.now(), device.deviceId)
+      .run();
+    const response = await api(device, "/v1/settings");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "device_revoked" });
   });
 
   it("accepts the bearer scheme case-insensitively", async () => {
@@ -537,4 +617,85 @@ describe("recipe sync", () => {
     expect(remove.status).toBe(405);
     expect(remove.headers.get("Allow")).toBe("PUT");
   });
+});
+
+describe("per-owner limits", () => {
+  it("refuses a recipe that would exceed the active recipe limit", async () => {
+    const device = await enrollOwner();
+    await seedActiveRecipes(device.ownerId, MAX_ACTIVE_RECIPES - 2);
+    expect((await publish(device, "last", 0)).status).toBe(200);
+    expect((await publish(device, "kept", 0)).status).toBe(200);
+
+    const over = await publish(device, "over", 0);
+    expect(over.status).toBe(409);
+    expect(await over.json()).toEqual({ error: "recipe_limit" });
+    expect(await revisions(device.ownerId, "over")).toEqual([]);
+    // Updating or revoking an active recipe adds none.
+    expect((await publish(device, "kept", 1)).status).toBe(200);
+    const revoke = { version: 1, expectedRevision: 1, state: "revoked" };
+    expect((await put(device, "/v1/recipes/last", revoke)).status).toBe(200);
+    // The revoked recipe's place is free again, so the tombstone cannot come back once
+    // another recipe takes it.
+    expect((await publish(device, "over", 0)).status).toBe(200);
+    const reactivate = await publish(device, "last", 2);
+    expect(reactivate.status).toBe(409);
+    expect(await reactivate.json()).toEqual({ error: "recipe_limit" });
+    // A stale write is still a conflict, not the limit.
+    const stale = await publish(device, "last", 1);
+    expect(await stale.json()).toMatchObject({ error: "recipe_conflict" });
+
+    // Another owner has its own limit.
+    expect((await publish(await enrollOwner(), "over", 0)).status).toBe(200);
+  });
+
+  it("keeps the newest revisions of a recipe and only the tombstone of a revoked one", async () => {
+    const device = await enrollOwner();
+    const writes = KEPT_RECIPE_REVISIONS + 2;
+    for (let revision = 0; revision < writes; revision += 1)
+      // oxlint-disable-next-line no-await-in-loop -- each write needs the previous revision
+      expect((await publish(device, "bank-login", revision)).status).toBe(200);
+    expect((await revisions(device.ownerId, "bank-login")).map((row) => row.revision)).toEqual(
+      Array.from(
+        { length: KEPT_RECIPE_REVISIONS },
+        (_, index) => writes - KEPT_RECIPE_REVISIONS + index + 1,
+      ),
+    );
+    // A losing write deletes nothing.
+    expect((await publish(device, "bank-login", 1)).status).toBe(409);
+    expect(await revisions(device.ownerId, "bank-login")).toHaveLength(KEPT_RECIPE_REVISIONS);
+
+    const revoke = { version: 1, expectedRevision: writes, state: "revoked" };
+    expect((await put(device, "/v1/recipes/bank-login", revoke)).status).toBe(200);
+    expect(await revisions(device.ownerId, "bank-login")).toEqual([
+      { revision: writes + 1, state: "revoked" },
+    ]);
+    expect((await publish(device, "bank-login", writes + 1)).status).toBe(200);
+    expect(await revisions(device.ownerId, "bank-login")).toEqual([
+      { revision: writes + 1, state: "revoked" },
+      { revision: writes + 2, state: "active" },
+    ]);
+  });
+
+  it("rate limits requests per owner across its devices, before reading bodies", async () => {
+    const first = await enrollOwner();
+    const second = await addDevice(first.ownerId);
+    await awaitRoomInMinute();
+    const statuses: number[] = [];
+    for (let request = 0; request < 120; request += 1)
+      // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
+      statuses.push((await api(request % 2 === 0 ? first : second, "/v1/settings")).status);
+    expect(statuses.every((status) => status === 200)).toBe(true);
+
+    const limited = await api(second, "/v1/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: "{",
+    });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("60");
+    expect(await limited.json()).toEqual({ error: "rate_limited" });
+    expect((await api(first, "/v1/recipes")).status).toBe(429);
+    // Another owner is not counted against this one.
+    expect((await api(await enrollOwner(), "/v1/settings")).status).toBe(200);
+  }, 20_000);
 });

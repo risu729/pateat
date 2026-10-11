@@ -39,6 +39,8 @@ export const generationUnavailableReasonSchema = v.picklist([
   "recently-tried",
   "recipe-revoked",
   "recipe-conflict",
+  /** A new recipe would exceed the owner's active recipe limit. */
+  "recipe-limit",
 ]);
 export const generationFailureSchema = v.picklist([
   "incomplete-observation",

@@ -585,12 +585,17 @@ settings, a 401 from either request marks the device rejected, and the settings 
 shows a complete sync only when both finished. Unit tests use a synthetic service and
 the real settings store over in-memory storage; no running service has been tried.
 
+Device credentials expire after 90 days unused, and each use renews them (owner,
+2026-10-11; [device enrollment](architecture.md#device-enrollment)). An expired device
+gets 401 `device_expired`, which the extension treats like revocation, and the web UI
+shows each device's last use and marks expired ones. Local Worker, extension and web UI
+tests cover it.
+
 ### Remaining M4 service gaps
 
 - Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md))
   is decided and not implemented: a manifest `key`, the Access-protected `POST /pair`,
-  then the extension switch with the typed-code flow removed. The credential
-  idle-expiry decision stays open.
+  then the extension switch with the typed-code flow removed.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and
@@ -606,9 +611,10 @@ the real settings store over in-memory storage; no running service has been trie
   `/manage/claude` page until the React web UI replaces it; no exchange with
   Anthropic's real token endpoint has been made.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
-  owner on first approval. Before the service is offered to other people, it needs
-  per-owner storage and request limits; today only `/redeem` is rate limited (per
-  client address) and request bodies are size-capped.
+  owner on first approval. Per-owner [service limits](architecture.md#service-limits)
+  cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
+  sized for the owner's own use; a byte quota is still needed before the service is
+  offered to other people.
 
 ## Passkey progress
 
@@ -900,9 +906,9 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   recipe that starts on the page the switch leads to, generated there if none exists
   ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The comparison, the stop, the
   switch click and the new attempt on the next page are implemented
-  ([Background execution](architecture.md#background-execution)). Still to do:
-  generating for a page where no recipe starts (the service keeps one generated recipe
-  per start path; the extension's trigger is next), and naming `accountSwitch`
+  ([Background execution](architecture.md#background-execution)), and a page where no
+  recipe starts is offered for generation (the service keeps one generated recipe per
+  start path). Still to do: naming `accountSwitch`
   (including link text) in the extractor and the generator.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
@@ -982,7 +988,11 @@ owner added account choice outside the settings page to initial delivery
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)): a toolbar popup for the
 current site's default and exclusion, choosing among several password matches there
 (once or as the default), a passkey chooser window, and choosing again after a logout in
-the same tab. They land as separate PRs in that order.
+the same tab. They land as separate PRs in that order. The toolbar popup is implemented:
+clicking the icon opens `popup.html` for the active HTTPS tab, which shows whether the
+site is excluded and lists the vault items that match its origin as the default account.
+A rule for a parent domain that includes subdomains is shown but changed only in
+settings. Choosing among several matches for a refused login is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
@@ -1111,7 +1121,7 @@ support for every site or vault format. Keep observed limitations explicit.
   control aggregates usage and stops later inference after the limit is reached;
   in-flight/concurrent requests can overshoot. Atomic maximum-cost reservation is
   not required. The owner confirmed $200 of monthly Claude API credit; ADR 0014 sets
-  the default limit to $150.
+  the default limit to $100.
 - Benchmark generation/repair and finite-choice roles separately on the same
   Japanese/English synthetic login corpus. Measure the ADR 0014 Claude configuration for
   generation; Clef-flash, Clef and Jev for decisions are optional later candidates.
