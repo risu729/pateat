@@ -131,6 +131,11 @@ export function createBitwardenTransport(
         return failure("redirect");
       if (!acceptedStatuses.includes(response.status))
         return failure("http-error", response.status);
+      // ASP.NET answers a null result with an empty 204; only callers that accept it see it.
+      if (response.status === 204) {
+        const data = parse(null, 204);
+        return data === undefined ? failure("invalid-response") : { ok: true, data };
+      }
       const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
       if (!contentType || !/^application\/(?:json|[a-z0-9!#$&^_.+-]+\+json)$/.test(contentType))
         return failure("invalid-response");
@@ -325,6 +330,33 @@ export function createBitwardenTransport(
           return envelope.success ? envelope.output : undefined;
         },
         signal,
+      );
+    },
+    /**
+     * The account's last change in server milliseconds, or null when the server has none.
+     * Organization item changes also move it. A negative value means a deleted account.
+     */
+    async revisionDate(
+      input: unknown,
+      signal?: AbortSignal,
+    ): Promise<BitwardenResult<number | null>> {
+      const parsed = v.safeParse(syncRequestSchema, input);
+      if (!parsed.success) return failure("invalid-request");
+      if (parsed.output.connectionId !== profile.connectionId)
+        return failure("connection-mismatch");
+      return request(
+        `${endpoints.apiUrl}/accounts/revision-date`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${parsed.output.accessToken}`,
+          },
+        },
+        (body) =>
+          body === null || Number.isSafeInteger(body) ? (body as number | null) : undefined,
+        signal,
+        [200, 204],
       );
     },
   });

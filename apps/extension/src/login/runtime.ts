@@ -265,6 +265,12 @@ export function createLoginRuntime(
     generation?: LoginGeneration;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
+    /**
+     * Automatic vault sync (ADR 0025). Each page announcement starts a due check and
+     * holds vault replacement off while it is handled; a page that may start a login
+     * first waits briefly for a running check.
+     */
+    vault?: { refreshIfStale(): void; enter(waitForCheck: boolean): Promise<() => void> };
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
@@ -1880,8 +1886,15 @@ export function createLoginRuntime(
       return undefined;
     }
     const hello = v.safeParse(helloSchema, message);
-    if (hello.success)
-      return ready(sender, hello.output.token, hello.output.start, hello.output.signIn);
+    if (hello.success) {
+      options.vault?.refreshIfStale();
+      const leave = await options.vault?.enter(hello.output.start !== undefined);
+      try {
+        return await ready(sender, hello.output.token, hello.output.start, hello.output.signIn);
+      } finally {
+        leave?.();
+      }
+    }
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
     const document = await identify(sender);

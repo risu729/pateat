@@ -6,8 +6,8 @@ uses synthetic providers; real-account refresh behavior is unverified. Amended o
 [compatibility before release](../development.md#compatibility-before-release)
 decision: the version 1 database is no longer upgraded in place. Amended again on
 2026-10-11 by the owner's decision to restore the session after a refresh that got no
-rejection, made together with the approval of automatic vault sync, which a later ADR
-records.
+rejection, made together with the approval of automatic vault sync, which
+[ADR 0025](0025-automatic-vault-sync.md) records.
 
 Date: 2026-10-10
 
@@ -49,7 +49,8 @@ reused, but forget deletes it and a password sign-in replaces it. Forget never
 cancels a password setup in progress; it reports the connection as busy.
 Offline unlock and the connection configuration remain. Disabling automatic unlock
 also forgets the session, since sync requires the retained key. Startup only reads
-state; provider HTTP happens on an explicit Sync action.
+state; provider HTTP happens on an explicit Sync action and, since
+[ADR 0025](0025-automatic-vault-sync.md), on automatic checks.
 
 ## Alternatives and consequences
 

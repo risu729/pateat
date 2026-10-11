@@ -1,5 +1,6 @@
 // Collects the diagnostics summary in the service worker (ADR 0019). Every field is a
 // version, state, count, time or reason code; values, names, emails and hosts stay here.
+import type { VaultSyncEntry } from "../connections/auto-sync";
 import type { BitwardenProfile } from "@pateat/bitwarden";
 import type { LocalSettings, ServiceState } from "@pateat/contracts";
 import * as v from "valibot";
@@ -46,6 +47,8 @@ export type DiagnosticsDependencies = {
     read(connectionId: string): Promise<VaultResult<VaultEntry | null> | undefined>;
     /** The provider's public `/config`, only with the provider permission sync uses. */
     server(connectionId: string): Promise<ServerConfigResult | undefined>;
+    /** The automatic check's record (ADR 0025); no revision value leaves it. */
+    check(connectionId: string): Promise<VaultSyncEntry | undefined>;
   };
   cryptoHost(): { ready: boolean; sessions: number };
   /** The toolbar icon's own rule (`actionIconState`). */
@@ -170,6 +173,7 @@ async function connection(
   // Owner-approved: item counts only while the vault is unlocked in this worker.
   const items = accepted && status.state === "ready" ? itemCounts(accepted.prepared) : undefined;
   const kdf = accepted ? unlockKdf(accepted.prepared) : undefined;
+  const check = await deps.connections.check(status.connectionId).catch(() => undefined);
   return {
     id,
     environment: environment(status.environment),
@@ -181,6 +185,9 @@ async function connection(
     ...(items ? { items } : {}),
     ...kdf,
     ...(server ? { server } : {}),
+    ...(check?.checkedAt === undefined ? {} : { checkedAt: check.checkedAt }),
+    ...(check?.outcome === undefined ? {} : { checkOutcome: check.outcome }),
+    ...(check?.retryAt === undefined ? {} : { nextCheckAt: check.retryAt }),
   };
 }
 
@@ -317,15 +324,24 @@ function connectionChecks(item: DiagnosticsConnection, now: number): Diagnostics
               level: "warn",
               detail: `${item.id} ${syncSignIn(item.providerSession)}`,
             };
-  // The vault syncs only from the settings page, so an old copy is expected, not a fault.
+  // An unchanged vault keeps its copy, so its age alone is not a fault; the last check is.
+  const checked =
+    item.checkedAt === undefined
+      ? ""
+      : `; checked ${age(Math.max(0, now - item.checkedAt))} ago${item.checkOutcome ? `: ${item.checkOutcome}` : ""}`;
+  const failing =
+    item.checkOutcome === "failed" ||
+    item.checkOutcome === "rate-limited" ||
+    item.checkOutcome === "reauthentication-required" ||
+    item.checkOutcome === "account-deleted";
   const synced: DiagnosticsCheck[] =
     item.acceptedAt === undefined
       ? []
       : [
           {
             id: `vault-age:${item.id}`,
-            level: "info",
-            detail: `${item.id} vault synced ${age(now - item.acceptedAt)} ago (Sync from settings only)`,
+            level: failing ? "warn" : "info",
+            detail: `${item.id} vault synced ${age(now - item.acceptedAt)} ago${checked}`,
           },
         ];
   const server: DiagnosticsCheck[] = item.server

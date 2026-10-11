@@ -32,11 +32,18 @@ import {
   createBrowserServiceStorage,
   createBrowserSettingsBaseStorage,
   createBrowserSettingsHoldStorage,
+  createBrowserVaultSyncStorage,
 } from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
 import { createDiagnosticsHandler } from "../src/diagnostics/status";
 import { diagnosticsRequestSchema } from "../src/diagnostics/wire";
 import { createDiagnosticsLog } from "../src/diagnostics/background";
+import {
+  VAULT_SYNC_ALARM,
+  VAULT_SYNC_ALARM_MINUTES,
+  createVaultAutoSync,
+  createVaultSyncRecords,
+} from "../src/connections/auto-sync";
 
 export default defineBackground(() => {
   // First, so the logger sees errors from everything set up below.
@@ -58,7 +65,9 @@ export default defineBackground(() => {
   const vaultProbe = import.meta.env.MODE === "probe" ? createVaultProbe(cryptoHost) : undefined;
   const syntheticSetup =
     import.meta.env.MODE === "probe" ? createConnectionProbeTransport() : undefined;
+  const vaultSyncRecords = createVaultSyncRecords(createBrowserVaultSyncStorage());
   const connections = createConnectionRuntime(cryptoHost, {
+    revisions: vaultSyncRecords,
     ...(catalog ? { baseCatalog: catalog } : {}),
     ...(syntheticSetup
       ? {
@@ -135,7 +144,26 @@ export default defineBackground(() => {
   };
   const vaultUris = createVaultUriMatcher(connections);
   const vaultFields = createVaultFieldSource(connections);
+  // Automatic vault sync (ADR 0025): a revision check on page events and every five
+  // minutes; the full sync and its replacement wait for logins and passkey requests.
+  const vaultSync = createVaultAutoSync({
+    records: vaultSyncRecords,
+    async connections() {
+      const [configurations, snapshot] = await Promise.all([
+        connections.registry.list(),
+        settings.read(),
+      ]);
+      return configurations
+        .map((configuration) => configuration.profile.connectionId)
+        .filter(
+          (id) => snapshot.settings.connections.find((entry) => entry.connectionId === id)?.enabled,
+        );
+    },
+    run: (connectionId, hold) => connections.service.autoSync(connectionId, hold),
+    loginActive: () => login.active(),
+  });
   const login = createLoginRuntime(loginSettings, {
+    vault: vaultSync,
     fields: combineFieldSources({
       bitwarden: vaultFields,
       ...(catalog ? { dummy: dummyFieldSource } : {}),
@@ -195,6 +223,7 @@ export default defineBackground(() => {
     hasAllSiteAccess: () => browser.permissions.contains({ origins: ["https://*/*"] }),
     connections: {
       status: () => connections.service.status(),
+      check: async (connectionId) => (await vaultSyncRecords.read()).connections[connectionId],
       async read(connectionId) {
         const configuration = await connections.registry.get(connectionId);
         return configuration ? connections.vaultFor(configuration.profile).store.read() : undefined;
@@ -230,6 +259,18 @@ export default defineBackground(() => {
     void connections.service.permissionsRemoved().catch(() => undefined);
   });
   // Wakes the worker at browser start so automatic unlock shows the unlocked icon.
+  // Chrome may drop alarms on restart or update, so each worker start re-creates it.
+  void browser.alarms
+    .get(VAULT_SYNC_ALARM)
+    .then((alarm) =>
+      alarm
+        ? undefined
+        : browser.alarms.create(VAULT_SYNC_ALARM, { periodInMinutes: VAULT_SYNC_ALARM_MINUTES }),
+    )
+    .catch(() => undefined);
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === VAULT_SYNC_ALARM) vaultSync.refreshIfStale();
+  });
   browser.runtime.onStartup.addListener(() => {
     void actionIcon.refresh();
   });
@@ -372,8 +413,11 @@ export default defineBackground(() => {
       typeof message.type === "string" &&
       message.type.startsWith("passkey.")
     ) {
-      void passkeys
-        .handle(message, sender)
+      vaultSync.refreshIfStale();
+      // The open vault is not replaced while a passkey request is answered.
+      void vaultSync
+        .enter(false)
+        .then((leave) => passkeys.handle(message, sender).finally(leave))
         .then(sendResponse, () =>
           sendResponse({ kind: "delegate", reason: "runtime-unavailable" }),
         );

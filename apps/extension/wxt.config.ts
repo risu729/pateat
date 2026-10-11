@@ -47,7 +47,7 @@ export default defineConfig({
       // Until the worker reads the vault records, show the locked icon.
       default_icon: { 16: "icon-locked/16.png", 32: "icon-locked/32.png" },
     },
-    permissions: ["storage", "offscreen"],
+    permissions: ["storage", "offscreen", "alarms"],
     // Owner-approved install-time HTTPS site access (ADR 0009). The login content script
     // runs on every HTTPS page; only non-excluded sites with a cached recipe can execute.
     // Chrome can still re-request these hosts if the user withholds site access, so no
