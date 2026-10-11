@@ -88,6 +88,8 @@ export const manageErrorCodeSchema = v.picklist([
   "method_not_allowed",
   "payload_too_large",
   "unsupported_media_type",
+  /** Too many requests from this identity in the last minute. */
+  "rate_limited",
   "internal_error",
 ]);
 export const manageErrorSchema = v.strictObject({ error: manageErrorCodeSchema });

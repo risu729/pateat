@@ -116,7 +116,8 @@ export const manageApiRoutes = new Hono<ApiEnv>()
         null,
       );
       if (result.ok) return c.json({ version: 1 as const, change: result.change });
-      if (!result.current) return apiError(c, 404, { error: "not_found" });
+      // A revocation never adds an active recipe, so the limit cannot refuse it.
+      if (result.limited || !result.current) return apiError(c, 404, { error: "not_found" });
       return c.json({ error: "recipe_conflict" as const, current: result.current }, 409);
     },
   );

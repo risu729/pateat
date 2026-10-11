@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import { requireAccess, requireAccessApi, requireSameOrigin } from "./access";
 import { requireDevice, type ApiEnv } from "./auth";
 import { API_HEADERS, apiError } from "./http";
+import { limitIdentity, limitOwner } from "./limits";
 import { message } from "./pages";
 import { deviceRoutes } from "./routes/device";
 import { enrollRoutes } from "./routes/enroll";
@@ -54,10 +55,12 @@ export const app = new Hono<ApiEnv>()
   .route("/enroll", enrollRoutes)
   .all("/enroll", methodNotAllowed("GET, POST"))
   // The owner web UI: its JSON API, its pages and its built assets all need Access.
-  // The API answers its own pages only; Access runs before any body read.
+  // The API answers its own pages only; Access and the per-identity request limit run
+  // before any body read.
   .use(
     "/manage/api/*",
     requireAccessApi,
+    limitIdentity,
     requireSameOrigin,
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
@@ -94,10 +97,12 @@ export const app = new Hono<ApiEnv>()
   )
   .route("/redeem", redeemRoutes)
   .all("/redeem", methodNotAllowed("POST"))
-  // Authenticate before reading bodies; unauthenticated requests are never parsed.
+  // Authenticate and count the request against its owner before reading bodies;
+  // unauthenticated requests are never parsed.
   .use(
     "/v1/*",
     requireDevice,
+    limitOwner,
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
       onError: (c) => apiError(c, 413, { error: "payload_too_large" }),

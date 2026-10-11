@@ -89,6 +89,14 @@ so a losing writer changes nothing. Each head write takes the owner's next seque
 number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
 its revision, and only an explicit later write can republish the recipe.
 
+[Per-owner limits](../../docs/architecture.md#service-limits) live in `src/limits.ts`.
+The `OWNER_LIMITER` binding allows 120 requests a minute per owner on `/v1` and per
+Access identity on `/manage/api`, checked before any body is read; over it, 429
+`rate_limited` with `Retry-After: 60`. An owner holds at most 1,000 active recipes: a
+write that would add one more answers 409 `recipe_limit`, checked in the claim
+statement itself. The same batch deletes revisions older than the newest 10, and every
+earlier revision when the write revokes the recipe.
+
 ## Claude credentials
 
 [ADR 0015](../../docs/adr/0015-per-owner-claude-credentials.md) gives each owner their
@@ -135,9 +143,11 @@ a code, or `unavailable` with a reason when no model was called.
   own. Without `base`, an active recipe is returned as is; with `base`, the page's steps
   are appended after the recipe's last `advance` step. A stale `base` gets the current
   recipe back, a revoked recipe answers `recipe-revoked`, a `base` whose recipe was not
-  generated for this origin and its start path answers `recipe-conflict`, and a `base`
-  that is not a generated recipe ID is 400. The model maps the slots, the plan is
-  checked with `validatePagePlan`, and the steps are stored with a conditional write.
+  generated for this origin and its start path answers `recipe-conflict`, a first page
+  that would exceed the active recipe limit answers `recipe-limit` (before the model
+  call, or after it if the last place was taken meanwhile), and a `base` that is not a
+  generated recipe ID is 400. The model maps the slots, the plan is checked with
+  `validatePagePlan`, and the steps are stored with a conditional write.
 - `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, observation }`
   for the page after the final `submit` step of that revision, on the recipe's origin.
   The login paths come from the stored recipe. A `signed-in` marker passes
