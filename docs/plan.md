@@ -659,9 +659,11 @@ installed-Chrome acceptance procedure. Page script can detect the wrapper and re
 extension ID from stack traces; the relay posts only the outcome of a request to the
 page, never the delegate reason. On 2026-10-11 a real passkey sign-in on webauthn.io
 went through the wrapper unchanged and CreepJS did not flag it
-([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)). Open:
-a page or provider wrapper that rebuilds the options object, and especially one that
-replaces the challenge, loops back into Pateat on every delegated call.
+([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)). A
+page or provider wrapper that rebuilds the options before calling its saved `get` runs
+once when it calls synchronously and at most four times otherwise
+([ADR 0007](adr/0007-existing-passkey-assertions.md#bridge-topology)); before that
+change one that replaced the challenge looped without end.
 
 Evidence, 2026-10-10, synthetic relying party only:
 

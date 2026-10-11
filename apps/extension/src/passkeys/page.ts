@@ -13,7 +13,7 @@ import type { PasskeyAssertion } from "./assertion";
 type PageScope = Window & typeof globalThis;
 const MAX_ALLOW_CREDENTIALS = 64;
 const MAX_BUFFER_BYTES = 4096;
-// Delegations of one challenge that may be in flight before a copying provider is cut short.
+// Delegations of one mediation that may be in flight before an unclaimed call skips later wrappers.
 const MAX_CHAIN_DELEGATIONS = 4;
 const OTHER_CREDENTIAL_TYPES = ["password", "federated", "identity", "otp", "digital"] as const;
 
@@ -38,33 +38,26 @@ interface Delegation {
   readonly options: unknown;
   readonly publicKey: unknown;
   readonly mediation: unknown;
-  readonly challenge: string;
 }
 
 /**
  * Reads the caller's options once more than `snapshotGetOptions` does; a page can observe that,
- * but a match only ever sends a call to the install-time function. Requests without a public-key
- * challenge share one chain, so a fifth concurrent one skips later providers, never Pateat.
+ * but a match only ever sends a call to the install-time function.
  */
 function describeDelegation(options: unknown): Delegation {
   let publicKey: unknown;
   let mediation: unknown;
-  let challenge = "";
   try {
     if (options !== null && typeof options === "object") {
       const record = options as Record<string, unknown>;
       mediation = record["mediation"];
       const value = record["publicKey"];
-      if (value !== null && typeof value === "object") {
-        publicKey = value;
-        const bytes = copyBufferSource((value as Record<string, unknown>)["challenge"]);
-        if (bytes) challenge = toBase64Url(bytes);
-      }
+      if (value !== null && typeof value === "object") publicKey = value;
     }
   } catch {
     // A throwing getter leaves only the options object to match.
   }
-  return { options, publicKey, mediation, challenge };
+  return { options, publicKey, mediation };
 }
 
 /** Bounded plain snapshot of supported options; anything else is left to the browser. */
@@ -167,10 +160,13 @@ function toCredential(
  * A provider that falls back calls the function it saved, which is Pateat's wrapper. A call with
  * the same mediation as a request Pateat is still delegating, and either the same options object
  * or the same `publicKey` object (a shallow copy, as Bitwarden's conditional path makes), is such
- * a fallback and goes to the function present at install time. So does a call once
- * `MAX_CHAIN_DELEGATIONS` delegations of its mediation and challenge are in flight, which stops a
- * provider that copies deeper from looping. If a provider injected before Pateat, that function is
- * its wrapper even after it restores the browser's own.
+ * a fallback and goes to the function present at install time. So does any call made
+ * synchronously while Pateat is calling the function it delegates to, as a wrapper that rebuilds
+ * the options before calling its saved function does. Once `MAX_CHAIN_DELEGATIONS` delegations
+ * with the same mediation are in flight, a new call Pateat does not claim also goes to the
+ * install-time function, which stops a wrapper that rebuilds the options asynchronously from
+ * looping. If a provider injected before Pateat, that function is its wrapper even after it
+ * restores the browser's own.
  */
 export function installPasskeyPage(scope: PageScope = window): void {
   const container = scope.navigator.credentials as CredentialsContainer | undefined;
@@ -182,6 +178,8 @@ export function installPasskeyPage(scope: PageScope = window): void {
   const installedGet: CredentialsContainer["get"] = container.get;
   let innerGet: CredentialsContainer["get"] = installedGet;
   const delegations: Delegation[] = [];
+  // Depth of synchronous calls into `innerGet` that are still on the stack.
+  let delegatingSynchronously = 0;
   const credentialPrototype = credentialClass.prototype;
   const responsePrototype = responseClass.prototype;
   const origin = scope.location.origin;
@@ -205,6 +203,9 @@ export function installPasskeyPage(scope: PageScope = window): void {
     this: unknown,
     options?: CredentialRequestOptions,
   ): Promise<Credential | null> {
+    const callInstalled = () =>
+      Reflect.apply(installedGet, this, [options]) as Promise<Credential | null>;
+    if (delegatingSynchronously > 0) return callInstalled();
     const call = describeDelegation(options);
     const related = delegations.filter((entry) => entry.mediation === call.mediation);
     if (
@@ -212,14 +213,22 @@ export function installPasskeyPage(scope: PageScope = window): void {
         (entry) =>
           entry.options === call.options ||
           (call.publicKey !== undefined && entry.publicKey === call.publicKey),
-      ) ||
-      related.filter((entry) => entry.challenge === call.challenge).length >= MAX_CHAIN_DELEGATIONS
+      )
     )
-      return Reflect.apply(installedGet, this, [options]) as Promise<Credential | null>;
+      return callInstalled();
+    const chainFull = related.length >= MAX_CHAIN_DELEGATIONS;
     const delegate = async () => {
+      if (chainFull) return callInstalled();
       delegations.push(call);
       try {
-        return await (Reflect.apply(innerGet, this, [options]) as Promise<Credential | null>);
+        let result: unknown;
+        delegatingSynchronously++;
+        try {
+          result = Reflect.apply(innerGet, this, [options]);
+        } finally {
+          delegatingSynchronously--;
+        }
+        return await (result as Promise<Credential | null>);
       } finally {
         delegations.splice(delegations.indexOf(call), 1);
       }
