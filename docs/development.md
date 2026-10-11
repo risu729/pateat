@@ -277,12 +277,10 @@ files starts after `renovate.json` reaches the default branch. Cloudflare build
 and test dependencies are grouped and allow prereleases; `@cloudflare/vite-plugin`
 follows its `beta` dist-tag, because its `2.0.0-beta.sha-<commit>` versions do not
 sort by release date. TypeScript, its shared preset and type packages are grouped so
-peer requirements can be reviewed together. Minor and patch updates of mise tools
-share one branch, so each Renovate run regenerates `mise.lock` once. Python is
-excluded from that group and each Python minor gets its own update: mise installs
-pypi tools such as yamllint without building, and a new Python minor can lack
-wheels for them (3.15.0 had no PyYAML 6.0.3 wheel). Updates still have to pass the
-repository's required checks.
+peer requirements can be reviewed together. Each Python minor gets its own update:
+mise installs pypi tools such as yamllint without building, and a new Python minor
+can lack wheels for them (3.15.0 had no PyYAML 6.0.3 wheel). Updates still have to
+pass the repository's required checks.
 
 Renovate tracks the release-tagged hk-config imports through the shared preset. The
 typed Cloudflare compatibility date remains reviewed manually: the shared preset's date

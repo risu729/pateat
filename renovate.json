@@ -3,13 +3,6 @@
   "extends": ["github>risu729/renovate-config#3.19.2"],
   "packageRules": [
     {
-      "description": "Update mise tools in one branch so each run regenerates mise.lock once. Later rules regroup TypeScript.",
-      "matchManagers": ["mise"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "excludeDepNames": ["python"],
-      "groupName": "mise tools"
-    },
-    {
       "description": "Offer each Python minor separately: a new minor can lack wheels for the pypi tools mise installs without building.",
       "matchManagers": ["mise"],
       "matchDepNames": ["python"],
