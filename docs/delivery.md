@@ -35,21 +35,24 @@ it is a paid product for GitHub Team and Enterprise Cloud organizations, and thi
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
 the other active risu729 repositories. See [merging](#merging).
 
-Successful main-push CI packages the exact tested production Worker output with
-repository, revision, run/attempt, tool versions and per-file hashes, plus the committed
-top-level D1 migration files (`services/api/migrations/*.sql`) and the D1 database ID
-recorded in the build. The `pateat` database was bootstrapped on 2026-10-11 in the
-owner's account with an APAC location hint, and its ID is in `cloudflare.config.ts`;
-packing and restore refuse a build whose `DB` binding has no ID, because cf deploy would
-provision a new database. Restore also checks that the migrations match both the
-manifest and the checked-out revision. The setup order below sets the release
-credentials last, after pairing works through Access; the typed-code enrollment did when
-the owner paired on 2026-10-11. For direct pairing, only the post-deploy probe has run
-against the deployed service so far; no installed build has paired directly yet
-([device enrollment](architecture.md#device-enrollment)). A
-deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the
-owner pages answer 503 without them. Artifact tests reject tampering and mismatched
-provenance.
+Successful main-push CI packages the production Worker output that `Verify (1/4)` built
+and checked, with repository, revision, run/attempt, tool versions and per-file hashes,
+plus the committed top-level D1 migration files (`services/api/migrations/*.sql`) and
+the D1 database ID recorded in the build. The `pateat` database was bootstrapped on
+2026-10-11 in the owner's account with an APAC location hint, and its ID is in
+`cloudflare.config.ts`; packing and restore refuse a build whose `DB` binding has no ID,
+because cf deploy would provision a new database. Restore also checks that the
+migrations match both the manifest and the checked-out revision. The artifact name
+carries the run attempt, so a failed main run is retried with "Re-run all jobs": after
+"Re-run failed jobs" with `Verify (1/4)` green, the artifact stays on the earlier
+attempt and the deployment rejects it. The service browser tests in other shards build
+their own copy of the Worker output. The setup order below sets the release credentials
+last, after pairing works through Access; the typed-code enrollment did when the owner
+paired on 2026-10-11. For direct pairing, only the post-deploy probe has run against the
+deployed service so far; no installed build has paired directly yet
+([device enrollment](architecture.md#device-enrollment)). A deployment also needs the
+`ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the owner pages answer 503 without
+them. Artifact tests reject tampering and mismatched provenance.
 
 ### Production settings
 
