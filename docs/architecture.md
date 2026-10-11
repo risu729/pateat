@@ -391,8 +391,8 @@ Do not inject `chrome-extension://` iframes, automatic overlays or unlock window
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
 settings. The one extension window is the passkey chooser of
 [ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
-with several matches and none in incognito. Do not attach our own debugger in normal
-operation. Another installed extension can still inject a conflicting frame; coexistence
+with several matches from a focused page, and never in incognito. Do not attach our own
+debugger in normal operation. Another installed extension can still inject a conflicting frame; coexistence
 requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->

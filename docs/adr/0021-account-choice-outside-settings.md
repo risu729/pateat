@@ -94,8 +94,9 @@ limit counts from the latest one, under an absolute limit of 2 minutes 15 s. A `
 below 10 s is raised to 10 s, as Chrome raises it for its own UI. The window opens only
 for a visible, focused, active document with at least 5 s of that wait left, and
 signing after a choice gets its own 10 s. One window is open at a time; a second request
-delegates. Leaving the page cancels its pending requests. "Use the browser" delegates
-only after the window has closed, so the browser's own prompt gets focus back. When
+delegates. Leaving the page cancels its pending requests. "Use the browser" or closing
+the window delegates only after the window has closed and the tab's window has been
+focused again (each step waits at most 2 s), so the browser's own prompt has focus. When
 the origin already has a default that holds none of the matching passkeys, the
 checkbox starts unticked and says it replaces that default, because the same default
 also picks the password login account. The default is not saved while a password login

@@ -24,6 +24,7 @@ function fakeBrowser(windowId: number | null = 41) {
       width: 1240,
       height: 900,
     })),
+    focusTab: vi.fn<ChooserBrowser["focusTab"]>(async () => {}),
     onWindowRemoved: (listener: (windowId: number) => void) => windowRemoved.push(listener),
     onTabRemoved: (listener: (tabId: number) => void) => tabRemoved.push(listener),
     keepAlive<T>(work: Promise<T>) {
@@ -110,6 +111,7 @@ describe("passkey chooser window", () => {
     expect(reply).toEqual({ ok: true });
     expect(await answer).toEqual({ kind: "chosen", index: 1, makeDefault: true });
     expect(browser.removeWindow).toHaveBeenCalledWith(41);
+    expect(browser.focusTab).not.toHaveBeenCalled();
     // An answered request is gone.
     expect(await chooser.handle(load, { url: url.href, tab: { windowId: 41 } })).toEqual({
       ok: false,
@@ -145,6 +147,8 @@ describe("passkey chooser window", () => {
     first.closeWindow(41);
     expect(await closed).toEqual({ kind: "closed" });
     expect(first.browser.removeWindow).not.toHaveBeenCalled();
+    // The page gets focus back for the browser's own prompt.
+    expect(first.browser.focusTab).toHaveBeenCalledWith(7);
 
     const tabGone = open(chooser);
     await vi.waitFor(() => expect(first.browser.createWindow).toHaveBeenCalledTimes(2));
@@ -218,5 +222,35 @@ describe("passkey chooser window", () => {
     expect(settled).toBe(false);
     removed();
     await vi.waitFor(() => expect(settled).toBe(true));
+  });
+
+  it("does not hold the request when the window never finishes closing", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { browser } = fakeBrowser();
+      browser.removeWindow.mockReturnValueOnce(new Promise<void>(() => {}));
+      browser.focusTab.mockReturnValueOnce(new Promise<void>(() => {}));
+      const chooser = createPasskeyChooser(browser);
+      const answer = chooser.choose({
+        tabId: 7,
+        origin: "https://login.example.com",
+        rpId: "example.com",
+        entries,
+        replacesDefault: false,
+        signal: new AbortController().signal,
+      });
+      await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
+      await new Promise((resolve) => setImmediate(resolve));
+      const url = openedUrl(browser);
+      const request = new URL(url).searchParams.get("request");
+      await chooser.handle(
+        { version: 1, type: "passkey-chooser.answer", request, answer: { kind: "browser" } },
+        { url, tab: { windowId: 41 } },
+      );
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(await answer).toEqual({ kind: "browser" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

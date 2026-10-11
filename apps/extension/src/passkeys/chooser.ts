@@ -6,6 +6,8 @@ import type { PasskeyDisplay } from "./select";
 export const CHOOSER_PAGE = "/passkey-picker.html";
 const WINDOW_WIDTH = 440;
 const WINDOW_HEIGHT = 520;
+/** Longest the chooser waits for its window to close and the tab to regain focus. */
+const RESTORE_LIMIT_MS = 2_000;
 /** More would not fit a window; a request offering more still delegates. */
 export const MAX_CHOOSER_ENTRIES = 50;
 
@@ -73,6 +75,8 @@ export interface ChooserBrowser {
   removeWindow(windowId: number): Promise<void>;
   /** The bounds of the window holding this tab, to centre the chooser over it. */
   tabWindowBounds(tabId: number): Promise<Bounds | undefined>;
+  /** Brings the window holding this tab to the front again. */
+  focusTab(tabId: number): Promise<void>;
   onWindowRemoved(listener: (windowId: number) => void): void;
   onTabRemoved(listener: (tabId: number) => void): void;
   /** Keeps the service worker running while a person decides. */
@@ -155,12 +159,20 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
             if (open !== entry) return;
             open = undefined;
             input.signal.removeEventListener("abort", onAbort);
-            if (windowGone || entry.windowId === undefined) return resolve(choice);
-            // The browser's own prompt needs focus back, so delegate only once the window is gone.
-            void browser
-              .removeWindow(entry.windowId)
-              .catch(() => undefined)
-              .then(() => resolve(choice));
+            const windowId = windowGone ? undefined : entry.windowId;
+            // The browser's own prompt needs the page focused, so delegate only once the window
+            // is gone and the tab's window is in front again. Neither step may hold the request.
+            const bounded = (work: Promise<unknown>) =>
+              Promise.race([
+                work.catch(() => undefined),
+                new Promise((done) => setTimeout(done, RESTORE_LIMIT_MS)),
+              ]);
+            void (async () => {
+              if (windowId !== undefined) await bounded(browser.removeWindow(windowId));
+              if (choice.kind !== "chosen" && entry.windowId !== undefined)
+                await bounded(browser.focusTab(input.tabId));
+              resolve(choice);
+            })();
           },
         };
         // The request ended elsewhere; the window goes with it.

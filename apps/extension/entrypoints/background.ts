@@ -175,6 +175,10 @@ export default defineBackground(() => {
       const tab = await browser.tabs.get(tabId);
       return browser.windows.get(tab.windowId);
     },
+    async focusTab(tabId) {
+      const tab = await browser.tabs.get(tabId);
+      await browser.windows.update(tab.windowId, { focused: true });
+    },
     onWindowRemoved: (listener) => browser.windows.onRemoved.addListener(listener),
     onTabRemoved: (listener) => browser.tabs.onRemoved.addListener(listener),
     keepAlive,
