@@ -11,9 +11,9 @@ import type { LogSummary, RecentLog } from "./log";
 import type { Pseudonyms } from "./pseudonym";
 import {
   age,
-  plural,
   deviceFailureLabel,
   generationLabel,
+  plural,
   serverLabel,
   syncSignIn,
 } from "./labels";

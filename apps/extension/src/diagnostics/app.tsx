@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "../options/button";
 import {
-  plural,
   deviceFailureLabel,
   generationLabel,
   installLabel,
+  plural,
   serverLabel,
   syncSignIn,
 } from "./labels";
@@ -254,8 +254,9 @@ function Logs({
     <section aria-labelledby="logs-heading" className="panel">
       <h2 id="logs-heading">Logs</h2>
       <p className="note">
-        Kept on this device for 14 days. A site you had not set up when an entry was written appears
-        as <code>origin:7d2b91aa</code>, even with site addresses included.
+        Kept on this device for 14 days. A site you had not set up when an entry was written is
+        stored as <code>origin:7d2b91aa</code> or <code>rp:7d2b91aa</code>, so it stays pseudonymous
+        even with site addresses included.
       </p>
       <dl>
         <Row term="Entries" id="diagnostics-logs">

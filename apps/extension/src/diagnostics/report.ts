@@ -1,10 +1,10 @@
 // The text "Copy for bug report" copies (ADR 0019). It keeps the KDF family but leaves out
 // its parameters, which are shown on the page only.
 import {
-  plural,
   deviceFailureLabel,
   generationLabel,
   installLabel,
+  plural,
   serverLabel,
   syncSignIn,
 } from "./labels";
