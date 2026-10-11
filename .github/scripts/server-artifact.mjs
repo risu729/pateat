@@ -11,6 +11,14 @@ const databaseName = "pateat";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 export const migrationNamePattern = /^\d{4}_[a-z0-9_]+\.sql$/u;
 
+export function verifyHealthUrl(value, domains) {
+  const healthUrl = new URL(value ?? "");
+  assert.equal(healthUrl.protocol, "https:");
+  assert.equal(healthUrl.pathname, "/health");
+  assert.equal(healthUrl.username + healthUrl.password + healthUrl.search + healthUrl.hash, "");
+  assert(domains.includes(healthUrl.host), "The health URL must use the Worker's Custom Domain");
+}
+
 async function toolVersions() {
   return {
     node: process.version,
@@ -89,7 +97,7 @@ export async function verifyBuild(directory) {
   assert.match(worker.env.DB.id ?? "", uuidPattern, "Record the bootstrapped D1 database ID");
   // The owner web UI assets must pass the Worker's Access check.
   assert.equal(worker.assets?.runWorkerFirst, true);
-  return { database: worker.env.DB.id };
+  return { database: worker.env.DB.id, domains: worker.domains ?? [] };
 }
 
 async function pack() {
@@ -142,7 +150,7 @@ async function restore() {
     manifest.files,
     "Release file digests differ",
   );
-  const { database } = await verifyBuild(`${releasePath}/output`);
+  const { database, domains } = await verifyBuild(`${releasePath}/output`);
   assert.equal(database, manifest.database, "Release database differs from its build");
   assert.deepEqual(
     await inventory(`${releasePath}/migrations`),
@@ -161,10 +169,7 @@ async function restore() {
     "Configure the exact account ID",
   );
   assert.equal(process.env.SERVER_WORKER, manifest.worker, "Configure the exact Worker name");
-  const healthUrl = new URL(process.env.SERVER_HEALTH_URL ?? "");
-  assert.equal(healthUrl.protocol, "https:");
-  assert.equal(healthUrl.pathname, "/health");
-  assert.equal(healthUrl.username + healthUrl.password + healthUrl.search + healthUrl.hash, "");
+  verifyHealthUrl(process.env.SERVER_HEALTH_URL, domains);
   // A fresh checkout must have no pre-existing output or implicit rebuild.
   await assert.rejects(lstat(buildPath), { code: "ENOENT" });
   await mkdir(resolve(buildPath, ".."), { recursive: true });

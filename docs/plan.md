@@ -12,7 +12,8 @@ gates rather than maintaining a second roadmap.
 Implemented: WXT production shell with no site permissions, human-operated status
 page, strict Valibot status contracts, isolated localhost-only probe build,
 health-only Worker with typed cf configuration, shared mise/hk checks, CI/CodeQL,
-and disabled-by-default manual delivery of a verified main-build artifact.
+and delivery of a verified main-build artifact after main CI (it fails until the
+production credentials and deployment variables exist).
 Mise and Bun dependencies are locked; no native helper or production secrets are
 required to build or test.
 
@@ -66,14 +67,16 @@ intent persistence, delivery, effect and acknowledgement; a missing acknowledgem
 never authorizes another fill or a fallback click.
 [Development](development.md#installed-chrome-synthetic-login-probe)
 describes the early installed-Chrome acceptance procedure. Attempts start when a
-recipe's first step appears, also after a same-document URL change or in a dialog
-opened later, and later steps wait up to 10 seconds for their elements
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Production
-activation, arbitrary saved recipe configuration, real provider compatibility and
-login forms inside frames remain outstanding. The early installed-Chrome run passed
-multi-page, background-tab, single-page, rejection, ambiguity, concurrency and
-input/change-triggered advance cases using synthetic values. It does not establish
-current SDK/setup compatibility or official Bitwarden extension coexistence. See the
+recipe's first step appears, also after a same-document URL change or in a dialog opened
+later, and later steps wait up to 10 seconds for their elements
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Login forms
+inside frames fill only when the frame's URL and the tab's URL both match the item
+([ADR 0017](adr/0017-login-forms-in-frames.md)). Production activation, arbitrary saved
+recipe configuration and real provider compatibility remain outstanding. The early
+installed-Chrome run passed multi-page, background-tab, single-page, rejection,
+ambiguity, concurrency and input/change-triggered advance cases using synthetic values.
+It does not establish current SDK/setup compatibility or official Bitwarden extension
+coexistence. See the
 [dated acceptance evidence](research/2026-10-10-feasibility.md#early-installed-chrome-acceptance-2026-10-10).
 Neither M1 nor M2 is complete.
 
@@ -142,8 +145,9 @@ fields when `kdfSettings` is absent or null, which the server model allows until
 PM-28143 cleanup. On 2026-10-11 Bitwarden Cloud US (server 2026.9.2) answered
 `/accounts/prelogin/password` for a real account with only those flat fields
 (`{"kdf":0,"kdfIterations":600000,"kdfMemory":null,"kdfParallelism":null}`), and setup
-had stopped with `invalid-response` because `kdfSettings` was required. Real-account
-setup after this change is not yet re-verified.
+had stopped with `invalid-response` because `kdfSettings` was required. With this
+change, real-account setup on Cloud US succeeded at main `f7d3cf5` on 2026-10-11
+([passkey evidence](#passkey-progress)).
 
 The transport supports explicit manual authenticator/email codes and new-device
 OTP submission as request shapes. Challenge, rejection and interactive/unsupported
@@ -372,8 +376,9 @@ Chrome yet.
   immediately before a fill. An unavailable connection or an item awaiting field review
   is refused before an attempt starts. A denied, locked or failed field read, or a
   replacement snapshot before delivery, blocks the attempt as `policy-changed` without
-  filling. Production admits top-level HTTPS documents on a non-excluded site with
-  granted host access, with or without a saved default
+  filling. Production admits HTTPS documents on a non-excluded site with
+  granted host access (a frame also needs its tab's page admitted;
+  [ADR 0017](adr/0017-login-forms-in-frames.md)), with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
   stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
   probe build grants its loopback origin to the probe item and supplies recipes and
@@ -632,9 +637,10 @@ public key, and gets the browser's own credential once the item is excluded. A
 production-build test checks that the bridge is installed at document start there, that
 no content script posts a message to the page, and that with no vault connected the
 request goes to the browser. A claimed assertion from a vault passkey is tested only
-through the probe build, which wraps the same vault source. Real-site interoperability
-and real-account use remain open; a navigation during signing relies on Chrome dropping
-the response to the replaced document.
+through the probe build, which wraps the same vault source. The first real-site and
+real-account results are listed below; a primary sign-in with a discoverable passkey is
+still untested, and a navigation during signing relies on Chrome dropping the response
+to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
 extension ID from stack traces; the relay posts only the outcome of a request to the
@@ -673,6 +679,23 @@ Evidence, 2026-10-10, synthetic relying party only:
   2026.6.1. Both buttons and the page-load request reported `Pateat, flags 0x1d,
   signature verified`, with Bitwarden unlocked and again with it locked after a reload.
   No Bitwarden window appeared, and no request errored or stayed pending.
+
+Evidence, 2026-10-11, real sites with the owner's real Bitwarden account: production
+build at main `f7d3cf5`, the owner's Chrome 154.0.8037.98, the official Bitwarden
+extension 2026.9.3, Bitwarden Cloud US.
+
+- Setup connected the real account after a new-device verification code, and Sync
+  succeeded ("Vault verified and local cache accepted.").
+- `https://www.npmjs.com`: the site asks for the passkey as a second-factor security
+  key. Bitwarden's autofill entered the username and password, and the security-key
+  step then succeeded with no Chrome or Bitwarden window, which indicates Pateat signed
+  it unattended.
+- `https://my.jcb.co.jp`: about six passkeys for this RP ID are stored in separate login
+  items and no site default was set, so Pateat delegated as designed and Bitwarden
+  showed its own window. The options page's site-default account list did not filter by
+  site, did not show usernames, and could not tell apart items with the same name, so
+  the owner could not pick the right item; that is tracked as executor work.
+- Not tested: a primary sign-in with a discoverable (username-less) passkey.
 
 ## AI evaluation harness progress
 
@@ -770,7 +793,10 @@ must abstain still do. With one sample per case this cannot show that the refusa
 not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
 - The service route, monthly spend stop and the
-  [request log](adr/0012-inference-request-log.md).
+  [request log](adr/0012-inference-request-log.md), as decided in
+  [ADR 0018](adr/0018-recipe-generation-route.md): `POST /v1/recipes/generate`, use of
+  the returned recipe at once, the post-login page sent once to learn `completion`,
+  and 90-day log retention.
 - Calling the extension observation extractor (below) under the automatic send rule
   of [ADR 0016](adr/0016-recipe-generation-trigger.md).
 - A different remembered account, approved by the owner on 2026-10-11: on a step that

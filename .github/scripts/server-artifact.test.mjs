@@ -8,6 +8,7 @@ import {
   inventory,
   migrationNamePattern,
   verifyBuild,
+  verifyHealthUrl,
   verifyProvenance,
 } from "./server-artifact.mjs";
 
@@ -109,7 +110,7 @@ test("release output refuses preview mode, another Worker and unguarded assets",
     const worker = (env, workerAssets = assets) =>
       JSON.stringify({ name: "pateat-api", env, assets: workerAssets });
     await writeFile(workerPath, worker({ DB: { type: "d1", name: "pateat", id: database } }));
-    assert.deepEqual(await verifyBuild(directory), { database });
+    assert.deepEqual(await verifyBuild(directory), { database, domains: [] });
     // Without an ID, cf deploy would provision a new database.
     await writeFile(workerPath, worker({ DB: { type: "d1", name: "pateat" } }));
     await assert.rejects(verifyBuild(directory), /bootstrapped D1/u);
@@ -133,4 +134,24 @@ test("release output refuses preview mode, another Worker and unguarded assets",
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("the health URL must be the Worker's Custom Domain", () => {
+  const domains = ["pateat.takuk.me"];
+  verifyHealthUrl("https://pateat.takuk.me/health", domains);
+  verifyHealthUrl("https://PATEAT.takuk.me:443/health", domains);
+  for (const url of [
+    "https://pateat-api.example.workers.dev/health",
+    "https://pateat.takuk.me:8443/health",
+    "http://pateat.takuk.me/health",
+    "https://pateat.takuk.me/v1/health",
+    "https://pateat.takuk.me/health?x=1",
+    "",
+  ])
+    assert.throws(() => verifyHealthUrl(url, domains), url);
+  assert.throws(() => verifyHealthUrl("https://pateat.takuk.me/health", []));
+  // Object-form domains are not supported and fail closed.
+  assert.throws(() =>
+    verifyHealthUrl("https://pateat.takuk.me/health", [{ hostname: "pateat.takuk.me" }]),
+  );
 });

@@ -1,8 +1,9 @@
 # ADR 0016: Automatic recipe generation on pages with a vault match
 
 Status: accepted by the owner on 2026-10-11. Amends
-[ADR 0009](0009-install-time-https-site-access.md). Not implemented yet: the
-extension observation extractor and the service inference route are still planned.
+[ADR 0009](0009-install-time-https-site-access.md); amended by
+[ADR 0018](0018-recipe-generation-route.md). Not implemented yet: the extractor exists
+but nothing calls it, and the service inference route is still planned.
 
 Date: 2026-10-11
 
@@ -39,13 +40,15 @@ and stays under the monthly spend stop of
 The observation is the value-free `LoginObservation`
 (`packages/contracts/src/observation.ts`) built by the extension; an incomplete
 observation is not sent.
-When the generated recipe is used, and the service route, are decided separately.
+When the generated recipe is used, and the service route, are decided in
+[ADR 0018](0018-recipe-generation-route.md).
 
 ## Consequences
 
 The service and the provider see the login pages of sites the owner has vault items
 for, as structure and labels, once per page per day at most. Other pages are never
-observed. A locked vault, a site without a vault item, or a login page that shows its
+observed, except the page shown right after the first sign-in with a generated recipe
+(ADR 0018). A locked vault, a site without a vault item, or a login page that shows its
 fields only after a click gets no automatic generation.
 
 ## Alternatives

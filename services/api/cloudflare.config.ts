@@ -30,6 +30,9 @@ export default defineConfig({
     },
     // Every request reaches the Worker first, so no built file skips the Access check.
     assets: { runWorkerFirst: true, htmlHandling: "none", notFoundHandling: "none" },
+    // The only public host. Routine releases leave triggers alone; the bootstrap
+    // applies this Custom Domain once (docs/delivery.md).
+    domains: ["pateat.takuk.me"],
     workersDev: false,
     previewUrls: false,
     observability: { enabled: true, headSamplingRate: 1, redactQueryString: true },

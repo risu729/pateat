@@ -1,7 +1,7 @@
 # ADR 0012: Inference request log and evaluation data
 
-Status: accepted by the owner on 2026-10-10; not implemented. The retention default is
-chosen with the service route.
+Status: accepted by the owner on 2026-10-10; not implemented. The retention period is
+90 days, chosen with the service route in [ADR 0018](0018-recipe-generation-route.md).
 
 Date: 2026-10-10
 
