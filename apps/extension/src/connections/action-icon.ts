@@ -29,6 +29,8 @@ export function notifyingVaultStore<T extends DurableVaultStore>(store: T, notif
     ...store,
     compareAndSwap: (...args: Parameters<DurableVaultStore["compareAndSwap"]>) =>
       store.compareAndSwap(...args).finally(notify),
+    remove: (...args: Parameters<DurableVaultStore["remove"]>) =>
+      store.remove(...args).finally(notify),
   };
 }
 

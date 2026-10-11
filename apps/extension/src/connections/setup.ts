@@ -570,6 +570,49 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           const forgotten = await deps.sessions.forget(configuration.profile);
           return forgotten.ok ? { ok: true, kind: "forgotten", connectionId } : forgotten;
         },
+        /** Local deletion only. No verified server-wide revocation endpoint is called, and
+         * service-held settings are not modified. Like forget, it refuses while a password
+         * setup flow for this connection is active. The registry entry goes last, so a
+         * failed step leaves the connection listed for another attempt. */
+        async remove(connectionId: string): Promise<SetupReply> {
+          const setupActive = () => {
+            const current = active.get(connectionId);
+            return current !== undefined && !current.sync;
+          };
+          if (closed || disabling.has(connectionId) || setupActive())
+            return error("resource-limit");
+          disabling.add(connectionId);
+          connectionEpoch.set(connectionId, (connectionEpoch.get(connectionId) ?? 0) + 1);
+          try {
+            const configuration = await deps.registry.get(connectionId);
+            if (!configuration) return error("invalid-request");
+            if (setupActive()) return error("resource-limit");
+            const current = active.get(connectionId);
+            if (current) {
+              clear(current);
+              if (owned === current) owned = undefined;
+              await current.retirement;
+            }
+            handles.delete(connectionId);
+            reviews.delete(connectionId);
+            const forgotten = await deps.sessions.forget(configuration.profile);
+            if (!forgotten.ok) return forgotten;
+            // The manager locks any open native session before deleting the record and key.
+            const removed = await deps.vaultFor(configuration.profile).manager.remove();
+            if (!removed.ok) return removed;
+            try {
+              await deps.registry.remove(connectionId);
+            } catch {
+              return error("storage-failed");
+            }
+            return { ok: true, kind: "deleted", connectionId };
+          } finally {
+            // A begin or sync that read the registry while this ran saw the stale entry;
+            // a second bump makes its epoch check fail after disabling is cleared.
+            connectionEpoch.set(connectionId, (connectionEpoch.get(connectionId) ?? 0) + 1);
+            disabling.delete(connectionId);
+          }
+        },
         async disable(connectionId: string): Promise<SetupReply> {
           if (closed || disabling.has(connectionId)) return error("resource-limit");
           disabling.add(connectionId);
@@ -623,6 +666,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         sync: (connectionId: string) => caller.sync(connectionId).then(replyOf),
         forget: (connectionId: string) => caller.forget(connectionId).then(replyOf),
         disable: (connectionId: string) => caller.disable(connectionId).then(replyOf),
+        remove: (connectionId: string) => caller.remove(connectionId).then(replyOf),
         review: (input: Parameters<typeof caller.review>[0]) => caller.review(input).then(replyOf),
         dispose: caller.dispose,
       };

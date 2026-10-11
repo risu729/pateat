@@ -124,6 +124,64 @@ test("local forget and permission removal clear sync sign-in but keep offline un
   });
 });
 
+test("deleting a connection removes its local records and it stays gone after reopening", async () => {
+  await withVaultProfile(async (open, requests) => {
+    const browser = await open();
+    const options = await browser.context.newPage();
+    await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
+    const first = await setupRequest(options, {
+      type: "connection.begin",
+      input: beginInput("First vault"),
+    });
+    const second = await setupRequest(options, {
+      type: "connection.begin",
+      input: beginInput("Second vault"),
+    });
+    if (!first.ok || first.kind !== "ready" || !second.ok || second.kind !== "ready")
+      throw new Error("Synthetic setup failed");
+    expect(await inspectProviderSessions(browser.page)).toMatchObject({
+      records: 2,
+      sessions: [{ state: "active" }, { state: "active" }],
+    });
+    const before = await setupProbe(browser.page, { action: "status" });
+    expect(
+      await setupRequest(options, { type: "connection.delete", connectionId: first.connectionId }),
+    ).toEqual({ ok: true, kind: "deleted", connectionId: first.connectionId });
+    // Local only: no provider request is made.
+    expect((await setupProbe(browser.page, { action: "status" })).calls).toBe(before.calls);
+    expect(await inspectProviderSessions(browser.page)).toMatchObject({
+      records: 1,
+      sessions: [{ state: "active" }],
+    });
+    expect(await setupRequest(options, { type: "connection.status" })).toMatchObject({
+      connections: [{ connectionId: second.connectionId }],
+    });
+    const reopened = await open();
+    const page = await reopened.context.newPage();
+    await page.goto(`chrome-extension://${reopened.extensionId}/options.html`);
+    const status = await setupRequest(page, { type: "connection.status" });
+    expect(status).toMatchObject({
+      ok: true,
+      connections: [
+        { connectionId: second.connectionId, autoUnlock: "enabled", providerSession: "active" },
+      ],
+    });
+    if (!status.ok || status.kind !== "status") throw new Error("Synthetic status failed");
+    expect(status.connections).toHaveLength(1);
+    expect(await setupProbe(reopened.page, { action: "status" })).toMatchObject({
+      configuredIds: [second.connectionId],
+    });
+    expect(await inspectProviderSessions(reopened.page)).toMatchObject({
+      records: 1,
+      sessions: [{ state: "active" }],
+    });
+    expect(
+      await setupRequest(page, { type: "connection.delete", connectionId: first.connectionId }),
+    ).toEqual({ ok: false, error: { code: "invalid-request" } });
+    expect(requests).toEqual([]);
+  });
+});
+
 test("the native session store guards on the cache record and its own revision", async () => {
   await withVaultProfile(async (open) => {
     const browser = await open();

@@ -216,6 +216,9 @@ export function createConnectionRuntime(
         case "connection.forget":
           result = caller.forget(request.connectionId);
           break;
+        case "connection.delete":
+          result = caller.remove(request.connectionId);
+          break;
         case "connection.review":
           result = caller.review(request.input);
           break;
