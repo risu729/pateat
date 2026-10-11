@@ -15,9 +15,16 @@
       "ignoreUnstable": false
     },
     {
-      "description": "Vite plugin betas are versioned by commit hash, which does not sort by release date; follow the beta dist-tag instead.",
+      "description": "Vite plugin betas are versioned by commit hash, which does not sort by release date. Follow the beta dist-tag; rollbackPrs also offers it when its hash sorts below the current one.",
       "matchPackageNames": ["@cloudflare/vite-plugin"],
-      "followTag": "beta"
+      "followTag": "beta",
+      "rollbackPrs": true
+    },
+    {
+      "description": "An offered beta whose hash sorts lower is a rollback update in Renovate; title it as an update.",
+      "matchPackageNames": ["@cloudflare/vite-plugin"],
+      "matchUpdateTypes": ["rollback"],
+      "commitMessageAction": "Update"
     },
     {
       "description": "Review compiler upgrades alongside the shared preset's peer requirements.",
