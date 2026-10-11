@@ -8,6 +8,9 @@ Each part lands in its own PR. Parts A, B and C and the password half of D are
 implemented; the passkey half of D is not yet.
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet).
+Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a passkey request
+during a login that has not ended uses that login's item instead of the chooser (not
+implemented yet).
 
 Date: 2026-10-11
 

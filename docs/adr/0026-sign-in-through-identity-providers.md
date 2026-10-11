@@ -2,7 +2,9 @@
 
 Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented. The
 owner set it as low priority: this record fixes the direction, and implementation waits.
-Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Researched from public
+Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
+by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
+routes, chosen after a passkey route and before a password route. Researched from public
 documentation only; no real site or account has been used.
 
 Date: 2026-10-11
