@@ -1757,6 +1757,41 @@ describe("production login document admission", () => {
         sync.answers[0]!(true);
         await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
       });
+      it("asks for no check when a one-time pick's item no longer matches the page", async () => {
+        const sync = vault();
+        let calls = 0;
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          // Both items match when the choice is offered; the picked one no longer does.
+          uris: async () => (calls++ === 0 ? { ok: true, data: both } : none),
+          vault: sync.value,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        let again: unknown;
+        fake.state.onReconnect = async () => {
+          again = await h.hello();
+          return again;
+        };
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.choice.pick",
+            tabId: 1,
+            documentId: "synthetic-document",
+            connectionId,
+            itemId: otherItemId,
+            makeDefault: false,
+          },
+          {
+            id: "synthetic-extension",
+            url: "chrome-extension://synthetic-extension/popup.html",
+          } as never,
+        );
+        await vi.waitFor(() =>
+          expect(again).toEqual({ ok: false, reason: "item-origin-mismatch" }),
+        );
+        expect(sync.value.checkAfterMiss).not.toHaveBeenCalled();
+      });
       it.each<[string, Partial<LocalSettings>, Parameters<typeof harness>[1], string]>([
         [
           "two items match",

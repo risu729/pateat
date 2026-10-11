@@ -138,7 +138,7 @@ export function createVaultAutoSync(deps: {
   let missWanted = false;
   /** Each waiter with the number of replacements begun before it asked. */
   const missWaiters = new Map<(synced: boolean) => void, number>();
-  /** Replacements begun; only one begun after a miss can hold the item it lacked. */
+  /** Replacements begun; only one begun after a miss is one the page cannot have seen. */
   let applies = 0;
   /** Resolves true once no page or passkey request is being handled, false after a while. */
   function settled(): Promise<boolean> {
