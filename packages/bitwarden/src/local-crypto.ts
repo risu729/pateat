@@ -1,6 +1,7 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 
+import { isCoseSign1, verifiedSecurityStateVersion } from "./cose";
 import { failure, type BitwardenResult } from "./errors";
 
 /** Host binds packaged WASM before calling this factory. No SDK network APIs are exposed. */
@@ -8,6 +9,20 @@ export type LocalCryptoSdk = Pick<
   typeof Sdk,
   "PasswordManagerClient" | "ManagedSettingsClient" | "PureCrypto" | "LogLevel" | "init_sdk"
 >;
+
+/** Decrypted passkey metadata. The SDK view's decrypted private key (`keyValue`) is withheld. */
+export type LocalFido2CredentialMetadata = Omit<Sdk.Fido2CredentialView, "keyValue">;
+/**
+ * The SDK's strict CipherView without the decrypted cipher key or passkey private keys, which the
+ * pinned SDK now places in the view. Neither leaves the crypto boundary through this view.
+ */
+export type LocalCipherView = Omit<Sdk.CipherView, "key" | "login"> & {
+  login:
+    | (Omit<Sdk.LoginView, "fido2Credentials"> & {
+        fido2Credentials: LocalFido2CredentialMetadata[] | undefined;
+      })
+    | undefined;
+};
 
 export interface LocalCryptoSession {
   readonly metadata: Readonly<{
@@ -21,11 +36,12 @@ export interface LocalCryptoSession {
     userKey: string;
     metadata: LocalCryptoSession["metadata"];
   }>;
-  decryptCipher(input: unknown): Promise<BitwardenResult<Sdk.CipherView>>;
+  decryptCipher(input: unknown): Promise<BitwardenResult<LocalCipherView>>;
   decryptCatalogGroups(
     input: unknown,
   ): Promise<BitwardenResult<{ id: string; label: string; kind: "folder" | "collection" }[]>>;
-  decryptFido2Credentials(input: unknown): Promise<BitwardenResult<Sdk.Fido2CredentialView[]>>;
+  decryptFido2Credentials(input: unknown): Promise<BitwardenResult<LocalFido2CredentialMetadata[]>>;
+  /** The item's single stored passkey private key, for the Worker's signing step only. */
   decryptFido2PrivateKey(input: unknown): Promise<BitwardenResult<string>>;
   dispose(): void;
 }
@@ -51,7 +67,7 @@ const accountSchema = v.union([
   v.strictObject({
     V2: v.strictObject({
       private_key: text,
-      signed_public_key: v.optional(text),
+      signed_public_key: text,
       signing_key: text,
       security_state: text,
     }),
@@ -441,34 +457,19 @@ function bytesFromBase64(value: string): Uint8Array {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
-// Public upstream signing/signed_object.rs test verifying key, not an account key or trust anchor.
-// Used only to invoke the SDK's synchronous shared COSE parser before its async serde boundary.
-const framingVerifier = new Uint8Array([
-  166, 1, 1, 2, 80, 55, 131, 40, 191, 230, 137, 76, 182, 184, 139, 94, 152, 45, 63, 13, 71, 3, 39,
-  4, 129, 2, 32, 6, 33, 88, 32, 93, 213, 35, 177, 81, 219, 226, 241, 147, 140, 238, 32, 34, 183,
-  213, 107, 227, 92, 75, 84, 208, 47, 198, 80, 18, 188, 172, 145, 184, 154, 26, 170,
-]);
-
-function signedFraming(value: string, sdk: LocalCryptoSdk): boolean {
+function signedFraming(value: string): boolean {
   try {
-    const bytes = bytesFromBase64(value);
-    try {
-      sdk.PureCrypto.verify_and_unwrap_signed_public_key(bytes, framingVerifier);
-      return true;
-    } catch (error: unknown) {
-      // Signature errors occur AFTER the shared SignedObject COSE parse. They grant no trust.
-      return (
-        typeof error === "object" &&
-        error !== null &&
-        "name" in error &&
-        "variant" in error &&
-        error.name === "CryptoError" &&
-        error.variant === "Signature"
-      );
-    }
+    return isCoseSign1(bytesFromBase64(value));
   } catch {
     return false;
   }
+}
+
+function passkeyMetadata({
+  keyValue: _privateKey,
+  ...metadata
+}: Sdk.Fido2CredentialView): LocalFido2CredentialMetadata {
+  return metadata;
 }
 
 function memoryBridge() {
@@ -573,11 +574,10 @@ export async function createLocalCryptoSession(
   try {
     // Error level still logs: the trusted host must disable console before SDK initialization.
     sdk.init_sdk(sdk.LogLevel.Error, sdk.LogLevel.Error, 0);
+    // The SDK's async initialization never settles on unparsable signed objects. Reject them first.
     if (
       "V2" in account &&
-      (!signedFraming(account.V2.security_state, sdk) ||
-        (account.V2.signed_public_key !== undefined &&
-          !signedFraming(account.V2.signed_public_key, sdk)))
+      (!signedFraming(account.V2.security_state) || !signedFraming(account.V2.signed_public_key))
     ) {
       dispose();
       return failure("invalid-crypto-input");
@@ -654,10 +654,10 @@ export async function createLocalCryptoSession(
         privateKey?.fill(0);
       }
     }
-    if (accountVersion === "v2") {
-      // The pinned helper re-exports/rewraps keys and signs the unchanged VERIFIED security state;
-      // it performs no HTTP, version increment or state mutation. Discard every other export.
-      const version = crypto.get_v2_rotated_account_keys().securityVersion;
+    if ("V2" in account) {
+      // initialize_user_crypto succeeded, so the SDK verified this exact security state with the
+      // account's signing key. It exports no accessor for the version, so read the verified payload.
+      const version = verifiedSecurityStateVersion(bytesFromBase64(account.V2.security_state));
       if (version !== 1 && version !== 2) {
         dispose();
         return failure("unsupported-crypto");
@@ -702,6 +702,8 @@ export async function createLocalCryptoSession(
       try {
         const view = await ciphers.decrypt(cipher as unknown as Sdk.Cipher);
         if (locked) return failure("crypto-locked");
+        // Admission refuses server-restricted ciphers; a partial view withholds its secrets.
+        if (view.partial) return failure("unsupported-crypto");
         if (view.attachmentDecryptionFailures?.length) return failure("crypto-failed");
         // The SDK may remove invalid URI checksums; this boundary rejects partial results.
         const rawLogin = cipher["login"];
@@ -711,6 +713,15 @@ export async function createLocalCryptoSession(
           "uris" in rawLogin &&
           Array.isArray(rawLogin.uris) &&
           rawLogin.uris.length !== (view.login?.uris?.length ?? 0)
+        )
+          return failure("crypto-failed");
+        // Strict decryption fails on any unreadable passkey; never accept a view that dropped one.
+        if (
+          rawLogin &&
+          typeof rawLogin === "object" &&
+          "fido2Credentials" in rawLogin &&
+          Array.isArray(rawLogin.fido2Credentials) &&
+          rawLogin.fido2Credentials.length !== (view.login?.fido2Credentials?.length ?? 0)
         )
           return failure("crypto-failed");
         // Pinned SDK login.rs hashes the exact UTF-8 URI with SHA-256. Legacy keyless V1 skips
@@ -749,7 +760,21 @@ export async function createLocalCryptoSession(
           // No password, master key, private key bundle or network API is exported.
           return { ok: true as const, data: { userKey, metadata } };
         },
-        decryptCipher: decrypt,
+        decryptCipher: async (request: unknown): Promise<BitwardenResult<LocalCipherView>> => {
+          const decrypted = await decrypt(request);
+          if (!decrypted.ok) return decrypted;
+          const { key: _cipherKey, login, ...view } = decrypted.data;
+          return {
+            ok: true,
+            data: {
+              ...view,
+              login: login && {
+                ...login,
+                fido2Credentials: login.fido2Credentials?.map(passkeyMetadata),
+              },
+            },
+          };
+        },
         decryptCatalogGroups: async (contextInput: unknown) => {
           if (locked) return failure("crypto-locked");
           let checked: v.SafeParseResult<typeof encryptedCatalogContextSchema>;
@@ -816,28 +841,26 @@ export async function createLocalCryptoSession(
         },
         decryptFido2Credentials: async (
           request: unknown,
-        ): Promise<BitwardenResult<Sdk.Fido2CredentialView[]>> => {
+        ): Promise<BitwardenResult<LocalFido2CredentialMetadata[]>> => {
           const decrypted = await decrypt(request);
           if (!decrypted.ok) return decrypted;
           if (locked) return failure("crypto-locked");
-          try {
-            return { ok: true, data: ciphers.decrypt_fido2_credentials(decrypted.data) };
-          } catch {
-            return failure("crypto-failed");
-          }
+          return {
+            ok: true,
+            data: (decrypted.data.login?.fido2Credentials ?? []).map(passkeyMetadata),
+          };
         },
         decryptFido2PrivateKey: async (request: unknown): Promise<BitwardenResult<string>> => {
           const decrypted = await decrypt(request);
           if (!decrypted.ok) return decrypted;
           if (locked) return failure("crypto-locked");
-          // The SDK returns the first key. Require a unique credential instead of choosing one.
-          if (decrypted.data.login?.fido2Credentials?.length !== 1)
-            return failure("unsupported-crypto");
-          try {
-            return { ok: true, data: ciphers.decrypt_fido2_private_key(decrypted.data) };
-          } catch {
-            return failure("crypto-failed");
-          }
+          // Official clients use the first key. Require a unique credential instead of choosing one.
+          const credentials = decrypted.data.login?.fido2Credentials;
+          if (credentials?.length !== 1) return failure("unsupported-crypto");
+          const keyValue = credentials[0]?.keyValue;
+          return typeof keyValue === "string" && keyValue.length > 0
+            ? { ok: true, data: keyValue }
+            : failure("crypto-failed");
         },
         dispose,
       }),

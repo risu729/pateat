@@ -25,13 +25,12 @@ const uuid = v.pipe(
 );
 const text = v.pipe(v.string(), v.minLength(1), v.maxLength(1_048_576));
 const optionalText = v.nullish(v.pipe(v.string(), v.maxLength(1_048_576)));
-// Decrypted SDK Fido2CredentialView. keyValue remains an EncString and is never decoded here.
+// Decrypted passkey metadata from LocalCryptoSession.decryptFido2Credentials, without the key.
 const viewSchema = v.object({
   credentialId: text,
   keyType: text,
   keyAlgorithm: text,
   keyCurve: text,
-  keyValue: text,
   rpId: text,
   userHandle: optionalText,
   counter: text,

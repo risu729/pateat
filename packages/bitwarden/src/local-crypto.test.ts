@@ -112,42 +112,41 @@ function corrupt(value: string) {
   return prefix + btoa(String.fromCharCode(...bytes));
 }
 
-function reportedVersionSdk(version: number) {
-  const readOtherExports = vi.fn(() => {
-    throw new Error("Unexpected key export read");
-  });
-  const versionCall = vi.fn(
-    () =>
-      Object.defineProperties(
-        { securityVersion: version },
-        {
-          userKey: { get: readOtherExports },
-          privateKey: { get: readOtherExports },
-          signingKey: { get: readOtherExports },
-          securityState: { get: readOtherExports },
-          publicKey: { get: readOtherExports },
-          signedPublicKey: { get: readOtherExports },
-          verifyingKey: { get: readOtherExports },
-        },
-      ) as sdk.UserCryptoV2KeysResponse,
-  );
-  class VersionClient extends sdk.PasswordManagerClient {
+/** The recorded V2 security state re-encoded with another version and the original signature. */
+function securityStateWithVersion(version: number) {
+  const original = decode(V2_SECURITY_STATE);
+  // [protected bstr, {}, payload bstr, 64-byte signature bstr]
+  const headers = original.subarray(0, 3 + original[2]! + 1);
+  const payload = [0xa1, 0x67, ...new TextEncoder().encode("version"), version];
+  const signature = original.subarray(original.length - 66);
+  return btoa(String.fromCharCode(...headers, 0x40 | payload.length, ...payload, ...signature));
+}
+
+/** Real WASM verifies the recorded signed state while the session reads a substituted copy. */
+function verifiedAsRecordedSdk() {
+  class RecordedStateClient extends sdk.PasswordManagerClient {
     override crypto(): sdk.CryptoClient {
       const crypto = super.crypto();
       return new Proxy(crypto, {
         get(target, property) {
-          if (property === "get_v2_rotated_account_keys") return versionCall;
+          if (property === "initialize_user_crypto")
+            return (request: sdk.InitUserCryptoRequest) => {
+              const state = request.accountCryptographicState;
+              return target.initialize_user_crypto({
+                ...request,
+                accountCryptographicState:
+                  "V2" in state
+                    ? { V2: { ...state.V2, security_state: V2_SECURITY_STATE } }
+                    : state,
+              });
+            };
           const member: unknown = Reflect.get(target, property, target);
           return typeof member === "function" ? member.bind(target) : member;
         },
       });
     }
   }
-  return {
-    implementation: { ...sdk, PasswordManagerClient: VersionClient },
-    versionCall,
-    readOtherExports,
-  };
+  return { ...sdk, PasswordManagerClient: RecordedStateClient };
 }
 
 async function session(input: unknown = v1Input()) {
@@ -275,29 +274,65 @@ describe("strict account initialization and metadata", () => {
     );
   });
 
-  it.each([0, 3, 99, NaN])(
-    "rejects unsupported reported verified security version %s",
-    async (version) => {
-      // Real WASM verifies the fixed signed account first. Only the narrow getter response is
-      // substituted; this tests forward-version handling, not signed future-format interoperability.
-      const controlled = reportedVersionSdk(version);
-      expect(await createLocalCryptoSession(v2Input(), controlled.implementation)).toEqual({
-        ok: false,
-        error: { code: "unsupported-crypto" },
-      });
-      expect(controlled.versionCall).toHaveBeenCalledTimes(1);
-      expect(controlled.readOtherExports).not.toHaveBeenCalled();
-    },
-  );
-
-  it("reads only the verified version from the SDK's broader key export", async () => {
-    const controlled = reportedVersionSdk(2);
-    const created = await createLocalCryptoSession(v2Input(), controlled.implementation);
-    expect(created.ok).toBe(true);
-    if (created.ok) sessions.push(created.data);
-    expect(controlled.versionCall).toHaveBeenCalledTimes(1);
-    expect(controlled.readOtherExports).not.toHaveBeenCalled();
+  it.each([0, 3, 23])("rejects unsupported verified security version %s", async (version) => {
+    // This tests forward-version handling, not signed future-format interoperability.
+    const input = v2Input();
+    input.accountCryptographicState.V2.security_state = securityStateWithVersion(version);
+    expect(await createLocalCryptoSession(input, verifiedAsRecordedSdk())).toEqual({
+      ok: false,
+      error: { code: "unsupported-crypto" },
+    });
   });
+
+  it("reads the version from the verified security state, not a constant", async () => {
+    const input = v2Input();
+    input.accountCryptographicState.V2.security_state = securityStateWithVersion(1);
+    const created = await createLocalCryptoSession(input, verifiedAsRecordedSdk());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    sessions.push(created.data);
+    expect(created.data.metadata.securityVersion).toBe(1);
+    expect(
+      await createLocalCryptoSession(
+        { ...input, minimumSecurityVersion: 2 },
+        verifiedAsRecordedSdk(),
+      ),
+    ).toEqual({ ok: false, error: { code: "security-downgrade" } });
+  });
+
+  it("requires the signed public key of a V2 account", async () => {
+    const input = v2Input();
+    const { signed_public_key: _signedPublicKey, ...state } = input.accountCryptographicState.V2;
+    const initialize = vi.spyOn(sdk.CryptoClient.prototype, "initialize_user_crypto");
+    expect(
+      await createLocalCryptoSession({ ...input, accountCryptographicState: { V2: state } }, sdk),
+    ).toEqual({ ok: false, error: { code: "invalid-crypto-input" } });
+    expect(initialize).not.toHaveBeenCalled();
+  });
+
+  it.each(["security_state", "signed_public_key"] as const)(
+    "settles for every single-byte corruption of the V2 %s that passes local framing",
+    async (field) => {
+      const original = decode(v2Input().accountCryptographicState.V2[field]);
+      let delivered = 0;
+      for (let index = 0; index < original.length; index += 1) {
+        for (const mask of [0x01, 0x20, 0x80]) {
+          const bytes = original.slice();
+          bytes[index]! ^= mask;
+          const input = v2Input();
+          input.accountCryptographicState.V2[field] = btoa(String.fromCharCode(...bytes));
+          // A local framing miss would leave the SDK's Promise pending and time this test out.
+          // eslint-disable-next-line no-await-in-loop
+          const result = await createLocalCryptoSession(input, sdk);
+          if (result.ok) result.data.dispose();
+          else if (result.error.code !== "invalid-crypto-input") delivered += 1;
+        }
+      }
+      // Corrupted signatures and payloads reach the SDK and fail verification there.
+      expect(delivered).toBeGreaterThan(64);
+    },
+    120_000,
+  );
 
   it.each([
     null,
@@ -575,6 +610,7 @@ describe("strict cipher isolation and disposal", () => {
     };
     const metadata = await active.decryptFido2Credentials({ connectionId, cipher });
     expect(metadata.ok).toBe(true);
+    if (metadata.ok) expect(metadata.data[0]).not.toHaveProperty("keyValue");
     if (metadata.ok)
       expect(metadata.data).toMatchObject([
         {
@@ -592,6 +628,27 @@ describe("strict cipher isolation and disposal", () => {
       ok: true,
       data: fidoPrivateKey,
     });
+  });
+
+  it("withholds the decrypted cipher key and passkey private keys from cipher views", async () => {
+    const active = await session(v2Input());
+    const blob = await active.decryptCipher({
+      connectionId,
+      cipher: { ...blobCipher(), key: v2WrappedBlobKey },
+    });
+    expect(blob.ok).toBe(true);
+    if (blob.ok) expect(blob.data).not.toHaveProperty("key");
+    const legacy = await session();
+    const original = legacyCipher();
+    const view = await legacy.decryptCipher({
+      connectionId,
+      cipher: { ...original, login: { ...original.login, fido2Credentials: [fidoCredential] } },
+    });
+    expect(view.ok).toBe(true);
+    if (!view.ok) return;
+    expect(view.data.login?.fido2Credentials).toHaveLength(1);
+    expect(view.data.login?.fido2Credentials?.[0]).not.toHaveProperty("keyValue");
+    expect(JSON.stringify(view.data)).not.toContain(fidoPrivateKey);
   });
 
   it("rejects authenticated FIDO2 private-key corruption", async () => {
