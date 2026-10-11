@@ -11,10 +11,9 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
 
 - M1: Chrome use coexistence in installed Chrome.
 - M2: the synthetic engine and settings gates have passed
-  ([local settings progress](#local-settings-progress)). One-time account choices and
-  choosing again after a logout
-  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), with tests over several
-  tabs on one origin, are not implemented.
+  ([local settings progress](#local-settings-progress)). Choosing again after a logout
+  for password logins ([ADR 0021](adr/0021-account-choice-outside-settings.md)), with
+  tests over several tabs on one origin, is not implemented.
 - M3: a password login on a real site, individual MFA methods, other KDFs, V2 keys and
   organization items on a real account, refresh against a real account, real
   host-access revocation, and the site-access warning and prompt in installed Chrome
@@ -1059,7 +1058,9 @@ next appearance asks again. "Make it the default for this site" (on by default,
 off in a private window) saves the pick through the existing choice save after
 `authenticated`. The passkey chooser window is implemented: a request matching several
 passkeys, none of them the site default, opens `passkey-picker.html` to choose one once
-or as the default. Choosing again after a logout (part D) is not built yet.
+or as the default; after Pateat signed for that RP ID in the same tab, a username-less
+request opens it even for one match or a default. Choosing again after a logout for
+password logins (part D) is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

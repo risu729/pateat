@@ -396,7 +396,8 @@ Do not inject `chrome-extension://` iframes, automatic overlays or unlock window
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
 settings. The one extension window is the passkey chooser of
 [ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
-with several matches from a focused page, and never in incognito. Do not attach our own
+from a focused page, with several matches or after Pateat signed in from the same tab,
+and never in incognito. Do not attach our own
 debugger in normal operation. Another installed extension can still inject a conflicting
 frame; coexistence requires an explicit compatibility test and documented settings.
 
@@ -751,7 +752,9 @@ It shows only item names, passkey user names and connection labels. The backgrou
 answers its messages only from that page, for the request token in its URL and from the
 window it opened, and keeps the worker alive while the window waits. Choosing signs with
 that passkey; a ticked checkbox then saves it as the origin's site default. Any other
-ending delegates to the browser.
+ending delegates to the browser. The background also keeps, per tab in session storage,
+the RP IDs it signed for; a later request with no allow list for one of them in that tab
+opens the window even for one match or a site default, because it may follow a logout.
 
 ## Minimal service
 

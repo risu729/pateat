@@ -17,8 +17,8 @@ synced recipe. Amended on 2026-10-11 by the owner's
 decision: settings holding a site default saved with a `connectionId` are rejected as
 invalid. Amended on 2026-10-11 by
 [ADR 0021](0021-account-choice-outside-settings.md): several matches with no default
-open a Pateat chooser window instead of delegating at once; so will username-less
-requests after Pateat signed in the same tab (not implemented yet).
+open a Pateat chooser window instead of delegating at once, and so do username-less
+requests after Pateat signed in the same tab.
 
 Date: 2026-10-10
 
@@ -139,6 +139,10 @@ its single stored credential is eligible as below. Then:
    window ([ADR 0021](0021-account-choice-outside-settings.md)) and delegates when the
    user closes it, picks the browser, or no window opens (incognito, a hidden or
    unfocused page, or another request holds it).
+
+A request with no allow list for an RP ID that Pateat already signed for in the same tab
+skips steps 1 and 2: it opens the chooser for any number of matches, the default first,
+and never signs unasked (ADR 0021 part D).
 
 Matches are counted after the request's allow list, or its discoverable-credential
 requirement, narrows them. A passkey-only item with no fields is eligible; an item whose
