@@ -179,7 +179,9 @@ function locate(
   const text = buttonText(element);
   if (text === undefined || observedText(text) !== text) return undefined;
   const unique = isScriptLink(element)
-    ? !hasNativeButton(element.ownerDocument, text) && index.get("script-text")!.get(text) === 1
+    ? !index.get("text")!.has(text) &&
+      !hasNativeButton(element.ownerDocument, text) &&
+      index.get("script-text")!.get(text) === 1
     : index.get("text")!.get(text) === 1;
   if (!unique) return undefined;
   const target = { by: "text" as const, value: text };

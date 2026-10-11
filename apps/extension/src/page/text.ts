@@ -155,10 +155,12 @@ export function isScriptLink(element: Element): element is HTMLAnchorElement {
 }
 
 /**
- * True when a native button, shown or not, carries `text`: its collapsed text content,
- * its images' `alt`, or an input button's `value` or `alt`. A hidden native button with
- * a script link's text, such as one revealed after an animation, keeps a text locator
- * from falling back to the script link meanwhile.
+ * True when a native button, shown or not, may carry `text`: its whole collapsed text
+ * content (hidden descendants included), one of its images' `alt`, or an input button's
+ * `value` or `alt`. It is a loose guard only: a hidden native button with a script
+ * link's text, such as one revealed after an animation, keeps a text locator from
+ * falling back to the script link meanwhile. Which shown native button a locator names
+ * still comes from {@link buttonText}.
  */
 export function hasNativeButton(document: Document, text: string): boolean {
   return [...document.querySelectorAll("button, input")].some((element) => {

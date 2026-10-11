@@ -340,6 +340,19 @@ describe("extractLoginObservation", () => {
     expect(summary(observation).map(({ role }) => role)).toEqual(["text", "password"]);
   });
 
+  it("gives a script link no text locator when a shown native button renders its text", () => {
+    page(
+      `<form><input id="user"><input id="pass" type="password">
+        <a href="javascript:;" onclick="login()">Sign in</a><button id="go"><div>Sign</div><div>in</div></button></form>`,
+    );
+    const observation = observe();
+    expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
+      ["text", { by: "id", value: "user" }],
+      ["password", { by: "id", value: "pass" }],
+      ["button", { by: "id", value: "go" }],
+    ]);
+  });
+
   it("names an image-only button by its image's alt, as the executor resolves it", () => {
     page(
       `<form><input id="user"><button><img src="data:," alt="ログイン" width="40" height="20"></button></form>`,

@@ -713,13 +713,14 @@ is a structural mismatch. It clicks buttons, image buttons and script buttons (n
 disabled button, nor a script button with `aria-disabled="true"`), never links, except a
 recipe's `accountSwitch`, which may be an `<a href>` link (a script link with `href`
 included) named by its rendered text; no other script button is clicked as a switch. A
-switch's text locator names another link only when no button or script link shows that
-text, so a switch recipe that names a link clicks a button instead if the page later
-shows one with the same text. The extractor gives a link a text locator only on a login
-page and only when no other link and no button shows that text. A click is not tied to
-the form the previous fill used: a page that shows a second, previously hidden button
-with the same text stops the attempt as ambiguous, but if the observed button is removed
-and another button with the same text remains, that one is clicked.
+switch's text locator names another link only when no shown button or script link has
+that text (a hidden native button holds back only script links), so a switch recipe that
+names a link clicks a button instead if the page later shows one with the same text. The
+extractor gives a link a text locator only on a login page and only when no other link
+and no button shows that text. A click is not tied to the form the previous fill used: a
+page that shows a second, previously hidden button with the same text stops the attempt
+as ambiguous, but if the observed button is removed and another button with the same
+text remains, that one is clicked.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button

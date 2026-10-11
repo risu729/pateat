@@ -62,6 +62,14 @@ describe("findTargets", () => {
       `<a id="j" href="#" role="button">次へ</a><button id="k" style="display:none">次へ</button>`,
     );
     expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual([]);
+    // A switch link still matches: the hidden button holds back script links only.
+    page(`<a id="l" href="/switch">Switch</a><button id="m" type="button" hidden>Switch</button>`);
+    expect(ids(findTargets(document, { by: "text", value: "Switch" }, { links: true }))).toEqual([
+      "l",
+    ]);
+    page(
+      `<a id="j" href="#" role="button">次へ</a><button id="k" style="display:none">次へ</button>`,
+    );
     document.getElementById("k")!.style.display = "";
     expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual(["k"]);
     page(`<a id="f" href="#" onclick="tab()">Login</a><input id="g" type="submit" value="Login">`);

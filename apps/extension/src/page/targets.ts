@@ -21,8 +21,10 @@ export function findTargets(
     const elements = [...document.querySelectorAll("button, input, a")];
     const named = elements.filter((element) => buttonText(element) === target.value);
     const native = named.filter(isButton);
-    if (native.length > 0 || hasNativeButton(document, target.value)) return native;
-    if (named.length > 0 || !links) return named;
+    if (native.length > 0) return native;
+    // Only script links remain; a hidden native button with the text holds them back.
+    const scripted = hasNativeButton(document, target.value) ? [] : named;
+    if (scripted.length > 0 || !links) return scripted;
     return elements.filter(
       (element) => !isScriptLink(element) && linkText(element) === target.value,
     );
