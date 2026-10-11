@@ -147,3 +147,23 @@ export const recipeRevisions = sqliteTable(
     ),
   ],
 );
+
+/**
+ * The owner's Claude credential (ADR 0015). Workload Identity Federation stores only
+ * the identifiers of the owner's own Anthropic federation rule, never a key.
+ */
+export const inferenceCredentials = sqliteTable(
+  "inference_credentials",
+  {
+    ownerId: text("owner_id")
+      .primaryKey()
+      .references(() => owners.id),
+    kind: text("kind", { enum: ["wif"] }).notNull(),
+    federationRuleId: text("federation_rule_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    serviceAccountId: text("service_account_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [check("inference_credentials_kind_check", sql`${table.kind} IN ('wif')`)],
+);

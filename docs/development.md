@@ -72,6 +72,7 @@ Focused tasks are available for diagnosis:
 | `mise run bench:inference --paid` | Run the paid Claude benchmark on the synthetic corpus; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run generate:server-migrations` | Generate D1 migration SQL from the Drizzle schema |
+| `mise run generate:oidc-key [kid]` | Print a new ES256 key set for the `OIDC_SIGNING_KEYS` Worker secret ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) |
 | `mise run check:server-migrations` | Fail when committed migrations differ from the schema |
 | `mise run test:server` | Run Worker tests against local Miniflare D1 with committed migrations |
 | `mise run build:server` | Generate production Build Output and Worker types |

@@ -142,6 +142,34 @@ describe("Claude generation adapter", () => {
     expect(() => createClaudeGenerationModel({ apiKey: " " })).toThrow();
   });
 
+  it("sends a federated access token as a bearer token instead of a key", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-environment");
+    const { sent, fetch } = fakeClaude({ text: groundTruth() });
+    const generate = createRecipeGenerator({
+      model: createClaudeGenerationModel({ authToken: "sk-ant-oat01-synthetic", fetch }),
+      limits,
+      maxOutputTokens: 4_096,
+    });
+
+    expect((await generate({ observation: page.observation, slots: page.slots })).status).toBe(
+      "ok",
+    );
+    expect(sent[0]!.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(sent[0]!.headers.get("authorization")).toBe("Bearer sk-ant-oat01-synthetic");
+    expect(sent[0]!.headers.has("x-api-key")).toBe(false);
+  });
+
+  it("requires exactly one non-empty credential", () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-environment");
+    expect(() => createClaudeGenerationModel({ authToken: " " })).toThrow();
+    expect(() =>
+      createClaudeGenerationModel({
+        authToken: "sk-ant-oat01-synthetic",
+        apiKey: syntheticKey,
+      } as unknown as { authToken: string }),
+    ).toThrow(TypeError);
+  });
+
   it("estimates cost only from fully reported usage", () => {
     expect(estimateClaudeCostUsd({ inputTokens: 3_000, outputTokens: 1_000 })).toBeCloseTo(0.032);
     expect(estimateClaudeCostUsd({ inputTokens: 3_000, outputTokens: null })).toBeUndefined();
