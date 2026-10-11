@@ -176,6 +176,7 @@ describe("read-only provider requests", () => {
       referrerPolicy: "no-referrer",
     });
     expect(Object.keys(client).sort()).toEqual([
+      "config",
       "passwordToken",
       "prelogin",
       "profile",
@@ -221,6 +222,66 @@ describe("read-only provider requests", () => {
     expect(fetch.mock.calls[0]?.[0]).toBe(
       "https://identity.bitwarden.com/accounts/prelogin/password",
     );
+  });
+});
+
+describe("server config", () => {
+  const config = (server: unknown) => ({
+    object: "config",
+    version: "2026.9.2",
+    gitHash: "abc1234",
+    server,
+    environment: { api: "https://api.private.example", vault: "https://vault.private.example" },
+    featureStates: {},
+  });
+
+  it("sends one unauthenticated GET and keeps only the version and server kind", async () => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse(config(null)));
+    const result = await transport(fetch).config({ connectionId: cloudProfile.connectionId });
+    expect(result).toEqual({ ok: true, data: { version: "2026.9.2", kind: "bitwarden" } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://api.bitwarden.com/config");
+    const request = new Request(url, init);
+    expect(request.method).toBe("GET");
+    expect(request.headers.has("authorization")).toBe(false);
+    expect(init).toMatchObject({ credentials: "omit", redirect: "error", cache: "no-store" });
+  });
+
+  it.each([
+    [{ name: "Vaultwarden", url: "https://github.com/dani-garcia/vaultwarden" }, "vaultwarden"],
+    [{ name: "Private Fork", url: "https://fork.private.example" }, "third-party"],
+    [{ url: "https://fork.private.example" }, "third-party"],
+  ])("names only known third-party servers: %j", async (server, kind) => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse(config(server)));
+    const result = await transport(fetch).config({ connectionId: cloudProfile.connectionId });
+    expect(result).toEqual({ ok: true, data: { version: "2026.9.2", kind } });
+    expect(JSON.stringify(result)).not.toContain("private");
+  });
+
+  it.each(["2025.1.0-vault.corp.example", "2025.1.0+fork", "2025.1.0"])(
+    "keeps only the release number of %s",
+    async (version) => {
+      const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse({ ...config(null), version }));
+      const result = await transport(fetch).config({ connectionId: cloudProfile.connectionId });
+      expect(result).toEqual({ ok: true, data: { version: "2025.1.0", kind: "bitwarden" } });
+    },
+  );
+
+  it("refuses a version that is not a release number, and another connection", async () => {
+    const fetch = vi
+      .fn<Fetch>()
+      .mockResolvedValue(jsonResponse({ ...config(null), version: "https://x.example/" }));
+    const client = transport(fetch);
+    expect(await client.config({ connectionId: cloudProfile.connectionId })).toEqual({
+      ok: false,
+      error: { code: "invalid-response" },
+    });
+    expect(await client.config({ connectionId: "another" })).toEqual({
+      ok: false,
+      error: { code: "connection-mismatch" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 

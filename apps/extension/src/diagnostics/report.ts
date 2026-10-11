@@ -1,6 +1,6 @@
-// The text "Copy for bug report" copies (ADR 0019). It leaves out the unlock KDF, which
-// is shown on the page only.
-import { installLabel, syncSignIn } from "./labels";
+// The text "Copy for bug report" copies (ADR 0019). It keeps the KDF family but leaves out
+// its parameters, which are shown on the page only.
+import { installLabel, serverLabel, syncSignIn } from "./labels";
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 export type BrowserInfo = { name: string; version: string; installType: string };
@@ -17,12 +17,14 @@ export function shortRevision(revision: string): string {
 function connectionLine(entry: DiagnosticsConnection): string {
   const parts = [
     entry.environment,
+    ...(entry.server ? [serverLabel(entry.server)] : []),
     entry.state,
     `auto-unlock ${entry.autoUnlock}`,
     syncSignIn(entry.providerSession),
   ];
   if (entry.storageError) parts.push(`storage ${entry.storageError}`);
   if (entry.acceptedAt !== undefined) parts.push(`synced ${utcMinute(entry.acceptedAt)}`);
+  if (entry.kdfType) parts.push(`KDF ${entry.kdfType}`);
   if (entry.items)
     parts.push(
       `${entry.items.total} items (login ${entry.items.login}, TOTP ${entry.items.totp}, passkey ${entry.items.passkey}) + ${entry.items.unsupported} unsupported`,

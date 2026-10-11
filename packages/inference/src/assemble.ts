@@ -51,11 +51,17 @@ const filledSlots = (steps: readonly LoginStep[]) =>
  * Starts a recipe from the first page's steps, or appends a later page's steps to a
  * recipe whose last step advances. Slots are the ones the steps fill, so a binding
  * never has to cover a slot the recipe does not use. The revision is the next one; the
- * caller stores it with a conditional write.
+ * caller stores it with a conditional write. The recipe keeps the first account switch a
+ * page names that is not also one of its click targets.
  */
 export function appendPageSteps(
   base: LoginRecipe | undefined,
-  page: { id: string; origin: string; steps: readonly LoginStep[] },
+  page: {
+    id: string;
+    origin: string;
+    steps: readonly LoginStep[];
+    accountSwitch?: LoginTarget;
+  },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: AssemblyRejection } {
   if (base) {
     if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
@@ -64,8 +70,15 @@ export function appendPageSteps(
     if (!last || loginStepEffect(last) !== "advance") return { ok: false, reason: "not-advancing" };
   }
   const steps = [...(base?.steps ?? []), ...page.steps];
+  const { accountSwitch: kept, ...rest } = base ?? {};
+  const accountSwitch = [kept, page.accountSwitch].find(
+    (target) =>
+      target !== undefined &&
+      !steps.some((step) => step.kind === "click" && sameTarget(step.target, target)),
+  );
   const recipe = v.safeParse(loginRecipeSchema, {
-    ...base,
+    ...rest,
+    ...(accountSwitch ? { accountSwitch } : {}),
     version: 1,
     id: base?.id ?? page.id,
     revision: (base?.revision ?? 0) + 1,

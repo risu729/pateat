@@ -171,7 +171,11 @@ export async function generateRecipe(
         ),
     ],
     invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots }),
-    logValue: ({ fields, action }) => ({ fields, action }),
+    logValue: ({ fields, action, accountSwitch }) => ({
+      fields,
+      action,
+      ...(accountSwitch ? { accountSwitch } : {}),
+    }),
   });
   if (call.status === "unavailable") return raced ?? unavailable(call.reason);
   const { outcome } = call;
@@ -193,6 +197,7 @@ export async function generateRecipe(
     id: recipeId,
     origin,
     steps: outcome.value.steps,
+    ...(outcome.value.switchTarget ? { accountSwitch: outcome.value.switchTarget } : {}),
   });
   if (!assembled.ok)
     return assembled.reason === "invalid-recipe"

@@ -107,7 +107,8 @@ skipping; after checking the server, the owner replaces it with a dispatch. The 
 fails before any change when the token is empty or the account ID is not a 32-character
 hex ID. It verifies the run's identity, event and conclusion, restores only its hashed
 artifact, applies the released migrations, deploys through the pinned action without
-rebuilding, and verifies returned deployment IDs and the hosted revision. Before
+rebuilding, and verifies returned deployment IDs and the hosted revision; it tries
+`/health` up to 30 times, 2 seconds apart, while the new version propagates. Before
 `cf d1 migrations apply`, it reads the database by the recorded ID and requires the name
 `pateat`; afterwards no migration may remain unapplied. A failed migration stops the
 release before activation. Before the first public release, migrations need not be
@@ -229,6 +230,16 @@ As of research, reuse
 commit `6a93154ef1c550b760d8582bcf59d8d4a0710788`. Recheck the release and inputs
 when writing workflows. Caller tasks own migrations and hosted application tests;
 the action owns deployment and deployment readback.
+
+The hosted smoke checks are in
+[services/api/README.md](../services/api/README.md#hosted-smoke-checks). They obtain
+owners and devices without a person and without changing Access: the deploy job,
+which already holds D1 write access for migrations, inserts synthetic owners and
+device rows into D1 and then uses those devices through the hosted `/v1` routes.
+Issuing a device through Access is therefore not exercised by a hosted check, so that
+part of item 5 stays open. It is covered by Worker tests with synthetic Access tokens
+and by pairing in the owner's Chrome; automating it would need an Access service token
+that the Worker accepts as an owner, which is a separate owner decision.
 
 ## Failure and rollback
 

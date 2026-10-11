@@ -43,3 +43,19 @@ export function age(ms: number): string {
   if (ms < 48 * HOUR_MS) return `${Math.floor(ms / HOUR_MS)} h`;
   return `${Math.floor(ms / (24 * HOUR_MS))} d`;
 }
+
+/** The Bitwarden server line: its kind and version, or why it could not be read. */
+export function serverLabel(server: NonNullable<DiagnosticsConnection["server"]>): string {
+  if (!server.ok)
+    return server.error === "no-site-access"
+      ? "server not checked (no-site-access)"
+      : `server config failed (${server.error}${server.status === undefined ? "" : ` ${server.status}`})`;
+  switch (server.kind) {
+    case "bitwarden":
+      return `Bitwarden server ${server.version}`;
+    case "vaultwarden":
+      return `Vaultwarden, compatible with Bitwarden ${server.version}`;
+    default:
+      return `third-party server, compatible with Bitwarden ${server.version}`;
+  }
+}

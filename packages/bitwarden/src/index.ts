@@ -28,7 +28,7 @@ export {
   type UriMatchEvaluation,
   type UriMatchOptions,
 } from "./uri";
-export type { EncryptedSyncEnvelope, PreloginResponse } from "./models";
+export type { BitwardenServerConfig, EncryptedSyncEnvelope, PreloginResponse } from "./models";
 export { derivePasswordAuthentication } from "./auth-crypto";
 export type {
   AuthenticationTokens,
