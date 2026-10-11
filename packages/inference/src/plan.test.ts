@@ -345,4 +345,60 @@ describe("several identifier sets on one page (ADR 0027)", () => {
       ),
     ).toEqual({ ok: false, reason: "duplicate-candidate" });
   });
+
+  it("refuses more than 3 alternatives even when each is a distinct valid set", () => {
+    const distinct = [
+      byContract,
+      {
+        fields: [
+          { slot: "username", candidate: "user" },
+          { slot: "password", candidate: "password" },
+        ],
+        action,
+      },
+      {
+        fields: [
+          { slot: "custom-1", candidate: "branch", name: "branch-number" },
+          { slot: "custom-3", candidate: "pin", name: "pin-code" },
+        ],
+        action,
+      },
+      {
+        fields: [
+          { slot: "custom-2", candidate: "account", name: "account-number" },
+          { slot: "custom-4", candidate: "contract", name: "contract-number" },
+        ],
+        action,
+      },
+    ];
+    const three = check(distinct.slice(0, 3));
+    if (!three.ok) throw new Error(three.reason);
+    expect(three.plan.alternatives).toHaveLength(3);
+    expect(check(distinct)).toEqual({ ok: false, reason: "too-many-variants" });
+  });
+
+  it("refuses a set that contains another set, whichever comes first", () => {
+    // An alternative that adds a field to the first set.
+    expect(
+      check([
+        {
+          fields: [
+            ...primary.fields,
+            { slot: "custom-4", candidate: "contract", name: "contract-number" },
+          ],
+          action,
+        },
+      ]),
+    ).toEqual({ ok: false, reason: "duplicate-variant" });
+    // Two alternatives where the later one adds a field to the earlier one.
+    expect(
+      check([
+        byContract,
+        {
+          fields: [...byContract.fields, { slot: "custom-3", candidate: "pin", name: "pin-code" }],
+          action,
+        },
+      ]),
+    ).toEqual({ ok: false, reason: "duplicate-variant" });
+  });
 });

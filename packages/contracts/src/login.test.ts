@@ -1017,4 +1017,85 @@ describe("password route variants (ADR 0027)", () => {
       reason: "binding-slots-mismatch",
     });
   });
+
+  it("refuses a variant whose slots contain another's, in either direction", () => {
+    // Variant 0 is a subset of the alternative.
+    expect(valid({ alternatives: [variant(["branch", "account", "password", "pin"])] })).toBe(
+      false,
+    );
+    // Two alternatives, one a subset of the other, apart from variant 0.
+    expect(
+      valid({
+        alternatives: [variant(["contract", "password"]), variant(["contract", "pin", "password"])],
+      }),
+    ).toBe(false);
+    // Overlapping sets that neither contain the other are distinct variants.
+    expect(valid({ alternatives: [variant(["branch", "contract", "password"])] })).toBe(true);
+  });
+
+  it("accepts exactly 20 slots over all variants and 24 observed elements", () => {
+    const named = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => `${prefix}-${index}`);
+    // 3 + 10 + 7 distinct slots.
+    expect(
+      valid({ alternatives: [variant(named("first", 10)), variant(named("second", 7))] }),
+    ).toBe(true);
+    expect(
+      valid({ alternatives: [variant(named("first", 10)), variant(named("second", 8))] }),
+    ).toBe(false);
+    // The completion with 4 absent elements and the rejection take 6 of the 24 elements, so
+    // an alternative's fill step may hold 18 fields. The union stays within 20 slots, so
+    // only the observation bound decides.
+    const result = {
+      completion: { path: "/home", target: id("welcome"), absent: ["a", "b", "c", "d"].map(id) },
+    };
+    const wide = (count: number) => [variant(["account", "password", ...named("extra", count)])];
+    expect(valid({ ...result, alternatives: wide(16) })).toBe(true);
+    expect(valid({ ...result, alternatives: wide(17) })).toBe(false);
+    expect(valid({ alternatives: wide(17) })).toBe(true);
+  });
+
+  it("refuses a completion or rejection that is any variant's element only where it applies", () => {
+    // A variant's element may mark the completion on another path than its own.
+    expect(valid({ completion: { path: "/home", target: id("contract") } })).toBe(true);
+    // On the start path, a variant's button is as much a step target as its fields.
+    expect(valid({ completion: { path: "/login", target: id("login") } })).toBe(false);
+    // The rejection is checked on every page, so no variant's button may be it.
+    expect(valid({ rejection: id("login") })).toBe(false);
+    expect(valid({ rejection: id("contract") })).toBe(false);
+  });
+
+  it("validates a single-variant recipe as before alternatives existed", () => {
+    const single = (change: Record<string, unknown>) =>
+      v.is(loginRecipeSchema, varied({ alternatives: undefined, ...change }));
+    expect(single({})).toBe(true);
+    // A slot no step fills yet, and a last step that advances to a page still to be learned.
+    expect(single({ slots: ["branch", "account", "password", "pin"] })).toBe(true);
+    expect(
+      single({
+        steps: [fill(["branch", "account", "password"]), { ...submit(), purpose: "advance" }],
+      }),
+    ).toBe(true);
+    // A completion or rejection on the recipe's own elements is left to the recipe's author.
+    expect(single({ completion: { path: "/login", target: id("branch") } })).toBe(true);
+    expect(single({ rejection: id("login") })).toBe(true);
+  });
+
+  it("chooses a variant only from fits reported true, as a sparse list leaves them", () => {
+    const parsed = parseLoginRecipe(
+      varied({ alternatives: [variant(["contract", "password"]), variant(["card", "password"])] }),
+    );
+    // planFor fills `fits` only at the index it checked, so earlier entries are holes.
+    const sparse: boolean[] = [];
+    sparse[2] = true;
+    expect(chooseLoginRoute(parsed, { password: true }, sparse)).toEqual({
+      route: "password",
+      variant: 2,
+    });
+    expect(chooseLoginRoute(parsed, { password: true }, [])).toBeUndefined();
+    expect(chooseLoginRoute(parsed, { password: true }, [false, true, true])).toEqual({
+      route: "password",
+      variant: 1,
+    });
+  });
 });

@@ -463,6 +463,23 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
     expect(switched.ok && switched.recipe.accountSwitch).toBeUndefined();
   });
 
+  it("sizes the submission budget for the variant with the most effects", () => {
+    const result = appendPageSteps(undefined, {
+      id: "gen-1",
+      origin,
+      steps: set(["branch-number", "password"]),
+      alternatives: [
+        [
+          ...page("/login", "contract-number", "advance"),
+          ...page("/password", "pin-code", "submit"),
+        ],
+      ],
+    });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.recipe.maxSubmissions).toBe(2);
+    expect(result.recipe.alternatives).toMatchObject([{ slots: ["contract-number", "pin-code"] }]);
+  });
+
   it("continues only a single-variant recipe with a single-variant page", () => {
     // A recipe with variants submits in every one, so no later page belongs to it.
     expect(

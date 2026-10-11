@@ -1619,4 +1619,97 @@ describe("password route variants (ADR 0027)", () => {
     });
     expect(JSON.parse(String(logged!.request))).not.toHaveProperty("variant");
   });
+
+  it("maps a custom slot that several sets share once", async () => {
+    const device = await owner();
+    // Both sets ask for the branch number; the second adds a contract number instead of
+    // the account number.
+    replies.push({
+      text: twoSets([
+        { slot: "custom-1", candidate: "branch", name: "branch-number" },
+        { slot: "custom-3", candidate: "contract", name: "contract-number" },
+        { slot: "password", candidate: "password" },
+      ]),
+    });
+    expect(await generateVariants(device)).toMatchObject({
+      status: "recipe",
+      change: {
+        recipe: {
+          slots: ["branch-number", "account-number", "password"],
+          alternatives: [{ slots: ["branch-number", "contract-number", "password"] }],
+        },
+      },
+      customSlots: [
+        { slot: "branch-number", offered: "custom-1" },
+        { slot: "account-number", offered: "custom-2" },
+        { slot: "contract-number", offered: "custom-3" },
+      ],
+    });
+  });
+
+  it("names every variant's path to the judge and refuses a page on any of them", async () => {
+    const device = await owner();
+    // An owner-written recipe whose second variant continues on its own page.
+    const recipeId = "shop-variants";
+    const fill = (path: string, slot: string) => ({
+      kind: "fill" as const,
+      effect: "prepare" as const,
+      path,
+      fields: [{ slot, target: { by: "id" as const, value: slot } }],
+    });
+    const click = (path: string, value: string, purpose: "advance" | "submit") => ({
+      kind: "click" as const,
+      path,
+      target: { by: "id" as const, value },
+      purpose,
+    });
+    const stored = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      {
+        version: 1,
+        expectedRevision: 0,
+        state: "active",
+        recipe: {
+          version: 1,
+          id: recipeId,
+          revision: 1,
+          origin: ORIGIN,
+          slots: ["email"],
+          steps: [fill("/login", "email"), click("/login", "sign-in", "submit")],
+          alternatives: [
+            {
+              slots: ["member", "pin"],
+              steps: [
+                fill("/login", "member"),
+                click("/login", "next", "advance"),
+                fill("/verify", "pin"),
+                click("/verify", "confirm", "submit"),
+              ],
+            },
+          ],
+          maxSubmissions: 2,
+        },
+      },
+      "PUT",
+    );
+    expect(stored.status).toBe(200);
+    // The alternative's later field, shown on another path, is still a sign-in page.
+    const pinAgain = observation("/retry", [element("pin", "password", "PIN")]);
+    expect((await complete(device, recipeId, 1, pinAgain)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "not-judgeable",
+    });
+    expect(sent).toEqual([]);
+    replies.push({ text: JSON.stringify({ result: { decision: "signed-in", marker: "logout" } }) });
+    expect((await complete(device, recipeId, 1)).body).toMatchObject({ status: "signed-in" });
+    const [logged] = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      device.ownerId,
+    );
+    expect(JSON.parse(String(logged!.request))).toMatchObject({
+      loginPaths: ["/login", "/verify"],
+    });
+  });
 });

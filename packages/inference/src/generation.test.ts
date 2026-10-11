@@ -271,6 +271,54 @@ describe("recipe generation role", () => {
     ).toMatchObject({ status: "failed", error: "invalid-output", detail: "incompatible-role" });
   });
 
+  it("bounds the alternatives in the response format the provider receives", async () => {
+    const { model, generate } = generatorReturning(plan([["email", "email"]]));
+    await generate(request);
+    const format = model.doGenerateCalls[0]!.responseFormat as { schema?: unknown };
+    const find = (value: unknown): unknown => {
+      if (!value || typeof value !== "object") return undefined;
+      const record = value as Record<string, unknown>;
+      const properties = record["properties"] as Record<string, unknown> | undefined;
+      if (properties?.["alternatives"]) return properties["alternatives"];
+      for (const entry of Object.values(record)) {
+        const found = find(entry);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    expect(find(format.schema)).toMatchObject({
+      type: "array",
+      maxItems: 3,
+      items: {
+        properties: {
+          fields: { type: "array", maxItems: 8 },
+          action: { properties: { purpose: { enum: ["advance", "submit"] } } },
+        },
+      },
+    });
+    // A fourth alternative fails the response format itself, before any plan check names a
+    // reason.
+    const four = generatorReturning(
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [
+            { slot: "email", candidate: "email" },
+            { slot: "password", candidate: "password" },
+          ],
+          action: { candidate: "sign-in", purpose: "submit" },
+          alternatives: Array.from({ length: 4 }, () => ({
+            fields: [{ slot: "email", candidate: "email" }],
+            action: { candidate: "sign-in", purpose: "submit" },
+          })),
+        },
+      }),
+    );
+    const outcome = await four.generate(request);
+    expect(outcome).toMatchObject({ status: "failed", error: "invalid-output" });
+    expect(outcome).not.toHaveProperty("detail");
+  });
+
   it("asks for alternatives only for identifier sets the page shows now", () => {
     expect(generationInstructions).toContain("alternatives");
     expect(generationInstructions).toContain("never a sign-up, recovery, registration or");

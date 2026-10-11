@@ -4271,6 +4271,141 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(await h.login.loginAccount(1, origin)).toBeUndefined();
     });
   });
+
+  describe("with password route variants", () => {
+    const fillOn = (path: string, slots: string[]) => ({
+      kind: "fill" as const,
+      path,
+      fields: slots.map((slot) => ({ slot, target: target(slot) })),
+    });
+    const clickOn = (path: string, value: string, purpose: "advance" | "submit") => ({
+      kind: "click" as const,
+      path,
+      target: target(value),
+      purpose,
+    });
+    const variantBinding = (slots: SavedLoginBinding["slots"]): SavedLoginBinding => ({
+      ...savedBinding,
+      recipeId: "synthetic-variants",
+      slots,
+    });
+
+    it("does not judge a page that shows another variant's field on that variant's path", async () => {
+      vi.useFakeTimers();
+      // The branch variant signs in on the start page; the member variant continues to
+      // `/verify` for its PIN.
+      const twoPaths = parseLoginRecipe({
+        ...unlearned,
+        id: "synthetic-variants",
+        slots: ["branch", "password"],
+        steps: [fillOn("/signin", ["branch", "password"]), clickOn("/signin", "login", "submit")],
+        alternatives: [
+          {
+            slots: ["member", "pin"],
+            steps: [
+              fillOn("/signin", ["member"]),
+              clickOn("/signin", "next", "advance"),
+              fillOn("/verify", ["pin"]),
+              clickOn("/verify", "confirm", "submit"),
+            ],
+          },
+        ],
+        maxSubmissions: 2,
+      });
+      // The branch login lands on the member variant's PIN page.
+      const pinPage = observation("/verify", [
+        { id: "c1", role: "password", target: target("pin"), label: "PIN" },
+      ]);
+      onClick({ login: { path: "/verify", present: ["pin"], extracted: pinPage } });
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const h = harness(
+        {
+          bindings: [
+            variantBinding([
+              { slot: "branch", field: { custom: "Branch" } },
+              { slot: "password", field: "password" },
+            ]),
+          ],
+        },
+        { passkeys: withPasskey, generation: service },
+      );
+      h.recipes.recipe.mockResolvedValue(twoPaths);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("reconciling", "unknown-submit"));
+      expect(status()![0]).toMatchObject({ variant: 0 });
+      // The page is a sign-in page of the route, whichever variant ran, as the service
+      // would also answer.
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("takes a revision over on the variant the login runs and clicks the handler", async () => {
+      vi.useFakeTimers();
+      // Variant 0 has one step more than variant 1, so a handler inserted after the wrong
+      // variant's steps would not follow the click that ran.
+      const plainVariants = parseLoginRecipe({
+        ...unlearned,
+        id: "synthetic-variants",
+        slots: ["branch", "password"],
+        steps: [
+          fillOn("/signin", ["branch"]),
+          fillOn("/signin", ["password"]),
+          clickOn("/signin", "login", "submit"),
+        ],
+        alternatives: [
+          {
+            slots: ["contract", "password"],
+            steps: [
+              fillOn("/signin", ["contract", "password"]),
+              clickOn("/signin", "login", "submit"),
+            ],
+          },
+        ],
+      });
+      const takenVariants = parseLoginRecipe({
+        ...plainVariants,
+        revision: 2,
+        handlers: [keyHandler],
+      });
+      onClick({ login: toWebauthn, "Use security key": toHome });
+      const service = generation();
+      service.judge
+        .mockResolvedValueOnce({ verdict: "challenge", recipe: takenVariants })
+        .mockResolvedValueOnce({ verdict: "signed-in" });
+      const h = harness(
+        {
+          bindings: [
+            variantBinding([
+              { slot: "contract", field: { custom: "Contract" } },
+              { slot: "password", field: "password" },
+            ]),
+          ],
+        },
+        {
+          passkeys: withPasskey,
+          generation: service,
+          custom: [{ name: "Contract", kind: "text" }],
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(plainVariants);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(status()![0]).toMatchObject({
+        route: "password",
+        variant: 1,
+        recipeRevision: 2,
+        handlers: [{ index: 0, start: 2 }],
+        stepCount: 3,
+        maxSubmissions: 2,
+      });
+      expect(clicks("Use security key")).toBe(1);
+      expect(executed().map((step) => step.kind)).toEqual(["fill", "click", "click"]);
+      expect(service.judge.mock.calls).toEqual([
+        [plainVariants.id, 1, "password", webauthnPage.observation],
+        [plainVariants.id, 2, "password", homePage.observation],
+      ]);
+    });
+  });
 });
 
 describe("password route variants (ADR 0027)", () => {
@@ -4686,5 +4821,91 @@ describe("password route variants (ADR 0027)", () => {
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
     expect(fake.state.storage).not.toHaveProperty(["pateat.login-attempts.v2"]);
+  });
+
+  it.each<[string, Partial<LocalSettings>, Parameters<typeof harness>[1], string]>([
+    [
+      "an item awaiting review",
+      { bindings: [byContract] },
+      { ...both, quarantined: true },
+      "vault-unavailable",
+    ],
+    [
+      "an excluded item",
+      {
+        bindings: [byContract],
+        connections: [
+          {
+            connectionId,
+            enabled: true,
+            selection: { mode: "all", groupIds: [], itemIds: [] },
+            excludedItemIds: [itemId],
+            excludedFields: [],
+          },
+        ],
+      },
+      both,
+      "item-excluded",
+    ],
+  ])(
+    "stops at once on %s, which no other variant could pass",
+    async (_label, overrides, live, reason) => {
+      // The refusal applies to every variant alike, so it is reported as itself.
+      const { h, report } = start(overrides, live);
+      expect(await h.hello()).toEqual({ ok: false, reason });
+      expect(refusals(report)).toEqual([
+        expect.not.objectContaining({ detail: expect.anything() }),
+      ]);
+      expect(h.fields).not.toHaveBeenCalled();
+    },
+  );
+
+  it("starts on the path alone when an alternative's first step needs no element", async () => {
+    const waiting = parseLoginRecipe({
+      ...varied,
+      alternatives: [
+        {
+          slots: ["contract", "password"],
+          steps: [
+            {
+              kind: "wait",
+              path: "/signin",
+              target: target("contract"),
+              present: true,
+              timeoutMs: 1000,
+            },
+            ...set(["contract", "password"]).steps,
+          ],
+        },
+      ],
+    });
+    const { h } = start({ bindings: [byContract] }, both, waiting);
+    // The document has reported no ready first step, as for a recipe that starts with a wait.
+    expect(await h.hello({}, false)).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ variant: 1, stepCount: 3 });
+    // Every variant of the recipe without alternatives needs an element, so it waits.
+    const plain = start({ bindings: [byContract] });
+    expect(await plain.h.hello({ tab: { id: 2 }, documentId: "other-tab" }, false)).toMatchObject({
+      ok: false,
+      reason: "form-not-ready",
+    });
+  });
+
+  it("never reports the item's facts, only the route and variant", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const h = harness({ bindings: [byContract] }, { ...both, report, passkeys });
+    h.recipes.recipe.mockResolvedValue(varied);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ facts: { passkey: true, discoverablePasskey: true } });
+    const reports = report.mock.calls.map(([entry]) => entry);
+    expect(reports.filter((entry) => entry.type === "attempt")).not.toEqual([]);
+    for (const entry of reports.filter((value) => value.type === "attempt"))
+      expect(entry).toMatchObject({ route: "password", variant: 1 });
+    const serialized = JSON.stringify(reports);
+    for (const key of ['"facts"', '"discoverablePasskey"', '"passkey"', '"totp"'])
+      expect(serialized).not.toContain(key);
   });
 });

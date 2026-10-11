@@ -7,8 +7,11 @@ const fake = vi.hoisted(() => {
   const state = {
     storage: {} as Record<string, unknown>,
     messages: [] as { type: string; values?: { slot: string; value: string }[] }[],
+    /** The tab's page, and the path its observations report. */
+    pageUrl: "http://127.0.0.1:3847/single",
+    observedPath: "/single",
   };
-  const pageUrl = "http://127.0.0.1:3847/single";
+  const pageUrl = state.pageUrl;
   const browser = {
     runtime: {
       id: "synthetic-extension",
@@ -30,13 +33,13 @@ const fake = vi.hoisted(() => {
       },
     },
     tabs: {
-      query: async () => [{ id: 1, url: pageUrl }],
-      get: async (id: number) => ({ id, url: pageUrl }),
+      query: async () => [{ id: 1, url: state.pageUrl }],
+      get: async (id: number) => ({ id, url: state.pageUrl }),
       // A cooperative synthetic page: each fixed operation succeeds and completion is visible.
       sendMessage: async (_tabId: number, message: Record<string, unknown>) => {
         state.messages.push(structuredClone(message) as (typeof state.messages)[number]);
         if (message["type"] === "login.observe")
-          return { path: "/single", targets: ["unique", "missing"] };
+          return { path: state.observedPath, targets: ["unique", "missing"] };
         if (message["type"] === "login.execute") {
           const operation = message["operation"] as {
             operationId: string;
@@ -83,8 +86,15 @@ type Catalog = {
   snapshot?: () => string;
   state?: "ready" | "review-required" | "unavailable";
   quarantined?: string[];
+  /** Text fields the item holds besides its password. */
+  texts?: string[];
 };
-function settingsFor({ snapshot = () => first, state = "ready", quarantined = [] }: Catalog) {
+function settingsFor({
+  snapshot = () => first,
+  state = "ready",
+  quarantined = [],
+  texts = [],
+}: Catalog) {
   return {
     handle: vi.fn(async (): Promise<SettingsResponse> => ({
       version: 1,
@@ -126,6 +136,7 @@ function settingsFor({ snapshot = () => first, state = "ready", quarantined = []
                 groupIds: [],
                 fields: [
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+                  ...texts.map((id) => ({ id, label: id, name: id, kind: "text" as const })),
                 ],
               },
             ],
@@ -180,6 +191,8 @@ describe("login runtime with a live vault field source", () => {
   beforeEach(() => {
     fake.state.storage = {};
     fake.state.messages = [];
+    fake.state.pageUrl = fake.pageUrl;
+    fake.state.observedPath = "/single";
   });
   it("delivers a resolved value only to the bound slot and completes the login", async () => {
     const fields = vi.fn<LoginFieldSource>(async () => "synthetic-secret");
@@ -382,5 +395,117 @@ describe("login runtime with a live vault field source", () => {
     await vi.waitFor(async () =>
       expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
     );
+  });
+
+  describe("the probe recipe with two identifier sets (ADR 0027)", () => {
+    const variantsUrl = `${origin}/variants`;
+    async function startVariants(
+      slots: { slot: string; fieldId: string }[],
+      fields: LoginFieldSource,
+      report?: (report: LoginReport) => void,
+    ) {
+      fake.state.pageUrl = variantsUrl;
+      fake.state.observedPath = "/authenticated";
+      const login = createLoginRuntime(
+        settingsFor({ texts: ["branch-number", "account-number", "contract-number"] }),
+        {
+          fields,
+          ...(report ? { report } : {}),
+        },
+      );
+      expect(
+        await login.handle(
+          {
+            version: 1,
+            type: "login.probe.configure",
+            origin,
+            account: { connectionId, itemId, slots },
+          },
+          trusted as never,
+        ),
+      ).toEqual({ ok: true });
+      const ready = await login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          start: { path: "/variants" },
+        },
+        { ...(page as object), url: variantsUrl } as never,
+      );
+      const attempt = async () =>
+        (
+          (await login.handle({ version: 1, type: "login.probe.status" }, trusted as never)) as {
+            attempts: { state: string; variant?: number }[];
+          }
+        ).attempts[0];
+      return { ready, attempt };
+    }
+
+    it("binds only the slots of the variant the configured account maps", async () => {
+      const fields = vi.fn<LoginFieldSource>(async () => "synthetic-secret");
+      const run = await startVariants(
+        [
+          { slot: "branch", fieldId: "branch-number" },
+          { slot: "account", fieldId: "account-number" },
+          { slot: "password", fieldId: "login.password" },
+        ],
+        fields,
+      );
+      expect(run.ready).toEqual({ ok: true });
+      await vi.waitFor(async () =>
+        expect(await run.attempt()).toMatchObject({ state: "authenticated", variant: 1 }),
+      );
+      expect(fields.mock.calls.map(([read]) => read.fieldId)).toEqual([
+        "branch-number",
+        "account-number",
+        "login.password",
+      ]);
+      expect(executions().map((message) => message.values?.map((value) => value.slot))).toEqual([
+        ["branch", "account", "password"],
+        [],
+      ]);
+    });
+
+    it("takes the first variant when the account maps every slot, ignoring the others", async () => {
+      const fields = vi.fn<LoginFieldSource>(async () => "synthetic-secret");
+      const run = await startVariants(
+        [
+          { slot: "contract", fieldId: "contract-number" },
+          { slot: "branch", fieldId: "branch-number" },
+          { slot: "account", fieldId: "account-number" },
+          { slot: "password", fieldId: "login.password" },
+        ],
+        fields,
+      );
+      expect(run.ready).toEqual({ ok: true });
+      await vi.waitFor(async () =>
+        expect(await run.attempt()).toMatchObject({ state: "authenticated", variant: 0 }),
+      );
+      expect(fields.mock.calls.map(([read]) => read.fieldId)).toEqual([
+        "contract-number",
+        "login.password",
+      ]);
+    });
+
+    it("refuses no-route when the account maps neither identifier set", async () => {
+      const fields = vi.fn<LoginFieldSource>(async () => "synthetic-secret");
+      const report = vi.fn<(report: LoginReport) => void>();
+      const run = await startVariants(
+        [{ slot: "password", fieldId: "login.password" }],
+        fields,
+        report,
+      );
+      expect(run.ready).toEqual({ ok: false, reason: "no-route" });
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "refused",
+          reason: "no-route",
+          detail: "binding-slots-mismatch",
+        }),
+      );
+      expect(await run.attempt()).toBeUndefined();
+      expect(fields).not.toHaveBeenCalled();
+    });
   });
 });
