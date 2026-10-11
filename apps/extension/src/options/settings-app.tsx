@@ -232,7 +232,8 @@ export function SettingsApp({
       acceptedRef.current = next;
       setAccepted(next);
       form.reset(structuredClone(next.snapshot.settings));
-      setSaveBlocked(false);
+      saveBlockedRef.current = false;
+      setSaveBlockedState(false);
       setMessage(`Saved settings loaded · Revision ${next.snapshot.revision}`);
     }
     operation.current = undefined;
