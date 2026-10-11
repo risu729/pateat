@@ -101,12 +101,14 @@ Once the fixes have settled:
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
   developer account and will also publish there if the store's policies allow it
-  (2026-10-11). To settle first: the
+  (2026-10-11). The owner accepted on 2026-10-11 (18:36 UTC) that a store item gets a
+  store-assigned extension ID, so devices pair again, and that the store requires a
+  privacy policy and a Limited Use statement. Risk: the
   [MV3 code rules](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements)
   forbid "building an interpreter to run complex commands fetched from a remote source,
-  even if those commands are fetched as data", which service-held recipes must be shown
-  not to be; a store item gets a store-assigned extension ID, so devices pair again; and
-  the store requires a privacy policy and a Limited Use statement.
+  even if those commands are fetched as data". A reviewer may count service-held recipes
+  (`fill`, `click` and handler steps) as such commands and reject the item; then
+  GitHub Releases stays the only channel.
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits.
