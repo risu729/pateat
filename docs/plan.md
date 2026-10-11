@@ -755,12 +755,29 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
 
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
-- The extension observation extractor with privacy fixtures. Expect Japanese pages to
-  put labels in adjacent table cells, use image buttons labeled only by `alt`, and
-  offer software keyboards.
+- Calling the extension observation extractor (below) from the content script, label
+  redaction before sending, and targets for elements without a usable `id`, `name` or
+  `data-testid`. How to locate such elements, which pages without a recipe are sent,
+  and how private label text is handled await the owner's decisions.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
 - A real-page corpus per ADR 0012.
+
+`extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
+`LoginObservation` from a page's DOM; nothing calls it yet. It reads element types,
+locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
+title and visible `h1`-`h3`, and never input values, hidden inputs, query strings or
+body text. Candidates are visible text, email, tel, number and password inputs that are
+neither disabled nor read-only, checkboxes, buttons (disabled ones too, since many
+enable after typing) and, as context only, links inside a form that holds a field.
+Off-page and `aria-hidden` inputs are skipped as likely traps. Labels come from
+`aria-labelledby`, `aria-label`, `<label>`, the preceding table cell, `<dt>` or sibling
+(never across another field's area), then `title`; image `alt` names buttons. Each
+target is the first of `id`, `name` and `data-testid` that matches exactly one element,
+as the executor resolves it. A field or button without such a target, an image button
+the executor cannot click, an input in a shadow root, or more than 48 candidates makes
+the observation incomplete, so inference rejects it. `mise run test:observation` covers
+these cases in Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
