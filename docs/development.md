@@ -450,8 +450,8 @@ configuration and Build Output workflow. Its manifest declares that plugin
 explicitly so cf can discover the build framework inside the workspace. Tests
 use the Cloudflare Vitest plugin with test-local Miniflare options derived from
 the production compatibility settings; no production Wrangler TOML/JSON exists.
-The shared TypeScript preset currently declares TypeScript 6 compatibility, so
-the workspace pins TypeScript 6 rather than upgrading it independently to 7.
+The workspace uses TypeScript 7; the shared TypeScript preset accepts it from 3.0.1
+(peer `^6.0.0 || ^7.0.0`).
 
 Reference versions and compatibility findings live in
 [dated research](research/2026-10-10-feasibility.md); exact implementation pins
