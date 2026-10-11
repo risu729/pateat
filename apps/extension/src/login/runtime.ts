@@ -6,6 +6,7 @@ import {
   defaultLoginBinding,
   extendsRecipe,
   findLoginBinding,
+  getItemEligibility,
   handlerFact,
   handlerSteps,
   isSiteExcluded,
@@ -25,12 +26,14 @@ import {
   sameLoginDocument,
   saveLoginChoice,
   siteDefaultConnection,
+  templateLoginBinding,
   transitionLoginAttempt,
   withdrawAccountSwitch,
   validateLoginOperation,
   valueShapeOf,
   type LoginAttemptEvent,
   type LoginAccount,
+  type LoginBindingTemplate,
   type LoginAccountBinding,
   type LoginAttemptMetadata,
   type LoginDocument,
@@ -86,6 +89,7 @@ import {
   type ChoiceResponse,
   type PickResponse,
 } from "./choice-wire";
+import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import type { LoginSites } from "./sites";
 import {
   loginFillsUsername,
@@ -242,8 +246,16 @@ export const noLoginRecipes: LoginRecipes = {
 export interface LoginGeneration {
   /** Whether a page may be sent: a paired service and no attempt for it in the last day. */
   available(origin: string, path: string): Promise<boolean>;
-  /** Sends one page; `recipe` once the generated recipe is in the recipe cache. */
+  /**
+   * Sends one page; `recipe` once the generated recipe is in the recipe cache and the
+   * fields its custom slots name are remembered for `slotFields`.
+   */
   generate(request: RecipeGenerationRequest): Promise<"recipe" | "none">;
+  /**
+   * Which vault field each custom slot of a recipe generated from this device names, from
+   * the request that produced it (ADR 0027); nothing for a recipe it did not generate.
+   */
+  slotFields(recipeId: string): Promise<LoginBindingTemplate | undefined>;
   /**
    * Sends a page no recipe check explained after an effect step, so the service can
    * learn the completion or a handler (ADR 0027). `recipe` is the newer
@@ -310,9 +322,15 @@ const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
 const probeMode = import.meta.env.MODE === "probe";
 
+/** Custom-field values read for their shapes per generation request (ADR 0027). */
+const MAX_CUSTOM_SHAPE_READS = 32;
+
 /** What a page without a recipe is sent with: its slots and the items that matched it. */
 type GenerationScope = {
+  /** The built-in slots a matching item can fill. */
   slots: SemanticSlot[];
+  /** One slot per custom field a matching item allows, numbered over all of them. */
+  offers: CustomFieldOffer[];
   items: {
     connection: VaultConnectionMetadata;
     item: VaultCatalog["connections"][number]["items"][number];
@@ -1137,36 +1155,41 @@ export function createLoginRuntime(
     return { reason: "frame-top-mismatch" };
   }
   /**
-   * The synced binding of the chosen item, or the automatic one for built-in slots, mapped
-   * to this device's field IDs by the catalog's raw field names.
+   * The synced binding of the chosen item, else the automatic one for built-in slots, else
+   * one built from a template (ADR 0027): another item's saved binding of the recipe, then
+   * the slot map of a recipe generated from this device. It is mapped to this device's
+   * field IDs by the catalog's raw field names.
    */
-  function bindingFor(
+  async function bindingFor(
     catalog: VaultCatalog,
     settingsValue: SettingsSnapshot["settings"],
     recipe: LoginRecipe,
     choice: Choice,
     documentOrigin: string,
-  ):
+  ): Promise<
     | { ok: true; binding: LoginAccountBinding; synced: SavedLoginBinding; saved: boolean }
-    | { ok: false; reason: string } {
+    | { ok: false; reason: string }
+  > {
     const connection = catalog.connections.find((entry) => entry.id === choice.connectionId);
     const item = connection?.items.find((entry) => entry.id === choice.itemId);
     if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
     const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
+    const named = { ...owner, itemName: item.label, accountName: connection.label };
+    const fieldNames = item.fields.map((field) => ({ id: field.id, name: field.name }));
     const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
-    const binding =
-      saved ??
-      defaultLoginBinding(recipe, {
-        ...owner,
-        itemName: item.label,
-        accountName: connection.label,
-      });
-    if (!binding) return { ok: false, reason: "binding-not-found" };
-    const resolved = resolveBindingFields(
-      binding,
-      recipe,
-      item.fields.map((field) => ({ id: field.id, name: field.name })),
-    );
+    let binding = saved ?? defaultLoginBinding(recipe, named);
+    if (!binding) {
+      // Sibling bindings were proven by an authenticated login, so they go first.
+      const templates: LoginBindingTemplate[] = settingsValue.bindings
+        .filter((entry) => entry.recipeId === recipe.id && entry.origin === recipe.origin)
+        .map((entry) => entry.slots);
+      const generated = await generation?.slotFields(recipe.id).catch(() => undefined);
+      if (generated) templates.push(generated);
+      const built = templateLoginBinding(recipe.slots, recipe, named, templates, fieldNames);
+      if (!built.ok) return { ok: false, reason: built.reason };
+      binding = built.binding;
+    }
+    const resolved = resolveBindingFields(binding, recipe, fieldNames);
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
     return {
       ok: true,
@@ -1215,7 +1238,7 @@ export function createLoginRuntime(
       const top = await topScope(snapshot, live, chosen, snapshot.catalog);
       if (top) return { ok: false as const, reason: top.reason };
       catalog = scope.catalog;
-      const bound = bindingFor(
+      const bound = await bindingFor(
         catalog,
         snapshot.snapshot.settings,
         recipe,
@@ -1967,9 +1990,24 @@ export function createLoginRuntime(
         ),
       ),
     );
-    if (!slots.length) return undefined;
+    // Custom fields are offered by name only when the item allows them (ADR 0027).
+    const offers = customFieldOffers(
+      items.flatMap(({ connection, item }) => {
+        const eligibility = getItemEligibility(
+          snapshot.snapshot.settings,
+          snapshot.catalog,
+          connection.id,
+          item.id,
+        );
+        return eligibility.eligible
+          ? [{ connectionId: connection.id, item, allowedFieldIds: eligibility.fieldIds }]
+          : [];
+      }),
+    );
+    if (!slots.length && !offers.length) return undefined;
     return {
       slots: slots.map(({ slot }) => slot),
+      offers,
       items,
       settings: snapshot.snapshot.settings,
       // An item that could not be checked might have another username.
@@ -1977,47 +2015,104 @@ export function createLoginRuntime(
     };
   }
   /**
-   * The shape of the matching items' username (ADR 0010), read locally just before the
-   * page is sent (owner decision, 2026-10-11): only when every matching item with a
-   * username gives the same length, character classes and email form. An item without
-   * a username, or whose username the user excluded, does not count; an item that
-   * could not be checked or read, or a username too long to shape, sends no shape.
+   * The shape the given values share (ADR 0010), read locally just before the page is sent
+   * (owner decision, 2026-10-11): only when every non-empty value gives the same length,
+   * character classes and email form. An empty value does not count; a scope with items
+   * that could not be checked, a read that fails, or a value too long to shape sends no
+   * shape. Values are read one at a time and never kept.
    */
-  async function usernameShape(
+  async function sharedShape(
     pageOrigin: string,
     scope: GenerationScope,
+    reads: readonly {
+      connection: VaultConnectionMetadata;
+      itemId: string;
+      fieldId: string;
+      source: "username" | "text";
+    }[],
   ): Promise<ValueShape | undefined> {
     if (!scope.complete) return undefined;
     let shape: ValueShape | undefined;
-    for (const { connection, item } of scope.items) {
-      const excluded = scope.settings.connections
-        .find((entry) => entry.connectionId === connection.id)
-        ?.excludedFields.some(
-          (field) => field.itemId === item.id && field.fieldId === "login.username",
-        );
-      if (excluded || !item.fields.some((field) => field.id === "login.username")) continue;
+    for (const { connection, itemId, fieldId, source } of reads) {
       let value: string | undefined;
       try {
         // Serial reads through the shared vault host, as for a fill.
         // eslint-disable-next-line no-await-in-loop
         value = await fields({
-          account: { origin: pageOrigin, connectionId: connection.id, itemId: item.id },
+          account: { origin: pageOrigin, connectionId: connection.id, itemId },
           connection,
-          fieldId: "login.username",
+          fieldId,
         });
       } catch {
         value = undefined;
       }
       if (value === undefined) return undefined;
       if (!value) continue;
-      const itemShape = valueShapeOf({ source: "username", value });
+      const itemShape = valueShapeOf({ source, value });
       value = "";
-      // A username too long to shape cannot be compared.
+      // A value too long to shape cannot be compared.
       if (!itemShape) return undefined;
       if (shape && JSON.stringify(shape) !== JSON.stringify(itemShape)) return undefined;
       shape = itemShape;
     }
     return shape;
+  }
+  /**
+   * The shape of the matching items' username: an item without a username, or whose
+   * username the user excluded, does not count.
+   */
+  function usernameShape(pageOrigin: string, scope: GenerationScope) {
+    return sharedShape(
+      pageOrigin,
+      scope,
+      scope.items.flatMap(({ connection, item }) => {
+        const excluded = scope.settings.connections
+          .find((entry) => entry.connectionId === connection.id)
+          ?.excludedFields.some(
+            (field) => field.itemId === item.id && field.fieldId === "login.username",
+          );
+        return excluded || !item.fields.some((field) => field.id === "login.username")
+          ? []
+          : [
+              {
+                connection,
+                itemId: item.id,
+                fieldId: "login.username",
+                source: "username" as const,
+              },
+            ];
+      }),
+    );
+  }
+  /**
+   * The custom-field slots with the shapes their fields share (ADR 0027): only for Text
+   * fields and Linked fields that read the username or a Text field, never for Hidden
+   * fields or the password, and within a bound on the values read per request.
+   */
+  async function customSlots(pageOrigin: string, scope: GenerationScope) {
+    let budget = MAX_CUSTOM_SHAPE_READS;
+    const slots: SemanticSlot[] = [];
+    for (const offer of scope.offers) {
+      const reads = offer.members.flatMap(({ connectionId, itemId, fieldId, source }) => {
+        const connection = scope.items.find(
+          (entry) => entry.connection.id === connectionId,
+        )?.connection;
+        return connection && source ? [{ connection, itemId, fieldId, source }] : [];
+      });
+      let shape: ValueShape | undefined;
+      if (
+        scope.complete &&
+        offer.shapeable &&
+        reads.length === offer.members.length &&
+        reads.length <= budget
+      ) {
+        budget -= reads.length;
+        // eslint-disable-next-line no-await-in-loop
+        shape = await sharedShape(pageOrigin, scope, reads);
+      }
+      slots.push(shape ? { ...offer.slot, valueShape: shape } : offer.slot);
+    }
+    return slots;
   }
   /**
    * Sends this page's observation for generation. A returned recipe is in the recipe
@@ -2043,13 +2138,17 @@ export function createLoginRuntime(
       )
         return;
       const shape = await usernameShape(live.document.origin, scope);
+      const custom = await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
       const outcome = await generation.generate({
         version: 1,
         observation: parsed.output,
-        slots: scope.slots.map((slot) =>
-          slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
-        ),
+        slots: [
+          ...scope.slots.map((slot) =>
+            slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+          ),
+          ...custom,
+        ],
       });
       report({
         type: "generation",

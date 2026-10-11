@@ -1,9 +1,14 @@
 import {
+  genericSlotIdSchema,
   slotsForPage,
+  syncRecipeIdSchema,
+  vaultFieldReferenceSchema,
+  type LoginBindingTemplate,
   type LoginObservation,
   type LoginRoute,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
+  type RecipeGenerationResult,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginGeneration } from "../login/runtime";
@@ -42,6 +47,63 @@ export interface GenerationAttemptStorage {
   write(attempts: GenerationAttempts): Promise<void>;
 }
 
+/** Generated recipes whose custom-field slots this device remembers; the oldest go first. */
+export const MAX_GENERATED_SLOT_MAPS = 200;
+/**
+ * Which vault field each custom slot of a recipe generated from this device names, from
+ * the request that produced it (ADR 0027). It is kept per service and device, since a
+ * generated recipe's ID depends only on its origin and start path, so a device paired
+ * again or with another service never reuses an old map.
+ */
+const slotMapsSchema = v.strictObject({
+  version: v.literal(1),
+  maps: v.pipe(
+    v.array(
+      v.strictObject({
+        service: v.pipe(v.string(), v.maxLength(2048)),
+        deviceId: v.pipe(v.string(), v.maxLength(200)),
+        recipeId: syncRecipeIdSchema,
+        slots: v.pipe(
+          v.array(v.strictObject({ slot: genericSlotIdSchema, field: vaultFieldReferenceSchema })),
+          v.minLength(1),
+          v.maxLength(20),
+        ),
+      }),
+    ),
+    v.maxLength(MAX_GENERATED_SLOT_MAPS),
+  ),
+});
+type GeneratedSlotMaps = v.InferOutput<typeof slotMapsSchema>;
+
+export interface GeneratedSlotStorage {
+  read(): Promise<unknown>;
+  write(maps: GeneratedSlotMaps): Promise<void>;
+}
+
+/**
+ * The fields the request's offers named for each slot the service mapped, or nothing when
+ * any mapped slot was not a custom-field offer of this request.
+ */
+function slotFieldsOf(
+  request: RecipeGenerationRequest,
+  customSlots: NonNullable<Extract<RecipeGenerationResult, { status: "recipe" }>["customSlots"]>,
+): GeneratedSlotMaps["maps"][number]["slots"] | undefined {
+  const mapped = customSlots.map(({ slot, offered }) => {
+    const offer = request.slots.find((entry) => entry.id === offered);
+    if (offer?.fieldName === undefined) return undefined;
+    return {
+      slot,
+      field: {
+        custom: offer.fieldName,
+        ...(offer.fieldPosition
+          ? { position: offer.fieldPosition.position, count: offer.fieldPosition.count }
+          : {}),
+      },
+    };
+  });
+  return mapped.every((entry) => entry !== undefined) ? mapped : undefined;
+}
+
 /**
  * The extension side of the recipe generation routes (ADR 0018). Requests go only to the
  * paired service with the device credential; a returned recipe reaches the login runtime
@@ -51,6 +113,8 @@ export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "generateRecipe" | "judgeCompletion">;
   storage: GenerationAttemptStorage;
+  /** Generated slot maps, written before a generated recipe is reported. */
+  slotStorage: GeneratedSlotStorage;
   /** A full sync of recipes and settings; resolves once the recipe cache holds them. */
   sync(): Promise<unknown>;
   /**
@@ -60,10 +124,75 @@ export function createLoginGeneration(options: {
   refresh(): Promise<unknown>;
   now?: () => number;
 }): LoginGeneration {
-  const { service, transport, storage, sync, refresh } = options;
+  const { service, transport, storage, slotStorage, sync, refresh } = options;
   const now = options.now ?? Date.now;
   // Writes are serialized so two pages sent together are both remembered.
   let queue: Promise<unknown> = Promise.resolve();
+  // Every binding check reads the slot maps, so they are kept in memory after one read. A
+  // read that fails is not kept, so the next call reads storage again; stored maps that do
+  // not parse count as none, since no older format is kept (ADR 0027).
+  let slotMaps: Promise<GeneratedSlotMaps["maps"] | undefined> | undefined;
+  let slotQueue: Promise<unknown> = Promise.resolve();
+
+  function readSlotMaps(): Promise<GeneratedSlotMaps["maps"] | undefined> {
+    if (slotMaps) return slotMaps;
+    const read: Promise<GeneratedSlotMaps["maps"] | undefined> = slotStorage.read().then(
+      (stored) => {
+        const parsed = v.safeParse(slotMapsSchema, stored);
+        return parsed.success ? parsed.output.maps : [];
+      },
+      () => {
+        if (slotMaps === read) slotMaps = undefined;
+        return undefined;
+      },
+    );
+    slotMaps = read;
+    return read;
+  }
+  /**
+   * Stores one recipe's slot map. A continuation's map is added to the map of the recipe
+   * it continues; a new recipe replaces any map under its ID. Nothing is written when the
+   * stored maps could not be read, so other recipes' maps are never dropped, and nothing
+   * is kept in memory that was not written.
+   */
+  function rememberSlots(
+    entry: GeneratedSlotMaps["maps"][number],
+    /** The continued recipe's slots, when the answer continues a recipe. */
+    continued: readonly string[] | undefined,
+  ): Promise<boolean> {
+    const next = slotQueue.then(async () => {
+      const current = await readSlotMaps();
+      if (!current) return false;
+      // Slots the continued recipe still has and this answer does not name again.
+      const kept = continued
+        ? (current
+            .find(
+              (map) =>
+                map.service === entry.service &&
+                map.deviceId === entry.deviceId &&
+                map.recipeId === entry.recipeId,
+            )
+            ?.slots.filter(
+              ({ slot }) =>
+                continued.includes(slot) && !entry.slots.some((added) => added.slot === slot),
+            ) ?? [])
+        : [];
+      const merged = { ...entry, slots: [...kept, ...entry.slots] };
+      const maps = [...current.filter((map) => map.recipeId !== entry.recipeId), merged].slice(
+        -MAX_GENERATED_SLOT_MAPS,
+      );
+      try {
+        await slotStorage.write({ version: 1, maps });
+      } catch (error) {
+        slotMaps = undefined;
+        throw error;
+      }
+      slotMaps = Promise.resolve(maps);
+      return true;
+    });
+    slotQueue = next.catch(() => undefined);
+    return next.catch(() => false);
+  }
 
   async function recent(): Promise<GenerationAttempts["attempts"]> {
     const parsed = v.safeParse(attemptsSchema, await storage.read().catch(() => undefined));
@@ -132,8 +261,36 @@ export function createLoginGeneration(options: {
         return "none";
       }
       if (answer.kind !== "result" || answer.result.status !== "recipe") return "none";
+      // The mapping arrives only with the answer that wrote the recipe; the login binds
+      // the custom slots from it until a binding is saved (ADR 0027).
+      const { customSlots, change } = answer.result;
+      const fields = customSlots && slotFieldsOf(request, customSlots);
+      if (fields)
+        await rememberSlots(
+          {
+            service: connection.origin,
+            deviceId: connection.deviceId,
+            recipeId: change.recipeId,
+            slots: fields,
+          },
+          // A continuation answers with only its own page's slots (ADR 0027).
+          request.base?.recipeId === change.recipeId && change.revision > 1
+            ? change.recipe.slots
+            : undefined,
+        );
       await sync().catch(() => undefined);
       return "recipe";
+    },
+    async slotFields(recipeId: string): Promise<LoginBindingTemplate | undefined> {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return undefined;
+      await slotQueue;
+      return (await readSlotMaps())?.find(
+        (map) =>
+          map.service === connection.origin &&
+          map.deviceId === connection.deviceId &&
+          map.recipeId === recipeId,
+      )?.slots;
     },
     async judge(
       recipeId: string,

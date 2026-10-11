@@ -1,7 +1,8 @@
 # ADR 0027: Login routes and second-factor pages chosen per account
 
-Status: accepted by the owner on 2026-10-11 (13:47 UTC). Delivery 2 (handlers with the
-`passkey` handler) is implemented; the other deliveries are not. Amends
+Status: accepted by the owner on 2026-10-11 (13:47 UTC). Deliveries 1 (custom-field
+names and Text shapes in generation) and 2 (handlers with the `passkey` handler) are
+implemented; the other deliveries are not. Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and
@@ -225,6 +226,59 @@ new owner decision:
   recipes only. A full sync could apply a settings change from the service, which stops
   every running login as a policy change, including the one the judged page belongs to.
   Settings follow at the next full sync.
+- **Custom-field offers.** A custom field is offered when its item allows it (not
+  excluded, not waiting for review), it is a Text, Hidden or Linked field with a
+  non-blank name of at most 120 characters without control characters, and, for a
+  Linked field, the field it reads is allowed too; a Linked field that reads the
+  password is offered only when the password holds a value. Offers are united over the
+  matching items by reference (name, plus position and count among the item's custom
+  fields of that name), each under an opaque request ID (`custom-1`, …). Text fields and
+  Linked fields that read the username are `identifier` slots, Hidden fields a new
+  `hidden` kind that plan validation accepts only where ADR 0013's Hidden rule fills (a
+  password input, or a `tel` or `inputmode=numeric` text input whose `maxlength` is 1
+  to 10; a number input is refused because observations omit its lengths), and Linked
+  fields that read the password `secret` slots. A reference whose fields differ in kind
+  across items takes the strictest kind (`secret`, then `hidden`) and gets no shape.
+- **Bounds.** At most 16 custom-field offers per request, Text fields first, then Linked
+  fields that read the username, Hidden fields and Linked fields that read the password,
+  each in scope and field order, so a request stays within 20 slots; a reference whose
+  fields differ in kind is ranked by the kind it is sent as. At most 32
+  custom-field values are read for shapes per request, and an offer past that bound is
+  sent without one. When an enabled connection could not answer or an item's URI rules
+  could not be evaluated, the names that are known are still offered, but no shape is
+  sent, as for the username.
+- **Generic IDs.** A generic ID is one to four lowercase ASCII words of at least two
+  letters joined by hyphens, at most 40 characters, not `username`, `password` or
+  `totp`, and equal to no requested slot ID or other name in the plan. Digits and other
+  scripts never fit, so an account number or a Japanese field name cannot become one. An
+  ID that equals an English field name in slug form (`Branch number`, `branch-number`)
+  is accepted. The decision role and the benchmark heuristic name no custom slot, so
+  they abstain or fail on pages that need one.
+- **Mapping before the first authenticated login.** The service answers the call that
+  wrote the recipe with `customSlots` (generic ID and offered request ID). The extension
+  turns it into field references from the slots it sent and keeps them in
+  `chrome.storage.local` per service origin, device ID and recipe ID (at most 200
+  recipes, the oldest dropped), written before the page is told to start the recipe. A
+  continuation's answer names only its own page's slots, so its mapping is added to the
+  map this device holds for the recipe it continues, keeping the slots that recipe still
+  has; an answer that starts a recipe replaces the map. When the stored maps cannot be
+  read, nothing is written, so no other recipe's map is dropped, and the next use reads
+  them again; stored maps that do not parse count as none. A
+  login with no saved binding for its item builds one from another item's saved binding
+  of the same recipe and origin, then from that map: built-in slots read the item's
+  built-in fields, other slots take the template's reference, and the first template
+  whose references all resolve on the item wins. It is saved after `authenticated` like
+  an automatic choice. Until one login authenticates somewhere, other devices cannot
+  fill the custom slots.
+- **Lost response.** A device that never receives the answer (a worker restart during
+  the request) or that gets a recipe another request stored has no map; the recipe
+  cannot fill its custom slots on that device until a binding is saved by a login on
+  another device or written by the owner.
+- **Item lacking the field.** An item with neither template resolving stops before any
+  fill with `field-missing`, `field-count-changed`, `field-ambiguous` or, when no
+  template covers every slot, `binding-not-found`; a field excluded later stops with
+  `binding-field-excluded`. The binding review of
+  [ADR 0023](0023-synced-vault-policy.md#binding-review) is later work.
 
 ## Consequences
 

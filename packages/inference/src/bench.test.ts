@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runClaudeBenchmark } from "./bench";
-import { evaluationCorpus } from "./corpus/cases";
+import { evaluationCorpus, expectedFields } from "./corpus/cases";
 import { caseFor } from "./testing/fake-models";
 
 // Answers every corpus page with its ground truth, shaped like the Messages API.
@@ -20,10 +20,7 @@ function oracleClaude(
         ? { decision: "abstain", reason: "ambiguous" }
         : {
             decision: "plan",
-            fields: Object.entries(expected.fields).map(([slot, candidate]) => ({
-              slot,
-              candidate,
-            })),
+            fields: expectedFields(expected),
             action: { candidate: expected.action, purpose: expected.purpose },
           };
     return Response.json({

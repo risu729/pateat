@@ -3,8 +3,11 @@
 Status: accepted by the owner on 2026-10-10. The hint contract, the shape derivation
 and the local value check are implemented in `packages/contracts`. The executor runs
 both checks. Automatic generation sends the username's shape when every matching item
-agrees ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)); `fieldName` is
-not sent until custom-field slots are generated.
+agrees ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)). Amended on
+2026-10-11 by [ADR 0027](0027-per-account-login-routes.md) (implemented): generation
+offers custom fields by `fieldName`, with `fieldPosition` (position and count) for a
+name several of the item's custom fields share, and Text shapes when every matching item
+agrees; Hidden fields are offered as a `hidden` slot kind, which never carries a shape.
 
 Date: 2026-10-10
 

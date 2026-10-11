@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { evaluationCorpus, type EvaluationCase } from "./corpus/cases";
+import { evaluationCorpus, expectedFields, type EvaluationCase } from "./corpus/cases";
+import { customSlotNames } from "./corpus/slots";
 import { evaluateRole, judge, percentile } from "./evaluate";
 import type { InferenceOutcome } from "./outcome";
 import { isActionRole, slotFitsRole, validatePagePlan, type ValidatedPagePlan } from "./plan";
@@ -15,7 +16,8 @@ function firstMatch(entry: EvaluationCase): InferenceOutcome<ValidatedPagePlan> 
     );
     if (candidate === undefined) return [];
     used.add(candidate.id);
-    return [{ slot: slot.id, candidate: candidate.id }];
+    const name = customSlotNames[slot.id];
+    return [{ slot: slot.id, candidate: candidate.id, ...(name ? { name } : {}) }];
   });
   const action = entry.observation.candidates.find((item) => isActionRole(item.role));
   const result = validatePagePlan(entry.observation, entry.slots, {
@@ -80,10 +82,7 @@ describe("evaluation harness", () => {
         if (entry.expected.kind === "abstain")
           return { status: "abstained", reason: "ambiguous", calls: 0, usage };
         const result = validatePagePlan(entry.observation, entry.slots, {
-          fields: Object.entries(entry.expected.fields).map(([slot, candidate]) => ({
-            slot,
-            candidate,
-          })),
+          fields: expectedFields(entry.expected),
           action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
         });
         if (!result.ok) throw new Error(entry.id);

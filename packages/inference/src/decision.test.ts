@@ -42,15 +42,26 @@ const correct = { "slot:email": "c:email", "slot:password": "c:password", action
 describe("finite-choice decision role", () => {
   it("scores the oracle fake as fully correct on the corpus", async () => {
     const decide = decider(oracleDecider());
+    // The decider names no custom-field slot (ADR 0027), so it abstains on pages that use one.
+    const cases = evaluationCorpus.filter(
+      (entry) =>
+        entry.expected.kind === "abstain" ||
+        !entry.slots.some(
+          (slot) =>
+            slot.fieldName !== undefined &&
+            entry.expected.kind === "plan" &&
+            slot.id in entry.expected.fields,
+        ),
+    );
     const report = await evaluateRole({
-      cases: evaluationCorpus,
+      cases,
       run: (entry) => decide({ observation: entry.observation, slots: entry.slots }),
     });
     expect(report.semanticAccuracy).toBe(1);
     expect(report.falseSubmits).toBe(0);
     expect(report.usage).toMatchObject({
-      inputTokens: 300 * evaluationCorpus.length,
-      unknownOutputCases: evaluationCorpus.length,
+      inputTokens: 300 * cases.length,
+      unknownOutputCases: cases.length,
     });
   });
 
@@ -66,14 +77,15 @@ describe("finite-choice decision role", () => {
   it("offers field names, value shapes and input constraints but never values", async () => {
     const bank = evaluationCorpus.find((item) => item.id === "ja-bank-unlabeled-lengths")!;
     const questions = buildFieldQuestions(bank.observation, bank.slots);
-    expect(questions["slot:branch-number"]!.criteria["c:field-b"]).toEqual({
+    expect(questions["slot:custom-1"]!.criteria["c:field-b"]).toEqual({
       role: "tel",
       maxLength: 3,
       inputMode: "numeric",
     });
     const model = oracleDecider();
     const outcome = await decider(model)({ observation: bank.observation, slots: bank.slots });
-    expect(outcome.status).toBe("ok");
+    // It cannot name the custom-field slots, so it fails closed (ADR 0027).
+    expect(outcome.status).toBe("abstained");
     const sent = JSON.stringify(model.calls[0]);
     expect(sent).toContain("支店番号");
     expect(sent).toContain('"valueShape":{"length":3,"classes":["ascii-digit"],"email":false}');

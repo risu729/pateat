@@ -948,11 +948,14 @@ username or Text field value, and observations carry page `maxLength`, `minLengt
 `inputMode`. `checkPlanValues` checks a plan against the real values before filling and
 turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
 carries synthetic values. The executor applies the same check to the real inputs before
-filling. Automatic generation sends the username's shape when every matching item
-agrees ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)); `fieldName`
-waits for custom-field slots. `valueShapeOf` (`packages/contracts/src/values.ts`) takes
-`{ source: "username" | "text", value }`, so a caller must resolve Linked fields and
-never pass Hidden, password or TOTP values.
+filling. Automatic generation sends the username's shape when every matching item agrees
+([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)), and custom fields as
+`fieldName` offers, with `fieldPosition` for duplicate names and Text shapes under the
+same rule ([ADR 0027](adr/0027-per-account-login-routes.md)). Their opaque request IDs
+(`custom-1`) carry no meaning; the corpus's bank cases send theirs the same way, and the
+model names each one it uses with a generic recipe slot ID. `valueShapeOf`
+(`packages/contracts/src/values.ts`) takes `{ source: "username" | "text", value }`, so
+a caller must resolve Linked fields and never pass Hidden, password or TOTP values.
 
 For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a later
@@ -1050,7 +1053,13 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   ([ADR 0027](adr/0027-per-account-login-routes.md)), approved by the owner on
   2026-10-11: custom-field names and Text shapes in generation, page handlers for a
   security key and TOTP learned by the judge, start-page routes (password variants,
-  passkey, SSO), in the PR order the ADR lists. Delivery 2 is implemented: item facts
+  passkey, SSO), in the PR order the ADR lists. Delivery 1 is implemented: custom-field
+  offers (Text, Hidden and Linked, by name and position) with Text shapes, generic slot
+  IDs named by the model and returned as `customSlots`, the device-local generated slot
+  map, bindings built from another item's saved binding or that map, and the `hidden`
+  slot kind. Unit, service and extension runtime tests cover it with synthetic data;
+  no paid generation call and no real-account login has used it yet, and its check on
+  SMBC or PayPay Bank needs the owner's approval. Delivery 2 is implemented: item facts
   and the catalog `empty` flags, the `password` route and `no-route`, `passkey` handlers
   learned by the judge and run in the same login, the judging rules and limits
   (`page_judgements`), the bridge using the login's item, and no `totp` slot for start
@@ -1062,9 +1071,9 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
   extension already sends a recipe's first page under the automatic send rule of
   [ADR 0016](adr/0016-recipe-generation-trigger.md), runs the returned recipe at once
-  with the built-in-slot binding, saves that binding with the account choice after
-  `authenticated`, and sends a page no check explains to be judged for `completion` or
-  a handler. The service routes, limits and request log are implemented.
+  with the built-in-slot or generated binding, saves that binding with the account
+  choice after `authenticated`, and sends a page no check explains to be judged for
+  `completion` or a handler. The service routes, limits and request log are implemented.
 - A different remembered account, approved by the owner on 2026-10-11: on a step that
   fills a secret but no username, the executor compares the account shown in that
   form and the page headings with the selected account's username, locally only. If
@@ -1143,7 +1152,7 @@ its first button after the password, or else its first button. Without such a fo
 the one form whose only fill field is marked `username` or `email` advances. It reads no
 labels, and its inputs pass the same schema and completeness gate as generation. On
 2026-10-11 it scored 0.958 on the 95 cases before the `e48b4e7` regeneration and, on the
-current corpus:
+current corpus before the ADR 0027 slot re-keying:
 
 | Corpus | Correct | Correct abstentions | Missed | False submits | Semantic accuracy |
 | --- | --- | --- | --- | --- | --- |
@@ -1157,6 +1166,21 @@ it presses the wrong button: "create account" (formasaurus-216 and -739) or "Mé
 forms each hold one password. The real-page corpus is mostly plain username and password
 forms, which form heuristics already handle; the synthetic corpus holds the bank, decoy
 and multi-step pages where they fail.
+
+Since the ADR 0027 slot re-keying, the bank cases offer their branch and account number
+fields as `custom-1` and `custom-2` with field names, as the extension sends them, in
+place of the descriptive slot IDs `branch-number` and `account-number`. The heuristic
+names no custom slot, so it fails those cases with `missing-slot-name` instead of
+filling the wrong field. Measured on 2026-10-11 at `1ddf138` (the ADR 0027 delivery 1
+branch):
+
+| Corpus | Correct | Correct abstentions | Missed | False submits | Failed | Semantic accuracy |
+| --- | --- | --- | --- | --- | --- | --- |
+| Real pages (131) | 109 | 14 | 1 | 7 | 0 | 0.939 |
+| Synthetic (16) | 7 | 2 | 2 | 3 | 2 | 0.5625 |
+
+The two failed synthetic cases are `ja-bank-branch-account` and
+`ja-bank-unlabeled-lengths`, which were false submits before.
 
 The owner approved the Claude baseline on this corpus on 2026-10-11, to run about five
 cases at a time with fixes between batches, once the MyJCB generation fix (#206) was in.
@@ -1204,7 +1228,7 @@ login control is `<a href="javascript:;" onclick=...>`, and MyJCB's script sets
 both were labelled abstain; Claude then named the link, which the plan check rejects as
 `incompatible-role` (4 of 6, $0.089 with a rerun that recorded the reason, which each
 failed case now reports as `detail`). Since #226 both are script buttons and both pages
-are labelled plans:
+are labelled plans. Measured before the ADR 0027 slot re-keying:
 
 | Case | Expected | Heuristic | Claude |
 | --- | --- | --- | --- |
@@ -1217,6 +1241,12 @@ are labelled plans:
 
 The heuristic scored 3 of 6 with 2 false submits. Claude (`claude-opus-5-5`, effort
 `low`, this corpus on main `e48b4e7`, one batch, $0.061 for 6 calls) scored 6 of 6.
+
+After the re-keying (2026-10-11, `1ddf138`) the heuristic scores 3 correct, 1 missed
+(Mizuho Direct), 0 false submits and 2 failed with `missing-slot-name` (`ja-smbc-direct`
+and `ja-paypay-bank`), accuracy 0.5. The Claude results on this corpus and on the
+synthetic corpus were measured with the old descriptive slot IDs; a Claude rerun on the
+bank cases is a paid run and needs the owner's approval.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete

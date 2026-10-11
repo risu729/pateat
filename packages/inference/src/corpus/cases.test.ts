@@ -2,7 +2,7 @@ import { loginObservationSchema, semanticSlotsSchema } from "@pateat/contracts";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { validatePagePlan } from "../plan";
-import { evaluationCorpus } from "./cases";
+import { evaluationCorpus, expectedFields } from "./cases";
 
 describe("synthetic corpus", () => {
   it("parses, covers both languages and has consistent ground truth", () => {
@@ -22,10 +22,7 @@ describe("synthetic corpus", () => {
       const slots = v.parse(semanticSlotsSchema, entry.slots);
       if (entry.expected.kind === "abstain") continue;
       const result = validatePagePlan(observation, slots, {
-        fields: Object.entries(entry.expected.fields).map(([slot, candidate]) => ({
-          slot,
-          candidate,
-        })),
+        fields: expectedFields(entry.expected),
         action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
       });
       expect(result.ok, entry.id).toBe(true);

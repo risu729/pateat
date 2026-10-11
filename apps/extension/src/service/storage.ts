@@ -1,7 +1,7 @@
 import { browser } from "wxt/browser";
 import type { VaultSyncRecord } from "../connections/auto-sync";
 import type { ServiceStorage } from "./runtime";
-import type { GenerationAttemptStorage } from "./generation";
+import type { GeneratedSlotStorage, GenerationAttemptStorage } from "./generation";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
 import type { SettingsBaseStorage, SettingsHoldStorage } from "./settings-sync";
 
@@ -67,4 +67,9 @@ export function createBrowserVaultSyncStorage() {
 /** Which pages were sent for recipe generation in the last day (ADR 0016). */
 export function createBrowserGenerationAttemptStorage(): GenerationAttemptStorage {
   return trustedRecord("pateat.generation-attempts.v1");
+}
+
+/** Which vault field each custom slot of a recipe generated here names (ADR 0027). */
+export function createBrowserGeneratedSlotStorage(): GeneratedSlotStorage {
+  return trustedRecord("pateat.generated-slots.v1");
 }

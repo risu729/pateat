@@ -1,6 +1,6 @@
 // Offline fakes for tests. They never perform network I/O or paid inference.
 import { MockLanguageModelV4 } from "ai/test";
-import { evaluationCorpus, type EvaluationCase } from "../corpus/cases";
+import { evaluationCorpus, expectedFields, type EvaluationCase } from "../corpus/cases";
 import type { FiniteChoiceModel } from "../decision";
 
 type GenerateOptions = Parameters<MockLanguageModelV4["doGenerate"]>[0];
@@ -64,10 +64,7 @@ export const oracleGenerator = () =>
         ? { decision: "abstain", reason: "ambiguous" }
         : {
             decision: "plan",
-            fields: Object.entries(expected.fields).map(([slot, candidate]) => ({
-              slot,
-              candidate,
-            })),
+            fields: expectedFields(expected),
             action: { candidate: expected.action, purpose: expected.purpose },
           };
     return textResult(JSON.stringify({ result }));
