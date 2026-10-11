@@ -6,7 +6,15 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { buttonText, collapseText, linkText, renderedText, shown } from "../page/text";
+import {
+  buttonSelector,
+  buttonText,
+  collapseText,
+  isScriptButton,
+  linkText,
+  renderedText,
+  shown,
+} from "../page/text";
 
 /** Why no observation was produced. A page without one is never sent to inference. */
 export type ObservationRefusal = "unsupported-page" | "no-candidates";
@@ -117,7 +125,7 @@ function locatorIndex(document: Document): LocatorIndex {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
     }
-  for (const element of document.querySelectorAll("button, input")) {
+  for (const element of document.querySelectorAll(buttonSelector)) {
     const text = buttonText(element);
     if (text !== undefined) count("text", text);
   }
@@ -148,7 +156,7 @@ function locate(
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
-  if (element instanceof HTMLAnchorElement) {
+  if (element instanceof HTMLAnchorElement && element.hasAttribute("href")) {
     const text = links ? linkText(element) : undefined;
     if (
       text === undefined ||
@@ -328,12 +336,19 @@ function describe(element: Element): Found | undefined {
       draft: { element, role: "button", ...(label ? { label } : {}) },
     };
   }
-  if (element instanceof HTMLAnchorElement && element.hasAttribute("href")) {
+  if (
+    isScriptButton(element) ||
+    (element instanceof HTMLAnchorElement && element.hasAttribute("href"))
+  ) {
     const label = actionLabel(element);
     return {
       kind: "candidate",
       form: element.closest("form"),
-      draft: { element, role: "link", ...(label ? { label } : {}) },
+      draft: {
+        element,
+        role: isScriptButton(element) ? "button" : "link",
+        ...(label ? { label } : {}),
+      },
     };
   }
   return undefined;
@@ -385,7 +400,7 @@ export function extractLoginObservation(
   if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
     return { ok: false, reason: "unsupported-page" };
 
-  const found = [...document.querySelectorAll("input, select, textarea, button, a[href]")]
+  const found = [...document.querySelectorAll(`select, textarea, a[href], ${buttonSelector}`)]
     .map(describe)
     .filter((entry) => entry !== undefined);
   const fieldForms = new Set(
@@ -501,7 +516,7 @@ export function extractSignedInObservation(
   if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
     return { ok: false, reason: "unsupported-page" };
 
-  const found = [...document.querySelectorAll("input, select, textarea, button, a[href]")]
+  const found = [...document.querySelectorAll(`select, textarea, a[href], ${buttonSelector}`)]
     .map(describe)
     .filter((entry) => entry !== undefined);
   let complete = ![...document.querySelectorAll("*")].some(

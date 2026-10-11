@@ -269,6 +269,22 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("observes script buttons, such as MyJCB's onclick link, as buttons", () => {
+    page(
+      `<form name="loginForm"><input id="userId"><input id="password" type="password">
+        <a id="loginButtonAD" onclick="document.loginForm.submit()">ログイン</a>
+        <div role="button">Next</div><a class="plain">ヘルプ</a></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target, label }) => [role, target, label])).toEqual([
+      ["text", { by: "id", value: "userId" }, undefined],
+      ["password", { by: "id", value: "password" }, undefined],
+      ["button", { by: "id", value: "loginButtonAD" }, "ログイン"],
+      ["button", { by: "text", value: "Next" }, "Next"],
+    ]);
+  });
+
   it("names an image-only button by its image's alt, as the executor resolves it", () => {
     page(
       `<form><input id="user"><button><img src="data:," alt="ログイン" width="40" height="20"></button></form>`,

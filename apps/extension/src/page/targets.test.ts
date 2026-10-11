@@ -68,6 +68,25 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, { by: "text", value: "OK" }))).toEqual(["a", "b"]);
   });
 
+  it("matches script buttons by text: an onclick link without href, or role=button", () => {
+    page(
+      `<a id="a" onclick="return false"> ログ<span>イン</span> </a><div id="b" role="button">Next</div>
+      <a id="c">Help</a><a id="d" href="/x" role="button">Docs</a><span id="e" role="Button">Back</span>
+      <a id="f" onclick="return false"><img src="data:," alt="送信" width="20" height="20"></a>`,
+    );
+    expect(ids(findTargets(document, { by: "text", value: "ログイン" }))).toEqual(["a"]);
+    expect(ids(findTargets(document, { by: "text", value: "Next" }))).toEqual(["b"]);
+    expect(ids(findTargets(document, { by: "text", value: "Back" }))).toEqual(["e"]);
+    expect(ids(findTargets(document, { by: "text", value: "送信" }))).toEqual(["f"]);
+    // A link without onclick and an `<a href role="button">` are not script buttons.
+    expect(findTargets(document, { by: "text", value: "Help" })).toEqual([]);
+    expect(findTargets(document, { by: "text", value: "Help" }, { links: true })).toEqual([]);
+    expect(findTargets(document, { by: "text", value: "Docs" })).toEqual([]);
+    expect(ids(findTargets(document, { by: "text", value: "Docs" }, { links: true }))).toEqual([
+      "d",
+    ]);
+  });
+
   it("gives no text to buttons whose text is empty or longer than the locator limit", () => {
     page(
       `<button id="a"></button><input id="b" type="submit"><button id="c">${"x".repeat(121)}</button>

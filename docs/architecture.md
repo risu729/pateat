@@ -636,15 +636,20 @@ observation.
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), or, for a click or a state check
-only, a button's text: `{ "by": "text", "value": "ログイン" }` names the `<button>`
-whose rendered text (or, without any, its images' `alt`), the
+only, a button's text: `{ "by": "text", "value": "ログイン" }` names the `<button>` or
+script button whose rendered text (or, without any, its images' `alt`), the
 `<input type="submit|button">` whose value, or the `<input type="image">` whose `alt`
-equals the value after whitespace is collapsed (owner decision, 2026-10-11). Hidden
-buttons and hidden text inside a button do not count, and text over 120 characters gives
-no locator. The executor compares strings and acts only when exactly one element
-matches; more than one is a structural mismatch. It clicks buttons and image buttons,
-never links, except a recipe's `accountSwitch`, which may be an `<a href>` link named by
-its rendered text. The extractor gives a link a text locator only on a login page and
+equals the value after whitespace is collapsed (owner decision, 2026-10-11). A script
+button is a control only scripts make clickable: an `<a>` without `href` that has an
+`onclick` attribute, such as MyJCB's
+`<a id="loginButtonAD" onclick="document.loginForm.submit()">`, or another element with
+`role="button"`. Hidden buttons and hidden text inside a button do not count, and text
+over 120 characters gives no locator. The executor compares strings and acts only when
+exactly one element matches; more than one is a structural mismatch. It clicks buttons,
+image buttons and script buttons (not a disabled button, nor a script button with
+`aria-disabled="true"`), never links, except a recipe's `accountSwitch`, which may be an
+`<a href>` link named by its rendered text; a script button is never clicked as a
+switch. The extractor gives a link a text locator only on a login page and
 only when no other link and no button shows that text. A click is not tied to the form
 the previous fill used: a page that shows a second, previously hidden button with the
 same text stops the attempt as ambiguous, but if the observed button is removed and
