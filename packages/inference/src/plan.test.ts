@@ -534,6 +534,10 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
       ["Sign in", "webauthn-login"],
       ["FIDO2", "login"],
       [undefined, "signInWithPassKey"],
+      ["Use your passkeys", "login"],
+      ["セキュリティーキーでログイン", "login"],
+      ["Sign in", "fido-login"],
+      ["Sign in", "myFido"],
     ] as const)
       expect(namesPasskey(button(label, value)), `${label} ${value}`).toBe(true);
     for (const [label, value] of [
@@ -543,8 +547,17 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
       ["Forgot your password?", "password-reset"],
       ["パスワードでログイン", "password"],
       [undefined, "submit"],
+      // Latin words match whole words only.
+      ["MyFido", "login"],
+      ["Fidor Bank", "login"],
+      ["Passkeyless", "login"],
+      ["Sign in", "fidorBank"],
+      ["Sign in", "passkeyless"],
     ] as const)
       expect(namesPasskey(button(label, value)), `${label} ${value}`).toBe(false);
+    // A text locator reads as a label, never split inside a word.
+    expect(namesPasskey({ target: { by: "text", value: "MyFido" } })).toBe(false);
+    expect(namesPasskey({ target: { by: "text", value: "Sign in with a passkey" } })).toBe(true);
   });
 
   it("never rescues a plan that fails its own checks", () => {
@@ -568,6 +581,15 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
       ["Sign in", "register_key"],
       ["Sign in", "set-up-key"],
       ["Create passkey", "key"],
+      ["パスキーを設定", "key"],
+      ["生体認証を設定する", "key"],
+      ["パスキーを有効にする", "key"],
+      ["パスキーを管理", "key"],
+      ["Manage passkeys", "key"],
+      ["Enable passkey", "key"],
+      ["Turn on security key", "key"],
+      ["Sign in", "managePasskeys"],
+      ["Sign in", "enable-passkey"],
     ] as const)
       expect(registersPasskey(button(label, value)), `${label} ${value}`).toBe(true);
     for (const [label, value] of [
@@ -575,6 +597,9 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
       ["パスキーでログイン", "passkey"],
       ["Use security key", "key"],
       [undefined, "signin-passkey"],
+      ["セキュリティキーでログイン", "login"],
+      ["生体認証でログイン", "login"],
+      ["Sign in with a passkey", "login"],
     ] as const)
       expect(registersPasskey(button(label, value)), `${label} ${value}`).toBe(false);
   });

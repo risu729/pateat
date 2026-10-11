@@ -210,17 +210,17 @@ a code, or `unavailable` with a reason when no model was called.
   route the stored recipe lacks, answers `recipe-conflict`. The request never names a
   `password` variant. On the `passkey` route, a page that shows a fill field of any
   `password` variant on any path, or its button on its path or a `password` route path,
-  answers `not-judgeable`, and its path and every `password` route path are login
-  paths. A page that shows one of
-  the route's fill fields, of any variant (on any path), or the completion marker
-  answers `not-judgeable` before any model call. The login paths are the step paths of
-  every variant of the route and the recipe's handler paths, from the stored recipe. A
-  `signed-in` marker passes `addCompletion` and is stored as `completion` in the next
-  revision; with a completion already stored, the answer is `signed-in` without a
-  change. A `challenge` verdict that names a security-key or passkey button passes
-  `addHandler` (a button of the page, not one that registers or adds a passkey, not a
-  step, switch, rejection or completion target, one handler per kind and path) and is
-  stored as a `passkey` handler in the next revision; the answer carries it as `change`.
+  answers `not-judgeable`, and its path and every `password` route path are login paths.
+  A page that shows one of the route's fill fields, of any variant (on any path), or the
+  completion marker answers `not-judgeable` before any model call. The login paths are
+  the step paths of every variant of the route and the recipe's handler paths, from the
+  stored recipe. A `signed-in` marker passes `addCompletion` and is stored as
+  `completion` in the next revision; with a completion already stored, the answer is
+  `signed-in` without a change. A `challenge` verdict that names a security-key or
+  passkey button passes `addHandler` (a button of the page, not one that registers,
+  adds, sets up, turns on or manages a passkey, not a step, switch, rejection or
+  completion target, one handler per kind and path) and is stored as a `passkey` handler
+  in the next revision; the answer carries it as `change`.
 
 Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision and page path, so a repeat answers

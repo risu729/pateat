@@ -174,17 +174,22 @@ export function validatePagePlan(
 }
 
 /**
- * Words of a button that registers or adds a passkey ("Add a passkey", "Set up security
- * key", "パスキーを登録"). The model is told not to name one; this local check also refuses
- * it, and can refuse a sign-in button whose text happens to match.
+ * Words of a button that registers, adds, sets up, turns on or manages a passkey ("Add a
+ * passkey", "Set up security key", "Manage passkeys", "パスキーを登録", "パスキーを設定",
+ * "パスキーを有効にする"). The model is told not to name one; this local check also refuses
+ * it, and can refuse a sign-in button whose text happens to match. Latin words match whole
+ * words, Japanese ones anywhere.
  */
-const registration = /\b(?:add|register|create|set\s*up|new|enrol?l)\b|登録|追加|作成/iu;
+const registration =
+  /\b(?:add|register|create|set\s*up|new|enrol?l|manage|enable|turn\s*on)\b|登録|追加|作成|設定|有効|管理/iu;
 /**
  * A locator value as words: `addPasskey`, `register_key` and `#set-up-key` read as
  * "add Passkey", "register key" and "set up key".
  */
 const words = (value: string) =>
   value.replaceAll(/([a-z])([A-Z])/gu, "$1 $2").replaceAll(/[^\p{L}\p{N}]+/gu, " ");
+/** A label as words: split at anything but letters and digits, never inside a word. */
+const labelWords = (value: string) => value.replaceAll(/[^\p{L}\p{N}]+/gu, " ");
 /**
  * Whether a button registers, adds, creates or sets up a passkey or security key rather
  * than signing in with one (ADR 0027): its label, its text or its `id`, `name` or test ID
@@ -198,10 +203,12 @@ export const registersPasskey = (button: Pick<ObservedCandidate, "label" | "targ
 
 /**
  * Words that name a passkey or a security key ("Sign in with a passkey", "Use security
- * key", "パスキーでログイン", `#passkeyLoginButton`), matched case-insensitively.
+ * key", "パスキーでログイン", `#passkeyLoginButton`), matched case-insensitively. Latin words
+ * match whole words of a label, or whole camelCase, kebab or snake parts of a locator, so
+ * "MyFido" or "Fidor" in a label never match; Japanese words match anywhere.
  */
 const passkeyWording =
-  /pass\s*key|security\s*key|webauthn|fido|パスキー|セキュリティ\s*キー|生体認証/iu;
+  /\b(?:pass\s*keys?|security\s*keys?|webauthn|fido\d*)\b|パスキー|セキュリティー?\s*キー|生体認証/iu;
 /**
  * Whether a button's label, text or `id`, `name` or test ID locator names a passkey or a
  * security key (ADR 0027). The generated passkey route keeps only such a button, so a
@@ -209,8 +216,9 @@ const passkeyWording =
  * handler may use it later.
  */
 export const namesPasskey = (button: Pick<ObservedCandidate, "label" | "target">) =>
-  [button.label, button.target.value].some(
-    (text) => text !== undefined && passkeyWording.test(words(text)),
+  (button.label !== undefined && passkeyWording.test(labelWords(button.label))) ||
+  passkeyWording.test(
+    button.target.by === "text" ? labelWords(button.target.value) : words(button.target.value),
   );
 
 /**

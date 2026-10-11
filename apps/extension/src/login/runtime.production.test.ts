@@ -3679,6 +3679,29 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(clicks("Use security key")).toBe(1);
     });
 
+    it("holds a handler's click across a same-document URL change while its button remains", async () => {
+      vi.useFakeTimers();
+      // The page moves to another path with pushState and keeps the button in its DOM.
+      onClick({
+        login: toWebauthn,
+        "Use security key": { path: "/login/webauthn/verify", present: ["Use security key"] },
+      });
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const h = harness({}, { passkeys: withPasskey, generation: service });
+      h.recipes.recipe.mockResolvedValue(
+        parseLoginRecipe({ ...unlearned, handlers: [keyHandler] }),
+      );
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks("Use security key") === 1);
+      await vi.advanceTimersByTimeAsync(115_000);
+      expect(fake.state.observedPath).toBe("/login/webauthn/verify");
+      expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+      // Without a learned completion, the page is never judged while the button remains.
+      await until(settled("blocked", "challenge"), 10_000);
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(clicks("Use security key")).toBe(1);
+    });
+
     it("leaves a new document that shows the clicked handler's button to the person at once", async () => {
       vi.useFakeTimers();
       onClick({ login: toWebauthn, "Use security key": toWebauthn });

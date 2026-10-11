@@ -394,18 +394,24 @@ new owner decision:
   `passkeyButton` beside its plan. It is kept only when it is a candidate with the
   button role (not a link or another role) whose label or `id`, `name`, test ID or text
   locator names a passkey or security key, case-insensitively (passkey, pass key,
-  security key, WebAuthn, FIDO, パスキー, セキュリティキー, 生体認証), that is not named
-  like a registration (add, register, create, set up, new, enrol, or 登録, 追加, 作成,
-  the words the `passkey` handler check refuses), and not any set's field or action or
-  the account switch, by candidate or by locator. The wording check keeps a mislabelled
-  "Sign in with Google" or SSO button from becoming a passkey click outside ADR 0026; it
-  is a shared helper the judge's `passkey` handler check does not use yet. A button that
-  fails these checks is dropped silently and does not fail the answer. On a continuation
-  the service ignores it. The service stores it as the recipe's `passkey` route on the
-  first page, and the request log records the kept button. The corpus case `ja-myjcb`
-  expects its passkey sign-in button, and the evaluation reports passkey buttons as a
-  separate count (expected, correct, missed, wrong) that does not change a case's
-  result.
+  security key, each also plural, WebAuthn, FIDO, or パスキー, セキュリティキー,
+  セキュリティーキー, 生体認証), that is not named like a registration or a setting
+  (add, register, create, set up, new, enrol, manage, enable, turn on, or 登録, 追加,
+  作成, 設定, 有効, 管理, the words the `passkey` handler check refuses too), and not
+  any set's field or action or the account switch, by candidate or by locator. Latin
+  words match whole words: of a label or text locator as written, and of an `id`, `name`
+  or test ID locator split at camelCase, hyphens and underscores, so
+  `passkeyLoginButtonAD` names a passkey but a label "MyFido" or "Fidor" does not;
+  Japanese words match anywhere. A label that turns on or manages a passkey, such as
+  "パスキーを設定" or "Manage passkeys", is therefore never a sign-in button or a
+  `passkey` handler. The wording check keeps a mislabelled "Sign in with Google" or SSO
+  button from becoming a passkey click outside ADR 0026; it is a shared helper the
+  judge's `passkey` handler check does not use yet. A button that fails these checks is
+  dropped silently and does not fail the answer. On a continuation the service ignores
+  it. The service stores it as the recipe's `passkey` route on the first page, and the
+  request log records the kept button. The corpus case `ja-myjcb` expects its passkey
+  sign-in button, and the evaluation reports passkey buttons as a separate count
+  (expected, correct, missed, wrong) that does not change a case's result.
 - **Synthetic passkey fact.** The probe build's configure message takes an optional
   `passkey` (`discoverable` or `second-factor`) that stands in for the vault search for
   the synthetic item, since the probe vault holds no passkey; no key is created or
@@ -422,11 +428,14 @@ new owner decision:
   The passkey button alone also starts a login, so an item without a discoverable
   passkey on a page whose password form is behind a toggle takes the `password` route
   and ends `structural-mismatch` the same way. This fails closed.
-- **Known limitation: a start page that keeps its button.** A site that signs in on
-  its start path and keeps the passkey button in the page, even hidden, never learns a
-  completion from this route: the button still shows, so the login holds for two
-  minutes and ends `challenge`, and the page is never judged. A completion learned on
-  the `password` route still applies to it.
+- **Known limitation: a page that keeps the clicked button.** While no completion has
+  been learned, any page the clicking document shows after a held click, on any path a
+  same-document URL change leads to, that keeps the clicked button in its DOM, hidden or
+  not, is never judged: the login holds for two minutes and ends `challenge`. This
+  applies to the `passkey` route's click and to a handler's click alike, so a site that
+  signs in without leaving the document and keeps the button never learns a completion
+  from such a login. A completion learned another way, such as on the `password` route,
+  still applies, since it is checked before the hold.
 
 ## Consequences
 
