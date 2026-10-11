@@ -271,7 +271,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       type Signed = { credential: TCandidate; assertion: Awaited<ReturnType<typeof signWith>> };
       // A failure in the lookup or the signing, as when settings change meanwhile, gets one
       // more try.
-      const signCurrent = async (credentialId: string, retry: boolean): Promise<Signed | undefined> => {
+      const signCurrent = async (
+        credentialId: string,
+        retry: boolean,
+      ): Promise<Signed | undefined> => {
         const current = await abortable(
           source.candidates(origin, admission.request.rpId, signal),
           signal,
