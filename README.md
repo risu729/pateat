@@ -2,10 +2,10 @@
 
 Auto Login for Chrome.
 
-A planned Chrome extension that completes configured login flows using the
-user's existing vault. Bitwarden is the first integration; the design is
-vault-neutral and covers passwords, custom fields, TOTP, and existing software
-passkeys. Multiple vault connections and site/item/field controls are part of the
+A Chrome extension that completes configured login flows using the user's own
+Bitwarden vault. **Pateat supports only Bitwarden for the time being**; other vaults
+are not planned for now. It covers passwords, custom fields, TOTP and existing software
+passkeys. Several Bitwarden connections and site/item/field controls are part of the
 initial design.
 
 The extension executes locally, including in background tabs. AI helps identify

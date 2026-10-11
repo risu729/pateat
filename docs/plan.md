@@ -1061,9 +1061,9 @@ API keys, SSO or device approval; external email/SMS OTP and magic links; and se
 authorized post-login actions, including transactions and approvals. UI extensions,
 automatic account switching (logging out and in again when another account is picked
 while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe
-sharing, additional service auth, E2EE settings sync, MCP and Vaultwarden support are
-also deferred. They are extension points, not implicit permissions or initial acceptance
-requirements.
+sharing, additional service auth, E2EE settings sync, MCP, Vaultwarden support and
+vaults other than Bitwarden are also deferred. They are extension points, not implicit
+permissions or initial acceptance requirements.
 
 ## Ordered milestones
 
