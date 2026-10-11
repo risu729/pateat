@@ -38,15 +38,18 @@ sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `package
 `tests/*` as config roots. Each of those directories has its own `mise.toml` with the
 tasks for its code, run from that directory, and the tools and environment come from the
 root. A task's full name is its path and name, such as `//services/api:build`; inside
-that directory `mise run :build` also works. Each project has a `typecheck` and a `test`
-task (the extension's `test` runs its `test:<area>` tasks), so
-`mise run '//...:typecheck'` type-checks everything. mise reads the Bun workspace graph,
-so `mise run --affected '//...:test'` tests the workspace packages changed since
-`HEAD~1` and the packages that depend on them; the `tests/*` suites are not workspace
-packages and `--affected` never selects them. Repository-wide tasks (`install`, `check`,
-`fix`, `check:runtime`, `check:docs`, `test:tools`, `browser:install`, the probe
-servers, `render:icons` and `generate:oidc-key`) stay in the root and keep their plain
-names.
+that directory `mise run :build` also works. Each project has a `test` task (the
+extension's `test` runs its `test:<area>` tasks) and each except `packages/contracts`
+has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. mise
+reads the Bun workspace graph, so `mise run --affected '//...:test'` tests the workspace
+packages with changes since `HEAD~1` (including uncommitted and untracked files) and
+the packages that depend on them. A change outside a workspace package, such as
+`docs/`, `scripts/`, `tests/*` or the root `mise.toml`, selects every package, and the
+`tests/*` suites are not workspace packages, so `--affected` never selects them.
+Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`,
+`test:tools`, `browser:install`, the probe servers, `render:icons` and
+`generate:oidc-key`) stay in the root. Run them by their plain names from the root, or
+as `//:check:runtime` from inside a project.
 
 `check:runtime` is one dependency graph rather than a list of separate `mise run` calls:
 it depends on `//...:typecheck`, `//...:test`, `//services/api:check:*` and
@@ -55,9 +58,10 @@ build runs once, and independent tasks run in parallel. Ordering is declared whe
 matters: the extension build waits for the tasks that read `.wxt`, and the Vitest
 Browser Mode and Playwright suites run after both builds and one at a time, because a
 build that rewrites watched files reloads the Vitest page and the suites share one port.
-They also start after the type checks, unit tests and server checks: under that load
-Vite can end its dependency crawl early, optimize a late import and reload a running
-test. CI still runs everything; `--affected` is for local runs only.
+The Vitest Browser Mode suites all use the repository root, so each sets its own Vite
+`cacheDir`; with one shared cache, a suite run after another found the other suite's
+optimized dependencies, optimized its own mid-run and reloaded a running test. CI
+still runs everything; `--affected` is for local runs only.
 
 A development tool used only as a command is a mise tool, not a devDependency: the
 TypeScript compiler is `npm:typescript` in `mise.toml`, so `tsc` comes from mise. A

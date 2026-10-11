@@ -6,6 +6,9 @@ import { defineConfig } from "vitest/config";
 // depends on layout and computed styles, so it is tested in Chromium.
 export default defineConfig({
   root: fileURLToPath(new URL("../../../", import.meta.url)),
+  // Browser Mode suites share this root; separate caches keep one suite's optimized
+  // dependencies from making the next suite re-optimize and reload its page.
+  cacheDir: "node_modules/.vite/extension-dom",
   // Pre-bundle up front; a mid-run optimization reloads the test page.
   optimizeDeps: { include: ["valibot", "xstate"] },
   test: {
