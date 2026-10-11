@@ -1,6 +1,7 @@
 # ADR 0019: Local diagnostics page and logs
 
-Status: accepted by the owner on 2026-10-11; not yet implemented.
+Status: accepted by the owner on 2026-10-11. The diagnostics page is implemented; the
+logs and the Bitwarden server version are not yet.
 
 Date: 2026-10-11
 

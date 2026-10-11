@@ -1,4 +1,5 @@
-import { getFoundationStatus, isStatusRequest } from "@pateat/contracts";
+import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
+import * as v from "valibot";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
@@ -14,7 +15,7 @@ import { createBrowserCryptoHost } from "../src/crypto/browser";
 import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/probe";
 import { createVaultProbe } from "../src/vault/probe";
 import { createSiteAccountsHandler } from "../src/vault/site-accounts";
-import { createActionIcon } from "../src/connections/action-icon";
+import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
@@ -33,6 +34,9 @@ import {
   createBrowserSettingsHoldStorage,
 } from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
+import { createPseudonyms } from "../src/diagnostics/pseudonym";
+import { createDiagnosticsHandler } from "../src/diagnostics/status";
+import { diagnosticsRequestSchema } from "../src/diagnostics/wire";
 
 export default defineBackground(() => {
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
@@ -71,11 +75,13 @@ export default defineBackground(() => {
     hasSiteAccess: (origin) =>
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
   });
+  const settingsBaseStorage = createBrowserSettingsBaseStorage();
+  const settingsHoldStorage = createBrowserSettingsHoldStorage();
   const settingsSync = createSettingsSync({
     transport: serviceTransport,
     settings,
-    storage: createBrowserSettingsBaseStorage(),
-    hold: createBrowserSettingsHoldStorage(),
+    storage: settingsBaseStorage,
+    hold: settingsHoldStorage,
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
       login.settingsChanged();
@@ -87,11 +93,13 @@ export default defineBackground(() => {
       return current.ok ? current.catalog : undefined;
     },
   });
+  const recipeCacheStorage = createBrowserRecipeCacheStorage();
+  const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
   const recipeSync = createRecipeSync({
     service,
     transport: serviceTransport,
-    storage: createBrowserRecipeCacheStorage(),
-    schedule: createBrowserRecipeScheduleStorage(),
+    storage: recipeCacheStorage,
+    schedule: recipeScheduleStorage,
     settings: settingsSync,
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
@@ -152,6 +160,51 @@ export default defineBackground(() => {
         // Only this extension's service worker console shows it; the page never learns why.
         report: (report) => console.info("Pateat passkey request", report),
       });
+
+  // Value-free per-device state for bug reports (ADR 0019).
+  const diagnostics = createDiagnosticsHandler({
+    build: {
+      version: browser.runtime.getManifest().version,
+      revision: PATEAT_BUILD_REVISION,
+      mode: import.meta.env.MODE,
+      bitwardenSdk: PATEAT_BITWARDEN_SDK_VERSION,
+      bitwardenProtocol: `client ${BITWARDEN_READ_PROTOCOL.clientVersion}, Device-Type ${BITWARDEN_READ_PROTOCOL.deviceType}`,
+    },
+    pseudonym: createPseudonyms(),
+    platform: async () => {
+      const { os, arch } = await browser.runtime.getPlatformInfo();
+      return { os, arch };
+    },
+    permissions: () => browser.permissions.getAll(),
+    declaredOrigins: browser.runtime.getManifest().host_permissions ?? [],
+    hasAllSiteAccess: () => browser.permissions.contains({ origins: ["https://*/*"] }),
+    connections: {
+      status: () => connections.service.status(),
+      async read(connectionId) {
+        const configuration = await connections.registry.get(connectionId);
+        return configuration ? connections.vaultFor(configuration.profile).store.read() : undefined;
+      },
+    },
+    cryptoHost: () => cryptoHost.status(),
+    actionIcon: async () => actionIconState(await connections.vaultStates()),
+    async serviceState() {
+      const response = await service.handle({ version: 1, type: "service.get" });
+      if (!response.ok) throw new Error(response.error);
+      return response.state;
+    },
+    serviceOrigin: async () => (await service.connection())?.origin,
+    hasSiteAccess: (origin) =>
+      browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
+    fetch: (input, init) => fetch(input, init),
+    settings: async () => (await settings.read()).settings,
+    storage: {
+      localBytes: () => browser.storage.local.getBytesInUse(null),
+      recipeCache: () => recipeCacheStorage.read(),
+      recipeSchedule: () => recipeScheduleStorage.read(),
+      settingsBase: () => settingsBaseStorage.read(),
+      settingsHold: () => settingsHoldStorage.read(),
+    },
+  });
 
   browser.runtime.onConnect.addListener((port) => {
     connections.attach(port);
@@ -261,10 +314,11 @@ export default defineBackground(() => {
     }
     if (
       sender.id === browser.runtime.id &&
-      sender.url === browser.runtime.getURL("/options.html") &&
-      isStatusRequest(message)
+      sender.url === browser.runtime.getURL("/diagnostics.html") &&
+      v.is(diagnosticsRequestSchema, message)
     ) {
-      sendResponse(getFoundationStatus());
+      void diagnostics().then(sendResponse);
+      return true;
     }
 
     if (

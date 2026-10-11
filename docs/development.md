@@ -235,6 +235,16 @@ passkey or provider is involved.
    and **Another provider is locked** add a synthetic provider wrapper to the page for
    runs without one.
 
+### Filing a bug report
+
+Open Pateat settings and follow **Diagnostics for bug reports** at the bottom, or open
+`chrome-extension://<id>/diagnostics.html`. Click **Copy for bug report**, check the
+preview, then click **Copy** and paste the text into the report. It names the build
+revision, Chrome version and the state of each connection and the Pateat service under
+pseudonyms, with no labels, emails, item names, URLs or host names
+([architecture](architecture.md#diagnostics)). Add the steps that led to the problem
+and, for a passkey request, the console line described below.
+
 ### Why a passkey request was delegated
 
 The production build writes one `Pateat passkey request` line per bridged request to its

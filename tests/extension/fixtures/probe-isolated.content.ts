@@ -28,10 +28,10 @@ export default defineContentScript({
           statusRequestAccepted =
             (await browser.runtime.sendMessage({
               version: 1,
-              type: "runtime.status.get",
+              type: "diagnostics.status",
             })) !== undefined;
         } catch {
-          // The settings-only boundary also permits browsers that reject a
+          // The diagnostics-page-only boundary also permits browsers that reject a
           // response-less request instead of resolving it with undefined.
         }
         let settingsRequestAccepted = false;

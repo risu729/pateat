@@ -1,0 +1,375 @@
+import { describe, expect, it, vi } from "vitest";
+import type { SetupReply } from "../connections/types";
+import type { VaultEntry, VaultResult } from "../vault/record";
+import { createPseudonyms } from "./pseudonym";
+import { formatReport } from "./report";
+import {
+  DIAGNOSTICS_TIMEOUT_MS,
+  collectDiagnostics,
+  createDiagnosticsHandler,
+  type DiagnosticsDependencies,
+} from "./status";
+import { diagnosticsStatusSchema, parseDiagnosticsResponse } from "./wire";
+import * as v from "valibot";
+
+// Runs in Chromium (vitest browser mode) for IndexedDB and WebCrypto.
+const NOW = Date.UTC(2026, 9, 11, 9, 30);
+const CONNECTION_ID = "4b0b5a8e-0d7e-4c55-9a43-5b8e3c0f6a11";
+const SECRET_EMAIL = "owner@example.test";
+const SECRET_LABEL = "Owner private vault";
+const SERVICE_ORIGIN = "https://pateat.private.example";
+
+const setupStatus = (
+  overrides: Partial<Extract<SetupReply, { kind: "status" }>["connections"][number]> = {},
+): SetupReply => ({
+  ok: true,
+  kind: "status",
+  connections: [
+    {
+      connectionId: CONNECTION_ID,
+      label: SECRET_LABEL,
+      email: SECRET_EMAIL,
+      environment: { kind: "self-hosted", baseUrl: "https://vault.private.example" },
+      autoUnlock: "enabled",
+      state: "ready",
+      providerSession: "active",
+      snapshotId: "0c7f3a4e-58d5-4d3b-9a7e-3e1d7f9b2c55",
+      ...overrides,
+    },
+  ],
+});
+
+function record(): VaultResult<VaultEntry | null> {
+  return {
+    ok: true,
+    data: {
+      schemaVersion: 1,
+      revision: "6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      profile: {
+        connectionId: CONNECTION_ID,
+        environment: { kind: "self-hosted", baseUrl: "https://vault.private.example" },
+      },
+      state: "active",
+      userKey: "c2VjcmV0",
+      accepted: {
+        recordId: "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        snapshotId: "0c7f3a4e-58d5-4d3b-9a7e-3e1d7f9b2c55",
+        userId: "8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        accountVersion: "v2",
+        minimumSecurityVersion: 2,
+        acceptedAt: NOW - 25 * 60_000,
+        coverage: "received-envelope",
+        prepared: {
+          kdf: { pBKDF2: { iterations: 600_000 } },
+          unavailableItems: [{ itemId: "x", reason: "unsupported-cipher-type" }],
+          ciphers: [
+            { type: 1, name: "2.secret-name", login: { totp: "2.secret-totp" } },
+            { type: 1, login: { fido2Credentials: [{ credentialId: "2.secret" }] } },
+            { type: 2, notes: "2.secret-note" },
+            { type: 1, deletedDate: "2026-10-01T00:00:00Z", login: { totp: "2.secret" } },
+          ],
+        },
+      } as never,
+    },
+  };
+}
+
+function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): DiagnosticsDependencies {
+  return {
+    build: {
+      version: "0.1.0",
+      revision: "1c42ad3b9f0e8d7c6b5a4f3e2d1c0b9a8f7e6d5c",
+      mode: "production",
+      bitwardenSdk: "0.2.0-main.1099",
+      bitwardenProtocol: "client 2026.2.0, Device-Type 2",
+    },
+    now: () => NOW,
+    pseudonym: createPseudonyms({ databaseName: `diagnostics-test-${crypto.randomUUID()}` }),
+    platform: async () => ({ os: "win", arch: "x86-64" }),
+    permissions: async () => ({
+      permissions: ["storage", "offscreen"],
+      origins: ["https://*/*", "https://vault.private.example/*"],
+    }),
+    declaredOrigins: ["https://*/*"],
+    hasAllSiteAccess: async () => true,
+    connections: { status: async () => setupStatus(), read: async () => record() },
+    cryptoHost: () => ({ ready: true, sessions: 1 }),
+    actionIcon: async () => "unlocked",
+    serviceState: async () => ({
+      kind: "connected",
+      origin: SERVICE_ORIGIN,
+      label: "Owner laptop",
+      deviceId: "dev_secret",
+      syncedAt: NOW - 10 * 60_000,
+    }),
+    serviceOrigin: async () => SERVICE_ORIGIN,
+    hasSiteAccess: async () => true,
+    fetch: vi.fn<typeof fetch>(async () =>
+      Response.json(
+        { status: "ok", service: "pateat-api", revision: "1c42ad3" },
+        { headers: { Date: new Date(NOW + 95_000).toUTCString() } },
+      ),
+    ),
+    settings: async () =>
+      ({
+        connections: [],
+        excludedSites: [{ origin: "https://excluded.example" }],
+        siteDefaults: [],
+        bindings: [],
+      }) as never,
+    storage: {
+      localBytes: async () => 412 * 1024,
+      recipeCache: async () => ({ version: 1, recipes: [{ id: "bank-signin" }] }),
+      recipeSchedule: async () => ({ version: 1, startedAt: NOW, retryAt: NOW + 300_000 }),
+      settingsBase: async () => ({ version: 1, revision: 57 }),
+      settingsHold: async () => undefined,
+    },
+    ...overrides,
+  };
+}
+
+describe("diagnostics status", () => {
+  it("reports states and counts with no names, emails, hosts or IDs", async () => {
+    const deps = dependencies();
+    const status = await collectDiagnostics(deps);
+    expect(v.is(diagnosticsStatusSchema, status)).toBe(true);
+    const [connection] = status.connections;
+    expect(connection).toMatchObject({
+      id: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u),
+      environment: "self-hosted",
+      state: "ready",
+      acceptedAt: NOW - 25 * 60_000,
+      items: { total: 3, login: 2, totp: 1, passkey: 1, unsupported: 1 },
+      unlockKdf: "PBKDF2-SHA256 600000",
+    });
+    expect(status.permissions).toEqual({
+      permissions: ["storage", "offscreen"],
+      origins: ["https://*/*"],
+      otherOrigins: 1,
+    });
+    expect(status.service).toMatchObject({
+      kind: "connected",
+      siteAccess: true,
+      settingsRevision: 57,
+      recipes: { count: 1 },
+      nextSyncAt: NOW + 300_000,
+      health: { ok: true, revision: "1c42ad3" },
+    });
+    expect(status.settings).toEqual({ excludedSites: 1, siteDefaults: 0, bindings: 0 });
+    expect(status.checks).toContainEqual({
+      id: "clock",
+      level: "warn",
+      detail: "clock 95 s behind the service",
+    });
+    const [url, init] = vi.mocked(deps.fetch).mock.calls[0] ?? [];
+    expect(String(url)).toBe(`${SERVICE_ORIGIN}/health`);
+    expect(init).toMatchObject({
+      method: "GET",
+      credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
+      signal: expect.any(AbortSignal),
+    });
+    const serialized = JSON.stringify(status);
+    for (const secret of [
+      CONNECTION_ID,
+      SECRET_EMAIL,
+      SECRET_LABEL,
+      "private.example",
+      "secret",
+      "bank-signin",
+      "excluded.example",
+      "Owner laptop",
+      "dev_secret",
+      "6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "0c7f3a4e-58d5-4d3b-9a7e-3e1d7f9b2c55",
+    ])
+      expect(serialized).not.toContain(secret);
+  });
+
+  it("keeps a pseudonym stable for one key and leaves the KDF out of the report", async () => {
+    const deps = dependencies();
+    const first = await collectDiagnostics(deps);
+    const second = await collectDiagnostics(deps);
+    expect(second.connections[0]?.id).toBe(first.connections[0]?.id);
+    const report = formatReport(first, {
+      name: "Chrome",
+      version: "154.0.7712.45",
+      installType: "normal",
+    });
+    expect(report).toContain("Pateat 0.1.0 (1c42ad3, production, normal)");
+    expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted sites");
+    expect(report).toContain("warn clock 95 s behind the service");
+    expect(report).toContain("3 items (login 2, TOTP 1, passkey 1) + 1 unsupported");
+    expect(report).not.toContain("PBKDF2");
+    expect(report).not.toContain("600000");
+  });
+
+  it("checks the service only with site access and reports failures by code", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const withheld = await collectDiagnostics(
+      dependencies({ hasSiteAccess: async () => false, fetch }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(withheld.service.health).toEqual({ ok: false, error: "no-site-access" });
+    const failed = await collectDiagnostics(
+      dependencies({ fetch: async () => new Response("down", { status: 503 }) }),
+    );
+    expect(failed.checks).toContainEqual({ id: "service", level: "error", detail: "health 503" });
+    // A revision that is not a commit-like token, such as a host name with a path, is refused.
+    const odd = await collectDiagnostics(
+      dependencies({
+        fetch: async () =>
+          Response.json({
+            status: "ok",
+            service: "pateat-api",
+            revision: "https://host.example/x",
+          }),
+      }),
+    );
+    expect(odd.service.health).toEqual({ ok: false, error: "invalid-response" });
+  });
+
+  it("names a vault storage failure and an expired sign-in", async () => {
+    const status = await collectDiagnostics(
+      dependencies({
+        connections: {
+          status: async () =>
+            setupStatus({ state: "unavailable", providerSession: "reauthentication-required" }),
+          read: async () => ({ ok: false, error: { code: "invalid-cache-record" } }),
+        },
+      }),
+    );
+    const id = status.connections[0]?.id ?? "";
+    expect(status.checks).toContainEqual({
+      id: `vault:${id}`,
+      level: "error",
+      detail: `${id} invalid-cache-record`,
+    });
+    expect(status.checks).toContainEqual({
+      id: `sync:${id}`,
+      level: "warn",
+      detail: `${id} sync sign-in reauthentication-required`,
+    });
+    expect(status.connections[0]?.items).toBeUndefined();
+  });
+
+  it("flags withheld site access, an overdue sync and an unpaired service", async () => {
+    const overdue = await collectDiagnostics(
+      dependencies({
+        hasAllSiteAccess: async () => false,
+        serviceState: async () => ({
+          kind: "connected",
+          origin: SERVICE_ORIGIN,
+          label: "x",
+          deviceId: "dev_x",
+          syncedAt: NOW - 27 * 60 * 60_000,
+        }),
+      }),
+    );
+    expect(overdue.checks).toContainEqual({
+      id: "site-access",
+      level: "error",
+      detail: "https://*/* site access withheld",
+    });
+    expect(overdue.checks).toContainEqual({
+      id: "recipe-sync",
+      level: "warn",
+      detail: "recipe sync overdue by 3 h",
+    });
+    const unpaired = await collectDiagnostics(
+      dependencies({ serviceState: async () => ({ kind: "disconnected" }) }),
+    );
+    expect(unpaired.service).toEqual({ kind: "not-configured" });
+    expect(unpaired.checks).toContainEqual({
+      id: "service",
+      level: "info",
+      detail: "Pateat service not paired",
+    });
+  });
+
+  it("shows item counts only while unlocked and formats an Argon2id KDF", async () => {
+    const argon = record();
+    if (argon.ok && argon.data?.accepted)
+      (argon.data.accepted.prepared as unknown as { kdf: unknown }).kdf = {
+        argon2id: { iterations: 3, memory: 64, parallelism: 4 },
+      };
+    const status = await collectDiagnostics(
+      dependencies({
+        connections: {
+          status: async () => setupStatus({ state: "configured" }),
+          read: async () => argon,
+        },
+      }),
+    );
+    expect(status.connections[0]?.items).toBeUndefined();
+    expect(status.connections[0]?.unlockKdf).toBe("Argon2id m=64 MiB t=3 p=4");
+  });
+
+  it("rejects a summary with any field the page must not receive", () => {
+    const valid = {
+      version: 1,
+      collectedAt: NOW,
+      build: {
+        version: "0.1.0",
+        revision: "development",
+        mode: "production",
+        bitwardenSdk: "0.2.0-main.1099",
+        bitwardenProtocol: "client 2026.2.0, Device-Type 2",
+      },
+      platform: { os: "linux", arch: "x86-64" },
+      permissions: { permissions: [], origins: [], otherOrigins: 0 },
+      actionIcon: "locked",
+      cryptoHost: { ready: false, sessions: 0 },
+      connections: [
+        {
+          id: "bitwarden:5c1e9a",
+          environment: "cloud-us",
+          state: "ready",
+          autoUnlock: "enabled",
+          providerSession: "active",
+        },
+      ],
+      service: { kind: "not-configured" },
+      storage: {},
+      checks: [],
+    };
+    const response = (status: unknown) => ({ ok: true, status });
+    expect(parseDiagnosticsResponse(response(valid)).ok).toBe(true);
+    const [entry] = valid.connections;
+    for (const status of [
+      { ...valid, email: SECRET_EMAIL },
+      { ...valid, connections: [{ ...entry, label: SECRET_LABEL }] },
+      { ...valid, connections: [{ ...entry, id: CONNECTION_ID }] },
+      { ...valid, service: { kind: "connected", origin: SERVICE_ORIGIN } },
+      { ...valid, platform: { os: "linux", arch: "x86-64", nacl_arch: "x86-64" } },
+    ])
+      expect(() => parseDiagnosticsResponse(response(status))).toThrow();
+  });
+
+  it("answers unavailable when collection stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = createDiagnosticsHandler(
+        dependencies({ settings: () => new Promise(() => undefined) }),
+      )();
+      await vi.advanceTimersByTimeAsync(DIAGNOSTICS_TIMEOUT_MS);
+      await expect(pending).resolves.toEqual({ ok: false, error: "unavailable" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers unavailable instead of rejecting", async () => {
+    const handler = createDiagnosticsHandler(
+      dependencies({
+        cryptoHost: () => {
+          throw new Error("boom");
+        },
+      }),
+    );
+    await expect(handler()).resolves.toEqual({ ok: false, error: "unavailable" });
+  });
+});

@@ -472,6 +472,37 @@ with automatic unlock on main f7d3cf5, the icon showed the logo with no visible 
 phase; this is expected, because the built manifest's `action.default_icon` is the
 locked icon and the worker replaces it as soon as it reads the active records.
 
+## Diagnostics
+
+`diagnostics.html`, linked from the settings page, shows per-device versions and state
+for bug reports ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The page asks the
+service worker for `{ version: 1, type: "diagnostics.status" }`; the worker answers only
+that exact page URL and returns a value-free summary
+(`apps/extension/src/diagnostics/`):
+
+- the manifest version with the build revision (`PATEAT_REVISION` in CI, otherwise the
+  checkout's `git rev-parse HEAD`), build mode, the pinned Bitwarden SDK version and the
+  Bitwarden protocol label; the page adds the Chrome version and install type;
+- the platform, granted API permissions, the manifest's host patterns (other granted
+  origins are only counted) and the toolbar icon state;
+- per Bitwarden connection, an HMAC pseudonym of its ID (`bitwarden:5c1e9a`, keyed by a
+  non-extractable per-device key in IndexedDB `pateat.diagnostics.v1`), the environment
+  kind, setup state, automatic unlock, sync sign-in, the vault record's accepted time
+  and read failure code, item counts by type (trash excluded) while the vault is
+  unlocked, and, on the page only, the unlock KDF;
+- the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
+  paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
+  settings revision, settings hold and recipe cache size;
+- setting counts, `storage.local` usage and checks for site access, the crypto host,
+  each vault cache and sync sign-in, service reachability, clock skew over 30 s against
+  the service `Date` header and a recipe sync older than 24 hours.
+
+The worker fetches `/health` only for a paired service with site access. **Copy for bug
+report** shows the exact text before copying it; that text leaves out the unlock KDF.
+Labels, emails, item names and IDs, URLs and host names are never part of the summary.
+Persistent local logs and the Bitwarden server version are accepted in ADR 0019 but not
+implemented yet.
+
 ## Declarative recipes and AI
 
 Share Valibot contracts for observations, recipes, inference results, and sync. A recipe

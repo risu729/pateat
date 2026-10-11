@@ -3,7 +3,7 @@ import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./button";
-import { RUNTIME_STATUS_QUERY_KEY, SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
+import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { Connections } from "./connections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
@@ -18,83 +18,6 @@ const emptySettings: LocalSettings = {
   siteDefaults: [],
   bindings: [],
 };
-
-function RuntimeStatus({
-  client,
-  hasConnections,
-}: {
-  client: SettingsClient;
-  hasConnections: boolean;
-}) {
-  const refreshing = useRef(false);
-  const status = useQuery({
-    queryKey: RUNTIME_STATUS_QUERY_KEY,
-    queryFn: () => client.getStatus(),
-    retry: false,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    staleTime: Infinity,
-  });
-  async function refresh() {
-    if (refreshing.current || status.isFetching) return;
-    refreshing.current = true;
-    try {
-      await status.refetch();
-    } finally {
-      refreshing.current = false;
-    }
-  }
-  const known = !status.isError && status.data;
-  return (
-    <section aria-labelledby="status-heading" className="panel">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="status-heading">Runtime status</h2>
-        <span className="badge">{hasConnections ? "Manual vault setup" : "Foundation only"}</span>
-      </div>
-      <output id="runtime-status" className="block">
-        {status.isFetching
-          ? "Checking extension…"
-          : status.isError
-            ? "Unable to read runtime status. Reload the extension and try again."
-            : hasConnections
-              ? "Extension ready · Automatic login unavailable"
-              : "Extension ready · Foundation only"}
-      </output>
-      <dl>
-        {!hasConnections && (
-          <div>
-            <dt>Vault</dt>
-            <dd id="vault-status">
-              {known && known.vault === "not-connected" ? "Not connected" : "Unknown"}
-            </dd>
-          </div>
-        )}
-        <div>
-          <dt>Optional service</dt>
-          <dd id="service-status">
-            {known && known.service === "not-configured" ? "Not configured" : "Unknown"}
-          </dd>
-        </div>
-        <div>
-          <dt>Automatic login</dt>
-          <dd id="login-status">
-            {known && known.login === "not-implemented" ? "Not implemented" : "Unknown"}
-          </dd>
-        </div>
-      </dl>
-      <Button
-        id="refresh-status"
-        type="button"
-        variant="outline"
-        disabled={status.isFetching}
-        onClick={() => void refresh()}
-      >
-        Refresh status
-      </Button>
-    </section>
-  );
-}
 
 export function SettingsApp({
   client,
@@ -430,8 +353,11 @@ export function SettingsApp({
         </p>
       </div>
       {serviceClient && <ServiceConnection client={serviceClient} />}
-      <RuntimeStatus client={client} hasConnections={!!connectionClient} />
       <p className="note">
+        <a id="diagnostics-link" href="diagnostics.html" target="_blank" rel="noreferrer">
+          Diagnostics for bug reports
+        </a>
+        {" · "}
         <a href="legal.html" target="_blank" rel="noreferrer">
           Licenses and source
         </a>

@@ -1,10 +1,41 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
 import tailwindcss from "@tailwindcss/vite";
 
+/** CI sets PATEAT_REVISION, as for the service; a local build reads its own checkout. */
+function buildRevision(): string {
+  const configured = process.env["PATEAT_REVISION"];
+  if (configured) return configured;
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "development";
+  }
+}
+
+/** The SDK version the bundled Bitwarden package pins, shown on the diagnostics page. */
+function bitwardenSdkVersion(): string {
+  const manifest: unknown = JSON.parse(
+    readFileSync(new URL("../../packages/bitwarden/package.json", import.meta.url), "utf8"),
+  );
+  const version = (manifest as { dependencies?: Record<string, string> }).dependencies?.[
+    "@bitwarden/sdk-internal"
+  ];
+  if (!version) throw new Error("Missing @bitwarden/sdk-internal dependency");
+  return version;
+}
+
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
-  vite: () => ({ plugins: [tailwindcss()] }),
+  vite: () => ({
+    plugins: [tailwindcss()],
+    define: {
+      PATEAT_BUILD_REVISION: JSON.stringify(buildRevision()),
+      PATEAT_BITWARDEN_SDK_VERSION: JSON.stringify(bitwardenSdkVersion()),
+    },
+  }),
   manifest: ({ mode }) => ({
     name: "Pateat",
     description: "Local login assistant — foundation preview. Login is not implemented.",
