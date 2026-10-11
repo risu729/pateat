@@ -337,7 +337,7 @@ describe("recipe generation", () => {
     expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
   });
 
-  it("stops at the monthly spend and the daily call limits", async () => {
+  it("stops at the monthly and daily spend limits", async () => {
     const monthly = await owner();
     await env.DB.prepare(
       "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 1, ?)",
@@ -348,12 +348,23 @@ describe("recipe generation", () => {
 
     const daily = await owner();
     await env.DB.prepare(
-      "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 50, 0)",
+      "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 1, ?)",
     )
-      .bind(daily.ownerId, day())
+      .bind(daily.ownerId, day(), 5_000_000)
       .run();
     expect(await generate(daily, emailPage)).toMatchObject({ reason: "daily-limit" });
     expect(sent).toEqual([]);
+
+    // The number of calls no longer limits a day; only the spend does.
+    const many = await owner();
+    await env.DB.prepare(
+      "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 500, ?)",
+    )
+      .bind(many.ownerId, day(), 4_999_999)
+      .run();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(many, emailPage)).toMatchObject({ status: "recipe" });
+    expect(sent).toHaveLength(1);
   });
 
   it("makes one call at a time per owner and takes over an abandoned lock", async () => {

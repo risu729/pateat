@@ -203,7 +203,7 @@ export const inferenceLog = sqliteTable(
 
 /**
  * Model calls and estimated spend per owner and period: a `YYYY-MM` row for the monthly
- * spend stop and a `YYYY-MM-DD` row for the daily call limit (UTC).
+ * spend stop and a `YYYY-MM-DD` row for the daily one (UTC).
  */
 export const inferenceSpend = sqliteTable(
   "inference_spend",

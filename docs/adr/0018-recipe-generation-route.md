@@ -53,16 +53,21 @@ The route follows from these and from ADRs 0013 to 0016:
 - The extension writes the slot-to-field bindings itself and uploads them with settings
   sync; the service never sees item IDs.
 - Limits per owner: $150 a month (the ADR 0014 default, estimated from returned usage
-  and a versioned price table), 50 generation calls a day, one call at a time, and the
-  ADR 0016 24-hour rule per origin and path, enforced again on the service.
+  and a versioned price table), $5 a day (UTC), one call at a time, and the ADR 0016
+  24-hour rule per origin and path, enforced again on the service. The owner replaced
+  the first limit of 50 calls a day with the daily amount on 2026-10-11.
 
 Failed recipes are not repaired by this route; repair is a later design.
 
 Implementation choices that follow from these decisions, made on 2026-10-11 without a
 new owner decision:
 
-- The daily limit counts judgement calls as well as generation calls, so repeated
-  post-login pages for one revision are bounded too.
+- The daily limit counts the spend of judgement calls as well as generation calls, so
+  repeated post-login pages for one revision are bounded too. Like the monthly one, it
+  is checked before each call against the day's estimated spend, including the upper
+  bound held for a call whose usage was not reported (about $0.43), so a day can end at
+  most one call over $5. A typical call costs about $0.007 (the approved benchmark),
+  so $5 is about 700 calls; a day of calls that report no usage stops after about 12.
 - A page that continues a recipe after an `advance` step counts toward the 24-hour rule
   under that recipe revision, not under its path alone, so the password form of a login
   that stays on `/login` is not refused as a retry of the email form.
