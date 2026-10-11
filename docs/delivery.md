@@ -93,23 +93,25 @@ kept coming (observed on 2026-10-11). A manual dispatch releases the `ci_run_id`
 given for the main revision it started on. Inside a non-cancelling release lock, every
 run compares the chosen revision with the revision `/health` reports and releases only
 one that is ahead of it, so the server never moves back; a dispatch may also repeat the
-live revision. The workflow fails before any change when the token is empty or the
-account ID is not a 32-character hex ID. It verifies the run's identity, event and
-conclusion, restores only its hashed artifact, applies the released migrations, deploys
-through the pinned action without rebuilding, and verifies returned deployment IDs and
-the hosted revision. Before `cf d1 migrations apply`, it reads the database by the
-recorded ID and requires the name `pateat`; afterwards no migration may remain
-unapplied. A failed migration stops the release before activation. Before the first
-public release, migrations need not be additive and the previously serving Worker need
-not keep running on the new schema
+live revision. When `/health` gives no revision, only the current main head may be
+released. A live revision that is not on main fails an automatic run instead of
+skipping; after checking the server, the owner replaces it with a dispatch. The workflow
+fails before any change when the token is empty or the account ID is not a 32-character
+hex ID. It verifies the run's identity, event and conclusion, restores only its hashed
+artifact, applies the released migrations, deploys through the pinned action without
+rebuilding, and verifies returned deployment IDs and the hosted revision. Before
+`cf d1 migrations apply`, it reads the database by the recorded ID and requires the name
+`pateat`; afterwards no migration may remain unapplied. A failed migration stops the
+release before activation. Before the first public release, migrations need not be
+additive and the previously serving Worker need not keep running on the new schema
 ([compatibility before release](development.md#compatibility-before-release)); cf
 compares applied migrations by name only, so an applied migration file is never edited.
 `cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
-is updated. A failed release is not retried automatically: any later successful main CI
-run releases the newest tested revision again, or retry with an explicit dispatch.
-Routine releases never change the Custom Domain or other triggers; the bootstrap applies
-them once. The complete service release gates below remain planned, including automatic
-promotion/failure acknowledgement.
+is updated. There is no automatic retry; the next successful main CI run releases the
+newest tested revision, or retry with a dispatch. Routine releases never change the
+Custom Domain or other triggers; the bootstrap applies them once. The complete service
+release gates below remain planned, including automatic promotion/failure
+acknowledgement.
 
 ## Repository configuration
 
