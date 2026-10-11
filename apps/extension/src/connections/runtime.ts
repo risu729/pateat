@@ -100,12 +100,13 @@ export function createConnectionRuntime(
           label: item.label,
           allowedOrigins: [],
           groupIds: item.groupIds,
-          fields: item.fields.map(({ id, label, name, kind, linkedFieldId }) => ({
+          fields: item.fields.map(({ id, label, name, kind, linkedFieldId, empty }) => ({
             id,
             label,
             name,
             kind,
             ...(linkedFieldId ? { linkedFieldId } : {}),
+            ...(empty ? { empty } : {}),
           })),
         })),
       } satisfies VaultCatalog["connections"][number],

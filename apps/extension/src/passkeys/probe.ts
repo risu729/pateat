@@ -106,10 +106,12 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
     });
   const others = new WeakSet<PasskeyCandidate>();
   const source: PasskeySource = {
-    async candidates(origin, rpId, signal) {
+    async candidates(origin, rpId, signal, only) {
       const url = new URL(origin);
       if (url.protocol !== "http:" || url.hostname !== PROBE_PASSKEY.rpId) {
-        const found = await other?.candidates(origin, rpId, signal);
+        const found = await (only
+          ? other?.candidates(origin, rpId, signal, only)
+          : other?.candidates(origin, rpId, signal));
         for (const candidate of found?.candidates ?? []) others.add(candidate);
         return found;
       }

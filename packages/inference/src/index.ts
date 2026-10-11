@@ -21,9 +21,11 @@ export {
 } from "./completion";
 export {
   addCompletion,
+  addHandler,
   appendPageSteps,
   type AssemblyRejection,
   type CompletionRejection,
+  type HandlerRejection,
 } from "./assemble";
 export {
   claudeGeneration,

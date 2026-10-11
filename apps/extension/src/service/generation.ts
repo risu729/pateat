@@ -1,7 +1,9 @@
-import type {
-  LoginObservation,
-  RecipeCompletionResult,
-  RecipeGenerationRequest,
+import {
+  slotsForPage,
+  type LoginObservation,
+  type LoginRoute,
+  type RecipeCompletionResult,
+  type RecipeGenerationRequest,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginGeneration } from "../login/runtime";
@@ -83,7 +85,12 @@ export function createLoginGeneration(options: {
       await queue;
       return !(await recent()).some(same(origin, path));
     },
-    async generate(request: RecipeGenerationRequest) {
+    async generate(input: RecipeGenerationRequest) {
+      // `totp` is offered only for a page with a code field, so the slots never tell the
+      // model whether an account has TOTP (ADR 0027).
+      const slots = slotsForPage(input.observation, input.slots);
+      if (!slots.length) return "none";
+      const request = { ...input, slots };
       const connection = await connected();
       if (!connection) return "none";
       const { origin, path } = request.observation;
@@ -117,22 +124,37 @@ export function createLoginGeneration(options: {
       await sync().catch(() => undefined);
       return "recipe";
     },
-    async judge(recipeId: string, revision: number, observation: LoginObservation) {
+    async judge(
+      recipeId: string,
+      revision: number,
+      route: LoginRoute,
+      observation: LoginObservation,
+    ) {
       const connection = await connected();
-      if (!connection) return "unclear";
+      if (!connection) return { verdict: "unclear" };
       const answer = await transport.judgeCompletion(
         connection.origin,
         connection.credential,
         recipeId,
-        { version: 1, revision, observation },
+        { version: 1, revision, route, observation },
       );
-      const status: RecipeCompletionResult["status"] | undefined =
-        answer.kind === "result" ? answer.result.status : undefined;
+      const result: RecipeCompletionResult | undefined =
+        answer.kind === "result" ? answer.result : undefined;
       // Later runs use the learned completion; this attempt settles without waiting.
-      if (status === "signed-in") void sync().catch(() => undefined);
-      return status === "signed-in" || status === "rejected" || status === "challenge"
-        ? status
-        : "unclear";
+      if (result?.status === "signed-in") void sync().catch(() => undefined);
+      // A handler continues this attempt, so it waits for the cache as well (ADR 0027).
+      if (result?.status === "challenge" && result.change) {
+        await sync().catch(() => undefined);
+        return { verdict: "challenge", recipe: result.change.recipe };
+      }
+      return {
+        verdict:
+          result?.status === "signed-in" ||
+          result?.status === "rejected" ||
+          result?.status === "challenge"
+            ? result.status
+            : "unclear",
+      };
     },
   };
 }

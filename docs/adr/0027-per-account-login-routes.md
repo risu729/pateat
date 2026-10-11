@@ -1,6 +1,7 @@
 # ADR 0027: Login routes and second-factor pages chosen per account
 
-Status: accepted by the owner on 2026-10-11 (13:47 UTC); not implemented. Amends
+Status: accepted by the owner on 2026-10-11 (13:47 UTC). Delivery 2 (handlers with the
+`passkey` handler) is implemented; the other deliveries are not. Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and

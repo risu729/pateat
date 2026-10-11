@@ -181,10 +181,27 @@ a code, or `unavailable` with a reason when no model was called.
   call, or after it if the last place was taken meanwhile), and a `base` that is not a
   generated recipe ID is 400. The model maps the slots, the plan is checked with
   `validatePagePlan`, and the steps are stored with a conditional write.
-- `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, observation }`
-  for the page after the final `submit` step of that revision, on the recipe's origin.
-  The login paths come from the stored recipe. A `signed-in` marker passes
-  `addCompletion` and is stored as `completion` in the next revision.
+- `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, route?,
+  observation }` (`route` defaults to `password`) for a page an effect step of that
+  revision led to, on the recipe's origin
+  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Another revision, or a
+  route the stored recipe lacks, answers `recipe-conflict`. A page that shows one of the
+  route's fill fields (on any path) or the completion marker answers `not-judgeable`
+  before any model call. The login paths are the route's step paths and the recipe's
+  handler paths, from the stored recipe. A `signed-in` marker passes `addCompletion` and
+  is stored as `completion` in the next revision; with a completion already stored, the
+  answer is `signed-in` without a change. A `challenge` verdict that names a
+  security-key or passkey button passes `addHandler` (a button of the page, not one that
+  registers or adds a passkey, not a step, switch, rejection or completion target, one
+  handler per kind and path) and is stored as a `passkey` handler in the next revision;
+  the answer carries it as `change`.
+
+Judgements are limited under the lock, before credentials are resolved:
+`page_judgements` holds one row per recipe revision and page path, so a repeat answers
+`already-judged`, and a recipe judged 20 times since the start of the UTC day answers
+`judgement-limit`. The row is written with the spend reservation, so a request the role
+then refuses locally still uses it. Rows of older revisions are deleted once their UTC
+day is over.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
 (`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both

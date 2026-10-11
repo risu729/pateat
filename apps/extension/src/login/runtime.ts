@@ -1,10 +1,15 @@
 import * as v from "valibot";
 import {
+  attemptPlan,
   builtInLoginSlots,
   createAttemptMetadata,
   defaultLoginBinding,
+  extendsRecipe,
   findLoginBinding,
+  handlerFact,
+  handlerSteps,
   isSiteExcluded,
+  loginFieldFacts,
   loginDocumentSchema,
   loginObservationSchema,
   nextLoginOperation,
@@ -13,6 +18,7 @@ import {
   recoverLoginAttempt,
   resolveBindingFields,
   resolveLoginPlan,
+  routeSteps,
   sameLoginDocument,
   saveLoginChoice,
   siteDefaultConnection,
@@ -20,14 +26,18 @@ import {
   withdrawAccountSwitch,
   validateLoginOperation,
   type LoginAttemptEvent,
+  type LoginAccount,
   type LoginAccountBinding,
   type LoginAttemptMetadata,
   type LoginDocument,
+  type LoginItemFacts,
   type LoginObservation,
   type LoginOperation,
   type LoginRecipe,
+  type LoginRoute,
   type LoginStep,
   type LoginTarget,
+  type LocalSettings,
   type RecipeGenerationRequest,
   type SavedLoginBinding,
   type SemanticSlot,
@@ -35,6 +45,7 @@ import {
   type SettingsSnapshot,
   type VaultCatalog,
   type VaultConnectionMetadata,
+  type VaultItemMetadata,
 } from "@pateat/contracts";
 import { browser, type Browser } from "wxt/browser";
 import {
@@ -49,6 +60,7 @@ import {
   statusSchema,
   probeControlSchema,
   loginReadiness,
+  HANDLER_CLICK_WAIT_MS,
   LOGIN_STEP_WAIT_MS,
   type LoginReadiness,
   type LoginSecretKind,
@@ -223,12 +235,20 @@ export interface LoginGeneration {
   available(origin: string, path: string): Promise<boolean>;
   /** Sends one page; `recipe` once the generated recipe is in the recipe cache. */
   generate(request: RecipeGenerationRequest): Promise<"recipe" | "none">;
-  /** Sends the page after a recipe's final submission for its completion. */
+  /**
+   * Sends a page no recipe check explained after an effect step, so the service can
+   * learn the completion or a handler (ADR 0027). `recipe` is the newer
+   * revision with a handler added, already in the recipe cache.
+   */
   judge(
     recipeId: string,
     revision: number,
+    route: LoginRoute,
     observation: LoginObservation,
-  ): Promise<"signed-in" | "rejected" | "challenge" | "unclear">;
+  ): Promise<{
+    verdict: "signed-in" | "rejected" | "challenge" | "unclear";
+    recipe?: LoginRecipe;
+  }>;
 }
 
 /**
@@ -240,6 +260,37 @@ const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
   { slot: builtInLoginSlots.password, fieldId: "login.password" },
   { slot: builtInLoginSlots.totp, fieldId: "login.totp-code" },
 ];
+/**
+ * Whether a matching item offers a generation slot's built-in field. The password counts
+ * only when it holds a value and is not excluded (ADR 0027); the TOTP field counts when
+ * present, so the TOTP flag never decides what the model is offered.
+ */
+function offersGenerationField(
+  settings: LocalSettings,
+  entry: { connectionId: string; item: VaultItemMetadata },
+  fieldId: string,
+): boolean {
+  const field = entry.item.fields.find((candidate) => candidate.id === fieldId);
+  if (!field) return false;
+  if (fieldId !== "login.password") return true;
+  return (
+    field.empty !== true &&
+    !settings.connections.some(
+      (connection) =>
+        connection.connectionId === entry.connectionId &&
+        connection.excludedFields.some(
+          (ref) => ref.itemId === entry.item.id && ref.fieldId === fieldId,
+        ),
+    )
+  );
+}
+/** The step may have submitted or moved the page, so its result can show a handler. */
+const effectful = (metadata: LoginAttemptMetadata) =>
+  metadata.operationKind === "click" ||
+  metadata.operationEffect === "advance" ||
+  metadata.operationEffect === "submit";
+const stepTargets = (step: LoginStep) =>
+  step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
 const probeMode = import.meta.env.MODE === "probe";
 
 /**
@@ -275,6 +326,11 @@ export function createLoginRuntime(
     uris?: LiveUriMatcher;
     /** Recipe generation for pages without a recipe; needs `uris` for the vault match. */
     generation?: LoginGeneration;
+    /**
+     * The account item's passkey facts, read once when a login starts (ADR 0027). Without
+     * it the item counts as holding no passkey, so a `passkey` handler is never run.
+     */
+    passkeys?: (account: LoginAccount) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
   },
@@ -1129,19 +1185,24 @@ export function createLoginRuntime(
       return "gone";
     }
   }
-  async function reconcile(run: Execution, settleUnknown = false): Promise<void> {
+  /**
+   * Checks the page after an effect step: the completion, the rejection, the plan's next
+   * step, then a handler on the page (ADR 0027). Returns `held` while a handler's clicked
+   * button still shows, so the page is neither judged nor settled yet.
+   */
+  async function reconcile(run: Execution, settleUnknown = false): Promise<"held" | undefined> {
     const nextIndex =
       run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance"
         ? run.metadata.stepIndex + 1
         : run.metadata.stepIndex;
-    const next = run.recipe.steps[nextIndex];
-    const nextTargets =
-      next?.kind === "fill" ? next.fields.map((field) => field.target) : next ? [next.target] : [];
+    const plan = attemptPlan(run.recipe, run.metadata) ?? [];
+    const next = plan[nextIndex]?.step;
+    const nextTargets = next ? stepTargets(next) : [];
     const { completion, rejection } = run.recipe;
     const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
     const targets = [...proof, ...(rejection ? [rejection] : []), ...nextTargets];
     const observed = await observe(run, targets);
-    if (!observed) return;
+    if (!observed) return undefined;
     // Without a completion target nothing proves a sign-in, so the attempt can settle
     // only as rejected, continued or unknown.
     if (
@@ -1151,7 +1212,7 @@ export function createLoginRuntime(
       observed.targets.slice(1, proof.length).every((state) => state === "missing")
     ) {
       await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
-      return;
+      return undefined;
     }
     const rejectionIndex = proof.length;
     if (rejection && observed.targets[rejectionIndex] === "unique") {
@@ -1160,7 +1221,7 @@ export function createLoginRuntime(
         result: "credential-rejected",
         document: run.live.document,
       });
-      return;
+      return undefined;
     }
     const offset = rejectionIndex + (rejection ? 1 : 0);
     if (
@@ -1170,7 +1231,7 @@ export function createLoginRuntime(
       observed.targets.slice(offset).every((state) => state === "unique") &&
       // A pending click advances only after evidence of its configured next page.
       (!(run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance") ||
-        run.recipe.steps[run.metadata.stepIndex]?.path !== next.path)
+        plan[run.metadata.stepIndex]?.step.path !== next.path)
     ) {
       const continuation: LoginAttemptEvent = {
         type: "OBSERVED",
@@ -1181,42 +1242,111 @@ export function createLoginRuntime(
       const candidate = transitionLoginAttempt(run.metadata, continuation);
       if (candidate.state === "ready" || candidate.state === "retryable") {
         await change(run, continuation);
-        return;
+        return undefined;
       }
     }
-    if (!settleUnknown) return;
-    if (await learn(run)) return;
+    if (effectful(run.metadata)) {
+      // A handler's click is not judged while its button still shows: a WebAuthn exchange
+      // or a chooser the person answers can take a while (ADR 0027).
+      const inFlight = plan[run.metadata.stepIndex];
+      if (inFlight?.handler !== undefined) {
+        const clicked = await observe(run, stepTargets(inFlight.step));
+        if (!clicked) return undefined;
+        if (
+          clicked.path === inFlight.step.path &&
+          clicked.targets.some((state) => state !== "missing")
+        )
+          return "held";
+      }
+      if (await enterHandler(run, observed.path)) return undefined;
+    }
+    if (!settleUnknown) return undefined;
+    if (await learn(run)) return undefined;
     await change(run, { type: "OBSERVED", result: "unknown", document: run.live.document });
+    return undefined;
   }
-  /** Attempts whose post-login page was already sent; it is sent once per attempt. */
+  /**
+   * Enters a handler of the recipe on this path whose first elements show (ADR 0027).
+   * Returns whether the attempt moved on: to the handler's steps, or to `challenge` when
+   * the item lacks the handler's fact, the handler already ran, or the attempt's budget
+   * has no room for it.
+   */
+  async function enterHandler(run: Execution, path: string): Promise<boolean> {
+    const entries = (run.recipe.handlers ?? []).flatMap((handler, index) =>
+      handler.path === path
+        ? [{ handler, index, targets: stepTargets(handlerSteps(handler)[0]!) }]
+        : [],
+    );
+    if (!entries.length) return false;
+    // A separate observation, so the recipe's own bound of 24 elements still holds.
+    const observed = await observe(
+      run,
+      entries.flatMap((entry) => entry.targets),
+    );
+    if (!observed || observed.path !== path) return false;
+    let offset = 0;
+    const shown = entries.filter((entry) => {
+      const states = observed.targets.slice(offset, offset + entry.targets.length);
+      offset += entry.targets.length;
+      return states.length === entry.targets.length && states.every((state) => state === "unique");
+    });
+    if (!shown.length) return false;
+    const challenge = () =>
+      change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
+    // A handler page shown again after its handler ran is left to the person, so a wrong
+    // code or key is never retried into a lockout.
+    const fresh = shown.find(
+      (entry) => !run.metadata.handlers.some((entered) => entered.index === entry.index),
+    );
+    if (!fresh || !run.metadata.facts[handlerFact[fresh.handler.kind]]) {
+      await challenge();
+      return true;
+    }
+    const steps = handlerSteps(fresh.handler);
+    const event: LoginAttemptEvent = {
+      type: "HANDLER",
+      handler: fresh.index,
+      steps: steps.length,
+      effects: steps.filter((step) => {
+        const effect = loginStepEffect(step);
+        return effect === "advance" || effect === "submit";
+      }).length,
+      document: run.live.document,
+    };
+    if (transitionLoginAttempt(run.metadata, event).state !== "ready") {
+      await challenge();
+      return true;
+    }
+    await change(run, event);
+    return true;
+  }
+  /** Pages already sent, per attempt, recipe revision and path; each is sent once. */
   const judged = new Set<string>();
   /**
-   * After the final submission of a recipe without a completion, sends the resulting page
-   * so the service can judge it and learn the completion (ADR 0018). Returns whether the
-   * attempt settled. A page that still shows the recipe's own fields on one of its paths
-   * is not sent: the sign-in has not finished there.
+   * After an effect step that no check explained, sends the resulting page so the
+   * service can judge it and learn the completion or a handler (ADR 0018, ADR 0027).
+   * Returns whether the attempt settled or moved on. A page that still shows the route's
+   * fields on one of its paths, or the completion marker, is not sent.
    */
   async function learn(run: Execution): Promise<boolean> {
     const { recipe, metadata } = run;
+    if (!generation || !effectful(metadata)) return false;
+    const steps = routeSteps(recipe, metadata.route);
+    const marker = recipe.completion ? [recipe.completion.target] : [];
+    const fills = steps
+      .flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.target) : []))
+      .slice(0, 24 - marker.length);
+    const remaining = await observe(run, [...fills, ...marker]);
+    if (!remaining) return false;
+    const key = `${metadata.id}:${metadata.recipeRevision}:${remaining.path}`;
     if (
-      !generation ||
-      recipe.completion ||
-      metadata.stepIndex !== recipe.steps.length - 1 ||
-      metadata.operationEffect !== "submit" ||
-      judged.has(metadata.id)
+      judged.has(key) ||
+      (steps.some((step) => step.path === remaining.path) &&
+        remaining.targets.slice(0, fills.length).some((state) => state !== "missing")) ||
+      (marker.length > 0 && remaining.targets[fills.length] !== "missing")
     )
       return false;
-    const stepTargets = recipe.steps.flatMap((step) =>
-      step.kind === "fill" ? step.fields.map((field) => field.target) : [],
-    );
-    const remaining = await observe(run, stepTargets.slice(0, 24));
-    if (
-      !remaining ||
-      (recipe.steps.some((step) => step.path === remaining.path) &&
-        remaining.targets.some((state) => state !== "missing"))
-    )
-      return false;
-    judged.add(metadata.id);
+    judged.add(key);
     let observation: LoginObservation | undefined;
     try {
       const extracted = v.safeParse(
@@ -1240,8 +1370,15 @@ export function createLoginRuntime(
     if (!current(run)) return true;
     // A page that cannot be described completely is not sent; the next run tries again.
     if (!observation) return false;
-    const verdict = await generation.judge(recipe.id, recipe.revision, observation);
+    const { verdict, recipe: added } = await generation.judge(
+      recipe.id,
+      recipe.revision,
+      metadata.route,
+      observation,
+    );
     if (!current(run)) return true;
+    if (verdict === "challenge" && added && (await takeOver(run, added, observation.path)))
+      return true;
     await change(run, {
       type: "OBSERVED",
       result:
@@ -1256,23 +1393,52 @@ export function createLoginRuntime(
     });
     return true;
   }
+  /**
+   * The first login takes over the revision its judged page added a handler to and runs
+   * the handler on the page it is on (ADR 0027). Only a revision that keeps the routes and
+   * their steps is taken over. Returns whether the attempt moved on.
+   */
+  async function takeOver(run: Execution, next: LoginRecipe, path: string): Promise<boolean> {
+    if (next.id !== run.recipe.id || !extendsRecipe(run.recipe, next)) return false;
+    const event: LoginAttemptEvent = { type: "REVISED", recipeRevision: next.revision };
+    if (transitionLoginAttempt(run.metadata, event).recipeRevision !== next.revision) return false;
+    // The recipe is replaced before the record that names its revision is written.
+    run.recipe = next;
+    await change(run, event);
+    return current(run) && (await enterHandler(run, path));
+  }
   // State transitions, journal writes and DOM effects form an ordered protocol.
   // Parallel execution would race policy checks or repeat submission side effects.
   /* eslint-disable no-await-in-loop */
   async function reconcileBounded(run: Execution): Promise<void> {
     // An advance is confirmed by the next step's elements, which get the same wait as any
     // fill or click; other results keep the shorter observation budget.
-    const until =
+    let until =
       Date.now() + (run.metadata.operationEffect === "advance" ? LOGIN_STEP_WAIT_MS : 3000);
+    // A handler's clicked button may show this long before the page is left to the person.
+    const holdUntil = Date.now() + HANDLER_CLICK_WAIT_MS;
     const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
     // Each round re-authorizes against settings, so the longer advance budget polls slower.
     const interval = run.metadata.operationEffect === "advance" ? 200 : 50;
-    while (current(run) && observing() && Date.now() < until) {
-      await reconcile(run);
-      if (!observing()) return;
-      await new Promise<void>((resolve) => setTimeout(resolve, interval));
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    while (current(run) && observing()) {
+      const settle = Date.now() >= until;
+      const held = await reconcile(run, settle);
+      if (!current(run) || !observing()) return;
+      if (held) {
+        if (Date.now() >= holdUntil) {
+          await change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
+          return;
+        }
+        // Once the button is gone, the result gets the usual budget.
+        until = Math.max(until, Date.now() + 3000);
+        await sleep(500);
+        continue;
+      }
+      // A failed observation leaves the attempt for its next document to reconcile.
+      if (settle) return;
+      await sleep(interval);
     }
-    if (current(run) && observing()) await reconcile(run, true);
   }
   async function drive(run: Execution): Promise<void> {
     if (run.running) return;
@@ -1284,7 +1450,7 @@ export function createLoginRuntime(
         if (!(await allowed(run))) return;
         // A fill or click waits for its elements before any intent, vault read or value
         // delivery; a slow render is not a failure until the owner-approved limit passes.
-        const upcoming = run.recipe.steps[run.metadata.stepIndex];
+        const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
         if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
           const waited = await waitFor(run, loginReadiness(upcoming));
           if (!current(run) || run.metadata.state !== "ready") return;
@@ -1575,11 +1741,11 @@ export function createLoginRuntime(
       const item = snapshot.catalog.connections
         .find((entry) => entry.id === candidate.connectionId)
         ?.items.find((entry) => entry.id === candidate.itemId);
-      return item ? [item] : [];
+      return item ? [{ connectionId: candidate.connectionId, item }] : [];
     });
     // Only slots a matching item can fill; built-in fields keep these IDs on every device.
     const slots = generationSlots.filter(({ fieldId }) =>
-      items.some((item) => item.fields.some((field) => field.id === fieldId)),
+      items.some((entry) => offersGenerationField(snapshot.snapshot.settings, entry, fieldId)),
     );
     return slots.length ? slots.map(({ slot }) => slot) : undefined;
   }
@@ -1824,7 +1990,7 @@ export function createLoginRuntime(
     const switched = recorded?.state === "blocked" && recorded.outcome === "account-switched";
     const previous = switched ? undefined : recorded;
     // Look up the recipe first: a page without one never opens the policy catalog or vault.
-    const recipe =
+    let recipe =
       probeMode && document.origin === origin
         ? previous
           ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
@@ -1866,11 +2032,33 @@ export function createLoginRuntime(
         ...(offer ? { generate: true as const } : {}),
       };
     }
-    // A resumed attempt keeps its own recipe revision; a replaced or different recipe never takes it over.
+    // A resumed attempt keeps its own recipe revision; a replaced or different recipe never
+    // takes it over. A newer revision that only adds handlers or a completion is taken over
+    // when this worker still holds the recorded one to compare (ADR 0027); after a restart
+    // only the recorded revision resumes.
+    let revised = false;
+    if (
+      previous &&
+      recipe &&
+      previous.recipeId === recipe.id &&
+      previous.recipeRevision !== recipe.revision
+    ) {
+      const known = attempts.get(document.tabId);
+      const held =
+        known?.metadata.id === previous.id &&
+        known.recipe.id === previous.recipeId &&
+        known.recipe.revision === previous.recipeRevision
+          ? known.recipe
+          : undefined;
+      // A cache that lags behind the attempt keeps the attempt's own recipe.
+      if (held && recipe.revision < held.revision) recipe = held;
+      else if (held && extendsRecipe(held, recipe)) revised = true;
+      else recipe = undefined;
+    }
     if (
       !recipe ||
       recipe.origin !== document.origin ||
-      (previous && (previous.recipeId !== recipe.id || previous.recipeRevision !== recipe.revision))
+      (previous && previous.recipeId !== recipe.id)
     )
       return refuse("recipe-not-found");
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
@@ -1909,6 +2097,41 @@ export function createLoginRuntime(
         offerChoice(document, plan.candidates, "logout" in plan && plan.logout === true);
       return refuse(plan.reason);
     }
+    // A new login reads its item's facts once and chooses its route from them (ADR 0027);
+    // a resumed one keeps those in its record, so a sync cannot change its route.
+    let facts: LoginItemFacts | undefined;
+    if (!previous) {
+      const item = plan.connection.items.find((entry) => entry.id === plan.account.itemId);
+      const fieldFacts = item
+        ? loginFieldFacts(item, plan.account.fieldIds)
+        : { password: false, totp: false };
+      const held = await Promise.resolve(
+        options.passkeys?.({
+          origin: document.origin,
+          connectionId: plan.account.connectionId,
+          itemId: plan.account.itemId,
+        }),
+      ).catch(() => undefined);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      const read: LoginItemFacts = {
+        ...fieldFacts,
+        passkey: held?.passkey === true,
+        discoverablePasskey: held?.passkey === true && held.discoverable,
+      };
+      // The password route needs every bound password or TOTP field to hold a value the
+      // account may fill.
+      if (
+        !plan.binding.slots.every(({ fieldId }) =>
+          fieldId === "login.password"
+            ? read.password
+            : fieldId === "login.totp-code"
+              ? read.totp
+              : true,
+        )
+      )
+        return refuse("no-route");
+      facts = read;
+    }
     // Cookies can be shared across tabs. Preserve this conservative origin owner even at
     // terminal state until tab closure, and while a tab that logged out of it still asks.
     if (heldElsewhere(document.tabId, document.origin)) return refuse("origin-busy");
@@ -1928,6 +2151,11 @@ export function createLoginRuntime(
         type: "NAVIGATED",
         document,
       });
+      if (revised)
+        metadata = transitionLoginAttempt(metadata, {
+          type: "REVISED",
+          recipeRevision: recipe.revision,
+        });
       if (metadata.policyRevision !== snapshot.snapshot.revision)
         metadata = transitionLoginAttempt(metadata, { type: "POLICY_CHANGED" });
     } else {
@@ -1941,6 +2169,8 @@ export function createLoginRuntime(
             connectionId: plan.account.connectionId,
             itemId: plan.account.itemId,
           },
+          route: "password",
+          facts: facts!,
           document,
           accountSwitched: switched,
         }),
@@ -2142,5 +2372,19 @@ export function createLoginRuntime(
       [...persisted.values()].some((metadata) => !terminal(metadata))
     );
   }
-  return { handle, settingsChanged, active };
+  /**
+   * The vault item of the login a tab runs on an origin, while it has not ended. The
+   * passkey bridge answers that login's requests with this item only (ADR 0027).
+   */
+  async function loginAccount(
+    tabId: number,
+    siteOrigin: string,
+  ): Promise<{ connectionId: string; itemId: string } | undefined> {
+    await loaded;
+    const metadata = recordFor(tabId, siteOrigin);
+    return metadata && !terminal(metadata)
+      ? { connectionId: metadata.account.connectionId, itemId: metadata.account.itemId }
+      : undefined;
+  }
+  return { handle, settingsChanged, active, loginAccount };
 }

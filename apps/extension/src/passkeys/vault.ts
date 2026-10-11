@@ -11,7 +11,8 @@ import type { ConnectionRuntime } from "../connections/runtime";
 import type { PasskeyMatches } from "../crypto/passkey";
 import type { VaultResult } from "../vault/record";
 import { fromBase64Url, toBase64Url } from "./encoding";
-import type { PasskeySource } from "./runtime";
+import { rpIdsFor } from "./rp-id";
+import type { PasskeyItem, PasskeySource } from "./runtime";
 import type { PasskeyCandidate, PasskeyCandidates } from "./select";
 
 /** A stored vault passkey, bound to the snapshot and settings revision it was found in. */
@@ -52,19 +53,24 @@ function passkeyEligible(
 /**
  * ADR 0007 item selection input: every eligible stored passkey with this RP ID across enabled
  * connections, marked `preferred` when it is the origin's site default. Excluded sites get none.
- * Callers must not pass a per-request signal to the finder: host cancellation retires the whole
- * session.
+ * With `only`, just that item's passkeys, none preferred, complete when its connection answered
+ * and the item was searched (ADR 0027). Callers must not pass a per-request signal to the finder:
+ * host cancellation retires the whole session.
  */
 export async function findVaultPasskeys(input: {
   saved: Settings;
   origin: string;
   rpId: string;
   find: PasskeyFinder;
+  only?: PasskeyItem;
 }): Promise<PasskeyCandidates<VaultPasskeyCandidate> | undefined> {
   const { settings, revision } = input.saved.snapshot;
   const { catalog } = input.saved;
+  const { only } = input;
   if (isSiteExcluded(settings, input.origin)) return undefined;
-  const siteDefault = settings.siteDefaults.find((entry) => entry.origin === input.origin);
+  const siteDefault = only
+    ? undefined
+    : settings.siteDefaults.find((entry) => entry.origin === input.origin);
   // A default naming a provider account resolves to its one local connection, as for logins.
   const preferredConnection = siteDefault ? siteDefaultConnection(siteDefault, catalog) : undefined;
   const preferred =
@@ -78,7 +84,10 @@ export async function findVaultPasskeys(input: {
     : preferred
       ? "not-searched"
       : "unresolved";
+  // The item's own connection must answer; an unanswered one leaves the search incomplete.
+  let answered = !only;
   for (const connection of catalog.connections) {
+    if (only && connection.id !== only.connectionId) continue;
     const configured = settings.connections.find((entry) => entry.connectionId === connection.id);
     if (!configured?.enabled) continue;
     if (
@@ -110,11 +119,17 @@ export async function findVaultPasskeys(input: {
     const eligible = (itemId: string) =>
       !connection.quarantinedItemIds?.includes(itemId) &&
       passkeyEligible(settings, catalog, connection.id, itemId);
-    if (result.data.unavailableItemIds.some(eligible)) complete = false;
+    answered = true;
+    if (
+      result.data.unavailableItemIds.some(
+        (itemId) => (!only || itemId === only.itemId) && eligible(itemId),
+      )
+    )
+      complete = false;
     if (preferred?.connectionId === connection.id && eligible(preferred.itemId))
       defaultState = "searched";
     for (const entry of result.data.candidates) {
-      if (!eligible(entry.itemId)) continue;
+      if (!eligible(entry.itemId) || (only && entry.itemId !== only.itemId)) continue;
       const item = connection.items.find((candidate) => candidate.id === entry.itemId);
       candidates.push({
         connectionId: connection.id,
@@ -136,7 +151,35 @@ export async function findVaultPasskeys(input: {
       });
     }
   }
-  return { candidates, complete, siteDefault: defaultState };
+  return only
+    ? { candidates, complete: complete && answered }
+    : { candidates, complete, siteDefault: defaultState };
+}
+
+/**
+ * The passkey facts of a login's item (ADR 0027): any usable passkey (a zero counter) for an
+ * RP ID the origin may use, and whether one of them is discoverable. A search that could not
+ * finish counts as no passkey for its RP ID.
+ */
+export async function itemPasskeyFacts(
+  source: Pick<PasskeySource, "candidates">,
+  account: { origin: string } & PasskeyItem,
+): Promise<{ passkey: boolean; discoverable: boolean }> {
+  const facts = { passkey: false, discoverable: false };
+  const item = { connectionId: account.connectionId, itemId: account.itemId };
+  for (const rpId of rpIdsFor(account.origin)) {
+    // Sequential: each query shares the bounded native host. Never aborted: the vault source
+    // does not cancel host queries.
+    // eslint-disable-next-line no-await-in-loop
+    const found = await source.candidates(account.origin, rpId, new AbortController().signal, item);
+    if (!found?.complete) continue;
+    for (const candidate of found.candidates) {
+      if (candidate.counter !== 0) continue;
+      facts.passkey = true;
+      if (candidate.discoverable && candidate.userHandle !== null) facts.discoverable = true;
+    }
+  }
+  return facts;
 }
 
 /** The unlocked vault of one registered connection, if it has a live handle. */
@@ -192,7 +235,7 @@ export function createVaultPasskeySource(
     );
   };
   return {
-    async candidates(origin, rpId) {
+    async candidates(origin, rpId, _signal, only) {
       // Every HTTPS page can ask. Reading the catalog restores each registered vault, so an
       // excluded site, or settings with no enabled connection, stop at the metadata read.
       const metadata = await connections.settings.read().catch(() => undefined);
@@ -206,6 +249,7 @@ export function createVaultPasskeySource(
         origin,
         rpId,
         find,
+        ...(only ? { only } : {}),
       });
     },
     async sign(candidate, authenticatorData, clientDataHash) {

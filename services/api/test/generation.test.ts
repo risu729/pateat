@@ -838,8 +838,11 @@ describe("completion judgement", () => {
       status: 200,
       body: { version: 1, status: "rejected" },
     });
+    // Each revision and path is judged once, so another page path is sent.
     replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
-    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+    expect(
+      (await complete(device, change.recipeId, 2, { ...homePage, path: "/welcome" })).body,
+    ).toEqual({
       version: 1,
       status: "unclear",
     });
@@ -851,19 +854,20 @@ describe("completion judgement", () => {
     expect(head).toEqual({ revision: 2 });
   });
 
-  it("refuses a marker on a page that shows the login form again", async () => {
+  it("does not judge a page that shows the login form again", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
+    const calls = sent.length;
     const reposted = observation("/session", [
       element("email", "email", "Email"),
       element("help", "link", "Help"),
     ]);
-    replies.push({ text: JSON.stringify({ result: { decision: "signed-in", marker: "help" } }) });
     expect((await complete(device, change.recipeId, 2, reposted)).body).toEqual({
       version: 1,
-      status: "failed",
-      error: "invalid-output",
+      status: "unavailable",
+      reason: "not-judgeable",
     });
+    expect(sent).toHaveLength(calls);
   });
 
   it("checks the recipe, revision, origin and owner before any call", async () => {
@@ -885,14 +889,7 @@ describe("completion judgement", () => {
     expect((await complete(device, "gen-missing", 1)).status).toBe(404);
     // Another owner cannot see or judge this owner's recipe.
     expect((await complete(await owner(), change.recipeId, 2)).status).toBe(404);
-    // A recipe whose last step advances has not been submitted yet.
-    const advancing = await owner();
-    replies.push({ text: plan([["email", "email"]], "next", "advance") });
-    await generate(advancing, emailPage);
-    expect((await complete(advancing, change.recipeId, 1)).body).toMatchObject({
-      reason: "recipe-conflict",
-    });
-    expect(sent).toHaveLength(calls + 1);
+    expect(sent).toHaveLength(calls);
   });
 
   it("answers other methods with 405", async () => {

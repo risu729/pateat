@@ -180,24 +180,32 @@ describe("recipe generation requests", () => {
       },
     });
     const home = { ...observation, path: "/home" };
-    expect(await h.generation.judge(recipeChange.recipeId, 1, home)).toBe("signed-in");
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "signed-in",
+    });
     expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, observation: home },
+      { version: 1, revision: 1, route: "password", observation: home },
     );
     await vi.waitFor(() => expect(h.sync).toHaveBeenCalledTimes(1));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge" },
     });
-    expect(await h.generation.judge(recipeChange.recipeId, 1, home)).toBe("challenge");
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "challenge",
+    });
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "failed", error: "invalid-output" },
     });
-    expect(await h.generation.judge(recipeChange.recipeId, 1, home)).toBe("unclear");
-    expect(await h.generation.judge(recipeChange.recipeId, 1, home)).toBe("unclear");
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "unclear",
+    });
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "unclear",
+    });
   });
 });

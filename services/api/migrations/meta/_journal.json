@@ -64,6 +64,13 @@
       "when": 1791722060758,
       "tag": "0008_drop_enrollments",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791727741935,
+      "tag": "0009_page_judgements",
+      "breakpoints": true
     }
   ]
 }

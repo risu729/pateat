@@ -475,6 +475,7 @@ describe("recipe generation", () => {
       await createServiceTransport({ fetch }).judgeCompletion(ORIGIN, CREDENTIAL, recipeId, {
         version: 1,
         revision: 2,
+        route: "password",
         observation,
       }),
     ).toEqual({ kind: "result", result: { version: 1, status: "unclear" } });

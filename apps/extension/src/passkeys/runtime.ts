@@ -28,13 +28,20 @@ type Sender = {
   url?: string | undefined;
 };
 
+/** One vault item, by its local connection. */
+export type PasskeyItem = { readonly connectionId: string; readonly itemId: string };
+
 /** Account-bound credential source. It owns site policy and keeps private keys out of this layer. */
 export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCandidate> {
-  /** Stored passkeys with this RP ID that may answer this origin, or none if not permitted. */
+  /**
+   * Stored passkeys with this RP ID that may answer this origin, or none if not permitted;
+   * with `only`, just that item's.
+   */
   candidates(
     origin: string,
     rpId: string,
     signal: AbortSignal,
+    only?: PasskeyItem,
   ): Promise<PasskeyCandidates<TCandidate> | undefined>;
   sign(
     candidate: TCandidate,
@@ -148,6 +155,14 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
      * assertion was handed back, because a settings save cancels pending passkey requests.
      */
     remember?: (origin: string, candidate: TCandidate) => Promise<void>;
+    /**
+     * The vault item of a login that has not ended in this tab and origin (ADR 0027). Its
+     * request is answered with that item only, never the site default or the chooser.
+     */
+    loginAccount?: (
+      tabId: number,
+      origin: string,
+    ) => Promise<PasskeyItem | undefined> | PasskeyItem | undefined;
   },
 ) {
   const operations = new Map<string, { documentId: string; controller: AbortController }>();
@@ -190,8 +205,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     let timer = setTimeout(expire, options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
     try {
       const signal = controller.signal;
+      // A failed lookup fails closed: the catch below delegates.
+      const login = await options.loginAccount?.(context.tabId, origin);
       const candidates = await abortable(
-        source.candidates(origin, admission.request.rpId, signal),
+        login
+          ? source.candidates(origin, admission.request.rpId, signal, login)
+          : source.candidates(origin, admission.request.rpId, signal),
         signal,
       );
       if (!candidates) return { kind: "delegate", reason: "not-configured" };
@@ -206,6 +225,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       let credential: TCandidate;
       let makeDefault = false;
       if (selection.kind === "credential") credential = selection.credential;
+      // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
+      // never signs in as another account.
+      else if (login) return { kind: "delegate", reason: `login-item-${selection.reason}` };
       else {
         // Only passkeys Pateat can sign with are offered; fewer than two is not a choice.
         const offered = accepted.filter((entry) => entry.counter === 0);

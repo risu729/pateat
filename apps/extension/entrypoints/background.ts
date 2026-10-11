@@ -24,6 +24,7 @@ import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
+  itemPasskeyFacts,
   rememberVaultPasskey,
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
@@ -142,6 +143,7 @@ export default defineBackground(() => {
   };
   const vaultUris = createVaultUriMatcher(connections);
   const vaultFields = createVaultFieldSource(connections);
+  const vaultPasskeys = createVaultPasskeySource(connections);
   const login = createLoginRuntime(loginSettings, {
     fields: combineFieldSources({
       bitwarden: vaultFields,
@@ -159,10 +161,11 @@ export default defineBackground(() => {
       storage: createBrowserGenerationAttemptStorage(),
       sync: () => recipeSync.sync(),
     }),
+    // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
+    passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     report: diagnosticsLog.login,
   });
   const setupProbe = syntheticSetup?.handler(connections);
-  const vaultPasskeys = createVaultPasskeySource(connections);
   const siteAccounts = createSiteAccountsHandler({
     settings,
     matchUris: vaultUris,
@@ -202,6 +205,7 @@ export default defineBackground(() => {
         policy: passkeyProbe.policy,
         chooser: passkeyChooser,
         remember: passkeyProbe.remember,
+        loginAccount: login.loginAccount,
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
@@ -209,6 +213,8 @@ export default defineBackground(() => {
         report: diagnosticsLog.passkey,
         chooser: passkeyChooser,
         remember: rememberPasskey,
+        // ADR 0027: a running login's passkey request is answered with its own item.
+        loginAccount: login.loginAccount,
       });
 
   // Value-free per-device state for bug reports (ADR 0019).

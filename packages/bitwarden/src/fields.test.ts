@@ -55,13 +55,15 @@ describe("local field references and permission boundaries", () => {
     );
   });
 
-  it("exposes only field reference, label, name, kind and link source in listed metadata", () => {
+  it("exposes only field reference, label, name, kind, link source and empty flag in listed metadata", () => {
     const active = snapshot();
     for (const field of active.list()) {
       expect(Object.keys(field).sort()).toEqual(
         field.kind === "linked"
           ? ["kind", "label", "linkedFieldId", "name", "ref"]
-          : ["kind", "label", "name", "ref"],
+          : field.empty
+            ? ["empty", "kind", "label", "name", "ref"]
+            : ["kind", "label", "name", "ref"],
       );
       expect(Object.keys(field.ref).sort()).toEqual([
         "connectionId",

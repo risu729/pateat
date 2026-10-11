@@ -1,4 +1,5 @@
 import {
+  extendsRecipe,
   loginRecipeSchema,
   loginStepEffect,
   type LoginObservation,
@@ -23,7 +24,7 @@ export type AssemblyRejection =
 export type CompletionRejection =
   | "already-complete"
   | "origin-mismatch"
-  /** The marker is an element one of the recipe's own steps uses on that path. */
+  /** The marker is an element one of the recipe's own steps or handlers uses on that path. */
   | "step-target"
   /** The marker is not an element of the judged page. */
   | "not-on-page"
@@ -44,6 +45,8 @@ const effects = (steps: readonly LoginStep[]) =>
   }).length;
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
+const handlerTargets = (recipe: LoginRecipe, path: string) =>
+  (recipe.handlers ?? []).filter((handler) => handler.path === path).map(({ target }) => target);
 const filledSlots = (steps: readonly LoginStep[]) =>
   steps.flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.slot) : []));
 
@@ -111,7 +114,8 @@ export function addCompletion(
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };
   const used = base.steps.filter((step) => step.path === page.path).flatMap(stepTargets);
-  if (used.some((step) => sameTarget(step, target))) return { ok: false, reason: "step-target" };
+  if ([...used, ...handlerTargets(base, page.path)].some((element) => sameTarget(element, target)))
+    return { ok: false, reason: "step-target" };
   // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not.
   const fields = base.steps.flatMap((step) =>
     step.kind === "fill" ? step.fields.map((field) => field.target) : [],
@@ -133,6 +137,72 @@ export function addCompletion(
     completion: { path: page.path, target, ...(absent.length ? { absent } : {}) },
   });
   return recipe.success
+    ? { ok: true, recipe: recipe.output }
+    : { ok: false, reason: "invalid-recipe" };
+}
+
+export type HandlerRejection =
+  | "origin-mismatch"
+  /** The button is not a button of the judged page. */
+  | "not-on-page"
+  /** The button registers, adds or sets up a passkey rather than signing in with one. */
+  | "registration"
+  /**
+   * The button is one of the recipe's step targets on that path, its account switch,
+   * rejection or completion marker.
+   */
+  | "step-target"
+  /** The recipe already has a handler of this kind on that path. */
+  | "duplicate"
+  /** The result breaks the recipe contract, such as its handler bound. */
+  | "invalid-recipe";
+
+/**
+ * Words of a button that registers or adds a passkey ("Add a passkey", "Set up security
+ * key", "パスキーを登録"). The judge is told not to name one; this local check also
+ * refuses it, and can refuse a sign-in button whose text happens to match.
+ */
+const registration = /\b(?:add|register|create|set\s*up|new|enrol?l)\b|登録|追加|作成/iu;
+
+/**
+ * Adds a `passkey` handler for the judged page's security-key or passkey button to a
+ * generated recipe in its next revision (ADR 0027). The route's steps are kept as they
+ * are, so a running login can take the result over (`extendsRecipe`). The page may be
+ * on a route path: a second-factor form on the sign-in path still gets a handler.
+ */
+export function addHandler(
+  base: LoginRecipe,
+  page: Pick<LoginObservation, "origin" | "path" | "candidates">,
+  handler: { kind: "passkey"; target: LoginTarget },
+): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
+  if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
+  const button = page.candidates.find(
+    (candidate) => candidate.role === "button" && sameTarget(candidate.target, handler.target),
+  );
+  if (!button) return { ok: false, reason: "not-on-page" };
+  if (
+    [button.label, button.target.by === "text" ? button.target.value : undefined].some(
+      (text) => text !== undefined && registration.test(text),
+    )
+  )
+    return { ok: false, reason: "registration" };
+  const used = [
+    ...base.steps.filter((step) => step.path === page.path).flatMap(stepTargets),
+    ...(base.accountSwitch ? [base.accountSwitch] : []),
+    ...(base.rejection ? [base.rejection] : []),
+    ...(base.completion ? [base.completion.target] : []),
+  ];
+  if (used.some((element) => sameTarget(element, handler.target)))
+    return { ok: false, reason: "step-target" };
+  const handlers = base.handlers ?? [];
+  if (handlers.some((entry) => entry.kind === handler.kind && entry.path === page.path))
+    return { ok: false, reason: "duplicate" };
+  const recipe = v.safeParse(loginRecipeSchema, {
+    ...base,
+    revision: base.revision + 1,
+    handlers: [...handlers, { kind: handler.kind, path: page.path, target: handler.target }],
+  });
+  return recipe.success && extendsRecipe(base, recipe.output)
     ? { ok: true, recipe: recipe.output }
     : { ok: false, reason: "invalid-recipe" };
 }

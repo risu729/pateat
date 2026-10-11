@@ -10,6 +10,7 @@ import {
 } from "./login-attempt";
 import type { LoginDocument, LoginRecipe } from "./login";
 
+const facts = { password: true, totp: false, passkey: false, discoverablePasskey: false };
 const document: LoginDocument = {
   origin: "https://bank.example",
   tabId: 7,
@@ -42,6 +43,8 @@ function detected(selected = recipe) {
     recipe: selected,
     policyRevision: 3,
     account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+    route: "password",
+    facts,
     document,
   });
 }
@@ -477,6 +480,8 @@ describe("submission and failure reconciliation", () => {
       recipe: twoPage,
       policyRevision: 3,
       account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+      route: "password",
+      facts,
       document,
     });
     attempt = transitionLoginAttempt(attempt, { type: "RESOLVE" });
@@ -698,6 +703,8 @@ describe("submission and failure reconciliation", () => {
           recipe,
           policyRevision: 3,
           account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+          route: "password",
+          facts,
           document: top,
         }),
         { type: "RESOLVE" },

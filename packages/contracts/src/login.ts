@@ -4,6 +4,7 @@ import {
   resolveSiteAccount,
   type SettingsSnapshot,
   type VaultCatalog,
+  type VaultItemMetadata,
 } from "./settings";
 
 export const loginIdentifierSchema = v.pipe(
@@ -124,6 +125,21 @@ export const loginStepSchema = v.variant("kind", [
 ]);
 const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
   step.kind === "fill" ? step.fields.length : 1;
+/**
+ * Ways a start page offers to sign in (ADR 0027); one is chosen from the item's facts
+ * when a login starts. `password` runs the recipe's steps.
+ */
+export const loginRouteSchema = v.picklist(["password"]);
+/**
+ * A branch on the page that appears after an effect step (ADR 0027), entered when its
+ * path matches and its element shows, and run only for an item with the handler's fact.
+ * Its steps follow from its kind. `passkey` clicks a button such as "Use security key".
+ */
+export const loginHandlerSchema = v.variant("kind", [
+  v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
+]);
+const handlerKey = (handler: v.InferOutput<typeof loginHandlerSchema>) =>
+  `${handler.kind} ${handler.path}`;
 export const loginRecipeSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
@@ -170,6 +186,19 @@ export const loginRecipeSchema = v.pipe(
      * decision, 2026-10-11).
      */
     accountSwitch: v.optional(loginTargetSchema),
+    /**
+     * Second-factor pages learned from judged pages (ADR 0027), one per kind and path.
+     * They are only ever appended, so a running login's entered handlers keep their index.
+     */
+    handlers: v.optional(
+      v.pipe(
+        v.array(loginHandlerSchema),
+        v.minLength(1),
+        v.maxLength(16),
+        v.check((handlers) => unique(handlers.map(handlerKey)), "Duplicate handlers"),
+      ),
+    ),
+    // Counts route steps only; an entered handler adds its own effects to the attempt.
     maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
   }),
   v.check(
@@ -215,9 +244,21 @@ export const loginRecipeSchema = v.pipe(
     const key = JSON.stringify(recipe.accountSwitch);
     return ![
       ...recipe.steps.flatMap((step) => (step.kind === "click" ? [step.target] : [])),
+      ...(recipe.handlers ?? []).map((handler) => handler.target),
       ...(recipe.rejection ? [recipe.rejection] : []),
     ].some((target) => JSON.stringify(target) === key);
   }, "Account switch target is a step or rejection target"),
+  // A handler's button showing would otherwise prove the sign-in on its own page.
+  v.check(
+    (recipe) =>
+      !recipe.completion ||
+      !(recipe.handlers ?? []).some(
+        (handler) =>
+          handler.path === recipe.completion!.path &&
+          JSON.stringify(handler.target) === JSON.stringify(recipe.completion!.target),
+      ),
+    "Completion target is a handler target",
+  ),
 );
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
@@ -246,7 +287,8 @@ export const loginOperationSchema = v.strictObject({
   policyRevision: revision,
   expiresAt: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
   document: loginDocumentSchema,
-  stepIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(31)),
+  // Route steps (at most 32) and the steps of handlers entered during the attempt.
+  stepIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(39)),
   step: loginStepSchema,
 });
 export const loginOutcomeSchema = v.picklist([
@@ -283,6 +325,98 @@ export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
   return step.kind === "fill" ? step.effect : step.kind === "click" ? step.purpose : undefined;
 }
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
+export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
+export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
+
+/** A route's steps. Delivery 3 of ADR 0027 adds start-page routes beside `password`. */
+export function routeSteps(recipe: LoginRecipe, route: LoginRoute): LoginStep[] {
+  return route === "password" ? recipe.steps : [];
+}
+/** Whether the recipe offers the route; every recipe has the `password` route. */
+export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean {
+  return routeSteps(recipe, route).length > 0;
+}
+/** The steps a handler runs. */
+export function handlerSteps(handler: LoginHandler): LoginStep[] {
+  return [{ kind: "click", path: handler.path, target: handler.target, purpose: "submit" }];
+}
+
+/**
+ * What the login's vault item holds (ADR 0027), read locally once when a login starts and
+ * kept in its attempt. Facts are never sent to the service or a model.
+ */
+export const loginItemFactsSchema = v.strictObject({
+  /** A non-empty password the account may fill. */
+  password: v.boolean(),
+  /** A TOTP secret the account may fill. */
+  totp: v.boolean(),
+  /** Any usable passkey for an RP ID the origin may use. */
+  passkey: v.boolean(),
+  /** A discoverable passkey among them; a key registered only as a second factor is not. */
+  discoverablePasskey: v.boolean(),
+});
+export type LoginItemFacts = v.InferOutput<typeof loginItemFactsSchema>;
+/** The fact each handler kind requires. */
+export const handlerFact = { passkey: "passkey" } as const satisfies Record<
+  LoginHandler["kind"],
+  keyof LoginItemFacts
+>;
+/**
+ * The password and TOTP facts from the catalog's value-free `empty` flags and the
+ * account's allowed (not excluded) field IDs.
+ */
+export function loginFieldFacts(
+  item: Pick<VaultItemMetadata, "fields">,
+  allowedFieldIds: readonly string[],
+): Pick<LoginItemFacts, "password" | "totp"> {
+  const has = (fieldId: string) =>
+    allowedFieldIds.includes(fieldId) &&
+    item.fields.some((field) => field.id === fieldId && field.empty !== true);
+  return { password: has("login.password"), totp: has("login.totp-code") };
+}
+
+/**
+ * Whether `next` only adds to `previous` (ADR 0027): a newer revision of the same recipe
+ * whose routes and route steps are unchanged, whose handlers extend the old ones in order,
+ * and whose completion is new or unchanged. A running login takes over only such a
+ * revision, so its recorded steps and entered handlers keep their meaning.
+ */
+export function extendsRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
+  if (
+    next.id !== previous.id ||
+    next.origin !== previous.origin ||
+    next.revision <= previous.revision
+  )
+    return false;
+  const before = previous.handlers ?? [];
+  const after = next.handlers ?? [];
+  // JSON drops the undefined members, so only the fixed parts are compared.
+  const fixed = (recipe: LoginRecipe) => ({
+    ...recipe,
+    revision: undefined,
+    handlers: undefined,
+    completion: undefined,
+  });
+  return (
+    canonicalJson(fixed(previous)) === canonicalJson(fixed(next)) &&
+    after.length >= before.length &&
+    before.every((handler, index) => canonicalJson(handler) === canonicalJson(after[index])) &&
+    (previous.completion === undefined ||
+      canonicalJson(previous.completion) === canonicalJson(next.completion))
+  );
+}
+/** JSON with object keys sorted, so equal values compare equal whatever their key order. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, entry: unknown) =>
+    entry && typeof entry === "object" && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.entries(entry).sort(([left], [right]) =>
+            left < right ? -1 : left > right ? 1 : 0,
+          ),
+        )
+      : entry,
+  );
+}
 export type LoginAccount = v.InferOutput<typeof loginAccountSchema>;
 export type LoginAccountBinding = v.InferOutput<typeof loginAccountBindingSchema>;
 export type LoginDocument = v.InferOutput<typeof loginDocumentSchema>;

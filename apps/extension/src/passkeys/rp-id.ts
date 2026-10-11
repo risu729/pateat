@@ -52,3 +52,13 @@ export function resolveRpId(origin: string, requested?: unknown): RpIdResult {
     return { ok: false, reason: "rp-id-mismatch" };
   return { ok: true, rpId: requested };
 }
+
+/** RP IDs a page at this origin may use: its host and each registrable parent domain. */
+export function rpIdsFor(origin: string): string[] {
+  const host = resolveRpId(origin);
+  if (!host.ok) return [];
+  const labels = host.rpId.split(".");
+  return labels
+    .map((_label, index) => labels.slice(index).join("."))
+    .filter((rpId) => resolveRpId(origin, rpId).ok);
+}

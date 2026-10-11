@@ -1,5 +1,7 @@
 import {
   loginStepEffect,
+  recipeHasRoute,
+  routeSteps,
   type GenerationUnavailableReason,
   type LoginRecipe,
   type RecipeCompletionRequest,
@@ -10,6 +12,7 @@ import {
 } from "@pateat/contracts";
 import {
   addCompletion,
+  addHandler,
   appendPageSteps,
   claudeRefusalCategory,
   completionInstructions,
@@ -18,17 +21,20 @@ import {
   generationInstructions,
   type InferenceErrorCode,
 } from "@pateat/inference";
-import { and, eq, gt, lt } from "drizzle-orm";
+import { and, count, eq, gt, gte, lt } from "drizzle-orm";
 import type { DeviceScope } from "../auth";
 import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS } from "../claude/calls";
-import { generationAttempts } from "../db/schema";
+import { generationAttempts, pageJudgements } from "../db/schema";
 import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
-// per origin and start path (ADR 0016), and the page after the first sign-in judged for
-// the recipe's completion.
+// per origin and start path (ADR 0016), and a page no recipe check explained judged for
+// the recipe's completion or a handler (ADR 0027).
 
 const ATTEMPT_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Judgements per recipe per UTC day, whatever the path (owner, ADR 0027). */
+export const JUDGEMENTS_PER_RECIPE_DAY = 20;
+const utcDayStart = (now: number) => now - (now % ATTEMPT_WINDOW_MS);
 
 type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type Failure = Extract<RecipeGenerationResult, { status: "failed" }>["error"];
@@ -226,8 +232,9 @@ export async function generateRecipe(
 }
 
 /**
- * `POST /v1/recipes/:recipeId/completion`. Returns `undefined` for a missing recipe and
- * `null` for a page on another origin, which the route answers as 404 and 400.
+ * `POST /v1/recipes/:recipeId/completion`: judges a page after an effect step of the
+ * login's route (ADR 0027). Returns `undefined` for a missing recipe and `null` for a page
+ * on another origin, which the route answers as 404 and 400.
  */
 export async function judgeCompletion(
   env: GenerationEnv,
@@ -239,26 +246,89 @@ export async function judgeCompletion(
   if (!head) return undefined;
   if (head.state === "revoked") return unavailable("recipe-revoked");
   const { recipe } = head;
-  const { observation } = request;
+  const { observation, route } = request;
   if (observation.origin !== recipe.origin) return null;
-  const last = recipe.steps.at(-1);
-  // Only the page after a recipe's final submission, at the revision that ran, is judged.
-  if (
-    head.revision !== request.revision ||
-    recipe.completion ||
-    !last ||
-    loginStepEffect(last) !== "submit"
-  )
+  // Only a page of the revision that ran, on a route the stored recipe has, is judged.
+  if (head.revision !== request.revision || !recipeHasRoute(recipe, route))
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
+  // The checks use the stored recipe, never the request: a page that still shows one of
+  // the route's fill fields, on any path, or the completion marker is not judged.
+  const steps = routeSteps(recipe, route);
+  const unexplained = [
+    ...steps.flatMap((step) =>
+      step.kind === "fill" ? step.fields.map(({ target }) => target) : [],
+    ),
+    ...(recipe.completion ? [recipe.completion.target] : []),
+  ].map((target) => JSON.stringify(target));
+  if (
+    observation.candidates.some((candidate) =>
+      unexplained.includes(JSON.stringify(candidate.target)),
+    )
+  )
+    return unavailable("not-judgeable");
 
   // The login paths come from the stored recipe, never from the request.
-  const loginPaths = [...new Set(recipe.steps.map((step) => step.path))];
+  const loginPaths = [
+    ...new Set([
+      ...steps.map((step) => step.path),
+      ...(recipe.handlers ?? []).map((handler) => handler.path),
+    ]),
+  ];
+  const ofRecipe = and(
+    eq(pageJudgements.ownerId, scope.ownerId),
+    eq(pageJudgements.recipeId, recipeId),
+  );
   const call = await callClaude(env, scope.ownerId, {
     role: "judge",
     origin: observation.origin,
     path: observation.path,
-    request: { instructions: completionInstructions, recipeId, loginPaths, observation },
+    request: { instructions: completionInstructions, recipeId, route, loginPaths, observation },
+    // Each revision and path is judged once, and a recipe 20 times a UTC day (ADR 0027).
+    gate: async (db, now) => {
+      const latest = await readHead(env.DB, scope.ownerId, recipeId);
+      if (latest?.state !== "active" || latest.revision !== head.revision) return "recipe-conflict";
+      const [judged] = await db
+        .select()
+        .from(pageJudgements)
+        .where(
+          and(
+            ofRecipe,
+            eq(pageJudgements.revision, head.revision),
+            eq(pageJudgements.path, observation.path),
+          ),
+        )
+        .limit(1);
+      if (judged) return "already-judged";
+      const [today] = await db
+        .select({ value: count() })
+        .from(pageJudgements)
+        .where(and(ofRecipe, gte(pageJudgements.judgedAt, utcDayStart(now))));
+      return (today?.value ?? 0) >= JUDGEMENTS_PER_RECIPE_DAY ? "judgement-limit" : undefined;
+    },
+    // A request the role refuses before sending still uses its slot, as a generation
+    // attempt does. Rows of older revisions go once their day is over.
+    reserved: (db, now) => [
+      db
+        .insert(pageJudgements)
+        .values({
+          ownerId: scope.ownerId,
+          recipeId,
+          revision: head.revision,
+          path: observation.path,
+          judgedAt: now,
+        })
+        .onConflictDoNothing(),
+      db
+        .delete(pageJudgements)
+        .where(
+          and(
+            ofRecipe,
+            lt(pageJudgements.revision, head.revision),
+            lt(pageJudgements.judgedAt, utcDayStart(now)),
+          ),
+        ),
+    ],
     invoke: (model) => createCompletionJudge({ model, ...roleConfig })({ observation, loginPaths }),
     logValue: (judgement) => judgement,
   });
@@ -267,7 +337,24 @@ export async function judgeCompletion(
   if (outcome.status === "failed") return failed(failureOf(outcome.error));
   if (outcome.status === "abstained") return { version: 1, status: "unclear" };
   const judgement = outcome.value;
-  if (judgement.decision !== "signed-in") return { version: 1, status: judgement.decision };
+  if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
+  if (judgement.decision === "challenge") {
+    const added = judgement.next
+      ? addHandler(recipe, observation, { kind: "passkey", target: judgement.next })
+      : undefined;
+    if (!added?.ok) return { version: 1, status: "challenge" };
+    const written = await writeRecipe(
+      env.DB,
+      scope.ownerId,
+      recipeId,
+      { version: 1, state: "active", expectedRevision: head.revision, recipe: added.recipe },
+      scope.deviceId,
+    );
+    const change = written.ok ? active(written.change) : undefined;
+    return { version: 1, status: "challenge", ...(change ? { change } : {}) };
+  }
+  // A completion is learned once; a later signed-in page needs no change.
+  if (recipe.completion) return { version: 1, status: "signed-in" };
 
   const learned = addCompletion(recipe, observation, judgement.target);
   if (!learned.ok)

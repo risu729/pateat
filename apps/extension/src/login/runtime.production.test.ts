@@ -2130,7 +2130,10 @@ describe("production login document admission", () => {
     await vi.waitFor(() =>
       expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
     );
-    h.recipes.recipe.mockResolvedValue({ ...recipe, revision });
+    // A replacement changes the route's steps, so it never extends the running revision.
+    h.recipes.recipe.mockResolvedValue(
+      revision === recipe.revision ? recipe : { ...recipe, revision, maxSubmissions: 2 },
+    );
     expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual(expected);
     expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id);
   });
@@ -2175,7 +2178,9 @@ describe("production login document admission", () => {
         generate: vi.fn<LoginGeneration["generate"]>(
           implementation.generate ?? (async () => "none"),
         ),
-        judge: vi.fn<LoginGeneration["judge"]>(implementation.judge ?? (async () => "unclear")),
+        judge: vi.fn<LoginGeneration["judge"]>(
+          implementation.judge ?? (async () => ({ verdict: "unclear" })),
+        ),
       };
     }
     const uris = async () => ({ ok: true as const, data: uriMatch() });
@@ -2342,7 +2347,7 @@ describe("production login document admission", () => {
 
     it("learns the completion from the page after the final submission", async () => {
       fake.state.extracted = { "signed-in": homePage };
-      const service = generation({ judge: async () => "signed-in" });
+      const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
       const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
       h.recipes.recipe.mockResolvedValue(generated);
       h.recipes.firstSteps.mockResolvedValue([generated.steps[0]!]);
@@ -2360,6 +2365,7 @@ describe("production login document admission", () => {
       expect(service.judge).toHaveBeenCalledWith(
         generated.id,
         generated.revision,
+        "password",
         homePage.observation,
       );
       // The automatic choice is saved with its built-in binding once signed in.
@@ -2383,7 +2389,7 @@ describe("production login document admission", () => {
       "settles a %s judgement without saving the account",
       async (verdict, expected) => {
         fake.state.extracted = { "signed-in": homePage };
-        const service = generation({ judge: async () => verdict });
+        const service = generation({ judge: async () => ({ verdict }) });
         const h = harness(unsaved, {
           allowedOrigins: [],
           uris,
@@ -2407,7 +2413,7 @@ describe("production login document admission", () => {
 
     it("does not send the page while the recipe's fields are still shown", async () => {
       fake.state.extracted = { "signed-in": homePage };
-      const service = generation({ judge: async () => "signed-in" });
+      const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
       const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
       h.recipes.recipe.mockResolvedValue(generated);
       fake.state.present = new Set(["user", "password", "login"]);

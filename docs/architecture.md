@@ -394,8 +394,10 @@ within 10 seconds and has a vault URI match is observed and sent at most once a 
 origin and path, unless the tab holds an attempt record other than an account switch on
 that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
-recipe cache and starts at once; after its final submission the resulting page is sent
-once to learn its completion ([ADR 0018](adr/0018-recipe-generation-route.md)).
+recipe cache and starts at once. A page that an effect step leads to and no check
+explains is sent to be judged, which can learn the completion or a second-factor
+handler ([ADR 0018](adr/0018-recipe-generation-route.md),
+[ADR 0027](adr/0027-per-account-login-routes.md); see below).
 Inactive, frozen, discarded, and navigated documents are different states; only live
 documents can execute.
 
@@ -501,6 +503,28 @@ during the wait, nothing is clicked and the attempt observes the page instead.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.
+
+A new login reads its item's facts once and records them in its attempt
+([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
+and TOTP field from the catalog's value-free `empty` flags, and any usable or
+discoverable passkey from one item-scoped vault search per RP ID the origin may use. The
+facts never leave the extension. The attempt also records its route; only `password`
+exists yet, and it fits when every bound password or TOTP field has its fact, else the
+page is refused `no-route`. After each effect step the executor checks the completion,
+the rejection and the plan's next step, then the recipe's handlers on the page's path:
+a handler whose first element is unique is entered once per login, its steps follow the
+effect step and grow the attempt's step and submission budget (at most 4 handlers, 40
+steps and 12 submissions). The `passkey` handler clicks a button such as "Use security
+key" only for an item with a usable passkey; otherwise, and when a handler's page shows
+again after it ran, the attempt ends `challenge`. While a handler's clicked button still
+shows, the page is neither judged nor settled for up to two minutes; then it ends
+`challenge`. A page no check explains is judged once per attempt, revision and path,
+unless it still shows the route's fill fields on a route path or the completion marker.
+A `challenge` verdict that added a handler hands back the newer revision: the attempt
+takes it over (`REVISED`) when it only adds handlers or a completion, and runs the
+handler on the page it is on. A resumed attempt accepts a newer cached revision on the
+same terms only while the worker still holds its recorded revision; after a worker
+restart only the recorded revision resumes.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already
@@ -655,8 +679,8 @@ An unknown attempt stays in `reconciling` until its tab closes or, for a top-lev
 attempt, until the tab shows a page of another origin that Pateat may run on
 (`left-origin`, ADR 0022): meanwhile it holds the origin, blocks saving account
 choices from other tabs and defers settings sync for up to two minutes per run. The
-service can judge the page after the final submission, which settles such attempts, but
-the extension does not send it yet.
+extension sends a page no check explains to be judged, which settles such attempts
+([Background execution](#background-execution)).
 
 A completion may also list up to four `absent` elements. The executor reports
 `authenticated` only when the completion target is unique on its path and every
@@ -806,6 +830,12 @@ answers its messages only from that page, for the request token in its URL and f
 window it opened, and keeps the worker alive while the window waits. Choosing signs with
 that passkey; a ticked checkbox then saves it as the origin's site default. Any other
 ending delegates to the browser.
+
+During a login that has not ended, a request from its tab and top-level origin is
+answered with that login's own vault item only, never the site default or the chooser
+([ADR 0027](adr/0027-per-account-login-routes.md)). When that item holds no single
+signable match, or its search is incomplete, the request is delegated, so Pateat never
+signs in as another account.
 
 ## Minimal service
 

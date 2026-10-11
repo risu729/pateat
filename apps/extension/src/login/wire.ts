@@ -38,6 +38,11 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
 }
 /** How long a started attempt waits for a fill or click step's elements (owner-approved). */
 export const LOGIN_STEP_WAIT_MS = 10000;
+/**
+ * How long a page is left unjudged while a handler's clicked button still shows, such as
+ * "Use security key" during a WebAuthn exchange (ADR 0027); the passkey chooser's limit.
+ */
+export const HANDLER_CLICK_WAIT_MS = 120_000;
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
