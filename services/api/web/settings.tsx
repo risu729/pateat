@@ -18,6 +18,16 @@ const EMPTY_SETTINGS: LocalSettings = {
   bindings: [],
 };
 
+/**
+ * A vault account as a device named it when saving: the connection's label, else the
+ * provider account ID.
+ */
+export function vaultAccountLabel(
+  entry: Pick<LocalSettings["siteDefaults"][number], "provider" | "userId" | "accountName">,
+): string {
+  return entry.accountName || `${entry.provider} account ${entry.userId}`;
+}
+
 export function useSettings(client: ManageClient) {
   return useQuery({ queryKey: SETTINGS_QUERY_KEY, queryFn: () => client.settings() });
 }

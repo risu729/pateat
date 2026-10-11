@@ -287,23 +287,49 @@ test("keyboard add forms validate locally and recover input focus after add and 
   await expect.element(control("site-defaults")).toMatchTextContent("Demo personal vault");
   await expect.element(control("default-origin")).toHaveFocus();
   expect(client.saveSettings).not.toHaveBeenCalled();
+  // The saved default keeps the connection's label and the item's name for display.
+  await control("save-settings").click();
+  await expect.poll(() => client.saveSettings.mock.calls.length).toBe(1);
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.siteDefaults).toEqual([
+    {
+      origin: "https://bank.example",
+      provider: "dummy",
+      userId: "demo-personal-account",
+      itemId: "primary",
+      itemName: "Demo primary account",
+      accountName: "Demo personal vault",
+    },
+  ]);
 });
 
-test("a default for an account not connected here shows its saved item name", async () => {
+test("a default for an account not connected here shows its saved names", async () => {
   const client = mockClient();
   const response = saved(1);
-  response.snapshot.settings.siteDefaults.push({
-    origin: "https://bank.example",
-    provider: "dummy",
-    userId: "another-account",
-    itemId: "remote-item",
-    itemName: "Remote bank login",
-  });
+  response.snapshot.settings.siteDefaults.push(
+    {
+      origin: "https://bank.example",
+      provider: "dummy",
+      userId: "another-account",
+      itemId: "remote-item",
+      itemName: "Remote bank login",
+    },
+    {
+      origin: "https://mail.example",
+      provider: "dummy",
+      userId: "another-account",
+      itemId: "remote-mail",
+      itemName: "Remote mail login",
+      accountName: "Other device vault",
+    },
+  );
   client.getSettings.mockResolvedValue(response);
   await mount(client);
   await expect
     .element(control("site-defaults"))
     .toMatchTextContent("account another-account (not available here) / Remote bank login");
+  await expect
+    .element(control("site-defaults"))
+    .toMatchTextContent("Other device vault (not available here) / Remote mail login");
 });
 
 test("malformed save responses are rejected at the runtime boundary and keep the draft blocked", async () => {

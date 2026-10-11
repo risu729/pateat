@@ -354,9 +354,12 @@ Chrome yet.
   attempt checks, so it is skipped while another login is still running; the next login
   chooses again.
 - A site default names the provider account and item
-  (`{ origin, provider, userId, itemId, itemName? }`, ADR 0013). `itemName` is the
-  item's label when the default was saved, kept only for display, such as for an
-  account that is not connected here; a default can lack it. The executor and the
+  (`{ origin, provider, userId, itemId, itemName?, accountName? }`, ADR 0013).
+  `itemName` is the item's label and `accountName` the vault connection's label when
+  the default was saved, kept only for display, such as for an account that is not
+  connected here; a default can lack them. A binding has the same optional
+  `accountName` beside its required `itemName`; settings sync fills in both (see
+  [service sync progress](#service-sync-progress)). The executor and the
   settings page find this device's connection through the catalog connection's
   `userId`, and an account that is not connected here refuses as `connection-missing`,
   one connected twice as `account-ambiguous`, and one whose vault is locked or
@@ -560,7 +563,13 @@ uploaded document over 120 KiB of the service's 128 KiB body limit) is not appli
 the settings page says the settings no longer fit; when a later attempt in the same sync
 goes over, an earlier upload stays. Local settings change through the settings store's
 revision check, only when the merge differs from them, so an unchanged sync does not
-stop running login attempts. While a login is running, including one between pages, the
+stop running login attempts. Before the merge is uploaded and written, the display
+names of site defaults and bindings whose provider account is connected exactly once on
+this device follow its catalog: the item's current label, and the connection's label
+where an entry has no account name yet; an account name already set is kept, and an
+account that is not connected here, connected twice or locked, or a catalog that cannot
+be read, leaves the names as they are. Only names that differ change, so a settled sync
+still writes nothing. While a login is running, including one between pages, the
 upload still happens but the local write waits for a later sync, for at most two minutes
 after the first wait. The time of the first wait is stored under
 `pateat.sync-settings-hold.v1`, so the limit holds across service worker restarts, and

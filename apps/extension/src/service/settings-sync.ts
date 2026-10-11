@@ -2,11 +2,15 @@ import {
   deviceIdSchema,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
+  savedLoginBindingSchema,
   settingsDocumentBytes,
   serviceOriginSchema,
+  siteDefaultConnection,
+  siteDefaultSchema,
   type LocalSettings,
   type SettingsSnapshot,
   type SyncSettingsState,
+  type VaultCatalog,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { ServiceConnection } from "./runtime";
@@ -158,6 +162,41 @@ export function mergeSyncedSettings(
   };
 }
 
+/**
+ * Display names from this device's catalog: an entry whose provider account is connected
+ * here exactly once gains that connection's label as its account name when it has none,
+ * and the item's current label as its item name. Another device may label the same
+ * account differently, so an account name already set is kept; overwriting it would make
+ * two devices rewrite each other on every sync. Entries of an account that is not
+ * connected here, connected twice, or locked keep their names. Login usernames are never
+ * copied. Unchanged entries keep their identity, so an unchanged sync writes nothing.
+ */
+export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalog): SyncedSettings {
+  function refresh<T extends SiteDefault | Binding>(entry: T, schema: v.GenericSchema<T>): T {
+    const mapped = siteDefaultConnection(entry, catalog);
+    const connection =
+      mapped.ok && catalog.connections.find((item) => item.id === mapped.connectionId);
+    if (!connection || connection.state === "locked" || connection.state === "unavailable")
+      return entry;
+    const accountName = entry.accountName ?? connection.label;
+    const itemName =
+      connection.items.find((item) => item.id === entry.itemId)?.label ?? entry.itemName;
+    if (accountName === entry.accountName && itemName === entry.itemName) return entry;
+    // Parsing keeps the schema's key order, which the merge compares.
+    const next = v.safeParse(schema, {
+      ...entry,
+      accountName,
+      ...(itemName === undefined ? {} : { itemName }),
+    });
+    return next.success ? next.output : entry;
+  }
+  return {
+    excludedSites: synced.excludedSites,
+    siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
+    bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
+  };
+}
+
 /** Order-insensitive comparison, so a reordered copy is not a change. */
 function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
   const sorted = <T>(entries: T[], key: (entry: T) => string) =>
@@ -194,6 +233,11 @@ export function createSettingsSync(options: {
   applied?: () => void;
   /** Whether a local settings write must wait, for example while a login runs. */
   deferred?: () => boolean | Promise<boolean>;
+  /**
+   * This device's vault catalog, which names synced entries for display; without one,
+   * or when it fails, names are left as they are.
+   */
+  catalog?: () => Promise<VaultCatalog | undefined>;
   now?: () => number;
 }) {
   const { transport, settings, storage } = options;
@@ -232,6 +276,7 @@ export function createSettingsSync(options: {
     if (fetched.kind === "failed") return fetched.error;
     if (fetched.kind !== "state") return "unexpected-response";
     let service: SyncSettingsState = fetched.state;
+    const catalog = await options.catalog?.().catch(() => undefined);
     const serviceCopy = (state: SyncSettingsState) =>
       state.settings ? syncedSettings(state.settings) : emptySynced;
     // Without a base, for a new pairing or a service restored to an older state, both
@@ -269,7 +314,9 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = serviceCopy(service);
-      const merged = mergeSyncedSettings(base, localSynced, serviceSynced);
+      const mergedEntries = mergeSyncedSettings(base, localSynced, serviceSynced);
+      // Named after the merge, so the names are uploaded and written like any change.
+      const merged = catalog ? refreshDisplayNames(mergedEntries, catalog) : mergedEntries;
       const upload = !equalSynced(merged, serviceSynced);
       if (
         !v.safeParse(localSettingsSchema, applySynced(local.settings, merged)).success ||

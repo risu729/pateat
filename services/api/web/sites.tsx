@@ -2,13 +2,9 @@ import { normalizeHostname, type LocalSettings } from "@pateat/contracts";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
-import { useSettings, useSettingsEdit } from "./settings";
+import { useSettings, useSettingsEdit, vaultAccountLabel } from "./settings";
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
-
-function defaultAccount(entry: SiteDefault): string {
-  return `${entry.provider} account ${entry.userId}`;
-}
 
 function defaultItem(entry: SiteDefault): string {
   return entry.itemName || entry.itemId;
@@ -180,7 +176,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
               <li key={entry.origin} className="flex items-center justify-between gap-4 py-2">
                 <span>
                   {entry.origin}: {defaultItem(entry)}{" "}
-                  <span className="text-slate-600">({defaultAccount(entry)})</span>
+                  <span className="text-slate-600">({vaultAccountLabel(entry)})</span>
                 </span>
                 <Button
                   variant="outline"

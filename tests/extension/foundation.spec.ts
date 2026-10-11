@@ -423,6 +423,7 @@ test("local policies and account defaults survive a browser restart", async () =
             userId: "demo-personal-account",
             itemId: "primary",
             itemName: "Demo primary account",
+            accountName: "Demo personal vault",
           },
         ]);
       },

@@ -167,9 +167,11 @@ test("a recipe and binding synced from the service log in with the live vault an
         await expect
           .poll(async () => JSON.stringify(await storedRecipes(browser.background)))
           .toContain(recipeId);
+        // The sync names the binding's account after this device's connection.
+        const named = { ...binding, accountName: connection.label };
         await expect
           .poll(async () => (await settingsRequest(options)).snapshot.settings.bindings)
-          .toEqual([binding]);
+          .toEqual([named]);
 
         const runId = fixture.createRun();
         const page = await browser.context.newPage();
@@ -187,16 +189,21 @@ test("a recipe and binding synced from the service log in with the live vault an
             attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 2 }],
           });
 
-        // The single URI match is saved as this site's account, with the item's name for
-        // display, and uploaded at once.
-        const savedDefault = { origin: site, ...account, itemName: item.label };
+        // The single URI match is saved as this site's account, with the item's and the
+        // connection's names for display, and uploaded at once.
+        const savedDefault = {
+          origin: site,
+          ...account,
+          itemName: item.label,
+          accountName: connection.label,
+        };
         await expect
           .poll(
             async () =>
               ((await (await service.request("/v1/settings")).json()) as { settings: unknown })
                 .settings,
           )
-          .toMatchObject({ siteDefaults: [savedDefault], bindings: [binding] });
+          .toMatchObject({ siteDefaults: [savedDefault], bindings: [named] });
         await expect
           .poll(async () => (await settingsRequest(options)).snapshot.settings.siteDefaults)
           .toEqual([savedDefault]);

@@ -3,6 +3,7 @@ import {
   type LocalSettings,
   type SettingsSnapshot,
   type SyncSettingsState,
+  type VaultCatalog,
 } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import type { ServiceConnection } from "./runtime";
@@ -11,6 +12,7 @@ import {
   MAX_SETTINGS_DEFER_MS,
   MAX_SETTINGS_SYNC_ATTEMPTS,
   mergeSyncedSettings,
+  refreshDisplayNames,
   syncedSettings,
 } from "./settings-sync";
 import type { ServiceTransport, SettingsResult } from "./transport";
@@ -72,6 +74,7 @@ function setup(
     base?: unknown;
     deferred?: () => boolean;
     now?: () => number;
+    catalog?: () => Promise<VaultCatalog | undefined>;
   } = {},
 ) {
   let stored: SettingsSnapshot | undefined = options.local
@@ -130,6 +133,7 @@ function setup(
       applied,
       ...(options.deferred ? { deferred: options.deferred } : {}),
       ...(options.now ? { now: options.now } : {}),
+      ...(options.catalog ? { catalog: options.catalog } : {}),
     });
   return {
     sync: start(),
@@ -858,5 +862,142 @@ describe("settings sync after the first", () => {
     const { sync, base } = setup({ base: baseOf(4, agreed) });
     await sync.clear();
     expect(base()).toBeUndefined();
+  });
+});
+
+describe("display names from this device's catalog", () => {
+  const OTHER_USER = "00000000-0000-4000-8000-000000000002";
+  const vault = (
+    id: string,
+    userId: string | undefined,
+    label = "risu",
+  ): VaultCatalog["connections"][number] => ({
+    id,
+    label,
+    provider: "bitwarden",
+    ...(userId ? { userId } : {}),
+    state: userId ? "ready" : "unavailable",
+    groups: [],
+    items: userId
+      ? [{ id: "item-1", label: "Example Bank", allowedOrigins: [], groupIds: [], fields: [] }]
+      : [],
+  });
+  const catalogOf = (...connections: VaultCatalog["connections"]): VaultCatalog => ({
+    connections,
+  });
+  const unnamed = settingsOf({
+    siteDefaults: [account("https://bank.example")],
+    // A binding made by AI generation, whose item has been renamed since.
+    bindings: [{ ...binding("https://bank.example"), itemName: "Old name" }],
+  });
+  const { slots, ...owner } = binding("https://bank.example");
+  const named = settingsOf({
+    siteDefaults: [
+      { ...account("https://bank.example"), itemName: "Example Bank", accountName: "risu" },
+    ],
+    // In the schema's key order, as the service and the settings store return it.
+    bindings: [{ ...owner, accountName: "risu", slots }],
+  });
+
+  it("names entries of an account connected here once, then writes nothing", async () => {
+    const catalog = vi.fn(async () => catalogOf(vault("connection-1", USER)));
+    const {
+      sync,
+      transport,
+      service,
+      local: after,
+      applied,
+    } = setup({
+      local: { ...unnamed, connections: [localConnection] },
+      service: state(4, unnamed),
+      base: baseOf(4, unnamed),
+      catalog,
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(service()).toEqual(state(5, named));
+    expect(syncedSettings(after()!.settings)).toEqual(syncedSettings(named));
+    expect(after()!.revision).toBe(8);
+    expect(applied).toHaveBeenCalledOnce();
+
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).toHaveBeenCalledOnce();
+    expect(after()!.revision).toBe(8);
+    expect(applied).toHaveBeenCalledOnce();
+  });
+
+  it("writes nothing when the names already match", async () => {
+    const {
+      sync,
+      transport,
+      local: after,
+    } = setup({
+      local: named,
+      service: state(4, named),
+      base: baseOf(4, named),
+      catalog: async () => catalogOf(vault("connection-1", USER)),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+    expect(after()!.revision).toBe(7);
+  });
+
+  it.each<[string, VaultCatalog]>([
+    ["not connected here", catalogOf(vault("connection-1", OTHER_USER))],
+    [
+      "connected twice",
+      catalogOf(vault("connection-1", USER), vault("connection-2", USER, "risu again")),
+    ],
+    ["locked", catalogOf(vault("connection-1", undefined))],
+    ["absent from an empty catalog", catalogOf()],
+  ])("leaves the names of an account %s", async (_label, catalog) => {
+    const {
+      sync,
+      transport,
+      local: after,
+    } = setup({
+      local: unnamed,
+      service: state(4, unnamed),
+      base: baseOf(4, unnamed),
+      catalog: async () => catalog,
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+    expect(after()!.revision).toBe(7);
+  });
+
+  it("leaves names alone when the catalog cannot be read", async () => {
+    const { sync, transport } = setup({
+      local: unnamed,
+      service: state(4, unnamed),
+      base: baseOf(4, unnamed),
+      catalog: async () => {
+        throw new Error("Synthetic catalog failure");
+      },
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("keeps an account name another device gave and an item missing from the vault", () => {
+    const synced = syncedSettings(
+      settingsOf({
+        siteDefaults: [
+          { ...account("https://bank.example"), accountName: "Laptop vault" },
+          account("https://shop.example", "item-gone"),
+        ],
+      }),
+    );
+    const refreshed = refreshDisplayNames(synced, catalogOf(vault("connection-1", USER)));
+    expect(refreshed.siteDefaults).toEqual([
+      { ...account("https://bank.example"), itemName: "Example Bank", accountName: "Laptop vault" },
+      { ...account("https://shop.example", "item-gone"), accountName: "risu" },
+    ]);
+    // Unchanged entries keep their identity.
+    expect(refreshDisplayNames(refreshed, catalogOf(vault("connection-1", USER)))).toEqual(
+      refreshed,
+    );
+    expect(
+      refreshDisplayNames(refreshed, catalogOf(vault("connection-1", USER))).siteDefaults[0],
+    ).toBe(refreshed.siteDefaults[0]);
   });
 });
