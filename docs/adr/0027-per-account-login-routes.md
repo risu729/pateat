@@ -332,10 +332,11 @@ new owner decision:
   alternative that only advances is refused, so a variant is always one page. An answer
   that fills one element as different slots in different sets fails as invalid output
   (`inconsistent-candidate`) rather than being stored as two variants, so an ambiguous
-  mapping is never hedged, and more than 3 alternatives are refused
-  (`too-many-variants`). On a continuation (a request with `base`), the service drops
-  the answer's alternatives before assembly instead of failing a call that was already
-  paid for; the prompt does not mention continuations. A recipe with alternatives is
+  mapping is never hedged. More than 3 alternatives fail the response format, and plan
+  validation also refuses them (`too-many-variants`). On a continuation (a request with
+  `base`), the service drops the answer's valid alternatives before assembly; an answer
+  whose alternatives fail validation still fails the call. The prompt does not mention
+  continuations. A recipe with alternatives is
   never continued. A generation answer maps the custom slots of every variant, up to 16.
 - **Known limitation.** Variants come only from identifier sets the start page shows at
   once in one observation. A set behind a tab or a link, as SMBC's contract-number tab
