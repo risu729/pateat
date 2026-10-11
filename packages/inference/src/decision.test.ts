@@ -4,7 +4,7 @@ import { evaluationCorpus } from "./corpus/cases";
 import { slots } from "./corpus/slots";
 import { buildFieldQuestions, createFieldMappingDecider } from "./decision";
 import { evaluateRole } from "./evaluate";
-import type { LoginObservation } from "./observation";
+import type { LoginObservation } from "@pateat/contracts";
 import { decisionModel, distribution, oracleDecider } from "./testing/fake-models";
 
 const page = evaluationCorpus[0]!;

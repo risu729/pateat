@@ -1,40 +1,27 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { evaluationCorpus } from "./corpus/cases";
 import { loginObservationSchema, semanticSlotsSchema } from "./observation";
-import { validatePagePlan } from "./plan";
 
-const base = evaluationCorpus[0]!.observation;
+const base = {
+  version: 1,
+  origin: "https://shop.example.test",
+  path: "/login",
+  language: "en",
+  complete: true,
+  title: "Sign in",
+  candidates: [
+    {
+      id: "email",
+      role: "email",
+      target: { by: "id", value: "email" },
+      label: "Email address",
+      autocomplete: "username",
+    },
+    { id: "password", role: "password", target: { by: "id", value: "password" } },
+    { id: "sign-in", role: "button", target: { by: "id", value: "sign-in" }, label: "Sign in" },
+  ],
+} as const;
 const parse = (value: unknown) => v.safeParse(loginObservationSchema, value).success;
-
-describe("synthetic corpus", () => {
-  it("parses, covers both languages and has consistent ground truth", () => {
-    expect(new Set(evaluationCorpus.map((entry) => entry.id)).size).toBe(evaluationCorpus.length);
-    const pages = evaluationCorpus.map(
-      (entry) => `${entry.observation.origin}${entry.observation.path}`,
-    );
-    expect(new Set(pages).size).toBe(pages.length);
-    expect(new Set(evaluationCorpus.map((entry) => entry.locale))).toEqual(
-      new Set(["ja", "en", "mixed"]),
-    );
-    expect(
-      evaluationCorpus.filter((entry) => entry.expected.kind === "abstain").length,
-    ).toBeGreaterThan(1);
-    for (const entry of evaluationCorpus) {
-      const observation = v.parse(loginObservationSchema, entry.observation);
-      const slots = v.parse(semanticSlotsSchema, entry.slots);
-      if (entry.expected.kind === "abstain") continue;
-      const result = validatePagePlan(observation, slots, {
-        fields: Object.entries(entry.expected.fields).map(([slot, candidate]) => ({
-          slot,
-          candidate,
-        })),
-        action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
-      });
-      expect(result.ok, entry.id).toBe(true);
-    }
-  });
-});
 
 describe("observation contract", () => {
   it("rejects values, oversized or control-character text and unsafe structure", () => {

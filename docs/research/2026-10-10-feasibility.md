@@ -400,3 +400,24 @@ unlock behaved as documented. Sync after disabling automatic unlock showed a raw
 Not established: revocation of real host access, because the probe answers provider
 permission checks synthetically; service-worker console output; and any real-account
 refresh.
+
+## First real-account sign-in, 2026-10-11
+
+The owner signed in from the production build of `main` at `9a156a3` to a personal
+Bitwarden Cloud US account (server 2026.9.2, V1 keys, PBKDF2). The network log
+showed password prelogin 200, token 400 (new-device verification), token 200 after
+the code, and sync 200; Pateat then rejected the result as `account-mismatch`.
+Only request paths, statuses and response key names were extracted; no values were
+read or recorded.
+
+Sync `userDecryption.masterPasswordUnlock` carried a `containedKeyId` (and
+`userKeyId`). Bitwarden server `v2026.9.2` sets that hint only in sync, not in the
+token response's `UserDecryptionOptions.MasterPasswordUnlock`, so the exact
+comparison of the two copies failed. A source audit of the same server version
+also found three response shapes that synthetic fixtures had not modeled and that
+would reject ordinary items next: stored cipher `data` is PascalCase with nulls
+omitted while the response model carries explicit nulls, identity `data` spells
+`SSN` in capitals, and attachments carry `"object": "attachment"`. Shared
+collections use `type` 0. The fix, with a modern V1 fixture of this shape, is in
+the `fix/real-account-mismatch` change. Signing in to the real account again is
+the remaining confirmation.

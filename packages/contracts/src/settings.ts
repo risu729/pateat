@@ -114,6 +114,8 @@ export const siteDefaultSchema = v.union([
     provider: identifier,
     userId: identifier,
     itemId: identifier,
+    /** For display only, such as on the service's web UI; absent in older entries. */
+    itemName: v.optional(vaultNameSchema),
   }),
   v.strictObject({ origin: originSchema, connectionId: identifier, itemId: identifier }),
 ]);

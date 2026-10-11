@@ -10,7 +10,9 @@ type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
 type Connection = StatusReply["connections"][number];
 const inputClass = "w-full rounded-lg border border-slate-400 bg-white px-3 py-2.5";
-function errorMessage(code: string): string {
+function errorMessage(code: string, check?: string): string {
+  if (code === "account-mismatch")
+    return `The provider's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;
   const messages: Record<string, string> = {
     "provider-permission-required":
       "Provider access was not granted. Use the connection button to grant access.",
@@ -198,7 +200,7 @@ export function BitwardenSetup({
     if (epoch !== generation.current) return;
     if (!result.ok) {
       setChallenge(undefined);
-      setMessage(errorMessage(result.error.code));
+      setMessage(errorMessage(result.error.code, result.error.check));
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();

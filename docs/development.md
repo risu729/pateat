@@ -72,6 +72,7 @@ Focused tasks are available for diagnosis:
 | `mise run bench:inference --paid` | Run the paid Claude benchmark on the synthetic corpus; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run generate:server-migrations` | Generate D1 migration SQL from the Drizzle schema |
+| `mise run generate:oidc-key [kid]` | Print a new ES256 key set for the `OIDC_SIGNING_KEYS` Worker secret ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) |
 | `mise run check:server-migrations` | Fail when committed migrations differ from the schema |
 | `mise run test:server` | Run Worker tests against local Miniflare D1 with committed migrations |
 | `mise run build:server` | Generate production Build Output and Worker types |
@@ -258,6 +259,7 @@ use.
 | Area | Choice and integration status | Owning slice |
 | --- | --- | --- |
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
+| Service web UI | **Approved 2026-10-11, not implemented:** the extension's React, Tailwind/Base UI, shadcn/ui and TanStack Form/Query choices, built by Vite and served as Worker static assets | M4 owner web UI |
 | Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented in the local probe:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
@@ -266,7 +268,7 @@ use.
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
-| Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)) | M4 service route |
+| Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)); per-owner Workload Identity Federation with `hono/utils/jwt` signing, a Valibot-checked `fetch` exchange and `authToken`, no added dependency ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) | M4 service route |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
@@ -275,8 +277,9 @@ use.
 
 ### Integration conditions (pending candidates remain conditional)
 
-React belongs in manually opened extension pages. Keep content scripts and the
-MV3 worker independent of UI rendering, and do not introduce automatic page UI.
+React belongs in manually opened extension pages and the service's owner web UI.
+Keep content scripts and the MV3 worker independent of UI rendering, and do not
+introduce automatic page UI.
 Base UI provides accessible primitives; shadcn/ui source becomes code we own and
 must review for updates. Compile Tailwind locally. Keyboard/focus tests remain
 necessary. The owner selected TanStack Form for typed composition and native

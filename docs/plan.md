@@ -339,7 +339,10 @@ Chrome yet.
   attempt checks, so it is skipped while another login is still running; the next login
   chooses again.
 - A site default saved from now on names the provider account and item
-  (`{ origin, provider, userId, itemId }`, ADR 0013); the executor and the settings page
+  (`{ origin, provider, userId, itemId, itemName? }`, ADR 0013). `itemName` is the
+  item's label when the default was saved, kept only for display, such as for an
+  account that is not connected here; older entries lack it, and builds that predate it
+  reject settings that contain it. The executor and the settings page
   find this device's connection through the catalog connection's `userId`, and an
   account that is not connected here refuses as `connection-missing`, one connected
   twice as `account-ambiguous`, and one whose vault is locked or unavailable as
@@ -353,8 +356,12 @@ Chrome yet.
   as `item-origin-mismatch`. Page URLs over 8192 characters and answers from another
   snapshot refuse as `vault-unavailable`. Static `allowedOrigins` remain empty for live
   items; Domain-mode subdomains and raw StartsWith rules cannot be expressed as exact
-  origins, so do not derive them. Synthetic unit tests cover these paths; a native
-  browser run waits for cached recipes.
+  origins, so do not derive them. Synthetic unit tests cover these paths, and
+  `tests/extension/login-service.spec.ts` runs the chain in Chromium: the built API
+  Worker, served locally over HTTPS with a local D1 database, holds a recipe and a
+  binding; the extension syncs both, chooses the synthetic Bitwarden item by its single
+  URI match, logs in on a routed HTTPS site, uploads the saved account and logs in again
+  after a full browser restart.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. An unavailable connection or an item awaiting field review
@@ -535,8 +542,16 @@ the real settings store over in-memory storage; no running service has been trie
   optional `launchWebAuthFlow` variant.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
+- The owner web UI for settings, bindings and recipes is designed
+  ([architecture](architecture.md#owner-web-ui)) but not implemented.
 - Inference adapters, spending accounting and the release artifact's migration SQL
-  remain separate slices.
+  remain separate slices. The inference route authenticates to Claude per owner
+  through Workload Identity Federation
+  ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
+  key is a later second option. The issuer metadata routes, the
+  `inference_credentials` table and `resolveClaudeCredential` exist and are tested
+  against a fake token endpoint only; no owner can enter identifiers yet, and no
+  exchange with Anthropic's real token endpoint has been made.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first approval. Before the service is offered to other people, it needs
   per-owner storage and request limits; today only `/redeem` is rate limited (per
@@ -652,8 +667,9 @@ Evidence, 2026-10-10, synthetic relying party only:
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
-contract carries bounded, value-free element roles, locators and labels; incomplete
-observations are rejected before inference. The generation/repair role uses AI SDK
+contract (`packages/contracts/src/observation.ts`, for the extension extractor) carries
+bounded, value-free element roles, locators and labels; incomplete observations are
+rejected before inference. The generation/repair role uses AI SDK
 structured output and the finite-choice role uses the SDK decision contract with an
 explicit none option per question. Both resolve observation-local candidate IDs, check
 slot/role compatibility, joint mapping uniqueness and same-form grouping, refuse secrets
@@ -750,8 +766,7 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   offer software keyboards.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
-- A real-page corpus per ADR 0012, then moving the observation contract to
-  `packages/contracts` when the service shares it.
+- A real-page corpus per ADR 0012.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):

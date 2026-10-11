@@ -791,7 +791,10 @@ describe("failed refresh does not destroy a previously usable cache", () => {
       password: v1Password,
       autoUnlock: "preserve",
     });
-    expect(result).toEqual({ ok: false, error: { code: "account-mismatch" } });
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "account-mismatch", check: "token-subject" },
+    });
     expect(h.manager.accept).not.toHaveBeenCalled();
     expect(h.durable()).toEqual(previous);
   });

@@ -613,3 +613,28 @@ test("a provider HTTP failure on sync shows an error instead of a lost connectio
   expect(port.disconnect).not.toHaveBeenCalled();
   expect(document.body.textContent).not.toContain("The operation could not be confirmed.");
 });
+
+test("an account mismatch names the failed check", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        connectionId: "saved-c",
+        label: "Saved vault",
+        email: "saved@example.test",
+        environment: { kind: "cloud" as const, region: "us" as const },
+        state: "ready" as const,
+        autoUnlock: "enabled" as const,
+        providerSession: "active" as const,
+      },
+    ],
+  });
+  client.sync.mockResolvedValue({
+    ok: false,
+    error: { code: "account-mismatch", check: "token-unlock" },
+  });
+  await mount(client);
+  await page.getByRole("button", { name: "Saved vault: Sync", exact: true }).click();
+  await expect.element(page.getByText(/did not agree \(check: token-unlock\)/)).toBeVisible();
+});

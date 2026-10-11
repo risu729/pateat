@@ -1,4 +1,5 @@
 import type {
+  BitwardenMismatchCheck,
   BitwardenProfile,
   BitwardenResult,
   BitwardenTransport,
@@ -96,6 +97,8 @@ export type SetupReply =
           | "authentication-rejected"
           | "setup-reauthentication-required"
           | "revision-conflict";
+        /** Only on account-mismatch: which consistency check failed, never a value. */
+        check?: BitwardenMismatchCheck;
       };
     };
 export interface ConnectionPolicy {
