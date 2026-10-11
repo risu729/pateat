@@ -14,8 +14,8 @@ The release applies the committed migrations to that database before activation
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
 headers. API routes answer JSON, and owner pages answer script-free HTML that cannot be
-framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
-`generation.ts`.
+framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts`,
+`pairing.ts` and `generation.ts`.
 
 | Route | Purpose |
 | --- | --- |
@@ -29,6 +29,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
 | `POST /v1/recipes/generate` | Generate or extend this origin's recipe from one login page observation |
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
+| `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /enroll?challenge=&label=` | Access page asking the owner to type the device's pairing code |
 | `POST /enroll` | Record the owner's approval and typed code for 10 minutes |
 | `POST /redeem` | Exchange an approved verifier for a device credential, once |
@@ -57,18 +58,51 @@ by the strict schemas. Stored documents are revalidated on read and fail closed 
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/redeem`, `/health`, `/.well-known/openid-configuration`
-and `/.well-known/jwks.json`, which clients call without an Access login. For the owner
-pages, `/enroll` and `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself
-against the team's keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience.
-Without both secrets those pages answer 503. The owner is found by token issuer and
-subject, never by email. Approval forms must come from the same origin. `/redeem` is
-anonymous and issues a credential only when the typed code equals the code derived from
-the verifier; a mismatch returns 409 `enrollment_code_mismatch`, and unapproved,
-expired, used and unknown verifiers return the same 404 `enrollment_not_found`. The
-`REDEEM_LIMITER` binding allows about 10 requests a minute per client address (the
-hosted limiter is approximate and per location), so poll no more than every 6 seconds.
-The [enrollment design](../../docs/architecture.md#device-enrollment) describes the
-flow.
+and `/.well-known/jwks.json`, which clients call without an Access login. For `/pair`
+and the owner pages, `/enroll` and `/manage`, the Worker verifies the
+`Cf-Access-Jwt-Assertion` itself against the team's keys, the `ACCESS_TEAM_DOMAIN`
+issuer and the `ACCESS_AUD` audience. Without both secrets those routes answer 503.
+The owner is found by token issuer and subject, never by email. Approval forms must come
+from the same origin. `/redeem` is anonymous and issues a credential only when the typed
+code equals the code derived from the verifier; a mismatch returns 409
+`enrollment_code_mismatch`, and unapproved, expired, used and unknown verifiers return
+the same 404 `enrollment_not_found`. The `REDEEM_LIMITER` binding allows about 10
+requests a minute per client address (the hosted limiter is approximate and per
+location), so poll no more than every 6 seconds. The
+[enrollment design](../../docs/architecture.md#device-enrollment) describes the flow.
+
+`POST /pair` is direct pairing
+([ADR 0020](../../docs/adr/0020-direct-device-pairing.md)), which will replace `/enroll`
+and `/redeem` once the extension uses it. The extension's background is to send
+`{ "version": 1, "label": "…" }` with the browser's login session. The Worker checks, in
+this order, the Access token, the `Origin`, the rate limit and then the body; it creates
+the owner on an identity's first pairing, stores only the credential's SHA-256 and
+answers 201 `{ version: 1, deviceId, credential }`. `Origin` must equal
+`chrome-extension://<id>` exactly for an ID in `PAIRING_EXTENSION_IDS`, a JSON array
+committed in `cloudflare.config.ts` (Pateat's own production ID; a self-hosted extension
+build with its own key lists its ID instead). It is not a secret. The `PAIR_LIMITER`
+binding allows about 10 pairings a minute per verified identity (issuer and subject).
+The body must be `application/json` and at most 4 KiB. No CORS headers are sent, so an
+`OPTIONS` preflight gets 405 and no web page can read a response; extension contexts
+with host access skip CORS. Errors are `{ "error": code }`:
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 400 | `bad_request` | Malformed JSON, an invalid label, an unknown field or another version |
+| 401 | `unauthorized` | No Access token: sign in to the service first |
+| 403 | `forbidden` | The Access token failed verification |
+| 403 | `extension_not_allowed` | `Origin` is not a listed extension |
+| 405 | `method_not_allowed` | Any method but `POST`, with `Allow: POST` |
+| 413 | `payload_too_large` | The body exceeds 4 KiB |
+| 415 | `unsupported_media_type` | The body is not `application/json` |
+| 429 | `rate_limited` | Too many pairings by this identity, with `Retry-After: 60` |
+| 500 | `internal_error` | An unexpected failure |
+| 503 | `access_unavailable` | The Access secrets are missing or invalid |
+| 503 | `pairing_unavailable` | `PAIRING_EXTENSION_IDS` is missing, empty or malformed |
+
+Without an Access session, Access itself redirects to its login or answers with its own
+page before the Worker runs. The extension is to treat a redirect, a response that is
+not JSON and `401` as "sign in first" (ADR 0020).
 
 The web UI is built from `web/` (entry `manage/index.html`) into the Worker's static
 assets under `/manage`. Every request runs the Worker first, so no built file is served
@@ -179,8 +213,9 @@ because routine releases do not apply cron triggers.
 `mise run //services/api:generate:migrations` after changing it and commit the generated
 `migrations/`; `//services/api:check:migrations` fails when they drift. Vitest applies
 the committed migrations to a local Miniflare D1 database. Sync tests seed synthetic
-owners and devices directly; enrollment tests sign synthetic Access tokens with keys
-generated per run. Claude credential tests use a synthetic issuer key generated per run
+owners and devices directly; enrollment and pairing tests sign synthetic Access tokens
+with keys generated per run (`test/access-helpers.ts`) and use a synthetic extension ID.
+Claude credential tests use a synthetic issuer key generated per run
 and a fake token endpoint; they never reach Anthropic. Generation tests also answer
 the Messages API locally with synthetic plans and judgements. The concurrency cases
 interleave requests in one local runtime; they do not demonstrate hosted D1 behavior.

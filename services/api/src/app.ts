@@ -1,8 +1,9 @@
+import { devicePairRequestSchema } from "@pateat/contracts";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
-import { requireAccess, requireAccessApi, requireSameOrigin } from "./access";
+import { requireAccess, requireAccessApi, requirePairingOrigin, requireSameOrigin } from "./access";
 import { requireDevice, type ApiEnv } from "./auth";
 import { API_HEADERS, apiError } from "./http";
 import { limitIdentity, limitOwner } from "./limits";
@@ -12,9 +13,11 @@ import { enrollRoutes } from "./routes/enroll";
 import { manageApiRoutes } from "./routes/manage-api";
 import { manageClaudeRoutes } from "./routes/manage-claude";
 import { oidcRoutes } from "./routes/oidc";
+import { createPairedDevice, pairLimit } from "./routes/pair";
 import { recipeRoutes } from "./routes/recipes";
 import { redeemRoutes } from "./routes/redeem";
 import { settingsRoutes } from "./routes/settings";
+import { jsonBody, requireJsonBody } from "./validation";
 import { appAsset, appPage } from "./web-app";
 
 const MAX_BODY_BYTES = 128 * 1024;
@@ -87,6 +90,23 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/bindings", methodNotAllowed("GET"))
   .get("/manage/recipes", requireAccess, appPage)
   .all("/manage/recipes", methodNotAllowed("GET"))
+  // Direct pairing from an allowed extension with the owner's login session (ADR 0020).
+  // Access and the Origin check run before the per-identity limit and any body read.
+  // No CORS headers: extension contexts with host access skip CORS; pages cannot read it.
+  .post(
+    "/pair",
+    requireAccessApi,
+    requirePairingOrigin,
+    pairLimit,
+    bodyLimit({
+      maxSize: MAX_FORM_BYTES,
+      onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
+    }),
+    requireJsonBody,
+    jsonBody(devicePairRequestSchema),
+    createPairedDevice,
+  )
+  .all("/pair", methodNotAllowed("POST"))
   // Redemption is the only anonymous write; it is rate limited and body-bounded.
   .use(
     "/redeem",

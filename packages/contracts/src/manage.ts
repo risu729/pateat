@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { deviceIdSchema } from "./enrollment";
+import { deviceIdSchema } from "./pairing";
 import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,

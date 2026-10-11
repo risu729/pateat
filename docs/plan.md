@@ -630,9 +630,10 @@ tests cover it.
 ### Remaining M4 service gaps
 
 - Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md)):
-  the manifest `key` that fixes the production extension ID is implemented. The
-  Access-protected `POST /pair` and then the extension switch, with the typed-code flow
-  removed, are not.
+  the manifest `key` that fixes the production extension ID and the Access-protected
+  `POST /pair` route, beside the typed-code flow, are implemented and covered by local
+  Worker tests; the route is not deployed. The extension switch, with the typed-code
+  flow removed, is not implemented.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - Done: the [owner web UI](architecture.md#owner-web-ui) serves its React app, assets

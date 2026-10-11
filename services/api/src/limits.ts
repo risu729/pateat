@@ -12,8 +12,9 @@ export const KEPT_RECIPE_REVISIONS = 10;
 
 /**
  * Refuses a request once `binding` has seen too many for the key this request maps to,
- * before any body is read. `REDEEM_LIMITER` keys by client address and `OWNER_LIMITER`
- * by owner or verified Access identity; the window is one minute for both.
+ * before any body is read. `REDEEM_LIMITER` keys by client address, `PAIR_LIMITER` by
+ * verified Access identity and `OWNER_LIMITER` by owner or identity; each window is one
+ * minute.
  */
 export function limitBy(binding: (env: Env) => RateLimit, keyOf: (c: Context<ApiEnv>) => string) {
   return createMiddleware<ApiEnv>(async (c, next) => {

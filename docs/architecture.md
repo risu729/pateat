@@ -837,8 +837,9 @@ quota, before the service is offered to other people.
 
 Status: the typed-code flow below is implemented and deployed, and the owner paired a
 real Chrome through Access with it on 2026-10-11. Direct pairing
-([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; so far only
-the fixed production extension ID is implemented. Both satisfy the separation above
+([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; so far the
+fixed production extension ID and the service's `POST /pair` route are implemented, and
+the extension still uses the typed code. Both satisfy the separation above
 without a cookie on steady-state API calls.
 
 - Route families. One Access application covers the whole service host, so a new route
