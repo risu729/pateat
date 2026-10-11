@@ -356,12 +356,17 @@ describe("coexistence with a later passkey provider", () => {
     const page = fakePage(answer({ kind: "delegate" }));
     const provider = vi.fn(() => new Promise<never>(() => {}));
     page.container.get = provider;
-    for (let index = 1; index <= 4; index++) {
+    // Each request is held before the next starts, so earlier delegations are in flight.
+    const hold = async (count: number) => {
       void page.container.get({
         publicKey: { ...publicKey, challenge: crypto.getRandomValues(new Uint8Array(16)) },
       });
-      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(index));
-    }
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(count));
+    };
+    await hold(1);
+    await hold(2);
+    await hold(3);
+    await hold(4);
     await expect(page.container.get({ publicKey })).resolves.toBe("native");
     expect(provider).toHaveBeenCalledTimes(4);
     // Another mediation has its own limit.
