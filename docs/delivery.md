@@ -24,34 +24,61 @@ database ID recorded in the build. The `pateat` database was bootstrapped on
 because cf deploy would provision a new database. Restore also checks that the
 migrations match both the manifest and the checked-out revision. Enrollment has not
 been verified against a real Access application, so the sync API cannot be released
-yet. A deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets
-and an Access application covering only `/enroll` and `/manage`; the owner pages answer
-503 without them. Artifact tests reject tampering and mismatched provenance.
+yet. A deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets;
+the owner pages answer 503 without them. Artifact tests reject tampering and mismatched
+provenance.
 
-`deploy-server.yml` is manual and disabled until `SERVER_DEPLOY_ENABLED=true`.
-Before enabling it, provision the Worker/routing and set repository variables
-`CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api`, and `SERVER_HEALTH_URL` to its
-HTTPS `/health` URL. Put the `CLOUDFLARE_API_TOKEN` secret in the `production`
-environment only. The owner chose on 2026-10-11 to use this one token for both the
-migrations and the deployment, as in kogane, because both run in the same job. It
-grants Editor on the `pateat-api` Worker only and the account-level `D1: Edit`, which
-covers every D1 database in the account; the release limits itself to the recorded
-database ID. This repository does not supply or provision them.
+### Production settings
 
-Dispatch on main with `ci_run_id` identifying successful main-push CI for the
-current revision. The workflow verifies the run's identity, event and conclusion,
-restores only its hashed artifact, rechecks main within a non-cancelling release
-lock, applies the released migrations, deploys through the pinned action without
-rebuilding, and verifies returned deployment IDs and the hosted revision. Before
-`cf d1 migrations apply`, it reads the database by the recorded ID and requires the
-name `pateat`; afterwards no migration may remain unapplied. A failed migration
-stops the release before activation. Migrations must be additive so the serving
-Worker keeps running on the new schema; nothing checks this automatically, and cf
-compares applied migrations by name only, so an applied migration file is never
-edited. `cf d1 migrations` is a preview command of the pinned beta cf; recheck this
-step when cf is updated. Failed delivery stays failed; each retry
-or later release requires an explicit dispatch. The complete service release
-gates below remain planned, including automatic promotion/failure acknowledgement.
+The owner decided these on 2026-10-11, following the kogane repository:
+
+- Host: the Worker serves only the Custom Domain `pateat.takuk.me`
+  (`cloudflare.config.ts`); `workers.dev` and version preview URLs stay off.
+- Access: one Access application covers the whole host, so a new route is protected
+  by default, and only the owner's identity is allowed. A more specific Access
+  application with a Bypass policy exempts the paths clients call without an Access
+  login: `/v1/*` (device credentials from the extension's background), `/redeem`
+  (anonymous pairing), `/health` (release check), and
+  `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
+  anonymously by Anthropic for Workload Identity Federation). The Worker still
+  verifies the Access token itself on the owner pages.
+- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
+  `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
+- Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
+  as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
+- Preview: there is no preview deployment for now. The Worker's only anonymous
+  answers are `/health` and 401s, which the CI workerd smoke test already covers,
+  and a useful preview would need its own D1 database and Access setup. Add a
+  `worker-preview` deployment with a separate preview D1 binding, as biwa does for
+  its docs, when the owner web UI exists.
+
+`deploy-server.yml` stays disabled until `SERVER_DEPLOY_ENABLED=true`. Before enabling
+it, bootstrap the Worker and its Custom Domain, and set the `production` environment
+variables `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
+`SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret. Put
+the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner chose
+on 2026-10-11 to use this one token for both the migrations and the deployment, as in
+kogane, because both run in the same job. It grants Editor on the `pateat-api` Worker
+only and the account-level `D1: Edit`, which covers every D1 database in the account;
+the release limits itself to the recorded database ID. This repository does not supply
+or provision them.
+
+The workflow takes the CI run that triggered it, or the `ci_run_id` of a manual
+dispatch, and fails before any change when the token or account ID is empty. It verifies
+the run's identity, event and conclusion, restores only its hashed artifact, rechecks
+main within a non-cancelling release lock, applies the released migrations, deploys
+through the pinned action without rebuilding, and verifies returned deployment IDs and
+the hosted revision. Before `cf d1 migrations apply`, it reads the database by the
+recorded ID and requires the name `pateat`; afterwards no migration may remain
+unapplied. A failed migration stops the release before activation. Migrations must be
+additive so the serving Worker keeps running on the new schema; nothing checks this
+automatically, and cf compares applied migrations by name only, so an applied migration
+file is never edited. `cf d1 migrations` is a preview command of the pinned beta cf;
+recheck this step when cf is updated. Failed delivery stays failed; a retry requires an
+explicit dispatch, and the next merge starts a new release. Routine releases never
+change the Custom Domain or other triggers; the bootstrap applies them once. The
+complete service release gates below remain planned, including automatic
+promotion/failure acknowledgement.
 
 ## Repository configuration
 

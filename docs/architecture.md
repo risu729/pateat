@@ -597,16 +597,19 @@ locally with synthetic Access keys and responses; a real Access probe and the op
 decisions below remain. Nothing is configured or deployed. It satisfies the separation
 above without a cookie on steady-state API calls.
 
-- Route families. One Access application covers only the `/enroll` and `/manage` paths.
-  The `/v1` sync routes are outside it and accept only device credentials, and `/redeem`
-  is anonymous. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself: signature
-  against the team JWKS, configured audience tag and issuer, and expiry. It never trusts
-  the plain identity headers. The owner key is the issuer plus the token subject, not
-  the email address. Verification uses Hono's JWT utility with the team JWKS, allowing
-  only RS256; Hono's JWK middleware reads only `Bearer` values, and a dedicated JWT
-  library would need its own owner decision. Tokens without an expiry or a user subject,
-  such as service tokens, are refused. The public keys are edge-cached for five
-  minutes, so a rotated key may be refused briefly.
+- Route families. One Access application covers the whole service host, so a new route
+  is protected by default (owner decision, 2026-10-11). A second, more specific Access
+  application with a Bypass policy exempts the paths that cannot pass an interactive
+  login: the `/v1` sync routes, which accept only device credentials; `/redeem`, which
+  is anonymous; `/health`; and the two `/.well-known` issuer routes that Anthropic
+  fetches anonymously. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself:
+  signature against the team JWKS, configured audience tag and issuer, and expiry. It
+  never trusts the plain identity headers. The owner key is the issuer plus the token
+  subject, not the email address. Verification uses Hono's JWT utility with the team
+  JWKS, allowing only RS256; Hono's JWK middleware reads only `Bearer` values, and a
+  dedicated JWT library would need its own owner decision. Tokens without an expiry or a
+  user subject, such as service tokens, are refused. The public keys are edge-cached for
+  five minutes, so a rotated key may be refused briefly.
 - Pairing. The extension background generates a 256-bit verifier and keeps it in trusted
   extension storage. The settings page opens the enrollment page in an ordinary tab with
   only its SHA-256 challenge and a device label. It also shows a short code: 40 bits of
@@ -676,8 +679,8 @@ extension's settings page for the data the service holds
   settings or recipe revision become nullable; null means the web UI wrote it.
 - Display names. A site default stores an optional `itemName` beside its item ID, as
   bindings already do, so the page can name the item; entries without it show the ID.
-- Authentication. The Access application that covers `/enroll` and `/manage` also
-  covers the app's assets and `/manage/api/*`. The Worker verifies the Access token
+- Authentication. The host-wide Access application also covers the app's assets and
+  `/manage/api/*`. The Worker verifies the Access token
   on each API request as it does for the current pages, finds the owner by issuer and
   subject without creating one, and accepts only same-origin requests. The page's
   Content Security Policy allows scripts from its own origin only, with no framing.

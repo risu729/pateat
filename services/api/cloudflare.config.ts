@@ -26,6 +26,9 @@ export default defineConfig({
         simple: { limit: 10, period: 60 },
       }),
     },
+    // The only public host. Routine releases leave triggers alone; the bootstrap
+    // applies this Custom Domain once (docs/delivery.md).
+    domains: ["pateat.takuk.me"],
     workersDev: false,
     previewUrls: false,
     observability: { enabled: true, headSamplingRate: 1, redactQueryString: true },

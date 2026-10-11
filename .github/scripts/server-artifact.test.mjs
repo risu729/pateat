@@ -107,7 +107,7 @@ test("release output refuses preview mode and another Worker", async () => {
     const database = "00000000-0000-4000-8000-000000000001";
     const worker = (env) => JSON.stringify({ name: "pateat-api", env });
     await writeFile(workerPath, worker({ DB: { type: "d1", name: "pateat", id: database } }));
-    assert.deepEqual(await verifyBuild(directory), { database });
+    assert.deepEqual(await verifyBuild(directory), { database, domains: [] });
     // Without an ID, cf deploy would provision a new database.
     await writeFile(workerPath, worker({ DB: { type: "d1", name: "pateat" } }));
     await assert.rejects(verifyBuild(directory), /bootstrapped D1/u);
