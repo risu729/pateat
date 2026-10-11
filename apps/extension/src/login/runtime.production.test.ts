@@ -12,6 +12,7 @@ import type { LiveUriMatcher } from "../vault/site-candidates";
 import { createLoginGeneration } from "../service/generation";
 import { createRecipeSync } from "../service/recipes";
 import type { ServiceTransport } from "../service/transport";
+import { acceptsSecret, type SecretInput } from "./inputs";
 import type { LoginGeneration } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 
@@ -2902,6 +2903,35 @@ describe("production login document admission", () => {
         expect(item.reads).toEqual([`${itemId} ${field(0)}`]);
       });
 
+      it("offers nothing from an item awaiting review and reads none of its values", async () => {
+        const sent = await sendPage(
+          { [`${itemId} ${field(0)}`]: "123", [`${otherItemId} ${field(0)}`]: "4567" },
+          { ...twoItems, quarantined: true },
+        );
+        // Only the other item's field is offered and shaped; the reviewed item's PIN is not.
+        expect(sent.custom.map((slot) => [slot.fieldName, slot.valueShape])).toEqual([
+          ["Branch", digits(4)],
+        ]);
+        expect(sent.reads).toEqual([`${otherItemId} ${field(0)}`]);
+      });
+
+      it("shapes a Linked field that reads a Text field like that Text field", async () => {
+        const sent = await sendPage(
+          { [`${itemId} ${field(0)}`]: "123", [`${itemId} ${field(1)}`]: "123" },
+          {
+            custom: [
+              { name: "Branch", kind: "text" },
+              { name: "Branch copy", kind: "linked", linkedFieldId: field(0) },
+            ],
+          },
+        );
+        expect(sent.custom.map((slot) => [slot.fieldName, slot.kind, slot.valueShape])).toEqual([
+          ["Branch", "identifier", digits(3)],
+          ["Branch copy", "identifier", digits(3)],
+        ]);
+        expect(sent.reads).toEqual([`${itemId} ${field(0)}`, `${itemId} ${field(1)}`]);
+      });
+
       it("offers names without shapes when an item could not be checked", async () => {
         const sent = await sendPage(
           { [`${itemId} ${field(0)}`]: "123" },
@@ -3072,6 +3102,45 @@ describe("production login document admission", () => {
         expect(answer).toEqual({ ok: false, reason: "binding-field-excluded" });
         expect(h.fields).not.toHaveBeenCalled();
       });
+
+      it.each<[string, SavedLoginBinding[], Awaited<ReturnType<LoginGeneration["slotFields"]>>]>([
+        ["a generated map", [], [{ slot: "branch", field: { custom: "PIN" } }]],
+        ["another item's binding", [sibling({ custom: "PIN" })], undefined],
+      ])(
+        "marks a Hidden field bound from %s, so a plain text input refuses it",
+        async (_label, bindings, map) => {
+          // The content script's input rule, for the step's synthetic inputs: the branch
+          // target is a plain text input and the password target a password input.
+          const inputs: Record<"branch" | "password", SecretInput> = {
+            branch: { type: "text", autocomplete: "", inputMode: "", maxLength: -1 },
+            password: { type: "password", autocomplete: "", inputMode: "", maxLength: -1 },
+          };
+          fake.state.onExecute = async (message) => {
+            const values = message["values"] as {
+              slot: keyof typeof inputs;
+              secret?: "password" | "otp" | "hidden";
+            }[];
+            if (values.some(({ slot, secret }) => !acceptsSecret(inputs[slot], secret)))
+              fake.state.executeReply = { ok: false, reason: "structural-mismatch" };
+          };
+          const { h, answer } = await login(bindings, map, {
+            custom: [{ name: "PIN", kind: "hidden" }],
+          });
+          expect(answer).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(fake.state.storage["pateat.login-attempts.v2"]).toMatchObject([
+              { state: "retryable", outcome: "structural-mismatch", submissions: 0 },
+            ]),
+          );
+          expect(executes()).toHaveLength(1);
+          expect(executes()[0]!.values).toEqual([
+            { slot: "branch", value: "synthetic-secret", secret: "hidden" },
+            { slot: "password", value: "synthetic-secret", secret: "password" },
+          ]);
+          // A login that never filled is not authenticated, so nothing is saved.
+          expect(h.store.update).not.toHaveBeenCalled();
+        },
+      );
     });
   });
   it("does not answer probe controls outside the probe build", async () => {

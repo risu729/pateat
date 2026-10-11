@@ -446,12 +446,23 @@ describe("generated slot maps (ADR 0027)", () => {
       customSlots?: { slot: string; offered: string }[];
       stored?: unknown;
       failWrite?: boolean;
+      /** Reads that reject before one succeeds. */
+      failReads?: number;
+      /** The answered change, for a continuation. */
+      change?: typeof recipeChange;
     } = {},
   ) {
     let stored = options.stored;
+    let failReads = options.failReads ?? 0;
     const order: string[] = [];
     const slotStorage = {
-      read: vi.fn(async () => structuredClone(stored)),
+      read: vi.fn(async () => {
+        if (failReads > 0) {
+          failReads -= 1;
+          throw new Error("synthetic storage failure");
+        }
+        return structuredClone(stored);
+      }),
       write: vi.fn(async (value: unknown) => {
         order.push("write");
         if (options.failWrite) throw new Error("synthetic storage failure");
@@ -465,7 +476,7 @@ describe("generated slot maps (ADR 0027)", () => {
           result: {
             version: 1 as const,
             status: "recipe" as const,
-            change: {
+            change: options.change ?? {
               ...recipeChange,
               recipeId: sent.observation.path === "/login" ? recipeId : idOf(0),
             },
@@ -604,5 +615,97 @@ describe("generated slot maps (ADR 0027)", () => {
     const after = (again.stored() as { maps: { recipeId: string }[] }).maps;
     expect(after).toHaveLength(200);
     expect(after.filter((entry) => entry.recipeId === recipeId)).toHaveLength(1);
+  });
+
+  // Page 1 of a recipe mapped `branch-number`; its continuation maps only page 2's slot.
+  const ownMap = (id: string, slots: { slot: string; field: { custom: string } }[]) => ({
+    service: connection.origin,
+    deviceId: connection.deviceId,
+    recipeId: id,
+    slots,
+  });
+  const continued = {
+    ...recipeChange,
+    revision: 2,
+    recipe: {
+      ...recipeChange.recipe,
+      revision: 2,
+      slots: ["password", "branch-number", "pin-code"],
+    },
+  };
+  const continuation = { ...offered, base: { recipeId, revision: 1 } };
+
+  it("adds a continuation's slots to the map of the recipe it continues", async () => {
+    const other = ownMap(idOf(5), [{ slot: "old-slot", field: { custom: "Old" } }]);
+    const h = slotSetup({
+      stored: { version: 1, maps: [ownMap(recipeId, [mapped[0]!]), other] },
+      customSlots: [customSlots[1]!],
+      change: continued,
+    });
+    expect(await h.generation.generate(continuation)).toBe("recipe");
+    expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
+    expect(await h.generation.slotFields(idOf(5))).toEqual(other.slots);
+    expect((h.stored() as { maps: unknown[] }).maps).toHaveLength(2);
+  });
+
+  it("keeps only the continued recipe's slots and no other device's map", async () => {
+    const h = slotSetup({
+      stored: {
+        version: 1,
+        maps: [
+          ownMap(recipeId, [mapped[0]!, { slot: "dropped-slot", field: { custom: "Dropped" } }]),
+        ],
+      },
+      customSlots: [customSlots[1]!],
+      change: continued,
+    });
+    await h.generation.generate(continuation);
+    expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
+
+    const elsewhere = slotSetup({
+      stored: {
+        version: 1,
+        maps: [{ ...ownMap(recipeId, [mapped[0]!]), deviceId: "another-device" }],
+      },
+      customSlots: [customSlots[1]!],
+      change: continued,
+    });
+    await elsewhere.generation.generate(continuation);
+    expect(await elsewhere.generation.slotFields(recipeId)).toEqual([mapped[1]]);
+  });
+
+  it("replaces the map when the answer starts a new recipe", async () => {
+    const h = slotSetup({
+      stored: {
+        version: 1,
+        maps: [ownMap(recipeId, [{ slot: "old-slot", field: { custom: "Old" } }])],
+      },
+    });
+    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
+  });
+
+  it("reads the maps again after a failed read instead of keeping none", async () => {
+    const other = ownMap(idOf(5), [{ slot: "old-slot", field: { custom: "Old" } }]);
+    const h = slotSetup({ stored: { version: 1, maps: [other] }, failReads: 1 });
+    expect(await h.generation.slotFields(idOf(5))).toBeUndefined();
+    expect(await h.generation.slotFields(idOf(5))).toEqual(other.slots);
+    expect(h.slotStorage.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("writes nothing when the maps cannot be read, so no other map is dropped", async () => {
+    const other = ownMap(idOf(5), [{ slot: "old-slot", field: { custom: "Old" } }]);
+    const h = slotSetup({ stored: { version: 1, maps: [other] }, failReads: 1 });
+    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(h.order).toEqual(["sync"]);
+    expect(h.slotStorage.write).not.toHaveBeenCalled();
+    expect(await h.generation.slotFields(idOf(5))).toEqual(other.slots);
+    expect(await h.generation.slotFields(recipeId)).toBeUndefined();
+  });
+
+  it("replaces stored maps that do not parse, since no older format is kept", async () => {
+    const h = slotSetup({ stored: { version: 0, maps: "synthetic" } });
+    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(h.stored()).toEqual({ version: 1, maps: [ownMap(recipeId, mapped)] });
   });
 });

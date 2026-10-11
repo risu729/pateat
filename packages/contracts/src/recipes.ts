@@ -100,11 +100,8 @@ function sameNameFields(fields: readonly LocalItemField[], name: string): string
     .map((field) => field.id);
 }
 
-/**
- * Maps a device-independent reference to this device's current field ID. A recipe slot's
- * field can be resolved on its own, for example to ask which slots an item can fill.
- */
-export function resolveFieldReference(
+/** Maps a device-independent reference to this device's current field ID. */
+function resolveField(
   reference: VaultFieldReference,
   fields: readonly LocalItemField[],
 ): { fieldId: string } | { reason: FieldRefusal } {
@@ -141,7 +138,7 @@ export function resolveBindingFields(
   }
   const slots: { slot: string; fieldId: string }[] = [];
   for (const entry of binding.slots) {
-    const resolved = resolveFieldReference(entry.field, fields);
+    const resolved = resolveField(entry.field, fields);
     if ("reason" in resolved) return { ok: false, slot: entry.slot, reason: resolved.reason };
     slots.push({ slot: entry.slot, fieldId: resolved.fieldId });
   }
@@ -150,7 +147,7 @@ export function resolveBindingFields(
 
 /**
  * The reference that names one custom field of a live item on every device (ADR 0013),
- * the inverse of `resolveFieldReference`: its name, with its position and count when the
+ * the inverse of `resolveField`: its name, with its position and count when the
  * item has several custom fields of that name, counted over the whole item as resolution
  * counts them. A built-in, unnamed or unknown field has none.
  */
@@ -239,7 +236,7 @@ export function templateLoginBinding(
     if (references.some((entry) => entry.field === undefined)) continue;
     const bound = references as { slot: string; field: VaultFieldReference }[];
     const failed = bound.flatMap((entry) => {
-      const resolved = resolveFieldReference(entry.field, fields);
+      const resolved = resolveField(entry.field, fields);
       return "reason" in resolved ? [{ slot: entry.slot, reason: resolved.reason }] : [];
     })[0];
     if (failed) {

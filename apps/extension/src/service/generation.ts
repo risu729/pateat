@@ -128,27 +128,59 @@ export function createLoginGeneration(options: {
   const now = options.now ?? Date.now;
   // Writes are serialized so two pages sent together are both remembered.
   let queue: Promise<unknown> = Promise.resolve();
-  // Every binding check reads the slot maps, so they are kept in memory after one read.
-  let slotMaps: Promise<GeneratedSlotMaps["maps"]> | undefined;
+  // Every binding check reads the slot maps, so they are kept in memory after one read. A
+  // read that fails is not kept, so the next call reads storage again; stored maps that do
+  // not parse count as none, since no older format is kept (ADR 0027).
+  let slotMaps: Promise<GeneratedSlotMaps["maps"] | undefined> | undefined;
   let slotQueue: Promise<unknown> = Promise.resolve();
 
-  function readSlotMaps(): Promise<GeneratedSlotMaps["maps"]> {
-    slotMaps ??= slotStorage
-      .read()
-      .catch(() => undefined)
-      .then((stored) => {
+  function readSlotMaps(): Promise<GeneratedSlotMaps["maps"] | undefined> {
+    if (slotMaps) return slotMaps;
+    const read: Promise<GeneratedSlotMaps["maps"] | undefined> = slotStorage.read().then(
+      (stored) => {
         const parsed = v.safeParse(slotMapsSchema, stored);
         return parsed.success ? parsed.output.maps : [];
-      });
-    return slotMaps;
+      },
+      () => {
+        if (slotMaps === read) slotMaps = undefined;
+        return undefined;
+      },
+    );
+    slotMaps = read;
+    return read;
   }
-  /** Replaces one recipe's slot map; nothing is kept in memory that was not written. */
-  function rememberSlots(entry: GeneratedSlotMaps["maps"][number]): Promise<boolean> {
+  /**
+   * Stores one recipe's slot map. A continuation's map is added to the map of the recipe
+   * it continues; a new recipe replaces any map under its ID. Nothing is written when the
+   * stored maps could not be read, so other recipes' maps are never dropped, and nothing
+   * is kept in memory that was not written.
+   */
+  function rememberSlots(
+    entry: GeneratedSlotMaps["maps"][number],
+    /** The continued recipe's slots, when the answer continues a recipe. */
+    continued: readonly string[] | undefined,
+  ): Promise<boolean> {
     const next = slotQueue.then(async () => {
-      const maps = [
-        ...(await readSlotMaps()).filter((map) => map.recipeId !== entry.recipeId),
-        entry,
-      ].slice(-MAX_GENERATED_SLOT_MAPS);
+      const current = await readSlotMaps();
+      if (!current) return false;
+      // Slots the continued recipe still has and this answer does not name again.
+      const kept = continued
+        ? (current
+            .find(
+              (map) =>
+                map.service === entry.service &&
+                map.deviceId === entry.deviceId &&
+                map.recipeId === entry.recipeId,
+            )
+            ?.slots.filter(
+              ({ slot }) =>
+                continued.includes(slot) && !entry.slots.some((added) => added.slot === slot),
+            ) ?? [])
+        : [];
+      const merged = { ...entry, slots: [...kept, ...entry.slots] };
+      const maps = [...current.filter((map) => map.recipeId !== entry.recipeId), merged].slice(
+        -MAX_GENERATED_SLOT_MAPS,
+      );
       try {
         await slotStorage.write({ version: 1, maps });
       } catch (error) {
@@ -234,12 +266,18 @@ export function createLoginGeneration(options: {
       const { customSlots, change } = answer.result;
       const fields = customSlots && slotFieldsOf(request, customSlots);
       if (fields)
-        await rememberSlots({
-          service: connection.origin,
-          deviceId: connection.deviceId,
-          recipeId: change.recipeId,
-          slots: fields,
-        });
+        await rememberSlots(
+          {
+            service: connection.origin,
+            deviceId: connection.deviceId,
+            recipeId: change.recipeId,
+            slots: fields,
+          },
+          // A continuation answers with only its own page's slots (ADR 0027).
+          request.base?.recipeId === change.recipeId && change.revision > 1
+            ? change.recipe.slots
+            : undefined,
+        );
       await sync().catch(() => undefined);
       return "recipe";
     },
@@ -247,7 +285,7 @@ export function createLoginGeneration(options: {
       const connection = await service.connection().catch(() => undefined);
       if (!connection) return undefined;
       await slotQueue;
-      return (await readSlotMaps()).find(
+      return (await readSlotMaps())?.find(
         (map) =>
           map.service === connection.origin &&
           map.deviceId === connection.deviceId &&

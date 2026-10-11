@@ -408,16 +408,15 @@ unless the tab holds an attempt record other than an account switch on that orig
 per custom field a matching item allows (Text, Hidden, or Linked with an allowed
 source), named by field name and position, under an opaque ID such as `custom-1`
 ([ADR 0027](adr/0027-per-account-login-routes.md)). Just before sending, it reads the
-matching items' usernames and the values of Text fields and Linked fields that read the
-username for their shape, each sent only when all items agree. The returned recipe
-enters the recipe cache and starts at once. A page that an effect step leads to and no
-check explains is sent to be judged, which can learn the completion or a second-factor
-handler ([ADR 0018](adr/0018-recipe-generation-route.md),
+matching items' usernames and the values of Text fields and of Linked fields that read
+the username or a Text field for their shape, each sent only when all items agree. The
+returned recipe enters the recipe cache and starts at once. A page that an effect step
+leads to and no check explains is sent to be judged, which can learn the completion or a
+second-factor handler ([ADR 0018](adr/0018-recipe-generation-route.md),
 [ADR 0027](adr/0027-per-account-login-routes.md); see below). A judgement that changes
 the recipe pulls recipes only; settings wait for the next full sync, since a settings
-write would stop the login the page belongs to.
-Inactive, frozen, discarded, and navigated documents are different states; only live
-documents can execute.
+write would stop the login the page belongs to. Inactive, frozen, discarded, and
+navigated documents are different states; only live documents can execute.
 
 Do not inject `chrome-extension://` iframes, automatic overlays or unlock windows into
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened

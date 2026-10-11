@@ -200,6 +200,55 @@ describe("custom-field offers (ADR 0027)", () => {
     expect(names(6)[0]).toEqual(["custom-1", "Secret copy"]);
   });
 
+  it("ranks a name whose kinds differ by the kind it is sent as", () => {
+    // "Code" is Text on one item and Hidden on another, so it is a Hidden offer and is
+    // dropped before Text and username-linked offers past the cap.
+    const offers = (cap: number) =>
+      customFieldOffers(
+        [
+          item("item-1", [
+            custom(0, "Code", "text"),
+            custom(1, "Login ID", "linked", { linkedFieldId: "login.username" }),
+            custom(2, "Branch", "text"),
+          ]),
+          item("item-2", [custom(0, "Code", "hidden")]),
+        ],
+        cap,
+      ).map(({ slot }) => [slot.fieldName, slot.kind]);
+    expect(offers(2)).toEqual([
+      ["Login ID", "identifier"],
+      ["Branch", "identifier"],
+    ]);
+    expect(offers(3)).toEqual([
+      ["Code", "hidden"],
+      ["Login ID", "identifier"],
+      ["Branch", "identifier"],
+    ]);
+  });
+
+  it("offers a Linked field that reads a Text field like that Text field", () => {
+    const text = custom(0, "Branch number", "text");
+    const linked = custom(1, "Branch copy", "linked", { linkedFieldId: text.id });
+    const offers = customFieldOffers([item("item-1", [text, linked])]);
+    expect(
+      offers.map(({ slot, shapeable, members }) => [
+        slot.fieldName,
+        slot.kind,
+        shapeable,
+        members[0]!.source,
+      ]),
+    ).toEqual([
+      ["Branch number", "identifier", true, "text"],
+      ["Branch copy", "identifier", true, "text"],
+    ]);
+    // The Linked field is offered only while the Text field it reads is allowed.
+    expect(
+      customFieldOffers([item("item-1", [text, linked], [linked.id])]).map(
+        ({ slot }) => slot.fieldName,
+      ),
+    ).toEqual([]);
+  });
+
   it("offers at most 16 fields by default", () => {
     const fields = Array.from({ length: 20 }, (_, index) =>
       custom(index, `Field ${index}`, "text"),

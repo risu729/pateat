@@ -75,7 +75,8 @@ function offerClass(
  * One offer per distinct custom-field reference across the matching items, so several
  * items send the union of their field names. A field is offered when the item allows it
  * for automatic fill and its name is non-blank and fits the slot's field-name bounds.
- * A reference whose fields differ in kind takes the strictest kind and is never shaped.
+ * A reference whose fields differ in kind takes the strictest kind, is ranked by it and is
+ * never shaped.
  * Past `cap`, Text fields are kept first, then Linked fields that read the username,
  * Hidden fields, and Linked fields that read the password, each in scope and field order.
  */
@@ -139,7 +140,11 @@ export function customFieldOffers(
     return [
       {
         order,
-        priority: Math.min(...offer.classes.map((entry) => entry.priority)),
+        // Ranked by the kind sent: a name that is Text on one item and Hidden on another
+        // is a Hidden offer.
+        priority: Math.min(
+          ...offer.classes.filter((entry) => entry.kind === kind).map((entry) => entry.priority),
+        ),
         slot,
         reference: offer.reference,
         members: offer.members,

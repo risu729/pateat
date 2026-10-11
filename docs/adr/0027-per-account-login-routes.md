@@ -231,7 +231,8 @@ new owner decision:
   across items takes the strictest kind (`secret`, then `hidden`) and gets no shape.
 - **Bounds.** At most 16 custom-field offers per request, Text fields first, then Linked
   fields that read the username, Hidden fields and Linked fields that read the password,
-  each in scope and field order, so a request stays within 20 slots; at most 32
+  each in scope and field order, so a request stays within 20 slots; a reference whose
+  fields differ in kind is ranked by the kind it is sent as. At most 32
   custom-field values are read for shapes per request, and an offer past that bound is
   sent without one. When an enabled connection could not answer or an item's URI rules
   could not be evaluated, the names that are known are still offered, but no shape is
@@ -248,6 +249,11 @@ new owner decision:
   turns it into field references from the slots it sent and keeps them in
   `chrome.storage.local` per service origin, device ID and recipe ID (at most 200
   recipes, the oldest dropped), written before the page is told to start the recipe. A
+  continuation's answer names only its own page's slots, so its mapping is added to the
+  map this device holds for the recipe it continues, keeping the slots that recipe still
+  has; an answer that starts a recipe replaces the map. When the stored maps cannot be
+  read, nothing is written, so no other recipe's map is dropped, and the next use reads
+  them again; stored maps that do not parse count as none. A
   login with no saved binding for its item builds one from another item's saved binding
   of the same recipe and origin, then from that map: built-in slots read the item's
   built-in fields, other slots take the template's reference, and the first template
