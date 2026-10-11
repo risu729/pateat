@@ -9,7 +9,7 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
-    "types": ["node", "react", "react-dom", "@vitest/browser-playwright"]
+    "types": ["node", "react", "react-dom", "vite/client", "@vitest/browser-playwright"]
   },
   "include": ["*.ts", "*.tsx"]
 }
