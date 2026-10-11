@@ -57,9 +57,10 @@ describe("isScriptButton", () => {
       <a id="b" href="javascript:;">Log in</a><a id="c" href=" JavaScript:void(0)">Go</a>
       <a id="d" href="" onclick="go()">Go</a><a id="e" href="#top" role="button">Go</a>
       <a id="f" href="#">Top</a><a id="g" href="#top">Top</a><a id="h" href="/x" onclick="track()">Docs</a>
-      <a href="javascript:;"><span id="i" role="button">Open</span></a><a id="j" href="java&#9;script:;">Go</a>`;
+      <a href="javascript:;"><span id="i" role="button">Open</span></a><a id="j" href="java&#9;script:;">Go</a>
+      <a id="k" href="&#1;javascript:;">Go</a><a id="l" href="&#xA0;javascript:x">Go</a><a id="m" role="button">Go</a>`;
     const script = (id: string) => isScriptButton(document.getElementById(id)!);
-    expect(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"].map(script)).toEqual([
+    expect(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m"].map(script)).toEqual([
       true,
       true,
       true,
@@ -68,6 +69,9 @@ describe("isScriptButton", () => {
       false,
       false,
       false,
+      false,
+      true,
+      true,
       false,
       true,
     ]);

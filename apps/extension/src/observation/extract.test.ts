@@ -269,22 +269,22 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("observes script buttons, and names a role=button element by attribute only", () => {
+  it("observes script buttons, and never lets one take a native button's text", () => {
     page(
       `<div role="button">ログイン</div>
       <form name="loginForm"><input id="userId"><input id="password" type="password">
-        <a id="loginButtonAD" onclick="document.loginForm.submit()">ID でログイン</a>
+        <a id="loginButtonAD" onclick="document.loginForm.submit()">ログイン</a>
         <span role="button" aria-label="Show password"></span><a class="plain">ヘルプ</a>
         <button>ログイン</button></form>`,
     );
     const observation = observe();
     // A script button without a locator is left out without making the page incomplete,
-    // and a role=button element never takes a native button's text locator.
+    // and a native button keeps its text locator: text names native buttons first.
     expect(observation.complete).toBe(true);
     expect(summary(observation).map(({ role, target, label }) => [role, target, label])).toEqual([
       ["text", { by: "id", value: "userId" }, undefined],
       ["password", { by: "id", value: "password" }, undefined],
-      ["button", { by: "id", value: "loginButtonAD" }, "ID でログイン"],
+      ["button", { by: "id", value: "loginButtonAD" }, "ログイン"],
       ["button", { by: "text", value: "ログイン" }, "ログイン"],
     ]);
   });
@@ -312,18 +312,22 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("leaves out a script link whose text a native button shows, as the executor cannot tell them apart", () => {
+  it("names a script link by text only when no native button shows it", () => {
     page(
-      `<a href="#" onclick="openLogin()">ログイン</a>
-      <form><input id="user"><input id="pass" type="password">
-        <a href="javascript:;" onclick="login()">ログイン</a><button id="go">ログイン</button></form>`,
+      `<a id="tab" href="#" onclick="activateLoginTab()">Login</a>
+      <form><input name="email"><input name="password" type="password">
+        <a href="javascript:;" onclick="help()">Help</a><a href="#" onclick="help()">Help</a>
+        <a href="javascript:;" onclick="login()">Login</a><input type="submit" value="Login"></form>`,
     );
     const observation = observe();
     expect(observation.complete).toBe(true);
     expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
-      ["text", { by: "id", value: "user" }],
-      ["password", { by: "id", value: "pass" }],
-      ["button", { by: "id", value: "go" }],
+      ["text", { by: "name", value: "email" }],
+      ["password", { by: "name", value: "password" }],
+      ["button", { by: "text", value: "Login" }],
+    ]);
+    expect(findTargets(document, { by: "text", value: "Login" })).toEqual([
+      document.querySelector("input[type=submit]"),
     ]);
   });
 

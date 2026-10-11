@@ -107,12 +107,13 @@ export function isButton(element: Element): element is HTMLButtonElement | HTMLI
  * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`).
  */
 function scriptHref(link: HTMLAnchorElement): boolean {
-  // URL parsing drops tabs and newlines anywhere and spaces at either end.
+  if (link.protocol === "javascript:") return true;
+  // As URL parsing does: tabs and newlines go anywhere, C0 controls and spaces at the
+  // ends. A `<base href>` naming another document would make `#` navigate; that is rare.
   const href = link
     .getAttribute("href")!
     .replace(/[\t\n\r]/gu, "")
-    .trim();
-  if (/^javascript:/iu.test(href)) return true;
+    .replace(/^[\0-\x20]+|[\0-\x20]+$/gu, "");
   return (
     (href === "" || href.startsWith("#")) && (link.hasAttribute("onclick") || roleButton(link))
   );
@@ -123,10 +124,10 @@ const roleButton = (element: Element) =>
 
 /**
  * A control that only scripts make clickable: a script link (an `<a>` without `href`
- * that has an `onclick` attribute, or an `<a href>` that runs a script, see
- * {@link scriptHref}), or another element with `role="button"`. Form controls, links
- * that navigate and anything inside an `<a href>` (a click there would follow the link)
- * are not script buttons.
+ * that has an `onclick` attribute or `role="button"`, or an `<a href>` that runs a
+ * script, see {@link scriptHref}), or another element with `role="button"`. Form
+ * controls, links that navigate and anything inside an `<a href>` (a click there would
+ * follow the link, or reach the outer link's script) are not script buttons.
  */
 export function isScriptButton(element: Element): boolean {
   if (

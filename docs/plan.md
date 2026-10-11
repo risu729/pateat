@@ -1159,47 +1159,51 @@ refused 10 of 954 paths (2026-10-11). Label text is rendered text only: scripts,
 Only forms that hold a field count, or every control outside a form when a field is
 outside one. There the candidates are visible text, email, tel, number and password
 inputs, checkboxes, buttons (disabled ones too, since many enable after typing), script
-links (an `<a>` without `href` that has an `onclick` attribute, or an `<a href>` with a
-`javascript:` URL or with an empty or fragment-only `href` and an `onclick` attribute or
-`role="button"`) as buttons, other elements with `role="button"` that have an `id`,
-`name` or `data-testid` (as [architecture](architecture.md#declarative-recipes-and-ai)
-describes) and, as context only, links. Script links with `href` were added after
-observing public Japanese login pages on 2026-10-11 showed the login buttons of MyJCB
-(`href="#"`) and SMBC Direct (`href="javascript:;"`) as links, which generation cannot
-name as the page action. Hidden, collapsed, `aria-hidden` and before-the-page-start
-inputs are skipped as likely traps. Labels come from `aria-labelledby`, `aria-label`,
-`<label>`, the text next to a field (the preceding table cell, `<dt>` or sibling, at
-most three levels up, never across another control or its label), then `title`; image
-`alt` names buttons, including `<input type="image">`. Text is redacted as
-[architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is the
-first of `id`, `name` and `data-testid` that matches exactly one element, as the
-executor resolves it; a button or script link without one gets a text locator when its
-text matches exactly one button or script link and redaction leaves it unchanged. In a
-login form, a field, button or checkbox without a target, a control the executor cannot
-act on (a select, radio, text area, another input type, or a read-only, disabled,
-transparent or tiny field) or a control in a shadow root makes the observation
-incomplete, as do more than 48 candidates, so inference rejects it; a page without a
-field is refused. The login forms are those with one password field that is not
-`new-password`, or with a `username` or `one-time-code` field, as ADR 0016 detects a
-login; failing that, any with a password field; otherwise every form that holds a field.
-Any other form with such a control, such as a search form with a category select or a
-sign-up form with a birth-date select, is left out entirely, so every form the
-observation describes is complete. On the 233 observed Formasaurus login pages of the
-real-page corpus (2026-10-11), this cut the incomplete ones from 108 to 52: 55 became
-complete, each still showing the form Formasaurus labels as the login form, and one
-whose login form has no locatable control now gives no observation. A field in any open
-shadow root marks it incomplete too, as it may be the real login. Links are context
-only: the plan check accepts only a button as the page action. Known limits: a read-only
-username shown again on a password step makes that step incomplete, and honeypot inputs
-moved to the right or clipped by `overflow: hidden` stay candidates.
-`extractSignedInObservation` describes the page after a generated recipe's final
-submission the same way, but over the whole page: every field, then buttons and links in
-document order up to 48 candidates. A field it cannot describe marks it incomplete;
-buttons and links past the limit or without a locator are left out, since they are only
-possible sign-in markers. There, an attribute locator that redaction would change counts
-as no locator, so an account number in an `id` is never sent.
-`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
-pages.
+links (an `<a>` without `href` that has an `onclick` attribute or `role="button"`, or an
+`<a href>` with a `javascript:` URL or with an empty or fragment-only `href` and an
+`onclick` attribute or `role="button"`) as buttons, other elements with `role="button"`
+that have an `id`, `name` or `data-testid` (as
+[architecture](architecture.md#declarative-recipes-and-ai) describes) and, as context
+only, links. Script links with `href` were added after observing public Japanese login
+pages on 2026-10-11 showed the login buttons of MyJCB (`href="#"`) and SMBC Direct
+(`href="javascript:;"`) as links, which generation cannot name as the page action. On
+the 954 Formasaurus pages of the real-page corpus (2026-10-11) this turned 371
+candidates on 121 pages, 32 of them login pages, into buttons, mostly from links; no
+page's completeness changed, and five pages that are not login pages lost some context
+links to the 48-candidate limit or to shared text. Hidden, collapsed, `aria-hidden` and
+before-the-page-start inputs are skipped as likely traps. Labels come from
+`aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
+table cell, `<dt>` or sibling, at most three levels up, never across another control or
+its label), then `title`; image `alt` names buttons, including `<input type="image">`.
+Text is redacted as [architecture](architecture.md#declarative-recipes-and-ai)
+describes. Each target is the first of `id`, `name` and `data-testid` that matches
+exactly one element, as the executor resolves it; a button without one gets a text
+locator when its text matches exactly one button and redaction leaves it unchanged, and
+a script link when its text matches no button and exactly one script link. In a login
+form, a field, button or checkbox without a target, a control the executor cannot act on
+(a select, radio, text area, another input type, or a read-only, disabled, transparent
+or tiny field) or a control in a shadow root makes the observation incomplete, as do
+more than 48 candidates, so inference rejects it; a page without a field is refused. The
+login forms are those with one password field that is not `new-password`, or with a
+`username` or `one-time-code` field, as ADR 0016 detects a login; failing that, any with
+a password field; otherwise every form that holds a field. Any other form with such a
+control, such as a search form with a category select or a sign-up form with a
+birth-date select, is left out entirely, so every form the observation describes is
+complete. On the 233 observed Formasaurus login pages of the real-page corpus
+(2026-10-11), this cut the incomplete ones from 108 to 52: 55 became complete, each
+still showing the form Formasaurus labels as the login form, and one whose login form
+has no locatable control now gives no observation. A field in any open shadow root marks
+it incomplete too, as it may be the real login. Links are context only: the plan check
+accepts only a button as the page action. Known limits: a read-only username shown again
+on a password step makes that step incomplete, and honeypot inputs moved to the right or
+clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
+the page after a generated recipe's final submission the same way, but over the whole
+page: every field, then buttons and links in document order up to 48 candidates. A field
+it cannot describe marks it incomplete; buttons and links past the limit or without a
+locator are left out, since they are only possible sign-in markers. There, an attribute
+locator that redaction would change counts as no locator, so an account number in an
+`id` is never sent. `mise run //apps/extension:test:dom` covers these cases in Chromium
+with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
