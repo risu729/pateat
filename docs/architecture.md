@@ -10,7 +10,9 @@ A Chrome MV3 extension logs into the user's configured accounts, including
 background tabs operated by another browser agent. Bitwarden is the first vault
 adapter, not the product identity. Passwords, custom fields, TOTP, and existing
 exportable software passkeys belong in scope. Another vault can be added behind
-the same narrow capability boundary when there is a concrete second integration.
+the same narrow capability boundary when there is a concrete second integration. For
+the time being Pateat supports only Bitwarden, and no other vault is planned (owner
+decision, 2026-10-11).
 
 The client works without a native helper or desktop daemon. Settings, recipes and
 account bindings live on the owner's self-hosted Pateat service and are edited on its
