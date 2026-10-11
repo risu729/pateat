@@ -291,6 +291,12 @@ export function createLoginRuntime(
     generation?: LoginGeneration;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
+    /**
+     * Automatic vault sync (ADR 0025). Each page announcement starts a due check and
+     * holds vault replacement off while it is handled; a page that may start a login
+     * first waits briefly for a running check.
+     */
+    vault?: { refreshIfStale(): void; enter(waitForCheck: boolean): Promise<() => void> };
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
@@ -1696,16 +1702,34 @@ export function createLoginRuntime(
       // The document went away or the service could not answer; nothing was started.
     }
   }
+  type Readiness = { ok: boolean; reason?: string; starts?: LoginReadiness[]; generate?: true };
   async function ready(
     sender: Sender,
     token: string,
     start?: { path: string },
     signIn?: { path: string },
-  ): Promise<{ ok: boolean; reason?: string; starts?: LoginReadiness[]; generate?: true }> {
+  ): Promise<Readiness> {
     // Admission is async; a later hello from the same frame must not be overtaken by an older one.
     const helloKey = `${sender.tab?.id}:${sender.frameId}`;
     const sequence = (hellos.get(helloKey) ?? 0) + 1;
     hellos.set(helloKey, sequence);
+    // Entered after the sequence is taken, so a hello waiting on the vault check is stale
+    // once a later one from the same frame arrives (ADR 0025).
+    const leave = await options.vault?.enter(start !== undefined);
+    try {
+      return await admit(sender, token, helloKey, sequence, start, signIn);
+    } finally {
+      leave?.();
+    }
+  }
+  async function admit(
+    sender: Sender,
+    token: string,
+    helloKey: string,
+    sequence: number,
+    start?: { path: string },
+    signIn?: { path: string },
+  ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
     const document = await identify(sender);
@@ -2112,8 +2136,10 @@ export function createLoginRuntime(
       return undefined;
     }
     const hello = v.safeParse(helloSchema, message);
-    if (hello.success)
+    if (hello.success) {
+      options.vault?.refreshIfStale();
       return ready(sender, hello.output.token, hello.output.start, hello.output.signIn);
+    }
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
     const document = await identify(sender);

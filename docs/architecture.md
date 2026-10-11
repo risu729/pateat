@@ -572,7 +572,8 @@ that exact page URL and returns a value-free summary
   for site access, the crypto host, each vault cache and sync sign-in
   (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
   the token, and info without it, since Sync needs the stored unlock key), the vault
-  copy's age (info, since the vault syncs only from the settings page), each
+  copy's age with the last automatic check and its outcome (info; warn when that check
+  failed, was rate limited, needs sign-in again or found the account deleted), each
   Bitwarden server's `/config` (warn when it fails or is not checked), service
   reachability, clock skew over 30 s against the service `Date` header, recipe
   generation (info without Claude credentials, warn when the issuer is missing or a

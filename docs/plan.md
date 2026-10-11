@@ -492,6 +492,14 @@ that provider, a rejected refresh or access token, and a mismatched account cont
 clear only the sync session. Startup only reads state; the settings page shows sync
 sign-in and automatic unlock separately and labels forget as local.
 
+Automatic sync is implemented as [ADR 0025](adr/0025-automatic-vault-sync.md) describes:
+page and passkey events and a five-minute alarm check the revision date at most once a
+minute, and a full sync runs only when it moved and no login is in progress. Unit tests
+cover the schedule, the replacement hold, the revision outcomes and manual Sync; an
+isolated Chromium test fires the alarm against the synthetic probe. The trigger after a
+missing item and the custom-field comparison are not implemented, and automatic sync is
+not yet verified in installed Chrome or against a real account.
+
 Unit tests cover claims, rotation, concurrent writers, forget and permission races,
 expiry from the token's own claims, and per-provider permission loss. Isolated Chromium
 tests cover the native session store's guards and readback, two password-free syncs

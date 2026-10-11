@@ -7,6 +7,7 @@ import {
 } from "@pateat/bitwarden";
 import type { LocalVaultHandle } from "../vault/manager";
 import type { VaultEntry } from "../vault/record";
+import type { VaultApplyHold, VaultSyncOutcome } from "./auto-sync";
 import { setupBeginSchema, setupContinuationSchema } from "./wire";
 import type {
   BitwardenConnectionConfiguration,
@@ -26,6 +27,11 @@ const replyOf = (result: SetupReply): SetupReply => {
   return code === "account-mismatch" && check ? { ok: false, error: { code, check } } : error(code);
 };
 type Authenticated = Extract<PasswordTokenOutcome, { kind: "authenticated" }>;
+/** Results only an automatic check produces; they never reach the settings page. */
+type AutoReply =
+  | { ok: true; kind: "unchanged" }
+  | { ok: true; kind: "deferred" }
+  | { ok: false; error: { code: "account-deleted" } };
 type Flow = {
   id: string;
   configuration: BitwardenConnectionConfiguration;
@@ -54,6 +60,37 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
   const disabling = new Set<string>();
   const connectionEpoch = new Map<string, number>();
   const handles = new Map<string, LocalVaultHandle>();
+  /** Automatic checks are kept out of `active`, so they never make setup report busy. */
+  const autoFlows = new Map<string, Flow>();
+  const autoRuns = new Map<string, Promise<unknown>>();
+  /** Connections with a manual sync or password sign-in waiting or running. */
+  const manualWork = new Map<string, number>();
+  function stopAuto(connectionId: string) {
+    const flow = autoFlows.get(connectionId);
+    if (flow) {
+      clearTimeout(flow.timer);
+      flow.controller.abort();
+    }
+  }
+  /**
+   * Keeps automatic checks of a connection out while manual work runs. It returns once the
+   * check in progress, stopped first when asked, has finished, so the two never hold the
+   * session or replace the vault at the same time.
+   */
+  async function excludeAuto(connectionId: string, stop: boolean): Promise<() => void> {
+    manualWork.set(connectionId, (manualWork.get(connectionId) ?? 0) + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const left = (manualWork.get(connectionId) ?? 1) - 1;
+      if (left > 0) manualWork.set(connectionId, left);
+      else manualWork.delete(connectionId);
+    };
+    if (stop) stopAuto(connectionId);
+    await autoRuns.get(connectionId);
+    return release;
+  }
   const reviews = new Map<string, string[]>();
   const alive = (flow: Flow) => !flow.controller.signal.aborted && now() < flow.expiresAt;
   function clear(flow: Flow) {
@@ -90,7 +127,9 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     authenticated: Authenticated,
     unlock: { kind: "password"; password: string } | { kind: "decrypted-key"; userKey: string },
     source: { kind: "password"; receivedAt: number } | { kind: "session"; revision: string },
-  ): Promise<SetupReply> {
+    /** An automatic check: skip an unchanged vault and wait for logins in progress. */
+    auto?: { stored: number | undefined; hold: VaultApplyHold },
+  ): Promise<SetupReply | AutoReply> {
     const profile = flow.configuration.profile;
     if (!(await permitted(flow)))
       return alive(flow) ? error("provider-permission-required") : error("cancelled");
@@ -102,6 +141,34 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     if (!alive(flow)) return error("cancelled");
     if (!(await permitted(flow)))
       return alive(flow) ? error("provider-permission-required") : error("cancelled");
+    // The cheap check comes first, so an unchanged vault keeps its snapshot (ADR 0025).
+    const revision = await transport.data.revisionDate(
+      { connectionId: profile.connectionId, accessToken: authenticated.tokens.accessToken },
+      flow.controller.signal,
+    );
+    if (!revision.ok) {
+      if (
+        source.kind === "session" &&
+        revision.error.code === "http-error" &&
+        revision.error.status === 401
+      ) {
+        await deps.sessions.discard(profile, source.revision);
+        return error("setup-reauthentication-required");
+      }
+      // A manual sync does not depend on the check; it only stores no revision.
+      if (auto) return revision;
+    }
+    if (!alive(flow)) return error("cancelled");
+    const revisionMs =
+      revision.ok && revision.data !== null && revision.data >= 0 ? revision.data : undefined;
+    if (auto) {
+      if (revision.ok && revision.data !== null && revision.data < 0)
+        return { ok: false, error: { code: "account-deleted" } };
+      if (revisionMs !== undefined && revisionMs === auto.stored)
+        return { ok: true, kind: "unchanged" };
+      if (!(await auto.hold.ready())) return { ok: true, kind: "deferred" };
+      if (!alive(flow)) return error("cancelled");
+    }
     const synced = await transport.data.sync(
       { connectionId: profile.connectionId, accessToken: authenticated.tokens.accessToken },
       flow.controller.signal,
@@ -140,91 +207,103 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       }
       return mapped;
     }
-    const accepted = await vault.manager.accept(
-      { prepared: mapped.data, unlock, autoUnlock: flow.intent },
-      flow.controller.signal,
-    );
-    if (!accepted.ok) return accepted;
-    flow.retire = async () => {
-      // Cancellation of refresh never disables the previously accepted cache.
-      // A first-enrollment compensation compares exactly this candidate revision.
-      if (!prior.data?.accepted)
-        await vault.manager.disableAutoUnlock(accepted.data.summary.revision);
-      else await vault.manager.lock?.();
-    };
-    if (!alive(flow)) {
-      clear(flow);
-      await flow.retirement;
-      return error("storage-uncertain");
+    // Replacing the snapshot and adopting it stops logins, so none may start meanwhile.
+    let release: (() => void) | undefined;
+    if (auto) {
+      release = await auto.hold.take();
+      if (!release) return { ok: true, kind: "deferred" };
     }
-    const current = await vault.store.read();
-    if (
-      !current.ok ||
-      current.data?.state !== "active" ||
-      current.data.revision !== accepted.data.summary.revision
-    )
-      return error("storage-uncertain");
-    const metadata = await vault.manager.catalog(accepted.data.handle, flow.controller.signal);
-    if (!metadata.ok) return metadata;
-    if (!alive(flow)) {
-      clear(flow);
-      await flow.retirement;
-      return error("storage-uncertain");
-    }
-    const catalog = {
-      id: profile.connectionId,
-      label: flow.configuration.label,
-      provider: "bitwarden",
-      userId: metadata.data.userId,
-      groups: metadata.data.groups,
-      items: metadata.data.items.map((item) => ({
-        id: item.id,
-        label: item.label,
-        allowedOrigins: [],
-        groupIds: item.groupIds,
-        fields: item.fields.map(({ id, label, name, kind, linkedFieldId }) => ({
-          id,
-          label,
-          name,
-          kind,
-          ...(linkedFieldId ? { linkedFieldId } : {}),
-        })),
-      })),
-    };
-    const adopted = await deps.policy.adopt({
-      previous: prior.data,
-      next: current.data,
-      catalog,
-      ...(flow.enabled === undefined ? {} : { enabled: flow.enabled }),
-    });
-    if (!alive(flow)) {
-      clear(flow);
-      await flow.retirement;
-      return error("storage-uncertain");
-    }
-    handles.set(profile.connectionId, accepted.data.handle);
-    reviews.set(profile.connectionId, adopted.policyReviewItemIds);
-    flow.published = true;
-    // A failed write leaves the cache usable; status then asks for sign-in before the next sync.
-    if (source.kind === "password") {
-      const retained = await deps.sessions.retain(
-        profile,
-        authenticated,
-        { userId: mapped.data.binding.userId, email: mapped.data.binding.email },
-        accepted.data.summary.revision,
-        source.receivedAt,
+    try {
+      const accepted = await vault.manager.accept(
+        { prepared: mapped.data, unlock, autoUnlock: flow.intent },
+        flow.controller.signal,
       );
-      // Permission removal may have forgotten the store before this write landed.
-      if (retained.ok && !(await deps.permissions.contains(profile).catch(() => false)))
-        await deps.sessions.discard(profile, retained.data);
+      if (!accepted.ok) return accepted;
+      flow.retire = async () => {
+        // Cancellation of refresh never disables the previously accepted cache.
+        // A first-enrollment compensation compares exactly this candidate revision.
+        if (!prior.data?.accepted)
+          await vault.manager.disableAutoUnlock(accepted.data.summary.revision);
+        else await vault.manager.lock?.();
+      };
+      if (!alive(flow)) {
+        clear(flow);
+        await flow.retirement;
+        return error("storage-uncertain");
+      }
+      const current = await vault.store.read();
+      if (
+        !current.ok ||
+        current.data?.state !== "active" ||
+        current.data.revision !== accepted.data.summary.revision
+      )
+        return error("storage-uncertain");
+      const metadata = await vault.manager.catalog(accepted.data.handle, flow.controller.signal);
+      if (!metadata.ok) return metadata;
+      if (!alive(flow)) {
+        clear(flow);
+        await flow.retirement;
+        return error("storage-uncertain");
+      }
+      const catalog = {
+        id: profile.connectionId,
+        label: flow.configuration.label,
+        provider: "bitwarden",
+        userId: metadata.data.userId,
+        groups: metadata.data.groups,
+        items: metadata.data.items.map((item) => ({
+          id: item.id,
+          label: item.label,
+          allowedOrigins: [],
+          groupIds: item.groupIds,
+          fields: item.fields.map(({ id, label, name, kind, linkedFieldId }) => ({
+            id,
+            label,
+            name,
+            kind,
+            ...(linkedFieldId ? { linkedFieldId } : {}),
+          })),
+        })),
+      };
+      const adopted = await deps.policy.adopt({
+        previous: prior.data,
+        next: current.data,
+        catalog,
+        ...(flow.enabled === undefined ? {} : { enabled: flow.enabled }),
+      });
+      if (!alive(flow)) {
+        clear(flow);
+        await flow.retirement;
+        return error("storage-uncertain");
+      }
+      handles.set(profile.connectionId, accepted.data.handle);
+      reviews.set(profile.connectionId, adopted.policyReviewItemIds);
+      flow.published = true;
+      if (revisionMs !== undefined)
+        await deps.revisions?.setRevision(profile.connectionId, revisionMs).catch(() => undefined);
+      // A failed write leaves the cache usable; status then asks for sign-in before the next sync.
+      if (source.kind === "password") {
+        const retained = await deps.sessions.retain(
+          profile,
+          authenticated,
+          { userId: mapped.data.binding.userId, email: mapped.data.binding.email },
+          accepted.data.summary.revision,
+          source.receivedAt,
+        );
+        // Permission removal may have forgotten the store before this write landed.
+        if (retained.ok && !(await deps.permissions.contains(profile).catch(() => false)))
+          await deps.sessions.discard(profile, retained.data);
+      }
+      return {
+        ok: true,
+        kind: "ready",
+        connectionId: profile.connectionId,
+        snapshotId: accepted.data.handle.snapshotId,
+        policyReviewItemIds: adopted.policyReviewItemIds,
+      };
+    } finally {
+      release?.();
     }
-    return {
-      ok: true,
-      kind: "ready",
-      connectionId: profile.connectionId,
-      snapshotId: accepted.data.handle.snapshotId,
-      policyReviewItemIds: adopted.policyReviewItemIds,
-    };
   }
   async function authorize(flow: Flow): Promise<SetupReply> {
     if (!flow.hash) return error("invalid-request");
@@ -275,12 +354,13 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     if (outcome.kind === "interaction-required")
       return { ok: true, kind: outcome.kind, reason: outcome.reason };
     if (outcome.kind !== "authenticated") return error("authentication-rejected");
+    // Without `auto`, only setup replies come back.
     return acceptSync(
       flow,
       outcome,
       { kind: "password", password: flow.password },
       { kind: "password", receivedAt },
-    );
+    ) as Promise<SetupReply>;
   }
   async function status(): Promise<SetupReply> {
     const configurations = await deps.registry.list();
@@ -328,12 +408,112 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     }
     return { ok: true, kind: "status", connections };
   }
+  /**
+   * One automatic check (ADR 0025): revision date first, a full sync only when it moved,
+   * and no replacement while a login or passkey request runs. It never asks for input and
+   * never makes setup or the Sync button report busy.
+   */
+  function autoSync(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
+    if (
+      disabling.has(connectionId) ||
+      active.has(connectionId) ||
+      manualWork.has(connectionId) ||
+      autoRuns.has(connectionId)
+    )
+      return Promise.resolve("skipped");
+    // Registered before the first await, so manual work that starts now waits for it, and
+    // removed before the outcome is answered, so the next check is not skipped.
+    let settled!: Promise<void>;
+    const work = autoCheck(connectionId, hold)
+      .catch((): VaultSyncOutcome => "failed")
+      .finally(() => {
+        if (autoRuns.get(connectionId) === settled) autoRuns.delete(connectionId);
+      });
+    settled = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    autoRuns.set(connectionId, settled);
+    return work;
+  }
+  async function autoCheck(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
+    const capturedEpoch = connectionEpoch.get(connectionId) ?? 0;
+    const configuration = await deps.registry.get(connectionId);
+    if (!configuration) return "skipped";
+    const vault = deps.vaultFor(configuration.profile);
+    const prior = await vault.store.read();
+    if (!prior.ok || prior.data?.state !== "active") return "skipped";
+    const entry = prior.data;
+    const session = await deps.sessions.status(configuration.profile);
+    if (session === "reauthentication-required") return "reauthentication-required";
+    if (session !== "active" && session !== "refresh-required") return "skipped";
+    if (
+      (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch ||
+      disabling.has(connectionId) ||
+      active.has(connectionId) ||
+      manualWork.has(connectionId)
+    )
+      return "skipped";
+    const current: Flow = {
+      id: random(),
+      configuration,
+      password: "",
+      intent: "preserve",
+      sync: true,
+      controller: new AbortController(),
+      expiresAt: now() + 300000,
+      timer: setTimeout(() => current.controller.abort(), 300000),
+      manual: {},
+    };
+    autoFlows.set(connectionId, current);
+    return (async (): Promise<VaultSyncOutcome> => {
+      if (!(await permitted(current))) return "skipped";
+      const transport = deps.transportFor(configuration.profile);
+      if (!transport.ok) return "failed";
+      const authorization = await deps.sessions.acquire(configuration.profile, {
+        cacheRevision: entry.revision,
+        transport: transport.data,
+        permitted: () => permitted(current),
+        signal: current.controller.signal,
+      });
+      if (!authorization.ok) {
+        const failure = authorization.error as { code: string; status?: number };
+        if (failure.code === "setup-reauthentication-required") return "reauthentication-required";
+        return failure.code === "http-error" && failure.status === 429 ? "rate-limited" : "failed";
+      }
+      if (!alive(current) || (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch)
+        return "skipped";
+      const reply = await acceptSync(
+        current,
+        authorization.data.authenticated,
+        { kind: "decrypted-key", userKey: entry.userKey },
+        { kind: "session", revision: authorization.data.revision },
+        { stored: await deps.revisions?.revision(connectionId), hold },
+      );
+      if (reply.ok)
+        return reply.kind === "unchanged" || reply.kind === "deferred" ? reply.kind : "synced";
+      const failure = reply.error as { code: string; status?: number };
+      if (failure.code === "account-deleted") return "account-deleted";
+      // Stopped by a sign-in, forget, removal or permission loss.
+      if (failure.code === "cancelled") return "skipped";
+      if (failure.code === "setup-reauthentication-required") return "reauthentication-required";
+      return failure.code === "http-error" && failure.status === 429 ? "rate-limited" : "failed";
+    })()
+      .catch((): VaultSyncOutcome => "failed")
+      .finally(() => {
+        clearTimeout(current.timer);
+        current.password = "";
+        if (autoFlows.get(connectionId) === current) autoFlows.delete(connectionId);
+      });
+  }
   return {
     status,
+    autoSync,
     /** Fence in-flight work now, then forget sessions only for providers that lost access.
      * Never rejects: a failed check or forget leaves that session for status to report. */
     async permissionsRemoved() {
       for (const flow of active.values()) clear(flow);
+      for (const connectionId of autoFlows.keys()) stopAuto(connectionId);
       let configurations: BitwardenConnectionConfiguration[];
       try {
         configurations = await deps.registry.list();
@@ -343,9 +523,12 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       for (const configuration of configurations) {
         try {
           // eslint-disable-next-line no-await-in-loop
-          if (!(await deps.permissions.contains(configuration.profile)))
+          if (!(await deps.permissions.contains(configuration.profile))) {
             // eslint-disable-next-line no-await-in-loop
             await deps.sessions.forget(configuration.profile);
+            // eslint-disable-next-line no-await-in-loop
+            await deps.revisions?.clear(configuration.profile.connectionId);
+          }
         } catch {
           // Continue with the remaining connections.
         }
@@ -405,6 +588,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       }
       const caller = {
         begin(input: unknown): Promise<SetupReply> {
+          let releaseAuto: (() => void) | undefined;
           return run(async () => {
             const checked = v.safeParse(setupBeginSchema, structuredClone(input));
             if (!checked.success) return error("invalid-request");
@@ -426,6 +610,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
                 deviceIdentifier: random(),
               };
             } else {
+              // A password sign-in replaces whatever an automatic check would bring.
+              releaseAuto = await excludeAuto(value.connectionId, true);
               const existing = await deps.registry.get(value.connectionId);
               if (!existing) return error("invalid-request");
               configuration = structuredClone(existing);
@@ -479,7 +665,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             if (!alive(current)) return error("cancelled");
             current.hash = hash.data.masterPasswordHash;
             return authorize(current);
-          });
+          }).finally(() => releaseAuto?.());
         },
         continue(input: unknown): Promise<SetupReply> {
           return run(async () => {
@@ -509,7 +695,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         },
         status,
         sync(connectionId: string): Promise<SetupReply> {
+          let releaseAuto: (() => void) | undefined;
           return run(async () => {
+            // An automatic check in progress finishes first; the button then always sends
+            // a full sync.
+            releaseAuto = await excludeAuto(connectionId, false);
             const capturedEpoch = connectionEpoch.get(connectionId) ?? 0;
             const configuration = await deps.registry.get(connectionId);
             if (!configuration) return error("setup-reauthentication-required");
@@ -544,8 +734,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               authorization.data.authenticated,
               { kind: "decrypted-key", userKey: prior.data.userKey },
               { kind: "session", revision: authorization.data.revision },
-            );
-          });
+            ) as Promise<SetupReply>;
+          }).finally(() => releaseAuto?.());
         },
         /** Local forget only. No verified server-wide revocation endpoint is called.
          * It touches only the session store: a password or setup flow is never cleared
@@ -567,6 +757,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             if (owned === current) owned = undefined;
             await current.retirement;
           }
+          stopAuto(connectionId);
+          await deps.revisions?.clear(connectionId).catch(() => undefined);
           const forgotten = await deps.sessions.forget(configuration.profile);
           return forgotten.ok ? { ok: true, kind: "forgotten", connectionId } : forgotten;
         },
@@ -595,6 +787,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             }
             handles.delete(connectionId);
             reviews.delete(connectionId);
+            stopAuto(connectionId);
+            await deps.revisions?.clear(connectionId).catch(() => undefined);
             const forgotten = await deps.sessions.forget(configuration.profile);
             if (!forgotten.ok) return forgotten;
             // The manager locks any open native session before deleting the record and key.
@@ -623,6 +817,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             const current = active.get(connectionId);
             if (current) clear(current);
             if (owned === current) owned = undefined;
+            stopAuto(connectionId);
+            await deps.revisions?.clear(connectionId).catch(() => undefined);
             const disabled = await deps.vaultFor(configuration.profile).manager.disableAutoUnlock();
             handles.delete(connectionId);
             // Sync needs the retained key, so its credentials go with it.
