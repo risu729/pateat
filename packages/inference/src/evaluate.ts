@@ -1,6 +1,6 @@
 import type { EvaluationCase, ExpectedResult } from "./corpus/cases";
 import type { AbstentionReason, InferenceErrorCode, InferenceOutcome } from "./outcome";
-import type { ValidatedPagePlan } from "./plan";
+import type { PlanRejection, ValidatedPagePlan } from "./plan";
 import { checkPlanValues } from "./values";
 
 export type Verdict = "correct" | "correct-abstention" | "missed" | "false-submit" | "failed";
@@ -11,6 +11,8 @@ export type CaseResult = {
   verdict: Verdict;
   status: InferenceOutcome<ValidatedPagePlan>["status"];
   reason?: AbstentionReason | InferenceErrorCode;
+  /** Why the plan check rejected an `invalid-output` plan, so a failure can be read. */
+  detail?: PlanRejection;
   /** The provider's refusal category code for a `refused` case, when reported. */
   refusalCategory?: string;
   /** The executable plan in candidate IDs, so a wrong answer can be read against the truth. */
@@ -160,6 +162,9 @@ export async function evaluateRole(options: {
       verdict,
       status: outcome.status,
       ...(reason === undefined ? {} : { reason }),
+      ...(outcome.status === "failed" && outcome.detail !== undefined
+        ? { detail: outcome.detail }
+        : {}),
       ...(outcome.status === "failed" && outcome.refusalCategory !== undefined
         ? { refusalCategory: outcome.refusalCategory }
         : {}),

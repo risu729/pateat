@@ -1036,10 +1036,10 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
-- Japanese pages for the real-page corpus. The owner chose on 2026-10-11 to take them
-  from both public login pages opened in the owner's Chrome and the request log. The
-  finite-choice provider waited for a Claude baseline, which now exists for the
-  Formasaurus pages (below).
+- More Japanese pages. The owner chose on 2026-10-11 to take them from both public
+  login pages opened in Chrome on the owner's PC and the request log; six public pages
+  are in (below), the request log is not yet read. The finite-choice provider waited
+  for a Claude baseline, which now exists for both page sets.
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -1125,6 +1125,39 @@ margin over the heuristic is those four pages (accuracy 1.0 against 0.958); on t
 synthetic corpus it is 16 against 9 of 16. A page set like this one, mostly plain
 forms, cannot tell a finite-choice model apart from Claude; the synthetic and Japanese
 pages carry that comparison.
+
+Japanese pages are in `packages/inference/src/corpus/japanese.json`
+(`--corpus japanese`). On 2026-10-11 a session on the owner's PC loaded 18 public
+Japanese login pages with Playwright in the installed Chrome, one empty browser
+context per page (no profile, cookies or account, locale `ja-JP`), and observed each
+with the probe from main `9ac17c4`. Nothing was typed or clicked. Nine gave no
+observation: MUFG rendered no field, Japan Post Bank showed a service-unavailable page,
+Monex, SMBC Card and Eki-net answered 403, Yahoo! JAPAN redirected to a captcha,
+Yodobashi failed with an HTTP/2 error, au ID landed on a 404 page and Mercari showed
+only a reCAPTCHA frame. Three gave incomplete observations, which inference rejects
+without a call: SBI Securities (its top page, not a login form), niconico and pixiv.
+The six complete ones are the cases. Each keeps the observation, its label and the
+page's origin and path, with no query; the page text holds no account or personal data
+(reviewed 2026-10-11). PayPay Bank and SMBC send branch and account number custom
+fields and a password, as the synthetic bank case does; the others send the username
+and password slots. SMBC and MyJCB must abstain: the extractor observes their login
+control as a link (`<a href>`), and the plan check accepts only a button, so neither
+page has a valid action until the extractor treats such a link as a button.
+
+| Case | Expected | Heuristic | Claude |
+| --- | --- | --- | --- |
+| SMBC Direct (bank fields) | abstain | false submit (modal button) | failed (`incompatible-role`) |
+| Mizuho Direct | `advance` after the customer number | missed | correct |
+| docomo SMTB Net Bank | submit | correct | correct |
+| PayPay Bank (bank fields) | submit | false submit (account number skipped) | correct |
+| Rakuten Securities | submit, not "クリア" | correct | correct |
+| MyJCB | abstain | false submit (passkey button) | failed (`incompatible-role`) |
+
+The heuristic scored 2 of 6 with 3 false submits. Claude (`claude-opus-5-5`, effort
+`low`, main `c2cc684`, one batch, $0.063 for 6 calls) scored 4 of 6 with no false
+submit. On SMBC and MyJCB it named the login link as the action, which the plan check
+rejects as `incompatible-role`, so no recipe would be saved; a rerun of those two
+cases ($0.026) recorded that reason, which each failed case now reports as `detail`.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete

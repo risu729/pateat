@@ -37,3 +37,9 @@ derived observation, its label and the Formasaurus page name.
 > HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
 > CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
 > OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+The Japanese page corpus
+([packages/inference/src/corpus/japanese.json](packages/inference/src/corpus/japanese.json))
+holds observations of six public login pages, each named by its origin and path. The
+short page text in each observation (titles, headings and labels) belongs to those
+sites. No page HTML is included.
