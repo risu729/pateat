@@ -519,6 +519,22 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(true);
   });
 
+  it("marks a field in any shadow root incomplete", () => {
+    page(
+      `<form id="s"><input name="q" aria-label="検索"><button id="sb">検索</button></form>
+      <form id="login"><div id="host"></div></form>`,
+    );
+    document
+      .querySelector("#host")!
+      .attachShadow({ mode: "open" }).innerHTML = `<input id="u"><input id="p" type="password">`;
+    expect(observe().complete).toBe(false);
+  });
+
+  it("separates text at line breaks", () => {
+    page(`<label for="u">User<br>ID</label><input id="u">`);
+    expect(observe().candidates[0]!.label).toBe("User ID");
+  });
+
   it("refuses ASP.NET cookieless session paths", () => {
     page(`<input id="u">`);
     history.replaceState(null, "", "/(S(lit3py55t21z5))/default.aspx");

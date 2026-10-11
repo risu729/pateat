@@ -142,6 +142,7 @@ function visibleText(root: Element): string | undefined {
   // Read a little beyond the limit so redaction sees whole tokens, then stop.
   for (let node = walker.nextNode(); node && text.length <= rawLimit; node = walker.nextNode()) {
     if (node instanceof Text) text += node.data;
+    else if (node instanceof HTMLBRElement) text += " ";
     // Separate blocks as rendering does: `<div>Customer</div><div>Number</div>`.
     else if (node instanceof Element && !view?.getComputedStyle(node).display.startsWith("inline"))
       text += " ";
@@ -345,14 +346,14 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
-/** True when an open shadow root holds a visible control, which the executor cannot reach. */
-function shadowControls(shadow: ShadowRoot): boolean {
+/** True when an open shadow root holds a visible match, which the executor cannot reach. */
+function inShadow(shadow: ShadowRoot, selector: string): boolean {
   return (
-    [...shadow.querySelectorAll(controls)].some(
+    [...shadow.querySelectorAll(selector)].some(
       (element) => element instanceof HTMLElement && visible(element),
     ) ||
     [...shadow.querySelectorAll("*")].some(
-      (element) => element.shadowRoot !== null && shadowControls(element.shadowRoot),
+      (element) => element.shadowRoot !== null && inShadow(element.shadowRoot, selector),
     )
   );
 }
@@ -378,7 +379,8 @@ function language(texts: readonly string[]): LoginObservation["language"] {
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
  * links (or, for fields outside any form, every control outside a form). A field or
  * button there that cannot be located, a control the executor cannot act on, a
- * control in a shadow root, or more than 48 candidates marks the observation
+ * control in a shadow root inside the login form or a field in any shadow root, or more
+ * than 48 candidates marks the observation
  * incomplete, and inference rejects it. A page without a field is refused.
  */
 export function extractLoginObservation(
@@ -403,11 +405,13 @@ export function extractLoginObservation(
   );
   if (fieldForms.size === 0) return { ok: false, reason: "no-candidates" };
 
+  // A shadow-root field anywhere may be the real login; other shadow controls such as
+  // chat widgets matter only inside the login form.
   let complete = ![...document.querySelectorAll("*")].some(
     (host) =>
       host.shadowRoot !== null &&
-      fieldForms.has(host.closest("form")) &&
-      shadowControls(host.shadowRoot),
+      (inShadow(host.shadowRoot, fields) ||
+        (fieldForms.has(host.closest("form")) && inShadow(host.shadowRoot, controls))),
   );
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
   const links: { form: HTMLFormElement | null; draft: Draft }[] = [];

@@ -797,8 +797,11 @@ executor resolves it. A field, button or checkbox without such a target, a contr
 executor cannot act on (an image button, select, radio, text area, another input type,
 or a read-only, disabled, transparent or tiny field), a control in a shadow root, or
 more than 48 candidates makes the observation incomplete, so inference rejects it; a
-page without a field is refused. `mise run test:observation` covers these cases in
-Chromium with synthetic pages.
+page without a field is refused. A field in any open shadow root marks it incomplete
+too, as it may be the real login. Known limits: a read-only username shown again on a
+password step makes that step incomplete, and honeypot inputs moved to the right or
+clipped by `overflow: hidden` stay candidates. `mise run test:observation` covers these
+cases in Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
