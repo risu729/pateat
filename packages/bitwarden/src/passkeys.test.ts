@@ -24,13 +24,12 @@ const scope = {
   snapshotId: "00000000-0000-4000-8000-000000000002",
   itemId: "00000000-0000-4000-8000-000000000003",
 };
-// Synthetic SDK Fido2CredentialView shape; keyValue is an opaque EncString placeholder.
+// Synthetic LocalFido2CredentialMetadata shape: an SDK Fido2CredentialView without keyValue.
 const view = {
   credentialId: "12345678-1234-4234-8234-123456789abc",
   keyType: "public-key",
   keyAlgorithm: "ECDSA",
   keyCurve: "P-256",
-  keyValue: "2.synthetic|encrypted|key",
   rpId: "synthetic.example.test",
   userHandle: "c3ludGhldGljLXVzZXI",
   userName: "synthetic-user",
@@ -153,7 +152,7 @@ describe("Bitwarden passkey metadata mapping", () => {
     ["counter overflow", [{ ...view, counter: "4294967296" }], "unsupported-crypto"],
     ["oversized user handle", [{ ...view, userHandle: "A".repeat(88) }], "unsupported-crypto"],
     ["discoverable without user handle", [{ ...view, userHandle: null }], "unsupported-crypto"],
-    ["missing key", [{ ...view, keyValue: "" }], "invalid-crypto-input"],
+    ["missing credential ID", [{ ...view, credentialId: "" }], "invalid-crypto-input"],
     ["non-object view", ["credential"], "invalid-crypto-input"],
   ] as const)("rejects %s", (_name, credentials, code) => {
     expect(map(...credentials)).toEqual({ ok: false, error: { code } });

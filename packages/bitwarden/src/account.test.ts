@@ -93,7 +93,7 @@ async function initializePrepared(prepared: PreparedBitwardenAccount) {
   return result;
 }
 
-async function received(raw: Raw) {
+async function mapReceived(raw: Raw) {
   const fetch = vi.fn(async (url: string, _init: RequestInit) => {
     if (url.endsWith("/connect/token")) return jsonResponse(raw.token);
     if (url.endsWith("/sync")) return jsonResponse(raw.sync);
@@ -119,11 +119,15 @@ async function received(raw: Raw) {
     "https://identity.bitwarden.com/connect/token",
     "https://api.bitwarden.com/sync",
   ]);
-  const prepared = mapper().map({
+  return mapper().map({
     connectionId: accountProfile.connectionId,
     authenticated: token.data,
     sync: sync.data,
   });
+}
+
+async function received(raw: Raw) {
+  const prepared = await mapReceived(raw);
   expect(prepared.ok).toBe(true);
   if (!prepared.ok) throw new Error("Synthetic account DTO mapping rejected");
   const session = await createLocalCryptoSession(
@@ -245,7 +249,8 @@ describe("raw provider account through native local crypto", () => {
     },
   );
 
-  it("verifies V2 signed state when both responses omit optional signedPublicKey", async () => {
+  it("rejects a V2 account when both responses omit signedPublicKey", async () => {
+    // The pinned SDK requires the signed public key for V2 account state.
     const raw = rawV2Account();
     setAt(
       raw,
@@ -253,18 +258,7 @@ describe("raw provider account through native local crypto", () => {
       undefined,
     );
     setAt(raw, ["token", "AccountKeys", "publicKeyEncryptionKeyPair", "signedPublicKey"], null);
-    const { prepared, session } = await received(raw);
-    expect(
-      "V2" in prepared.accountCryptographicState &&
-        prepared.accountCryptographicState.V2.signed_public_key,
-    ).toBeUndefined();
-    expect(session.metadata.securityVersion).toBe(2);
-    const result = await session.decryptCipher({
-      connectionId: accountProfile.connectionId,
-      cipher: prepared.ciphers[0],
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.data.name).toBe("Test Cipher");
+    expect(await mapReceived(raw)).toEqual({ ok: false, error: { code: "invalid-response" } });
   });
 
   it("does not discard a tampered signedPublicKey supplied only by the token", async () => {

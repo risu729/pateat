@@ -355,7 +355,16 @@ function sameUnlock(a: Sdk.MasterPasswordUnlockData, b: Sdk.MasterPasswordUnlock
   const { containedKeyId: right, ...rightRequired } = b;
   return same(leftRequired, rightRequired) && (left == null || right == null || left === right);
 }
-function accountKeys(input: unknown): Sdk.WrappedAccountCryptographicState {
+type SdkV2State = Extract<Sdk.WrappedAccountCryptographicState, { V2: unknown }>["V2"];
+/** One response's account state. Older sync responses omit V2's signed public key. */
+type ResponseAccountState =
+  | Extract<Sdk.WrappedAccountCryptographicState, { V1: unknown }>
+  | {
+      V2: Omit<SdkV2State, "signed_public_key"> & {
+        signed_public_key: Sdk.SignedPublicKey | undefined;
+      };
+    };
+function accountKeys(input: unknown): ResponseAccountState {
   const value = record(input);
   const pair = record(read(value, "publicKeyEncryptionKeyPair"));
   canonicalBase64(read(pair, "publicKey"));
@@ -366,7 +375,7 @@ function accountKeys(input: unknown): Sdk.WrappedAccountCryptographicState {
     const signing = record(signature);
     const security = record(state);
     canonicalBase64(read(signing, "verifyingKey"));
-    // Pinned SDK permits an absent signed public key for older sync responses.
+    // Older sync responses omit the signed public key; the token response may still carry it.
     const signedPublicKey = read(pair, "signedPublicKey");
     return {
       V2: {
@@ -383,10 +392,7 @@ function accountKeys(input: unknown): Sdk.WrappedAccountCryptographicState {
   if (signature != null || state != null || read(pair, "signedPublicKey") != null) reject();
   return { V1: { private_key: privateKey } };
 }
-function sameAccountState(
-  a: Sdk.WrappedAccountCryptographicState,
-  b: Sdk.WrappedAccountCryptographicState,
-): boolean {
+function sameAccountState(a: ResponseAccountState, b: ResponseAccountState): boolean {
   if ("V2" in a && "V2" in b) {
     const { signed_public_key: left, ...leftRequired } = a.V2;
     const { signed_public_key: right, ...rightRequired } = b.V2;
@@ -394,7 +400,7 @@ function sameAccountState(
   }
   return same(a, b);
 }
-function accountFromProfile(profile: RecordValue): Sdk.WrappedAccountCryptographicState {
+function accountFromProfile(profile: RecordValue): ResponseAccountState {
   const modern = read(profile, "accountKeys");
   const state =
     modern == null
@@ -729,8 +735,8 @@ export function createBitwardenAccountMapper(
               if (flag === true) reject("unsupported-unlock");
             }
           }
-          const cryptographicState = accountFromProfile(account);
-          const accountVersion = "V2" in cryptographicState ? "v2" : "v1";
+          const responseState = accountFromProfile(account);
+          const accountVersion = "V2" in responseState ? "v2" : "v1";
           if (
             binding.kind === "known" &&
             binding.accountVersion === "v2" &&
@@ -740,17 +746,23 @@ export function createBitwardenAccountMapper(
           const tokenKeys = read(encryptedAccount, "accountKeys");
           if (tokenKeys != null) {
             const tokenState = accountKeys(tokenKeys);
-            if (!sameAccountState(tokenState, cryptographicState))
-              rejectMismatch("token-account-keys");
+            if (!sameAccountState(tokenState, responseState)) rejectMismatch("token-account-keys");
             // Optional older-sync omission must not discard a present token signature.
             // Retain it so the local SDK verifies every supplied cryptographic statement.
             if (
               "V2" in tokenState &&
-              "V2" in cryptographicState &&
-              cryptographicState.V2.signed_public_key == null
+              "V2" in responseState &&
+              responseState.V2.signed_public_key == null
             )
-              cryptographicState.V2.signed_public_key = tokenState.V2.signed_public_key;
+              responseState.V2.signed_public_key = tokenState.V2.signed_public_key;
           }
+          // The SDK requires V2's signed public key, so one of the two responses must carry it.
+          const cryptographicState: Sdk.WrappedAccountCryptographicState = (() => {
+            if ("V1" in responseState) return responseState;
+            const { signed_public_key: signedPublicKey, ...state } = responseState.V2;
+            if (signedPublicKey == null) reject();
+            return { V2: { ...state, signed_public_key: signedPublicKey } };
+          })();
           const tokenPrivate = read(encryptedAccount, "privateKey");
           const privateKey =
             "V1" in cryptographicState

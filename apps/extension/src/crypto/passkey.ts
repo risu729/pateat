@@ -76,7 +76,7 @@ function perItem<T>(result: BitwardenResult<T>): BitwardenResult<T> {
   return result.error.code === "crypto-failed" ? failure("unsupported-crypto") : result;
 }
 
-/** Secret-free metadata for the item's stored passkey; the key stays encrypted. */
+/** Secret-free metadata for the item's stored passkey; the session withholds its private key. */
 export async function listStoredPasskeys(
   session: LocalCryptoSession,
   binding: PasskeyBinding,

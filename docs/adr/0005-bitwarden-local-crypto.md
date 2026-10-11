@@ -15,8 +15,9 @@ grant vault-write capabilities or authorize real-account operations.
 
 Pin the published OSS package associated with the inspected official browser
 release. The initial baseline is `0.2.0-main.1034`, with upstream source commit
-`7de8f13a14b56068167160f88d55231f916cf16a`. Upstream labels this package internal
-and unsupported; Pateat owns compatibility testing and updates.
+`7de8f13a14b56068167160f88d55231f916cf16a`; [Corresponding Source](../sdk-source.md)
+records the current pin. Upstream labels this package internal and unsupported;
+Pateat owns compatibility testing and updates.
 
 Pateat continues to own provider HTTP, connection identity, input admission,
 permissions, cache reconciliation and secret release. Expose only the local
