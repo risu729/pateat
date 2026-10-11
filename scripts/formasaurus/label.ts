@@ -38,7 +38,8 @@ const heldBack = new Set(["html/946.html", "html/60.html"]);
  * A long opaque path segment, such as Magento's base64 `/referer/` that carries the
  * original URL with its session ID. Such paths are left out rather than rewritten.
  */
-const opaqueSegment = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])[\w+=]{32,}$/u;
+// Base64url may hold a hyphen or two; a slug of hyphenated words is not opaque.
+const opaqueSegment = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?!(?:[^-]*-){3})[\w+=-]{32,}$/u;
 const fillRoles = new Set(["text", "email", "tel", "number", "password"]);
 // Submit, cancel, reset and other buttons; only Bs may be the page action.
 const otherButtonTypes = new Set(["Bc", "Br", "Bo"]);

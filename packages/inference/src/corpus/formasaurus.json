@@ -674,6 +674,126 @@
       }
     },
     {
+      "id": "formasaurus-61",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/61.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://dash.scrapinghub.com",
+        "path": "/account/login/",
+        "language": "en",
+        "title": "Login · Scrapinghub",
+        "headings": ["Sign In"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "id_username"
+            },
+            "label": "Username or Email:",
+            "group": "f1",
+            "maxLength": 75
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "id_password"
+            },
+            "label": "Password:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign In"
+            },
+            "label": "Sign In",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-62",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/62.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://dash.scrapinghub.com",
+        "path": "/account/signup/",
+        "language": "en",
+        "title": "Sign Up · Scrapinghub",
+        "headings": ["Sign Up"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "id_username"
+            },
+            "label": "Username:",
+            "group": "f1",
+            "maxLength": 30
+          },
+          {
+            "id": "c2",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "id_email"
+            },
+            "label": "Email:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "id_password1"
+            },
+            "label": "Password:",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign Up"
+            },
+            "label": "Sign Up",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "abstain"
+      }
+    },
+    {
       "id": "formasaurus-68",
       "source": {
         "dataset": "formasaurus",

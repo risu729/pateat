@@ -912,16 +912,16 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
 `mise run //packages/inference:corpus:formasaurus <absolute checkout path>` renders each
-of its 954 annotated pages in Chromium with scripts off, every request but the saved
-document aborted and no host resolvable, observes it with `extractLoginObservation` and
-labels the observation from the Formasaurus annotations.
+of its 954 annotated pages in Chromium with scripts off, meta refreshes removed, every
+request but the saved document aborted and no host resolvable, observes it with
+`extractLoginObservation` and labels the observation from the Formasaurus annotations.
 `packages/inference/src/corpus/formasaurus.json` keeps only the derived observations,
 labels and the source page name. Each case sends the slots the extension sends for an
 item with a username and a password (`builtInLoginSlots` in `packages/contracts`). The
-ground truth is the page's single login form: its username, email or "username or
-email" field, its password field and its one submit control. A page the extension would
-send (it has a password field, or a field marked `username` or `one-time-code`) without
-a login form, such as a sign-up page, must abstain. A page is left out when its truth is
+ground truth is the page's single login form: its username, email or "username or email"
+field, its password field and its one submit control. A page the extension would send
+(it has a password field, or a field marked `username` or `one-time-code`) without a
+login form, such as a sign-up page, must abstain. A page is left out when its truth is
 unclear: several login forms, a password field in an unannotated form or outside any
 form, any field in an unannotated form or outside a form on a page without a login form,
 another field in the login form (a captcha or a security code), a password-only form, a
@@ -932,7 +932,7 @@ Before publishing, every case was reviewed for personal data (2026-10-11, by an
 independent review agent and the importer's author). Held back: a private person's
 homepage, a forum for cashing out stolen funds, and a page whose path carried an encoded
 session ID (Magento's `/referer/<base64>/`); the importer now skips long opaque path
-segments. The corpus holds 77 plans and 16 abstentions. Two pages are Japanese
+segments. The corpus holds 78 plans and 17 abstentions. Two pages are Japanese
 (`buyee.jp`, `zeiri4.com`); `language` comes from the extractor's script heuristic,
 which also marks one Chinese page `ja` and every other non-Japanese page `en`. Some
 sites appear twice with the same login form.
@@ -940,8 +940,8 @@ sites appear twice with the same login form.
 it.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
-the 241 pages with an annotated login form, 9 gave no observation and 107 an incomplete
-one, which inference rejects without a call; 125 were complete. In 61 of the 107, the
+the 241 pages with an annotated login form, 7 gave no observation and 108 an incomplete
+one, which inference rejects without a call; 126 were complete. In 62 of the 108, the
 only shown select, radio button, text area or other unsupported input was outside the
 login form, for example a search form's category select. In 41 none was shown, so a
 control without a unique `id`, `name` or `data-testid` is the likely cause (inferred,

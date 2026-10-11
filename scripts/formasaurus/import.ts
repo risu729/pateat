@@ -4,6 +4,7 @@
 // observations and labels are written; no page HTML leaves the checkout.
 /* oxlint-disable no-await-in-loop -- one browser renders the pages one at a time */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -48,18 +49,37 @@ function contentType(html: Uint8Array): string {
   }
 }
 
+/**
+ * Removes `<meta http-equiv="refresh">`: with scripts off it still navigates, and the
+ * aborted navigation can destroy the page before it is observed. Latin-1 keeps every
+ * byte, whatever the page's encoding.
+ */
+function withoutRefresh(html: Buffer): Buffer {
+  return Buffer.from(
+    html.toString("latin1").replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>/giu, ""),
+    "latin1",
+  );
+}
+
+const bundle = await Bun.build({
+  entrypoints: [new URL("./probe.ts", import.meta.url).pathname],
+  target: "browser",
+  format: "iife",
+});
+if (!bundle.success) throw new AggregateError(bundle.logs, "Probe bundle failed");
+const probeSource = await bundle.outputs[0]!.text();
+// Probes are reused only for the same checkout and the same extractor build.
+const cacheKey = `${commit}:${createHash("sha256").update(probeSource).digest("hex")}`;
+
 async function probeAll(): Promise<Probed[]> {
-  const bundle = await Bun.build({
-    entrypoints: [new URL("./probe.ts", import.meta.url).pathname],
-    target: "browser",
-    format: "iife",
+  const browser = await chromium.launch({
+    ...(values.chromium ? { executablePath: values.chromium } : {}),
+    // Resolves no host, so DNS prefetch and preconnect hints reach nothing either.
+    args: ["--host-resolver-rules=MAP * ~NOTFOUND"],
   });
-  if (!bundle.success) throw new AggregateError(bundle.logs, "Probe bundle failed");
-  const probeSource = await bundle.outputs[0]!.text();
-  const browser = await chromium.launch(values.chromium ? { executablePath: values.chromium } : {});
   const results: Probed[] = [];
   for (const [file, annotation] of Object.entries(index)) {
-    const html = await readFile(join(data, file));
+    const html = withoutRefresh(await readFile(join(data, file)));
     // Scripts stay off and nothing but the saved document loads, so no request reaches
     // the original site.
     const context = await browser.newContext({
@@ -89,17 +109,18 @@ async function probeAll(): Promise<Probed[]> {
   return results;
 }
 
-// The cache is for relabeling only; it is reused for the same checkout commit alone.
+// The cache is for relabeling only.
 const cached =
   values.probes && existsSync(values.probes)
-    ? (JSON.parse(await readFile(values.probes, "utf8")) as { commit: string; probed: Probed[] })
+    ? (JSON.parse(await readFile(values.probes, "utf8")) as { key: string; probed: Probed[] })
     : undefined;
-if (cached && cached.commit !== commit) {
-  console.error(`${values.probes} was probed at another Formasaurus commit; delete it.`);
+if (cached && cached.key !== cacheKey) {
+  console.error(`${values.probes} was probed with another checkout or extractor; delete it.`);
   process.exit(2);
 }
 const probed = cached?.probed ?? (await probeAll());
-if (values.probes && !cached) await writeFile(values.probes, JSON.stringify({ commit, probed }));
+if (values.probes && !cached)
+  await writeFile(values.probes, JSON.stringify({ key: cacheKey, probed }));
 
 const cases = [];
 const skipped: Partial<Record<Skip, number>> = {};
