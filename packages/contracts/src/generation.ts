@@ -49,7 +49,10 @@ export const generationUnavailableReasonSchema = v.picklist([
   "already-judged",
   /** The recipe's pages were judged 20 times this UTC day (ADR 0027). */
   "judgement-limit",
-  /** The page still shows the route's fill fields or the completion marker (ADR 0027). */
+  /**
+   * The page still shows the route's fill fields, its passkey button on its path, or the
+   * completion marker (ADR 0027).
+   */
   "not-judgeable",
   "recipe-revoked",
   "recipe-conflict",

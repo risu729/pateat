@@ -197,22 +197,27 @@ a code, or `unavailable` with a reason when no model was called.
   slots in different variants, and no two variants fill the same elements. A
   continuation's answer has its alternatives dropped before assembly. `customSlots`
   covers the custom slots of every variant, and the request log records the alternatives
-  with the plan.
+  with the plan. The answer may also name the start page's passkey sign-in button
+  (`passkeyButton`); a button candidate not named like a registration and not used by
+  any set or the account switch is stored as the recipe's `passkey` route, any other is
+  dropped without failing the call, and a continuation's is ignored. The request log
+  records the kept button.
 - `POST /v1/recipes/:recipeId/completion` takes
   `{ version: 1, revision, route, observation }` for a page an effect step of that
   revision led to, on the recipe's origin
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Another revision, or a
   route the stored recipe lacks, answers `recipe-conflict`. The request never names a
-  `password` variant. A page that shows one of the route's fill fields, of any variant
-  (on any path), or the completion marker answers `not-judgeable` before any model call.
-  The login paths are the step paths of every variant of the route and the recipe's
-  handler paths, from the stored recipe. A `signed-in` marker passes `addCompletion` and
-  is stored as `completion` in the next revision; with a completion already stored, the
-  answer is `signed-in` without a change. A `challenge` verdict that names a
-  security-key or passkey button passes `addHandler` (a button of the page, not one that
-  registers or adds a passkey, not a step, switch, rejection or completion target, one
-  handler per kind and path) and is stored as a `passkey` handler in the next revision;
-  the answer carries it as `change`.
+  `password` variant. On the `passkey` route, a page on its path that still shows its
+  button answers `not-judgeable`, and its path is a login path. A page that shows one of
+  the route's fill fields, of any variant (on any path), or the completion marker
+  answers `not-judgeable` before any model call. The login paths are the step paths of
+  every variant of the route and the recipe's handler paths, from the stored recipe. A
+  `signed-in` marker passes `addCompletion` and is stored as `completion` in the next
+  revision; with a completion already stored, the answer is `signed-in` without a
+  change. A `challenge` verdict that names a security-key or passkey button passes
+  `addHandler` (a button of the page, not one that registers or adds a passkey, not a
+  step, switch, rejection or completion target, one handler per kind and path) and is
+  stored as a `passkey` handler in the next revision; the answer carries it as `change`.
 
 Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision and page path, so a repeat answers

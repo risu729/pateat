@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSettingsStore,
   parseLoginRecipe,
+  recipeStartSteps,
   type LocalSettings,
   type SavedLoginBinding,
   type SettingsResponse,
@@ -5004,6 +5005,378 @@ describe("password route variants (ADR 0027)", () => {
       expect(entry).toMatchObject({ route: "password", variant: 1 });
     const serialized = JSON.stringify(reports);
     for (const key of ['"facts"', '"discoverablePasskey"', '"passkey"', '"totp"'])
+      expect(serialized).not.toContain(key);
+  });
+});
+
+describe("the start page's passkey route (ADR 0027)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2]) listener(tabId);
+  });
+  beforeEach(() => {
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin";
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey"]);
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.switchReply = { ok: true };
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+  });
+
+  const button = { by: "text" as const, value: "Sign in with a passkey" };
+  const home = { path: "/home", target: target("logout") };
+  const { completion: _unlearned, ...unlearned } = recipe;
+  /** The password form and a passkey sign-in button on one start page, not learned yet. */
+  const routed = parseLoginRecipe({
+    ...unlearned,
+    id: "synthetic-passkey-route",
+    passkey: { path: "/signin", target: button },
+  });
+  const learned = parseLoginRecipe({ ...routed, completion: home });
+  const discoverable = () => vi.fn(async () => ({ passkey: true, discoverable: true }));
+  const secondFactor = () => vi.fn(async () => ({ passkey: true, discoverable: false }));
+  const observation = (path: string, candidates: unknown[]) => ({
+    ok: true,
+    observation: { version: 1, origin, path, language: "en", complete: true, candidates },
+  });
+  const homePage = observation("/home", [
+    { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
+  ]);
+  const elsewhere = observation("/elsewhere", [
+    { id: "c1", role: "link", target: target("help"), label: "Help" },
+  ]);
+  const status = () =>
+    fake.state.storage["pateat.login-attempts.v3"] as Record<string, unknown>[] | undefined;
+  const executed = () =>
+    fake.state.messages
+      .filter((entry) => entry.type === "login.execute")
+      .map((entry) => (entry as unknown as { operation: { step: LoginStep } }).operation.step);
+  const clicks = (value: string) =>
+    executed().filter((step) => step.kind === "click" && step.target.value === value).length;
+  const fills = () => executed().filter((step) => step.kind === "fill").length;
+  const toHome = { path: "/home", present: ["logout"], extracted: homePage };
+  /** What each click leads to: the next path, its elements and its description. */
+  const onClick = (
+    pages: Record<string, { path: string; present: string[]; extracted?: unknown }>,
+  ) => {
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind !== "click") return;
+      const next = pages[step.target.value];
+      if (!next) return;
+      fake.state.observedPath = next.path;
+      fake.state.present = new Set(next.present);
+      if (next.extracted) fake.state.extracted = { "signed-in": next.extracted };
+    };
+  };
+  function generation(judge: LoginGeneration["judge"] = async () => ({ verdict: "unclear" })) {
+    return {
+      available: vi.fn<LoginGeneration["available"]>(async () => false),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => "none"),
+      judge: vi.fn<LoginGeneration["judge"]>(judge),
+      slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+    };
+  }
+  function start(
+    used: LoginRecipe,
+    live: Parameters<typeof harness>[1] = {},
+    overrides: Partial<LocalSettings> = {},
+  ) {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness(overrides, { passkeys: discoverable(), report, ...live });
+    h.recipes.recipe.mockResolvedValue(used);
+    return { h, report };
+  }
+  /** Advances fake time until the check holds. */
+  async function until(check: () => boolean, maxMs = 200_000) {
+    for (let spent = 0; !check(); spent += 100) {
+      if (spent > maxMs) throw new Error("Condition not reached in fake time");
+      // eslint-disable-next-line no-await-in-loop
+      await vi.advanceTimersByTimeAsync(100);
+    }
+  }
+  const settled = (state: string, outcome?: string) => () =>
+    status()?.[0]?.["state"] === state &&
+    (outcome === undefined || status()?.[0]?.["outcome"] === outcome);
+
+  it("clicks the passkey button for an item with a discoverable passkey and never fills", async () => {
+    onClick({ [button.value]: toHome });
+    const { h } = start(learned);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "passkey", stepCount: 1, submissions: 1 });
+    expect(status()![0]).not.toHaveProperty("variant");
+    expect(executed()).toEqual([
+      { kind: "click", path: "/signin", target: button, purpose: "submit" },
+    ]);
+    // The click carries no values, and no vault field is read.
+    const execute = fake.state.messages.find((entry) => entry.type === "login.execute")!;
+    expect(execute.values).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("fills the password route for an item whose passkey is only a second factor", async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const { h } = start(learned, { passkeys: secondFactor() });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "password", variant: 0 });
+    expect(fills()).toBe(1);
+    expect(clicks(button.value)).toBe(0);
+    expect(clicks("login")).toBe(1);
+  });
+
+  it("takes the passkey route for an item without a password or a fitting binding", async () => {
+    onClick({ [button.value]: toHome });
+    // The password variant fills a custom slot this item has no binding for, and the
+    // item's password is empty: the password route would refuse.
+    const custom = parseLoginRecipe({
+      ...learned,
+      slots: ["member-number", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "member-number", target: target("member") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        recipe.steps[1]!,
+      ],
+    });
+    const { h } = start(custom, {}, { bindings: [] });
+    const original = h.store.handle.getMockImplementation()!;
+    h.store.handle.mockImplementation(async () => {
+      const response = await original();
+      if (response.ok)
+        response.catalog.connections[0]!.items[0]!.fields =
+          response.catalog.connections[0]!.items[0]!.fields.map((field) =>
+            field.id === "login.password" ? { ...field, empty: true as const } : field,
+          );
+      return response;
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({
+      route: "passkey",
+      facts: { password: false, discoverablePasskey: true },
+    });
+    expect(fills()).toBe(0);
+    // Without the passkey, the same item refuses as before.
+    const refused = start(custom, { passkeys: secondFactor() }, { bindings: [] });
+    refused.h.store.handle.mockImplementation(h.store.handle.getMockImplementation()!);
+    expect(await refused.h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+      ok: false,
+      reason: "binding-not-found",
+    });
+  });
+
+  it("watches the passkey button first and stops when it never shows, filling nothing", async () => {
+    const { h } = start(learned);
+    h.recipes.starts.mockResolvedValue([{ path: "/signin", steps: recipeStartSteps(learned) }]);
+    const watched = await h.hello({}, false);
+    expect(watched).toMatchObject({ ok: false, reason: "form-not-ready" });
+    expect(
+      (watched as { starts: { targets: unknown[] }[] }).starts.map((entry) => entry.targets),
+    ).toEqual([[button], [target("password")]]);
+    // The password form was ready, but the chosen route's button never appears.
+    fake.state.awaited = { ok: false, reason: "timeout" };
+    expect(await h.hello({ documentId: "ready-document" })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([
+        { route: "passkey", state: "retryable", outcome: "structural-mismatch", submissions: 0 },
+      ]),
+    );
+    const awaited = fake.state.messages.find((entry) => entry.type === "login.await") as
+      | { readiness: { targets: unknown[] } }
+      | undefined;
+    expect(awaited?.readiness.targets).toEqual([button]);
+    expect(executed()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("holds the page while the button shows and judges it on the passkey route once gone", async () => {
+    vi.useFakeTimers();
+    onClick({ [button.value]: { path: "/signin", present: [button.value] } });
+    const service = generation(async () => ({ verdict: "signed-in" }));
+    const { h } = start(routed, { generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => clicks(button.value) === 1);
+    // A WebAuthn exchange or a chooser the person answers keeps the button showing.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set(["logout"]);
+    fake.state.extracted = { "signed-in": homePage };
+    await until(settled("authenticated"));
+    expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(service.judge).toHaveBeenCalledWith(
+      routed.id,
+      routed.revision,
+      "passkey",
+      homePage.observation,
+    );
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+  });
+
+  it("ends as a challenge when the button still shows after two minutes", async () => {
+    vi.useFakeTimers();
+    onClick({ [button.value]: { path: "/signin", present: [button.value] } });
+    const service = generation();
+    const { h } = start(routed, { generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => clicks(button.value) === 1);
+    await vi.advanceTimersByTimeAsync(115_000);
+    expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+    await until(settled("blocked", "challenge"), 10_000);
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+  });
+
+  it("leaves a new document that shows the button again to the person at once", async () => {
+    vi.useFakeTimers();
+    onClick({ [button.value]: { path: "/signin", present: [button.value, "password"] } });
+    const service = generation(async () => ({ verdict: "signed-in" }));
+    const { h } = start(routed, { generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => clicks(button.value) === 1);
+    // The page reloads back to the start page, which shows the button and the form again.
+    await h.hello({ documentId: "reloaded" }, false);
+    await until(settled("blocked", "challenge"), 5_000);
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, LoginGeneration["judge"] | undefined]>([
+    ["unclear", async () => ({ verdict: "unclear" })],
+    ["rejected", async () => ({ verdict: "rejected" })],
+    ["challenge without a handler", async () => ({ verdict: "challenge" })],
+    ["a temporary refusal", async () => ({ verdict: "retry", reason: "busy" })],
+    ["no judgement at all", undefined],
+  ])("ends as a challenge after %s, never typing the password", async (_label, judge) => {
+    vi.useFakeTimers();
+    onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
+    const service = judge ? generation(judge) : undefined;
+    const { h } = start(routed, service ? { generation: service } : {});
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("blocked", "challenge"), 20_000);
+    if (service) expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(status()![0]!["settled"]).toBeUndefined();
+    expect(fills()).toBe(0);
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("ends as a challenge on the rejection marker", async () => {
+    onClick({ [button.value]: { path: "/signin", present: ["rejected"] } });
+    const { h } = start(parseLoginRecipe({ ...learned, rejection: target("rejected") }));
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+    );
+    expect(fills()).toBe(0);
+  });
+
+  it("saves only the site default after a signed-in page, never a binding", async () => {
+    vi.useFakeTimers();
+    onClick({ [button.value]: toHome });
+    const service = generation(async () => ({ verdict: "signed-in" }));
+    const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+    const { h } = start(
+      routed,
+      { generation: service, uris, allowedOrigins: [] },
+      { siteDefaults: [], bindings: [] },
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => h.store.update.mock.calls.length === 1);
+    expect(status()![0]).toMatchObject({ state: "authenticated", route: "passkey" });
+    expect(h.settings.settings.siteDefaults).toEqual([
+      {
+        origin,
+        provider: "bitwarden",
+        userId,
+        itemId,
+        itemName: "Synthetic item",
+        accountName: "Synthetic live vault",
+      },
+    ]);
+    expect(h.settings.settings.bindings).toEqual([]);
+  });
+
+  it("still runs a handler on the page after the passkey click", async () => {
+    const securityKey = { by: "text" as const, value: "Use security key" };
+    onClick({
+      [button.value]: { path: "/login/webauthn", present: [securityKey.value] },
+      [securityKey.value]: toHome,
+    });
+    const { h } = start(
+      parseLoginRecipe({
+        ...learned,
+        handlers: [{ kind: "passkey", path: "/login/webauthn", target: securityKey }],
+      }),
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+      timeout: 6_000,
+    });
+    expect(
+      executed().map((step) => (step.kind === "click" ? step.target.value : step.kind)),
+    ).toEqual([button.value, securityKey.value]);
+    expect(status()![0]).toMatchObject({
+      route: "passkey",
+      handlers: [{ index: 0, start: 1 }],
+      stepCount: 2,
+    });
+  }, 10_000);
+
+  it("resumes on the passkey route without reading the facts again", async () => {
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    onClick({ [button.value]: { path: "/next", present: [] } });
+    const { h, report } = start(learned, { passkeys });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(clicks(button.value)).toBe(1));
+    // The passkey is removed from the vault meanwhile; the running login keeps its route.
+    passkeys.mockResolvedValue({ passkey: false, discoverable: false });
+    fake.state.pageUrl = `${origin}/home`;
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set(["logout"]);
+    await h.hello({ documentId: "next-page" }, false);
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(passkeys).toHaveBeenCalledTimes(1);
+    expect(fills()).toBe(0);
+    // Diagnostics name the route without a variant and never the item's facts.
+    const attempts = report.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry.type === "attempt");
+    expect(attempts).not.toEqual([]);
+    for (const entry of attempts) {
+      expect(entry).toMatchObject({ route: "passkey" });
+      expect(entry).not.toHaveProperty("variant");
+    }
+    const serialized = JSON.stringify(report.mock.calls);
+    for (const key of ['"facts"', '"discoverablePasskey"', '"discoverable"', '"totp"'])
       expect(serialized).not.toContain(key);
   });
 });

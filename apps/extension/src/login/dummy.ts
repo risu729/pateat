@@ -31,6 +31,7 @@ const PROBE_PATHS = [
   "/slow-button",
   "/text-submit",
   "/variants",
+  "/passkey",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -181,6 +182,8 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
     },
     rejection: target("rejected"),
     ...(path === "/single" ? { accountSwitch: { by: "text", value: "Use another account" } } : {}),
+    // The start page's passkey sign-in button (ADR 0027).
+    ...(path === "/passkey" ? { passkey: { path, target: target("passkey") } } : {}),
     maxSubmissions: multi || inputAdvance ? 2 : 1,
   });
 }

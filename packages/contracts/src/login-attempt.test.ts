@@ -1322,3 +1322,69 @@ describe("password route variants in an attempt (ADR 0027)", () => {
     expect(() => create(-1)).toThrow();
   });
 });
+
+describe("the passkey route in an attempt (ADR 0027)", () => {
+  const button = { by: "id" as const, value: "passkey-login" };
+  const withPasskey: LoginRecipe = { ...recipe, passkey: { path: "/login", target: button } };
+  const create = (choice: Parameters<typeof createAttemptMetadata>[0]["choice"]) =>
+    createAttemptMetadata({
+      id: "attempt-passkey",
+      recipe: withPasskey,
+      policyRevision: 3,
+      account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+      choice,
+      facts: { ...facts, passkey: true, discoverablePasskey: true },
+      document,
+    });
+
+  it("records the route without a variant and runs its one click", () => {
+    const attempt = create({ route: "passkey" });
+    expect(attempt).toMatchObject({ route: "passkey", stepCount: 1, maxSubmissions: 1 });
+    expect(attempt).not.toHaveProperty("variant");
+    expect(attemptRouteChoice(attempt)).toEqual({ route: "passkey" });
+    const click = { kind: "click", path: "/login", target: button, purpose: "submit" };
+    expect(attemptPlan(withPasskey, attempt)?.map(({ step }) => step)).toEqual([click]);
+    const ready = transitionLoginAttempt(attempt, { type: "RESOLVE" });
+    const operation = nextLoginOperation(ready, withPasskey, document, "operation-one", 0);
+    expect(operation?.step).toEqual(click);
+    // The click is a submission: it needs its intent journaled first.
+    let clicking = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "operation-one",
+      kind: "click",
+    });
+    clicking = transitionLoginAttempt(clicking, {
+      type: "SUBMIT_INTENT",
+      operationId: "operation-one",
+    });
+    expect(clicking).toMatchObject({ state: "submit-intent", submissions: 1 });
+    // The password route's variant stays its own.
+    expect(create({ route: "password", variant: 0 })).toMatchObject({
+      route: "password",
+      variant: 0,
+      stepCount: 2,
+    });
+  });
+
+  it("has a variant exactly when the route is the password route", () => {
+    const passkey = create({ route: "passkey" });
+    const password = create({ route: "password", variant: 0 });
+    expect(() => parseAttemptMetadata({ ...passkey, variant: 0 })).toThrow();
+    expect(() => parseAttemptMetadata({ ...password, variant: undefined })).toThrow();
+    expect(parseAttemptMetadata(passkey)).toEqual(passkey);
+  });
+
+  it("refuses the route for a recipe without it", () => {
+    expect(() =>
+      createAttemptMetadata({
+        id: "attempt-passkey",
+        recipe,
+        policyRevision: 3,
+        account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "passkey" },
+        facts,
+        document,
+      }),
+    ).toThrow();
+  });
+});

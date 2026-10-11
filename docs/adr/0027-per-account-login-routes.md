@@ -2,17 +2,17 @@
 
 Status: accepted by the owner on 2026-10-11 (13:47 UTC). Deliveries 1 (custom-field
 names and Text shapes in generation) and 2 (handlers with the `passkey` handler) are
-implemented, and so is delivery 3 part A (`password` route variants and start detection
-over them); the `passkey` route is delivery 3 part B, and it and the other deliveries
-are not implemented. Amends [ADR 0007](0007-existing-passkey-assertions.md) and
+implemented, and so is delivery 3: part A (`password` route variants and start detection
+over them) and part B (the start page's `passkey` route); the other deliveries are not
+implemented. Amends [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and
 [ADR 0016](0016-recipe-generation-trigger.md) (custom-field names and Text shapes in
 automatic generation), [ADR 0013](0013-service-held-recipes-and-settings.md) (bindings
 per route), [ADR 0018](0018-recipe-generation-route.md) (when a page is judged and the
 judge's limits) and [ADR 0026](0026-sign-in-through-identity-providers.md) (SSO as a
-route). Each part lands in its own PR (see [Delivery](#delivery)); the ADR 0010 and
-ADR 0016 status notes land with the custom-field part.
+route). Each part lands in its own PR (see [Delivery](#delivery)); the ADR 0010 and ADR
+0016 status notes land with the custom-field part.
 
 Date: 2026-10-11
 
@@ -338,6 +338,59 @@ new owner decision:
   whose alternatives fail validation still fails the call. The prompt does not mention
   continuations. A recipe with alternatives is
   never continued. A generation answer maps the custom slots of every variant, up to 16.
+- **Passkey route shape.** A recipe's `passkey` route is an optional
+  `passkey: { path, target }`, additive like `alternatives`: one `submit` click on the
+  start page's passkey sign-in button, with no slots. Its path must be the start path,
+  and its target may not be a step target of any `password` variant on that path, a
+  handler target on that path, the completion target on its path, the rejection or the
+  account switch; the observation bound counts it, and a newer revision keeps a login
+  only when the route is unchanged. Start detection watches the button first, then the
+  first step of every variant; the button alone being ready starts the login, and a
+  login that chose the route but whose button never shows ends `structural-mismatch`
+  after the usual step wait.
+- **Choosing the passkey route.** The route is chosen only when the recipe has it and
+  the item's facts include a discoverable passkey; a passkey registered only as a second
+  factor leaves the `password` variants to decide as before. The route fills nothing,
+  so it needs no binding, its password variants' bindings are not resolved for it, and
+  a variant that does not fit the item never refuses such a login; the refusal reasons
+  when the route is not chosen are unchanged. The attempt records `passkey` and no
+  variant, a running or resumed login checks only the item and the account scope, and
+  after `authenticated` only the site default (for an automatic choice) is saved: no
+  binding is stored or synced for the route.
+- **Held click.** The hold for a handler's click also covers the `passkey` route's
+  click: while the button still shows in the document that clicked it, the page is
+  neither judged nor settled for up to two minutes, then the login ends `challenge`. A
+  new document of the tab that shows the button again, as after a reload back to the
+  start page, ends `challenge` at once; the button is never clicked again or judged.
+  The hold lives in the service worker's memory, so a worker restart during the hold
+  treats the same document as a new one and ends `challenge`; a click whose delivery
+  failed while the button still shows also ends `challenge`. Both fail closed.
+- **Settlement on the passkey route.** Every result on the route other than
+  `authenticated` ends `challenge`: the rejection marker, a final `unknown`, a
+  judgement of `rejected`, `unclear` or `challenge` without a handler, and a page that
+  could not be judged. A page after the click is still checked for handlers, so a
+  handler the recipe has (or the judge adds) runs as on the `password` route, and the
+  route never changes during the login.
+- **Judging the passkey route.** The judge request names the `passkey` route. The
+  service answers `recipe-conflict` for a recipe without one and `not-judgeable` for a
+  page on the route's path that still shows its button; the login paths it receives
+  include that path. The extension likewise does not send such a page, and a judged
+  `completion` or handler may not reuse the route's button.
+- **Generating the passkey route.** On a start page, the generation role may name a
+  `passkeyButton` beside its plan. It is kept only when it is a button candidate that
+  is not named like a registration (add, register, create, set up, new, enrol, or 登録,
+  追加, 作成, the words the `passkey` handler check refuses), and not any set's field or
+  action or the account switch, by candidate or by locator. A button that fails these
+  checks is dropped silently and does not fail the answer. On a continuation the
+  service ignores it. The service stores it as the recipe's `passkey` route on the
+  first page, and the request log records the kept button. The corpus case `ja-myjcb`
+  expects its passkey sign-in button, and the evaluation reports passkey buttons as a
+  separate count (expected, correct, missed, wrong) that does not change a case's
+  result.
+- **Synthetic passkey fact.** The probe build's configure message takes an optional
+  `passkey` (`discoverable` or `second-factor`) that stands in for the vault search for
+  the synthetic item, since the probe vault holds no passkey; no key is created or
+  used.
 - **Known limitation.** Variants come only from identifier sets the start page shows at
   once in one observation. A set behind a tab or a link, as SMBC's contract-number tab
   appears to be, is not observed and so not generated; such a site gets the variant the

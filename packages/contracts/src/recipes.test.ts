@@ -372,6 +372,40 @@ describe("automatic account choice", () => {
     expect(saveLoginChoice({ ...saved, bindings: [manual] }, chosen).bindings).toEqual([manual]);
   });
 
+  it("saves only the site default for a choice without slots (ADR 0027)", () => {
+    const signin = recipe("bank-signin", "/login");
+    const chosen = defaultLoginBinding(signin.slots, signin, {
+      ...account,
+      accountName: "Personal vault",
+    })!;
+    const { recipeId: _recipeId, slots: _slots, ...owner } = chosen;
+    const settings = createDefaultSettings({ connections: [] });
+    const saved = saveLoginChoice(settings, owner);
+    expect(saved.siteDefaults).toEqual([
+      {
+        origin,
+        provider: "bitwarden",
+        userId: account.userId,
+        itemId: account.itemId,
+        itemName: chosen.itemName,
+        accountName: "Personal vault",
+      },
+    ]);
+    // A login that filled nothing proves no binding, so none is added.
+    expect(saved.bindings).toEqual([]);
+    expect(v.is(localSettingsSchema, saved)).toBe(true);
+    expect(saveLoginChoice(saved, owner)).toBe(saved);
+    // A saved choice of another account wins, unless the account was picked to replace it.
+    const other = { ...owner, itemId: "00000000-0000-4000-8000-000000000003" };
+    expect(saveLoginChoice(saved, other)).toBe(saved);
+    expect(saveLoginChoice(saved, other, { replace: true }).siteDefaults).toEqual([
+      expect.objectContaining({ origin, itemId: other.itemId }),
+    ]);
+    // A synced binding for the account stays as it is.
+    const bound = { ...saved, bindings: [chosen] };
+    expect(saveLoginChoice(bound, owner)).toBe(bound);
+  });
+
   it("keys bindings by origin, so a moved recipe can be bound again", () => {
     const chosen = defaultLoginBinding(
       recipe("bank-signin", "/login").slots,

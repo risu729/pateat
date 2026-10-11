@@ -1,6 +1,7 @@
 import { APICallError } from "ai";
 import { describe, expect, it } from "vitest";
 import { evaluationCorpus } from "./corpus/cases";
+import { japanesePageCorpus } from "./corpus/real";
 import { evaluateRole } from "./evaluate";
 import { createRecipeGenerator, generationInstructions } from "./generation";
 import {
@@ -317,6 +318,42 @@ describe("recipe generation role", () => {
     const outcome = await four.generate(request);
     expect(outcome).toMatchObject({ status: "failed", error: "invalid-output" });
     expect(outcome).not.toHaveProperty("detail");
+  });
+
+  it("returns the start page's passkey button as its locator, or drops it (ADR 0027)", async () => {
+    const myjcb = japanesePageCorpus.find((entry) => entry.id === "ja-myjcb")!;
+    const answer = (passkeyButton: string) =>
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [
+            { slot: "username", candidate: "c1" },
+            { slot: "password", candidate: "c2" },
+          ],
+          action: { candidate: "c3", purpose: "submit" },
+          passkeyButton,
+        },
+      });
+    const sign = { observation: myjcb.observation, slots: myjcb.slots };
+    const named = await generatorReturning(answer("c5")).generate(sign);
+    if (named.status !== "ok") throw new Error("expected a plan");
+    expect(named.value).toMatchObject({
+      passkeyButton: "c5",
+      passkeyTarget: { by: "id", value: "passkeyLoginButtonAD" },
+    });
+    // A link about passkeys is not a sign-in button; the plan stays and the button goes.
+    const link = await generatorReturning(answer("c6")).generate(sign);
+    if (link.status !== "ok") throw new Error("expected a plan");
+    expect(link.value).not.toHaveProperty("passkeyButton");
+    expect(link.value.steps).toEqual(named.value.steps);
+  });
+
+  it("asks for the passkey sign-in button and never a registration button", () => {
+    expect(generationInstructions).toContain("passkeyButton");
+    expect(generationInstructions).toContain("'Sign in with a passkey' or 'パスキーでログイン'");
+    expect(generationInstructions).toContain(
+      "Never name a button that registers, adds, creates or sets up a passkey or security key",
+    );
   });
 
   it("asks for alternatives only for identifier sets the page shows now", () => {

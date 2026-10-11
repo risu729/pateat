@@ -39,10 +39,11 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
 /** How long a started attempt waits for a fill or click step's elements (owner-approved). */
 export const LOGIN_STEP_WAIT_MS = 10000;
 /**
- * How long a page is left unjudged while a handler's clicked button still shows, such as
- * "Use security key" during a WebAuthn exchange (ADR 0027); the passkey chooser's limit.
+ * How long a page is left unjudged while a held click's button still shows (ADR 0027): a
+ * handler's, such as "Use security key", or the `passkey` route's, such as "Sign in with a
+ * passkey", during a WebAuthn exchange; the passkey chooser's limit.
  */
-export const HANDLER_CLICK_WAIT_MS = 120_000;
+export const HELD_CLICK_WAIT_MS = 120_000;
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
@@ -211,6 +212,11 @@ export const configureSchema = v.strictObject({
       ),
     }),
   ),
+  /**
+   * Probe-only passkey fact for the synthetic item (ADR 0027). The probe vault holds no
+   * passkey, so this stands in for the vault search; no key is created or used.
+   */
+  passkey: v.optional(v.picklist(["discoverable", "second-factor"])),
 });
 export const statusSchema = v.strictObject({
   version: v.literal(1),

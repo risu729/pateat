@@ -6,6 +6,7 @@ import {
 } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  registersPasskey,
   slotAccepts,
   validateGeneratedPage,
   validatePagePlan,
@@ -400,5 +401,118 @@ describe("several identifier sets on one page (ADR 0027)", () => {
         },
       ]),
     ).toEqual({ ok: false, reason: "duplicate-variant" });
+  });
+});
+
+describe("the start page's passkey sign-in button (ADR 0027)", () => {
+  const page: LoginObservation = {
+    ...observation,
+    candidates: [
+      ...observation.candidates,
+      input("passkey-login", { role: "button", label: "パスキーでログイン" }),
+      input("passkey-help", { role: "link", label: "パスキーについて" }),
+      input("add-passkey", { role: "button", label: "Sign in" }),
+      input("register", { role: "button", label: "パスキーを登録" }),
+      input("contract"),
+      input("switch", { role: "link" }),
+      // Another candidate with the login button's own locator.
+      { id: "login-copy", role: "button", target: { by: "id", value: "login" } },
+    ],
+  };
+  const fields = [
+    { slot: "username", candidate: "user" },
+    { slot: "password", candidate: "password" },
+  ];
+  const generate = (passkeyButton: string | undefined, change: Partial<GeneratedPagePlan> = {}) =>
+    validateGeneratedPage(page, slots, { fields, action, passkeyButton, ...change });
+
+  it("keeps a sign-in button the plan does not use, with its locator", () => {
+    const result = generate("passkey-login");
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan).toMatchObject({
+      passkeyButton: "passkey-login",
+      passkeyTarget: { by: "id", value: "passkey-login" },
+    });
+    // The password plan itself is unchanged.
+    expect(result.plan.fields).toEqual(fields);
+    const plain = validatePagePlan(page, slots, { fields, action });
+    if (!plain.ok) throw new Error(plain.reason);
+    expect(result.plan.steps).toEqual(plain.plan.steps);
+  });
+
+  it.each([
+    ["a link", "passkey-help"],
+    ["an unknown candidate", "missing"],
+    ["a button whose locator reads as adding a passkey", "add-passkey"],
+    ["a registration button", "register"],
+    ["the plan's action", "login"],
+    ["a filled field", "password"],
+    ["a button with the action's locator", "login-copy"],
+  ])("drops %s and keeps the plan", (_label, candidate) => {
+    const result = generate(candidate);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan).not.toHaveProperty("passkeyButton");
+    expect(result.plan).not.toHaveProperty("passkeyTarget");
+    expect(result.plan.fields).toEqual(fields);
+  });
+
+  it("drops the account switch and any element of an alternative set", () => {
+    const withSwitch = validateGeneratedPage(
+      { ...page, candidates: [...page.candidates, input("other", { role: "button" })] },
+      slots,
+      { fields, action, accountSwitch: "other", passkeyButton: "other" },
+    );
+    if (!withSwitch.ok) throw new Error(withSwitch.reason);
+    expect(withSwitch.plan).toMatchObject({ accountSwitch: "other" });
+    expect(withSwitch.plan).not.toHaveProperty("passkeyButton");
+    const contract: SemanticSlot = { ...branch, id: "custom-4", fieldName: "契約者番号" };
+    const alternative = {
+      fields: [
+        { slot: "custom-4", candidate: "contract", name: "contract-number" },
+        { slot: "password", candidate: "password" },
+      ],
+      action: { candidate: "passkey-login", purpose: "submit" as const },
+    };
+    const varied = validateGeneratedPage(page, [...slots, contract], {
+      fields,
+      action,
+      alternatives: [alternative],
+      passkeyButton: "passkey-login",
+    });
+    if (!varied.ok) throw new Error(varied.reason);
+    expect(varied.plan.alternatives).toHaveLength(1);
+    expect(varied.plan).not.toHaveProperty("passkeyButton");
+  });
+
+  it("never rescues a plan that fails its own checks", () => {
+    expect(
+      generate("passkey-login", { action: { candidate: "passkey-help", purpose: "submit" } }),
+    ).toEqual({ ok: false, reason: "incompatible-role" });
+  });
+
+  it("reads registration words in the label, text and locator alike", () => {
+    const button = (label: string | undefined, value: string) => ({
+      label,
+      target: { by: "id" as const, value },
+    });
+    for (const [label, value] of [
+      ["Add a passkey", "key"],
+      ["Set up security key", "key"],
+      ["パスキーを登録", "key"],
+      ["パスキーを追加", "key"],
+      ["パスキーを作成", "key"],
+      ["Sign in", "addPasskey"],
+      ["Sign in", "register_key"],
+      ["Sign in", "set-up-key"],
+      ["Create passkey", "key"],
+    ] as const)
+      expect(registersPasskey(button(label, value)), `${label} ${value}`).toBe(true);
+    for (const [label, value] of [
+      ["Sign in with a passkey", "passkeyLoginButtonAD"],
+      ["パスキーでログイン", "passkey"],
+      ["Use security key", "key"],
+      [undefined, "signin-passkey"],
+    ] as const)
+      expect(registersPasskey(button(label, value)), `${label} ${value}`).toBe(false);
   });
 });

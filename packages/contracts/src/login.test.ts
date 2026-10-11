@@ -5,10 +5,12 @@ import {
   extendsRecipe,
   handlerSteps,
   passwordVariants,
+  recipeHasRoute,
   recipeSlots,
   recipeStartSteps,
   routeFillTargets,
   routePaths,
+  routeSignInTargets,
   routeSlots,
   routeSteps,
   loginFieldFacts,
@@ -938,18 +940,32 @@ describe("password route variants (ADR 0027)", () => {
 
   it("chooses the first variant the binding fills, and only for an item with a password", () => {
     const parsed = parseLoginRecipe(varied());
-    expect(chooseLoginRoute(parsed, { password: true }, [true, true])).toEqual({
+    expect(
+      chooseLoginRoute(parsed, { password: true, discoverablePasskey: false }, [true, true]),
+    ).toEqual({
       route: "password",
       variant: 0,
     });
-    expect(chooseLoginRoute(parsed, { password: true }, [false, true])).toEqual({
+    expect(
+      chooseLoginRoute(parsed, { password: true, discoverablePasskey: false }, [false, true]),
+    ).toEqual({
       route: "password",
       variant: 1,
     });
-    expect(chooseLoginRoute(parsed, { password: true }, [false, false])).toBeUndefined();
-    expect(chooseLoginRoute(parsed, { password: false }, [true, true])).toBeUndefined();
+    expect(
+      chooseLoginRoute(parsed, { password: true, discoverablePasskey: false }, [false, false]),
+    ).toBeUndefined();
+    expect(
+      chooseLoginRoute(parsed, { password: false, discoverablePasskey: false }, [true, true]),
+    ).toBeUndefined();
     // A fit reported for a variant the parsed lacks chooses nothing.
-    expect(chooseLoginRoute(parsed, { password: true }, [false, false, true])).toBeUndefined();
+    expect(
+      chooseLoginRoute(parsed, { password: true, discoverablePasskey: false }, [
+        false,
+        false,
+        true,
+      ]),
+    ).toBeUndefined();
   });
 
   it("keeps the alternatives fixed when a revision is taken over", () => {
@@ -1088,14 +1104,155 @@ describe("password route variants (ADR 0027)", () => {
     // planFor fills `fits` only at the index it checked, so earlier entries are holes.
     const sparse: boolean[] = [];
     sparse[2] = true;
-    expect(chooseLoginRoute(parsed, { password: true }, sparse)).toEqual({
+    expect(
+      chooseLoginRoute(parsed, { password: true, discoverablePasskey: false }, sparse),
+    ).toEqual({
       route: "password",
       variant: 2,
     });
-    expect(chooseLoginRoute(parsed, { password: true }, [])).toBeUndefined();
-    expect(chooseLoginRoute(parsed, { password: true }, [false, true, true])).toEqual({
+    expect(
+      chooseLoginRoute(parsed, { password: true, discoverablePasskey: false }, []),
+    ).toBeUndefined();
+    expect(
+      chooseLoginRoute(parsed, { password: true, discoverablePasskey: false }, [false, true, true]),
+    ).toEqual({
       route: "password",
       variant: 1,
+    });
+  });
+});
+
+describe("the passkey route (ADR 0027)", () => {
+  const id = (value: string) => ({ by: "id" as const, value });
+  const passkey = { path: "/identity", target: id("passkey-login") };
+  const withPasskey = (change: Record<string, unknown> = {}) => ({
+    ...recipe(),
+    passkey,
+    ...change,
+  });
+  const valid = (change: Record<string, unknown> = {}) =>
+    v.is(loginRecipeSchema, withPasskey(change));
+  const click = {
+    kind: "click",
+    path: "/identity",
+    target: id("passkey-login"),
+    purpose: "submit",
+  };
+
+  it("adds one click on the start page that fills nothing", () => {
+    const parsed = parseLoginRecipe(withPasskey());
+    expect(recipeHasRoute(parsed, "passkey")).toBe(true);
+    expect(recipeHasRoute(parsed, "password")).toBe(true);
+    expect(routeSteps(parsed, { route: "passkey" })).toEqual([click]);
+    expect(routeSlots(parsed, { route: "passkey" })).toEqual([]);
+    expect(routeFillTargets(parsed, "passkey")).toEqual([]);
+    expect(routePaths(parsed, "passkey")).toEqual(["/identity"]);
+    expect(routeSignInTargets(parsed, "passkey")).toEqual([id("passkey-login")]);
+    expect(routeSignInTargets(parsed, "password")).toEqual(routeFillTargets(parsed, "password"));
+    // The passkey click is watched first, beside the password route's first step.
+    expect(recipeStartSteps(parsed)).toEqual([click, parsed.steps[0]]);
+    // The password route is unchanged, and the recipe's slots are only its own.
+    expect(routeSteps(parsed, { route: "password", variant: 0 })).toEqual(parsed.steps);
+    expect(recipeSlots(parsed)).toEqual(parsed.slots);
+    // A recipe without the route offers nothing for it.
+    const plain = parseLoginRecipe(recipe());
+    expect(recipeHasRoute(plain, "passkey")).toBe(false);
+    expect(routeSteps(plain, { route: "passkey" })).toEqual([]);
+    expect(routePaths(plain, "passkey")).toEqual([]);
+    expect(routeSignInTargets(plain, "passkey")).toEqual([]);
+    expect(recipeStartSteps(plain)).toEqual([plain.steps[0]]);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ["on another path than the start path", { passkey: { ...passkey, path: "/password" } }],
+    ["on a variant's fill field", { passkey: { ...passkey, target: id("branch") } }],
+    ["on a variant's button", { passkey: { ...passkey, target: id("next") } }],
+    ["on the account switch", { accountSwitch: id("passkey-login") }],
+    ["on the rejection", { rejection: id("passkey-login") }],
+    ["on the completion on its path", { completion: passkey }],
+    [
+      "on a handler on its path",
+      { handlers: [{ kind: "passkey", path: "/identity", target: id("passkey-login") }] },
+    ],
+    ["with a value", { passkey: { ...passkey, value: "synthetic-only" } }],
+    ["with CSS", { passkey: { ...passkey, target: { by: "css", value: "#passkey" } } }],
+  ])("refuses a passkey button %s", (_label, change) => {
+    expect(valid()).toBe(true);
+    expect(valid(change)).toBe(false);
+  });
+
+  it("allows the same locator where another path uses it", () => {
+    // The password page's button and a completion or handler on other paths are other
+    // elements than the start page's passkey button.
+    expect(valid({ passkey: { ...passkey, target: id("login") } })).toBe(true);
+    expect(valid({ completion: { path: "/authenticated", target: id("passkey-login") } })).toBe(
+      true,
+    );
+    expect(
+      valid({
+        handlers: [{ kind: "passkey", path: "/webauthn", target: id("passkey-login") }],
+      }),
+    ).toBe(true);
+  });
+
+  it("chooses the passkey route first for a discoverable passkey, else the password route", () => {
+    const parsed = parseLoginRecipe(withPasskey());
+    const facts = (password: boolean, discoverablePasskey: boolean) => ({
+      password,
+      discoverablePasskey,
+    });
+    expect(chooseLoginRoute(parsed, facts(true, true), [true])).toEqual({ route: "passkey" });
+    // An item without a password, or whose binding fills no variant, still takes it.
+    expect(chooseLoginRoute(parsed, facts(false, true), [])).toEqual({ route: "passkey" });
+    // A key registered only as a second factor is not discoverable.
+    expect(chooseLoginRoute(parsed, facts(true, false), [true])).toEqual({
+      route: "password",
+      variant: 0,
+    });
+    expect(chooseLoginRoute(parsed, facts(false, false), [true])).toBeUndefined();
+    // Without the route, a discoverable passkey changes nothing.
+    expect(chooseLoginRoute(parseLoginRecipe(recipe()), facts(true, true), [true])).toEqual({
+      route: "password",
+      variant: 0,
+    });
+  });
+
+  it("keeps the route fixed when a revision is taken over", () => {
+    const base = parseLoginRecipe(withPasskey({ completion: undefined }));
+    const next = (change: Record<string, unknown>) =>
+      parseLoginRecipe({ ...base, revision: 2, ...change });
+    expect(
+      extendsRecipe(
+        base,
+        next({ handlers: [{ kind: "passkey", path: "/webauthn", target: id("key") }] }),
+      ),
+    ).toBe(true);
+    expect(
+      extendsRecipe(base, next({ completion: { path: "/home", target: id("welcome") } })),
+    ).toBe(true);
+    expect(extendsRecipe(base, next({ passkey: undefined }))).toBe(false);
+    expect(extendsRecipe(base, next({ passkey: { ...passkey, target: id("other") } }))).toBe(false);
+    const plain = parseLoginRecipe({ ...recipe(), completion: undefined });
+    expect(extendsRecipe(plain, parseLoginRecipe({ ...plain, revision: 2, passkey }))).toBe(false);
+  });
+
+  it("authorizes a binding without slots for the route's empty slot list only", () => {
+    const empty = { ...binding(), slots: [] };
+    expect(parseLoginAccountBinding(empty)).toEqual(empty);
+    const resolve = (value: LoginAccountBinding, slots: string[]) =>
+      resolveLoginPlan(
+        snapshot(),
+        DUMMY_VAULT_CATALOG,
+        "https://bank.example/identity",
+        withPasskey(),
+        value,
+        slots,
+      );
+    expect(resolve(empty, [])).toMatchObject({ ok: true, binding: empty });
+    expect(resolve(binding(), [])).toMatchObject({ ok: false, reason: "binding-slots-mismatch" });
+    expect(resolve(empty, ["branch", "account", "password"])).toMatchObject({
+      ok: false,
+      reason: "binding-slots-mismatch",
     });
   });
 });

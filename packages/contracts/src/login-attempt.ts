@@ -62,7 +62,10 @@ export const attemptMetadataSchema = v.pipe(
     account: loginAccountSchema,
     /** The route chosen when the login started (ADR 0027). */
     route: loginRouteSchema,
-    /** The password route's variant chosen with it: 0 for the recipe's own steps. */
+    /**
+     * The password route's variant chosen with it: 0 for the recipe's own steps. Only the
+     * `password` route has one.
+     */
     variant: v.optional(integer(MAX_PASSWORD_ALTERNATIVES)),
     /** The item's facts read when the login started; never sent anywhere. */
     facts: loginItemFactsSchema,
@@ -120,8 +123,8 @@ export const attemptMetadataSchema = v.pipe(
     "Inconsistent attempt scope or budget",
   ),
   v.check(
-    (metadata) => metadata.route !== "password" || metadata.variant !== undefined,
-    "A password route needs its variant",
+    (metadata) => (metadata.route === "password") === (metadata.variant !== undefined),
+    "A password route needs its variant, and only it has one",
   ),
   v.check(
     (metadata) => (metadata.operationId === undefined) === (metadata.operationKind === undefined),
@@ -697,7 +700,7 @@ export function createAttemptMetadata(input: {
     policyRevision: input.policyRevision,
     account: input.account,
     route: input.choice.route,
-    variant: input.choice.variant,
+    ...(input.choice.route === "password" ? { variant: input.choice.variant } : {}),
     facts: input.facts,
     handlers: [],
     document: input.document,
@@ -756,6 +759,7 @@ export function recoverLoginAttempt(value: unknown): LoginAttemptMetadata {
 export function attemptRouteChoice(
   metadata: Pick<LoginAttemptMetadata, "route" | "variant">,
 ): LoginRouteChoice {
+  if (metadata.route === "passkey") return { route: "passkey" };
   // The schema requires a variant for the password route.
   return { route: metadata.route, variant: metadata.variant ?? 0 };
 }

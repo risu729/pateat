@@ -233,7 +233,15 @@ describe("page judgement contracts (ADR 0027)", () => {
         observation,
       }).route,
     ).toBe("password");
-    for (const route of ["passkey", "sso", ""])
+    expect(
+      v.parse(recipeCompletionRequestSchema, {
+        version: 1,
+        revision: 2,
+        route: "passkey",
+        observation,
+      }).route,
+    ).toBe("passkey");
+    for (const route of ["sso", ""])
       expect(
         v.is(recipeCompletionRequestSchema, { version: 1, revision: 2, route, observation }),
       ).toBe(false);

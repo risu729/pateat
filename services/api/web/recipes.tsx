@@ -57,6 +57,12 @@ function RecipeDetails({ recipe }: { recipe: LoginRecipe }) {
         </dd>
         <dt className="font-medium">Rejection</dt>
         <dd>{recipe.rejection ? describeTarget(recipe.rejection) : "None"}</dd>
+        <dt className="font-medium">Passkey sign-in</dt>
+        <dd>
+          {recipe.passkey
+            ? `Click ${describeTarget(recipe.passkey.target)} on ${recipe.passkey.path} for an account with a discoverable passkey`
+            : "None"}
+        </dd>
         <dt className="font-medium">Handlers</dt>
         <dd>
           {recipe.handlers?.length

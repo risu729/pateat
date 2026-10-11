@@ -175,6 +175,30 @@ test("lists each identifier set of a recipe with several (ADR 0027)", async () =
     await expect.element(details).toMatchTextContent(text);
 });
 
+test("shows a recipe's passkey sign-in route (ADR 0027)", async () => {
+  const withPasskey = recipe("bank-signin", 1);
+  withPasskey.passkey = { path: "/login", target: { by: "id", value: "passkey-login" } };
+  const client = mockClient({
+    version: 1,
+    recipes: [
+      {
+        change: { recipeId: "bank-signin", revision: 1, state: "active", recipe: withPasskey },
+        updatedAt: UPDATED,
+      },
+      active("card-signin"),
+    ],
+  });
+  await mount(client);
+  await page.getByText("Steps and JSON for bank-signin").click();
+  await expect
+    .element(page.getByRole("group").first())
+    .toMatchTextContent(
+      'Passkey sign-inClick id "passkey-login" on /login for an account with a discoverable passkey',
+    );
+  await page.getByText("Steps and JSON for card-signin").click();
+  await expect.element(page.getByRole("group").nth(1)).toMatchTextContent("Passkey sign-inNone");
+});
+
 test("reports a revocation that lost to another write and shows the current recipes", async () => {
   const client = mockClient({ version: 1, recipes: [active("bank-signin")] });
   await mount(client);

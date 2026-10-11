@@ -2,6 +2,7 @@ import {
   actionRoles,
   genericSlotIdSchema,
   loginStepSchema,
+  sameLoginTarget,
   type LoginObservation,
   type LoginStep,
   type LoginTarget,
@@ -173,14 +174,51 @@ export function validatePagePlan(
 }
 
 /**
+ * Words of a button that registers or adds a passkey ("Add a passkey", "Set up security
+ * key", "パスキーを登録"). The model is told not to name one; this local check also refuses
+ * it, and can refuse a sign-in button whose text happens to match.
+ */
+const registration = /\b(?:add|register|create|set\s*up|new|enrol?l)\b|登録|追加|作成/iu;
+/**
+ * A locator value as words: `addPasskey`, `register_key` and `#set-up-key` read as
+ * "add Passkey", "register key" and "set up key".
+ */
+const words = (value: string) =>
+  value.replaceAll(/([a-z])([A-Z])/gu, "$1 $2").replaceAll(/[^\p{L}\p{N}]+/gu, " ");
+/**
+ * Whether a button registers, adds, creates or sets up a passkey or security key rather
+ * than signing in with one (ADR 0027): its label, its text or its `id`, `name` or test ID
+ * locator reads so. Shared by the generated passkey route and the judge's `passkey`
+ * handler.
+ */
+export const registersPasskey = (button: Pick<ObservedCandidate, "label" | "target">) =>
+  [button.label, button.target.value].some(
+    (text) => text !== undefined && registration.test(words(text)),
+  );
+
+/**
  * One more identifier set the page shows for the same sign-in (ADR 0027), such as a
  * contract number beside a branch and account number: its own fields and action.
  */
 export type PageAlternative = Pick<PagePlan, "fields" | "action">;
-/** The generation role's page plan: the primary set, and any other sets as alternatives. */
-export type GeneratedPagePlan = PagePlan & { alternatives?: PageAlternative[] | undefined };
-/** A validated page plan whose alternatives become the password route's other variants. */
-export type ValidatedGeneratedPage = ValidatedPagePlan & { alternatives?: ValidatedPagePlan[] };
+/**
+ * The generation role's page plan: the primary set, any other sets as alternatives, and
+ * the button that signs in with a passkey instead (ADR 0027).
+ */
+export type GeneratedPagePlan = PagePlan & {
+  alternatives?: PageAlternative[] | undefined;
+  passkeyButton?: string | undefined;
+};
+/**
+ * A validated page plan whose alternatives become the password route's other variants and
+ * whose passkey button, kept only when it passes {@link validateGeneratedPage}'s checks,
+ * becomes the `passkey` route.
+ */
+export type ValidatedGeneratedPage = ValidatedPagePlan & {
+  alternatives?: ValidatedPagePlan[];
+  passkeyButton?: string;
+  passkeyTarget?: LoginTarget;
+};
 export type GeneratedPageRejection =
   | PlanRejection
   /** A requested slot was given another recipe slot name in another set. */
@@ -201,6 +239,38 @@ export type GeneratedPageRejection =
 export const MAX_PAGE_ALTERNATIVES = 3;
 
 /**
+ * The passkey sign-in button a generated plan named (ADR 0027), kept only when it is a
+ * button of the page that no set fills or submits with, is not the account switch, and
+ * does not read as registering a passkey. Anything else is dropped without failing the
+ * plan, as the judge adds no handler for a button it cannot use.
+ */
+function passkeyButtonOf(
+  observation: LoginObservation,
+  plans: readonly ValidatedPagePlan[],
+  candidateId: string | undefined,
+): { passkeyButton: string; passkeyTarget: LoginTarget } | undefined {
+  if (candidateId === undefined) return undefined;
+  const button = observation.candidates.find((candidate) => candidate.id === candidateId);
+  if (!button || button.role !== "button" || registersPasskey(button)) return undefined;
+  const used = plans.flatMap((plan) => [
+    ...plan.fields.map((field) => field.candidate),
+    plan.action.candidate,
+    ...(plan.accountSwitch === undefined ? [] : [plan.accountSwitch]),
+  ]);
+  // Compared by locator too, so two candidates with one locator are never both used.
+  if (
+    used.some((id) => {
+      const other = observation.candidates.find((candidate) => candidate.id === id);
+      return (
+        id === button.id || (other !== undefined && sameLoginTarget(other.target, button.target))
+      );
+    })
+  )
+    return undefined;
+  return { passkeyButton: button.id, passkeyTarget: button.target };
+}
+
+/**
  * Validates a generated page plan with its alternatives (ADR 0027). Each set must pass
  * {@link validatePagePlan} on its own. Across the sets, a requested slot keeps one recipe
  * slot name and two requested slots never share one, an element is filled under one recipe
@@ -208,11 +278,28 @@ export const MAX_PAGE_ALTERNATIVES = 3;
  * elements, every action submits, and the account switch is none of their elements. An
  * ambiguous mapping therefore abstains instead of becoming two variants.
  * Any failure refuses the whole plan, so a recipe never stores a set that was not checked.
+ * A passkey button that fails its own checks is dropped instead (`passkeyButtonOf`).
  */
 export function validateGeneratedPage(
   observation: LoginObservation,
   slots: readonly SemanticSlot[],
   draft: GeneratedPagePlan,
+): { ok: true; plan: ValidatedGeneratedPage } | { ok: false; reason: GeneratedPageRejection } {
+  const { passkeyButton, ...sets } = draft;
+  const validated = validateGeneratedSets(observation, slots, sets);
+  if (!validated.ok) return validated;
+  const passkey = passkeyButtonOf(
+    observation,
+    [validated.plan, ...(validated.plan.alternatives ?? [])],
+    passkeyButton,
+  );
+  return { ok: true, plan: { ...validated.plan, ...passkey } };
+}
+
+function validateGeneratedSets(
+  observation: LoginObservation,
+  slots: readonly SemanticSlot[],
+  draft: Omit<GeneratedPagePlan, "passkeyButton">,
 ): { ok: true; plan: ValidatedGeneratedPage } | { ok: false; reason: GeneratedPageRejection } {
   const { alternatives = [], ...primaryDraft } = draft;
   const primary = validatePagePlan(observation, slots, primaryDraft);

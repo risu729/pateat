@@ -1,7 +1,7 @@
 import { loginObservationSchema, semanticSlotsSchema } from "@pateat/contracts";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { validatePagePlan } from "../plan";
+import { validateGeneratedPage, validatePagePlan } from "../plan";
 import { expectedFields, type EvaluationCase } from "./cases";
 import formasaurus from "./formasaurus.json";
 import japanese from "./japanese.json";
@@ -20,6 +20,16 @@ const expectCompleteWithValidTruth = (corpus: EvaluationCase[]) => {
       action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
     });
     expect(result.ok, entry.id).toBe(true);
+    // A passkey button in the truth passes the generated plan's own check (ADR 0027).
+    if (entry.expected.passkeyButton === undefined) continue;
+    const generated = validateGeneratedPage(observation, slots, {
+      fields: expectedFields(entry.expected),
+      action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
+      passkeyButton: entry.expected.passkeyButton,
+    });
+    expect(generated.ok && generated.plan.passkeyButton, entry.id).toBe(
+      entry.expected.passkeyButton,
+    );
   }
 };
 
@@ -45,5 +55,20 @@ describe("Japanese page corpus", () => {
 
   it("holds complete observations with valid ground truth", () => {
     expectCompleteWithValidTruth(japanesePageCorpus);
+  });
+
+  it("expects MyJCB's passkey sign-in button, observed as #passkeyLoginButtonAD", () => {
+    const myjcb = japanesePageCorpus.find((entry) => entry.id === "ja-myjcb")!;
+    const button = myjcb.observation.candidates.find(
+      (candidate) => candidate.target.value === "passkeyLoginButtonAD",
+    );
+    expect(button).toBeDefined();
+    expect(myjcb.expected).toMatchObject({ kind: "plan", passkeyButton: button!.id });
+    // No other page of the corpus names one.
+    expect(
+      japanesePageCorpus.filter(
+        (entry) => entry.expected.kind === "plan" && entry.expected.passkeyButton !== undefined,
+      ),
+    ).toEqual([myjcb]);
   });
 });
