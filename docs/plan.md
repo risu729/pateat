@@ -1005,11 +1005,12 @@ which also marks one Chinese page `ja` and every other non-Japanese page `en`. T
 chose on 2026-10-11 to publish the derived page text (titles, headings and labels) as
 is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
 sites appear twice with the same login form.
-It was regenerated on 2026-10-11 from main `84df607`, after the extractor started
-observing script buttons (#206). The cases, their plans and their abstentions are
-unchanged. The observations gained 132 links that only their text can locate, which the
-probe now resolves among links as the executor does; candidate IDs shifted with them.
-No Formasaurus login form uses a script button. The 132 link texts were reviewed for
+It was regenerated on 2026-10-11 with the extractor of main `84df607`, which locates
+links by their text (#184) and observes script buttons (#206); the first import used an
+extractor from before #184. The cases, their plans and their abstentions are unchanged.
+The observations gained 132 links that only their text can locate, which the probe now
+resolves among links as the executor does; candidate IDs shifted with them. No observed
+candidate in a Formasaurus login form is a script button. The 132 link texts were reviewed for
 personal data and hold none.
 `mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
 it; `--from` and `--count` run a slice of the corpus in its fixed order, so it can be
