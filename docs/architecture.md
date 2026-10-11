@@ -359,20 +359,20 @@ passkey handling while preserving ordinary browser authentication. Apply them
 before collecting observations; policy changes cancel stale work.
 
 The account choice is a saved site default applied on the next login. A default names
-the provider account and item, not this device's connection. Without one,
-a single eligible provider URI match is used and saved only after the login is
-`authenticated`; a saved choice keeps winning when more items match later
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not
-log out the current session. No match or several matches require a choice rather than
-trying accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md)
-the choice is made in the toolbar popup for the refused document and may be one-time.
-After a finished login in a tab, the recipe's first step appearing again in that tab's
-page asks for a choice again instead of logging in, with the saved default first; the
-passkey half of this is not implemented yet. Automatic
-logout/relogin when the user picks another account while logged in stays later. Cookies
-may be shared across
-tabs even during initial login. The first executor conservatively locks an origin
-to one owner tab until closure. A tab keeps one attempt record per origin and runs one
+the provider account and item, not this device's connection. Without one, a single
+eligible provider URI match is used and saved only after the login is `authenticated`; a
+saved choice keeps winning when more items match later
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not log
+out the current session. No match or several matches require a choice rather than trying
+accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md) the
+choice is made in the toolbar popup for the refused document and may be one-time. After
+a finished login in a tab, the recipe's first step appearing again in that tab's page
+asks for a choice again instead of logging in, with the saved default first; the passkey
+half of this is not implemented yet. Automatic logout/relogin when the user picks
+another account while logged in stays later. Cookies may be shared across tabs even
+during initial login. Another tab's login of the origin that is running or ended without
+success holds the origin until that tab closes; an `authenticated` one holds only until
+its account choice is saved. A tab keeps one attempt record per origin and runs one
 attempt at a time; a page resumes only its own origin's record, and a top-level attempt
 that may have submitted ends `left-origin` when the tab moves to another origin
 ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session

@@ -1173,6 +1173,45 @@ describe("production login document admission", () => {
         expect(stored()).toMatchObject([{ state: "authenticated", document: { tabId: 2 } }]),
       );
     });
+    it("lets another tab log in once the tab's login authenticated", async () => {
+      // The login form in another tab means the site's session has ended (ADR 0022).
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "authenticated" }));
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(stored()).toMatchObject([
+          { state: "authenticated", document: { tabId: 1 } },
+          { state: "authenticated", document: { tabId: 2 } },
+        ]),
+      );
+      expect(executes()).toHaveLength(4);
+    });
+    it("keeps another tab off an origin whose login still runs, and says why", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(at(origin)).toMatchObject({ state: "submit-intent" });
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+        ok: false,
+        reason: "origin-busy",
+      });
+      expect(fake.state.badges[2]?.title).toBe(
+        "Pateat: another tab's login to this site is running or did not succeed. Close that tab to log in here.",
+      );
+      expect(executes()).toHaveLength(2);
+      // Once that tab closes, this tab logs in and its tooltip is reset.
+      fake.state.onExecute = undefined;
+      for (const listener of fake.state.removed) listener(1);
+      await vi.waitFor(() => expect(stored()).toEqual([]));
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab-again" })).toEqual({
+        ok: true,
+      });
+      expect(fake.state.badges[2]?.title).toBe("Pateat");
+    });
     it("keeps each origin's record of a tab across a restart", async () => {
       holdClicks(origin);
       const h = twoSites();
@@ -1396,6 +1435,32 @@ describe("production login document admission", () => {
         { itemId, matches: [{ uriIndex: 0, match: 0 }] },
         { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
       ],
+    });
+    it("keeps another tab off the site until an authenticated login saved its choice", async () => {
+      // Saving bumps the policy revision, which would stop a login started meanwhile.
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      const h = harness(unsaved, { allowedOrigins: [], uris });
+      const update = h.store.update.getMockImplementation()!;
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      h.store.update.mockImplementationOnce(async (...args) => {
+        await held;
+        return update(...args);
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+        ok: false,
+        reason: "origin-busy",
+      });
+      release();
+      await vi.waitFor(() => expect(h.settings.settings.siteDefaults).toHaveLength(1));
+      // Once saved, the other tab's form shows a session that has ended, and it logs in.
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab-again" })).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => expect(executes()).toHaveLength(4));
     });
     it("logs in with the only URI-matched item and saves the choice after authenticated", async () => {
       const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
@@ -2251,22 +2316,34 @@ describe("production login document admission", () => {
           });
           expect(restarted.fields).not.toHaveBeenCalled();
         });
-        it("keeps other tabs off the site while it asks, and is kept off by their logins", async () => {
+        it("asks in other tabs of the site while it asks, and a pick there logs in", async () => {
           const h = await loggedOut();
-          // Cookies are shared: another tab must not log in again behind the user's logout.
+          // Cookies are shared: another tab must not log in again behind the user's logout,
+          // so it asks too.
           fake.state.tabUrls[2] = fake.state.pageUrl;
           expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
             ok: false,
-            reason: "origin-busy",
+            reason: "logged-out",
+          });
+          expect(fake.state.badges[2]).toEqual({
+            text: "2",
+            title:
+              "Pateat: you logged out of this site in another tab. Click to choose an account.",
           });
           expect(h.fields).toHaveBeenCalledTimes(1);
-          // Once this tab closes, the other tab logs in, and it then holds the site.
-          for (const listener of fake.state.removed) listener(1);
-          await vi.waitFor(() => expect(logouts()).toEqual([]));
-          fake.state.onReconnect = undefined;
-          expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab-2" })).toEqual({
-            ok: true,
-          });
+          fake.state.onReconnect = () => h.hello({ tab: { id: 2 }, documentId: "other-tab" });
+          expect(await pick(h, { tabId: 2, documentId: "other-tab" })).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(attempts()).toMatchObject([
+              { state: "authenticated", account: { itemId: otherItemId } },
+            ]),
+          );
+          // The tab that logged out still asks, and its pick may log in over that login.
+          expect(logouts()).toEqual([{ tabId: 1, origin }]);
+          fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
+          expect(await pick(h, { documentId: "signed-out", itemId })).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toHaveLength(2));
+          expect(logouts()).toEqual([]);
         });
       });
     });

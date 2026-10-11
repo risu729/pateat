@@ -7,6 +7,9 @@ per tab). Tested on synthetic fixtures only; no real site or account has been us
 
 Date: 2026-10-11
 
+Amended on 2026-10-11 (18:27 UTC, owner's choice in the thread): a finished login in
+another tab no longer holds the origin; see "Holding the origin in other tabs" below.
+
 ## Context
 
 The executor kept one attempt record per tab in `pateat.login-attempts.v1`, terminal
@@ -52,8 +55,18 @@ fix them now; the SSO policy itself is recorded separately.
   account choice is saved, and neither is retried. For the logout detection of
   [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
   like unknown outcomes.
-- **The origin hold is unchanged.** A record of an origin in another tab, in any state,
-  still refuses a new attempt there with `origin-busy` until that tab closes
+- **Holding the origin in other tabs** (amended 2026-10-11). Cookies can be shared
+  across tabs, so another tab's record of the origin refuses a new attempt with
+  `origin-busy` until that tab closes, unless it is `authenticated` or ended
+  `interrupted` (nothing could have been submitted). Such a record no longer holds once
+  its automatic account choice is saved: the login form showing in a new tab means the
+  site's session has ended, as when the first tab is closed. The tab then logs in as a
+  new tab would, with the saved default or by asking when several items match. A record
+  in any other state keeps holding, for example one that is running, still reconciling,
+  settled as unknown, or ended `credential-rejected`, `wrong-account`, `left-origin` or
+  `account-switched`, so a password is not submitted again while a first submission may
+  still be in flight or was refused. A refused tab's tooltip says that another tab's
+  login holds the site, and is reset when the tab logs in
   ([Background execution](../architecture.md#background-execution)).
 - **Generation offers.** ADR 0016's "a page is not offered while its tab holds an
   attempt record" now means a record for the page's own origin.
@@ -63,6 +76,16 @@ fix them now; the SSO policy itself is recorded separately.
 
 ## Alternatives
 
+- **Keep every record holding the origin until its tab closes** (the original rule).
+  Replaced on 2026-10-11: after a logout that does not show the login form again in
+  the same tab (npmjs.com's logout lands on its home page), a login form opened in a
+  new tab did nothing, and nothing said why, until the first tab was closed.
+- **Ask for an account in the new tab instead of logging in.** Not chosen: the owner
+  preferred the same behaviour as a new tab after the first tab is closed. A page that
+  shows a login form while the site is still signed in, such as an add-account page
+  (`accounts.google.com/AddSession`), is therefore logged in to with the saved default
+  even while the first tab is open, as it already was with no other tab. Telling such
+  pages apart is later work with low priority.
 - **Release the origin hold on `left-origin`.** Rejected: moving to another origin is
   not proof of success (an identity provider can forward to a second factor on another
   origin, or to an error page). Another tab could then submit the same password again,
