@@ -982,6 +982,11 @@ The second owner-approved run (2026-10-10, main `d105f76`, cap $2) gave:
 must abstain still do. With one sample per case this cannot show that the refusal will
 not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
+- Login routes and second-factor pages chosen per account
+  ([ADR 0027](adr/0027-per-account-login-routes.md)), approved by the owner on
+  2026-10-11: custom-field names and Text shapes in generation, page handlers for a
+  security key and TOTP learned by the judge, start-page routes (password variants,
+  passkey, SSO), in the PR order the ADR lists.
 - Continuing a generated recipe on the page after an `advance` step, through the
   generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
   extension already sends a recipe's first page under the automatic send rule of

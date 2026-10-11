@@ -19,6 +19,9 @@ invalid. Amended on 2026-10-11 by
 [ADR 0021](0021-account-choice-outside-settings.md): several matches with no default
 open a Pateat chooser window instead of delegating at once; so will username-less
 requests after Pateat signed in the same tab (not implemented yet).
+Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): during a login
+that has not ended, a request from its tab and origin uses that login's own item
+(not implemented yet).
 
 Date: 2026-10-10
 

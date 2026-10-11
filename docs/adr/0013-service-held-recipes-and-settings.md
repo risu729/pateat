@@ -10,7 +10,10 @@ extension's toolbar popup also edits the current site's default account and excl
 and manual and one-time account choices are made there. Amended on 2026-10-11 by
 [ADR 0023](0023-synced-vault-policy.md): item selection, field exclusions and
 custom-field review are synced and edited on the extension's settings page, and synced
-account references gain the provider server (not implemented yet).
+account references gain the provider server (not implemented yet). Amended on
+2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): recipes carry routes and
+second-factor handlers chosen per account, a binding covers the slots of the route it
+uses, and generation maps slots to custom fields by name (not implemented yet).
 
 Date: 2026-10-10
 
