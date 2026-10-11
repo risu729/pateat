@@ -20,11 +20,11 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   host-access revocation, and the site-access warning and prompt in installed Chrome
   ([remaining M3 integration gaps](#remaining-m3-integration-gaps)).
 - M4: sync against the deployed service, the
-  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing, credential
-  idle expiry, device-independent item selection and field exclusions, per-owner limits,
-  a WIF token exchange against Anthropic) and the remaining M4 AI work under
+  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing,
+  device-independent item selection and field exclusions, a WIF token exchange against
+  Anthropic) and the remaining M4 AI work under
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
-  `advance` step, generating where no recipe starts, naming `accountSwitch`, ADR 0010
+  `advance` step, naming `accountSwitch`, ADR 0010
   hints, `checkPlanValues` and the post-fill check in the executor, the real-page
   corpus) and the finite-choice role.
 - M5: the passkey chooser window
@@ -1151,8 +1151,8 @@ support for every site or vault format. Keep observed limitations explicit.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
   among several URI-matched items, how synced field exclusions
   move to device-independent references, and where custom-field review happens.
-- Device credential lifetime remains open
-  ([ADR 0020](adr/0020-direct-device-pairing.md)). Enrollment is settled, and a lost
+- Enrollment and device credential lifetime (90 days unused, renewed on use; see
+  [service sync progress](#service-sync-progress)) are settled, and a lost
   device is replaced by pairing a new one, since the service holds settings and recipes
   ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Pricing (ADR 0014's $4
   and $20 per million tokens) and the spending limits are settled: the owner confirmed

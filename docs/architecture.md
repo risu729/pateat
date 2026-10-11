@@ -739,7 +739,7 @@ Enrollment pairs a device with a verified owner through setup. Store only hashed
 revocable high-entropy device credentials server-side; scope every query and write by
 verified owner/device. CORS is not authentication. No shared universal credential is
 shipped in the extension. Enrollment is implemented and deployed
-([device enrollment](#device-enrollment)); credential idle expiry is still open.
+([device enrollment](#device-enrollment)), and credentials expire after 90 days unused.
 Separate Access-protected enrollment from device-authenticated API routes: a device
 token does not automatically pass an Access gate. Steady-state API access must not
 require an interactive Access cookie for each call. Service login does not authenticate
