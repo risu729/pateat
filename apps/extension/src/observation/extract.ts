@@ -6,6 +6,7 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import { buttonText, collapseText, renderedText, shown } from "../page/text";
 
 /** Why no observation was produced. A page without one is never sent to inference. */
 export type ObservationRefusal = "unsupported-page" | "no-candidates";
@@ -33,24 +34,8 @@ const fillTypes: Record<string, ObservedCandidate["role"]> = {
   number: "number",
   password: "password",
 };
-const actionTypes = new Set(["submit", "button"]);
+const actionTypes = new Set(["submit", "button", "image"]);
 const ignoredTypes = new Set(["hidden", "reset"]);
-/** Elements whose text is never page text: code, styles, raw markup and control contents. */
-const textless = new Set([
-  "SCRIPT",
-  "STYLE",
-  "NOSCRIPT",
-  "TEMPLATE",
-  "SELECT",
-  "OPTION",
-  "OPTGROUP",
-  "DATALIST",
-  "TEXTAREA",
-  "INPUT",
-  "IFRAME",
-  "OBJECT",
-  "CANVAS",
-]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
@@ -83,9 +68,9 @@ const redactions: readonly (readonly [RegExp, string])[] = [
  */
 function observedText(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
-  // Format characters (zero-width spaces, soft hyphens) vanish so they cannot split a
-  // digit run; control and separator characters become spaces.
-  let text = raw.replace(/\p{Cf}+/gu, "").replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ");
+  // Format characters (zero-width spaces, soft hyphens) vanish before redaction so
+  // they cannot split a digit run.
+  let text = collapseText(raw);
   for (const [pattern, replacement] of redactions) text = text.replace(pattern, replacement);
   text = text.replace(/\s+/gu, " ").trim();
   if (text.length > maxText) {
@@ -94,20 +79,6 @@ function observedText(raw: string | null | undefined): string | undefined {
     text = text.trimEnd();
   }
   return text || undefined;
-}
-
-/** Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional). */
-function shown(element: Element, opacity = true): element is HTMLElement {
-  return (
-    element instanceof HTMLElement &&
-    element.isConnected &&
-    !element.closest("[hidden], [inert], [aria-hidden='true']") &&
-    element.checkVisibility({
-      contentVisibilityAuto: true,
-      opacityProperty: opacity,
-      visibilityProperty: true,
-    })
-  );
 }
 
 /**
@@ -124,53 +95,37 @@ function presence(element: HTMLElement): "visible" | "faint" | "absent" {
 }
 const visible = (element: HTMLElement) => presence(element) === "visible";
 
-/**
- * The rendered text inside an element, read from text nodes of shown elements only.
- * Scripts, styles, raw markup, SVG and form-control contents never contribute.
- */
-function visibleText(root: Element): string | undefined {
-  if (!shown(root) || textless.has(root.tagName)) return undefined;
-  const view = root.ownerDocument.defaultView;
-  const walker = root.ownerDocument.createTreeWalker(
-    root,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-    {
-      acceptNode: (node) =>
-        node instanceof Text
-          ? NodeFilter.FILTER_ACCEPT
-          : node instanceof Element && !textless.has(node.tagName) && shown(node)
-            ? NodeFilter.FILTER_ACCEPT
-            : NodeFilter.FILTER_REJECT,
-    },
-  );
-  let text = "";
-  // Read a little beyond the limit so redaction sees whole tokens, then stop.
-  for (let node = walker.nextNode(); node && text.length <= rawLimit; node = walker.nextNode()) {
-    if (node instanceof Text) text += node.data;
-    else if (node instanceof HTMLBRElement) text += " ";
-    // Separate blocks as rendering does: `<div>Customer</div><div>Number</div>`.
-    else if (node instanceof Element && !view?.getComputedStyle(node).display.startsWith("inline"))
-      text += " ";
-  }
-  return observedText(text);
-}
+/** Rendered text, normalized and redacted; a little beyond the limit is read so redaction sees whole tokens. */
+const visibleText = (root: Element) => observedText(renderedText(root, rawLimit));
 
 type LocatorIndex = Map<string, Map<string, number>>;
 
 /** Counts every locator value once, as the executor's whole-document lookup sees them. */
 function locatorIndex(document: Document): LocatorIndex {
-  const index: LocatorIndex = new Map(locators.map(([, attribute]) => [attribute, new Map()]));
+  const index: LocatorIndex = new Map(
+    [...locators.map(([, attribute]) => attribute), "text"].map((key) => [key, new Map()]),
+  );
+  const count = (key: string, value: string) => {
+    const counts = index.get(key)!;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  };
   for (const element of document.querySelectorAll("[id], [name], [data-testid]"))
     for (const [, attribute] of locators) {
       const value = element.getAttribute(attribute);
-      if (value === null) continue;
-      const counts = index.get(attribute)!;
-      counts.set(value, (counts.get(value) ?? 0) + 1);
+      if (value !== null) count(attribute, value);
     }
+  for (const element of document.querySelectorAll("button, input")) {
+    const text = buttonText(element);
+    if (text !== undefined) count("text", text);
+  }
   return index;
 }
 
-/** Mirrors the executor's lookup: an attribute value must match exactly one element. */
+/**
+ * Mirrors the executor's lookup: an attribute value, or else a button's text, that
+ * matches exactly one element. Button text is used only when redaction leaves it
+ * unchanged, so a locator never carries an email address or a long number.
+ */
 function locate(element: Element, index: LocatorIndex): LoginTarget | undefined {
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
@@ -178,7 +133,11 @@ function locate(element: Element, index: LocatorIndex): LoginTarget | undefined 
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
-  return undefined;
+  const text = buttonText(element);
+  if (text === undefined || index.get("text")!.get(text) !== 1 || observedText(text) !== text)
+    return undefined;
+  const target = { by: "text" as const, value: text };
+  return v.is(loginTargetSchema, target) ? target : undefined;
 }
 
 function referencedText(element: Element): string | undefined {
@@ -245,7 +204,9 @@ function actionLabel(element: HTMLElement): string | undefined {
   return (
     referencedText(element) ??
     observedText(element.getAttribute("aria-label")) ??
-    (element instanceof HTMLInputElement ? observedText(element.value) : visibleText(element)) ??
+    (element instanceof HTMLInputElement
+      ? observedText(element.type === "image" ? element.alt : element.value)
+      : visibleText(element)) ??
     observedText(images.join(" ")) ??
     observedText(element.title)
   );
@@ -277,7 +238,7 @@ type Draft = Omit<ObservedCandidate, "id" | "target" | "group"> & { element: HTM
 type Found =
   | { kind: "candidate"; form: HTMLFormElement | null; draft: Draft }
   /**
-   * A visible control the executor cannot act on, such as a select or an image button.
+   * A visible control the executor cannot act on, such as a select or a radio button.
    * `field` marks a text or password field that cannot be filled: read-only (as with
    * software keyboards), disabled until another step, or transparent or tiny.
    */
@@ -325,7 +286,7 @@ function describe(element: Element): Found | undefined {
         },
       };
     }
-    // Image buttons, radio groups and other input types have no executor support yet.
+    // Radio groups and other input types have no executor support yet.
     return { kind: "unsupported", form: element.form, field: false };
   }
   if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)

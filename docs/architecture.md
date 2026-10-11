@@ -438,6 +438,15 @@ and failure conditions, and provenance. The vocabulary is packaged code such as
 fill, click, wait-for-state, and assert-state. There is no eval, remote JavaScript,
 arbitrary fetch, or model-selected secret destination.
 
+A step names its element with an allowlisted locator, never CSS: an `id` or `name`
+(any ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
+`user[login]`), a `data-testid`, or, for a click or a state check only, a button's
+text: `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text,
+the `<input type="submit|button">` whose value, or the `<input type="image">` whose
+`alt` equals the value after whitespace is collapsed (owner decision, 2026-10-11).
+The executor compares strings and acts only when exactly one element matches; more
+than one is a structural mismatch. It clicks buttons and image buttons, never links.
+
 Site recipes contain meanings such as branch-number/account-number/password. Keep
 account-specific bindings separate from recipes. They are stored in the synced settings
 document as references, never credential values, and resolved to values locally. AI

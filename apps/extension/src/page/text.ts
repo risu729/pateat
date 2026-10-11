@@ -1,0 +1,101 @@
+/** Elements whose text is never page text: code, styles, raw markup and control contents. */
+const textless = new Set([
+  "SCRIPT",
+  "STYLE",
+  "NOSCRIPT",
+  "TEMPLATE",
+  "SELECT",
+  "OPTION",
+  "OPTGROUP",
+  "DATALIST",
+  "TEXTAREA",
+  "INPUT",
+  "IFRAME",
+  "OBJECT",
+  "CANVAS",
+]);
+
+/** Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional). */
+export function shown(element: Element, opacity = true): element is HTMLElement {
+  return (
+    element instanceof HTMLElement &&
+    element.isConnected &&
+    !element.closest("[hidden], [inert], [aria-hidden='true']") &&
+    element.checkVisibility({
+      contentVisibilityAuto: true,
+      opacityProperty: opacity,
+      visibilityProperty: true,
+    })
+  );
+}
+
+/**
+ * The rendered text inside a shown element, read from text nodes of shown elements
+ * only, until it is longer than `limit`. Scripts, styles, raw markup, SVG and
+ * form-control contents never contribute. Blocks and `<br>` separate words as
+ * rendering does: `<div>Customer</div><div>Number</div>`.
+ */
+export function renderedText(root: Element, limit: number): string | undefined {
+  if (!shown(root) || textless.has(root.tagName)) return undefined;
+  const view = root.ownerDocument.defaultView;
+  const walker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (node) =>
+        node instanceof Text
+          ? NodeFilter.FILTER_ACCEPT
+          : node instanceof Element && !textless.has(node.tagName) && shown(node)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT,
+    },
+  );
+  let text = "";
+  for (let node = walker.nextNode(); node && text.length <= limit; node = walker.nextNode()) {
+    if (node instanceof Text) text += node.data;
+    else if (node instanceof HTMLBRElement) text += " ";
+    else if (node instanceof Element && !view?.getComputedStyle(node).display.startsWith("inline"))
+      text += " ";
+  }
+  return text;
+}
+
+/**
+ * Removes format characters (zero-width spaces, soft hyphens), turns control and
+ * separator characters into spaces, and collapses whitespace to single spaces.
+ */
+export function collapseText(raw: string): string {
+  return raw
+    .replace(/\p{Cf}+/gu, "")
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+const buttonInputTypes = new Set(["submit", "button", "image"]);
+const buttonTextLimit = 120;
+
+/** A control the executor clicks: a `<button>` or an `<input type="submit|button|image">`. */
+export function isButton(element: Element): element is HTMLButtonElement | HTMLInputElement {
+  return (
+    element instanceof HTMLButtonElement ||
+    (element instanceof HTMLInputElement && buttonInputTypes.has(element.type))
+  );
+}
+
+/**
+ * The text a `{ by: "text" }` locator compares: a rendered button's text, an input
+ * button's `value`, or an image button's `alt`, collapsed. A button that is not
+ * rendered, or whose text is empty or longer than 120 code units, has none.
+ */
+export function buttonText(element: Element): string | undefined {
+  if (!isButton(element) || !shown(element)) return undefined;
+  const raw =
+    element instanceof HTMLButtonElement
+      ? renderedText(element, buttonTextLimit * 4)
+      : element.type === "image"
+        ? element.alt
+        : element.value;
+  const text = raw === undefined ? "" : collapseText(raw);
+  return text && text.length <= buttonTextLimit ? text : undefined;
+}

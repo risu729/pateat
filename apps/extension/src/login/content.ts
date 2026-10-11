@@ -1,15 +1,14 @@
 import * as v from "valibot";
 import type { LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
+import { isButton } from "../page/text";
+import { findTargets } from "../page/targets";
 import { acceptsSecret } from "./inputs";
 import { commandSchema, reconnectSchema } from "./wire";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget): Element[] {
-  const attribute = target.by === "test-id" ? "data-testid" : target.by;
-  return [...document.querySelectorAll(`[${attribute}]`)].filter(
-    (element) => element.getAttribute(attribute) === target.value,
-  );
+  return findTargets(document, target);
 }
 function visible(element: HTMLElement): boolean {
   const style = getComputedStyle(element);
@@ -27,7 +26,9 @@ function writable(element: Element | undefined): element is HTMLInputElement {
     visible(element) &&
     !element.disabled &&
     !element.readOnly &&
-    !["hidden", "file", "submit", "button", "checkbox", "radio"].includes(element.type)
+    !["hidden", "file", "submit", "button", "image", "reset", "checkbox", "radio"].includes(
+      element.type,
+    )
   );
 }
 
@@ -179,14 +180,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (step.kind === "click") {
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
-        if (
-          !(
-            element instanceof HTMLButtonElement ||
-            (element instanceof HTMLInputElement && ["submit", "button"].includes(element.type))
-          ) ||
-          !visible(element) ||
-          element.disabled
-        )
+        if (!element || !isButton(element) || !visible(element) || element.disabled)
           return fail("structural-mismatch");
         mutated = true;
         element.click();

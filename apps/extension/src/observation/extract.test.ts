@@ -1,5 +1,6 @@
 import type { LoginObservation } from "@pateat/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { findTargets } from "../page/targets";
 import { extractLoginObservation } from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
@@ -243,20 +244,42 @@ describe("extractLoginObservation", () => {
   });
 
   it("marks the observation incomplete when a field or button cannot be targeted", () => {
-    page(`<form><input id="user"><input id="pw" type="password"><button>ログイン</button></form>`);
+    page(`<form><input id="user"><input type="password"><button id="go">ログイン</button></form>`);
+    expect(observe().complete).toBe(false);
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["user", "go"]);
+    page(`<form><input id="user"><button>ログイン</button><button>ログイン</button></form>`);
+    expect(observe().complete).toBe(false);
+  });
+
+  it("locates a button without attributes by its exact, unredacted text", () => {
+    page(
+      `<form><input id="user"><button class="btn"> <span>ログ</span><span>イン</span>
+        <svg><text>icon</text></svg></button>
+        <input type="submit" value="Sign  in"><input type="image" src="data:," alt="送信" width="40" height="20">
+        <button>Call 0120123456</button><input type="button" value="${"x".repeat(121)}"></form>
+      <button>ヘルプ</button><button>ヘルプ</button>`,
+    );
     const observation = observe();
     expect(observation.complete).toBe(false);
-    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
-      "user",
-      "pw",
+    expect(summary(observation).map(({ role, target, label }) => [role, target, label])).toEqual([
+      ["text", { by: "id", value: "user" }, undefined],
+      ["button", { by: "text", value: "ログイン" }, "ログイン"],
+      ["button", { by: "text", value: "Sign in" }, "Sign in"],
+      ["button", { by: "text", value: "送信" }, "送信"],
     ]);
   });
 
-  it("marks image buttons incomplete until the executor can click them", () => {
+  it("observes image buttons as buttons named by their alt text", () => {
     page(
       `<form><input id="user"><input id="go" type="image" src="data:," alt="ログイン" width="40" height="20"></form>`,
     );
-    expect(observe().complete).toBe(false);
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates[1]).toMatchObject({
+      role: "button",
+      target: { by: "id", value: "go" },
+      label: "ログイン",
+    });
   });
 
   it("keeps only located links inside a form with fields, without affecting completeness", () => {
@@ -309,15 +332,25 @@ describe("extractLoginObservation", () => {
 
   it("produces targets the executor's exact-match lookup resolves to the same element", () => {
     page(
-      `<form id="f"><input id="a"><input name="b"><input data-testid="c"><button id="d">Go</button></form>`,
+      `<form id="f"><input id="a"><input name="ctl00$Main$b"><input data-testid="c">
+        <input name="user[d]"><button id="e">Go</button><button>Log in</button>
+        <input type="image" src="data:," alt="Next" width="20" height="20"></form>`,
     );
-    for (const candidate of observe().candidates) {
-      const attribute = candidate.target.by === "test-id" ? "data-testid" : candidate.target.by;
-      const found = [...document.querySelectorAll(`[${attribute}]`)].filter(
-        (element) => element.getAttribute(attribute) === candidate.target.value,
-      );
-      expect(found).toHaveLength(1);
-    }
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.by)).toEqual([
+      "id",
+      "name",
+      "test-id",
+      "name",
+      "id",
+      "text",
+      "text",
+    ]);
+    const elements = [...document.querySelectorAll("#f input, #f button")];
+    observation.candidates.forEach((candidate, at) =>
+      expect(findTargets(document, candidate.target)).toEqual([elements[at]]),
+    );
   });
 
   it("never takes label text from scripts, styles, markup, hidden text or control contents", () => {
@@ -439,6 +472,8 @@ describe("extractLoginObservation", () => {
 
   it("treats every control outside a form as part of a formless login", () => {
     page(`<input id="u"><input id="p" type="password"><button>Sign in</button>`);
+    expect(observe().complete).toBe(true);
+    page(`<input id="u"><input id="p" type="password"><button>Sign in</button><input name="">`);
     expect(observe().complete).toBe(false);
   });
 
