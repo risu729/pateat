@@ -1,16 +1,14 @@
 import * as v from "valibot";
 import type { LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
+import { isButton } from "../page/text";
+import { findTargets } from "../page/targets";
 import { acceptsSecret } from "./inputs";
 import { commandSchema, readySchema, reconnectSchema, type LoginReadiness } from "./wire";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget): Element[] {
-  const attribute = target.by === "test-id" ? "data-testid" : target.by;
-  // Locator values are limited to [A-Za-z0-9_.:-], so the quoted selector is exact.
-  return [...document.querySelectorAll(`[${attribute}="${target.value}"]`)].filter(
-    (element) => element.getAttribute(attribute) === target.value,
-  );
+  return findTargets(document, target);
 }
 function visible(element: HTMLElement): boolean {
   const style = getComputedStyle(element);
@@ -28,16 +26,13 @@ function writable(element: Element | undefined): element is HTMLInputElement {
     visible(element) &&
     !element.disabled &&
     !element.readOnly &&
-    !["hidden", "file", "submit", "button", "checkbox", "radio"].includes(element.type)
+    !["hidden", "file", "submit", "button", "image", "reset", "checkbox", "radio"].includes(
+      element.type,
+    )
   );
 }
 function clickable(element: Element | undefined): element is HTMLElement {
-  return (
-    (element instanceof HTMLButtonElement ||
-      (element instanceof HTMLInputElement && ["submit", "button"].includes(element.type))) &&
-    visible(element) &&
-    !element.disabled
-  );
+  return element !== undefined && isButton(element) && visible(element) && !element.disabled;
 }
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
@@ -91,6 +86,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       observer.observe(document, {
         subtree: true,
         childList: true,
+        // Button text locators also depend on text, `value`, `alt` and hidden subtrees.
+        characterData: true,
         attributes: true,
         attributeFilter: [
           "id",
@@ -103,6 +100,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "open",
           "disabled",
           "readonly",
+          "value",
+          "alt",
+          "aria-hidden",
+          "inert",
         ],
       });
       addEventListener("popstate", schedule);

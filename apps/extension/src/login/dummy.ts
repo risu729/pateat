@@ -28,6 +28,7 @@ const PROBE_PATHS = [
   "/spa-login",
   "/dialog",
   "/slow-button",
+  "/text-submit",
 ];
 /** The first step of every synthetic recipe, which a fixture document watches for. */
 export function probeFirstSteps(origin: string): LoginStep[] {
@@ -132,7 +133,12 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
                   },
                 ],
               },
-              { kind: "click", path, target: target("login"), purpose: "submit" },
+              {
+                kind: "click",
+                path,
+                target: path === "/text-submit" ? { by: "text", value: "Log in" } : target("login"),
+                purpose: "submit",
+              },
             ],
     completion: {
       path: multi || inputAdvance ? "/authenticated" : path,

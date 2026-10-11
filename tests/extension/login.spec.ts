@@ -665,6 +665,36 @@ test("abstains without a saved account and does not try another eligible item", 
   }
 });
 
+test("clicks a submit button or image button named by its text, and refuses a duplicate", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const authenticates = async (variant: string) => {
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/text-submit?button=${variant}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await clicks(page)).toBe(1);
+        await page.close();
+      };
+      await authenticates("text");
+      await authenticates("image");
+      const duplicate = await context.newPage();
+      await duplicate.goto(`${fixture.origin}/text-submit?button=duplicate`);
+      // An ambiguous click target is waited on like a missing one, for up to 10 s.
+      await expect.poll(status, { timeout: 15_000 }).toContain("structural-mismatch");
+      // The fill step ran, so the attempt stopped at the ambiguous click.
+      await expect(duplicate.locator("#password")).not.toHaveValue("");
+      expect(await clicks(duplicate)).toBe(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("waits for delayed same-page success and rejection without resubmitting", async () => {
   const fixture = await startLoginFixture();
   try {

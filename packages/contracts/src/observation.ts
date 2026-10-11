@@ -31,10 +31,14 @@ const path = v.pipe(
 );
 const unique = (values: string[]) => new Set(values).size === values.length;
 
-/** Element roles an observation may describe. Fill roles accept a slot value; action roles are clicked. */
+/**
+ * Element roles an observation may describe. Fill roles accept a slot value; action
+ * roles are clicked. Links and checkboxes are context only (a reset or sign-up link),
+ * since the executor clicks buttons only.
+ */
 export const fillRoles = ["text", "email", "tel", "number", "password"] as const;
-export const actionRoles = ["button", "link"] as const;
-export const candidateRoleSchema = v.picklist([...fillRoles, ...actionRoles, "checkbox"]);
+export const actionRoles = ["button"] as const;
+export const candidateRoleSchema = v.picklist([...fillRoles, ...actionRoles, "link", "checkbox"]);
 
 const textLength = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1024));
 
@@ -109,6 +113,11 @@ export const loginObservationSchema = v.pipe(
           inputMode === undefined || (fillRoles as readonly string[]).includes(role),
       ),
     "Input constraints apply only to fill roles; lengths not to number inputs",
+  ),
+  v.check(
+    (observation) =>
+      observation.candidates.every(({ role, target }) => target.by !== "text" || role === "button"),
+    "Text locators apply only to buttons",
   ),
 );
 

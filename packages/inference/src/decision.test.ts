@@ -59,12 +59,8 @@ describe("finite-choice decision role", () => {
     expect(Object.keys(questions)).toEqual(["slot:email", "slot:password", "action"]);
     expect(Object.keys(questions["slot:email"]!.criteria)).toEqual(["c:email", "none"]);
     expect(Object.keys(questions["slot:password"]!.criteria)).toEqual(["c:password", "none"]);
-    expect(Object.keys(questions["action"]!.criteria)).toEqual([
-      "c:sign-in",
-      "c:forgot",
-      "c:register",
-      "none",
-    ]);
+    // Links stay context: the executor clicks buttons only.
+    expect(Object.keys(questions["action"]!.criteria)).toEqual(["c:sign-in", "none"]);
   });
 
   it("offers field names, value shapes and input constraints but never values", async () => {
