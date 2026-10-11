@@ -61,6 +61,10 @@ Chrome, on a production build of main.
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
+- Polish the UI, in phase 1 so that phase 2's feedback is on the improved UI (owner,
+  2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
+  [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
+  planned on 2026-10-11, and the base design tokens set with Claude Design.
 - `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged and the 24-hour
   wait after the abstention (until 2026-10-12 12:27 UTC) has passed, so the first recipe
   names both its password and passkey routes. A recipe generated earlier gets no routes
@@ -76,11 +80,8 @@ Chrome, on a production build of main.
 - Browser agents that drive the owner's Chrome, such as Claude in Chrome and ChatGPT's
   agent in Chrome, must be logged in by Pateat and carry on with their task. This is the
   M1/M6 "Chrome use coexistence" gate, and it can only be checked by using them.
-- UI improvements, with the owner reporting what bothers them in daily use. The owner
-  planned on 2026-10-11 to polish the extension and the service web UI in one pass with
-  [stop-describing-ui](https://github.com/artouc/stop-describing-ui), and to fix the
-  base design tokens with Claude Design in this phase. Small fixes for broken UI still
-  land as found.
+- UI improvements the owner reports from daily use of the UI polished in phase 1. Small
+  fixes for broken UI still land as found.
 - Features found missing during use are added here.
 
 ### Phase 3: public release
@@ -96,10 +97,16 @@ Once the fixes have settled:
   source of truth, needs a design the owner approves before implementation.
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it.
-- Anyone can use Pateat: users download the extension from GitHub Releases. The service
-  is not opened to other people. Continuous delivery publishes each extension release
-  there and meets the [Corresponding Source](sdk-source.md) requirements. Store
-  publishing stays excluded.
+- Anyone can use Pateat. The service is not opened to other people. Continuous delivery
+  publishes each extension release on GitHub Releases and meets the
+  [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
+  developer account and will also publish there if the store's policies allow it
+  (2026-10-11). To settle first: the
+  [MV3 code rules](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements)
+  forbid "building an interpreter to run complex commands fetched from a remote source,
+  even if those commands are fetched as data", which service-held recipes must be shown
+  not to be; a store item gets a store-assigned extension ID, so devices pair again; and
+  the store requires a privacy policy and a Limited Use statement.
 - Proposed: the Bitwarden account checks that matter once other people install Pateat,
   each with the owner's approval for real-account use: individual Bitwarden two-step
   methods, other KDFs, V2 keys and organization items, the install-time site-access
@@ -1660,7 +1667,8 @@ provider compatibility tests. Alternative service auth, E2EE sync and Vaultwarde
 require their own interoperability/recovery evidence.
 
 Extension releases on GitHub Releases, with their continuous delivery, are planned for
-[phase 3](#phase-3-public-release); store publishing, public recipe sharing and hosted
+[phase 3](#phase-3-public-release), with the Chrome Web Store if its policies allow;
+public recipe sharing and hosted
 browser installation are outside the plan. A simple docs website comes in phase 3 and is
 not a phase 1 gate. The owner chose VitePress for it on
 2026-10-11, as risu729/biwa uses, so biwa's Bun and mise build, assets-only Cloudflare

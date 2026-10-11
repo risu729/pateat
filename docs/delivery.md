@@ -1,9 +1,9 @@
 # CI and server delivery
 
 Status: CI and guarded server delivery after main CI are implemented, and the service
-has been released automatically to `pateat.takuk.me` since 2026-10-11. Extension store
-publishing is excluded. Extension releases on GitHub Releases, and a mode without the
-service, are planned for [phase 3](plan.md#phase-3-public-release).
+has been released automatically to `pateat.takuk.me` since 2026-10-11. Extension
+releases on GitHub Releases, Chrome Web Store publishing if its policies allow, and a
+mode without the service are planned for [phase 3](plan.md#phase-3-public-release).
 
 ## Current foundation workflows
 
