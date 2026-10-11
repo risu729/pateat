@@ -10,6 +10,7 @@
         "@cloudflare/vitest-plugin": "1.4.0",
         "@playwright/test": "1.64.0",
         "@risu729/tsconfigs": "3.0.1",
+        "@tailwindcss/vite": "4.3.3",
         "@tanstack/react-query": "5.104.1",
         "@types/node": "26.6.4",
         "@types/react": "19.3.0",
