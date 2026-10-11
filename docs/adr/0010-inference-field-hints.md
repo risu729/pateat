@@ -1,8 +1,9 @@
 # ADR 0010: Inference field hints and local fill checks
 
-Status: accepted by the owner on 2026-10-10. The hint contract, shape derivation and
-local value check are implemented offline in `packages/inference`. The vault adapter
-does not supply hints yet, and the executor does not run either check yet.
+Status: accepted by the owner on 2026-10-10. The hint contract and shape derivation
+are implemented offline in `packages/inference`, and the local value check in
+`packages/contracts`. The executor runs both checks; the vault adapter does not supply
+hints yet.
 
 Date: 2026-10-10
 
@@ -60,6 +61,21 @@ Two local checks gate a fill; neither sends anything to inference:
    `checkValidity()`, has `aria-invalid="true"`, or a new `role="alert"` or live
    region message appears. Error text can echo the value, so it stays local and is
    never sent for repair. No page script is analyzed.
+
+Implementation choices in the executor, made on 2026-10-11 without a new owner
+decision:
+
+- Check 1 reads the real input's `type`, `maxlength` and `minlength` when the fill
+  step runs, so it also covers recipes not generated from an observation. A mismatch
+  fills nothing and ends the attempt as `value-mismatch` without a retry, since the
+  same values would fail again.
+- Check 2 runs after a fill that prepares a click, waiting 500 ms. It reads
+  `validity.valid`, which fires no `invalid` event for the page to react to. Live
+  regions are `role="alert"`, `role="status"` and `aria-live` polite or assertive;
+  `log`, `marquee` and `timer` regions change on their own and are not read. A message
+  counts as new only when its text differs from every message shown before the fill.
+  A rejection ends the attempt as `fill-rejected` without a retry or the click. A fill
+  that submits through its own input event gets only check 1.
 
 ## Consequences
 

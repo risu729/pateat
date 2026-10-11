@@ -231,18 +231,42 @@ export async function startLoginFixture(
               : fixtureUrl.searchParams.has("switch-submit")
                 ? `<form action="/single"><input type="hidden" name="shown" value="${switchTo}"><button>Use another account</button></form>`
                 : `<a href="/single?${new URLSearchParams({ shown: switchTo, switch: switchTo }).toString().replace(/&/gu, "&amp;")}">Use another account</a>`
+          }${
+            // `?reject-fill=shown` shows an alert before any fill, and re-renders it on input.
+            fixtureUrl.searchParams.get("reject-fill") === "shown"
+              ? '<div id="notice"><p role="alert">Your session expired</p></div>'
+              : ""
           }<label>Password<input id="password" ${
             {
               text: 'type="text"',
               "text-current-password": 'type="text" autocomplete="current-password"',
             }[fixtureUrl.searchParams.get("password-input") ?? ""] ?? 'type="password"'
+          }${
+            // `?maxlength` limits the password input, such as below the synthetic password.
+            /^\d{1,3}$/u.test(fixtureUrl.searchParams.get("maxlength") ?? "")
+              ? ` maxlength="${fixtureUrl.searchParams.get("maxlength")}"`
+              : ""
           }></label><button id="login" type="button">Log in</button>${
             // `?ad` embeds an unrelated frame beside the form, like an advertisement.
             fixtureUrl.searchParams.has("ad")
               ? '<iframe id="ad" title="Synthetic advertisement" src="/ad"></iframe>'
               : ""
           }`,
-          `document.getElementById('login').addEventListener('click', () => {
+          `${
+            // `?reject-fill` makes the page's own input handler reject any value: with a new
+            // alert, `aria-invalid` or a custom validity message.
+            {
+              alert:
+                "document.getElementById('password').addEventListener('input', () => setTimeout(() => document.body.insertAdjacentHTML('beforeend', '<p role=\"alert\">Enter a valid password</p>'), 100));",
+              invalid:
+                "document.getElementById('password').addEventListener('input', (event) => event.target.setAttribute('aria-invalid', 'true'));",
+              custom:
+                "document.getElementById('password').addEventListener('change', (event) => event.target.setCustomValidity('Not accepted'));",
+              shown:
+                "document.getElementById('password').addEventListener('input', () => { document.getElementById('notice').innerHTML = '<p role=\"alert\">Your session expired</p>'; });",
+            }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
+          }
+          document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           ${issuedRunId === undefined ? "" : `void fetch('/effect/${issuedRunId}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});`}

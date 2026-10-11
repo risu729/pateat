@@ -146,7 +146,21 @@ export const executionResultSchema = v.strictObject({
   operationId: id,
   documentId: id,
   mutation: v.picklist(["none", "possible"]),
-  reason: v.optional(v.picklist(["structural-mismatch", "timeout", "cancelled", "wrong-account"])),
+  /**
+   * `value-mismatch`: a value does not fit its input, and nothing was filled.
+   * `fill-rejected`: after a preparing fill the page marked a filled input invalid or
+   * showed a new alert (ADR 0010).
+   */
+  reason: v.optional(
+    v.picklist([
+      "structural-mismatch",
+      "timeout",
+      "cancelled",
+      "wrong-account",
+      "value-mismatch",
+      "fill-rejected",
+    ]),
+  ),
   /**
    * With `wrong-account`: the command's account switch is on the page and can be clicked
    * with `login.switch`. Nothing was filled or clicked.

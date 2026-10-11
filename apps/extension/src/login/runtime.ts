@@ -1126,6 +1126,22 @@ export function createLoginRuntime(
           }
           return;
         }
+        // The page would not accept the values; the same values would fail again.
+        if (
+          matchedResult &&
+          !result.output.ok &&
+          operation.step.kind === "fill" &&
+          ((result.output.reason === "value-mismatch" && result.output.mutation === "none") ||
+            (result.output.reason === "fill-rejected" && operation.step.effect === "prepare"))
+        ) {
+          await change(run, {
+            type: "VALUE_REJECTED",
+            operationId: operation.operationId,
+            document: run.live.document,
+            stage: result.output.reason === "value-mismatch" ? "before-fill" : "after-fill",
+          });
+          return;
+        }
         if (!matchedResult || !result.output.ok) {
           await change(
             run,

@@ -283,7 +283,9 @@ candidate. Values never go to inference; allowed field names and the coarse shap
 visible identifier values may ([ADR 0010](adr/0010-inference-field-hints.md)), and a
 plan is checked against the real values locally before filling. After filling and before
 the click, the executor stops when the page marks a filled element invalid or shows a
-new alert. Neither check is wired into the executor yet.
+new alert. The executor runs both checks
+([Background execution](#background-execution)); the vault adapter does not supply the
+hints yet.
 
 Local field snapshots detach supported decrypted items from caller mutation.
 References bind connection, user, item and snapshot identity; custom fields use
@@ -467,6 +469,20 @@ a page that still shows another account ends it `wrong-account`. Without the tar
 or when it is missing or ambiguous, the attempt ends `wrong-account` as above. A switch
 that changes the account in place, without loading a new document, does not continue
 the login.
+Before a fill step writes anything, the content script checks every value against its
+input ([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
+`maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number
+for those input types (`valueMismatch` in `packages/contracts/src/values.ts`). A
+22-character password and an input with `maxlength="8"` fills nothing and ends the
+attempt `value-mismatch` without a retry or a spent submission. After a preparing fill,
+the content script waits 500 ms for the page's own handlers and ends the attempt
+`fill-rejected`, without a retry or the click, when a filled input is invalid
+(`validity.valid`, which unlike `checkValidity()` fires no `invalid` event), has
+`aria-invalid="true"`, or a visible `role="alert"`, `role="status"` or `aria-live`
+polite or assertive region shows text that no such region showed before the fill. A
+message the page already showed and renders again is not new. The text stays in the
+content script; only the outcome leaves it. A fill that submits through its own event
+is checked only before filling.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.

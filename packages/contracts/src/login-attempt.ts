@@ -149,6 +149,18 @@ export const loginAttemptEventSchema = v.variant("type", [
     document: loginDocumentSchema,
     switched: v.optional(v.literal(true)),
   }),
+  /**
+   * The page would not accept this fill's values (ADR 0010): `before-fill` when a value
+   * does not fit its input and nothing was filled, `after-fill` when the page rejected
+   * a preparing fill. It ends the attempt without a retry, since the same values would
+   * be rejected again.
+   */
+  v.strictObject({
+    type: v.literal("VALUE_REJECTED"),
+    operationId: identifier,
+    document: loginDocumentSchema,
+    stage: v.picklist(["before-fill", "after-fill"]),
+  }),
   v.strictObject({ type: v.literal("RETRY") }),
   v.strictObject({ type: v.literal("POLICY_CHANGED") }),
   v.strictObject({ type: v.literal("CANCEL") }),
@@ -270,6 +282,17 @@ function record(
         mutationIntent: undefined,
       };
     }
+    case "VALUE_REJECTED":
+      if (event.stage === "after-fill") return { outcome: "fill-rejected" };
+      return {
+        outcome: "value-mismatch",
+        // As with a wrong account, the reserved fill effect never started.
+        submissions:
+          context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
+            ? context.submissions - 1
+            : context.submissions,
+        mutationIntent: undefined,
+      };
     case "RETRY":
       return {
         retries: context.retries + 1,
@@ -347,6 +370,13 @@ function createLoginAttemptMachine() {
         operationMatches(context, event) &&
         context.operationKind === "fill" &&
         sameLoginDocument(context.document, event.document),
+      valueRejected: ({ context, event }) =>
+        event.type === "VALUE_REJECTED" &&
+        operationMatches(context, event) &&
+        context.operationKind === "fill" &&
+        sameLoginDocument(context.document, event.document) &&
+        // Only a preparing fill is checked after filling; an effectful one has submitted.
+        (event.stage === "before-fill" || context.operationEffect === "prepare"),
       retryAvailable: ({ context }) => context.retries < context.maxRetries,
       failedPossibleMutation: ({ context, event }) =>
         context.operationKind === "click" ||
@@ -436,6 +466,7 @@ function createLoginAttemptMachine() {
             { target: "retryable", actions: "record" },
           ],
           WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
+          VALUE_REJECTED: { guard: "valueRejected", target: "blocked", actions: "record" },
         },
       },
       "submit-intent": {
@@ -452,6 +483,7 @@ function createLoginAttemptMachine() {
             { target: "reconciling", actions: "record" },
           ],
           WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
+          VALUE_REJECTED: { guard: "valueRejected", target: "blocked", actions: "record" },
         },
       },
       "awaiting-result": {

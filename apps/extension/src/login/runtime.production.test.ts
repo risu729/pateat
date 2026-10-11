@@ -23,7 +23,9 @@ const fake = vi.hoisted(() => {
       outcome?: string;
     }[],
     /** Overrides the document's answer to an execution, such as a wrong-account refusal. */
-    executeReply: undefined as undefined | { ok: boolean; reason?: string; switchable?: true },
+    executeReply: undefined as
+      | undefined
+      | { ok: boolean; reason?: string; switchable?: true; mutation?: "none" | "possible" },
     /** The document's answer to clicking an account switch. */
     switchReply: { ok: true } as { ok: boolean },
     granted: true,
@@ -463,6 +465,29 @@ describe("production login document admission", () => {
     // The next document of the tab does not start another attempt.
     await h.hello({ documentId: "next-page" });
     expect(executes()).toHaveLength(1);
+  });
+  it("stops without a retry or a click when a value does not fit its input", async () => {
+    fake.state.executeReply = { ok: false, reason: "value-mismatch" };
+    const h = harness();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        { state: "blocked", outcome: "value-mismatch", submissions: 0, retries: 0 },
+      ]),
+    );
+    expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(1);
+    expect(fake.state.messages.at(-1)).toMatchObject({ outcome: "value-mismatch" });
+  });
+  it("does not click when the page rejects the filled values", async () => {
+    fake.state.executeReply = { ok: false, reason: "fill-rejected", mutation: "possible" };
+    const h = harness();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        { state: "blocked", outcome: "fill-rejected", submissions: 0, retries: 0 },
+      ]),
+    );
+    expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(1);
   });
   it("does not compare the page when the item has no username", async () => {
     const h = harness();
