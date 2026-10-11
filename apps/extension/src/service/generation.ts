@@ -45,17 +45,22 @@ export interface GenerationAttemptStorage {
 /**
  * The extension side of the recipe generation routes (ADR 0018). Requests go only to the
  * paired service with the device credential; a returned recipe reaches the login runtime
- * through the recipe cache, which `sync` refreshes.
+ * through the recipe cache, which `sync` and `refresh` update.
  */
 export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "generateRecipe" | "judgeCompletion">;
   storage: GenerationAttemptStorage;
-  /** Pulls recipe changes into the cache; resolves once the cache holds them. */
+  /** A full sync of recipes and settings; resolves once the recipe cache holds them. */
   sync(): Promise<unknown>;
+  /**
+   * Pulls recipe changes only. A judged page belongs to a login in progress, which a
+   * settings write would stop as a policy change (ADR 0027).
+   */
+  refresh(): Promise<unknown>;
   now?: () => number;
 }): LoginGeneration {
-  const { service, transport, storage, sync } = options;
+  const { service, transport, storage, sync, refresh } = options;
   const now = options.now ?? Date.now;
   // Writes are serialized so two pages sent together are both remembered.
   let queue: Promise<unknown> = Promise.resolve();
@@ -147,10 +152,10 @@ export function createLoginGeneration(options: {
       const result: RecipeCompletionResult | undefined =
         answer.kind === "result" ? answer.result : undefined;
       // Later runs use the learned completion; this attempt settles without waiting.
-      if (result?.status === "signed-in") void sync().catch(() => undefined);
+      if (result?.status === "signed-in") void refresh().catch(() => undefined);
       // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
       if (result?.status === "challenge" && result.change) {
-        void sync().catch(() => undefined);
+        void refresh().catch(() => undefined);
         return { verdict: "challenge", recipe: result.change.recipe };
       }
       if (

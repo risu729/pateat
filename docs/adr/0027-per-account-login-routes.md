@@ -211,6 +211,10 @@ new owner decision:
   stored record that has neither ended nor settled keeps scoping its tab and origin to
   the same item, also after a worker restart, until it ends, settles or its tab closes,
   even if no document of the tab resumes it.
+- **Recipe refresh after a judgement.** A judgement that changes the recipe pulls
+  recipes only. A full sync could apply a settings change from the service, which stops
+  every running login as a policy change, including the one the judged page belongs to.
+  Settings follow at the next full sync.
 
 ## Consequences
 

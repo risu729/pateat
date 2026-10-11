@@ -72,11 +72,13 @@ function setup(
     connection: vi.fn(async (): Promise<ServiceConnection | undefined> => connection),
   };
   const sync = vi.fn(async () => "synced");
+  const refresh = vi.fn(async () => "synced");
   const generation = createLoginGeneration({
     service,
     transport,
     storage,
     sync,
+    refresh,
     now: () => now,
   });
   return {
@@ -85,6 +87,7 @@ function setup(
     service,
     storage,
     sync,
+    refresh,
     advance: (ms: number) => {
       now += ms;
     },
@@ -102,6 +105,8 @@ describe("recipe generation requests", () => {
       request,
     );
     expect(h.sync).toHaveBeenCalledTimes(1);
+    // A generated recipe takes a full sync; only a judged page pulls recipes alone.
+    expect(h.refresh).not.toHaveBeenCalled();
 
     // The same page is not sent again within a day, whatever came of it; another path is.
     expect(await h.generation.available(observation.origin, "/login")).toBe(false);
@@ -189,7 +194,7 @@ describe("recipe generation requests", () => {
       recipeChange.recipeId,
       { version: 1, revision: 1, route: "password", observation: home },
     );
-    await vi.waitFor(() => expect(h.sync).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(h.refresh).toHaveBeenCalledTimes(1));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge" },
@@ -288,7 +293,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
 
   it("hands a judged handler's recipe to the login without waiting for the cache", async () => {
     const h = setup();
-    h.sync.mockImplementationOnce(() => new Promise<string>(() => {}));
+    h.refresh.mockImplementationOnce(() => new Promise<string>(() => {}));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge", change: handled },
@@ -297,7 +302,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       verdict: "challenge",
       recipe: handled.recipe,
     });
-    expect(h.sync).toHaveBeenCalledTimes(1);
+    expect(h.refresh).toHaveBeenCalledTimes(1);
     expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,
@@ -305,7 +310,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       { version: 1, revision: 1, route: "password", observation: webauthn },
     );
     // A failed refresh still hands the recipe over; the login checks it before use.
-    h.sync.mockRejectedValueOnce(new Error("offline"));
+    h.refresh.mockRejectedValueOnce(new Error("offline"));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge", change: handled },
@@ -316,9 +321,36 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
     });
   });
 
+  const completed = {
+    ...handled,
+    recipe: {
+      ...handled.recipe,
+      completion: { path: "/home", target: { by: "id" as const, value: "logout" } },
+    },
+  };
+  it.each([
+    ["signed-in", completed],
+    ["challenge", handled],
+  ] as const)(
+    "pulls only recipes after a %s judgement with a change, never a full sync",
+    async (status, change) => {
+      const h = setup();
+      h.transport.judgeCompletion.mockResolvedValueOnce({
+        kind: "result",
+        result: { version: 1, status, change },
+      });
+      // A settings write would stop the login this page belongs to as a policy change.
+      expect(
+        (await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).verdict,
+      ).toBe(status);
+      await vi.waitFor(() => expect(h.refresh).toHaveBeenCalledOnce());
+      expect(h.sync).not.toHaveBeenCalled();
+    },
+  );
+
   it("answers signed-in without a change and does not wait for the cache", async () => {
     const h = setup();
-    h.sync.mockImplementationOnce(() => new Promise<string>(() => {}));
+    h.refresh.mockImplementationOnce(() => new Promise<string>(() => {}));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "signed-in" },

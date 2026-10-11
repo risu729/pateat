@@ -471,6 +471,66 @@ describe("settings in the same sync", () => {
   });
 });
 
+describe("recipes-only sync after a judged page (ADR 0027)", () => {
+  /** Holds the first recipe page until released, so a second request joins the run. */
+  function held(h: ReturnType<typeof setup>) {
+    let release: (result: RecipeChangesResult) => void = () => undefined;
+    h.transport.recipeChanges.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    return (result: RecipeChangesResult) => release(result);
+  }
+
+  it("pulls recipes into the cache without settings, a recorded sync or a schedule move", async () => {
+    const learned = recipe("bank-signin", "/login", 2);
+    const h = setup({ settings: "synced", pages: [page([active(learned)], 3)] });
+    expect(await h.sync.sync({ settings: false })).toBe("synced");
+    expect(h.cache()).toMatchObject({ cursor: 3, recipes: [learned] });
+    expect(h.settingsSync.run).not.toHaveBeenCalled();
+    expect(h.service.recordSync).not.toHaveBeenCalled();
+    expect(h.schedule()).toBeUndefined();
+    expect(h.report).toHaveBeenCalledExactlyOnceWith("synced");
+  });
+
+  it("runs settings once after a recipes-only sync that a full sync joined", async () => {
+    const h = setup({ settings: "synced" });
+    const release = held(h);
+    const refresh = h.sync.sync({ settings: false });
+    await vi.waitFor(() => expect(h.transport.recipeChanges).toHaveBeenCalledOnce());
+    const full = h.sync.sync();
+    expect(h.settingsSync.run).not.toHaveBeenCalled();
+    release(page([], 0));
+    expect(await refresh).toBe("synced");
+    expect(await full).toBe("synced");
+    expect(h.transport.recipeChanges).toHaveBeenCalledTimes(2);
+    expect(h.settingsSync.run).toHaveBeenCalledOnce();
+    expect(h.service.recordSync).toHaveBeenCalledExactlyOnceWith(DEVICE, { syncedAt: 5_000 });
+    expect(h.schedule()).toEqual({
+      version: 1,
+      startedAt: 5_000,
+      retryAt: 5_000 + RECIPE_SYNC_STALE_MS,
+    });
+  });
+
+  it("adds no settings run when a recipes-only sync joins a full one", async () => {
+    const h = setup({ settings: "synced" });
+    const release = held(h);
+    const full = h.sync.sync();
+    await vi.waitFor(() => expect(h.transport.recipeChanges).toHaveBeenCalledOnce());
+    const refresh = h.sync.sync({ settings: false });
+    release(page([], 0));
+    expect(await full).toBe("synced");
+    expect(await refresh).toBe("synced");
+    // The joined request still pulls recipes once more, but without settings.
+    expect(h.transport.recipeChanges).toHaveBeenCalledTimes(2);
+    expect(h.settingsSync.run).toHaveBeenCalledOnce();
+    expect(h.service.recordSync).toHaveBeenCalledOnce();
+  });
+});
+
 describe("recipe sync schedule", () => {
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
