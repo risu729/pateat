@@ -63,7 +63,11 @@ const page = (
 });
 
 /** A custom-field slot as the trusted side would describe it: name and visible shape. */
-const customField = (slot: SemanticSlot, fieldName: string, value: string): SemanticSlot => ({
+export const customField = (
+  slot: SemanticSlot,
+  fieldName: string,
+  value: string,
+): SemanticSlot => ({
   ...slot,
   fieldName,
   valueShape: valueShapeOf({ source: "text", value })!,

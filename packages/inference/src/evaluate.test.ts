@@ -37,6 +37,10 @@ describe("evaluation harness", () => {
     expect(byId["en-basic"]).toBe("correct");
     // Local same-form validation rejects the search box paired with the login password.
     expect(byId["en-search-decoy"]).toBe("failed");
+    expect(report.cases.find((result) => result.id === "en-search-decoy")).toMatchObject({
+      reason: "invalid-output",
+      detail: "mixed-groups",
+    });
     expect(byId["en-label-injection"]).toBe("false-submit");
     expect(byId["ja-bank-branch-account"]).toBe("false-submit");
     expect(byId["en-newsletter-only"]).toBe("false-submit");
