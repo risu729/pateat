@@ -40,7 +40,8 @@ monthly Claude API credit and chose the model. The offline harness in
   adapter contract stays, and those models may be evaluated later against the same
   corpus.
 - The owner approved one paid benchmark run of the synthetic corpus with this
-  configuration. Further paid runs and the service route need their own approval.
+  configuration. Further paid runs and the service route need their own approval
+  (the route was approved in [ADR 0018](0018-recipe-generation-route.md)).
   The benchmark runs outside the service, so it reads the key from `ANTHROPIC_API_KEY`
   in the environment of the session that runs it. Cloud sessions withhold that name,
   so there the key is stored as `PATEAT_ANTHROPIC_API_KEY` and passed in as

@@ -42,17 +42,20 @@ metadata; device-local field policies, vault values and provider sessions are
 rejected by the strict schemas. Stored documents are revalidated on read and fail
 closed with a 500 `internal_error`.
 
-`/enroll` and `/manage` must sit behind one Cloudflare Access application, and the
-Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's keys, the
-`ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both secrets those
-pages answer 503. The owner is found by token issuer and subject, never by email.
-Approval forms must come from the same origin. `/redeem` is anonymous and issues a
-credential only when the typed code equals the code derived from the verifier; a
-mismatch returns 409 `enrollment_code_mismatch`, and unapproved, expired, used and
-unknown verifiers return the same 404 `enrollment_not_found`. The `REDEEM_LIMITER`
-binding allows about 10 requests a minute per client address (the hosted limiter is
-approximate and per location), so poll no more than every 6 seconds. The
-[enrollment design](../../docs/architecture.md#device-enrollment) describes the flow.
+One Cloudflare Access application covers the whole host, and a more specific Bypass
+application exempts `/v1/*`, `/redeem`, `/health`, `/.well-known/openid-configuration`
+and `/.well-known/jwks.json`, which clients call without an Access login. For the owner
+pages, `/enroll` and `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself
+against the team's keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience.
+Without both secrets those pages answer 503. The owner is found by token issuer and
+subject, never by email. Approval forms must come from the same origin. `/redeem` is
+anonymous and issues a credential only when the typed code equals the code derived from
+the verifier; a mismatch returns 409 `enrollment_code_mismatch`, and unapproved,
+expired, used and unknown verifiers return the same 404 `enrollment_not_found`. The
+`REDEEM_LIMITER` binding allows about 10 requests a minute per client address (the
+hosted limiter is approximate and per location), so poll no more than every 6 seconds.
+The [enrollment design](../../docs/architecture.md#device-enrollment) describes the
+flow.
 
 Recipe revisions are immutable. A write claims the head with a conditional statement
 and writes the history row in the same D1 batch, guarded by a per-request write ID,
@@ -115,6 +118,7 @@ The Worker bundles `packages/contracts`, which is GPL-3.0-only. Running it is no
 conveying it, but assess that combination as [LICENSING.md](../../LICENSING.md)
 requires before distributing a built Worker.
 
-Worker routing, account selection, credentials and resource provisioning are
-intentionally absent. The server delivery workflow stays disabled until those
-deployment inputs, a verified Access application and a reachable health endpoint exist.
+The configuration records the bootstrapped D1 database and the Custom Domain
+`pateat.takuk.me`; the account, credentials and Access applications are owner settings
+outside the repository. The server delivery workflow runs after every successful main
+CI and fails before any change until those deployment inputs exist.

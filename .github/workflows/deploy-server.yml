@@ -1,5 +1,18 @@
 name: Deploy server
 on:
+  # zizmor: ignore[dangerous-triggers]
+  # Privileged by design: the release needs the production environment. The job runs
+  # only for a successful CI run that a push to main in this repository started, and
+  # it re-reads that run through the API before checking out its exact revision. The
+  # workflow definition comes from the default branch, so no branch can change it.
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  # Retries and releases of an earlier CI run.
   workflow_dispatch:
     inputs:
       ci_run_id:
@@ -7,22 +20,24 @@ on:
         type: string
         required: true
 permissions: {}
-# Disabled until the owner has bootstrapped routing and scoped credentials.
-
-# Each release/retry is manual; keep this lock through activation and smoke.
-concurrency:
-  group: server-production
-  cancel-in-progress: false
 defaults:
   run:
     shell: bash
 jobs:
   deploy:
     name: Deploy tested server
-    if: ${{ vars.SERVER_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    # Every successful main push releases; there is no enable switch. Until the owner
+    # has set the production credentials, the first step fails before any change.
+    if: >-
+      ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production
+    # Keep this lock through migration, activation and smoke. It sits on the job so a
+    # skipped run (failed CI, another event) never displaces a pending release.
+    concurrency:
+      group: server-production
+      cancel-in-progress: false
     permissions:
       actions: read # Verify the CI run and download its immutable artifact.
       contents: read
@@ -32,16 +47,26 @@ jobs:
       SERVER_HEALTH_URL: ${{ vars.SERVER_HEALTH_URL }}
       WRANGLER_SEND_METRICS: "false"
     steps:
+      - name: Require the production credentials before anything else
+        env:
+          API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [[ -z "${API_TOKEN}" || ! "${CLOUDFLARE_ACCOUNT_ID}" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error::Set the production environment secret CLOUDFLARE_API_TOKEN and variable CLOUDFLARE_ACCOUNT_ID."
+            exit 1
+          fi
       - name: Require successful CI for this exact main revision
         id: source
         env:
-          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id || inputs.ci_run_id }}
+          # A dispatch releases the current main; a CI run releases its own revision.
+          EXPECTED_REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           [[ "${CI_RUN_ID}" =~ ^[0-9]+$ ]]
           run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CI_RUN_ID}")"
           workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
-          jq -e --arg repository "${GITHUB_REPOSITORY}" --arg revision "${GITHUB_SHA}" \
+          jq -e --arg repository "${GITHUB_REPOSITORY}" --arg revision "${EXPECTED_REVISION}" \
             --argjson workflow "${workflow_id}" '
             .event == "push" and .head_branch == "main" and
             .head_repository.full_name == $repository and .head_sha == $revision and
@@ -50,12 +75,11 @@ jobs:
           revision="$(jq -r .head_sha <<< "${run}")"
           attempt="$(jq -r .run_attempt <<< "${run}")"
           [[ "${revision}" =~ ^[0-9a-f]{40}$ && "${attempt}" =~ ^[0-9]+$ ]]
-          echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
           {
-            echo "RELEASE_REVISION=${revision}"
-            echo "RELEASE_RUN_ID=${CI_RUN_ID}"
-            echo "RELEASE_RUN_ATTEMPT=${attempt}"
-          } >> "${GITHUB_ENV}"
+            echo "revision=${revision}"
+            echo "run-id=${CI_RUN_ID}"
+            echo "attempt=${attempt}"
+          } >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.source.outputs.revision }}
@@ -68,16 +92,21 @@ jobs:
         run: bun install --frozen-lockfile
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: server-${{ env.RELEASE_REVISION }}-${{ env.RELEASE_RUN_ID }}-${{ env.RELEASE_RUN_ATTEMPT }}
+          name: server-${{ steps.source.outputs.revision }}-${{ steps.source.outputs.run-id }}-${{ steps.source.outputs.attempt }}
           path: work/server-release/
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.ci_run_id }}
+          run-id: ${{ steps.source.outputs.run-id }}
       - name: Verify artifact provenance, digests and deployment configuration
         id: restore
+        env:
+          RELEASE_REVISION: ${{ steps.source.outputs.revision }}
+          RELEASE_RUN_ID: ${{ steps.source.outputs.run-id }}
+          RELEASE_RUN_ATTEMPT: ${{ steps.source.outputs.attempt }}
         run: mise exec -- node .github/scripts/server-artifact.mjs restore
       - name: Skip superseded revisions before the first mutation
         id: current
         env:
+          RELEASE_REVISION: ${{ steps.source.outputs.revision }}
           GH_TOKEN: ${{ github.token }}
         run: |
           current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
@@ -85,7 +114,7 @@ jobs:
             echo "deploy=true" >> "${GITHUB_OUTPUT}"
           else
             echo "deploy=false" >> "${GITHUB_OUTPUT}"
-            echo "Superseded by main revision ${current}; dispatch again with its CI run." >> "${GITHUB_STEP_SUMMARY}"
+            echo "Superseded by main revision ${current}; its own CI run releases it, or dispatch with that run." >> "${GITHUB_STEP_SUMMARY}"
           fi
       # Migrations must be additive so the serving Worker keeps working on the new
       # schema. A failed migration stops the release before activation.
@@ -126,6 +155,7 @@ jobs:
       - name: Verify deployment readback and hosted revision
         if: ${{ steps.current.outputs.deploy == 'true' }}
         env:
+          RELEASE_REVISION: ${{ steps.source.outputs.revision }}
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment-id }}
           VERSION_ID: ${{ steps.deploy.outputs.version-id }}
         run: mise exec -- node .github/scripts/server-health.mjs

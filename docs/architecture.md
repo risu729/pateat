@@ -351,10 +351,12 @@ vocabulary contains login operations only.
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution
-trigger. A static content script runs on every top-level HTTPS page; the background
+trigger. A static content script runs on every HTTPS page and frame; the background
 admits non-excluded sites with host access and needs a cached recipe for the exact
 origin before any policy or vault access
-([ADR 0009](adr/0009-install-time-https-site-access.md)). The planned exception is
+([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the tab's
+page admitted, and its account must match the tab's URL as well as the frame's
+([ADR 0017](adr/0017-login-forms-in-frames.md)). The planned exception is
 recipe generation: a page without a recipe that shows a login field and has a vault URI
 match is observed and sent at most once a day per origin and path
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). Inactive, frozen, discarded,
@@ -368,7 +370,8 @@ requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->
 awaiting-result -> authenticated / retryable / blocked. One writer owns an
-attempt for a tab/document; other tabs can progress independently. Revalidate
+attempt for a tab/document, and a tab runs one attempt across all of its frames; other
+tabs can progress independently. Revalidate
 origin, account binding, target elements, and document immediately before each
 fill or click. Expire late AI results after navigation and cancel outstanding
 work. Synthetic events and lack of trusted user activation may limit some sites.
@@ -570,7 +573,9 @@ and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
 sync, enrollment and device management routes described in
 [its README](../services/api/README.md); inference and its request log
-([ADR 0012](adr/0012-inference-request-log.md)) remain planned.
+([ADR 0012](adr/0012-inference-request-log.md)) remain planned. The generation route,
+its limits and how a generated recipe learns its completion target are decided in
+[ADR 0018](adr/0018-recipe-generation-route.md).
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
@@ -627,16 +632,19 @@ locally with synthetic Access keys and responses; a real Access probe and the op
 decisions below remain. Nothing is configured or deployed. It satisfies the separation
 above without a cookie on steady-state API calls.
 
-- Route families. One Access application covers only the `/enroll` and `/manage` paths.
-  The `/v1` sync routes are outside it and accept only device credentials, and `/redeem`
-  is anonymous. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself: signature
-  against the team JWKS, configured audience tag and issuer, and expiry. It never trusts
-  the plain identity headers. The owner key is the issuer plus the token subject, not
-  the email address. Verification uses Hono's JWT utility with the team JWKS, allowing
-  only RS256; Hono's JWK middleware reads only `Bearer` values, and a dedicated JWT
-  library would need its own owner decision. Tokens without an expiry or a user subject,
-  such as service tokens, are refused. The public keys are edge-cached for five
-  minutes, so a rotated key may be refused briefly.
+- Route families. One Access application covers the whole service host, so a new route
+  is protected by default (owner decision, 2026-10-11). A second, more specific Access
+  application with a Bypass policy exempts the paths that cannot pass an interactive
+  login: the `/v1` sync routes, which accept only device credentials; `/redeem`, which
+  is anonymous; `/health`; and the two `/.well-known` issuer routes that Anthropic
+  fetches anonymously. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself:
+  signature against the team JWKS, configured audience tag and issuer, and expiry. It
+  never trusts the plain identity headers. The owner key is the issuer plus the token
+  subject, not the email address. Verification uses Hono's JWT utility with the team
+  JWKS, allowing only RS256; Hono's JWK middleware reads only `Bearer` values, and a
+  dedicated JWT library would need its own owner decision. Tokens without an expiry or a
+  user subject, such as service tokens, are refused. The public keys are edge-cached for
+  five minutes, so a rotated key may be refused briefly.
 - Pairing. The extension background generates a 256-bit verifier and keeps it in trusted
   extension storage. The settings page opens the enrollment page in an ordinary tab with
   only its SHA-256 challenge and a device label. It also shows a short code: 40 bits of
@@ -706,8 +714,8 @@ extension's settings page for the data the service holds
   settings or recipe revision become nullable; null means the web UI wrote it.
 - Display names. A site default stores an optional `itemName` beside its item ID, as
   bindings already do, so the page can name the item; entries without it show the ID.
-- Authentication. The Access application that covers `/enroll` and `/manage` also
-  covers the app's assets and `/manage/api/*`. The Worker verifies the Access token
+- Authentication. The host-wide Access application also covers the app's assets and
+  `/manage/api/*`. The Worker verifies the Access token
   on each API request as it does for the current pages, finds the owner by issuer and
   subject without creating one, and accepts only same-origin requests. The page's
   Content Security Policy allows scripts from its own origin only, with no framing.
