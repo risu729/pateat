@@ -107,11 +107,9 @@ Once the fixes have settled:
   even if those commands are fetched as data", which service-held recipes must be shown
   not to be; a store item gets a store-assigned extension ID, so devices pair again; and
   the store requires a privacy policy and a Limited Use statement.
-- Proposed: the Bitwarden account checks that matter once other people install Pateat,
-  each with the owner's approval for real-account use: individual Bitwarden two-step
-  methods, other KDFs, V2 keys and organization items, the install-time site-access
-  warning and the prompt after site access was withheld, installed-Chrome dummy-account
-  tests and measured limits.
+- Proposed: the checks that matter once other people install Pateat: the install-time
+  site-access warning and the prompt after site access was withheld, installed-Chrome
+  dummy-account tests and measured limits.
 
 ### Phase 4: issues and work as needed
 
@@ -139,6 +137,10 @@ still open on 2026-10-11.
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
   ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later work, the ADR 0027
   cases it does not handle, and generation for passkey-only start pages.
+- Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
+  organization items. The owner moved them after the public release on 2026-10-11
+  (18:35 UTC), since few users are expected to need them; each needs the owner's
+  approval for real-account use.
 - Proposed: the remaining checks, namely pairing while signed out of Access and the
   Access cookie settings, real sites that wrap `get`, and a navigation during signing.
 
