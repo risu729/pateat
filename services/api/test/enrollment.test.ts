@@ -704,6 +704,196 @@ describe("owner web UI", () => {
   });
 });
 
+describe("owner web UI settings", () => {
+  const settings = {
+    connections: [],
+    excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }],
+    siteDefaults: [],
+  };
+  const putSettings = (by: Owner, body: unknown, origin: string | null = ORIGIN) =>
+    request("/manage/api/settings", {
+      method: "PUT",
+      access: by.token,
+      headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
+      body: JSON.stringify(body),
+    });
+
+  it("tells an identity without a paired device to pair one, creating no owner", async () => {
+    const by = await owner();
+    const [read, write] = await Promise.all([
+      request("/manage/api/settings", { access: by.token }),
+      putSettings(by, { version: 1, expectedRevision: 0, settings }),
+    ]);
+    expect([read.status, write.status]).toEqual([404, 404]);
+    expect(await read.json()).toEqual({ error: "not_paired" });
+    expect(await write.json()).toEqual({ error: "not_paired" });
+    expect(await ownerIdFor(by.subject)).toBeNull();
+  });
+
+  it("keeps each owner's settings apart", async () => {
+    const first = await owner();
+    const second = await owner();
+    await Promise.all([enroll(first), enroll(second)]);
+    expect((await putSettings(first, { version: 1, expectedRevision: 0, settings })).status).toBe(
+      200,
+    );
+    // The second owner's revision 1 does not exist; the first owner's is untouched.
+    const other = { ...settings, excludedSites: [] };
+    const [read, write] = await Promise.all([
+      request("/manage/api/settings", { access: second.token }),
+      putSettings(second, { version: 1, expectedRevision: 1, settings: other }),
+    ]);
+    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+    expect(write.status).toBe(409);
+    const firstRead = await request("/manage/api/settings", { access: first.token });
+    expect(await firstRead.json()).toEqual({ version: 1, revision: 1, settings });
+  });
+
+  it("updates a device-written revision and makes a stale device write conflict", async () => {
+    const by = await owner();
+    const device = await enroll(by);
+    const deviceWrite = (expectedRevision: number, body: unknown) =>
+      deviceApi(device.credential, "/v1/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, expectedRevision, settings: body }),
+      });
+    expect((await deviceWrite(0, settings)).status).toBe(200);
+    const web = { ...settings, excludedSites: [] };
+    expect((await putSettings(by, { version: 1, expectedRevision: 1, settings: web })).status).toBe(
+      200,
+    );
+    const row = await env.DB.prepare(
+      "SELECT revision, updated_by_device_id FROM settings WHERE owner_id = ?",
+    )
+      .bind(await ownerIdFor(by.subject))
+      .first<{ revision: number; updated_by_device_id: string | null }>();
+    expect(row).toEqual({ revision: 2, updated_by_device_id: null });
+    const stale = await deviceWrite(1, settings);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({
+      error: "settings_conflict",
+      current: { version: 1, revision: 2, settings: web },
+    });
+  });
+
+  it("refuses a document larger than devices sync", async () => {
+    const by = await owner();
+    await enroll(by);
+    const long = ["a", "b", "c"].map((letter) => letter.repeat(60)).join(".");
+    const large = {
+      ...settings,
+      excludedSites: Array.from({ length: 530 }, (_, index) => ({
+        hostname: `${long}.x${index}.example`,
+        includeSubdomains: false,
+      })),
+    };
+    const over = {
+      ...settings,
+      excludedSites: Array.from({ length: 600 }, (_, index) => ({
+        hostname: `${long}.x${index}.example`,
+        includeSubdomains: false,
+      })),
+    };
+    const [tooLarge, overLimit] = await Promise.all([
+      putSettings(by, { version: 1, expectedRevision: 0, settings: large }),
+      putSettings(by, { version: 1, expectedRevision: 0, settings: over }),
+    ]);
+    // Over 120 KiB of document but under the body limit, then over the body limit.
+    expect([tooLarge.status, overLimit.status]).toEqual([400, 413]);
+    expect(await tooLarge.json()).toEqual({ error: "bad_request" });
+    expect(await overLimit.json()).toEqual({ error: "payload_too_large" });
+    const read = await request("/manage/api/settings", { access: by.token });
+    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+  });
+
+  it("writes the document devices sync, recorded as written by the web UI", async () => {
+    const by = await owner();
+    const device = await enroll(by);
+    const write = await putSettings(by, { version: 1, expectedRevision: 0, settings });
+    expect(write.status).toBe(200);
+    expect(await write.json()).toEqual({ version: 1, revision: 1, settings });
+    expect(await (await deviceApi(device.credential)).json()).toEqual({
+      version: 1,
+      revision: 1,
+      settings,
+    });
+    const row = await env.DB.prepare("SELECT updated_by_device_id FROM settings WHERE owner_id = ?")
+      .bind(await ownerIdFor(by.subject))
+      .first<{ updated_by_device_id: string | null }>();
+    expect(row).toEqual({ updated_by_device_id: null });
+
+    // A device write after it is still attributed to that device.
+    const next = { ...settings, excludedSites: [] };
+    const deviceWrite = await deviceApi(device.credential, "/v1/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, expectedRevision: 1, settings: next }),
+    });
+    expect(deviceWrite.status).toBe(200);
+    const read = await request("/manage/api/settings", { access: by.token });
+    expect(await read.json()).toEqual({ version: 1, revision: 2, settings: next });
+  });
+
+  it("changes nothing on a stale revision and returns the current state", async () => {
+    const by = await owner();
+    await enroll(by);
+    expect((await putSettings(by, { version: 1, expectedRevision: 0, settings })).status).toBe(200);
+    const stale = await putSettings(by, {
+      version: 1,
+      expectedRevision: 0,
+      settings: { ...settings, excludedSites: [] },
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({
+      error: "settings_conflict",
+      current: { version: 1, revision: 1, settings },
+    });
+  });
+
+  it("refuses vault connections, invalid documents, other media types and other origins", async () => {
+    const by = await owner();
+    await enroll(by);
+    const connection = {
+      connectionId: "connection-1",
+      enabled: true,
+      selection: { mode: "all", groupIds: [], itemIds: [] },
+      excludedItemIds: [],
+      excludedFields: [],
+    };
+    const responses = await Promise.all([
+      putSettings(by, {
+        version: 1,
+        expectedRevision: 0,
+        settings: { ...settings, connections: [connection] },
+      }),
+      putSettings(by, { version: 1, expectedRevision: 0, settings: { ...settings, extra: 1 } }),
+      request("/manage/api/settings", {
+        method: "PUT",
+        access: by.token,
+        headers: { "Content-Type": "text/plain", Origin: ORIGIN },
+        body: JSON.stringify({ version: 1, expectedRevision: 0, settings }),
+      }),
+      putSettings(by, { version: 1, expectedRevision: 0, settings }, "https://attacker.example"),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 415, 403]);
+    const read = await request("/manage/api/settings", { access: by.token });
+    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+  });
+
+  it("serves the settings pages", async () => {
+    const { token } = await owner();
+    const paths = ["/manage/sites", "/manage/bindings"];
+    const [signedIn, anonymous] = await Promise.all([
+      Promise.all(paths.map((path) => request(path, { access: token }))),
+      Promise.all(paths.map((path) => request(path))),
+    ]);
+    expect(signedIn.map((response) => response.status)).toEqual([200, 200]);
+    expect(await signedIn[0]!.text()).toContain("Pateat test app");
+    expect(anonymous.map((response) => response.status)).toEqual([401, 401]);
+  });
+});
+
 describe("device self-revocation", () => {
   it("revokes only the calling device", async () => {
     const by = await owner();

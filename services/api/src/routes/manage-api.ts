@@ -1,4 +1,4 @@
-import { deviceIdSchema, type ManageDevices } from "@pateat/contracts";
+import { deviceIdSchema, manageSettingsWriteSchema, type ManageDevices } from "@pateat/contracts";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
@@ -8,6 +8,8 @@ import type { ApiEnv } from "../auth";
 import { devices } from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
+import { readSettings, writeSettings } from "../settings-store";
+import { jsonBody, requireJsonBody } from "../validation";
 
 const deviceParamSchema = v.strictObject({ deviceId: deviceIdSchema });
 
@@ -55,4 +57,19 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       }
       return c.body(null, 204);
     },
-  );
+  )
+  // The same revision-checked document devices sync through /v1/settings.
+  .get("/settings", async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    return c.json(await readSettings(c.env.DB, ownerId));
+  })
+  .put("/settings", requireJsonBody, jsonBody(manageSettingsWriteSchema), async (c) => {
+    // Settings belong to an owner, who exists once a device was paired.
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    const result = await writeSettings(c.env.DB, ownerId, c.req.valid("json"), null);
+    if (!result.ok)
+      return c.json({ error: "settings_conflict" as const, current: result.current }, 409);
+    return c.json(result.state);
+  });
