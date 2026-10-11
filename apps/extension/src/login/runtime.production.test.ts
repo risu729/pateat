@@ -1049,6 +1049,46 @@ describe("production login document admission", () => {
       );
       expect(h.store.update).not.toHaveBeenCalled();
     });
+    describe("with a completion that also lists absent elements", () => {
+      // A learned completion on the sign-in page's own path: the sign-out marker counts
+      // only once the password field is gone (ADR 0018).
+      const learned = parseLoginRecipe({
+        ...recipe,
+        completion: { ...recipe.completion, absent: [target("password")] },
+      });
+      const published = () => JSON.stringify(fake.state.messages);
+      it("authenticates once the marker shows and the field is gone", async () => {
+        fake.state.present = new Set(["authenticated"]);
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+        });
+        h.recipes.recipe.mockResolvedValue(learned);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"state":"authenticated"'));
+        // The completion target comes first, then the elements that must be missing.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("authenticated"), target("password")],
+          }),
+        );
+      });
+      it("never authenticates while the field is still there", async () => {
+        fake.state.present = new Set(["authenticated", "password", "login"]);
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+        });
+        h.recipes.recipe.mockResolvedValue(learned);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"outcome":"unknown-submit"'), {
+          timeout: 6_000,
+        });
+        expect(published()).not.toContain('"state":"authenticated"');
+        expect(h.store.update).not.toHaveBeenCalled();
+      }, 10_000);
+    });
     it("saves nothing when the credential is rejected", async () => {
       const rejecting = { ...recipe, rejection: target("rejected") };
       fake.state.observed = ["missing", "unique"];

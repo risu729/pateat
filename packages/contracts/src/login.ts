@@ -121,6 +121,8 @@ export const loginStepSchema = v.variant("kind", [
     present: v.boolean(),
   }),
 ]);
+const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
+  step.kind === "fill" ? step.fields.length : 1;
 export const loginRecipeSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
@@ -136,7 +138,28 @@ export const loginRecipeSchema = v.pipe(
     steps: v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32)),
     // A generated recipe has no completion until the page after its first sign-in is
     // judged (ADR 0018); until then no attempt with it can end authenticated.
-    completion: v.optional(v.strictObject({ path, target: loginTargetSchema })),
+    completion: v.optional(
+      v.strictObject({
+        path,
+        target: loginTargetSchema,
+        /**
+         * Elements that must be missing as well, such as the sign-in fields of a page that
+         * signs in on its own path. A learned completion lists them, so a login page that
+         * still holds a hidden "Sign out" element never counts as signed in.
+         */
+        absent: v.optional(
+          v.pipe(
+            v.array(loginTargetSchema),
+            v.minLength(1),
+            v.maxLength(4),
+            v.check(
+              (targets) => unique(targets.map((target) => JSON.stringify(target))),
+              "Duplicate absent targets",
+            ),
+          ),
+        ),
+      }),
+    ),
     rejection: v.optional(loginTargetSchema),
     maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
   }),
@@ -166,6 +189,16 @@ export const loginRecipeSchema = v.pipe(
             .find((next) => next.path === step.path && next.kind === "click"),
       ),
     "Input-triggered effects cannot have a fallback click on the same path",
+  ),
+  // The executor checks the result elements and the next step's elements in one
+  // observation of at most 24 elements.
+  v.check(
+    (recipe) =>
+      Math.max(0, ...recipe.steps.map(stepTargetCount)) +
+        (recipe.completion ? 1 + (recipe.completion.absent?.length ?? 0) : 0) +
+        (recipe.rejection ? 1 : 0) <=
+      24,
+    "Too many result elements to observe with a step",
   ),
 );
 export const loginAccountSchema = v.strictObject({
