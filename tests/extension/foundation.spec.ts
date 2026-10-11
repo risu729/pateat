@@ -299,6 +299,10 @@ test("the toolbar popup edits the active tab's site through the settings store",
         settings,
       }),
     ).toBe("unanswered");
+    // Nor ask which accounts a refused login could use.
+    expect(await send(diagnostics, { version: 1, type: "login.choice.get", tabId: 0 })).toBe(
+      "unanswered",
+    );
     await diagnostics.close();
     expect(await get(popup)).toMatchObject({ snapshot: { revision: 0 } });
 
@@ -330,6 +334,12 @@ test("the toolbar popup edits the active tab's site through the settings store",
     const site = await opened;
     await expect(site.locator("#popup-origin")).toHaveText("bank.example");
     await expect(site.locator("#popup-accounts-note")).toContainText("No vault item matches");
+    // No login in the tab waits for a choice, so none is offered.
+    expect(await send(site, { version: 1, type: "login.choice.get", tabId: bank.id })).toEqual({
+      ok: false,
+      reason: "no-choice",
+    });
+    await expect(site.locator("#popup-choice-heading")).toHaveCount(0);
     await site.getByRole("button", { name: "Exclude bank.example" }).click();
     await expect(site.locator("#popup-site-status")).toContainText("Excluded");
     expect(await get(site)).toMatchObject({
