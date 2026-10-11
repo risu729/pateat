@@ -132,12 +132,13 @@ test("a recipe and binding synced from the service log in with the live vault an
             { slot: "password", field: "password" },
           ],
         };
+        const emptySynced = { connections: [], excludedSites: [], siteDefaults: [] };
         const stored = await service.request("/v1/settings", {
           method: "PUT",
           body: {
             version: 1,
             expectedRevision: 0,
-            settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [binding] },
+            settings: { ...emptySynced, bindings: [binding] },
           },
         });
         expect(stored.status).toBe(200);
@@ -187,17 +188,19 @@ test("a recipe and binding synced from the service log in with the live vault an
             attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 2 }],
           });
 
-        // The single URI match is saved as this site's account and uploaded at once.
+        // The single URI match is saved as this site's account, with the binding's item
+        // name for display, and uploaded at once.
+        const saved = { origin: site, ...account, itemName: binding.itemName };
         await expect
           .poll(
             async () =>
               ((await (await service.request("/v1/settings")).json()) as { settings: unknown })
                 .settings,
           )
-          .toMatchObject({ siteDefaults: [{ origin: site, ...account }], bindings: [binding] });
+          .toMatchObject({ siteDefaults: [saved], bindings: [binding] });
         await expect
           .poll(async () => (await settingsRequest(options)).snapshot.settings.siteDefaults)
-          .toEqual([{ origin: site, ...account }]);
+          .toEqual([saved]);
 
         // After a full restart the cached recipe, binding and saved account still apply,
         // with the service gone.
