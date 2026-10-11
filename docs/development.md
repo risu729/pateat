@@ -269,6 +269,16 @@ saving those stale edits. Custom-field review must confirm the current field
 selection before releasing an item whose earlier exclusions cannot be rebound.
 Automatic website login is not activated by this setup slice.
 
+The vault access policy keeps each connection's Enabled and Item access controls
+visible. Its vault-wide lists start collapsed so the sections below stay reachable
+with a large vault: "Included groups and items" and "Item and field exclusions" are
+native disclosures whose summaries show counts, for example `1 of 3 groups, 2 of 40
+items selected` or `1 item and 2 fields excluded` (fields of an excluded item are not
+counted). Each item inside the exclusions opens on its own, with a summary such as
+`Item excluded` or `1 field excluded`. Open/closed state lasts only while the page is
+open. Custom-field reviews are not folded; they stay expanded in the connection panel
+because they block the item until saved.
+
 ## Compatibility before release
 
 Pateat has not been released. Until the first public release, the owner decided on
