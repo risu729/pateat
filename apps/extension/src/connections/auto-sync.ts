@@ -4,6 +4,10 @@ import * as v from "valibot";
 export const VAULT_CHECK_INTERVAL_MS = 60_000;
 /** A check that waited for a login is tried again sooner than a regular one. */
 export const VAULT_DEFERRED_RETRY_MS = 10_000;
+/** After a page with a recipe finds no matching item, a check may run this soon again. */
+export const VAULT_MISS_RETRY_MS = 10_000;
+/** How long such a page waits for a check to apply a new snapshot before giving up. */
+export const VAULT_MISS_WINDOW_MS = 10_000;
 /** After this long, a sync waiting on a login applies anyway (an abandoned tab counts). */
 export const VAULT_DEFER_LIMIT_MS = 2 * 60_000;
 /** Back-off after Bitwarden answers 429, as for the Pateat service. */
@@ -130,6 +134,9 @@ export function createVaultAutoSync(deps: {
   let applying: Promise<void> | undefined;
   let starting = 0;
   let idle: (() => void)[] = [];
+  /** A check asked for by a page that found no matching item; kept in memory only. */
+  let missWanted = false;
+  const missWaiters = new Set<(synced: boolean) => void>();
   /** Resolves true once no page or passkey request is being handled, false after a while. */
   function settled(): Promise<boolean> {
     if (starting === 0) return Promise.resolve(true);
@@ -146,7 +153,7 @@ export function createVaultAutoSync(deps: {
     });
   }
 
-  function due(entry: VaultSyncEntry | undefined, at: number) {
+  function due(entry: VaultSyncEntry | undefined, at: number, miss: boolean) {
     // A deleted account is not asked again until a manual sync or sign-in succeeds.
     if (entry?.outcome === "account-deleted") return false;
     if (!entry?.checkedAt || entry.checkedAt > at) return true;
@@ -156,7 +163,11 @@ export function createVaultAutoSync(deps: {
       entry.retryAt - at <= VAULT_RATE_LIMIT_MS
     )
       return false;
-    const wait = entry.outcome === "deferred" ? VAULT_DEFERRED_RETRY_MS : VAULT_CHECK_INTERVAL_MS;
+    const wait = miss
+      ? VAULT_MISS_RETRY_MS
+      : entry.outcome === "deferred"
+        ? VAULT_DEFERRED_RETRY_MS
+        : VAULT_CHECK_INTERVAL_MS;
     return at - entry.checkedAt >= wait;
   }
   function holdFor(deferredSince: number | undefined): VaultApplyHold {
@@ -187,7 +198,8 @@ export function createVaultAutoSync(deps: {
       },
     };
   }
-  async function check() {
+  /** A miss check uses the shorter limit for every connection it checks. */
+  async function check(miss: boolean) {
     if (!online()) return;
     const ids = await deps.connections();
     for (const connectionId of ids) {
@@ -195,7 +207,7 @@ export function createVaultAutoSync(deps: {
       const record = await deps.records.read();
       const entry = record.connections[connectionId];
       const at = now();
-      if (!due(entry, at)) continue;
+      if (!due(entry, at, miss)) continue;
       // Written before the request, so a restart in between does not send it again at once.
       // oxlint-disable-next-line no-await-in-loop -- one connection at a time
       await deps.records.update(connectionId, (current) => ({ ...current, checkedAt: at }));
@@ -226,6 +238,12 @@ export function createVaultAutoSync(deps: {
           ...(outcome === "rate-limited" ? { retryAt: finished + VAULT_RATE_LIMIT_MS } : {}),
         };
       });
+      if (outcome === "synced") {
+        // Any applied snapshot answers the pages waiting after a miss; they announce again.
+        const waiting = [...missWaiters];
+        missWaiters.clear();
+        for (const done of waiting) done(true);
+      }
       try {
         deps.report?.({ connectionId, outcome });
       } catch {
@@ -233,17 +251,45 @@ export function createVaultAutoSync(deps: {
       }
     }
   }
-  /** Starts a check of every due connection unless one is already running. */
-  function refreshIfStale() {
+  /**
+   * Starts a check of every due connection unless one is already running. A miss asked
+   * for during a check runs once that check ends.
+   */
+  function start() {
     if (running) return;
-    running = check()
+    const miss = missWanted;
+    missWanted = false;
+    running = check(miss)
       .catch(() => undefined)
       .finally(() => {
         running = undefined;
+        if (missWanted) start();
       });
   }
   return {
-    refreshIfStale,
+    refreshIfStale: start,
+    /**
+     * Asked after a page with a recipe found no matching item: a check of each connection
+     * last checked at least ten seconds ago. Answers true once any check applies a new
+     * snapshot within ten seconds, else false. A 429 back-off, a deleted account and
+     * offline still send nothing.
+     */
+    checkAfterMiss(): Promise<boolean> {
+      const answer = new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          missWaiters.delete(done);
+          resolve(false);
+        }, VAULT_MISS_WINDOW_MS);
+        const done = (synced: boolean) => {
+          clearTimeout(timer);
+          resolve(synced);
+        };
+        missWaiters.add(done);
+      });
+      missWanted = true;
+      start();
+      return answer;
+    },
     /**
      * Entered by each page that may start a login and each passkey request. It waits for
      * a replacement in progress and, when asked, briefly for a running check, then holds

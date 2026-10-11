@@ -374,7 +374,9 @@ real Bitwarden Cloud US account in their Chrome
 - The executor chooses the account for each admitted document. A saved site default
   wins. Without one, it asks every enabled connection for provider URI candidates for
   the document's own URL and uses the item only when exactly one eligible item matches
-  (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`;
+  (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`
+  (which asks for a vault check,
+  [ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches));
   an unevaluated item (including Regex rules) as `item-uri-unevaluated`; and a
   connection that cannot answer, or a locked vault, as `vault-unavailable`. Each
   document asks once and reuses the answer while every connection's snapshot is
@@ -426,15 +428,15 @@ real Bitwarden Cloud US account in their Chrome
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
   matched again, so an Exact rule refuses a later page at another path. No match refuses
-  as `item-origin-mismatch`. Page URLs over 8192 characters and answers from another
-  snapshot refuse as `vault-unavailable`. Static `allowedOrigins` remain empty for live
-  items; Domain-mode subdomains and raw StartsWith rules cannot be expressed as exact
-  origins, so do not derive them. Synthetic unit tests cover these paths, and
-  `tests/extension/login-service.spec.ts` runs the chain in Chromium: the built API
-  Worker, served locally over HTTPS with a local D1 database, holds a recipe and a
-  binding; the extension syncs both, chooses the synthetic Bitwarden item by its single
-  URI match, logs in on a routed HTTPS site, uploads the saved account and logs in again
-  after a full browser restart.
+  as `item-origin-mismatch` and asks for the same vault check. Page URLs over 8192
+  characters and answers from another snapshot refuse as `vault-unavailable`. Static
+  `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
+  StartsWith rules cannot be expressed as exact origins, so do not derive them.
+  Synthetic unit tests cover these paths, and `tests/extension/login-service.spec.ts`
+  runs the chain in Chromium: the built API Worker, served locally over HTTPS with a
+  local D1 database, holds a recipe and a binding; the extension syncs both, chooses the
+  synthetic Bitwarden item by its single URI match, logs in on a routed HTTPS site,
+  uploads the saved account and logs in again after a full browser restart.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. An unavailable connection or an item awaiting field review
@@ -500,8 +502,12 @@ cover the schedule, the replacement hold, the revision outcomes and manual Sync;
 isolated Chromium test fires the alarm against the synthetic probe. The comparison of
 protected items' decrypted custom fields is covered by unit tests and an isolated
 Chromium sync of a synthetic item whose password changed and whose custom fields were
-re-encrypted. The trigger after a missing item is not implemented, and automatic sync is
-not yet verified in installed Chrome or against a real account.
+re-encrypted. After a page with a recipe finds no matching item, a check runs at most
+every ten seconds and reconnects only the refused document once it applied a new
+snapshot; unit tests cover the gate, the window and the reconnect target, and
+`tests/extension/login-service.spec.ts` logs in on a routed site once the item's URI
+arrives through that check. Automatic sync is not yet verified in installed Chrome or
+against a real account.
 
 Unit tests cover claims, rotation, concurrent writers, forget and permission races,
 expiry from the token's own claims, and per-provider permission loss. Isolated Chromium

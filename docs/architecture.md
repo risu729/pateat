@@ -392,7 +392,10 @@ Never select the target by whichever tab happens to be active. Use declarative c
 scripts/host permissions and browser events, not a popup or focus event as the execution
 trigger. The one exception is a choice the user makes in the toolbar popup: it restarts
 only the one recorded document that was refused for several matches, through
-`login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A static
+`login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A vault
+check after a page with a recipe found no matching item likewise reconnects only that
+refused document, once the check applied a new snapshot within ten seconds
+([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static
 content script runs on every HTTPS page and frame; the background admits non-excluded
 sites with host access and needs a cached recipe for the exact origin before any policy
 or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also

@@ -225,6 +225,8 @@ function harness(
     otherUsername?: boolean;
     /** Recipe generation for pages without a recipe. */
     generation?: LoginGeneration;
+    /** Automatic vault sync (ADR 0025). */
+    vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
     /** Replaces the item's custom fields. */
     custom?: {
       name: string | null;
@@ -358,6 +360,7 @@ function harness(
     recipes,
     ...(live.uris ? { uris: live.uris } : {}),
     ...(live.generation ? { generation: live.generation } : {}),
+    ...(live.vault ? { vault: live.vault } : {}),
   });
   // By default the document reports its first step ready, as the content script does
   // once the form appears; `start: false` sends the initial announcement instead.
@@ -1631,6 +1634,164 @@ describe("production login document admission", () => {
       expect(h.fields).not.toHaveBeenCalled();
       expect(executes()).toEqual([]);
       expect(h.store.update).not.toHaveBeenCalled();
+    });
+    describe("when no item matches, after a vault check (ADR 0025)", () => {
+      const none: Awaited<ReturnType<LiveUriMatcher>> = {
+        ok: true,
+        data: uriMatch({ candidates: [] }),
+      };
+      /** A vault sync whose miss checks each wait until the test answers them. */
+      function vault() {
+        let held = 0;
+        const answers: ((synced: boolean) => void)[] = [];
+        const insideHold: boolean[] = [];
+        const value = {
+          refreshIfStale: vi.fn(),
+          enter: vi.fn(async () => {
+            held += 1;
+            let left = false;
+            return () => {
+              if (left) return;
+              left = true;
+              held -= 1;
+            };
+          }),
+          checkAfterMiss: vi.fn(() => {
+            insideHold.push(held > 0);
+            return new Promise<boolean>((resolve) => {
+              answers.push(resolve);
+            });
+          }),
+        };
+        return { value, answers, insideHold };
+      }
+      const flush = async () => {
+        for (let index = 0; index < 5; index += 1)
+          // oxlint-disable-next-line no-await-in-loop -- lets each pending step run
+          await new Promise((resolve) => setTimeout(resolve, 0));
+      };
+      it("asks for a check within the page's hold and reconnects only the refused document", async () => {
+        const sync = vault();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => none,
+          vault: sync.value,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "default-not-set" });
+        expect(sync.value.checkAfterMiss).toHaveBeenCalledTimes(1);
+        expect(sync.insideHold).toEqual([true]);
+        await flush();
+        expect(fake.state.reconnects).toEqual([]);
+        sync.answers[0]!(true);
+        await vi.waitFor(() =>
+          expect(fake.state.reconnects).toEqual([
+            { tabId: 1, frameId: 0, documentId: "synthetic-document" },
+          ]),
+        );
+        await flush();
+        expect(fake.state.reconnects).toHaveLength(1);
+        expect(h.fields).not.toHaveBeenCalled();
+      });
+      it("reconnects a refused frame by its own frame and document", async () => {
+        const sync = vault();
+        // The tab shows the page around the frame; the frame's own URL is the login page.
+        fake.state.tabUrls[1] = "https://login.example/home";
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => none,
+          vault: sync.value,
+        });
+        expect(
+          await h.hello({
+            frameId: 3,
+            documentId: "synthetic-frame-document",
+            tab: { id: 1, url: "https://login.example/home" },
+          }),
+        ).toEqual({ ok: false, reason: "default-not-set" });
+        sync.answers[0]!(true);
+        await vi.waitFor(() =>
+          expect(fake.state.reconnects).toEqual([
+            { tabId: 1, frameId: 3, documentId: "synthetic-frame-document" },
+          ]),
+        );
+      });
+      it("reconnects nothing when no check applied a new snapshot in time", async () => {
+        const sync = vault();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => none,
+          vault: sync.value,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "default-not-set" });
+        sync.answers[0]!(false);
+        await flush();
+        expect(fake.state.reconnects).toEqual([]);
+      });
+      it.each<[string, (h: ReturnType<typeof harness>) => Promise<unknown>]>([
+        ["announced again", (h) => h.hello()],
+        ["was replaced by another document", (h) => h.hello({ documentId: "synthetic-next" })],
+        [
+          "went away with its tab",
+          async () => {
+            for (const listener of fake.state.removed) listener(1);
+          },
+        ],
+      ])("reconnects nothing once the refused document %s", async (_name, change) => {
+        const sync = vault();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => none,
+          vault: sync.value,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "default-not-set" });
+        await change(h);
+        sync.answers[0]!(true);
+        await flush();
+        expect(fake.state.reconnects).toEqual([]);
+      });
+      it("asks for a check when the saved default's item no longer matches the page", async () => {
+        const sync = vault();
+        const h = harness({}, { allowedOrigins: [], uris: async () => none, vault: sync.value });
+        expect(await h.hello()).toEqual({ ok: false, reason: "item-origin-mismatch" });
+        expect(sync.value.checkAfterMiss).toHaveBeenCalledTimes(1);
+        sync.answers[0]!(true);
+        await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+      });
+      it.each<[string, Partial<LocalSettings>, Parameters<typeof harness>[1], string]>([
+        [
+          "two items match",
+          unsaved,
+          { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+          "account-ambiguous",
+        ],
+        [
+          "another item's rules could not be evaluated",
+          unsaved,
+          {
+            allowedOrigins: [],
+            uris: async () => ({ ok: true, data: uriMatch({ unavailableItemIds: [otherItemId] }) }),
+          },
+          "item-uri-unevaluated",
+        ],
+        [
+          "the vault is locked",
+          unsaved,
+          { allowedOrigins: [], uris: async () => vaultFailure("crypto-locked") },
+          "vault-unavailable",
+        ],
+        ["no live URI matching is available", unsaved, { allowedOrigins: [] }, "default-not-set"],
+        [
+          "the saved default's account is not connected here",
+          { siteDefaults: [{ origin, provider: "bitwarden", userId: "other-account", itemId }] },
+          { allowedOrigins: [origin] },
+          "connection-missing",
+        ],
+      ])("asks for no check when %s", async (_name, overrides, live, reason) => {
+        const sync = vault();
+        const h = harness(overrides, { ...live, vault: sync.value });
+        expect(await h.hello()).toEqual({ ok: false, reason });
+        expect(sync.value.checkAfterMiss).not.toHaveBeenCalled();
+      });
     });
     describe("when the popup picks one of several matches (ADR 0021)", () => {
       const popup = {
