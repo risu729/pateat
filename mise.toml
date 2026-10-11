@@ -110,6 +110,11 @@ description = "Generate D1 migrations from the Drizzle schema without contacting
 dir = "services/api"
 run = "node node_modules/drizzle-kit/bin.cjs generate"
 
+[tasks."generate:oidc-key"]
+description = "Print a new ES256 key set for the OIDC_SIGNING_KEYS Worker secret."
+usage = 'arg "[kid]" help="Key ID; defaults to the current date."'
+run = "node scripts/server/oidc-key.mjs '{{ usage.kid }}'"
+
 [tasks."check:server-migrations"]
 run = "node scripts/server/check-migrations.mjs"
 

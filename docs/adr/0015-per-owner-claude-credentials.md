@@ -2,8 +2,10 @@
 
 Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0014](0014-claude-generation-provider.md): the service no longer holds an operator
-Anthropic API key as a Worker secret. Not implemented yet; the service inference route
-is still planned.
+Anthropic API key as a Worker secret. The issuer, the per-owner identifiers and the
+token exchange are implemented in `services/api/src/claude/`; the service inference
+route that uses them, and a way for owners to enter their identifiers, are still
+planned.
 
 Date: 2026-10-11
 
@@ -49,7 +51,8 @@ The first credential type is WIF, used by the owner's own deployment first:
   (`fdrl_…`), `organizationId`, `serviceAccountId` (`svac_…`) and `workspaceId`
   (`wrkspc_…`). Where they are entered belongs to the server web UI design.
 - For each exchange the Worker signs a fresh JWT `{ iss: <origin>, sub:
-  "owner:<ownerId>", iat, exp, jti }` with a lifetime of a few minutes. It posts the JWT
+  "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }` with a
+  lifetime of five minutes. It posts the JWT
   to `POST https://api.anthropic.com/v1/oauth/token` with the `jwt-bearer` grant and
   the four identifiers, then calls Claude with the returned `access_token`.
 - The Worker signs only for the authenticated owner of the request, so one owner

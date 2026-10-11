@@ -5,6 +5,20 @@ import { compatibilityDate, compatibilityFlags } from "./worker-runtime.ts";
 
 const migrations = await readD1Migrations(fileURLToPath(new URL("./migrations", import.meta.url)));
 
+// A synthetic ES256 issuer key generated per run; it never signs for a real organization.
+const issuerKey = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+  "sign",
+  "verify",
+])) as CryptoKeyPair;
+const { kty, crv, x, y, d } = (await crypto.subtle.exportKey(
+  "jwk",
+  issuerKey.privateKey,
+)) as JsonWebKey;
+const oidcSigningKeys = JSON.stringify({
+  signingKeyId: "test-2026-10",
+  keys: [{ kty, crv, alg: "ES256", kid: "test-2026-10", x, y, d }],
+});
+
 export default defineConfig({
   plugins: [
     cloudflareTest({
@@ -19,6 +33,8 @@ export default defineConfig({
           TEST_MIGRATIONS: migrations,
           ACCESS_TEAM_DOMAIN: "pateat-test.cloudflareaccess.com",
           ACCESS_AUD: "pateat-test-audience",
+          OIDC_ISSUER: "https://pateat.invalid",
+          OIDC_SIGNING_KEYS: oidcSigningKeys,
         },
         ratelimits: { REDEEM_LIMITER: { namespace_id: "1001", simple: { limit: 10, period: 60 } } },
       },
