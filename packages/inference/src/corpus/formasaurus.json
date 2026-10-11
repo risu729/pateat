@@ -32,6 +32,16 @@
           },
           {
             "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Log in"
+            },
+            "label": "Log in",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
             "role": "email",
             "target": {
               "by": "id",
@@ -41,7 +51,7 @@
             "group": "f1"
           },
           {
-            "id": "c3",
+            "id": "c4",
             "role": "password",
             "target": {
               "by": "id",
@@ -51,7 +61,7 @@
             "group": "f1"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "password",
             "target": {
               "by": "id",
@@ -61,7 +71,7 @@
             "group": "f1"
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "text",
@@ -112,6 +122,16 @@
           },
           {
             "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "忘记密码？"
+            },
+            "label": "忘记密码？",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
             "role": "button",
             "target": {
               "by": "name",
@@ -128,7 +148,7 @@
           "username": "c1",
           "password": "c2"
         },
-        "action": "c3",
+        "action": "c4",
         "purpose": "submit"
       }
     },
@@ -206,6 +226,16 @@
             },
             "label": "Sign up",
             "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
           }
         ]
       },
@@ -266,6 +296,26 @@
               "value": "commit"
             },
             "label": "Sign in",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Don't have an account? Sign Up"
+            },
+            "label": "Don't have an account? Sign Up",
             "group": "f1"
           }
         ]
@@ -332,6 +382,26 @@
           },
           {
             "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "terms and conditions"
+            },
+            "label": "terms and conditions",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "cookie policy"
+            },
+            "label": "cookie policy",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -341,7 +411,7 @@
             "group": "f1"
           },
           {
-            "id": "c5",
+            "id": "c7",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -351,7 +421,7 @@
             "group": "f1"
           },
           {
-            "id": "c6",
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "name",
@@ -718,6 +788,26 @@
             },
             "label": "Sign In",
             "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Register now!"
+            },
+            "label": "Register now!",
+            "group": "f1"
           }
         ]
       },
@@ -779,12 +869,42 @@
           },
           {
             "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Terms of Service"
+            },
+            "label": "Terms of Service",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "text",
               "value": "Sign Up"
             },
             "label": "Sign Up",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Sign in!"
+            },
+            "label": "Sign in!",
             "group": "f1"
           }
         ]
@@ -985,6 +1105,16 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Şifremi unuttum!"
+            },
+            "label": "Şifremi unuttum!",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "id",
@@ -994,13 +1124,23 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "checkbox",
             "target": {
               "by": "id",
               "value": "SignInRememberMe"
             },
             "label": "Oturumu açık tut",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Üye olun"
+            },
+            "label": "Üye olun",
             "group": "f2"
           }
         ]
@@ -1011,7 +1151,7 @@
           "username": "c3",
           "password": "c4"
         },
-        "action": "c5",
+        "action": "c6",
         "purpose": "submit"
       }
     },
@@ -1053,6 +1193,16 @@
           },
           {
             "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Advanced search"
+            },
+            "label": "Advanced search",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
             "role": "text",
             "target": {
               "by": "id",
@@ -1062,7 +1212,7 @@
             "group": "f2"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "password",
             "target": {
               "by": "id",
@@ -1072,7 +1222,7 @@
             "group": "f2"
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -1082,7 +1232,7 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "name",
@@ -1096,10 +1246,10 @@
       "expected": {
         "kind": "plan",
         "fields": {
-          "username": "c3",
-          "password": "c4"
+          "username": "c4",
+          "password": "c5"
         },
-        "action": "c6",
+        "action": "c7",
         "purpose": "submit"
       }
     },
@@ -1184,6 +1334,16 @@
           },
           {
             "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забыли пароль?"
+            },
+            "label": "Забыли пароль?",
+            "group": "f3"
+          },
+          {
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "id",
@@ -1193,7 +1353,7 @@
             "group": "f3"
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "text",
             "target": {
               "by": "id",
@@ -1203,7 +1363,7 @@
             "group": "f4"
           },
           {
-            "id": "c9",
+            "id": "c10",
             "role": "button",
             "target": {
               "by": "name",
@@ -1220,7 +1380,7 @@
           "username": "c5",
           "password": "c6"
         },
-        "action": "c7",
+        "action": "c8",
         "purpose": "submit"
       }
     },
@@ -1285,6 +1445,16 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Terms of Service"
+            },
+            "label": "Terms of Service",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "id",
@@ -1372,6 +1542,26 @@
             },
             "label": "Sign up for GitHub",
             "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "terms of service"
+            },
+            "label": "terms of service",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "privacy policy"
+            },
+            "label": "privacy policy",
+            "group": "f2"
           }
         ]
       },
@@ -1416,6 +1606,16 @@
           },
           {
             "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "(forgot password)"
+            },
+            "label": "(forgot password)",
+            "group": "f2"
+          },
+          {
+            "id": "c4",
             "role": "password",
             "target": {
               "by": "id",
@@ -1425,7 +1625,7 @@
             "group": "f2"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "name",
@@ -1440,9 +1640,9 @@
         "kind": "plan",
         "fields": {
           "username": "c2",
-          "password": "c3"
+          "password": "c4"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -1513,6 +1713,86 @@
           },
           {
             "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Выслать пароль?"
+            },
+            "label": "Выслать пароль?",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Зарегистрироваться"
+            },
+            "label": "Зарегистрироваться",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Как получить скидку?"
+            },
+            "label": "Как получить скидку?",
+            "group": "f3"
+          },
+          {
+            "id": "c9",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "23.06 - Технические работы"
+            },
+            "label": "23.06 - Технические работы",
+            "group": "f3"
+          },
+          {
+            "id": "c10",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Мы на Youtube!"
+            },
+            "label": "Мы на Youtube!",
+            "group": "f3"
+          },
+          {
+            "id": "c11",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Акция! Заряжай на полную!"
+            },
+            "label": "Акция! Заряжай на полную!",
+            "group": "f3"
+          },
+          {
+            "id": "c12",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "С днем конституции!"
+            },
+            "label": "С днем конституции!",
+            "group": "f3"
+          },
+          {
+            "id": "c13",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Смотреть все новости..."
+            },
+            "label": "Смотреть все новости...",
+            "group": "f3"
+          },
+          {
+            "id": "c14",
             "role": "text",
             "target": {
               "by": "name",
@@ -1522,7 +1802,7 @@
             "group": "f3"
           },
           {
-            "id": "c7",
+            "id": "c15",
             "role": "button",
             "target": {
               "by": "text",
@@ -1592,12 +1872,32 @@
           },
           {
             "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f2"
+          },
+          {
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "text",
               "value": "Login"
             },
             "label": "Login",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Create your Account"
+            },
+            "label": "Create your Account",
             "group": "f2"
           }
         ]
@@ -1608,7 +1908,7 @@
           "username": "c2",
           "password": "c3"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -1640,6 +1940,16 @@
           },
           {
             "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
             "role": "password",
             "target": {
               "by": "id",
@@ -1650,7 +1960,7 @@
             "maxLength": 50
           },
           {
-            "id": "c3",
+            "id": "c4",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -1660,13 +1970,23 @@
             "group": "f1"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "name",
               "value": "commit"
             },
             "label": "Login Now",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Sign up now!"
+            },
+            "label": "Sign up now!",
             "group": "f1"
           }
         ]
@@ -1675,9 +1995,9 @@
         "kind": "plan",
         "fields": {
           "username": "c1",
-          "password": "c2"
+          "password": "c3"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -1778,6 +2098,16 @@
           },
           {
             "id": "c9",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "« Späť"
+            },
+            "label": "« Späť",
+            "group": "f2"
+          },
+          {
+            "id": "c10",
             "role": "button",
             "target": {
               "by": "text",
@@ -1863,6 +2193,16 @@
           },
           {
             "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Zabudli ste heslo?"
+            },
+            "label": "Zabudli ste heslo?",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "id",
@@ -1879,7 +2219,7 @@
           "username": "c3",
           "password": "c4"
         },
-        "action": "c6",
+        "action": "c7",
         "purpose": "submit"
       }
     },
@@ -1938,6 +2278,26 @@
               "value": "Login"
             },
             "label": "Login",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Not a user? Register with this site"
+            },
+            "label": "Not a user? Register with this site",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
             "group": "f1"
           }
         ]
@@ -2075,6 +2435,36 @@
             },
             "label": "Login",
             "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Click here to register."
+            },
+            "label": "Click here to register.",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Click here for assistance."
+            },
+            "label": "Click here for assistance.",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Click here to resend."
+            },
+            "label": "Click here to resend.",
+            "group": "f1"
           }
         ]
       },
@@ -2143,6 +2533,26 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Elfelejtett jelszó"
+            },
+            "label": "Elfelejtett jelszó",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Mégsem"
+            },
+            "label": "Mégsem",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "id",
@@ -2159,7 +2569,7 @@
           "username": "c3",
           "password": "c4"
         },
-        "action": "c5",
+        "action": "c7",
         "purpose": "submit"
       }
     },
@@ -2249,6 +2659,16 @@
           },
           {
             "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "PGP or GPG key"
+            },
+            "label": "PGP or GPG key",
+            "group": "f2"
+          },
+          {
+            "id": "c9",
             "role": "button",
             "target": {
               "by": "text",
@@ -2312,6 +2732,16 @@
           },
           {
             "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Passwort vergessen?"
+            },
+            "label": "Passwort vergessen?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -2321,7 +2751,7 @@
             "group": "f1"
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "text",
@@ -2338,7 +2768,7 @@
           "username": "c2",
           "password": "c3"
         },
-        "action": "c5",
+        "action": "c6",
         "purpose": "submit"
       }
     },
@@ -2420,6 +2850,26 @@
               "value": "Log in"
             },
             "label": "Log in",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "username"
+            },
+            "label": "username",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "password"
+            },
+            "label": "password",
             "group": "f2"
           }
         ]
@@ -2797,6 +3247,16 @@
               "value": "remember-me"
             },
             "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Password dimenticata?"
+            },
+            "label": "Password dimenticata?",
+            "group": "f2"
           }
         ]
       },
@@ -2893,6 +3353,16 @@
           },
           {
             "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f3"
+          },
+          {
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "id",
@@ -2902,7 +3372,7 @@
             "group": "f3"
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "text",
             "target": {
               "by": "id",
@@ -2911,7 +3381,7 @@
             "group": "f4"
           },
           {
-            "id": "c9",
+            "id": "c10",
             "role": "button",
             "target": {
               "by": "name",
@@ -2928,7 +3398,7 @@
           "username": "c5",
           "password": "c6"
         },
-        "action": "c7",
+        "action": "c8",
         "purpose": "submit"
       }
     },
@@ -2996,6 +3466,16 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Lost password"
+            },
+            "label": "Lost password",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "text",
@@ -3005,7 +3485,17 @@
             "group": "f1"
           },
           {
-            "id": "c6",
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "SEARCH"
+            },
+            "label": "SEARCH",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
             "role": "text",
             "target": {
               "by": "name",
@@ -3022,7 +3512,7 @@
           "username": "c2",
           "password": "c3"
         },
-        "action": "c5",
+        "action": "c6",
         "purpose": "submit"
       }
     },
@@ -3080,6 +3570,16 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Lost password"
+            },
+            "label": "Lost password",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "text",
@@ -3089,7 +3589,17 @@
             "group": "f1"
           },
           {
-            "id": "c6",
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "SEARCH"
+            },
+            "label": "SEARCH",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
             "role": "text",
             "target": {
               "by": "name",
@@ -3106,7 +3616,7 @@
           "username": "c2",
           "password": "c3"
         },
-        "action": "c5",
+        "action": "c6",
         "purpose": "submit"
       }
     },
@@ -3368,6 +3878,26 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забыли пароль?"
+            },
+            "label": "Забыли пароль?",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Регистрация"
+            },
+            "label": "Регистрация",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "name",
@@ -3384,7 +3914,7 @@
           "username": "c2",
           "password": "c3"
         },
-        "action": "c5",
+        "action": "c7",
         "purpose": "submit"
       }
     },
@@ -3426,6 +3956,16 @@
           },
           {
             "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "About Penn WebLogin"
+            },
+            "label": "About Penn WebLogin",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
             "role": "button",
             "target": {
               "by": "text",
@@ -3442,7 +3982,7 @@
           "username": "c1",
           "password": "c2"
         },
-        "action": "c3",
+        "action": "c4",
         "purpose": "submit"
       }
     },
@@ -3606,6 +4146,56 @@
         "candidates": [
           {
             "id": "c1",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "WindstarCruises.com"
+            },
+            "label": "WindstarCruises.com",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Windstar Blog"
+            },
+            "label": "Windstar Blog",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "AGENT CENTER"
+            },
+            "label": "AGENT CENTER",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Agent Center Home"
+            },
+            "label": "Agent Center Home",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Contact Us"
+            },
+            "label": "Contact Us",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
             "role": "text",
             "target": {
               "by": "id",
@@ -3615,7 +4205,7 @@
             "group": "f1"
           },
           {
-            "id": "c2",
+            "id": "c7",
             "role": "password",
             "target": {
               "by": "id",
@@ -3624,7 +4214,7 @@
             "group": "f1"
           },
           {
-            "id": "c3",
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "id",
@@ -3632,16 +4222,36 @@
             },
             "label": "Login",
             "group": "f1"
+          },
+          {
+            "id": "c9",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Create An Account"
+            },
+            "label": "Create An Account",
+            "group": "f1"
+          },
+          {
+            "id": "c10",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot Password?"
+            },
+            "label": "Forgot Password?",
+            "group": "f1"
           }
         ]
       },
       "expected": {
         "kind": "plan",
         "fields": {
-          "username": "c1",
-          "password": "c2"
+          "username": "c6",
+          "password": "c7"
         },
-        "action": "c3",
+        "action": "c8",
         "purpose": "submit"
       }
     },
@@ -3730,6 +4340,16 @@
           },
           {
             "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забравена парола »"
+            },
+            "label": "Забравена парола »",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
             "role": "password",
             "target": {
               "by": "id",
@@ -3739,7 +4359,7 @@
             "group": "f1"
           },
           {
-            "id": "c3",
+            "id": "c4",
             "role": "password",
             "target": {
               "by": "id",
@@ -3749,7 +4369,7 @@
             "group": "f1"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "text",
             "target": {
               "by": "id",
@@ -3759,7 +4379,7 @@
             "group": "f1"
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "text",
             "target": {
               "by": "id",
@@ -3769,7 +4389,27 @@
             "group": "f1"
           },
           {
-            "id": "c6",
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "alo.bg"
+            },
+            "label": "alo.bg",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "https://www.alo.bg/login.php"
+            },
+            "label": "https://www.alo.bg/login.php",
+            "group": "f1"
+          },
+          {
+            "id": "c9",
             "role": "button",
             "target": {
               "by": "text",
@@ -3814,6 +4454,26 @@
           },
           {
             "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Регистрация »"
+            },
+            "label": "Регистрация »",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забравена парола »"
+            },
+            "label": "Забравена парола »",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
             "role": "password",
             "target": {
               "by": "id",
@@ -3823,7 +4483,7 @@
             "group": "f1"
           },
           {
-            "id": "c3",
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "text",
@@ -3838,9 +4498,9 @@
         "kind": "plan",
         "fields": {
           "username": "c1",
-          "password": "c2"
+          "password": "c4"
         },
-        "action": "c3",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -3913,6 +4573,186 @@
               "value": "Submit"
             },
             "label": "Envoyer",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Nouveau compte 3 millions de comptes créés"
+            },
+            "label": "Nouveau compte 3 millions de comptes créés",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Avantages"
+            },
+            "label": "Avantages",
+            "group": "f2"
+          },
+          {
+            "id": "c9",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "une leçon d'anglais... Cliquez ici!"
+            },
+            "label": "une leçon d'anglais... Cliquez ici!",
+            "group": "f2"
+          },
+          {
+            "id": "c10",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Accueil"
+            },
+            "label": "Accueil",
+            "group": "f2"
+          },
+          {
+            "id": "c11",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Accès rapides"
+            },
+            "label": "Accès rapides",
+            "group": "f2"
+          },
+          {
+            "id": "c12",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Imprimer"
+            },
+            "label": "Imprimer",
+            "group": "f2"
+          },
+          {
+            "id": "c13",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Lire cet extrait"
+            },
+            "label": "Lire cet extrait",
+            "group": "f2"
+          },
+          {
+            "id": "c14",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Nouveautés"
+            },
+            "label": "Nouveautés",
+            "group": "f2"
+          },
+          {
+            "id": "c15",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Plan du site"
+            },
+            "label": "Plan du site",
+            "group": "f2"
+          },
+          {
+            "id": "c16",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Presse"
+            },
+            "label": "Presse",
+            "group": "f2"
+          },
+          {
+            "id": "c17",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Recommander"
+            },
+            "label": "Recommander",
+            "group": "f2"
+          },
+          {
+            "id": "c18",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Signaler un bug"
+            },
+            "label": "Signaler un bug",
+            "group": "f2"
+          },
+          {
+            "id": "c19",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Traduire cet extrait"
+            },
+            "label": "Traduire cet extrait",
+            "group": "f2"
+          },
+          {
+            "id": "c20",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Webmasters"
+            },
+            "label": "Webmasters",
+            "group": "f2"
+          },
+          {
+            "id": "c21",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Lien sur votre site"
+            },
+            "label": "Lien sur votre site",
+            "group": "f2"
+          },
+          {
+            "id": "c22",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Jeux gratuits"
+            },
+            "label": "Jeux gratuits",
+            "group": "f2"
+          },
+          {
+            "id": "c23",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Traducteur anglais"
+            },
+            "label": "Traducteur anglais",
+            "group": "f2"
+          },
+          {
+            "id": "c24",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Nos autres sites"
+            },
+            "label": "Nos autres sites",
             "group": "f2"
           }
         ]
@@ -4000,6 +4840,16 @@
           },
           {
             "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "terms"
+            },
+            "label": "terms",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "name",
@@ -4009,7 +4859,7 @@
             "group": "f1"
           },
           {
-            "id": "c7",
+            "id": "c8",
             "role": "text",
             "target": {
               "by": "id",
@@ -4019,7 +4869,7 @@
             "group": "f2"
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "button",
             "target": {
               "by": "id",
@@ -4095,6 +4945,26 @@
             },
             "label": "Login",
             "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Let us know »"
+            },
+            "label": "Let us know »",
+            "group": "f1"
           }
         ]
       },
@@ -4146,6 +5016,16 @@
           },
           {
             "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Расширенный поиск"
+            },
+            "label": "Расширенный поиск",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
             "role": "text",
             "target": {
               "by": "id",
@@ -4155,7 +5035,7 @@
             "group": "f2"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "password",
             "target": {
               "by": "id",
@@ -4165,7 +5045,7 @@
             "group": "f2"
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -4175,7 +5055,7 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "name",
@@ -4189,10 +5069,10 @@
       "expected": {
         "kind": "plan",
         "fields": {
-          "username": "c3",
-          "password": "c4"
+          "username": "c4",
+          "password": "c5"
         },
-        "action": "c6",
+        "action": "c7",
         "purpose": "submit"
       }
     },
@@ -4233,6 +5113,16 @@
           },
           {
             "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot password?"
+            },
+            "label": "Forgot password?",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
             "role": "password",
             "target": {
               "by": "id",
@@ -4243,7 +5133,7 @@
             "maxLength": 20
           },
           {
-            "id": "c3",
+            "id": "c4",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -4253,7 +5143,7 @@
             "group": "f1"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "text",
@@ -4263,7 +5153,7 @@
             "group": "f1"
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "text",
             "target": {
               "by": "id",
@@ -4273,7 +5163,7 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "text",
             "target": {
               "by": "name",
@@ -4283,7 +5173,7 @@
             "group": "f3"
           },
           {
-            "id": "c7",
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "name",
@@ -4293,7 +5183,7 @@
             "group": "f3"
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "email",
             "target": {
               "by": "id",
@@ -4303,7 +5193,7 @@
             "group": "f4"
           },
           {
-            "id": "c9",
+            "id": "c10",
             "role": "button",
             "target": {
               "by": "text",
@@ -4313,7 +5203,7 @@
             "group": "f4"
           },
           {
-            "id": "c10",
+            "id": "c11",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -4323,7 +5213,7 @@
             "group": "f4"
           },
           {
-            "id": "c11",
+            "id": "c12",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -4338,9 +5228,9 @@
         "kind": "plan",
         "fields": {
           "username": "c1",
-          "password": "c2"
+          "password": "c3"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -4413,6 +5303,16 @@
             },
             "label": "Login",
             "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Click here."
+            },
+            "label": "Click here.",
+            "group": "f2"
           }
         ]
       },
@@ -4481,6 +5381,26 @@
             },
             "label": "Login",
             "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Register"
+            },
+            "label": "Register",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Advanced"
+            },
+            "label": "Advanced",
+            "group": "f1"
           }
         ]
       },
@@ -4542,6 +5462,26 @@
           },
           {
             "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Create new account"
+            },
+            "label": "Create new account",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Request new password"
+            },
+            "label": "Request new password",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "id",
@@ -4558,7 +5498,7 @@
           "username": "c1",
           "password": "c2"
         },
-        "action": "c3",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -4956,6 +5896,26 @@
           },
           {
             "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Unable to sign in?"
+            },
+            "label": "Unable to sign in?",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgotten your password?"
+            },
+            "label": "Forgotten your password?",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
             "role": "text",
             "target": {
               "by": "id",
@@ -4965,7 +5925,7 @@
             "group": "f3"
           },
           {
-            "id": "c7",
+            "id": "c9",
             "role": "text",
             "target": {
               "by": "id",
@@ -4977,7 +5937,7 @@
             "maxLength": 7
           },
           {
-            "id": "c8",
+            "id": "c10",
             "role": "text",
             "target": {
               "by": "name",
@@ -4987,7 +5947,7 @@
             "group": "f3"
           },
           {
-            "id": "c9",
+            "id": "c11",
             "role": "button",
             "target": {
               "by": "text",
@@ -5081,6 +6041,16 @@
             },
             "label": "Sign in",
             "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "I forgot my password"
+            },
+            "label": "I forgot my password",
+            "group": "f2"
           }
         ]
       },
@@ -5153,6 +6123,16 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "regulaminu"
+            },
+            "label": "regulaminu",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -5162,7 +6142,7 @@
             "group": "f1"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -5172,7 +6152,7 @@
             "group": "f1"
           },
           {
-            "id": "c7",
+            "id": "c8",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -5182,7 +6162,17 @@
             "group": "f1"
           },
           {
-            "id": "c8",
+            "id": "c9",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "odnośniku"
+            },
+            "label": "odnośniku",
+            "group": "f1"
+          },
+          {
+            "id": "c10",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -5192,7 +6182,7 @@
             "group": "f1"
           },
           {
-            "id": "c9",
+            "id": "c11",
             "role": "button",
             "target": {
               "by": "id",
@@ -5202,7 +6192,7 @@
             "group": "f1"
           },
           {
-            "id": "c10",
+            "id": "c12",
             "role": "button",
             "target": {
               "by": "id",
@@ -5340,6 +6330,16 @@
             },
             "label": "Login",
             "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Passwort vergessen?"
+            },
+            "label": "Passwort vergessen?",
+            "group": "f1"
           }
         ]
       },
@@ -5427,6 +6427,26 @@
             },
             "label": "Login",
             "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your Password?"
+            },
+            "label": "Forgot your Password?",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your Username?"
+            },
+            "label": "Forgot your Username?",
+            "group": "f2"
           }
         ]
       },
@@ -5486,6 +6506,16 @@
           },
           {
             "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Passwort vergessen?"
+            },
+            "label": "Passwort vergessen?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
             "role": "button",
             "target": {
               "by": "text",
@@ -5502,7 +6532,7 @@
           "username": "c1",
           "password": "c2"
         },
-        "action": "c3",
+        "action": "c4",
         "purpose": "submit"
       }
     },
@@ -5589,6 +6619,16 @@
           },
           {
             "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Mot de passe oublié ?"
+            },
+            "label": "Mot de passe oublié ?",
+            "group": "f3"
+          },
+          {
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "id",
@@ -5598,7 +6638,7 @@
             "group": "f3"
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "text",
             "target": {
               "by": "id",
@@ -5607,7 +6647,7 @@
             "group": "f4"
           },
           {
-            "id": "c9",
+            "id": "c10",
             "role": "button",
             "target": {
               "by": "name",
@@ -5624,7 +6664,7 @@
           "username": "c5",
           "password": "c6"
         },
-        "action": "c7",
+        "action": "c8",
         "purpose": "submit"
       }
     },
@@ -5650,6 +6690,16 @@
         "candidates": [
           {
             "id": "c1",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Utwórz konto"
+            },
+            "label": "Utwórz konto",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
             "role": "email",
             "target": {
               "by": "id",
@@ -5659,7 +6709,7 @@
             "group": "f1"
           },
           {
-            "id": "c2",
+            "id": "c3",
             "role": "password",
             "target": {
               "by": "id",
@@ -5669,7 +6719,17 @@
             "group": "f1"
           },
           {
-            "id": "c3",
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Nie pamiętasz hasła?"
+            },
+            "label": "Nie pamiętasz hasła?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "id",
@@ -5683,10 +6743,10 @@
       "expected": {
         "kind": "plan",
         "fields": {
-          "username": "c1",
-          "password": "c2"
+          "username": "c2",
+          "password": "c3"
         },
-        "action": "c3",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -5779,6 +6839,16 @@
           },
           {
             "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "« Powrót"
+            },
+            "label": "« Powrót",
+            "group": "f1"
+          },
+          {
+            "id": "c9",
             "role": "button",
             "target": {
               "by": "text",
@@ -5856,6 +6926,16 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Mot de passe"
+            },
+            "label": "Mot de passe",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "id",
@@ -5865,7 +6945,7 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "text",
@@ -5875,7 +6955,7 @@
             "group": "f2"
           },
           {
-            "id": "c7",
+            "id": "c8",
             "role": "email",
             "target": {
               "by": "name",
@@ -5884,7 +6964,7 @@
             "group": "f3"
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "button",
             "target": {
               "by": "text",
@@ -5901,7 +6981,7 @@
           "username": "c3",
           "password": "c4"
         },
-        "action": "c5",
+        "action": "c6",
         "purpose": "submit"
       }
     },
@@ -5972,6 +7052,16 @@
           },
           {
             "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Passwort vergessen?"
+            },
+            "label": "Passwort vergessen?",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
             "role": "checkbox",
             "target": {
               "by": "name",
@@ -5981,7 +7071,7 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "text",
@@ -5991,7 +7081,17 @@
             "group": "f2"
           },
           {
-            "id": "c7",
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Zur Neuanmeldung"
+            },
+            "label": "Zur Neuanmeldung",
+            "group": "f2"
+          },
+          {
+            "id": "c9",
             "role": "text",
             "target": {
               "by": "id",
@@ -6002,7 +7102,7 @@
             "maxLength": 50
           },
           {
-            "id": "c8",
+            "id": "c10",
             "role": "button",
             "target": {
               "by": "text",
@@ -6019,7 +7119,7 @@
           "username": "c3",
           "password": "c4"
         },
-        "action": "c6",
+        "action": "c7",
         "purpose": "submit"
       }
     },
@@ -6210,6 +7310,16 @@
           },
           {
             "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Passwort vergessen?"
+            },
+            "label": "Passwort vergessen?",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "id",
@@ -6226,7 +7336,7 @@
           "username": "c3",
           "password": "c4"
         },
-        "action": "c6",
+        "action": "c7",
         "purpose": "submit"
       }
     },
@@ -6268,6 +7378,16 @@
           },
           {
             "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Wachtwoord vergeten?"
+            },
+            "label": "Wachtwoord vergeten?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -6277,13 +7397,33 @@
             "group": "f1"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "text",
               "value": "Meld aan"
             },
             "label": "Meld aan",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Nog niet geregistreerd?"
+            },
+            "label": "Nog niet geregistreerd?",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Meld aan met Facebook"
+            },
+            "label": "Meld aan met Facebook",
             "group": "f1"
           }
         ]
@@ -6294,7 +7434,7 @@
           "username": "c1",
           "password": "c2"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -6590,6 +7730,16 @@
           },
           {
             "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgotten password?"
+            },
+            "label": "Forgotten password?",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
             "role": "text",
             "target": {
               "by": "id",
@@ -6601,7 +7751,7 @@
             "maxLength": 50
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "password",
             "target": {
               "by": "id",
@@ -6612,7 +7762,7 @@
             "maxLength": 20
           },
           {
-            "id": "c9",
+            "id": "c10",
             "role": "password",
             "target": {
               "by": "id",
@@ -6623,7 +7773,7 @@
             "maxLength": 20
           },
           {
-            "id": "c10",
+            "id": "c11",
             "role": "text",
             "target": {
               "by": "id",
@@ -6634,7 +7784,7 @@
             "maxLength": 50
           },
           {
-            "id": "c11",
+            "id": "c12",
             "role": "text",
             "target": {
               "by": "id",
@@ -6645,7 +7795,7 @@
             "maxLength": 50
           },
           {
-            "id": "c12",
+            "id": "c13",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -6655,7 +7805,7 @@
             "group": "f3"
           },
           {
-            "id": "c13",
+            "id": "c14",
             "role": "button",
             "target": {
               "by": "id",
@@ -6847,6 +7997,16 @@
           },
           {
             "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Pamiršau slaptažodį"
+            },
+            "label": "Pamiršau slaptažodį",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
             "role": "text",
             "target": {
               "by": "id",
@@ -6856,7 +8016,7 @@
             "group": "f2"
           },
           {
-            "id": "c7",
+            "id": "c8",
             "role": "password",
             "target": {
               "by": "id",
@@ -6866,7 +8026,7 @@
             "group": "f2"
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "password",
             "target": {
               "by": "id",
@@ -6876,7 +8036,7 @@
             "group": "f2"
           },
           {
-            "id": "c9",
+            "id": "c10",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -6885,7 +8045,17 @@
             "group": "f2"
           },
           {
-            "id": "c10",
+            "id": "c11",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Pirk.lt taisyklėmis"
+            },
+            "label": "Pirk.lt taisyklėmis",
+            "group": "f2"
+          },
+          {
+            "id": "c12",
             "role": "text",
             "target": {
               "by": "id",
@@ -6896,7 +8066,7 @@
             "group": "f3"
           },
           {
-            "id": "c11",
+            "id": "c13",
             "role": "button",
             "target": {
               "by": "name",
@@ -7043,6 +8213,16 @@
           },
           {
             "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot Password?"
+            },
+            "label": "Forgot Password?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "text",
@@ -7059,7 +8239,7 @@
           "username": "c1",
           "password": "c2"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -7129,6 +8309,16 @@
             },
             "label": "Remember Me",
             "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot Password?"
+            },
+            "label": "Forgot Password?",
+            "group": "f2"
           }
         ]
       },
@@ -7169,6 +8359,16 @@
           },
           {
             "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "sign up"
+            },
+            "label": "sign up",
+            "group": "f2"
+          },
+          {
+            "id": "c3",
             "role": "email",
             "target": {
               "by": "id",
@@ -7178,7 +8378,7 @@
             "group": "f2"
           },
           {
-            "id": "c3",
+            "id": "c4",
             "role": "password",
             "target": {
               "by": "id",
@@ -7188,7 +8388,7 @@
             "group": "f2"
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "id",
@@ -7198,7 +8398,7 @@
             "group": "f2"
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "checkbox",
             "target": {
               "by": "id",
@@ -7206,16 +8406,26 @@
             },
             "label": "Remember Me",
             "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot Password?"
+            },
+            "label": "Forgot Password?",
+            "group": "f2"
           }
         ]
       },
       "expected": {
         "kind": "plan",
         "fields": {
-          "username": "c2",
-          "password": "c3"
+          "username": "c3",
+          "password": "c4"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -7678,6 +8888,16 @@
           },
           {
             "id": "c10",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Jetzt registrieren"
+            },
+            "label": "Jetzt registrieren",
+            "group": "f3"
+          },
+          {
+            "id": "c11",
             "role": "button",
             "target": {
               "by": "id",
@@ -7687,7 +8907,7 @@
             "group": "f3"
           },
           {
-            "id": "c11",
+            "id": "c12",
             "role": "email",
             "target": {
               "by": "id",
@@ -7697,7 +8917,7 @@
             "group": "f4"
           },
           {
-            "id": "c12",
+            "id": "c13",
             "role": "button",
             "target": {
               "by": "id",
@@ -7714,7 +8934,7 @@
           "username": "c6",
           "password": "c7"
         },
-        "action": "c10",
+        "action": "c11",
         "purpose": "submit"
       }
     },
@@ -7824,6 +9044,16 @@
           },
           {
             "id": "c10",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Jetzt registrieren"
+            },
+            "label": "Jetzt registrieren",
+            "group": "f3"
+          },
+          {
+            "id": "c11",
             "role": "button",
             "target": {
               "by": "id",
@@ -7833,7 +9063,7 @@
             "group": "f3"
           },
           {
-            "id": "c11",
+            "id": "c12",
             "role": "email",
             "target": {
               "by": "id",
@@ -7843,7 +9073,7 @@
             "group": "f4"
           },
           {
-            "id": "c12",
+            "id": "c13",
             "role": "button",
             "target": {
               "by": "id",
@@ -7860,7 +9090,7 @@
           "username": "c6",
           "password": "c7"
         },
-        "action": "c10",
+        "action": "c11",
         "purpose": "submit"
       }
     },
@@ -7926,6 +9156,16 @@
             "id": "c5",
             "role": "link",
             "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
               "by": "id",
               "value": "page_register"
             },
@@ -7933,7 +9173,7 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "text",
             "target": {
               "by": "id",
@@ -7943,7 +9183,7 @@
             "group": "f3"
           },
           {
-            "id": "c7",
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "id",
@@ -8014,6 +9254,16 @@
             },
             "label": "ログイン",
             "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "パスワードをお忘れの方"
+            },
+            "label": "パスワードをお忘れの方",
+            "group": "f1"
           }
         ]
       },
@@ -8062,6 +9312,16 @@
           },
           {
             "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Go"
+            },
+            "label": "Go",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
             "role": "text",
             "target": {
               "by": "id",
@@ -8072,7 +9332,7 @@
             "maxLength": 80
           },
           {
-            "id": "c3",
+            "id": "c4",
             "role": "password",
             "target": {
               "by": "id",
@@ -8084,7 +9344,7 @@
             "maxLength": 15
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "checkbox",
             "target": {
               "by": "name",
@@ -8094,7 +9354,7 @@
             "group": "f2"
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "text",
@@ -8104,7 +9364,17 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot Password?"
+            },
+            "label": "Forgot Password?",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "text",
@@ -8118,10 +9388,10 @@
       "expected": {
         "kind": "plan",
         "fields": {
-          "username": "c2",
-          "password": "c3"
+          "username": "c3",
+          "password": "c4"
         },
-        "action": "c5",
+        "action": "c6",
         "purpose": "submit"
       }
     },
@@ -8197,6 +9467,36 @@
               "value": "submit"
             },
             "label": "Belépés",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Elfelejtetted a jelszavadat?"
+            },
+            "label": "Elfelejtetted a jelszavadat?",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Működési szabályzat"
+            },
+            "label": "Működési szabályzat",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Fiók létrehozása"
+            },
+            "label": "Fiók létrehozása",
             "group": "f2"
           }
         ]
@@ -8300,6 +9600,16 @@
           },
           {
             "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Felhasználói szabályzatot"
+            },
+            "label": "Felhasználói szabályzatot",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "id",
@@ -8365,6 +9675,16 @@
           },
           {
             "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Zapomniałeś hasła?"
+            },
+            "label": "Zapomniałeś hasła?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
             "role": "button",
             "target": {
               "by": "text",
@@ -8381,7 +9701,7 @@
           "username": "c1",
           "password": "c2"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     }

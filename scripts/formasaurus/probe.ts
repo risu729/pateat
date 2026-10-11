@@ -30,7 +30,8 @@ function probe(): ProbeResult {
   // Not `document.forms`: a form named "forms" shadows it.
   const forms = [...document.querySelectorAll("form")];
   const candidates = result.observation.candidates.map((candidate) => {
-    const found = findTargets(document, candidate.target);
+    // Links named by their text resolve only among links, as the executor finds them.
+    const found = findTargets(document, candidate.target, { links: candidate.role === "link" });
     const element = found.length === 1 ? found[0]! : undefined;
     const form =
       element && "form" in element && element.form instanceof HTMLFormElement
