@@ -530,6 +530,11 @@ explicit conflicts and a durable local last-known-good cache; stale sync must
 not silently overwrite newer restrictions. Server revocation stops server
 access, not guaranteed erasure of offline cached material.
 
+Claude credentials are per owner
+([ADR 0015](adr/0015-per-owner-claude-credentials.md)): the Worker holds only its
+OIDC signing key, and D1 holds each owner's Workload Identity Federation
+identifiers.
+
 Version recipes immutably with a current pointer and revocation/tombstones.
 Sync with conditional reads/cursors and keep a local durable cache. Validate
 minimum supported schema, origin scope and device access; reject stale or

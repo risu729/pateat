@@ -523,7 +523,10 @@ the real settings store over in-memory storage; no running service has been trie
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - Inference adapters, spending accounting and the release artifact's migration SQL
-  remain separate slices.
+  remain separate slices. The inference route authenticates to Claude per owner
+  through Workload Identity Federation
+  ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
+  key is a later second option.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first approval. Before the service is offered to other people, it needs
   per-owner storage and request limits; today only `/redeem` is rate limited (per
