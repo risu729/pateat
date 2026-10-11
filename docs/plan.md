@@ -35,10 +35,10 @@ and normal merges need no bypass; see [merging](delivery.md#merging).
 
 ## Local settings progress
 
-The first M2 slice provides explicit save/reload controls for local connection,
-group/item selection, item/field exclusions, host exclusions and exact-origin
-account defaults. Two bundled demo vaults contain display metadata only. There
-are no credential values, provider sessions, real vault connections, page
+The first M2 slice provides automatic save and explicit reload controls for local
+connection, group/item selection, item/field exclusions, host exclusions and
+exact-origin account defaults. Two bundled demo vaults contain display metadata only.
+There are no credential values, provider sessions, real vault connections, page
 observations or login operations.
 
 Settings use a versioned local snapshot and a worker-owned revision check.
@@ -386,7 +386,9 @@ Chrome yet.
   every vault was searched and it does not match `origin/`, the row says so; otherwise
   the row keeps the neutral note. Either way it shows no username. The background
   answers these lookups one at a time, since a vault's crypto Worker takes one job at a
-  time.
+  time. The owner confirmed both the picker and the saved row against a real vault in
+  the installed Chrome on 2026-10-11
+  ([evidence](research/2026-10-10-feasibility.md#default-account-picker-on-a-real-vault-2026-10-11)).
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
@@ -409,7 +411,9 @@ Chrome yet.
   granted host access (a frame also needs its tab's page admitted;
   [ADR 0017](adr/0017-login-forms-in-frames.md)), with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
-  stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
+  stop with `recipe-not-found` before the policy catalog or vault is opened, unless the
+  page qualifies for recipe generation
+  ([ADR 0016](adr/0016-recipe-generation-trigger.md)). Only the
   probe build grants its loopback origin to the probe item and supplies recipes and
   bindings. Recipes and account bindings come from the service cache
   ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The executor looks up the
@@ -738,6 +742,12 @@ extension 2026.9.3, Bitwarden Cloud US.
   the owner could not pick the right item; that is tracked as executor work.
 - Not tested: a primary sign-in with a discoverable (username-less) passkey.
 
+Evidence, 2026-10-11, after the move to `@bitwarden/sdk-internal` `0.2.0-main.1099`
+(#151), in the owner's Chrome with the same real account: on a production build at main
+`9152fdb`, reloading the extension unlocked the vault automatically with no password and
+Sync succeeded ("Local vault ready"). On main `59a2d12`, the `https://www.npmjs.com`
+security-key step again succeeded unattended.
+
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
@@ -799,13 +809,16 @@ oversized and incomplete inputs and the absence of fallback.
 `low` through `@ai-sdk/anthropic` for the generation/repair role; the finite-choice role
 has no provider yet. `createClaudeGenerationModel` in
 `packages/inference/src/providers/claude.ts` builds that model, and
-`mise run bench:inference --paid` runs the generation role over the corpus with the
-local value check. It stops before a case that could take the estimated spend past
-`--max-cost-usd` (default 2) and still prints the cases already run, the estimated cost
-and the model IDs the API reported serving. In cloud sessions the key is provided as
-the environment variable `PATEAT_ANTHROPIC_API_KEY`, because the name
-`ANTHROPIC_API_KEY` is withheld from sessions; run
-`ANTHROPIC_API_KEY="$PATEAT_ANTHROPIC_API_KEY" mise run bench:inference --paid`.
+`mise run //packages/inference:bench --paid` runs the generation role over the corpus
+with the local value check. It stops before a case that could take the estimated
+spend past `--max-cost-usd` (default 2) and still prints the cases already run, the
+estimated cost and the model IDs the API reported serving. In cloud sessions the key is
+provided as the environment variable `PATEAT_ANTHROPIC_API_KEY`, because the name
+`ANTHROPIC_API_KEY` is withheld from sessions; run:
+
+```sh
+ANTHROPIC_API_KEY="$PATEAT_ANTHROPIC_API_KEY" mise run //packages/inference:bench --paid
+```
 
 The one owner-approved run (2026-10-10, main `29ab04c`, cap $2) gave:
 
@@ -854,12 +867,13 @@ The second owner-approved run (2026-10-10, main `d105f76`, cap $2) gave:
 must abstain still do. With one sample per case this cannot show that the refusal will
 not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
-- The extension side of [ADR 0018](adr/0018-recipe-generation-route.md): calling
-  `POST /v1/recipes/generate`, using the returned recipe at once, writing the
-  bindings, and sending the post-login page once to learn `completion`. The service
-  routes, limits and request log are implemented.
-- Calling the extension observation extractor (below) under the automatic send rule
-  of [ADR 0016](adr/0016-recipe-generation-trigger.md).
+- Continuing a generated recipe on the page after an `advance` step, through the
+  generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
+  extension already sends a recipe's first page under the automatic send rule of
+  [ADR 0016](adr/0016-recipe-generation-trigger.md), runs the returned recipe at once
+  with the built-in-slot binding, saves that binding with the account choice after
+  `authenticated`, and sends the page after the final submission once to learn
+  `completion`. The service routes, limits and request log are implemented.
 - A different remembered account, approved by the owner on 2026-10-11: on a step that
   fills a secret but no username, the executor compares the account shown in that
   form and the page headings with the selected account's username, locally only. If
@@ -875,7 +889,7 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
 - A real-page corpus per ADR 0012.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
-`LoginObservation` from a page's DOM; nothing calls it yet. It reads element types,
+`LoginObservation` from a page's DOM for recipe generation. It reads element types,
 locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
 title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
 strings, and refuses a path that carries a session ID (matrix parameters such as
@@ -902,7 +916,14 @@ root marks it incomplete too, as it may be the real login. Links are context onl
 plan check accepts only a button as the page action. Known limits: a read-only
 username shown again on a password step makes that step incomplete, and honeypot
 inputs moved to the right or clipped by `overflow: hidden` stay candidates.
-`mise run test:dom` covers these cases in Chromium with synthetic pages.
+`extractSignedInObservation` describes the page after a generated recipe's final
+submission the same way, but over the whole page: every field, then buttons and links in
+document order up to 48 candidates. A field it cannot describe marks it incomplete;
+buttons and links past the limit or without a locator are left out, since they are only
+possible sign-in markers. There, an attribute locator that redaction would change counts
+as no locator, so an account number in an `id` is never sent.
+`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
+pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):

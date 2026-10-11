@@ -431,3 +431,19 @@ challenge), token 200 after the code, and sync 200. Deleted connections stayed
 gone, and the action icon switched state as expected. This confirms first setup
 against one real Cloud US account with V1 keys and PBKDF2; other KDFs, V2 keys,
 organization items, MFA methods and refresh are not covered by it.
+
+## Default account picker on a real vault, 2026-10-11
+
+On `https://my.jcb.co.jp` the owner's vault holds several login items with the same
+name, each with one passkey. Before
+[PR #104](https://github.com/risu729/pateat/pull/104), the "Default account" list
+showed every item by name only, so they could not be told apart. After #104 the
+owner confirmed in the installed Chrome that the list offers only the items matching
+the origin, labelled with their login usernames.
+
+After [PR #141](https://github.com/risu729/pateat/pull/141), the owner checked the
+production build of `main` at `623dc39` with the vault unlocked. They re-added the
+default for `https://my.jcb.co.jp`. Its saved row showed the item name followed by
+the account's login username, and the note "Matches this origin by URI and passkey;
+checked again on each login". The username was read for display only and is not
+recorded here. The locked-vault fallback was not checked in the installed Chrome.

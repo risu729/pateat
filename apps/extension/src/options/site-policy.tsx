@@ -391,7 +391,7 @@ export function SitePolicy({
           </Button>
         </form>
         <p id="site-help" className="note">
-          Enter a hostname without a scheme, port or path. Add it to the draft, then save settings.
+          Enter a hostname without a scheme, port or path. Each change is saved at once.
         </p>
       </section>
       <section aria-labelledby="defaults-heading" className="panel">

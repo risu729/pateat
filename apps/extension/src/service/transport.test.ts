@@ -295,3 +295,99 @@ describe("settings", () => {
     ).toEqual({ kind: "rejected" });
   });
 });
+
+describe("recipe generation", () => {
+  const observation = {
+    version: 1 as const,
+    origin: "https://shop.example",
+    path: "/login",
+    language: "en" as const,
+    complete: true,
+    candidates: [
+      { id: "c1", role: "password" as const, target: { by: "id" as const, value: "pw" } },
+    ],
+  };
+  const request = {
+    version: 1 as const,
+    observation,
+    slots: [{ id: "password", kind: "secret" as const, description: "account password" }],
+  };
+  const recipeId = "gen-0123456789abcdef0123456789abcdef";
+
+  it("posts one page with the device credential and returns the service's answer", async () => {
+    const answer = { version: 1, status: "abstained", reason: "no-login-form" };
+    const fetch = respond(200, answer);
+    expect(
+      await createServiceTransport({ fetch }).generateRecipe(ORIGIN, CREDENTIAL, request),
+    ).toEqual({ kind: "result", result: answer });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/recipes/generate`);
+    expect(init).toMatchObject({
+      method: "POST",
+      redirect: "error",
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${CREDENTIAL}`, "Content-Type": "application/json" },
+    });
+    expect(JSON.parse(init!.body as string)).toEqual(request);
+  });
+
+  it("posts the page after sign-in to the recipe's completion route", async () => {
+    const fetch = respond(200, { version: 1, status: "unclear" });
+    expect(
+      await createServiceTransport({ fetch }).judgeCompletion(ORIGIN, CREDENTIAL, recipeId, {
+        version: 1,
+        revision: 2,
+        observation,
+      }),
+    ).toEqual({ kind: "result", result: { version: 1, status: "unclear" } });
+    expect(fetch.mock.calls[0]![0]).toBe(`${ORIGIN}/v1/recipes/${recipeId}/completion`);
+  });
+
+  it.each([
+    [
+      "an unknown status",
+      200,
+      { version: 1, status: "maybe" },
+      { kind: "failed", error: "unexpected-response" },
+    ],
+    ["a rejected device", 401, { error: "device_revoked" }, { kind: "rejected" }],
+    ["a rate limit", 429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
+    [
+      "a bad request",
+      400,
+      { error: "bad_request" },
+      { kind: "failed", error: "unexpected-response" },
+    ],
+  ])("reports %s", async (_name, status, body, expected) => {
+    expect(
+      await createServiceTransport({ fetch: respond(status, body) }).generateRecipe(
+        ORIGIN,
+        CREDENTIAL,
+        request,
+      ),
+    ).toEqual(expected);
+  });
+
+  it("waits longer for the model than for other requests", async () => {
+    vi.useFakeTimers();
+    try {
+      const hanging = vi.fn<typeof globalThis.fetch>(
+        (_input, init) =>
+          new Promise((_resolve, reject) =>
+            init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+          ),
+      );
+      const pending = createServiceTransport({ fetch: hanging, timeoutMs: 1_000 }).generateRecipe(
+        ORIGIN,
+        CREDENTIAL,
+        request,
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(hanging.mock.calls[0]![1]!.signal!.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(89_000);
+      expect(await pending).toEqual({ kind: "failed", error: "timeout" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -1,4 +1,11 @@
-import { test, expect, chromium, type BrowserContext, type Worker } from "@playwright/test";
+import {
+  test,
+  expect,
+  chromium,
+  type BrowserContext,
+  type Page,
+  type Worker,
+} from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -42,6 +49,16 @@ async function withExtension(
   } finally {
     await context?.close();
     if (!profileDirectory) await rm(profile, { recursive: true, force: true });
+  }
+}
+
+/** Vault-wide policy lists start collapsed on the options page. */
+async function expand(page: Page, connection: string, ...summaries: string[]): Promise<void> {
+  const group = page.getByRole("group", { name: connection, exact: true });
+  for (const summary of summaries) {
+    // Nested disclosures open in order: an item's summary is hidden until its list opens.
+    // oxlint-disable-next-line no-await-in-loop
+    await group.locator("summary", { hasText: summary }).click();
   }
 }
 
@@ -176,6 +193,7 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await page
       .getByLabel("Demo personal vault: Item access", { exact: true })
       .selectOption("selected");
+    await expand(page, "Demo personal vault", "Included groups and items");
     await page.getByLabel("Demo personal vault: Include group Everyday", { exact: true }).check();
     await page.locator("#default-origin").fill("https://bank.example");
     await page
@@ -185,6 +203,8 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await page.locator("#default-origin").press("Enter");
     await expect(page.locator("#default-origin")).toHaveAttribute("aria-invalid", "true");
     await expect(page.locator("#default-origin")).toBeFocused();
+    // Axe skips closed disclosures, so open the exclusions before scanning.
+    await expand(page, "Demo personal vault", "Item and field exclusions", "Demo primary account");
     const invalid = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
       .analyze();
@@ -362,6 +382,13 @@ test("local policies and account defaults survive a browser restart", async () =
         await page
           .getByLabel("Demo personal vault: Item access", { exact: true })
           .selectOption("selected");
+        await expand(
+          page,
+          "Demo personal vault",
+          "Included groups and items",
+          "Item and field exclusions",
+          "Demo primary account",
+        );
         await page
           .getByLabel("Demo personal vault: Include group Everyday", { exact: true })
           .check();
@@ -377,8 +404,8 @@ test("local policies and account defaults survive a browser restart", async () =
         await page
           .locator("#default-account")
           .selectOption(JSON.stringify(["demo-personal", "primary"]));
+        // Each change is saved as it is made.
         await page.locator("#add-default").click();
-        await page.locator("#save-settings").click();
         await expect(page.locator("#settings-status")).toContainText("saved locally");
       },
       profile,
@@ -395,6 +422,13 @@ test("local policies and account defaults survive a browser restart", async () =
         await expect(
           page.getByLabel("Demo personal vault: Item access", { exact: true }),
         ).toHaveValue("selected");
+        await expand(
+          page,
+          "Demo personal vault",
+          "Included groups and items",
+          "Item and field exclusions",
+          "Demo primary account",
+        );
         await expect(
           page.getByLabel("Demo personal vault: Include group Everyday", { exact: true }),
         ).toBeChecked();
@@ -412,7 +446,8 @@ test("local policies and account defaults survive a browser restart", async () =
         });
         expect(response.ok).toBe(true);
         if (!response.ok) throw new Error("Settings unavailable after restart");
-        expect(response.snapshot.revision).toBe(1);
+        // Each change was saved as it was made; edits during a save share the next one.
+        expect(response.snapshot.revision).toBeGreaterThanOrEqual(1);
         expect(response.snapshot.settings.excludedSites).toEqual([
           { hostname: "excluded.example", includeSubdomains: true },
         ]);
@@ -446,11 +481,9 @@ test("a stale settings page preserves its draft and cannot overwrite newer polic
     );
     await first.locator("#site-hostname").fill("protected.example");
     await first.locator("#add-site").click();
-    await first.locator("#save-settings").click();
     await expect(first.locator("#settings-status")).toContainText("saved locally");
     await second.locator("#site-hostname").fill("draft.example");
     await second.locator("#add-site").click();
-    await second.locator("#save-settings").click();
     await expect(second.locator("#settings-status")).toContainText("Reload");
     await expect(second.locator("#excluded-sites")).toContainText("draft.example");
     await second.locator("#reload-settings").click();

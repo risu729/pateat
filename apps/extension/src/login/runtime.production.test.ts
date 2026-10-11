@@ -9,6 +9,7 @@ import {
 import type { UriCandidates } from "../crypto/wire";
 import { vaultFailure } from "../vault/record";
 import type { LiveUriMatcher } from "../vault/site-candidates";
+import type { LoginGeneration } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 
 const fake = vi.hoisted(() => {
@@ -41,6 +42,8 @@ const fake = vi.hoisted(() => {
     gone: new Set<string>(),
     /** Every runtime's tab-closed listener, so a test can close its tabs afterwards. */
     removed: [] as ((tabId: number) => void)[],
+    /** The document's description of itself, by the page asked for. */
+    extracted: {} as Record<string, unknown>,
   };
   const browser = {
     runtime: {
@@ -84,6 +87,10 @@ const fake = vi.hoisted(() => {
                 )
               : [...state.observed],
           };
+        if (message["type"] === "login.extract")
+          return (
+            state.extracted[message["page"] as string] ?? { ok: false, reason: "no-candidates" }
+          );
         if (message["type"] === "login.execute") {
           await state.onExecute?.(message, _tabId);
           const operation = message["operation"] as {
@@ -178,6 +185,8 @@ function harness(
     duplicateAccount?: boolean;
     /** Adds a login username field to the item. */
     username?: boolean;
+    /** Recipe generation for pages without a recipe. */
+    generation?: LoginGeneration;
     /** Replaces the item's custom fields. */
     custom?: {
       name: string | null;
@@ -300,6 +309,7 @@ function harness(
     sites: createLoginSites(store),
     recipes,
     ...(live.uris ? { uris: live.uris } : {}),
+    ...(live.generation ? { generation: live.generation } : {}),
   });
   // By default the document reports its first step ready, as the content script does
   // once the form appears; `start: false` sends the initial announcement instead.
@@ -315,7 +325,18 @@ function harness(
       },
       sender(from),
     );
-  return { login, store, fields, recipes, hello, snapshot: current, settings: snapshot };
+  /** The document reports a visible sign-in input on its path. */
+  const signIn = () =>
+    login.handle(
+      {
+        version: 1,
+        type: "login.document.ready",
+        token: "synthetic-token",
+        signIn: { path: new URL(fake.state.pageUrl).pathname },
+      },
+      sender(),
+    );
+  return { login, store, fields, recipes, hello, signIn, snapshot: current, settings: snapshot };
 }
 
 describe("production login document admission", () => {
@@ -338,6 +359,7 @@ describe("production login document admission", () => {
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
     fake.state.gone = new Set();
+    fake.state.extracted = {};
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -1350,6 +1372,243 @@ describe("production login document admission", () => {
     h.recipes.recipe.mockResolvedValue({ ...recipe, revision });
     expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual(expected);
     expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id);
+  });
+  describe("on a page without a recipe", () => {
+    const unsaved = { siteDefaults: [], bindings: [] };
+    const generated = parseLoginRecipe({
+      version: 1,
+      id: "gen-synthetic",
+      revision: 1,
+      origin,
+      slots: ["username", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "username", target: target("user") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+      ],
+      maxSubmissions: 1,
+    });
+    const page = (path: string, candidates: unknown[]) => ({
+      ok: true,
+      observation: { version: 1, origin, path, language: "en", complete: true, candidates },
+    });
+    const loginPage = page("/signin", [
+      { id: "c1", role: "email", target: target("user"), autocomplete: "username" },
+      { id: "c2", role: "password", target: target("password") },
+      { id: "c3", role: "button", target: target("login"), label: "Sign in" },
+    ]);
+    const homePage = page("/home", [
+      { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
+    ]);
+    function generation(implementation: Partial<LoginGeneration> = {}) {
+      return {
+        available: vi.fn<LoginGeneration["available"]>(
+          implementation.available ?? (async () => true),
+        ),
+        generate: vi.fn<LoginGeneration["generate"]>(
+          implementation.generate ?? (async () => "none"),
+        ),
+        judge: vi.fn<LoginGeneration["judge"]>(implementation.judge ?? (async () => "unclear")),
+      };
+    }
+    const uris = async () => ({ ok: true as const, data: uriMatch() });
+    const status = () => fake.state.storage["pateat.login-attempts.v1"];
+
+    it("sends a matching sign-in page for generation and runs the returned recipe", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation();
+      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.firstSteps.mockResolvedValue([]);
+      // The first announcement only offers generation; nothing reads the vault yet.
+      expect(await h.hello({}, false)).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+        starts: [],
+        generate: true,
+      });
+      expect(h.store.handle).not.toHaveBeenCalled();
+      service.generate.mockImplementation(async () => {
+        h.recipes.recipe.mockResolvedValue(generated);
+        h.recipes.firstSteps.mockResolvedValue([generated.steps[0]!]);
+        return "recipe";
+      });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
+      );
+      expect(service.available).toHaveBeenCalledWith(origin, "/signin");
+      // Only slots the matching item can fill are offered.
+      expect(service.generate).toHaveBeenCalledWith({
+        version: 1,
+        observation: loginPage.observation,
+        slots: [
+          expect.objectContaining({ id: "username", kind: "identifier" }),
+          expect.objectContaining({ id: "password", kind: "secret" }),
+        ],
+      });
+      expect(h.fields).not.toHaveBeenCalled();
+      // The document announces again and starts the generated recipe at once.
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(
+          2,
+        ),
+      );
+      expect(fake.state.messages.find((entry) => entry.type === "login.execute")?.values).toEqual([
+        { slot: "username", value: "synthetic-secret" },
+        { slot: "password", value: "synthetic-secret", secret: "password" },
+      ]);
+    });
+
+    it("sends nothing when no vault item matches the page", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris: async () => ({ ok: true, data: uriMatch({ candidates: [] }) }),
+        username: true,
+        generation: service,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.firstSteps.mockResolvedValue([]);
+      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(service.generate).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("offers nothing for a page sent recently, an origin with a recipe, a frame or an incomplete description", async () => {
+      const service = generation({ available: async () => false });
+      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.firstSteps.mockResolvedValue([]);
+      expect(await h.hello({}, false)).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+
+      service.available.mockResolvedValue(true);
+      // A recipe for the origin that starts on another path, or an unreadable cache.
+      fake.state.extracted = { login: loginPage };
+      h.recipes.firstSteps.mockResolvedValue([{ ...generated.steps[0]!, path: "/elsewhere" }]);
+      expect(await h.signIn()).not.toHaveProperty("generate");
+      h.recipes.firstSteps.mockRejectedValue(new Error("cache"));
+      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      h.recipes.firstSteps.mockResolvedValue([]);
+      expect(service.generate).not.toHaveBeenCalled();
+
+      fake.state.extracted = {
+        login: { ...loginPage, observation: { ...loginPage.observation, complete: false } },
+      };
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(service.generate).not.toHaveBeenCalled();
+
+      fake.state.tabUrls = { 1: "https://top.example/" };
+      expect(
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "frame-token",
+            signIn: { path: "/" },
+          },
+          sender({
+            frameId: 3,
+            documentId: "frame-document",
+            tab: { id: 1, url: "https://login.example/" },
+          }),
+        ),
+      ).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("learns the completion from the page after the final submission", async () => {
+      fake.state.extracted = { "signed-in": homePage };
+      const service = generation({ judge: async () => "signed-in" });
+      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      h.recipes.recipe.mockResolvedValue(generated);
+      h.recipes.firstSteps.mockResolvedValue([generated.steps[0]!]);
+      fake.state.present = new Set(["user", "password", "login"]);
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+        // The click signs in: the form goes and the next page shows a sign-out button.
+        fake.state.present = new Set(["logout"]);
+        fake.state.observedPath = "/home";
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(service.judge).toHaveBeenCalledWith(
+        generated.id,
+        generated.revision,
+        homePage.observation,
+      );
+      // The automatic choice is saved with its built-in binding once signed in.
+      await vi.waitFor(() => expect(h.store.update).toHaveBeenCalled());
+      expect(h.settings.settings.bindings).toEqual([
+        expect.objectContaining({
+          recipeId: generated.id,
+          slots: [
+            { slot: "username", field: "username" },
+            { slot: "password", field: "password" },
+          ],
+        }),
+      ]);
+    }, 10_000);
+
+    it.each([
+      ["rejected", { state: "blocked", outcome: "credential-rejected" }],
+      ["challenge", { state: "blocked", outcome: "challenge" }],
+      ["unclear", { state: "reconciling", outcome: "unknown-submit" }],
+    ] as const)(
+      "settles a %s judgement without saving the account",
+      async (verdict, expected) => {
+        fake.state.extracted = { "signed-in": homePage };
+        const service = generation({ judge: async () => verdict });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([expected]), { timeout: 6_000 });
+        expect(service.judge).toHaveBeenCalledTimes(1);
+        expect(h.store.update).not.toHaveBeenCalled();
+      },
+      10_000,
+    );
+
+    it("does not send the page while the recipe's fields are still shown", async () => {
+      fake.state.extracted = { "signed-in": homePage };
+      const service = generation({ judge: async () => "signed-in" });
+      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      h.recipes.recipe.mockResolvedValue(generated);
+      fake.state.present = new Set(["user", "password", "login"]);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () => expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+        { timeout: 6_000 },
+      );
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    }, 10_000);
   });
   it("does not answer probe controls outside the probe build", async () => {
     const h = harness();

@@ -1,0 +1,10 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tasks.typecheck]
+run = "tsc --noEmit -p tsconfig.json"
+
+[tasks.test]
+description = "Exercise the server's management pages with a synthetic client in Chromium."
+depends = ["//apps/extension:build:probe", "//services/api:build"]
+wait_for = ["//tests/options:test", "//apps/extension:test:dom"]
+run = "node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts"

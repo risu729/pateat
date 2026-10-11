@@ -4,6 +4,7 @@ import {
   defaultLoginBinding,
   findLoginBinding,
   isSiteExcluded,
+  loginObservationSchema,
   nextLoginOperation,
   loginStepEffect,
   parseAttemptMetadata,
@@ -19,11 +20,14 @@ import {
   type LoginAccountBinding,
   type LoginAttemptMetadata,
   type LoginDocument,
+  type LoginObservation,
   type LoginOperation,
   type LoginRecipe,
   type LoginStep,
   type LoginTarget,
+  type RecipeGenerationRequest,
   type SavedLoginBinding,
+  type SemanticSlot,
   type SettingsResponse,
   type SettingsSnapshot,
   type VaultCatalog,
@@ -36,6 +40,7 @@ import {
   cancelSchema,
   configureSchema,
   executionResultSchema,
+  extractResultSchema,
   helloSchema,
   observationSchema,
   statusSchema,
@@ -147,6 +152,43 @@ export const noLoginRecipes: LoginRecipes = {
   recipe: async () => undefined,
   firstSteps: async () => [],
 };
+
+/** The service's recipe generation routes (ADR 0016, ADR 0018). */
+export interface LoginGeneration {
+  /** Whether a page may be sent: a paired service and no attempt for it in the last day. */
+  available(origin: string, path: string): Promise<boolean>;
+  /** Sends one page; `recipe` once the generated recipe is in the recipe cache. */
+  generate(request: RecipeGenerationRequest): Promise<"recipe" | "none">;
+  /** Sends the page after a recipe's final submission for its completion. */
+  judge(
+    recipeId: string,
+    revision: number,
+    observation: LoginObservation,
+  ): Promise<"signed-in" | "rejected" | "challenge" | "unclear">;
+}
+
+/**
+ * Slot meanings sent for generation, each read from the vault item's built-in field of
+ * the same name by `defaultLoginBinding`.
+ */
+const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
+  {
+    slot: {
+      id: "username",
+      kind: "identifier",
+      description: "account username, email address or login ID",
+    },
+    fieldId: "login.username",
+  },
+  {
+    slot: { id: "password", kind: "secret", description: "account password" },
+    fieldId: "login.password",
+  },
+  {
+    slot: { id: "totp", kind: "one-time-code", description: "one-time authentication code" },
+    fieldId: "login.totp-code",
+  },
+];
 const probeMode = import.meta.env.MODE === "probe";
 
 /**
@@ -162,9 +204,11 @@ export function createLoginRuntime(
     recipes?: LoginRecipes;
     /** Live provider URI matching; without it only static `allowedOrigins` apply. */
     uris?: LiveUriMatcher;
+    /** Recipe generation for pages without a recipe; needs `uris` for the vault match. */
+    generation?: LoginGeneration;
   },
 ) {
-  const { fields, sites, recipes = noLoginRecipes, uris } = options;
+  const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<string, LiveDocument>();
@@ -751,8 +795,77 @@ export function createLoginRuntime(
         return;
       }
     }
-    if (settleUnknown)
-      await change(run, { type: "OBSERVED", result: "unknown", document: run.live.document });
+    if (!settleUnknown) return;
+    if (await learn(run)) return;
+    await change(run, { type: "OBSERVED", result: "unknown", document: run.live.document });
+  }
+  /** Attempts whose post-login page was already sent; it is sent once per attempt. */
+  const judged = new Set<string>();
+  /**
+   * After the final submission of a recipe without a completion, sends the resulting page
+   * so the service can judge it and learn the completion (ADR 0018). Returns whether the
+   * attempt settled. A page that still shows the recipe's own fields on one of its paths
+   * is not sent: the sign-in has not finished there.
+   */
+  async function learn(run: Execution): Promise<boolean> {
+    const { recipe, metadata } = run;
+    if (
+      !generation ||
+      recipe.completion ||
+      metadata.stepIndex !== recipe.steps.length - 1 ||
+      metadata.operationEffect !== "submit" ||
+      judged.has(metadata.id)
+    )
+      return false;
+    const stepTargets = recipe.steps.flatMap((step) =>
+      step.kind === "fill" ? step.fields.map((field) => field.target) : [],
+    );
+    const remaining = await observe(run, stepTargets.slice(0, 24));
+    if (
+      !remaining ||
+      (recipe.steps.some((step) => step.path === remaining.path) &&
+        remaining.targets.some((state) => state !== "missing"))
+    )
+      return false;
+    judged.add(metadata.id);
+    let observation: LoginObservation | undefined;
+    try {
+      const extracted = v.safeParse(
+        extractResultSchema,
+        await send(run.live, { type: "login.extract", page: "signed-in" }),
+      );
+      const parsed =
+        extracted.success && extracted.output.ok
+          ? v.safeParse(loginObservationSchema, extracted.output.observation)
+          : undefined;
+      if (
+        parsed?.success &&
+        parsed.output.complete &&
+        parsed.output.origin === run.live.document.origin &&
+        parsed.output.path === remaining.path
+      )
+        observation = parsed.output;
+    } catch {
+      observation = undefined;
+    }
+    if (!current(run)) return true;
+    // A page that cannot be described completely is not sent; the next run tries again.
+    if (!observation) return false;
+    const verdict = await generation.judge(recipe.id, recipe.revision, observation);
+    if (!current(run)) return true;
+    await change(run, {
+      type: "OBSERVED",
+      result:
+        verdict === "signed-in"
+          ? "authenticated"
+          : verdict === "rejected"
+            ? "credential-rejected"
+            : verdict === "challenge"
+              ? "challenge"
+              : "unknown",
+      document: run.live.document,
+    });
+    return true;
   }
   // State transitions, journal writes and DOM effects form an ordered protocol.
   // Parallel execution would race policy checks or repeat submission side effects.
@@ -1002,11 +1115,90 @@ export function createLoginRuntime(
     );
     return [...unique.values()].slice(0, 32);
   }
+  /**
+   * Whether this document may be sent for generation once it shows a sign-in input: a
+   * top-level page on an origin with no cached recipe, whose path was not sent in the
+   * last day (ADR 0016). A recipe starting on another path, or several starting on this
+   * one, still counts as the origin's recipe.
+   */
+  async function offersGeneration(live: LiveDocument): Promise<boolean> {
+    if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return false;
+    if (probeMode && live.document.origin === origin) return false;
+    const steps = await recipes.firstSteps(live.document.origin).catch(() => undefined);
+    if (steps === undefined || steps.length) return false;
+    return generation.available(live.document.origin, live.path).catch(() => false);
+  }
+  /**
+   * The slots to generate for when a vault item's URI matches the page, the only vault
+   * access a page without a recipe gets; no field value is read.
+   */
+  async function generationSlotsFor(live: LiveDocument): Promise<SemanticSlot[] | undefined> {
+    if (!uris) return undefined;
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (!snapshot.ok) return undefined;
+    const scope = await findLiveSiteCandidates({
+      settings: snapshot.snapshot.settings,
+      catalog: snapshot.catalog,
+      url: live.url,
+      match: uris,
+    });
+    if (!scope.ok) return undefined;
+    const items = scope.candidates.flatMap((candidate) => {
+      const item = snapshot.catalog.connections
+        .find((entry) => entry.id === candidate.connectionId)
+        ?.items.find((entry) => entry.id === candidate.itemId);
+      return item ? [item] : [];
+    });
+    // Only slots a matching item can fill; built-in fields keep these IDs on every device.
+    const slots = generationSlots.filter(({ fieldId }) =>
+      items.some((item) => item.fields.some((field) => field.id === fieldId)),
+    );
+    return slots.length ? slots.map(({ slot }) => slot) : undefined;
+  }
+  /**
+   * Sends this page's observation for generation. A returned recipe is in the recipe
+   * cache by then; the document announces again and starts it once its first step is
+   * ready (ADR 0018).
+   */
+  async function generateFor(live: LiveDocument, slots: SemanticSlot[]): Promise<void> {
+    if (!generation) return;
+    const key = frameKey(live.document);
+    try {
+      const extracted = v.safeParse(
+        extractResultSchema,
+        await send(live, { type: "login.extract", page: "login" }),
+      );
+      if (!extracted.success || !extracted.output.ok || documents.get(key) !== live) return;
+      const parsed = v.safeParse(loginObservationSchema, extracted.output.observation);
+      // An incomplete observation is not sent (ADR 0016).
+      if (
+        !parsed.success ||
+        !parsed.output.complete ||
+        parsed.output.origin !== live.document.origin ||
+        parsed.output.path !== live.path
+      )
+        return;
+      const outcome = await generation.generate({
+        version: 1,
+        observation: parsed.output,
+        slots,
+      });
+      if (outcome !== "recipe" || documents.get(key) !== live) return;
+      await browser.tabs.sendMessage(
+        live.document.tabId,
+        { version: 1, type: "login.reconnect" },
+        { documentId: live.document.documentId, frameId: live.document.frameId },
+      );
+    } catch {
+      // The document went away or the service could not answer; nothing was started.
+    }
+  }
   async function ready(
     sender: Sender,
     token: string,
     start?: { path: string },
-  ): Promise<{ ok: boolean; reason?: string; starts?: LoginReadiness[] }> {
+    signIn?: { path: string },
+  ): Promise<{ ok: boolean; reason?: string; starts?: LoginReadiness[]; generate?: true }> {
     // Admission is async; a later hello from the same frame must not be overtaken by an older one.
     const helloKey = `${sender.tab?.id}:${sender.frameId}`;
     const sequence = (hellos.get(helloKey) ?? 0) + 1;
@@ -1129,11 +1321,31 @@ export function createLoginRuntime(
     ) {
       const starts = await startsFor(document.origin);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      if (!recipe && !starts.length) return refuse("recipe-not-found");
+      let offer = !recipe && (await offersGeneration(live));
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (offer && signIn?.path === live.path) {
+        const slots = await generationSlotsFor(live).catch(() => undefined);
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        if (slots) {
+          live.state = "generating";
+          delete live.reason;
+          await publish(live);
+          void generateFor(live, slots);
+          return { ok: false, reason: "generating" };
+        }
+        // No vault item matches this page, so it is not sent.
+        offer = false;
+      }
+      if (!recipe && !starts.length && !offer) return refuse("recipe-not-found");
       live.state = "watching";
       delete live.reason;
       await publish(live);
-      return { ok: false, reason: recipe ? "form-not-ready" : "recipe-not-found", starts };
+      return {
+        ok: false,
+        reason: recipe ? "form-not-ready" : "recipe-not-found",
+        starts,
+        ...(offer ? { generate: true as const } : {}),
+      };
     }
     // A resumed attempt keeps its own recipe revision; a replaced or different recipe never takes it over.
     if (
@@ -1273,7 +1485,8 @@ export function createLoginRuntime(
       return undefined;
     }
     const hello = v.safeParse(helloSchema, message);
-    if (hello.success) return ready(sender, hello.output.token, hello.output.start);
+    if (hello.success)
+      return ready(sender, hello.output.token, hello.output.start, hello.output.signIn);
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
     const document = await identify(sender);

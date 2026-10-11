@@ -1,0 +1,31 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tasks.build]
+description = "Generate production Build Output and Worker types."
+run = "node ../../node_modules/cf/bin/cf build --mode production"
+
+[tasks.typecheck]
+depends = [":build"]
+run = ["tsc -p tsconfig.json", "tsc -p web/tsconfig.json"]
+
+[tasks.test]
+description = "Run Worker tests against local Miniflare D1 with committed migrations."
+run = "node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts"
+
+[tasks."generate:migrations"]
+description = "Generate D1 migrations from the Drizzle schema without contacting a database."
+run = "node node_modules/drizzle-kit/bin.cjs generate"
+
+[tasks."check:migrations"]
+description = "Fail when committed migrations differ from the schema."
+run = "node ../../scripts/server/check-migrations.mjs"
+
+[tasks."check:output"]
+description = "Validate the production output with cf's prebuilt dry run."
+depends = [":build"]
+run = "node ../../node_modules/cf/bin/cf deploy --prebuilt --mode production --dry-run"
+
+[tasks."check:artifact"]
+description = "Execute the emitted bundle in a fresh local runtime."
+depends = [":build"]
+run = "node ../../scripts/server/smoke.mjs"

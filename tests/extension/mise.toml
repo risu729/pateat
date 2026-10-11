@@ -1,0 +1,11 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tasks.typecheck]
+run = "tsc --noEmit -p tsconfig.json"
+
+[tasks.test]
+description = "Exercise the extension against synthetic local pages."
+# The service login test serves the built API Worker locally.
+depends = ["//apps/extension:build:probe", "//services/api:build"]
+wait_for = ["//tests/options:test", "//apps/extension:test:dom", "//tests/manage:test"]
+run = "node ../../node_modules/@playwright/test/cli.js test --config playwright.config.ts"

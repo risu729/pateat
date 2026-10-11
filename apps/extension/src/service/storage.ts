@@ -1,5 +1,6 @@
 import { browser } from "wxt/browser";
 import type { ServiceStorage } from "./runtime";
+import type { GenerationAttemptStorage } from "./generation";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
 import type { SettingsBaseStorage, SettingsHoldStorage } from "./settings-sync";
 
@@ -55,4 +56,9 @@ export function createBrowserSettingsBaseStorage(): SettingsBaseStorage {
 /** When synced settings first waited for a login, so the limit holds across restarts. */
 export function createBrowserSettingsHoldStorage(): SettingsHoldStorage {
   return trustedRecord("pateat.sync-settings-hold.v1");
+}
+
+/** Which pages were sent for recipe generation in the last day (ADR 0016). */
+export function createBrowserGenerationAttemptStorage(): GenerationAttemptStorage {
+  return trustedRecord("pateat.generation-attempts.v1");
 }
