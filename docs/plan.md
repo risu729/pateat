@@ -728,6 +728,12 @@ extension 2026.9.3, Bitwarden Cloud US.
   the owner could not pick the right item; that is tracked as executor work.
 - Not tested: a primary sign-in with a discoverable (username-less) passkey.
 
+Evidence, 2026-10-11, after the move to `@bitwarden/sdk-internal` `0.2.0-main.1099`
+(#151), in the owner's Chrome with the same real account: on a production build at main
+`9152fdb`, reloading the extension unlocked the vault automatically with no password and
+Sync succeeded ("Local vault ready"). On main `59a2d12`, the `https://www.npmjs.com`
+security-key step again succeeded unattended.
+
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
