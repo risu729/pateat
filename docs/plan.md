@@ -1006,7 +1006,28 @@ chose on 2026-10-11 to publish the derived page text (titles, headings and label
 is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
 sites appear twice with the same login form.
 `mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
-it.
+it; `--from` and `--count` run a slice of the corpus in its fixed order, so it can be
+run in batches. Each case in the report carries the plan in candidate IDs.
+
+`--provider heuristic` scores a free, model-free comparator (`heuristicPlan` in
+`packages/inference/src/heuristic.ts`, not used at runtime): the one form with a single
+sign-in password, its `username` or `email` field or else the nearest field before the
+password that an identifier may fill and that is not marked as a one-time code, and
+its first button after the password, or else its first button. Without such a form,
+the one form whose only fill field is marked `username` or `email` advances. It reads no
+labels, and its inputs pass the same schema and completeness gate as generation. On
+2026-10-11, with the corpus as merged in `e5b4244`, it scored:
+
+| Corpus | Correct | Correct abstentions | Missed | False submits | Semantic accuracy |
+| --- | --- | --- | --- | --- | --- |
+| Real pages (95) | 76 | 15 | 0 | 4 | 0.958 |
+| Synthetic (16) | 7 | 2 | 2 | 5 | 0.5625 |
+
+Its real-page false submits are two sign-up pages with a single password field, which it
+takes for a login, and two login forms where a "create account" button follows the
+password. The real-page corpus is mostly plain username and password forms, which form
+heuristics already handle; the synthetic corpus holds the bank, decoy and multi-step
+pages where they fail.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete

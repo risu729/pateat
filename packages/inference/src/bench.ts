@@ -2,6 +2,7 @@ import { wrapLanguageModel } from "ai";
 import { evaluationCorpus, type EvaluationCase } from "./corpus/cases";
 import { evaluateRole, type EvaluationReport } from "./evaluate";
 import { createRecipeGenerator } from "./generation";
+import { heuristicPlan } from "./heuristic";
 import {
   claudeGeneration,
   claudeRefusalCategory,
@@ -85,4 +86,13 @@ export async function runClaudeBenchmark(options: {
     estimatedCostUsd: spent,
     report,
   };
+}
+
+/** Scores the model-free comparator on the same cases; free, so it needs no approval. */
+export function runHeuristicBenchmark(cases: readonly EvaluationCase[]): Promise<EvaluationReport> {
+  return evaluateRole({
+    cases,
+    checkValues: true,
+    run: async (testCase) => heuristicPlan(testCase.observation, testCase.slots),
+  });
 }
