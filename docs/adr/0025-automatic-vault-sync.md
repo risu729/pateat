@@ -88,7 +88,9 @@ next check may be sent.
   seconds for a check already in progress, then continues with the snapshot it has.
 - While a login attempt is active, a check does not replace the vault. It skips `/sync`
   when it can tell beforehand, or drops the response afterwards, and records
-  `deferred`; a deferred check is due again after ten seconds instead of a minute.
+  `deferred`; a deferred check is due again after ten seconds instead of a minute. An
+  attempt whose result settled as unknown is active only while one of its pages is
+  checked or judged ([ADR 0027](0027-per-account-login-routes.md)).
 - Before replacing, a check waits up to two seconds for page announcements and passkey
   requests being handled to finish; if they have not, it defers the same way. Each
   announcement is handled in the order the frame sent it, so one that waited on a
