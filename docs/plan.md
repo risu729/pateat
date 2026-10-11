@@ -686,7 +686,7 @@ to the replaced document.
 installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
 extension ID from stack traces; the relay posts only the outcome of a request to the
 page, never the delegate reason. The production build logs the reason and value-free
-counts to its own service worker console
+counts to its local log
 ([diagnosis](development.md#why-a-passkey-request-was-delegated)). On 2026-10-11 a real
 passkey sign-in on webauthn.io went through the wrapper unchanged and CreepJS did not
 flag it ([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)).

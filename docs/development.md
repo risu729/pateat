@@ -242,15 +242,22 @@ Open Pateat settings and follow **Diagnostics for bug reports** at the bottom, o
 preview, then click **Copy** and paste the text into the report. It names the build
 revision, Chrome version and the state of each connection and the Pateat service under
 pseudonyms, with no labels, emails, item names, URLs or host names
-([architecture](architecture.md#diagnostics)). Add the steps that led to the problem
-and, for a passkey request, the console line described below.
+([architecture](architecture.md#diagnostics)). Add the steps that led to the problem.
+
+For a problem that happened earlier, click **Download logs** on the same page, check
+the preview and click **Save file**, then attach the `.jsonl` file. Site addresses and
+recipe IDs appear as `site-1` and `recipe-1` unless you check **Include site addresses
+and recipe IDs**. To record more detail, click **Enable debug logging for 24 hours**,
+reproduce the problem, then download the logs ([local log](architecture.md#local-log)).
 
 ### Why a passkey request was delegated
 
-The production build writes one `Pateat passkey request` line per bridged request to its
-own service worker console. The console shows only lines written while it is open, so
-open it first: turn on **Developer mode** in `chrome://extensions`, click **service
-worker** under Pateat, then make the passkey request on the site. Each line holds:
+The production build logs one `passkey.request` entry per bridged request, at most 20
+per minute per tab and origin. Download the logs from the diagnostics page, or open the
+service worker console, which shows a `Pateat passkey.request` line for each entry
+written while it is open: turn on **Developer mode** in `chrome://extensions`, click
+**service worker** under Pateat, then make the passkey request on the site. Each entry
+holds:
 
 - `origin`, `outcome` (`assertion`, `delegate` or `cancelled`) and the delegate
   `reason`;
@@ -264,12 +271,12 @@ worker** under Pateat, then make the passkey request on the site. Each line hold
   or its connection was not searched, or `searched`) and `complete`.
 
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
-passkey is not one the request accepts. No line at all means the request never reached
+passkey is not one the request accepts. No entry at all means the request never reached
 Pateat's background: the page's options were not ones the bridge copies, another
-provider's wrapper did not call Pateat's, or the request came from a subframe. Lines
+provider's wrapper did not call Pateat's, or the request came from a subframe. Entries
 never hold credential IDs, user handles or item IDs, and the page is never told the
-reason. They do name every HTTPS origin that asked, including excluded sites, but only
-in this local console.
+reason. The origin and RP ID are named only for sites your settings or recipes name;
+other sites appear as `origin:7d2b91aa` and `rp:7d2b91aa`.
 
 ### Manual Bitwarden setup preview
 

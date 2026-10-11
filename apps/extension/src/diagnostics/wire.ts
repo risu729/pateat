@@ -3,10 +3,18 @@
 import * as v from "valibot";
 
 export const DIAGNOSTICS_STATUS_REQUEST = { version: 1, type: "diagnostics.status" } as const;
-export const diagnosticsRequestSchema = v.strictObject({
-  version: v.literal(1),
-  type: v.literal("diagnostics.status"),
-});
+/** The page's only requests: read the summary, export or clear the logs, or enable debug logs. */
+export const diagnosticsRequestSchema = v.variant("type", [
+  v.strictObject({ version: v.literal(1), type: v.literal("diagnostics.status") }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("diagnostics.logs.export"),
+    includeSites: v.boolean(),
+  }),
+  v.strictObject({ version: v.literal(1), type: v.literal("diagnostics.logs.clear") }),
+  v.strictObject({ version: v.literal(1), type: v.literal("diagnostics.logs.debug") }),
+]);
+export type DiagnosticsRequest = v.InferOutput<typeof diagnosticsRequestSchema>;
 
 const time = v.pipe(v.number(), v.integer(), v.minValue(0));
 const count = v.pipe(v.number(), v.integer(), v.minValue(0));
@@ -102,6 +110,14 @@ export const diagnosticsStatusSchema = v.strictObject({
     v.strictObject({ excludedSites: count, siteDefaults: count, bindings: count }),
   ),
   storage: v.strictObject({ localBytes: v.optional(count) }),
+  logs: v.optional(
+    v.strictObject({
+      entries: count,
+      bytes: count,
+      recentErrors: count,
+      debugUntil: v.optional(count),
+    }),
+  ),
   checks: v.pipe(v.array(checkSchema), v.maxLength(64)),
 });
 export type DiagnosticsStatus = v.InferOutput<typeof diagnosticsStatusSchema>;
@@ -118,4 +134,31 @@ export function parseDiagnosticsResponse(value: unknown): DiagnosticsResponse {
     ]),
     value,
   );
+}
+
+const unavailableSchema = v.strictObject({ ok: v.literal(false), error: v.literal("unavailable") });
+const logsResponseSchemas = {
+  "diagnostics.logs.export": v.variant("ok", [
+    v.strictObject({ ok: v.literal(true), text: v.string() }),
+    unavailableSchema,
+  ]),
+  "diagnostics.logs.clear": v.variant("ok", [
+    v.strictObject({ ok: v.literal(true) }),
+    unavailableSchema,
+  ]),
+  "diagnostics.logs.debug": v.variant("ok", [
+    v.strictObject({ ok: v.literal(true), debugUntil: time }),
+    unavailableSchema,
+  ]),
+};
+export type LogsRequestType = keyof typeof logsResponseSchemas;
+export type LogsResponse<T extends LogsRequestType> = v.InferOutput<
+  (typeof logsResponseSchemas)[T]
+>;
+
+export function parseLogsResponse<T extends LogsRequestType>(
+  type: T,
+  value: unknown,
+): LogsResponse<T> {
+  return v.parse(logsResponseSchemas[type], value) as LogsResponse<T>;
 }

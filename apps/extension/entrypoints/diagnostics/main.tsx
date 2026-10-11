@@ -3,7 +3,11 @@ import { createRoot } from "react-dom/client";
 import { browser } from "wxt/browser";
 import { DiagnosticsApp } from "../../src/diagnostics/app";
 import { readBrowserInfo, type UserAgentData } from "../../src/diagnostics/browser";
-import { DIAGNOSTICS_STATUS_REQUEST, parseDiagnosticsResponse } from "../../src/diagnostics/wire";
+import {
+  DIAGNOSTICS_STATUS_REQUEST,
+  parseDiagnosticsResponse,
+  parseLogsResponse,
+} from "../../src/diagnostics/wire";
 // oxlint-disable-next-line import/no-unassigned-import -- Share the settings page stylesheet.
 import "../options/style.css";
 
@@ -23,6 +27,34 @@ createRoot(root).render(
             getSelf: () => browser.management.getSelf(),
           }),
         copy: (text) => navigator.clipboard.writeText(text),
+        exportLogs: async (includeSites) =>
+          parseLogsResponse(
+            "diagnostics.logs.export",
+            await browser.runtime.sendMessage({
+              version: 1,
+              type: "diagnostics.logs.export",
+              includeSites,
+            }),
+          ),
+        clearLogs: async () =>
+          parseLogsResponse(
+            "diagnostics.logs.clear",
+            await browser.runtime.sendMessage({ version: 1, type: "diagnostics.logs.clear" }),
+          ),
+        enableDebugLogs: async () =>
+          parseLogsResponse(
+            "diagnostics.logs.debug",
+            await browser.runtime.sendMessage({ version: 1, type: "diagnostics.logs.debug" }),
+          ),
+        // A Blob link needs no `downloads` permission (ADR 0019).
+        download(text, filename) {
+          const url = URL.createObjectURL(new Blob([text], { type: "application/x-ndjson" }));
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = filename;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        },
       }}
     />
   </QueryClientProvider>,

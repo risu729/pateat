@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettingsResponse } from "@pateat/contracts";
 import type { LoginFieldSource } from "./vault";
+import type { LoginReport } from "./runtime";
 
 const fake = vi.hoisted(() => {
   const state = {
@@ -131,8 +132,12 @@ function settingsFor({ snapshot = () => first, state = "ready", quarantined = []
     })),
   };
 }
-async function start(fields: LoginFieldSource, catalog: Catalog = {}) {
-  const login = createLoginRuntime(settingsFor(catalog), { fields });
+async function start(
+  fields: LoginFieldSource,
+  catalog: Catalog = {},
+  report?: (report: LoginReport) => void,
+) {
+  const login = createLoginRuntime(settingsFor(catalog), { fields, ...(report ? { report } : {}) });
   expect(
     await login.handle(
       {
@@ -242,6 +247,34 @@ describe("login runtime with a live vault field source", () => {
       expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
     );
     expect(await run.login.active()).toBe(false);
+  });
+  it("reports state changes and refusals without account or item IDs", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const run = await start(async () => "synthetic-secret", {}, report);
+    await vi.waitFor(async () =>
+      expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
+    );
+    const attempts = report.mock.calls.map(([value]) => value);
+    expect(attempts.at(-1)).toMatchObject({
+      type: "attempt",
+      origin,
+      state: "authenticated",
+      tabId: expect.any(Number),
+      recipeId: expect.any(String),
+    });
+    // Each report is a change from the previous state.
+    const states = attempts.map((value) => (value.type === "attempt" ? value.state : value.type));
+    expect(states.every((state, index) => index === 0 || state !== states[index - 1])).toBe(true);
+    const refused = vi.fn<(report: LoginReport) => void>();
+    // A fresh worker with no saved attempt.
+    fake.state.storage = {};
+    await start(async () => "synthetic-secret", { state: "unavailable" }, refused);
+    expect(refused).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "refused", origin, reason: "vault-unavailable" }),
+    );
+    const serialized = JSON.stringify([...report.mock.calls, ...refused.mock.calls]);
+    for (const id of [connectionId, itemId, userId, "synthetic-secret"])
+      expect(serialized).not.toContain(id);
   });
   it("still uses an unrelated item while another item in the connection awaits review", async () => {
     const run = await start(async () => "synthetic-secret", {

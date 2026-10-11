@@ -2,12 +2,22 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "../options/button";
 import { formatReport, shortRevision, utcMinute, type BrowserInfo } from "./report";
-import type { DiagnosticsCheck, DiagnosticsResponse, DiagnosticsStatus } from "./wire";
+import type {
+  DiagnosticsCheck,
+  DiagnosticsResponse,
+  DiagnosticsStatus,
+  LogsResponse,
+} from "./wire";
 
 export type DiagnosticsClient = {
   load(): Promise<DiagnosticsResponse>;
   browser(): Promise<BrowserInfo>;
   copy(text: string): Promise<void>;
+  exportLogs(includeSites: boolean): Promise<LogsResponse<"diagnostics.logs.export">>;
+  clearLogs(): Promise<LogsResponse<"diagnostics.logs.clear">>;
+  enableDebugLogs(): Promise<LogsResponse<"diagnostics.logs.debug">>;
+  /** Saves `text` as a file through the browser's download of a `Blob` link. */
+  download(text: string, filename: string): void;
 };
 
 const LEVEL_MARK: Record<DiagnosticsCheck["level"], string> = {
@@ -168,6 +178,152 @@ function Local({ status }: { status: DiagnosticsStatus }) {
   );
 }
 
+/** `pateat-logs-20261011-1035.jsonl`, from the UTC time of the export. */
+export function logFilename(ms: number): string {
+  const iso = new Date(ms).toISOString();
+  return `pateat-logs-${iso.slice(0, 10).replaceAll("-", "")}-${iso.slice(11, 16).replace(":", "")}.jsonl`;
+}
+
+function Logs({
+  status,
+  client,
+  changed,
+  message,
+  setMessage,
+}: {
+  status: DiagnosticsStatus;
+  client: DiagnosticsClient;
+  /** Reloads the summary; this section remounts after it, so its message lives above. */
+  changed: () => void;
+  message: string;
+  setMessage: (message: string) => void;
+}) {
+  const [includeSites, setIncludeSites] = useState(false);
+  const [preview, setPreview] = useState<string>();
+  const [confirmClear, setConfirmClear] = useState(false);
+  const { logs } = status;
+  async function open(sites: boolean) {
+    setIncludeSites(sites);
+    const response = await client.exportLogs(sites).catch(() => undefined);
+    if (response?.ok) {
+      setPreview(response.text);
+      setMessage("");
+    } else {
+      setPreview(undefined);
+      setMessage("Unable to read the logs.");
+    }
+  }
+  return (
+    <section aria-labelledby="logs-heading" className="panel">
+      <h2 id="logs-heading">Logs</h2>
+      <p className="note">
+        Kept on this device for 14 days. Sites you have not set up appear as{" "}
+        <code>origin:7d2b91aa</code>.
+      </p>
+      <dl>
+        <Row term="Entries" id="diagnostics-logs">
+          {logs ? `${logs.entries} (${Math.ceil(logs.bytes / 1024)} KB)` : "unreadable"}
+        </Row>
+        {logs && <Row term="Errors in the last 24 h">{logs.recentErrors}</Row>}
+        <Row term="Debug logging">
+          {logs?.debugUntil === undefined ? "off" : `on until ${time(logs.debugUntil)}`}
+        </Row>
+      </dl>
+      <div className="mb-4 flex flex-wrap gap-3">
+        <Button id="download-logs" type="button" onClick={() => void open(includeSites)}>
+          Download logs
+        </Button>
+        <Button
+          id="debug-logs"
+          type="button"
+          variant="outline"
+          onClick={() =>
+            void client
+              .enableDebugLogs()
+              .catch(() => undefined)
+              .then((response) => {
+                setMessage(
+                  response?.ok ? "Debug logging is on for 24 hours." : "Unable to change logging.",
+                );
+                changed();
+                return undefined;
+              })
+          }
+        >
+          Enable debug logging for 24 hours
+        </Button>
+        {confirmClear ? (
+          <Button
+            id="confirm-clear-logs"
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void client
+                .clearLogs()
+                .catch(() => undefined)
+                .then((response) => {
+                  setConfirmClear(false);
+                  setPreview(undefined);
+                  setMessage(response?.ok ? "Logs cleared." : "Unable to clear the logs.");
+                  changed();
+                  return undefined;
+                })
+            }
+          >
+            Delete all log entries
+          </Button>
+        ) : (
+          <Button
+            id="clear-logs"
+            type="button"
+            variant="outline"
+            onClick={() => setConfirmClear(true)}
+          >
+            Clear logs
+          </Button>
+        )}
+      </div>
+      {preview !== undefined && (
+        <div>
+          <p className="note">
+            This exact text is saved. Check it before attaching it to a bug report.
+          </p>
+          <label className="mb-3 flex items-center gap-2">
+            <input
+              id="include-sites"
+              type="checkbox"
+              checked={includeSites}
+              onChange={(event) => void open(event.target.checked)}
+            />
+            Include site addresses and recipe IDs
+          </label>
+          <pre id="logs-preview" className="max-h-96 overflow-auto text-xs whitespace-pre-wrap">
+            {preview}
+          </pre>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              id="save-logs"
+              type="button"
+              onClick={() => {
+                client.download(preview, logFilename(Date.now()));
+                setMessage("Saved.");
+              }}
+            >
+              Save file
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setPreview(undefined)}>
+              Close
+            </Button>
+          </div>
+        </div>
+      )}
+      <output id="logs-status" className="block" aria-live="polite">
+        {message}
+      </output>
+    </section>
+  );
+}
+
 export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
   const query = useQuery({
     queryKey: ["diagnostics"],
@@ -183,6 +339,7 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
   });
   const [preview, setPreview] = useState<string>();
   const [message, setMessage] = useState("");
+  const [logsMessage, setLogsMessage] = useState("");
   const state = query.isFetching
     ? ({ kind: "loading" } as const)
     : query.isError || !query.data
@@ -191,6 +348,7 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
   function refresh() {
     setPreview(undefined);
     setMessage("");
+    setLogsMessage("");
     void query.refetch();
   }
   async function copy(text: string) {
@@ -207,8 +365,8 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
         <p className="eyebrow">Pateat · This device</p>
         <h1>Diagnostics</h1>
         <p className="intro">
-          Versions and state for bug reports. No passwords, keys, field values, names, emails or
-          site addresses are shown or copied.
+          Versions, state and logs for bug reports. No passwords, keys, field values, names or
+          emails are shown, copied or saved.
         </p>
       </header>
       <div className="mb-6 flex flex-wrap gap-3">
@@ -273,6 +431,13 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
           <Connections status={state.status} />
           <Service status={state.status} />
           <Local status={state.status} />
+          <Logs
+            status={state.status}
+            client={client}
+            changed={() => void query.refetch()}
+            message={logsMessage}
+            setMessage={setLogsMessage}
+          />
         </>
       )}
     </main>

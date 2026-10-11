@@ -5,6 +5,7 @@ import type { LocalSettings, ServiceState } from "@pateat/contracts";
 import * as v from "valibot";
 import type { SetupReply } from "../connections/types";
 import type { VaultEntry, VaultResult } from "../vault/record";
+import type { LogSummary } from "./log";
 import type { Pseudonyms } from "./pseudonym";
 import type {
   DiagnosticsCheck,
@@ -48,6 +49,7 @@ export type DiagnosticsDependencies = {
   hasSiteAccess(origin: string): Promise<boolean>;
   fetch: typeof fetch;
   settings(): Promise<LocalSettings>;
+  logs(): Promise<LogSummary>;
   storage: {
     localBytes(): Promise<number>;
     recipeCache(): Promise<unknown>;
@@ -322,13 +324,14 @@ export async function collectDiagnostics(
   deps: DiagnosticsDependencies,
 ): Promise<DiagnosticsStatus> {
   const now = deps.now ?? Date.now;
-  const [platform, permissions, siteAccess, setup, settings, localBytes] = await Promise.all([
+  const [platform, permissions, siteAccess, setup, settings, localBytes, logs] = await Promise.all([
     deps.platform().catch(() => ({ os: "unknown", arch: "unknown" })),
     deps.permissions().catch((): { permissions?: string[]; origins?: string[] } => ({})),
     deps.hasAllSiteAccess().catch(() => false),
     deps.connections.status().catch(() => undefined),
     deps.settings().catch(() => undefined),
     deps.storage.localBytes().catch(() => undefined),
+    deps.logs().catch(() => undefined),
   ]);
   const listed = setup?.ok && setup.kind === "status" ? setup.connections : [];
   const connections: DiagnosticsConnection[] = [];
@@ -351,6 +354,15 @@ export async function collectDiagnostics(
       : [{ id: "connections", level: "error", detail: "connections unreadable" } as const]),
     ...connections.flatMap(connectionChecks),
     ...serviceChecks(serviceStatus, collectedAt),
+    !logs
+      ? { id: "logs", level: "error", detail: "logs unreadable" }
+      : logs.recentErrors > 0
+        ? {
+            id: "logs",
+            level: "warn",
+            detail: `${logs.recentErrors} errors logged in the last 24 h`,
+          }
+        : { id: "logs", level: "ok", detail: "no errors logged in the last 24 h" },
   ];
   return {
     version: 1,
@@ -381,6 +393,7 @@ export async function collectDiagnostics(
         }
       : {}),
     storage: localBytes === undefined ? {} : { localBytes },
+    ...(logs ? { logs } : {}),
     checks,
   };
 }

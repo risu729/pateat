@@ -493,15 +493,55 @@ that exact page URL and returns a value-free summary
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
-- setting counts, `storage.local` usage and checks for site access, the crypto host,
-  each vault cache and sync sign-in, service reachability, clock skew over 30 s against
-  the service `Date` header and a recipe sync older than 24 hours.
+- setting counts, `storage.local` usage, the log's size and debug state, and checks
+  for site access, the crypto host, each vault cache and sync sign-in, service
+  reachability, clock skew over 30 s against the service `Date` header, a recipe sync
+  older than 24 hours and errors logged in the last 24 hours.
 
 The worker fetches `/health` only for a paired service with site access. **Copy for bug
 report** shows the exact text before copying it; that text leaves out the unlock KDF.
 Labels, emails, item names and IDs, URLs and host names are never part of the summary.
-Persistent local logs and the Bitwarden server version are accepted in ADR 0019 but not
-implemented yet.
+The Bitwarden server version is accepted in ADR 0019 but not implemented yet.
+
+### Local log
+
+The service worker keeps a log in the `entries` store of the same IndexedDB database
+(`apps/extension/src/diagnostics/log.ts`). Only the worker writes it, one transaction
+per entry, and mirrors each entry to its console as `Pateat <event> {fields}`. Each
+event allowlists its fields by kind; other fields are dropped, a field failing its
+kind's check is left out and a string over 512 characters becomes `"[truncated]"`.
+
+| Event | Level | Fields |
+| --- | --- | --- |
+| `runtime.started` | debug | build revision |
+| `runtime.updated` | info | previous and new build revision, version |
+| `vault.state` | debug at the first sight in a worker, then info; warn for `unavailable`, `review-required` or `reauthentication-required` | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
+| `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
+| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
+| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
+| `recipe.generate` | info | origin, `recipe` or `none` |
+| `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
+| `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
+| `log.dropped` | warn | origin, events dropped over the page limit |
+| `log.debug` | info | when debug logging ends |
+
+Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
+when a site default, binding, excluded site or cached recipe names it; any other
+becomes `origin:7d2b91aa` or `rp:7d2b91aa`. Login and passkey events are limited to 20
+per minute per tab and origin; the next accepted event's window records the excess as
+`log.dropped`. `debug` entries are written only for 24 hours after **Enable debug
+logging**. Retention: 14 days; `debug` entries for 24 hours; at most 5,000 `debug` and
+`info` entries (oldest `debug` first, then `info`) and 1,000 `warn` and `error`
+entries, pruned at worker start and every 500 writes.
+
+The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
+`diagnostics.logs.clear` and `diagnostics.logs.debug`, accepted from the same page URL
+only. **Download logs** previews the exact JSON Lines text and saves it through a
+`Blob` link (no `downloads` permission): a header line with the version, revision and
+export time, then one line per entry. Unless **Include site addresses and recipe IDs**
+is checked, every origin, pseudonymized origin and RP ID becomes `site-N` and every
+recipe ID `recipe-N`, numbered within that export. **Clear logs** deletes every entry
+and replaces the pseudonym key.
 
 ## Declarative recipes and AI
 

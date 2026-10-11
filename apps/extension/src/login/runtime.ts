@@ -196,6 +196,24 @@ const probeMode = import.meta.env.MODE === "probe";
  * uses `recipes`; the loopback probe adapter and its controls exist only in the probe build.
  * Account metadata comes from each live settings read; values come from `fields` per fill.
  */
+/**
+ * A value-free account of what the runtime decided, for the local log (ADR 0019). The
+ * origin and recipe ID are reduced there; account and item IDs are never included.
+ */
+export type LoginReport =
+  | {
+      type: "attempt";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      state: LoginAttemptMetadata["state"];
+      stepIndex: number;
+      stepCount: number;
+      outcome?: string;
+    }
+  | { type: "refused"; tabId: number; origin: string; reason: string }
+  | { type: "generation"; tabId: number; origin: string; outcome: "recipe" | "none" };
+
 export function createLoginRuntime(
   settings: SettingsRuntime,
   options: {
@@ -206,9 +224,29 @@ export function createLoginRuntime(
     uris?: LiveUriMatcher;
     /** Recipe generation for pages without a recipe; needs `uris` for the vault match. */
     generation?: LoginGeneration;
+    /** Receives each attempt state change, refusal and generation result. */
+    report?: (report: LoginReport) => void;
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
+  const report = (value: LoginReport) => {
+    try {
+      options.report?.(value);
+    } catch {
+      // A report must never change the answer.
+    }
+  };
+  const reportAttempt = (metadata: LoginAttemptMetadata) =>
+    report({
+      type: "attempt",
+      tabId: metadata.document.tabId,
+      origin: metadata.document.origin,
+      recipeId: metadata.recipeId,
+      state: metadata.state,
+      stepIndex: metadata.stepIndex,
+      stepCount: metadata.stepCount,
+      ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
+    });
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<string, LiveDocument>();
@@ -341,7 +379,9 @@ export function createLoginRuntime(
   }
   async function change(run: Execution, event: LoginAttemptEvent): Promise<void> {
     if (!current(run)) return;
+    const previous = run.metadata.state;
     run.metadata = transitionLoginAttempt(run.metadata, event);
+    if (run.metadata.state !== previous) reportAttempt(run.metadata);
     if (
       import.meta.env.MODE === "probe" &&
       armed === "intent-write-failure" &&
@@ -1183,6 +1223,12 @@ export function createLoginRuntime(
         observation: parsed.output,
         slots,
       });
+      report({
+        type: "generation",
+        tabId: live.document.tabId,
+        origin: live.document.origin,
+        outcome,
+      });
       if (outcome !== "recipe" || documents.get(key) !== live) return;
       await browser.tabs.sendMessage(
         live.document.tabId,
@@ -1296,6 +1342,7 @@ export function createLoginRuntime(
     };
     documents.set(key, live);
     const refuse = async (reason: string) => {
+      report({ type: "refused", tabId: document.tabId, origin: document.origin, reason });
       live.state = "denied";
       live.reason = reason;
       await publish(live);
@@ -1427,6 +1474,7 @@ export function createLoginRuntime(
         : {}),
     };
     attempts.set(document.tabId, run);
+    reportAttempt(metadata);
     await save(run);
     await publish(live, metadata);
     void drive(run);

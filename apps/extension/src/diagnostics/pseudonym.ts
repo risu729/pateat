@@ -1,35 +1,14 @@
 // Stable per-device pseudonyms for identifiers shown in diagnostics (ADR 0019). The HMAC
 // key never leaves this device's IndexedDB and is not extractable.
-export const DIAGNOSTICS_DATABASE_NAME = "pateat.diagnostics.v1";
-/** The only schema: one `meta` store for the pseudonym key. */
-export const DIAGNOSTICS_DATABASE_VERSION = 1;
-const META_STORE = "meta";
+import {
+  DIAGNOSTICS_DATABASE_NAME,
+  META_STORE,
+  completion,
+  openDiagnosticsDatabase,
+  request,
+} from "./database";
+
 const KEY_ID = "pseudonym-key";
-
-function request<T>(open: () => IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const pending = open();
-    pending.onsuccess = () => resolve(pending.result);
-    pending.onerror = () => reject(new Error("storage-failed"));
-  });
-}
-
-function openDatabase(factory: IDBFactory, name: string): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const opening = factory.open(name, DIAGNOSTICS_DATABASE_VERSION);
-    opening.onupgradeneeded = () => {
-      opening.result.createObjectStore(META_STORE);
-    };
-    opening.onsuccess = () => {
-      const database = opening.result;
-      // A newer schema must never wait on this connection.
-      database.onversionchange = () => database.close();
-      resolve(database);
-    };
-    opening.onerror = () => reject(new Error("storage-failed"));
-    opening.onblocked = () => reject(new Error("storage-failed"));
-  });
-}
 
 function generateKey(): Promise<CryptoKey> {
   return crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256", length: 256 }, false, ["sign"]);
@@ -39,16 +18,11 @@ function generateKey(): Promise<CryptoKey> {
 async function storedKey(factory: IDBFactory, name: string): Promise<CryptoKey> {
   // Generated before the transaction: an await on WebCrypto would let it auto-commit.
   const candidate = await generateKey();
-  const database = await openDatabase(factory, name);
+  const database = await openDiagnosticsDatabase(factory, name);
   try {
     const transaction = database.transaction(META_STORE, "readwrite");
     const store = transaction.objectStore(META_STORE);
-    const done = new Promise<void>((resolve, reject) => {
-      transaction.oncomplete = () => resolve();
-      transaction.onabort = () => reject(new Error("storage-failed"));
-    });
-    // A failed read below rejects first; the abort that follows must not go unhandled.
-    done.catch(() => undefined);
+    const done = completion(transaction);
     const existing = await request(() => store.get(KEY_ID));
     const key = existing instanceof CryptoKey ? existing : candidate;
     if (key === candidate) store.put(candidate, KEY_ID);
@@ -59,7 +33,25 @@ async function storedKey(factory: IDBFactory, name: string): Promise<CryptoKey> 
   }
 }
 
-export type Pseudonyms = (kind: string, value: string, hexLength: number) => Promise<string>;
+/** Replaces the stored key, so earlier pseudonyms cannot be linked to later ones. */
+async function replaceKey(factory: IDBFactory, name: string): Promise<CryptoKey> {
+  const key = await generateKey();
+  const database = await openDiagnosticsDatabase(factory, name);
+  try {
+    const transaction = database.transaction(META_STORE, "readwrite");
+    const done = completion(transaction);
+    transaction.objectStore(META_STORE).put(key, KEY_ID);
+    await done;
+    return key;
+  } finally {
+    database.close();
+  }
+}
+
+export type Pseudonyms = ((kind: string, value: string, hexLength: number) => Promise<string>) & {
+  /** Starts a new key; clearing the logs uses it. */
+  rotate(): Promise<void>;
+};
 
 /**
  * HMAC-SHA-256 of `kind` and `value`, as the first `hexLength` hex digits. If storage is
@@ -72,7 +64,7 @@ export function createPseudonyms(
   const factory = options.indexedDB ?? globalThis.indexedDB;
   const name = options.databaseName ?? DIAGNOSTICS_DATABASE_NAME;
   let key: Promise<CryptoKey> | undefined;
-  return async (kind, value, hexLength) => {
+  const pseudonym = async (kind: string, value: string, hexLength: number) => {
     key ??= storedKey(factory, name).catch(() => generateKey());
     const mac = await crypto.subtle.sign(
       "HMAC",
@@ -84,4 +76,10 @@ export function createPseudonyms(
       .join("")
       .slice(0, hexLength);
   };
+  return Object.assign(pseudonym, {
+    async rotate() {
+      key = replaceKey(factory, name).catch(() => generateKey());
+      await key;
+    },
+  });
 }
