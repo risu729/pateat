@@ -1,8 +1,8 @@
 # CI and server delivery
 
 Status: foundation CI and guarded server delivery after main CI are implemented.
-Deployment has not been enabled or executed. Extension store publishing is
-excluded. The server remains optional for the eventual local login core.
+Deployment has not been executed. Extension store publishing is excluded. The server
+remains optional for the eventual local login core.
 
 ## Current foundation workflows
 
@@ -53,10 +53,10 @@ The owner decided these on 2026-10-11, following the kogane repository:
   setup. Add a `worker-preview` deployment with a separate preview D1 binding, as biwa
   does for its docs, when the owner web UI exists.
 
-`deploy-server.yml` stays disabled until the repository variable
-`SERVER_DEPLOY_ENABLED=true`; it must be a repository variable, because the job's
-condition cannot read environment variables. Before enabling it, bootstrap the Worker
-and its Custom Domain, and set the `production` environment variables
+`deploy-server.yml` has no enable switch: the owner decided on 2026-10-11 that every
+successful main-push CI run deploys. Until the production credentials exist, each run
+fails at its first step without changing anything. Bootstrap the Worker and its Custom
+Domain first, then set the `production` environment variables
 `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
 `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret. Put
 the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner chose

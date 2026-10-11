@@ -26,10 +26,10 @@ defaults:
 jobs:
   deploy:
     name: Deploy tested server
-    # Disabled until the owner has bootstrapped routing and scoped credentials. The
-    # switch is a repository variable: job conditions cannot read environment ones.
+    # Every successful main push releases; there is no enable switch. Until the owner
+    # has set the production credentials, the first step fails before any change.
     if: >-
-      ${{ vars.SERVER_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)) }}
+      ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production

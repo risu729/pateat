@@ -120,5 +120,5 @@ requires before distributing a built Worker.
 
 The configuration records the bootstrapped D1 database and the Custom Domain
 `pateat.takuk.me`; the account, credentials and Access applications are owner settings
-outside the repository. The server delivery workflow stays disabled until those
-deployment inputs, a verified Access application and a reachable health endpoint exist.
+outside the repository. The server delivery workflow runs after every successful main
+CI and fails before any change until those deployment inputs exist.
