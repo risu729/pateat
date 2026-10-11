@@ -1484,7 +1484,7 @@ describe("production login document admission", () => {
       expect(h.settings.settings.siteDefaults).toHaveLength(1);
       // Checked against the saved revision, it is not stopped as a policy change.
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v2"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
           { state: "authenticated", document: { tabId: 1 } },
           { state: "authenticated", document: { tabId: 2 } },
         ]),
