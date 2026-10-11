@@ -166,22 +166,76 @@ test("the site is excluded by its exact hostname, and a covering rule can be rem
   expect(current().snapshot.settings.excludedSites).toEqual([]);
 });
 
-test("a parent rule that includes subdomains is shown as the reason", async () => {
+test("a parent rule that includes subdomains is shown but changed only in settings", async () => {
   const settings = createDefaultSettings();
   settings.excludedSites.push(
     { hostname: "bank.example", includeSubdomains: true },
+    { hostname: "login.bank.example", includeSubdomains: false },
     { hostname: "mail.example", includeSubdomains: false },
   );
   const { client, current } = store(saved(4, settings));
   await mount(client, "https://login.bank.example/");
   await expect.element(page.getByText("bank.example · Including subdomains")).toBeVisible();
+  await expect
+    .element(page.getByText("Covers other sites too; change it in settings."))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Remove excluded site bank.example" }))
+    .not.toBeInTheDocument();
   await expect.element(page.getByText("mail.example", { exact: false })).not.toBeInTheDocument();
-  await userEvent.click(page.getByRole("button", { name: "Remove excluded site bank.example" }));
-  await expect.element(page.getByText("Allowed:", { exact: false })).toBeVisible();
+  await userEvent.click(
+    page.getByRole("button", { name: "Remove excluded site login.bank.example" }),
+  );
+  await expect.element(page.getByText("login.bank.example is no longer excluded.")).toBeVisible();
+  // The parent rule still excludes the site, so no account is searched.
+  await expect.element(page.getByText("Excluded:", { exact: false })).toBeVisible();
   expect(current().snapshot.settings.excludedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: true },
     { hostname: "mail.example", includeSubdomains: false },
   ]);
-  await vi.waitFor(() => expect(client.findSiteAccounts).toHaveBeenCalledOnce());
+  expect(client.findSiteAccounts).not.toHaveBeenCalled();
+});
+
+test("a tab whose address Pateat cannot read says so", async () => {
+  const { client } = store();
+  await mount(client, undefined);
+  await expect
+    .element(page.getByText("Pateat cannot read this tab's address.", { exact: false }))
+    .toBeVisible();
+  expect(client.findSiteAccounts).not.toHaveBeenCalled();
+});
+
+test("an HTTP page is not a site Pateat runs on", async () => {
+  const { client } = store();
+  await mount(client, "http://bank.example/");
+  await expect
+    .element(page.getByText("Pateat works on HTTPS websites.", { exact: false }))
+    .toBeVisible();
+  expect(client.findSiteAccounts).not.toHaveBeenCalled();
+});
+
+test("a saved default whose item does not match the origin keeps its vault labels", async () => {
+  const settings = createDefaultSettings();
+  // Saved elsewhere without display names; the item matches only mail.example.
+  settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "secondary",
+  });
+  const { client } = store(saved(1, settings));
+  client.findSiteAccounts.mockImplementation(async (origin) => ({
+    ...(await demoSiteAccounts(origin)),
+    accounts: [],
+  }));
+  await mount(client, "https://bank.example/");
+  await expect
+    .element(page.getByText("Default: Demo secondary account (Demo personal vault)"))
+    .toBeVisible();
+  await expect
+    .element(page.getByText("No vault item matches this site.", { exact: false }))
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Remove default" })).toBeVisible();
 });
 
 test("a change saved elsewhere first is reloaded instead of overwritten", async () => {

@@ -216,7 +216,7 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void actionIcon.refresh();
   });
-  // The settings page and the toolbar popup edit settings through the same store (ADR 0020).
+  // The settings page and the toolbar popup edit settings through the same store (ADR 0021).
   const settingsPages = new Set([
     browser.runtime.getURL("/options.html"),
     browser.runtime.getURL("/popup.html"),

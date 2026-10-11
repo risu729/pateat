@@ -101,7 +101,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     48: "icon/48.png",
     128: "icon/128.png",
   });
-  // The toolbar icon opens the current-site popup (ADR 0020).
+  // The toolbar icon opens the current-site popup (ADR 0021).
   expect(manifest.action).toMatchObject({ default_popup: "popup.html", default_title: "Pateat" });
   // The worker switches to the unlocked icon once a vault can unlock automatically.
   expect(manifest.action.default_icon).toEqual({
@@ -257,23 +257,48 @@ test("the toolbar popup edits the active tab's site through the settings store",
     );
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${id}/popup.html`);
-    // Opened as a tab, the active tab is its own extension page, whose URL Pateat cannot read.
+    // Opened as a tab, the active tab is the popup's own extension page, not a website.
     await expect(popup.locator("#popup-unsupported")).toBeVisible();
-    const get = (page: Page) =>
-      page.evaluate(() =>
-        (globalThis as unknown as { chrome: TestChrome }).chrome.runtime
-          .sendMessage({ version: 1, type: "settings.get" })
-          .then(
-            (response) => response ?? "unanswered",
-            () => "unanswered",
-          ),
+    const send = (page: Page, message: unknown) =>
+      page.evaluate(
+        (request) =>
+          (globalThis as unknown as { chrome: TestChrome }).chrome.runtime
+            .sendMessage(request)
+            .then(
+              (response) => response ?? "unanswered",
+              () => "unanswered",
+            ),
+        message,
       );
-    expect(await get(popup)).toMatchObject({ ok: true, snapshot: { revision: 0 } });
-    // Other extension pages still cannot read or save settings.
+    const get = (page: Page) => send(page, { version: 1, type: "settings.get" });
+    const initial = await get(popup);
+    expect(initial).toMatchObject({ ok: true, snapshot: { revision: 0 } });
+    // Other extension pages still cannot read, save or search settings.
     const diagnostics = await context.newPage();
     await diagnostics.goto(`chrome-extension://${id}/diagnostics.html`);
     expect(await get(diagnostics)).toBe("unanswered");
+    const { settings } = (initial as Extract<SettingsResponse, { ok: true }>).snapshot;
+    expect(
+      await send(diagnostics, {
+        version: 1,
+        type: "settings.save",
+        expectedRevision: 0,
+        settings: {
+          ...settings,
+          excludedSites: [{ hostname: "x.example", includeSubdomains: false }],
+        },
+      }),
+    ).toBe("unanswered");
+    expect(
+      await send(diagnostics, {
+        version: 1,
+        type: "settings.site-accounts",
+        origin: "https://bank.example",
+        settings,
+      }),
+    ).toBe("unanswered");
     await diagnostics.close();
+    expect(await get(popup)).toMatchObject({ snapshot: { revision: 0 } });
 
     // A popup reads the active tab of its window; here it stays an inactive tab.
     const bank = await popup.evaluate(

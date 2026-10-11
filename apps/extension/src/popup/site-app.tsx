@@ -35,7 +35,7 @@ function hostnameOf(origin: string): string {
 
 /**
  * The toolbar popup edits two settings of the active tab's site, its default account and
- * its exclusion, through the same worker-owned store as the settings page (ADR 0020).
+ * its exclusion, through the same worker-owned store as the settings page (ADR 0021).
  */
 export function SiteApp({ client, host }: { client: SettingsClient; host: PopupHost }) {
   const queryClient = useQueryClient();
@@ -85,7 +85,10 @@ export function SiteApp({ client, host }: { client: SettingsClient; host: PopupH
         setMessage("Settings changed elsewhere and were reloaded. Nothing was changed; try again.");
       } else setMessage("The change could not be saved.");
     } catch {
-      setMessage("The change could not be saved. Reopen this popup and try again.");
+      // The store may still have saved it; reopening shows the saved settings.
+      setMessage(
+        "The change may not have been saved. Reopen this popup to see the saved settings.",
+      );
     } finally {
       setBusy(false);
     }
@@ -101,7 +104,9 @@ export function SiteApp({ client, host }: { client: SettingsClient; host: PopupH
   else if (!origin)
     body = (
       <p id="popup-unsupported">
-        Pateat works on HTTPS websites. Open a website, then click the Pateat icon again.
+        {tab.data
+          ? "Pateat works on HTTPS websites. Open a website, then click the Pateat icon again."
+          : "Pateat cannot read this tab's address. It works on HTTPS websites it has site access to; a page that is still loading shows this too."}
       </p>
     );
   else if (!saved)
@@ -125,6 +130,9 @@ export function SiteApp({ client, host }: { client: SettingsClient; host: PopupH
     const currentValue =
       current && mapped?.ok ? JSON.stringify([mapped.connectionId, current.itemId]) : undefined;
     const currentOption = options.find((entry) => entry.value === currentValue);
+    const currentConnection = mapped?.ok
+      ? catalog.connections.find((entry) => entry.id === mapped.connectionId)
+      : undefined;
     const shown = options.some((entry) => entry.value === chosen)
       ? chosen
       : (currentOption?.value ?? options[0]?.value ?? "");
@@ -133,7 +141,11 @@ export function SiteApp({ client, host }: { client: SettingsClient; host: PopupH
       currentLabel = `Default: ${
         currentOption
           ? `${currentOption.label} (${currentOption.connectionLabel})`
-          : `${current.itemName ?? current.itemId} (${current.accountName ?? "account not connected here"})`
+          : `${
+              currentConnection?.items.find((item) => item.id === current.itemId)?.label ??
+              current.itemName ??
+              current.itemId
+            } (${currentConnection?.label ?? `${current.accountName ?? "this vault account"}, not connected here`})`
       }`;
     let accountsNote = "";
     if (accounts.isPending) accountsNote = "Finding the vault items that match this site…";
@@ -146,7 +158,10 @@ export function SiteApp({ client, host }: { client: SettingsClient; host: PopupH
 
     const setDefault = () => {
       const selected = options.find((entry) => entry.value === shown);
-      if (!selected?.userId) return;
+      if (!selected?.userId) {
+        setMessage("This account is unavailable. Choose another one or use the settings page.");
+        return;
+      }
       const entry = {
         origin,
         provider: selected.provider,
@@ -185,21 +200,26 @@ export function SiteApp({ client, host }: { client: SettingsClient; host: PopupH
                       {rule.hostname} ·{" "}
                       {rule.includeSubdomains ? "Including subdomains" : "Exact hostname only"}
                     </span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={busy}
-                      aria-label={`Remove excluded site ${rule.hostname}`}
-                      onClick={() =>
-                        void change((value) => {
-                          value.excludedSites = value.excludedSites.filter(
-                            (site) => site.hostname !== rule.hostname,
-                          );
-                        }, `${rule.hostname} is no longer excluded.`)
-                      }
-                    >
-                      Remove
-                    </Button>
+                    {/* A rule for a parent domain also covers other sites; it is changed in settings. */}
+                    {rule.hostname === hostname ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={busy}
+                        aria-label={`Remove excluded site ${rule.hostname}`}
+                        onClick={() =>
+                          void change((value) => {
+                            value.excludedSites = value.excludedSites.filter(
+                              (site) => site.hostname !== rule.hostname,
+                            );
+                          }, `${rule.hostname} is no longer excluded.`)
+                        }
+                      >
+                        Remove
+                      </Button>
+                    ) : (
+                      <small>Covers other sites too; change it in settings.</small>
+                    )}
                   </li>
                 ))}
               </ul>
