@@ -2,7 +2,13 @@ import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 
 import { normalizeBitwardenProfile, type BitwardenProfile } from "./environment";
-import { failure, type BitwardenErrorCode, type BitwardenResult } from "./errors";
+import {
+  failure,
+  mismatch,
+  type BitwardenErrorCode,
+  type BitwardenMismatchCheck,
+  type BitwardenResult,
+} from "./errors";
 import {
   admitLocalCryptoCipher,
   localCryptoAccountContextSchema,
@@ -166,13 +172,18 @@ export function admitPreparedBitwardenAccount(
 
 class AdmissionFailure extends Error {
   readonly code: BitwardenErrorCode;
-  constructor(code: BitwardenErrorCode = "invalid-response") {
+  readonly check: BitwardenMismatchCheck | undefined;
+  constructor(code: BitwardenErrorCode = "invalid-response", check?: BitwardenMismatchCheck) {
     super();
     this.code = code;
+    this.check = check;
   }
 }
 function reject(code?: BitwardenErrorCode): never {
   throw new AdmissionFailure(code);
+}
+function rejectMismatch(check: BitwardenMismatchCheck): never {
+  throw new AdmissionFailure("account-mismatch", check);
 }
 function record(input: unknown): RecordValue {
   if (
@@ -301,6 +312,12 @@ function modernUnlock(input: unknown): Sdk.MasterPasswordUnlockData {
     salt: requiredText(read(value, "salt"), 320),
     ...(containedKeyId ? { containedKeyId } : {}),
   };
+}
+/** The token's copy may omit the contained key ID hint; every present value must still agree. */
+function sameUnlock(a: Sdk.MasterPasswordUnlockData, b: Sdk.MasterPasswordUnlockData): boolean {
+  const { containedKeyId: left, ...leftRequired } = a;
+  const { containedKeyId: right, ...rightRequired } = b;
+  return same(leftRequired, rightRequired) && (left == null || right == null || left === right);
 }
 function accountKeys(input: unknown): Sdk.WrappedAccountCryptographicState {
   const value = record(input);
@@ -642,19 +659,16 @@ export function createBitwardenAccountMapper(
           const account = record(sync.profile);
           const userId = identifier(read(account, "id"));
           const actualEmail = normalizedEmail(read(account, "email"));
-          if (
-            identifier(claims["sub"]) !== userId ||
-            normalizedEmail(claims["email"]) !== actualEmail ||
-            actualEmail !== expectedEmail ||
-            (binding.kind === "known" && binding.userId !== userId)
-          )
-            reject("account-mismatch");
+          if (identifier(claims["sub"]) !== userId) rejectMismatch("token-subject");
+          if (normalizedEmail(claims["email"]) !== actualEmail) rejectMismatch("token-email");
+          if (actualEmail !== expectedEmail) rejectMismatch("configured-email");
+          if (binding.kind === "known" && binding.userId !== userId) rejectMismatch("known-user");
           const stamp = read(account, "securityStamp");
           if (stamp != null) requiredText(stamp, 200);
           if (claims["sstamp"] != null) {
             const tokenStamp = requiredText(claims["sstamp"], 200);
             if (stamp != null && tokenStamp.toLowerCase() !== (stamp as string).toLowerCase())
-              reject("account-mismatch");
+              rejectMismatch("security-stamp");
           }
           const encryptedAccount = record(authenticated["encryptedAccount"]);
           // Password-reset and key-connector ceremonies are outside ordinary password unlock.
@@ -679,7 +693,8 @@ export function createBitwardenAccountMapper(
           const tokenKeys = read(encryptedAccount, "accountKeys");
           if (tokenKeys != null) {
             const tokenState = accountKeys(tokenKeys);
-            if (!sameAccountState(tokenState, cryptographicState)) reject("account-mismatch");
+            if (!sameAccountState(tokenState, cryptographicState))
+              rejectMismatch("token-account-keys");
             // Optional older-sync omission must not discard a present token signature.
             // Retain it so the local SDK verifies every supplied cryptographic statement.
             if (
@@ -694,7 +709,8 @@ export function createBitwardenAccountMapper(
             "V1" in cryptographicState
               ? cryptographicState.V1.private_key
               : cryptographicState.V2.private_key;
-          if (tokenPrivate != null && tokenPrivate !== privateKey) reject("account-mismatch");
+          if (tokenPrivate != null && tokenPrivate !== privateKey)
+            rejectMismatch("token-private-key");
           let unlock: Sdk.MasterPasswordUnlockData;
           const userDecryption = sync.userDecryption;
           if (userDecryption != null) {
@@ -718,12 +734,13 @@ export function createBitwardenAccountMapper(
           }
           for (const source of [account, encryptedAccount]) {
             const key = read(source, "key");
-            if (key != null && key !== unlock.masterKeyWrappedUserKey) reject("account-mismatch");
+            if (key != null && key !== unlock.masterKeyWrappedUserKey) rejectMismatch("user-key");
           }
           const tokenDecryption = read(encryptedAccount, "userDecryptionOptions");
           if (tokenDecryption != null) {
             const raw = read(record(tokenDecryption), "masterPasswordUnlock");
-            if (raw != null && !same(modernUnlock(raw), unlock)) reject("account-mismatch");
+            if (raw != null && !sameUnlock(modernUnlock(raw), unlock))
+              rejectMismatch("token-unlock");
           }
           const organizations = new Map<string, string>();
           const organizationIds = new Set<string>();
@@ -858,6 +875,7 @@ export function createBitwardenAccountMapper(
             },
           };
         } catch (error) {
+          if (error instanceof AdmissionFailure && error.check) return mismatch(error.check);
           return failure(error instanceof AdmissionFailure ? error.code : "invalid-response");
         }
       },

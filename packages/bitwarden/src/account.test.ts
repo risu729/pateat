@@ -8,6 +8,7 @@ import {
   accountProfile,
   accountUserId,
   rawLoginCipher,
+  rawModernV1Account,
   rawOrganizationAccount,
   rawV1Account,
   rawV2Account,
@@ -27,7 +28,10 @@ const known = {
   accountVersion: "v2",
   minimumSecurityVersion: 2,
 };
-type Raw = ReturnType<typeof rawV1Account> | ReturnType<typeof rawV2Account>;
+type Raw =
+  | ReturnType<typeof rawV1Account>
+  | ReturnType<typeof rawV2Account>
+  | ReturnType<typeof rawModernV1Account>;
 
 function setAt(root: object, path: Array<string | number>, value: unknown) {
   let target = root as Record<string, unknown>;
@@ -164,6 +168,18 @@ describe("raw provider account through native local crypto", () => {
     if (!result.ok) return;
     expect(result.data.name).toBe("My test login");
     expect(result.data.login?.username).toBe("test_username");
+    expect(result.data.login?.password).toBe("test_password");
+  });
+
+  it("receives, maps and decrypts a modern V1 account through the transport", async () => {
+    const { prepared, session } = await received(rawModernV1Account());
+    expect(prepared.binding.accountVersion).toBe("v1");
+    const result = await session.decryptCipher({
+      connectionId: accountProfile.connectionId,
+      cipher: prepared.ciphers[0],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
     expect(result.data.login?.password).toBe("test_password");
   });
 
@@ -552,6 +568,34 @@ describe("strict modern data without legacy alias fallback", () => {
       expect(mapRaw(raw).ok).toBe(false);
     },
   );
+
+  it("maps a modern V1 account whose token unlock data omits the contained key ID", () => {
+    const mapped = mapRaw(rawModernV1Account());
+    expect(mapped).toMatchObject({ ok: true, data: { binding: { accountVersion: "v1" } } });
+    if (mapped.ok)
+      expect(mapped.data.masterPasswordUnlock.containedKeyId).toBe(
+        "0123456789abcdef0123456789abcdef",
+      );
+  });
+
+  it("still rejects a token contained key ID that contradicts sync", () => {
+    const raw = rawModernV1Account();
+    setAt(
+      raw,
+      ["token", "UserDecryptionOptions", "MasterPasswordUnlock", "ContainedKeyId"],
+      "ffffffffffffffffffffffffffffffff",
+    );
+    expect(mapRaw(raw)).toEqual({
+      ok: false,
+      error: { code: "account-mismatch", check: "token-unlock" },
+    });
+  });
+
+  it("names the failed check without any compared value", () => {
+    expect(
+      mapRaw(rawModernV1Account(), { kind: "bootstrap", email: "other@example.test" }),
+    ).toEqual({ ok: false, error: { code: "account-mismatch", check: "configured-email" } });
+  });
 
   it("accepts an explicitly null legacy AccountKeys field only without V2 evidence", () => {
     const raw = rawV1Account();
