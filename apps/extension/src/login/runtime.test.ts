@@ -60,6 +60,7 @@ const { createLoginRuntime } = await import("./runtime");
 const origin = "http://127.0.0.1:3847";
 const connectionId = "50000000-0000-4000-8000-000000000001";
 const itemId = "80000000-0000-4000-8000-000000000001";
+const userId = "70000000-0000-4000-8000-000000000001";
 const first = "60000000-0000-4000-8000-000000000001";
 const second = "60000000-0000-4000-8000-000000000002";
 const trusted = {
@@ -98,7 +99,8 @@ function settingsFor({ snapshot = () => first, state = "ready", quarantined = []
             },
           ],
           excludedSites: [],
-          siteDefaults: [{ origin, connectionId, itemId }],
+          siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+          bindings: [],
         },
       },
       catalog: {
@@ -107,6 +109,7 @@ function settingsFor({ snapshot = () => first, state = "ready", quarantined = []
             id: connectionId,
             label: "Synthetic live vault",
             provider: "bitwarden",
+            userId,
             snapshotId: snapshot(),
             state,
             quarantinedItemIds: quarantined,

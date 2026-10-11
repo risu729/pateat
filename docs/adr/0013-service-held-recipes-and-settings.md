@@ -81,7 +81,9 @@ A saved account choice selects the item. Without one, when the provider URI matc
 finds exactly one eligible item, the attempt uses that item, and the choice is saved
 only after the outcome is `authenticated`. Nothing is saved on `credential-rejected` or
 an unknown outcome. A saved choice wins even if more items match later; deleting it
-restores automatic choice. Two or more matches still need a manual choice. Until AI
+restores automatic choice. Two or more matches still need a manual choice, and so
+does a single match whose account is connected more than once (`account-ambiguous`,
+as for a saved choice of that account; 2026-10-11). Until AI
 generation maps slots, an automatic choice binds only the slots named `username`,
 `password` and `totp` to the item's login username, password and TOTP; a recipe with
 any other slot needs a manual binding. Until AI

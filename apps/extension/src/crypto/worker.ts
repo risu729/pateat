@@ -153,9 +153,7 @@ async function execute(command: HostCommand) {
     delete owned.catalog;
     owned.loginUris.clear();
     const loginUris = new Map<string, { uri: string | null; match: number | null }[]>();
-    const groups = await owned.session.decryptCatalogGroups(
-      owned.metadataContext ?? { folders: [], collections: [] },
-    );
+    const groups = await owned.session.decryptCatalogGroups(owned.metadataContext);
     if (!groups.ok) return groups;
     const items: LocalVaultMetadata["items"] = [];
     // Validate every received supported item, without building a plaintext field

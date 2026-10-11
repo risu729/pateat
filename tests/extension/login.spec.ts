@@ -31,7 +31,7 @@ async function configure(options: Page, extensionId: string, origin: string, sel
   if (!response.ok) throw new Error("Synthetic settings unavailable");
   const settings = response.snapshot.settings;
   settings.siteDefaults = selectAccount
-    ? [{ origin, connectionId: "demo-personal", itemId: "primary" }]
+    ? [{ origin, provider: "dummy", userId: "demo-personal-account", itemId: "primary" }]
     : [];
   const saved = (await send(options, {
     version: 1,

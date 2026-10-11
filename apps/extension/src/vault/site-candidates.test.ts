@@ -30,6 +30,7 @@ function catalog(state: VaultCatalog["connections"][number]["state"] = "ready"):
         id: "live",
         label: "Live",
         provider: "bitwarden",
+        userId,
         snapshotId,
         state,
         quarantinedItemIds: [quarantinedId],
@@ -80,7 +81,8 @@ describe("live provider URI candidates", () => {
     expect(value.connections[0]!.items[0]!.allowedOrigins).toEqual([]);
     local.siteDefaults.push({
       origin: "https://auth.example.com",
-      connectionId: "live",
+      provider: "bitwarden",
+      userId,
       itemId: loginId,
     });
     expect(resolveSiteAccount(local, value, url)).toEqual({
@@ -129,7 +131,7 @@ describe("live provider URI candidates", () => {
   });
 
   it.each([
-    ["older context", vaultFailure("uri-context-unavailable"), "uri-context-unavailable"],
+    ["dropped context", vaultFailure("uri-context-unavailable"), "uri-context-unavailable"],
     ["stale handle", vaultFailure("stale-vault-handle"), "stale-vault-handle"],
     ["missing session", undefined, "unavailable"],
     [

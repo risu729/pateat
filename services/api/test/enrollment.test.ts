@@ -711,6 +711,7 @@ describe("owner web UI settings", () => {
     connections: [],
     excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }],
     siteDefaults: [],
+    bindings: [],
   };
   const putSettings = (by: Owner, body: unknown, origin: string | null = ORIGIN) =>
     request("/manage/api/settings", {

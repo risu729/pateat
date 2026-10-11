@@ -395,14 +395,8 @@ export function SitePolicy({
               <li key={selected.origin}>
                 <span>
                   {selected.origin} →{" "}
-                  {connection?.label ??
-                    ("connectionId" in selected
-                      ? selected.connectionId
-                      : `account ${selected.userId} (not available here)`)}{" "}
-                  /{" "}
-                  {item?.label ??
-                    ("itemName" in selected ? selected.itemName : undefined) ??
-                    selected.itemId}
+                  {connection?.label ?? `account ${selected.userId} (not available here)`} /{" "}
+                  {item?.label ?? selected.itemName ?? selected.itemId}
                   <small>{status}</small>
                 </span>
                 <Button

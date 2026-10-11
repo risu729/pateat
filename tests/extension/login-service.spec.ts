@@ -113,7 +113,7 @@ test("a recipe and binding synced from the service log in with the live vault an
         if (!connection?.userId || !item) throw new Error("Synthetic vault item missing");
         // Nothing local names this site: the default and binding come only from the service.
         expect(local.snapshot.settings.siteDefaults).toEqual([]);
-        expect(local.snapshot.settings.bindings ?? []).toEqual([]);
+        expect(local.snapshot.settings.bindings).toEqual([]);
 
         const published = await service.request(`/v1/recipes/${recipeId}`, {
           method: "PUT",

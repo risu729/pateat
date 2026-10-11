@@ -683,7 +683,8 @@ describe("URI candidate matching is separate from the existing destination grant
       // Even an explicit site selection cannot expand this item's allowed origin.
       settings.siteDefaults.push({
         origin: new URL(targetUrl).origin,
-        connectionId: "demo-personal",
+        provider: "dummy",
+        userId: "demo-personal-account",
         itemId: "primary",
       });
       expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, targetUrl)).toEqual({
@@ -700,7 +701,8 @@ describe("URI candidate matching is separate from the existing destination grant
     const settings = createDefaultSettings();
     settings.siteDefaults.push({
       origin: "https://bank.example",
-      connectionId: "demo-personal",
+      provider: "dummy",
+      userId: "demo-personal-account",
       itemId: "primary",
     });
     settings.connections[0]!.excludedItemIds.push("primary");

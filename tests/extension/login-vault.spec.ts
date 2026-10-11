@@ -25,9 +25,9 @@ async function connectAndBind(options: Page, origin: string) {
   const accepted = await setupRequest(options, { type: "connection.begin", input: beginInput() });
   if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
   const saved = await settingsRequest(options);
-  const item = saved.catalog.connections.find((entry) => entry.id === accepted.connectionId)
-    ?.items[0];
-  if (!item) throw new Error("Synthetic vault item missing");
+  const connection = saved.catalog.connections.find((entry) => entry.id === accepted.connectionId);
+  const item = connection?.items[0];
+  if (!connection?.userId || !item) throw new Error("Synthetic vault item missing");
   // Live metadata grants no origin by itself; the probe supplies only its loopback origin.
   expect(item.allowedOrigins).toEqual([]);
   const account = { connectionId: accepted.connectionId, itemId: item.id };
@@ -47,7 +47,9 @@ async function connectAndBind(options: Page, origin: string) {
     }),
   ).toEqual({ ok: true });
   const settings = saved.snapshot.settings;
-  settings.siteDefaults = [{ origin, ...account }];
+  settings.siteDefaults = [
+    { origin, provider: connection.provider, userId: connection.userId, itemId: item.id },
+  ];
   const stored = await settingsRequest(options, {
     version: 1,
     type: "settings.save",

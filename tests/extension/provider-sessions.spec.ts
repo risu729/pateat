@@ -2,49 +2,10 @@ import { expect, test } from "@playwright/test";
 import { withVaultProfile } from "./vault-fixture";
 import {
   beginInput,
-  heldDatabaseState,
   inspectProviderSessions,
-  readSentinel,
-  releaseVersionOneDatabase,
-  seedVersionOneDatabase,
   setupProbe,
   setupRequest,
 } from "./connection-fixture";
-
-test("a version 1 database upgrades in place, and a blocked upgrade fails closed until released", async () => {
-  // Each blocked native open waits for the 10 s open timeout before failing closed.
-  test.setTimeout(120_000);
-  await withVaultProfile(async (open) => {
-    const browser = await open();
-    // Seed before the options page loads and reads connection status.
-    expect(await seedVersionOneDatabase(browser.page, true)).toBe(1);
-    expect(await heldDatabaseState(browser.page)).toEqual({ version: 1, records: 1 });
-    const options = await browser.context.newPage();
-    await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
-    // The held version 1 connection ignores versionchange, so the background cannot upgrade.
-    const blocked = await setupRequest(options, {
-      type: "connection.begin",
-      input: beginInput(),
-    });
-    expect(blocked).toEqual({ ok: false, error: { code: "storage-failed" } });
-    expect(await heldDatabaseState(browser.page)).toEqual({ version: 1, records: 1 });
-    await releaseVersionOneDatabase(browser.page);
-    const accepted = await setupRequest(options, {
-      type: "connection.begin",
-      input: beginInput(),
-    });
-    expect(accepted).toMatchObject({ ok: true, kind: "ready" });
-    expect(await readSentinel(browser.page)).toEqual({ sentinel: true });
-    expect(await inspectProviderSessions(browser.page)).toMatchObject({
-      version: 2,
-      stores: ["providerSessions", "records"],
-      sessions: [{ state: "active", hasAccessToken: true, hasRefreshToken: true }],
-      recordsHaveNoToken: true,
-      passwordAbsent: true,
-      plaintextAbsent: true,
-    });
-  });
-});
 
 test("sync after a full profile reopen uses the saved sign-in without a password or token request", async () => {
   await withVaultProfile(async (open, requests) => {
@@ -56,6 +17,16 @@ test("sync after a full profile reopen uses the saved sign-in without a password
       input: beginInput(),
     });
     if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
+    // The native store holds the session tokens beside, never inside, the vault records,
+    // and neither the master password nor vault plaintext.
+    expect(await inspectProviderSessions(first.page)).toMatchObject({
+      version: 2,
+      stores: ["providerSessions", "records"],
+      sessions: [{ state: "active", hasAccessToken: true, hasRefreshToken: true }],
+      recordsHaveNoToken: true,
+      passwordAbsent: true,
+      plaintextAbsent: true,
+    });
     const reopened = await open();
     const page = await reopened.context.newPage();
     await page.goto(`chrome-extension://${reopened.extensionId}/options.html`);
