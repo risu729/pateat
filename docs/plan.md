@@ -1038,7 +1038,9 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   ([Background execution](architecture.md#background-execution)).
 - More Japanese pages. The owner chose on 2026-10-11 to take them from both public
   login pages opened in Chrome on the owner's PC and the request log; six public pages
-  are in (below), the request log is not yet read. The finite-choice provider waited
+  are in (below). On 2026-10-11 the request log held one Japanese row, a MyJCB
+  generation that abstained (`insufficient-evidence`) on an observation from before
+  #206 with no login control, so it adds no case. The finite-choice provider waited
   for a Claude baseline, which now exists for both page sets.
 - Proposal, awaiting the owner's decision: let a recipe click an `onclick` link whose
   `href` is `#` or `javascript:`, as on SMBC Direct and MyJCB (below). Without it
