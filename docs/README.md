@@ -69,6 +69,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0016: Automatic recipe generation on pages with a vault match](adr/0016-recipe-generation-trigger.md)
 - [0017: Login forms inside frames](adr/0017-login-forms-in-frames.md)
 - [0018: Service recipe generation route](adr/0018-recipe-generation-route.md)
+- [0019: Local diagnostics page and logs](adr/0019-local-diagnostics-and-logs.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),
