@@ -41,12 +41,14 @@ async function publishedKeys() {
   return body.keys;
 }
 
-type Exchange = { url: string; init: RequestInit | undefined; body: Record<string, string> };
+type Exchange = { request: Request; body: Record<string, string> };
 
+// The code builds a real Request, so workerd validates its options before this seam.
 function fakeTokenEndpoint(respond: () => Response | Promise<Response>) {
   const calls: Exchange[] = [];
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    calls.push({ url: String(input), init, body: JSON.parse(String(init?.body)) });
+    const request = new Request(input, init);
+    calls.push({ request, body: JSON.parse(await request.text()) });
     return respond();
   }) as typeof globalThis.fetch;
   return { calls, fetch };
@@ -88,7 +90,8 @@ describe("OIDC issuer metadata", () => {
   it("answers other methods with 405", async () => {
     const response = await get("/.well-known/jwks.json", { method: "POST" });
     expect(response.status).toBe(405);
-    expect(response.headers.get("Allow")).toBe("GET");
+    expect(response.headers.get("Allow")).toBe("GET, HEAD");
+    expect((await get("/.well-known/openid-configuration", { method: "HEAD" })).status).toBe(200);
   });
 
   it("fails closed on missing or malformed settings", () => {
@@ -114,6 +117,10 @@ describe("OIDC issuer metadata", () => {
       {
         ...valid,
         OIDC_SIGNING_KEYS: JSON.stringify({ ...keys, keys: [{ ...keys.keys[0], alg: "HS256" }] }),
+      },
+      {
+        ...valid,
+        OIDC_SIGNING_KEYS: JSON.stringify({ ...keys, keys: [{ ...keys.keys[0], d: "AAAA" }] }),
       },
     ])
       expect(readIssuerConfig(broken)).toBeNull();
@@ -177,8 +184,9 @@ describe("Claude credential lookup", () => {
     });
     expect(endpoint.calls).toHaveLength(1);
     const [call] = endpoint.calls;
-    expect(call!.url).toBe(TOKEN_URL);
-    expect(call!.init?.method).toBe("POST");
+    expect(call!.request.url).toBe(TOKEN_URL);
+    expect(call!.request.method).toBe("POST");
+    expect(call!.request.redirect).toBe("manual");
     expect(call!.body).toMatchObject({
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       federation_rule_id: ids.federationRuleId,
@@ -265,6 +273,21 @@ describe("Claude credential lookup", () => {
     const endpoint = fakeTokenEndpoint(granted);
     expect(
       await resolveClaudeCredential({ DB: env.DB }, ownerId, { fetch: endpoint.fetch }),
+    ).toEqual({ status: "issuer_unavailable" });
+    expect(endpoint.calls).toHaveLength(0);
+
+    // Right shape, but not a point on the curve: the key never imports.
+    const keys = JSON.parse(env.OIDC_SIGNING_KEYS) as { keys: Record<string, string>[] };
+    const offCurve = JSON.stringify({
+      ...keys,
+      keys: [{ ...keys.keys[0], x: "A".repeat(43), y: "A".repeat(43) }],
+    });
+    expect(
+      await resolveClaudeCredential(
+        { DB: env.DB, OIDC_ISSUER: ISSUER, OIDC_SIGNING_KEYS: offCurve },
+        ownerId,
+        { fetch: endpoint.fetch },
+      ),
     ).toEqual({ status: "issuer_unavailable" });
     expect(endpoint.calls).toHaveLength(0);
   });

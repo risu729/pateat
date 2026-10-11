@@ -36,8 +36,8 @@ export const app = new Hono<ApiEnv>()
   .all("/health", methodNotAllowed("GET, HEAD"))
   // Anonymous issuer metadata for Anthropic's Workload Identity Federation (ADR 0015).
   .route("/.well-known", oidcRoutes)
-  .all("/.well-known/openid-configuration", methodNotAllowed("GET"))
-  .all("/.well-known/jwks.json", methodNotAllowed("GET"))
+  .all("/.well-known/openid-configuration", methodNotAllowed("GET, HEAD"))
+  .all("/.well-known/jwks.json", methodNotAllowed("GET, HEAD"))
   // Owner pages sit behind one Access application; the Worker still verifies its
   // token itself. Forms are same-origin only, and Access runs before any body read.
   .use(

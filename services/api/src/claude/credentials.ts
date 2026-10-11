@@ -82,11 +82,18 @@ export async function resolveClaudeCredential(
   const config = readIssuerConfig(env);
   if (!config) return { status: "issuer_unavailable" };
   const now = options.now ?? Date.now;
-  const assertion = await signOwnerAssertion(config, ownerId, now());
+  let assertion: string;
+  try {
+    assertion = await signOwnerAssertion(config, ownerId, now());
+  } catch {
+    // A key that passed the shape check but does not import is a configuration error.
+    return { status: "issuer_unavailable" };
+  }
 
   let response: Response;
   try {
-    response = await (options.fetch ?? globalThis.fetch)(TOKEN_URL, {
+    // Building the Request first lets the runtime validate every option, test seam or not.
+    const request = new Request(TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -98,16 +105,21 @@ export async function resolveClaudeCredential(
         workspace_id: ids.workspaceId,
       }),
       signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS),
-      redirect: "error",
+      // workerd has no "error" mode; a 3xx is not ok and ends as failed below.
+      redirect: "manual",
     });
+    response = await (options.fetch ?? globalThis.fetch)(request);
   } catch {
     return { status: "failed" };
   }
   // Anthropic answers every denied assertion with the same opaque 401; the reason is
   // only in the owner's Console authentication history.
-  if (response.status === 400 || response.status === 401 || response.status === 403)
-    return { status: "rejected", httpStatus: response.status };
-  if (!response.ok) return { status: "failed", httpStatus: response.status };
+  if (!response.ok) {
+    await response.body?.cancel();
+    return response.status === 400 || response.status === 401 || response.status === 403
+      ? { status: "rejected", httpStatus: response.status }
+      : { status: "failed", httpStatus: response.status };
+  }
   let body: unknown;
   try {
     body = await response.json();

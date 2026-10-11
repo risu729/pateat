@@ -10,10 +10,14 @@ import * as v from "valibot";
 export const ASSERTION_AUDIENCE = "https://api.anthropic.com";
 /** Assertion lifetime; Anthropic rejects more than one hour by default. */
 export const ASSERTION_LIFETIME_SECONDS = 300;
-/** The JWT `sub` for an owner; each owner's rule matches exactly this value. */
+/**
+ * The JWT `sub` for an owner. Each owner's rule must match it exactly (no trailing
+ * `*`): owner IDs are UUIDs, so no owner's subject is a prefix of another's.
+ */
 export const ownerSubject = (ownerId: string) => `owner:${ownerId}`;
 
-const base64url = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]+$/));
+/** One P-256 coordinate or scalar: 32 bytes as unpadded base64url. */
+const p256Value = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/));
 const keyId = v.pipe(v.string(), v.regex(/^[A-Za-z0-9._-]{1,64}$/));
 
 const privateKeySchema = v.object({
@@ -21,9 +25,9 @@ const privateKeySchema = v.object({
   crv: v.literal("P-256"),
   alg: v.literal("ES256"),
   kid: keyId,
-  x: base64url,
-  y: base64url,
-  d: base64url,
+  x: p256Value,
+  y: p256Value,
+  d: p256Value,
 });
 
 /**
