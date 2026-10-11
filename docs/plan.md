@@ -16,8 +16,8 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)), with tests over several
   tabs on one origin, are not implemented.
 - M3: a password login on a real site, individual MFA methods, other KDFs, V2 keys and
-  organization items on a real account, refresh against a real account, real
-  host-access revocation, and the site-access warning and prompt in installed Chrome
+  organization items on a real account, and the site-access warning and prompt in
+  installed Chrome
   ([remaining M3 integration gaps](#remaining-m3-integration-gaps)).
 - M4: sync against the deployed service, the
   [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing, synced item
@@ -499,8 +499,12 @@ after a full profile reopen, and local forget and permission removal with offlin
 kept. These use synthetic providers.
 An
 [installed-Chrome check](research/2026-10-10-feasibility.md#installed-chrome-provider-session-check-2026-10-10)
-confirmed a password-free Sync after a full browser restart with the synthetic probe.
-Refresh against a real account and real host-access revocation remain unverified.
+confirmed a password-free Sync after a full browser restart with the synthetic probe. On
+2026-10-11 the owner's installed Chrome confirmed, with the real Cloud US account, two
+password-free refreshes separated by a full browser restart, and that changing site
+access to "On click" cleared only the sync session while the local vault and automatic
+unlock stayed
+([evidence](research/2026-10-10-feasibility.md#real-account-refresh-and-host-access-revocation-2026-10-11)).
 
 ## Service sync progress
 

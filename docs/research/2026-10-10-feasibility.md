@@ -447,3 +447,33 @@ default for `https://my.jcb.co.jp`. Its saved row showed the item name followed 
 the account's login username, and the note "Matches this origin by URI and passkey;
 checked again on each login". The username was read for display only and is not
 recorded here. The locked-vault fallback was not checked in the installed Chrome.
+
+## Real-account refresh and host-access revocation, 2026-10-11
+
+The owner ran the production build of `main` at `6c2eda9` in Chrome 156.0.8078.16 on
+Windows 11, with the same real Cloud US account as above. A local Claude Code session
+read the diagnostics page and the settings page; the owner pressed the buttons. The
+build predates [PR #188](https://github.com/risu729/pateat/pull/188).
+
+Refresh. With the "Sync sign-in" row at `refresh-required` (the access token had
+expired), Sync completed at 12:40 UTC without a password prompt, and the row became
+`active` with a new last vault sync time. Chrome was then fully quit (every
+`chrome.exe` process gone) and reopened at 12:43 UTC. When the row was back at
+`refresh-required` about an hour after the first Sync, a second Sync at 13:49 UTC
+again asked for no password, showed "Vault verified and local cache accepted. Check
+automatic-unlock status below." and set the row to `active`. So refresh works
+against the real account, and the rotated refresh token survives a full browser
+restart.
+
+Revocation. At 13:51 UTC the extension's site access was changed from "On all sites"
+to "On click" in Chrome's extension details, without pressing Sync. The "Sync sign-in"
+row became `none` and automatic unlock stayed enabled, so Chrome delivered
+`permissions.onRemoved` and only the sync session was cleared. The connection's state
+read `configured`, which means the worker held no unlocked vault at that moment, not
+that the cache was lost. After site access was set back to "On all sites", reopening
+the settings page (without Sync or Sign in again) showed "Local vault ready",
+"Automatic unlock: enabled." and "Not signed in for sync.", and the diagnostics page
+showed the connection `ready` with 326 items.
+
+Not established: MFA methods, other KDFs, V2 keys and organization items, and a
+revocation through `chrome.permissions.remove` from the extension itself.
