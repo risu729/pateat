@@ -51,4 +51,25 @@ describe("isScriptButton", () => {
       false,
     ]);
   });
+
+  it("accepts links that run a script instead of following the link", () => {
+    document.body.innerHTML = `<a id="a" href="#" onclick="return false">Log in</a>
+      <a id="b" href="javascript:;">Log in</a><a id="c" href=" JavaScript:void(0)">Go</a>
+      <a id="d" href="" onclick="go()">Go</a><a id="e" href="#top" role="button">Go</a>
+      <a id="f" href="#">Top</a><a id="g" href="#top">Top</a><a id="h" href="/x" onclick="track()">Docs</a>
+      <a href="javascript:;"><span id="i" role="button">Open</span></a><a id="j" href="java&#9;script:;">Go</a>`;
+    const script = (id: string) => isScriptButton(document.getElementById(id)!);
+    expect(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"].map(script)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+    ]);
+  });
 });

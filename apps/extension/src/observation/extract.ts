@@ -126,7 +126,7 @@ function locatorIndex(document: Document): LocatorIndex {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
     }
-  for (const element of document.querySelectorAll("button, input")) {
+  for (const element of document.querySelectorAll("button, input, a")) {
     const text = buttonText(element);
     if (text !== undefined) count("text", text);
   }
@@ -157,7 +157,11 @@ function locate(
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
-  if (element instanceof HTMLAnchorElement && element.hasAttribute("href")) {
+  if (
+    element instanceof HTMLAnchorElement &&
+    element.hasAttribute("href") &&
+    !isScriptButton(element)
+  ) {
     const text = links ? linkText(element) : undefined;
     if (
       text === undefined ||
@@ -514,8 +518,9 @@ export function extractLoginObservation(
       flawed.add(host.closest("form"));
   }
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
-  // Script buttons are often widgets (menus, toggles) and only attribute locators name
-  // them, so one without a locator is left out rather than marking the page incomplete.
+  // Script buttons are often widgets (menus, toggles), and text locators name only the
+  // `<a>` ones, so one without a locator is left out rather than marking the page
+  // incomplete.
   const scripted: typeof required = [];
   const links: typeof required = [];
   for (const entry of found) {

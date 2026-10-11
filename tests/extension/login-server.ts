@@ -388,15 +388,19 @@ export async function startLoginFixture(
     } else if (path === "/sign-in") {
       // A page with no recipe: a generated one fills the password and opens /account. The
       // page reads its run ID itself, so nothing from the request URL is written into it.
-      // `?button=anchor` makes the login button a link without href, as on MyJCB.
+      // `?button=anchor` makes the login button a link without href, as MyJCB's passkey
+      // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's.
+      const variant = fixtureUrl.searchParams.get("button");
       const button =
-        fixtureUrl.searchParams.get("button") === "anchor"
+        variant === "anchor"
           ? '<a id="login" onclick="return false">Log in</a>'
-          : '<button id="login" type="button">Log in</button>';
+          : variant === "script-link"
+            ? '<a href="javascript:;" onclick="return false"><span>Log in</span></a>'
+            : '<button id="login" type="button">Log in</button>';
       response.end(
         html(
           `<h1>Synthetic sign-in</h1><form><label>Password<input id="password" type="password"></label>${button}</form>`,
-          `document.getElementById('login').addEventListener('click', () => {
+          `document.querySelector('#login, form a').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           const runId = new URLSearchParams(location.search).get('runId');

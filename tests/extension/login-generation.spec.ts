@@ -62,19 +62,26 @@ function syntheticClaude() {
       .find((parsed) => parsed?.task !== undefined);
     if (!prompt) throw new Error("No synthetic prompt found");
     prompts.push(prompt);
-    const byTarget = (value: string) => {
+    const byTarget = (value: string, by = "id") => {
       const found = prompt.observation.candidates.find(
-        (candidate) => candidate.target.by === "id" && candidate.target.value === value,
+        (candidate) => candidate.target.by === by && candidate.target.value === value,
       );
-      if (!found) throw new Error(`No candidate for #${value}`);
+      if (!found) throw new Error(`No candidate for ${by} ${value}`);
       return found.id;
     };
+    // The `script-link` fixture's login link has no id, so only its text names it.
+    const login = () =>
+      prompt.observation.candidates.some(
+        ({ target }) => target.by === "id" && target.value === "login",
+      )
+        ? byTarget("login")
+        : byTarget("Log in", "text");
     const result =
       prompt.task === "generate"
         ? {
             decision: "plan",
             fields: [{ slot: "password", candidate: byTarget("password") }],
-            action: { candidate: byTarget("login"), purpose: "submit" },
+            action: { candidate: login(), purpose: "submit" },
           }
         : { decision: "signed-in", marker: byTarget("sign-out") };
     return {
@@ -91,7 +98,7 @@ function syntheticClaude() {
   return { prompts, answer };
 }
 
-for (const button of ["button", "anchor"] as const)
+for (const button of ["button", "anchor", "script-link"] as const)
   test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button})`, async () => {
     const fixture = await startLoginFixture(0, { password: "test_password" });
     const claude = syntheticClaude();

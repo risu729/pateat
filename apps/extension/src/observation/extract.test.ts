@@ -269,23 +269,61 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("observes script buttons, such as MyJCB's onclick link, by attribute only", () => {
+  it("observes script buttons, and names a role=button element by attribute only", () => {
     page(
       `<div role="button">ログイン</div>
       <form name="loginForm"><input id="userId"><input id="password" type="password">
-        <a id="loginButtonAD" onclick="document.loginForm.submit()">ログイン</a>
+        <a id="loginButtonAD" onclick="document.loginForm.submit()">ID でログイン</a>
         <span role="button" aria-label="Show password"></span><a class="plain">ヘルプ</a>
         <button>ログイン</button></form>`,
     );
     const observation = observe();
     // A script button without a locator is left out without making the page incomplete,
-    // and never takes a native button's text locator.
+    // and a role=button element never takes a native button's text locator.
     expect(observation.complete).toBe(true);
     expect(summary(observation).map(({ role, target, label }) => [role, target, label])).toEqual([
       ["text", { by: "id", value: "userId" }, undefined],
       ["password", { by: "id", value: "password" }, undefined],
-      ["button", { by: "id", value: "loginButtonAD" }, "ログイン"],
+      ["button", { by: "id", value: "loginButtonAD" }, "ID でログイン"],
       ["button", { by: "text", value: "ログイン" }, "ログイン"],
+    ]);
+  });
+
+  it("observes links that run a script as buttons, such as MyJCB's and SMBC Direct's", () => {
+    page(
+      `<form name="loginForm"><input id="userId"><input id="password" type="password">
+        <a id="loginButtonAD" name="loginButtonAD" href="#" onclick="document.loginForm.submit();return false;">ID・パスワードでログイン</a>
+        <a href="javascript:;" class="js-login-submit" onclick="login()"><span>ログイン</span></a>
+        <a href="/forgot">パスワードをお忘れの方</a><a href="#top">ページトップへ</a></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
+      ["text", { by: "id", value: "userId" }],
+      ["password", { by: "id", value: "password" }],
+      ["button", { by: "id", value: "loginButtonAD" }],
+      ["button", { by: "text", value: "ログイン" }],
+      ["link", { by: "text", value: "パスワードをお忘れの方" }],
+      ["link", { by: "text", value: "ページトップへ" }],
+    ]);
+    // The executor resolves the text locator to the script link alone.
+    expect(findTargets(document, { by: "text", value: "ログイン" })).toEqual([
+      document.querySelector(".js-login-submit"),
+    ]);
+  });
+
+  it("leaves out a script link whose text a native button shows, as the executor cannot tell them apart", () => {
+    page(
+      `<a href="#" onclick="openLogin()">ログイン</a>
+      <form><input id="user"><input id="pass" type="password">
+        <a href="javascript:;" onclick="login()">ログイン</a><button id="go">ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
+      ["text", { by: "id", value: "user" }],
+      ["password", { by: "id", value: "pass" }],
+      ["button", { by: "id", value: "go" }],
     ]);
   });
 

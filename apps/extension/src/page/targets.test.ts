@@ -36,6 +36,21 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, target, { links: true }))).toEqual(["a", "d"]);
   });
 
+  it("matches links that run a script by text like buttons, and other links only when asked", () => {
+    page(
+      `<a id="a" href="javascript:;" onclick="login()"><span>ログイン</span></a>
+      <a id="b" onclick="login()">パスキー</a><a id="c" href="#" onclick="go()">次へ</a>
+      <a id="d" href="/help">次へ</a><div id="e" role="button">ログイン</div>`,
+    );
+    expect(ids(findTargets(document, { by: "text", value: "ログイン" }))).toEqual(["a"]);
+    expect(ids(findTargets(document, { by: "text", value: "パスキー" }))).toEqual(["b"]);
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual(["c"]);
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }, { links: true }))).toEqual([
+      "c",
+      "d",
+    ]);
+  });
+
   it("matches buttons by collapsed rendered text, input value or image alt", () => {
     page(
       `<button id="a"> <span>ログ</span><span>​イン</span> </button>

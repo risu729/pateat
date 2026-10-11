@@ -100,12 +100,33 @@ export function isButton(element: Element): element is HTMLButtonElement | HTMLI
 }
 
 /**
- * A control that only scripts make clickable: an `<a>` without `href` that has an
- * `onclick` attribute (MyJCB's login button is
- * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`), or another element
- * with `role="button"`. Form controls, links and anything inside an `<a href>` (a click
- * there would follow the link) are not script buttons. Only attribute locators name
- * one, so text locators keep matching native buttons alone.
+ * True for an `<a href>` that runs a script instead of following the link: a
+ * `javascript:` URL (SMBC Direct's login is `<a href="javascript:;" onclick="...">`), or
+ * an empty or fragment-only `href` on a link with an `onclick` attribute or
+ * `role="button"` (MyJCB's login script sets `href="#"` on
+ * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`).
+ */
+function scriptHref(link: HTMLAnchorElement): boolean {
+  // URL parsing drops tabs and newlines anywhere and spaces at either end.
+  const href = link
+    .getAttribute("href")!
+    .replace(/[\t\n\r]/gu, "")
+    .trim();
+  if (/^javascript:/iu.test(href)) return true;
+  return (
+    (href === "" || href.startsWith("#")) && (link.hasAttribute("onclick") || roleButton(link))
+  );
+}
+
+const roleButton = (element: Element) =>
+  element.getAttribute("role")?.trim().toLowerCase() === "button";
+
+/**
+ * A control that only scripts make clickable: a script link (an `<a>` without `href`
+ * that has an `onclick` attribute, or an `<a href>` that runs a script, see
+ * {@link scriptHref}), or another element with `role="button"`. Form controls, links
+ * that navigate and anything inside an `<a href>` (a click there would follow the link)
+ * are not script buttons.
  */
 export function isScriptButton(element: Element): boolean {
   if (
@@ -113,14 +134,23 @@ export function isScriptButton(element: Element): boolean {
     element instanceof HTMLButtonElement ||
     element instanceof HTMLInputElement ||
     element instanceof HTMLSelectElement ||
-    element instanceof HTMLTextAreaElement ||
-    element.closest("a[href]") !== null
+    element instanceof HTMLTextAreaElement
   )
     return false;
-  return (
-    (element instanceof HTMLAnchorElement && element.hasAttribute("onclick")) ||
-    element.getAttribute("role")?.trim().toLowerCase() === "button"
-  );
+  if (element instanceof HTMLAnchorElement)
+    return element.hasAttribute("href")
+      ? scriptHref(element)
+      : element.hasAttribute("onclick") || roleButton(element);
+  return element.closest("a[href]") === null && roleButton(element);
+}
+
+/**
+ * A script button that text locators name like a native button: any `<a>` that
+ * {@link isScriptButton} accepts. Other `role="button"` elements are often widgets such
+ * as menus and toggles, so only attribute locators name them.
+ */
+export function isScriptLink(element: Element): element is HTMLAnchorElement {
+  return element instanceof HTMLAnchorElement && isScriptButton(element);
 }
 
 /** The `alt` of the shown images in a `<button>` that has no rendered text. */
@@ -131,16 +161,16 @@ function imageText(button: HTMLButtonElement): string {
 }
 
 /**
- * The text a `{ by: "text" }` locator compares: a rendered button's text (or, for an
- * image-only button, its images' `alt`), an input button's `value`, or an image
- * button's `alt`, collapsed. A button that is not rendered, or whose text is empty or
- * longer than 120 code units, has none.
+ * The text a `{ by: "text" }` locator compares: a rendered button's or script link's
+ * text (or, for an image-only `<button>`, its images' `alt`), an input button's
+ * `value`, or an image button's `alt`, collapsed. A button that is not rendered, or
+ * whose text is empty or longer than 120 code units, has none.
  */
 export function buttonText(element: Element): string | undefined {
-  if (!isButton(element) || !shown(element)) return undefined;
+  if (!(isButton(element) || isScriptLink(element)) || !shown(element)) return undefined;
   const readLimit = buttonTextLimit * 4;
   let raw =
-    element instanceof HTMLButtonElement
+    !isButton(element) || element instanceof HTMLButtonElement
       ? renderedText(element, readLimit)
       : element.type === "image"
         ? element.alt
