@@ -103,6 +103,7 @@ export function SitePolicy({
             provider: connection.provider,
             userId: connection.userId,
             itemId: item.id,
+            itemName: item.label,
             value: JSON.stringify([connection.id, item.id]),
           })),
         )
@@ -114,7 +115,13 @@ export function SitePolicy({
         return;
       }
       const origin = validated.output.trim();
-      const nextDefault = { origin, provider: selected.provider, userId, itemId: selected.itemId };
+      const nextDefault = {
+        origin,
+        provider: selected.provider,
+        userId,
+        itemId: selected.itemId,
+        itemName: selected.itemName,
+      };
       // A default names the account, so it must lead back to the chosen connection.
       const mapped = siteDefaultConnection(nextDefault, catalog);
       if (!mapped.ok || mapped.connectionId !== selected.connectionId) {
@@ -248,7 +255,10 @@ export function SitePolicy({
                     ("connectionId" in selected
                       ? selected.connectionId
                       : `account ${selected.userId} (not available here)`)}{" "}
-                  / {item?.label ?? selected.itemId}
+                  /{" "}
+                  {item?.label ??
+                    ("itemName" in selected ? selected.itemName : undefined) ??
+                    selected.itemId}
                   <small>
                     {resolved.ok
                       ? "Available under this draft policy"

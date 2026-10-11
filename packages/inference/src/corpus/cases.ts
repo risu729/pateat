@@ -1,5 +1,4 @@
-import type { LoginObservation, ObservedCandidate } from "../observation";
-import type { SemanticSlot } from "../observation";
+import type { LoginObservation, ObservedCandidate, SemanticSlot } from "@pateat/contracts";
 import { valueShapeOf } from "../values";
 import { slots } from "./slots";
 

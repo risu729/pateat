@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { evaluationCorpus } from "./corpus/cases";
-import { valueShapeSchema, type LoginObservation } from "./observation";
+import { valueShapeSchema, type LoginObservation } from "@pateat/contracts";
 import { checkPlanValues, valueShapeOf } from "./values";
 
 const text = (value: string) => ({ source: "text" as const, value });

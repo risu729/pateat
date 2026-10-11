@@ -18,6 +18,7 @@ export type VaultBrowser = {
 /** Reopen the same isolated profile; delete it only after all restart assertions. */
 export async function withVaultProfile(
   run: (open: () => Promise<VaultBrowser>, externalRequests: string[]) => Promise<void>,
+  options: { args?: string[] } = {},
 ) {
   const profile = await mkdtemp(resolvePath(tmpdir(), "pateat-vault-test-"));
   let context: BrowserContext | undefined;
@@ -31,6 +32,7 @@ export async function withVaultProfile(
         args: [
           `--disable-extensions-except=${probeDirectory}`,
           `--load-extension=${probeDirectory}`,
+          ...(options.args ?? []),
         ],
       });
       context.on("request", (request) => {

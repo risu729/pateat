@@ -1,4 +1,3 @@
-export * from "./observation";
 export * from "./outcome";
 export * from "./plan";
 export { classifyInferenceError } from "./errors";

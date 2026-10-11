@@ -2,7 +2,7 @@
 // independent Node AES-CBC/HMAC vectors already exercised against the real SDK.
 // Variants change valid ciphertext DTOs, not decryption mocks or real accounts.
 import { accountNow, rawV1Account, syntheticJwt } from "./account";
-import { customFieldCiphertexts, fidoCredential, legacyUsername } from "./crypto";
+import { customFieldCiphertexts, fidoCredential, legacyUsername, uriCiphertexts } from "./crypto";
 
 export type CustomAccountVariant =
   | "unchanged"
@@ -11,7 +11,9 @@ export type CustomAccountVariant =
   | "removed"
   | "builtin-changed"
   /** The login also stores the synthetic FIDO2 credential for `synthetic.example.test`. */
-  | "passkey";
+  | "passkey"
+  /** The login also stores the URI `https://synthetic.example.test/login` (default match). */
+  | "uri";
 export function rawCustomAccount(
   variant: CustomAccountVariant = "unchanged",
   nowSeconds = accountNow,
@@ -47,7 +49,14 @@ export function rawCustomAccount(
       ? { ...cipher.login, password: legacyUsername }
       : variant === "passkey"
         ? { ...cipher.login, fido2Credentials: [fidoCredential] }
-        : cipher.login;
+        : variant === "uri"
+          ? {
+              ...cipher.login,
+              uris: [
+                { uri: uriCiphertexts.uri, uriChecksum: uriCiphertexts.checksum, match: null },
+              ],
+            }
+          : cipher.login;
   const data = JSON.parse(cipher.data) as Record<string, unknown>;
   return {
     token: {
@@ -70,6 +79,7 @@ export function rawCustomAccount(
             fields,
             password: login.password,
             fido2Credentials: login.fido2Credentials,
+            uris: login.uris,
           }),
         },
       ],

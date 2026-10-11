@@ -1,10 +1,9 @@
-import { loginStepSchema } from "@pateat/contracts";
+import { loginObservationSchema, loginStepSchema, semanticSlotsSchema } from "@pateat/contracts";
 import { valibotSchema } from "@ai-sdk/valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { generateText, Output, wrapLanguageModel, type LanguageModel } from "ai";
 import * as v from "valibot";
 import { classifyInferenceError } from "./errors";
-import { loginObservationSchema, semanticSlotsSchema } from "./observation";
 import {
   createUsageMeter,
   noUsage,
