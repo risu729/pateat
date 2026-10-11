@@ -35,11 +35,13 @@ The owner decided these on 2026-10-11, following the kogane repository:
 - Host: the Worker serves only the Custom Domain `pateat.takuk.me`
   (`cloudflare.config.ts`); `workers.dev` and version preview URLs stay off.
 - Access: one Access application covers the whole host, so a new route is protected
-  by default, and only the owner's identity is allowed. A more specific Access
-  application with a Bypass policy exempts the paths clients call without an Access
-  login: `/v1/*` (device credentials from the extension's background), `/redeem`
-  (anonymous pairing), `/health` (release check), and
-  `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
+  by default. It uses the owner's existing reusable Access policy, which allows the
+  owner's email domain and requires a device connected through Cloudflare Gateway
+  (WARP); the owner decided on 2026-10-11 that owner pages need not open from a phone
+  without WARP. A more specific Access application with a Bypass policy exempts the
+  paths clients call without an Access login: `/v1/*` (device credentials from the
+  extension's background), `/redeem` (anonymous pairing), `/health` (release check),
+  and `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
   anonymously by Anthropic for Workload Identity Federation). The Worker still
   verifies the Access token itself on the owner pages.
 - Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
