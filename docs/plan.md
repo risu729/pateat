@@ -849,7 +849,8 @@ field and give the coarse shape (length, character classes, email form) of a log
 username or Text field value, and observations carry page `maxLength`, `minLength` and
 `inputMode`. `checkPlanValues` checks a plan against the real values before filling and
 turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
-carries synthetic values. The vault adapter and runtime do not supply these hints yet.
+carries synthetic values. The executor applies the same check to the real inputs before
+filling. The vault adapter and runtime do not supply these hints yet.
 `valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
 resolve Linked fields and never pass Hidden, password or TOTP values.
 
@@ -968,8 +969,9 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
-- Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
-  the post-fill check before the click in the executor.
+- Supplying ADR 0010 hints from the vault adapter. The executor runs the local value
+  check before filling and the post-fill check before the click
+  ([Background execution](architecture.md#background-execution)).
 - A Claude baseline on the real-page corpus, then Japanese pages for it. The
   finite-choice provider is chosen only after that baseline exists. The owner chose on
   2026-10-11 to run the baseline after the MyJCB generation fix, about five cases at a

@@ -265,6 +265,11 @@ export const loginOutcomeSchema = v.picklist([
   "wrong-account",
   // As "wrong-account", and the recipe's account switch was clicked.
   "account-switched",
+  // A value does not fit its input (ADR 0010 `valueMismatch`); nothing was filled.
+  "value-mismatch",
+  // After a preparing fill the page marked a filled input invalid or showed a new alert;
+  // nothing was clicked (ADR 0010).
+  "fill-rejected",
   // The tab's page moved to another origin after a possible submission; its result there
   // cannot be observed.
   "left-origin",
