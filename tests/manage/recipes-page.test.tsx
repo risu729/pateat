@@ -197,13 +197,24 @@ test("says when there are no recipes", async () => {
 test("says when a recipe to revoke no longer exists", async () => {
   const client = mockClient({ version: 1, recipes: [active("bank-signin")] });
   await mount(client);
-  client.replace({ version: 1, recipes: [] });
   client.revokeRecipe.mockRejectedValueOnce(new ManageApiError("not_found"));
+  // The refresh is held so the page can be seen between the answer and the new list.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  client.recipes.mockImplementationOnce(async () => {
+    await held;
+    return { version: 1, recipes: [] };
+  });
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect
     .element(page.getByRole("alert"))
     .toHaveTextContent("That recipe no longer exists. The page now shows the current recipes.");
+  // Focus waits for the refresh instead of landing on a control it is about to remove.
+  const revokeButton = page.getByRole("button", { name: "Revoke recipe bank-signin" });
+  await expect.element(revokeButton).toBeVisible();
+  await expect.element(revokeButton).not.toHaveFocus();
+  release();
   await expect.element(page.getByText("No active recipes.")).toBeVisible();
   await expect.element(page.getByRole("heading", { name: "Recipes", exact: true })).toHaveFocus();
 });

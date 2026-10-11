@@ -76,15 +76,16 @@ export function RecipesPage({ client }: { client: ManageClient }) {
   // revision the owner saw when they asked to revoke.
   const [confirming, setConfirming] = useState<{ recipeId: string; revision: number } | null>(null);
   // The element to focus once the control the owner used has gone away.
-  const focusTarget = useRef<string | null>(null);
+  // A write's target waits for the refresh it starts, which may remove the row.
+  const focusTarget = useRef<{ id: string; afterRefresh: boolean } | null>(null);
   const revoke = useMutation({
     mutationFn: (entry: { recipeId: string; revision: number }) =>
       client.revokeRecipe(entry.recipeId, entry.revision),
     onSuccess: () => {
-      focusTarget.current = "recipes-heading";
+      focusTarget.current = { id: "recipes-heading", afterRefresh: true };
     },
     onError: (_error, entry) => {
-      focusTarget.current = `revoke-${entry.recipeId}`;
+      focusTarget.current = { id: `revoke-${entry.recipeId}`, afterRefresh: true };
     },
     onSettled: () => {
       setConfirming(null);
@@ -92,13 +93,12 @@ export function RecipesPage({ client }: { client: ManageClient }) {
       void queryClient.invalidateQueries({ queryKey: RECIPES_QUERY_KEY });
     },
   });
-  // Runs after every render: a control appears, or stops being disabled, only then. It waits
-  // for the refresh too, which may remove the row; the heading stands in for a control it removed.
+  // Runs after every render: a control appears, or stops being disabled, only then. The heading
+  // stands in for a control the refresh removed.
   useEffect(() => {
-    if (!focusTarget.current || revoke.isPending || recipes.isFetching) return;
-    (
-      document.getElementById(focusTarget.current) ?? document.getElementById("recipes-heading")
-    )?.focus();
+    const target = focusTarget.current;
+    if (!target || revoke.isPending || (target.afterRefresh && recipes.isFetching)) return;
+    (document.getElementById(target.id) ?? document.getElementById("recipes-heading"))?.focus();
     focusTarget.current = null;
   });
   const entries = recipes.data?.recipes ?? [];
@@ -173,7 +173,10 @@ export function RecipesPage({ client }: { client: ManageClient }) {
                         disabled={revoke.isPending}
                         onClick={() => {
                           setConfirming(null);
-                          focusTarget.current = `revoke-${change.recipeId}`;
+                          focusTarget.current = {
+                            id: `revoke-${change.recipeId}`,
+                            afterRefresh: false,
+                          };
                         }}
                       >
                         Cancel
@@ -187,7 +190,10 @@ export function RecipesPage({ client }: { client: ManageClient }) {
                       disabled={revoke.isPending}
                       onClick={() => {
                         setConfirming({ recipeId: change.recipeId, revision: change.revision });
-                        focusTarget.current = `confirm-${change.recipeId}`;
+                        focusTarget.current = {
+                          id: `confirm-${change.recipeId}`,
+                          afterRefresh: false,
+                        };
                       }}
                     >
                       Revoke
