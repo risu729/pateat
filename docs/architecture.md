@@ -427,7 +427,8 @@ record, so automatic unlock needs no password; otherwise, including an unreadabl
 record, it is locked. The manifest's default action icon is the locked one; the worker
 re-reads the records when it starts, at browser start, after each vault record write and
 after each settings-page connection request
-(`apps/extension/src/connections/action-icon.ts`).
+(`apps/extension/src/connections/action-icon.ts`). The owner confirmed the switch in
+installed Chrome on 2026-10-11 (main 863ad90 or later).
 
 ## Declarative recipes and AI
 
