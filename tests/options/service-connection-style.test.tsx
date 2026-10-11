@@ -96,3 +96,17 @@ test("draws the status box only while it has a message", async () => {
   expect(Number.parseFloat(style.borderLeftWidth)).toBeGreaterThan(0);
   expect(Number.parseFloat(style.paddingTop)).toBeGreaterThan(0);
 });
+
+test("keeps the Forget saved connection button clear of the status box", async () => {
+  const client = mockClient();
+  client.get.mockResolvedValue({ ok: false, error: "storage-corrupt" });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  const forget = page.getByRole("button", { name: "Forget saved connection", exact: true });
+  await expect.element(forget).toBeVisible();
+  await expect.element(page.getByText(/cannot read its saved service connection/)).toBeVisible();
+
+  const statusBox = byId("sync-service-status").getBoundingClientRect();
+  const forgetBox = byId("sync-service-forget").getBoundingClientRect();
+  expect(statusBox.height).toBeGreaterThan(0);
+  expect(forgetBox.top - statusBox.bottom).toBeGreaterThanOrEqual(8);
+});
