@@ -200,6 +200,15 @@ export async function generateRecipe(
           : "insufficient-evidence",
     };
 
+  // Each custom-field slot the model named: the recipe stores only the generic name, and
+  // the extension maps it back to the offered field (ADR 0027).
+  const customSlots = outcome.value.fields.flatMap(({ slot, name }) =>
+    name === undefined ? [] : [{ slot: name, offered: slot }],
+  );
+  // Appending unites slot IDs, so a name the recipe already uses could silently merge two
+  // different fields.
+  if (customSlots.some(({ slot }) => baseRecipe?.slots.includes(slot)))
+    return failed("recipe-invalid");
   const assembled = appendPageSteps(baseRecipe, {
     id: recipeId,
     origin,
@@ -229,7 +238,9 @@ export async function generateRecipe(
     return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
   }
   const change = active(written.change);
-  return change ? { version: 1, status: "recipe", change } : unavailable("recipe-conflict");
+  if (!change) return unavailable("recipe-conflict");
+  // Only the recipe this call wrote has a mapping to answer with.
+  return { version: 1, status: "recipe", change, ...(customSlots.length ? { customSlots } : {}) };
 }
 
 /**

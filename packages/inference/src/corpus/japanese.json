@@ -274,8 +274,8 @@
       "expected": {
         "kind": "plan",
         "fields": {
-          "branch-number": "c1",
-          "account-number": "c2",
+          "custom-1": "c1",
+          "custom-2": "c2",
           "password": "c3"
         },
         "action": "c10",
@@ -656,11 +656,7 @@
       },
       "expected": {
         "kind": "plan",
-        "fields": {
-          "branch-number": "c1",
-          "account-number": "c2",
-          "password": "c3"
-        },
+        "fields": { "custom-1": "c1", "custom-2": "c2", "password": "c3" },
         "action": "c5",
         "purpose": "submit"
       }

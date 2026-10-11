@@ -38,7 +38,8 @@ const local = (
  * button after the password, or else its first button. Without such a form, the one form
  * whose only fill field is marked `username` or `email` advances. It reads no labels, so
  * it shows what the model adds beyond structure. Not used at runtime. Its inputs pass the
- * same gate as generation's, so both providers fail the same cases before any mapping.
+ * same gate as generation's, so both providers fail the same cases before any mapping. It
+ * names no custom-field slot (ADR 0027), so a plan that uses one fails validation.
  */
 export function heuristicPlan(
   observation: LoginObservation,

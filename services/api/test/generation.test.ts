@@ -551,7 +551,8 @@ describe("recipe generation", () => {
       id: `${"s".repeat(62)}${index}`,
       kind: "identifier" as const,
       description: wide,
-      fieldName: wide,
+      // Each offer names a different vault field.
+      fieldName: `${"\u3042".repeat(119)}${index}`,
     }));
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,
@@ -827,6 +828,204 @@ describe("recipe generation", () => {
     expect(
       await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
     ).toMatchObject({ status: "recipe", change: { revision: 2 } });
+  });
+});
+
+describe("custom-field slots (ADR 0027)", () => {
+  const branch: SemanticSlot = {
+    id: "custom-1",
+    kind: "identifier",
+    description: "value of the user's vault field named in fieldName",
+    fieldName: "Synthetic branch field",
+  };
+  const pin: SemanticSlot = {
+    id: "custom-2",
+    kind: "hidden",
+    description: "concealed value of the user's vault field named in fieldName, such as a PIN",
+    fieldName: "Synthetic PIN field",
+  };
+  const customSlots = [...slots, branch, pin];
+  const branchPage = observation("/login", [
+    element("email", "email", "Email"),
+    element("branch", "text", "Branch"),
+    element("next", "button", "Next"),
+  ]);
+  const pinPage = observation("/password", [
+    { ...element("pin", "tel", "PIN"), maxLength: 4 },
+    element("again", "text", "Branch again"),
+    element("sign-in", "button", "Sign in"),
+  ]);
+  const named = (
+    fields: { slot: string; candidate: string; name?: string }[],
+    action: string,
+    purpose: "advance" | "submit",
+  ) =>
+    JSON.stringify({
+      result: { decision: "plan", fields, action: { candidate: action, purpose } },
+    });
+  async function generateCustom(device: Device, page: LoginObservation, base?: unknown) {
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: page,
+      slots: customSlots,
+      ...(base === undefined ? {} : { base }),
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()) as RecipeGenerationResult;
+  }
+
+  it("stores the generic name and answers the mapping only to the call that wrote it", async () => {
+    const device = await owner();
+    replies.push({
+      text: named(
+        [
+          { slot: "email", candidate: "email" },
+          { slot: "custom-1", candidate: "branch", name: "branch-number" },
+        ],
+        "next",
+        "advance",
+      ),
+    });
+    const first = await generateCustom(device, branchPage);
+    expect(first).toMatchObject({
+      status: "recipe",
+      change: { revision: 1, recipe: { slots: ["email", "branch-number"] } },
+      customSlots: [{ slot: "branch-number", offered: "custom-1" }],
+    });
+    if (first.status !== "recipe") return;
+    // The recipe never carries the vault field names.
+    expect(JSON.stringify(first.change)).not.toContain("Synthetic");
+    expect(first.change.recipe.steps[0]).toMatchObject({
+      fields: [
+        { slot: "email", target: { by: "id", value: "email" } },
+        { slot: "branch-number", target: { by: "id", value: "branch" } },
+      ],
+    });
+    // A request answered with the stored recipe gets no mapping.
+    const stored = await generateCustom(device, branchPage);
+    expect(stored).toEqual({ version: 1, status: "recipe", change: first.change });
+    expect(sent).toHaveLength(1);
+
+    // A continuation maps only its own page's custom slots.
+    replies.push({
+      text: named([{ slot: "custom-2", candidate: "pin", name: "pin-code" }], "sign-in", "submit"),
+    });
+    const second = await generateCustom(device, pinPage, {
+      recipeId: first.change.recipeId,
+      revision: 1,
+    });
+    expect(second).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { slots: ["email", "branch-number", "pin-code"] } },
+      customSlots: [{ slot: "pin-code", offered: "custom-2" }],
+    });
+  });
+
+  it("answers no mapping for a recipe without custom slots", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const result = await generateCustom(device, branchPage);
+    expect(result).toMatchObject({ status: "recipe" });
+    expect(result).not.toHaveProperty("customSlots");
+  });
+
+  it("fails a continuation that reuses a slot name the recipe already has", async () => {
+    const device = await owner();
+    replies.push({
+      text: named(
+        [{ slot: "custom-1", candidate: "branch", name: "branch-number" }],
+        "next",
+        "advance",
+      ),
+    });
+    const first = await generateCustom(device, branchPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    // Another offered field under the same generic name would merge two fields.
+    replies.push({
+      text: named(
+        [{ slot: "custom-2", candidate: "pin", name: "branch-number" }],
+        "sign-in",
+        "submit",
+      ),
+    });
+    expect(
+      await generateCustom(device, pinPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toEqual({ version: 1, status: "failed", error: "recipe-invalid" });
+    const head = await rows(
+      "SELECT revision FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ?",
+      device.ownerId,
+      first.change.recipeId,
+    );
+    expect(head).toEqual([{ revision: 1 }]);
+  });
+
+  it("fails a plan that names a slot without a field name or leaves a custom slot unnamed", async () => {
+    const device = await owner();
+    replies.push({
+      text: named([{ slot: "email", candidate: "email", name: "login-email" }], "next", "advance"),
+    });
+    expect(await generateCustom(device, branchPage)).toMatchObject({ status: "failed" });
+    const other = await owner();
+    replies.push({
+      text: named([{ slot: "custom-1", candidate: "branch" }], "next", "advance"),
+    });
+    expect(await generateCustom(other, branchPage)).toMatchObject({ status: "failed" });
+    expect(
+      await rows(
+        "SELECT * FROM recipe_revisions WHERE owner_id IN (?, ?)",
+        device.ownerId,
+        other.ownerId,
+      ),
+    ).toEqual([]);
+  });
+
+  it("answers no mapping with another device's recipe stored during the call", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    const other = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      slots: ["email", "branch-number"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/login",
+          effect: "prepare",
+          fields: [
+            { slot: "email", target: { by: "id", value: "email" } },
+            { slot: "branch-number", target: { by: "id", value: "branch" } },
+          ],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
+      ],
+      maxSubmissions: 1,
+    };
+    during = async () => {
+      const stored = await post(
+        device,
+        `/v1/recipes/${recipeId}`,
+        { version: 1, expectedRevision: 0, state: "active", recipe: other },
+        "PUT",
+      );
+      expect(stored.status).toBe(200);
+    };
+    replies.push({
+      text: named(
+        [
+          { slot: "email", candidate: "email" },
+          { slot: "custom-1", candidate: "branch", name: "branch-number" },
+        ],
+        "next",
+        "advance",
+      ),
+    });
+    expect(await generateCustom(device, branchPage)).toEqual({
+      version: 1,
+      status: "recipe",
+      change: { recipeId, revision: 1, state: "active", recipe: other },
+    });
   });
 });
 

@@ -61,8 +61,8 @@ describe("local value check", () => {
         bank.observation,
         {
           fields: [
-            { slot: "branch-number", candidate: "field-b" },
-            { slot: "account-number", candidate: "field-a" },
+            { slot: "custom-1", candidate: "field-b" },
+            { slot: "custom-2", candidate: "field-a" },
             { slot: "password", candidate: "field-c" },
           ],
         },
@@ -74,13 +74,13 @@ describe("local value check", () => {
         bank.observation,
         {
           fields: [
-            { slot: "branch-number", candidate: "field-a" },
-            { slot: "account-number", candidate: "field-b" },
+            { slot: "custom-1", candidate: "field-a" },
+            { slot: "custom-2", candidate: "field-b" },
           ],
         },
         values,
       ),
-    ).toEqual({ ok: false, slot: "account-number", reason: "too-long" });
+    ).toEqual({ ok: false, slot: "custom-2", reason: "too-long" });
   });
 
   it("applies the browser's length, email and number rules", () => {
