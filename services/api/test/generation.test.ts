@@ -1948,4 +1948,47 @@ describe("the passkey route (ADR 0027)", () => {
       status: "rejected",
     });
   });
+
+  it("tells the judge every sign-in path on both routes of a recipe of two pages", async () => {
+    const device = await owner();
+    const start = observation("/login", [
+      element("email", "email", "Email"),
+      element("next", "button", "Next"),
+      passkeyButton,
+    ]);
+    replies.push({ text: answer("passkey", "advance") });
+    const first = await generate(device, start);
+    if (first.status !== "recipe") throw new Error(first.status);
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const second = await generate(device, passwordPage, {
+      recipeId: first.change.recipeId,
+      revision: first.change.revision,
+    });
+    if (second.status !== "recipe") throw new Error(second.status);
+    const { recipeId, revision } = second.change;
+    // The continuation keeps the start page's route.
+    expect(second.change.recipe.passkey).toEqual({ path: "/login", target: passkeyButton.target });
+    const rejected = JSON.stringify({ result: { decision: "rejected" } });
+    replies.push({ text: rejected });
+    expect(await judge(device, recipeId, revision, homePage)).toEqual({
+      version: 1,
+      status: "rejected",
+    });
+    replies.push({ text: rejected });
+    const elsewhere = observation("/elsewhere", [element("help", "link", "Help")]);
+    expect((await complete(device, recipeId, revision, elsewhere)).body).toEqual({
+      version: 1,
+      status: "rejected",
+    });
+    const logged = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge' ORDER BY path",
+      device.ownerId,
+    );
+    expect(logged.map((row) => JSON.parse(String(row.request)))).toMatchObject([
+      // `/elsewhere`, on the password route
+      { route: "password", loginPaths: ["/login", "/password"] },
+      // `/home`, on the passkey route
+      { route: "passkey", loginPaths: ["/login", "/password"] },
+    ]);
+  });
 });

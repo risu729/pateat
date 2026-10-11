@@ -5424,4 +5424,187 @@ describe("the start page's passkey route (ADR 0027)", () => {
     for (const key of ['"facts"', '"discoverablePasskey"', '"discoverable"', '"totp"'])
       expect(serialized).not.toContain(key);
   });
+
+  describe("the held click", () => {
+    const securityKey = { by: "text" as const, value: "Use security key" };
+    const webauthnPage = observation("/login/webauthn", [
+      { id: "c1", role: "button", target: securityKey, label: "Use security key" },
+    ]);
+    const toWebauthn = {
+      path: "/login/webauthn",
+      present: [securityKey.value],
+      extracted: webauthnPage,
+    };
+    const signedIn = () => {
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set(["logout"]);
+      fake.state.extracted = { "signed-in": homePage };
+    };
+
+    it("never runs a start-page handler on a new document that shows the button again", async () => {
+      vi.useFakeTimers();
+      // A handler on the start path, such as a key prompt, shows beside the button.
+      const prompted = parseLoginRecipe({
+        ...routed,
+        handlers: [{ kind: "passkey", path: "/signin", target: securityKey }],
+      });
+      onClick({ [button.value]: { path: "/signin", present: [button.value, securityKey.value] } });
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const { h } = start(prompted, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks(button.value) === 1);
+      // The clicking document holds: the handler is not entered while its button shows.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(clicks(securityKey.value)).toBe(0);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result", handlers: [] });
+      // The tab reloads back to the start page: it goes to the person at once.
+      await h.hello({ documentId: "reloaded" }, false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(clicks(securityKey.value)).toBe(0);
+      expect(clicks(button.value)).toBe(1);
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        state: "blocked",
+        outcome: "challenge",
+        handlers: [],
+      });
+      expect(service.judge).not.toHaveBeenCalled();
+    });
+
+    it("treats the clicking document as new after a worker restart and ends at once", async () => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: { path: "/signin", present: [button.value] } });
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const { h } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks(button.value) === 1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+      // The hold lived in the old worker's memory; the same document announces itself again.
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = start(routed, { generation: service });
+        await restarted.h.hello({}, false);
+        // Well before the 3 seconds an unexplained page would get.
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(status()![0]).toMatchObject({ state: "blocked", outcome: "challenge" });
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+      expect(clicks(button.value)).toBe(1);
+      expect(service.judge).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, (h: ReturnType<typeof harness>) => void, Record<string, unknown>]>([
+      [
+        "a settings revision",
+        (h) => {
+          h.settings.revision += 1;
+        },
+        { cause: "settings-revision" },
+      ],
+      [
+        "the item's exclusion",
+        (h) => {
+          h.settings.settings.connections[0]!.excludedItemIds = [itemId];
+        },
+        { cause: "plan" },
+      ],
+    ])(
+      "ends as a policy change, not a challenge, after %s during the hold",
+      async (_l, edit, cause) => {
+        vi.useFakeTimers();
+        onClick({ [button.value]: { path: "/signin", present: [button.value] } });
+        const service = generation(async () => ({ verdict: "signed-in" }));
+        const { h, report } = start(routed, { generation: service });
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => clicks(button.value) === 1);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+        edit(h);
+        await until(settled("blocked", "policy-changed"), 5_000);
+        expect(report.mock.calls.at(-1)![0]).toMatchObject({
+          type: "attempt",
+          route: "passkey",
+          outcome: "policy-changed",
+          ...cause,
+        });
+        // The page that follows is neither judged nor taken as signed in.
+        signedIn();
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(status()![0]).toMatchObject({ state: "blocked", outcome: "policy-changed" });
+        expect(service.judge).not.toHaveBeenCalled();
+      },
+    );
+
+    it("names the login's item for the passkey bridge while the click is held", async () => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: { path: "/signin", present: [button.value] } });
+      const { h } = start(routed, { generation: generation() });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks(button.value) === 1);
+      await vi.advanceTimersByTimeAsync(60_000);
+      // The passkey request the click causes is answered with this login's item only.
+      expect(await h.login.loginAccount(1, origin)).toEqual({ connectionId, itemId });
+      expect(await h.login.loginAccount(1, "https://other.example")).toBeUndefined();
+      expect(await h.login.loginAccount(2, origin)).toBeUndefined();
+      await until(settled("blocked", "challenge"));
+      expect(await h.login.loginAccount(1, origin)).toBeUndefined();
+    });
+
+    it("takes over a revision that adds a handler, judging both pages on the passkey route", async () => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: toWebauthn, [securityKey.value]: toHome });
+      const taken = parseLoginRecipe({
+        ...routed,
+        revision: 2,
+        handlers: [{ kind: "passkey", path: "/login/webauthn", target: securityKey }],
+      });
+      const service = generation();
+      service.judge
+        .mockResolvedValueOnce({ verdict: "challenge", recipe: taken })
+        .mockResolvedValueOnce({ verdict: "signed-in" });
+      const { h } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        recipeRevision: 2,
+        handlers: [{ index: 0, start: 1 }],
+        stepCount: 2,
+        submissions: 2,
+      });
+      expect(status()![0]).not.toHaveProperty("variant");
+      expect(service.judge.mock.calls).toEqual([
+        [routed.id, 1, "passkey", webauthnPage.observation],
+        [routed.id, 2, "passkey", homePage.observation],
+      ]);
+      expect(clicks(button.value)).toBe(1);
+      expect(clicks(securityKey.value)).toBe(1);
+      expect(fills()).toBe(0);
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ["moves the passkey button", { passkey: { path: "/signin", target: target("other") } }],
+      ["drops the passkey route", { passkey: undefined }],
+    ])("keeps its revision and ends as a challenge when the next one %s", async (_l, change) => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: toWebauthn, [securityKey.value]: toHome });
+      const next = parseLoginRecipe({
+        ...routed,
+        revision: 2,
+        handlers: [{ kind: "passkey", path: "/login/webauthn", target: securityKey }],
+        ...change,
+      });
+      const service = generation();
+      service.judge.mockResolvedValueOnce({ verdict: "challenge", recipe: next });
+      const { h } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("blocked", "challenge"), 20_000);
+      expect(status()![0]).toMatchObject({ route: "passkey", recipeRevision: 1, handlers: [] });
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(clicks(securityKey.value)).toBe(0);
+    });
+  });
 });

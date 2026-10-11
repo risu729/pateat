@@ -256,6 +256,27 @@ describe("synced account bindings", () => {
       expect(v.is(savedLoginBindingSchema, binding({ accountName }))).toBe(false);
   });
 
+  it("never accepts an empty binding where a synced or saved one is parsed (ADR 0027)", () => {
+    // Only a running login on the passkey route has a binding without slots; it is never
+    // stored or synced.
+    const empty = binding({ slots: [] });
+    expect(v.is(savedLoginBindingSchema, empty)).toBe(false);
+    const settings = createDefaultSettings({ connections: [] });
+    expect(v.is(localSettingsSchema, { ...settings, bindings: [empty] })).toBe(false);
+    const account = {
+      provider: "bitwarden",
+      userId: empty.userId,
+      itemId: empty.itemId,
+      itemName: "",
+    };
+    const signin = recipe("bank-signin", "/login");
+    expect(defaultLoginBinding([], signin, account)).toBeUndefined();
+    expect(templateLoginBinding([], signin, account, [[]], fields)).toEqual({
+      ok: false,
+      reason: "binding-not-found",
+    });
+  });
+
   it("keeps settings without bindings valid and rejects duplicate bindings", () => {
     const settings = createDefaultSettings({ connections: [] });
     expect(v.is(localSettingsSchema, settings)).toBe(true);

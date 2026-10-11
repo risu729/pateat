@@ -1196,6 +1196,79 @@ describe("the passkey route (ADR 0027)", () => {
     expect(valid(change)).toBe(false);
   });
 
+  it("keeps its button apart from every password variant on the start page", () => {
+    const contract = {
+      slots: ["contract", "pin"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/identity",
+          fields: [
+            { slot: "contract", target: id("contract") },
+            { slot: "pin", target: id("pin") },
+          ],
+        },
+        { kind: "click", path: "/identity", target: id("contract-login"), purpose: "submit" },
+      ],
+    };
+    const varied = (change: Record<string, unknown> = {}) =>
+      withPasskey({ alternatives: [contract], ...change });
+    expect(v.is(loginRecipeSchema, varied())).toBe(true);
+    // An alternative's field or button is not the passkey button either.
+    for (const value of ["contract", "pin", "contract-login"])
+      expect(
+        v.is(loginRecipeSchema, varied({ passkey: { ...passkey, target: id(value) } })),
+        value,
+      ).toBe(false);
+    const parsed = parseLoginRecipe(varied());
+    // The button is watched first, then every variant's first step.
+    expect(recipeStartSteps(parsed)).toEqual([
+      click,
+      parsed.steps[0],
+      parsed.alternatives![0]!.steps[0],
+    ]);
+    expect(parsed.alternatives![0]!.steps[0]).toMatchObject(contract.steps[0]!);
+    // The password route's sign-in elements are its fill fields, never the button.
+    expect(routeSignInTargets(parsed, "password")).not.toContainEqual(id("passkey-login"));
+    expect(routeSignInTargets(parsed, "password")).toContainEqual(id("contract"));
+    // The passkey route wins over any fitting variant, and a second factor leaves them.
+    const facts = (discoverablePasskey: boolean) => ({ password: true, discoverablePasskey });
+    expect(chooseLoginRoute(parsed, facts(true), [false, true])).toEqual({ route: "passkey" });
+    expect(chooseLoginRoute(parsed, facts(false), [false, true])).toEqual({
+      route: "password",
+      variant: 1,
+    });
+    expect(
+      chooseLoginRoute(parsed, { password: false, discoverablePasskey: false }, [true, true]),
+    ).toBeUndefined();
+  });
+
+  it("counts its button as one element within the observation bound", () => {
+    // 18 fields, a completion with 4 absent elements and the rejection fill the 24.
+    const fields = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        slot: `s${index}`,
+        target: id(`field${index}`),
+      }));
+    const wide = (count: number) =>
+      withPasskey({
+        slots: fields(count).map((field) => field.slot),
+        steps: [
+          { kind: "fill", path: "/identity", fields: fields(count) },
+          { kind: "click", path: "/identity", target: id("go"), purpose: "submit" },
+        ],
+        completion: {
+          path: "/home",
+          target: id("welcome"),
+          absent: ["a", "b", "c", "d"].map(id),
+        },
+        maxSubmissions: 1,
+      });
+    // The button is observed with the start page's step, not on top of its fields.
+    expect(v.is(loginRecipeSchema, wide(18))).toBe(true);
+    expect(v.is(loginRecipeSchema, wide(19))).toBe(false);
+  });
+
   it("allows the same locator where another path uses it", () => {
     // The password page's button and a completion or handler on other paths are other
     // elements than the start page's passkey button.
