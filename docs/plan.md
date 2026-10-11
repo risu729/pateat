@@ -972,22 +972,27 @@ their implementation in M1-M6.
 
 Initial delivery includes multiple vault connections, connection/item/field/site
 policies, saved site account defaults, cached-recipe execution, Bitwarden
-password/custom-field/TOTP use, and existing zero-counter software passkey
-assertions. The first server configuration uses Cloudflare Access, server-readable
-private settings sync and server-side AI. Per
-[ADR 0013](adr/0013-service-held-recipes-and-settings.md), the service is the
-source of truth for settings, recipes and account bindings, which are edited on its
-web UI; the extension keeps a last-known-good cache and only the pages that handle
-local secrets. Running without the service is later scope.
+password/custom-field/TOTP use, and existing zero-counter software passkey assertions.
+The first server configuration uses Cloudflare Access, server-readable private settings
+sync and server-side AI. Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md),
+the service is the source of truth for settings, recipes and account bindings, which are
+edited on its web UI; the extension keeps a last-known-good cache and only the pages
+that handle local secrets. Running without the service is later scope. On 2026-10-11 the
+owner added account choice outside the settings page to initial delivery
+([ADR 0021](adr/0021-account-choice-outside-settings.md)): a toolbar popup for the
+current site's default and exclusion, choosing among several password matches there
+(once or as the default), a passkey chooser window, and choosing again after a logout in
+the same tab. They land as separate PRs in that order.
 
-Later work includes independently permitted vault create/update operations,
-nonzero passkey counter writeback and passkey creation; Bitwarden provider login
-with passkeys, API keys, SSO or device approval; external email/SMS OTP and magic
-links; and separately authorized post-login actions, including transactions and
-approvals. UI extensions, account switching, a mode without the service, direct AI,
-recipe sharing, additional service auth, E2EE settings sync, MCP and Vaultwarden
-support are also deferred. They are extension points, not
-implicit permissions or initial acceptance requirements.
+Later work includes independently permitted vault create/update operations, nonzero
+passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
+API keys, SSO or device approval; external email/SMS OTP and magic links; and separately
+authorized post-login actions, including transactions and approvals. UI extensions,
+automatic account switching (logging out and in again when another account is picked
+while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe
+sharing, additional service auth, E2EE settings sync, MCP and Vaultwarden support are
+also deferred. They are extension points, not implicit permissions or initial acceptance
+requirements.
 
 ## Ordered milestones
 
@@ -1131,10 +1136,11 @@ Future page UI must avoid extension iframes, preserve accessible keyboard/focus 
 and recheck policy locally. The service's HTTPS management UI and MCP must share the
 internal operation contracts. Before implementing MCP, verify that the target client can
 autonomously invoke allowed dummy operations after connection approval; MCP does not
-bypass client rules. One-time account overrides and automatic logout/re-login require
-shared-session/race tests. Direct AI requires trusted extension key storage and provider
-compatibility tests. Alternative service auth, E2EE sync and Vaultwarden require their
-own interoperability/recovery evidence.
+bypass client rules. One-time account choices and choosing again after logout (ADR 0021)
+need tests that cover several tabs on one origin; automatic logout/re-login also
+requires shared-session/race tests. Direct AI requires trusted extension key storage and
+provider compatibility tests. Alternative service auth, E2EE sync and Vaultwarden
+require their own interoperability/recovery evidence.
 
 Extension publishing/CD, public recipe sharing and hosted browser installation
 are outside the current delivery plan. Extension build and automated tests remain

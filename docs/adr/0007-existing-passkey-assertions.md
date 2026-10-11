@@ -15,7 +15,10 @@ item selection allows on sites that are not excluded, rather than only on sites 
 synced recipe. Amended on 2026-10-11 by the owner's
 [compatibility before release](../development.md#compatibility-before-release)
 decision: settings holding a site default saved with a `connectionId` are rejected as
-invalid.
+invalid. Amended on 2026-10-11 by
+[ADR 0021](0021-account-choice-outside-settings.md): several matches with no default,
+and username-less requests after Pateat signed in the same tab, open a Pateat chooser
+window instead of delegating at once (not implemented yet).
 
 Date: 2026-10-10
 
@@ -132,7 +135,10 @@ its single stored credential is eligible as below. Then:
 1. Exactly one match: use it. No site setting is needed.
 2. Several matches: use the item in `siteDefaults` for the page's exact origin if it
    is one of them.
-3. Several matches and no such default: delegate. Pateat never picks one.
+3. Several matches and no such default: delegate. Pateat never picks one. Once
+   [ADR 0021](0021-account-choice-outside-settings.md) is implemented, Pateat first
+   opens its chooser window and delegates only when the user closes it, picks the
+   browser, or the window cannot open (incognito).
 
 Matches are counted after the request's allow list, or its discoverable-credential
 requirement, narrows them. A passkey-only item with no fields is eligible; an item whose
@@ -201,7 +207,8 @@ assertion code; until then every claimed request uses the initial policy.
   Assertions need no CBOR, and the DER signature wrapper is a fixed structure
   tested against the WebAuthn vectors. No dependency is added.
 - Show a Pateat chooser or prompt: conflicts with the no-page-UI rule until an
-  explicit later UI design exists.
+  explicit later UI design exists. Reversed for an extension window by
+  [ADR 0021](0021-account-choice-outside-settings.md); in-page UI stays rejected.
 - Rely on extension injection order: the order follows extension IDs, which Pateat
   does not control for the owner's unpacked or store builds.
 - Let the outer provider answer and claim the request only after it rejects:
