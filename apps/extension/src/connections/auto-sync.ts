@@ -10,6 +10,8 @@ export const VAULT_DEFER_LIMIT_MS = 2 * 60_000;
 export const VAULT_RATE_LIMIT_MS = 15 * 60_000;
 /** How long a starting login waits for a revision check already in flight. */
 export const VAULT_CHECK_WAIT_MS = 5_000;
+/** How long a replacement waits for page announcements being handled to finish. */
+export const VAULT_IDLE_WAIT_MS = 2_000;
 /** The alarm that checks while no page is opened (ADR 0025). */
 export const VAULT_SYNC_ALARM = "pateat.vault-sync";
 export const VAULT_SYNC_ALARM_MINUTES = 5;
@@ -127,6 +129,22 @@ export function createVaultAutoSync(deps: {
   let running: Promise<void> | undefined;
   let applying: Promise<void> | undefined;
   let starting = 0;
+  let idle: (() => void)[] = [];
+  /** Resolves true once no page or passkey request is being handled, false after a while. */
+  function settled(): Promise<boolean> {
+    if (starting === 0) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        idle = idle.filter((waiter) => waiter !== done);
+        resolve(false);
+      }, VAULT_IDLE_WAIT_MS);
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      idle.push(done);
+    });
+  }
 
   function due(entry: VaultSyncEntry | undefined, at: number) {
     // A deleted account is not asked again until a manual sync or sign-in succeeds.
@@ -142,20 +160,21 @@ export function createVaultAutoSync(deps: {
     return at - entry.checkedAt >= wait;
   }
   function holdFor(deferredSince: number | undefined): VaultApplyHold {
-    async function ready() {
-      if (starting > 0 || applying) return false;
+    const forced = () =>
+      deferredSince !== undefined && now() - deferredSince >= VAULT_DEFER_LIMIT_MS;
+    /** Answers whether no page, passkey request or login stands in the way. */
+    async function waitAdmissible(): Promise<() => boolean> {
+      if (applying || !(await settled())) return () => false;
       const login = await deps.loginActive().catch(() => true);
-      // Checked again after the await: a page may have started in between.
-      if (starting > 0 || applying) return false;
-      return (
-        !login || (deferredSince !== undefined && now() - deferredSince >= VAULT_DEFER_LIMIT_MS)
-      );
+      return () => starting === 0 && !applying && (!login || forced());
     }
     return {
-      ready,
+      ready: async () => (await waitAdmissible())(),
       async take() {
-        if (!(await ready())) return undefined;
-        // Set in the same task as the last check, so no page can start in between.
+        const admissible = await waitAdmissible();
+        // The last check and the hold run with no await between them, so no page can
+        // start in between.
+        if (!admissible()) return undefined;
         let release!: () => void;
         const current = new Promise<void>((resolve) => {
           release = resolve;
@@ -188,6 +207,15 @@ export function createVaultAutoSync(deps: {
         outcome = "failed";
       }
       const finished = now();
+      // A connection removed or disabled meanwhile keeps no record of this check; a failed
+      // read keeps the outcome, so a 429 back-off or a deleted account is not lost.
+      // oxlint-disable-next-line no-await-in-loop -- one connection at a time
+      const listed = await deps.connections().catch(() => undefined);
+      if (listed && !listed.includes(connectionId)) {
+        // oxlint-disable-next-line no-await-in-loop -- one connection at a time
+        await deps.records.clear(connectionId);
+        continue;
+      }
       // oxlint-disable-next-line no-await-in-loop -- one connection at a time
       await deps.records.update(connectionId, (current) => {
         const { deferredSince, retryAt: _retryAt, ...rest } = current;
@@ -237,6 +265,10 @@ export function createVaultAutoSync(deps: {
         if (released) return;
         released = true;
         starting -= 1;
+        if (starting > 0) return;
+        const waiting = idle;
+        idle = [];
+        for (const done of waiting) done();
       };
     },
     /** For tests and diagnostics: whether a check is in flight. */

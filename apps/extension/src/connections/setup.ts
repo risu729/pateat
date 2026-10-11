@@ -63,12 +63,33 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
   /** Automatic checks are kept out of `active`, so they never make setup report busy. */
   const autoFlows = new Map<string, Flow>();
   const autoRuns = new Map<string, Promise<unknown>>();
+  /** Connections with a manual sync or password sign-in waiting or running. */
+  const manualWork = new Map<string, number>();
   function stopAuto(connectionId: string) {
     const flow = autoFlows.get(connectionId);
     if (flow) {
       clearTimeout(flow.timer);
       flow.controller.abort();
     }
+  }
+  /**
+   * Keeps automatic checks of a connection out while manual work runs. It returns once the
+   * check in progress, stopped first when asked, has finished, so the two never hold the
+   * session or replace the vault at the same time.
+   */
+  async function excludeAuto(connectionId: string, stop: boolean): Promise<() => void> {
+    manualWork.set(connectionId, (manualWork.get(connectionId) ?? 0) + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const left = (manualWork.get(connectionId) ?? 1) - 1;
+      if (left > 0) manualWork.set(connectionId, left);
+      else manualWork.delete(connectionId);
+    };
+    if (stop) stopAuto(connectionId);
+    await autoRuns.get(connectionId);
+    return release;
   }
   const reviews = new Map<string, string[]>();
   const alive = (flow: Flow) => !flow.controller.signal.aborted && now() < flow.expiresAt;
@@ -392,9 +413,30 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
    * and no replacement while a login or passkey request runs. It never asks for input and
    * never makes setup or the Sync button report busy.
    */
-  async function autoSync(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
-    if (disabling.has(connectionId) || active.has(connectionId) || autoFlows.has(connectionId))
-      return "skipped";
+  function autoSync(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
+    if (
+      disabling.has(connectionId) ||
+      active.has(connectionId) ||
+      manualWork.has(connectionId) ||
+      autoRuns.has(connectionId)
+    )
+      return Promise.resolve("skipped");
+    // Registered before the first await, so manual work that starts now waits for it, and
+    // removed before the outcome is answered, so the next check is not skipped.
+    let settled!: Promise<void>;
+    const work = autoCheck(connectionId, hold)
+      .catch((): VaultSyncOutcome => "failed")
+      .finally(() => {
+        if (autoRuns.get(connectionId) === settled) autoRuns.delete(connectionId);
+      });
+    settled = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    autoRuns.set(connectionId, settled);
+    return work;
+  }
+  async function autoCheck(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
     const capturedEpoch = connectionEpoch.get(connectionId) ?? 0;
     const configuration = await deps.registry.get(connectionId);
     if (!configuration) return "skipped";
@@ -409,7 +451,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch ||
       disabling.has(connectionId) ||
       active.has(connectionId) ||
-      autoFlows.has(connectionId)
+      manualWork.has(connectionId)
     )
       return "skipped";
     const current: Flow = {
@@ -424,7 +466,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       manual: {},
     };
     autoFlows.set(connectionId, current);
-    const work = (async (): Promise<VaultSyncOutcome> => {
+    return (async (): Promise<VaultSyncOutcome> => {
       if (!(await permitted(current))) return "skipped";
       const transport = deps.transportFor(configuration.profile);
       if (!transport.ok) return "failed";
@@ -440,7 +482,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         return failure.code === "http-error" && failure.status === 429 ? "rate-limited" : "failed";
       }
       if (!alive(current) || (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch)
-        return "failed";
+        return "skipped";
       const reply = await acceptSync(
         current,
         authorization.data.authenticated,
@@ -452,6 +494,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         return reply.kind === "unchanged" || reply.kind === "deferred" ? reply.kind : "synced";
       const failure = reply.error as { code: string; status?: number };
       if (failure.code === "account-deleted") return "account-deleted";
+      // Stopped by a sign-in, forget, removal or permission loss.
+      if (failure.code === "cancelled") return "skipped";
       if (failure.code === "setup-reauthentication-required") return "reauthentication-required";
       return failure.code === "http-error" && failure.status === 429 ? "rate-limited" : "failed";
     })()
@@ -461,15 +505,6 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         current.password = "";
         if (autoFlows.get(connectionId) === current) autoFlows.delete(connectionId);
       });
-    const settled = work.then(
-      () => undefined,
-      () => undefined,
-    );
-    autoRuns.set(connectionId, settled);
-    void settled.finally(() => {
-      if (autoRuns.get(connectionId) === settled) autoRuns.delete(connectionId);
-    });
-    return work;
   }
   return {
     status,
@@ -488,9 +523,12 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       for (const configuration of configurations) {
         try {
           // eslint-disable-next-line no-await-in-loop
-          if (!(await deps.permissions.contains(configuration.profile)))
+          if (!(await deps.permissions.contains(configuration.profile))) {
             // eslint-disable-next-line no-await-in-loop
             await deps.sessions.forget(configuration.profile);
+            // eslint-disable-next-line no-await-in-loop
+            await deps.revisions?.clear(configuration.profile.connectionId);
+          }
         } catch {
           // Continue with the remaining connections.
         }
@@ -550,6 +588,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       }
       const caller = {
         begin(input: unknown): Promise<SetupReply> {
+          let releaseAuto: (() => void) | undefined;
           return run(async () => {
             const checked = v.safeParse(setupBeginSchema, structuredClone(input));
             if (!checked.success) return error("invalid-request");
@@ -572,7 +611,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               };
             } else {
               // A password sign-in replaces whatever an automatic check would bring.
-              stopAuto(value.connectionId);
+              releaseAuto = await excludeAuto(value.connectionId, true);
               const existing = await deps.registry.get(value.connectionId);
               if (!existing) return error("invalid-request");
               configuration = structuredClone(existing);
@@ -626,7 +665,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             if (!alive(current)) return error("cancelled");
             current.hash = hash.data.masterPasswordHash;
             return authorize(current);
-          });
+          }).finally(() => releaseAuto?.());
         },
         continue(input: unknown): Promise<SetupReply> {
           return run(async () => {
@@ -656,10 +695,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         },
         status,
         sync(connectionId: string): Promise<SetupReply> {
+          let releaseAuto: (() => void) | undefined;
           return run(async () => {
-            // An automatic check that already holds a refresh claim finishes first; the
-            // button then always sends a full sync.
-            await autoRuns.get(connectionId);
+            // An automatic check in progress finishes first; the button then always sends
+            // a full sync.
+            releaseAuto = await excludeAuto(connectionId, false);
             const capturedEpoch = connectionEpoch.get(connectionId) ?? 0;
             const configuration = await deps.registry.get(connectionId);
             if (!configuration) return error("setup-reauthentication-required");
@@ -695,7 +735,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               { kind: "decrypted-key", userKey: prior.data.userKey },
               { kind: "session", revision: authorization.data.revision },
             ) as Promise<SetupReply>;
-          });
+          }).finally(() => releaseAuto?.());
         },
         /** Local forget only. No verified server-wide revocation endpoint is called.
          * It touches only the session store: a password or setup flow is never cleared

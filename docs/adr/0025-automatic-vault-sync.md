@@ -41,7 +41,8 @@ minute, on any of:
   service worker start if missing). The `alarms` permission adds no install warning.
 
 Browser startup does not check by itself, since the network is often not up yet; the
-first page or alarm does. Checks run one connection at a time, and one check runs at a
+first page or alarm does (Chrome fires an alarm missed while the browser was closed
+soon after it starts). Checks run one connection at a time, and one check runs at a
 time however many pages open together. Nothing is sent while `navigator.onLine` is
 `false`.
 
@@ -66,8 +67,9 @@ Connection setup, password sign-in and the **Sync** button also read the revisio
 and record it after a successful sync, so the next automatic check does not repeat their
 work. The **Sync** button still always runs the full sync, like the official
 `fullSync(true)`, and waits for an automatic check in progress instead of reporting the
-connection as busy. A password sign-in cancels an automatic check. Forget, removal,
-disabling and permission removal cancel it and delete its record.
+connection as busy. A password sign-in cancels an automatic check and waits for it to
+stop, and no check starts while either runs. Forget, removal, disabling and permission
+removal cancel it and delete its stored revision.
 
 The record is `pateat.vault-sync-schedule.v1` in `chrome.storage.local`, holding no
 secret: per connection the local time of the last check, its outcome, the server
@@ -81,16 +83,19 @@ next check may be sent.
 
 - A page that may start a login (an announcement carrying a start path) waits up to five
   seconds for a check already in progress, then continues with the snapshot it has.
-- While a page announcement or passkey request is being handled, and while a login
-  attempt is active, a check does not replace the vault. It skips `/sync` when it can
-  tell beforehand, or drops the response afterwards, and records `deferred`; a deferred
-  check is due again after ten seconds instead of a minute.
+- While a login attempt is active, a check does not replace the vault. It skips `/sync`
+  when it can tell beforehand, or drops the response afterwards, and records
+  `deferred`; a deferred check is due again after ten seconds instead of a minute.
+- Before replacing, a check waits up to two seconds for page announcements and passkey
+  requests being handled to finish; if they have not, it defers the same way. Each
+  announcement is handled in the order the frame sent it, so one that waited on a
+  check is dropped as stale once a later one from the same frame arrives.
 - After two minutes of deferrals the replacement applies even though a login is still
   active, because an abandoned attempt also counts as active. Such a login stops with
   `POLICY_CHANGED`, as it would today.
 - The replacement (accept and policy adoption) holds every new page announcement and
-  passkey request until it finishes, without a time limit. The hold is taken in the
-  same task as the last check that nothing is starting.
+  passkey request until it finishes, without a time limit. The hold is taken with no
+  await after the last check that nothing is starting.
 
 ### Differences from the official extension
 
@@ -105,9 +110,11 @@ next check may be sent.
 
 ## Load on Bitwarden
 
-Per connection and hour of browser use: at most 60 revision-date requests and about one
-token renewal; `/sync` only when the vault changed. Bitwarden cloud allows 200 `GET`
-requests a minute and 10 token requests a minute per IP
+Per connection and hour of browser use: at most 60 revision-date requests (up to six a
+minute while a check is deferred for an active login or a request still being handled,
+such as an open passkey prompt) and about one token renewal; `/sync` only when the vault
+changed. Bitwarden cloud allows 200 `GET` requests a minute and 10 token requests a
+minute per IP
 ([API](https://github.com/bitwarden/server/blob/5e68c1e65dd5ea476c3a00283b2a2ba575574c1d/src/Api/appsettings.json),
 [Identity](https://github.com/bitwarden/server/blob/5e68c1e65dd5ea476c3a00283b2a2ba575574c1d/src/Identity/appsettings.json)),
 so even five connections stay far below it. Self-hosted and Vaultwarden limits depend
@@ -120,7 +127,7 @@ on the installation.
 - Compare the decrypted custom fields of protected items between the old and new
   snapshot inside the crypto host. When they are equal, the item stays usable without
   a new review; only "equal" or "different" leaves the crypto host. This complements
-  the synced review evidence of ADR 0023.
+  the synced custom-field review records proposed for ADR 0023.
 - Show items awaiting review on the toolbar icon, and tell the settings page why its
   save met a revision conflict after an automatic sync.
 

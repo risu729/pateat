@@ -934,6 +934,74 @@ describe("durable provider sessions", () => {
     expect((await h.restart().caller.sync(accountProfile.connectionId)).ok).toBe(true);
     expect(h.fetch).toHaveBeenCalledTimes(fetches + 1);
   });
+  it("a manual Sync started with an automatic check waits for it and still syncs", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const fresh = h.restart();
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    let answer!: (ready: boolean) => void;
+    const auto = fresh.service.autoSync(accountProfile.connectionId, {
+      ready: () => new Promise<boolean>((resolve) => (answer = resolve)),
+      take: async () => undefined,
+    });
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    const before = h.fetch.mock.calls.length;
+    let finished = false;
+    const manual = fresh.caller.sync(accountProfile.connectionId).finally(() => {
+      finished = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(finished).toBe(false);
+    answer(false);
+    expect(await auto).toBe("deferred");
+    expect((await manual).ok).toBe(true);
+    expect(h.fetch).toHaveBeenCalledTimes(before + 1);
+  });
+  it("an automatic check that has not claimed anything yields to a manual Sync", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const fresh = h.restart();
+    const before = h.fetch.mock.calls.length;
+    const auto = fresh.service.autoSync(accountProfile.connectionId, hold());
+    const manual = fresh.caller.sync(accountProfile.connectionId);
+    expect(await auto).toBe("skipped");
+    expect((await manual).ok).toBe(true);
+    expect(h.fetch).toHaveBeenCalledTimes(before + 1);
+  });
+  it("a password sign-in stops an automatic check and waits for it", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    let answer!: (ready: boolean) => void;
+    const auto = h.service.autoSync(accountProfile.connectionId, {
+      ready: () => new Promise<boolean>((resolve) => (answer = resolve)),
+      take: async () => undefined,
+    });
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    let finished = false;
+    const signIn = h.caller
+      .begin({
+        kind: "existing",
+        connectionId: accountProfile.connectionId,
+        password: v1Password,
+        autoUnlock: "preserve",
+      })
+      .finally(() => {
+        finished = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(finished).toBe(false);
+    answer(true);
+    expect(await auto).toBe("skipped");
+    expect((await signIn).ok).toBe(true);
+  });
+  it("permission removal clears the stored revision date", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.permission(false);
+    await h.service.permissionsRemoved();
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBeUndefined();
+  });
   it("forget clears the stored revision date", async () => {
     const h = harness({ existing: true });
     await connected(h);

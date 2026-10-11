@@ -257,6 +257,37 @@ describe("login runtime with a live vault field source", () => {
       expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
     );
   });
+  it("a hello waiting on a vault check is stale once a later hello from the frame arrives", async () => {
+    let open!: () => void;
+    const blocked = new Promise<void>((resolve) => (open = resolve));
+    let waits = 0;
+    const vault = {
+      refreshIfStale: () => undefined,
+      enter: async (wait: boolean) => {
+        if (wait && (waits += 1) === 2) await blocked;
+        return () => undefined;
+      },
+    };
+    const run = await start(async () => "synthetic-secret", {}, undefined, vault);
+    await vi.waitFor(async () =>
+      expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
+    );
+    const hello = (startPath?: string) =>
+      run.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          ...(startPath ? { start: { path: startPath } } : {}),
+        },
+        page,
+      );
+    const older = hello(new URL(fake.pageUrl).pathname);
+    const later = await hello();
+    expect(later).not.toEqual({ ok: false, reason: "stale-document" });
+    open();
+    expect(await older).toEqual({ ok: false, reason: "stale-document" });
+  });
   it("reports a running login, also from its saved state after a restart", async () => {
     let release!: (value: string) => void;
     const pending = new Promise<string>((resolve) => (release = resolve));

@@ -258,7 +258,6 @@ export default defineBackground(() => {
   browser.permissions.onRemoved.addListener(() => {
     void connections.service.permissionsRemoved().catch(() => undefined);
   });
-  // Wakes the worker at browser start so automatic unlock shows the unlocked icon.
   // Chrome may drop alarms on restart or update, so each worker start re-creates it.
   void browser.alarms
     .get(VAULT_SYNC_ALARM)
@@ -271,6 +270,7 @@ export default defineBackground(() => {
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === VAULT_SYNC_ALARM) vaultSync.refreshIfStale();
   });
+  // Wakes the worker at browser start so automatic unlock shows the unlocked icon.
   browser.runtime.onStartup.addListener(() => {
     void actionIcon.refresh();
   });
@@ -413,10 +413,11 @@ export default defineBackground(() => {
       typeof message.type === "string" &&
       message.type.startsWith("passkey.")
     ) {
-      vaultSync.refreshIfStale();
-      // The open vault is not replaced while a passkey request is answered.
-      void vaultSync
-        .enter(false)
+      // The open vault is not replaced while a passkey request is answered; a cancel
+      // never waits for a replacement.
+      const request = message.type === "passkey.get";
+      if (request) vaultSync.refreshIfStale();
+      void (request ? vaultSync.enter(false) : Promise.resolve(() => undefined))
         .then((leave) => passkeys.handle(message, sender).finally(leave))
         .then(sendResponse, () =>
           sendResponse({ kind: "delegate", reason: "runtime-unavailable" }),

@@ -4,6 +4,7 @@ import {
   VAULT_CHECK_WAIT_MS,
   VAULT_DEFER_LIMIT_MS,
   VAULT_DEFERRED_RETRY_MS,
+  VAULT_IDLE_WAIT_MS,
   VAULT_RATE_LIMIT_MS,
   createVaultAutoSync,
   createVaultSyncRecords,
@@ -26,7 +27,7 @@ function harness(options: { ids?: string[]; online?: boolean } = {}) {
   );
   const auto = createVaultAutoSync({
     records,
-    connections: async () => options.ids ?? ["a"],
+    connections: async () => [...(options.ids ?? ["a"])],
     run,
     loginActive: async () => login,
     online: () => options.online ?? true,
@@ -129,6 +130,17 @@ describe("vault check schedule", () => {
     await h.settle();
     expect(h.run).toHaveBeenCalledTimes(2);
   });
+  it("keeps no record for a connection removed during its check", async () => {
+    const ids = ["a"];
+    const h = harness({ ids });
+    h.run.mockImplementationOnce(async () => {
+      ids.length = 0;
+      return "failed";
+    });
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.stored()?.connections["a"]).toBeUndefined();
+  });
   it("an unreadable record reads as empty", async () => {
     const h = harness();
     h.setStored({ version: 2 });
@@ -176,7 +188,9 @@ describe("vault replacement hold", () => {
     h.auto.refreshIfStale();
     await vi.waitFor(() => expect(h.run).toHaveBeenCalled());
     await h.settle();
-    expect(await hold.take()).toBeUndefined();
+    const refused = hold.take();
+    await vi.advanceTimersByTimeAsync(VAULT_IDLE_WAIT_MS);
+    expect(await refused).toBeUndefined();
     release();
     const done = await hold.take();
     expect(done).toBeTypeOf("function");
@@ -190,6 +204,25 @@ describe("vault replacement hold", () => {
     done!();
     (await page)();
     expect(entered).toBe(true);
+  });
+  it("waits briefly for a page being handled before replacing", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const release = await h.auto.enter(false);
+    let hold!: VaultApplyHold;
+    h.run.mockImplementationOnce(async (_id, value) => {
+      hold = value;
+      return "unchanged";
+    });
+    h.auto.refreshIfStale();
+    await vi.waitFor(() => expect(h.run).toHaveBeenCalled());
+    await h.settle();
+    const taking = hold.take();
+    await vi.advanceTimersByTimeAsync(VAULT_IDLE_WAIT_MS - 1);
+    release();
+    const done = await taking;
+    expect(done).toBeTypeOf("function");
+    done!();
   });
   it("a starting login waits for a running check at most briefly", async () => {
     vi.useFakeTimers();
