@@ -71,9 +71,12 @@ environment variables `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
 `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret. Put
 the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner chose
 on 2026-10-11 to use this one token for both the migrations and the deployment, as in
-kogane, because both run in the same job. It grants Editor on the `pateat-api` Worker
-only and the account-level `D1: Edit`, which covers every D1 database in the account;
-the release limits itself to the recorded database ID. This repository does not supply
+kogane, because both run in the same job. It is an Account API token, not a user API
+token, so it does not depend on one person's login, and its scope is as narrow as
+Cloudflare allows (owner decision, 2026-10-11): `Workers Scripts: Edit` on the
+`pateat-api` Worker only and `D1: Edit` on the `pateat` database only, falling back to
+the whole account only where the dashboard offers no resource-level choice. The release
+limits itself to the recorded database ID either way. This repository does not supply
 or provision them.
 
 The workflow takes the CI run that triggered it, or the `ci_run_id` of a manual
