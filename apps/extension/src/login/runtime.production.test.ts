@@ -217,6 +217,12 @@ const uriMatch = (overrides: Partial<UriCandidates> = {}): UriCandidates => ({
   ...overrides,
 });
 
+type CustomField = {
+  name: string | null;
+  kind: "text" | "hidden" | "linked";
+  linkedFieldId?: string;
+};
+
 function harness(
   overrides: Partial<LocalSettings> = {},
   live: {
@@ -236,13 +242,19 @@ function harness(
     /** Automatic vault sync (ADR 0025). */
     vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
     /** Replaces the item's custom fields. */
-    custom?: {
-      name: string | null;
-      kind: "text" | "hidden" | "linked";
-      linkedFieldId?: string;
-    }[];
+    custom?: CustomField[];
+    /** Custom fields of the other item, which has none otherwise. */
+    otherCustom?: CustomField[];
+    /** Further items of the connection, each with a password and these custom fields. */
+    extraItems?: { id: string; custom: CustomField[] }[];
   } = {},
 ) {
+  const customFields = (fields: CustomField[]) =>
+    fields.map((field, index) => ({
+      id: `custom.${current.current}.${index}`,
+      label: field.name ?? "",
+      ...field,
+    }));
   const current = { current: snapshotId, userId: userId as string | undefined };
   const settings: LocalSettings = {
     connections: [
@@ -307,13 +319,7 @@ function harness(
                       ]
                     : []),
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
-                  ...(live.custom ?? [{ name: "Branch", kind: "text" as const }]).map(
-                    (field, index) => ({
-                      id: `custom.${current.current}.${index}`,
-                      label: field.name ?? "",
-                      ...field,
-                    }),
-                  ),
+                  ...customFields(live.custom ?? [{ name: "Branch", kind: "text" as const }]),
                 ],
               },
               {
@@ -333,8 +339,19 @@ function harness(
                       ]
                     : []),
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+                  ...customFields(live.otherCustom ?? []),
                 ],
               },
+              ...(live.extraItems ?? []).map((extra) => ({
+                id: extra.id,
+                label: "Extra synthetic item",
+                allowedOrigins: [],
+                groupIds: [],
+                fields: [
+                  { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+                  ...customFields(extra.custom),
+                ],
+              })),
             ],
           },
           ...(live.duplicateAccount
@@ -2755,6 +2772,307 @@ describe("production login document admission", () => {
       expect(service.judge).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
     }, 10_000);
+
+    describe("custom-field offers and their shapes (ADR 0027)", () => {
+      const thirdItemId = "80000000-0000-4000-8000-000000000003";
+      const matched =
+        (ids: string[], extra: Partial<UriCandidates> = {}) =>
+        async () => ({
+          ok: true as const,
+          data: uriMatch({
+            candidates: ids.map((id) => ({ itemId: id, matches: [{ uriIndex: 0, match: 0 }] })),
+            ...extra,
+          }),
+        });
+      const field = (index: number) => `custom.${snapshotId}.${index}`;
+      const digits = (length: number) => ({ length, classes: ["ascii-digit"], email: false });
+      /** Sends the sign-in page and answers each read from `values`, keyed by item and field. */
+      async function sendPage(
+        values: Record<string, string | undefined>,
+        live: Parameters<typeof harness>[1],
+        overrides: Partial<LocalSettings> = {},
+      ) {
+        fake.state.extracted = { login: loginPage };
+        const service = generation();
+        const h = harness(
+          { ...unsaved, ...overrides },
+          {
+            allowedOrigins: [],
+            uris: matched([itemId, otherItemId]),
+            generation: service,
+            ...live,
+          },
+        );
+        h.fields.mockImplementation(
+          async ({ account, fieldId }) =>
+            // Synthetic values only; a missing key is a read that gives nothing.
+            values[`${account.itemId} ${fieldId}`],
+        );
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.firstSteps.mockResolvedValue([]);
+        expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
+        const request = service.generate.mock.calls[0]![0];
+        return {
+          request,
+          custom: request.slots.filter((slot) => slot.fieldName !== undefined),
+          reads: h.fields.mock.calls.map(([read]) => `${read.account.itemId} ${read.fieldId}`),
+        };
+      }
+      const twoItems = {
+        custom: [
+          { name: "Branch", kind: "text" as const },
+          { name: "PIN", kind: "hidden" as const },
+        ],
+        otherCustom: [{ name: "Branch", kind: "text" as const }],
+      };
+
+      it("offers the matching items' fields by name and shapes a Text field they agree on", async () => {
+        const sent = await sendPage(
+          { [`${itemId} ${field(0)}`]: "123", [`${otherItemId} ${field(0)}`]: "456" },
+          twoItems,
+        );
+        expect(sent.custom).toEqual([
+          {
+            id: "custom-1",
+            kind: "identifier",
+            description: "value of the user's vault field named in fieldName",
+            fieldName: "Branch",
+            valueShape: digits(3),
+          },
+          {
+            id: "custom-2",
+            kind: "hidden",
+            description:
+              "concealed value of the user's vault field named in fieldName, such as a PIN",
+            fieldName: "PIN",
+          },
+        ]);
+        // A Hidden value is never read for a shape, and no value is sent.
+        expect(sent.reads).toEqual([`${itemId} ${field(0)}`, `${otherItemId} ${field(0)}`]);
+        expect(JSON.stringify(sent.request)).not.toMatch(/123|456|Synthetic item/u);
+      });
+
+      it.each<[string, string | undefined, object | undefined]>([
+        ["another length", "4567", undefined],
+        ["other characters", "4b6", undefined],
+        ["an unreadable value", undefined, undefined],
+        ["a value too long to shape", "1".repeat(1025), undefined],
+        ["an empty value, which does not count", "", digits(3)],
+      ])("sends a Text shape only when the items agree: %s", async (_label, other, shape) => {
+        const sent = await sendPage(
+          { [`${itemId} ${field(0)}`]: "123", [`${otherItemId} ${field(0)}`]: other },
+          twoItems,
+        );
+        expect(sent.custom[0]!.valueShape).toEqual(shape);
+        expect(sent.custom.map((slot) => slot.fieldName)).toEqual(["Branch", "PIN"]);
+      });
+
+      it("offers a field an item excludes only from the items that allow it", async () => {
+        const settings = (excluded: object) => ({
+          connections: [
+            {
+              connectionId,
+              enabled: true,
+              selection: { mode: "all" as const, groupIds: [], itemIds: [] },
+              excludedItemIds: [],
+              excludedFields: [],
+              ...excluded,
+            },
+          ],
+        });
+        const values = { [`${itemId} ${field(0)}`]: "1", [`${otherItemId} ${field(0)}`]: "4567" };
+        const field0 = await sendPage(
+          values,
+          twoItems,
+          settings({ excludedFields: [{ itemId, fieldId: field(0) }] }),
+        );
+        // Offers are numbered in the order the items' fields are found.
+        expect(field0.custom.map((slot) => [slot.id, slot.fieldName, slot.valueShape])).toEqual([
+          ["custom-1", "PIN", undefined],
+          ["custom-2", "Branch", digits(4)],
+        ]);
+        expect(field0.reads).toEqual([`${otherItemId} ${field(0)}`]);
+        // An excluded item offers no field and is never read.
+        const item = await sendPage(values, twoItems, settings({ excludedItemIds: [otherItemId] }));
+        expect(item.custom.map((slot) => [slot.fieldName, slot.valueShape])).toEqual([
+          ["Branch", digits(1)],
+          ["PIN", undefined],
+        ]);
+        expect(item.reads).toEqual([`${itemId} ${field(0)}`]);
+      });
+
+      it("offers names without shapes when an item could not be checked", async () => {
+        const sent = await sendPage(
+          { [`${itemId} ${field(0)}`]: "123" },
+          {
+            ...twoItems,
+            uris: matched([itemId], { unavailableItemIds: [otherItemId] }),
+          },
+        );
+        expect(sent.custom.map((slot) => [slot.fieldName, slot.valueShape])).toEqual([
+          ["Branch", undefined],
+          ["PIN", undefined],
+        ]);
+        expect(sent.reads).toEqual([]);
+      });
+
+      it("reads at most 32 values for shapes and sends the rest without one", async () => {
+        const sixteen = Array.from({ length: 16 }, (_, index) => ({
+          name: `Field ${index + 1}`,
+          kind: "text" as const,
+        }));
+        const values = Object.fromEntries(
+          [itemId, otherItemId, thirdItemId].flatMap((id) =>
+            sixteen.map((_, index) => [`${id} ${field(index)}`, "12"]),
+          ),
+        );
+        const sent = await sendPage(values, {
+          custom: sixteen,
+          otherCustom: sixteen,
+          extraItems: [{ id: thirdItemId, custom: sixteen }],
+          uris: matched([itemId, otherItemId, thirdItemId]),
+        });
+        expect(sent.custom).toHaveLength(16);
+        // Each offer reads three values: ten fit in 32, and no offer is shaped in part.
+        expect(sent.custom.map((slot) => slot.valueShape !== undefined)).toEqual([
+          ...Array.from({ length: 10 }, () => true),
+          ...Array.from({ length: 6 }, () => false),
+        ]);
+        expect(sent.reads).toHaveLength(30);
+        expect(new Set(sent.reads).size).toBe(30);
+      });
+    });
+
+    describe("a custom-slot binding built before the first login (ADR 0027)", () => {
+      const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+      const sibling = (field: { custom: string }, extra: Partial<SavedLoginBinding> = {}) => ({
+        ...branchBinding,
+        itemId: otherItemId,
+        itemName: "Other synthetic item",
+        slots: [
+          { slot: "branch", field },
+          { slot: "password", field: "password" as const },
+        ],
+        ...extra,
+      });
+      const regionAndBranch = {
+        custom: [
+          { name: "Branch", kind: "text" as const },
+          { name: "Region", kind: "text" as const },
+        ],
+      };
+      async function login(
+        bindings: SavedLoginBinding[],
+        map: Awaited<ReturnType<LoginGeneration["slotFields"]>> | Error,
+        live: Parameters<typeof harness>[1] = regionAndBranch,
+        overrides: Partial<LocalSettings> = {},
+      ) {
+        const service = generation({
+          available: async () => false,
+          slotFields: async () => {
+            if (map instanceof Error) throw map;
+            return map;
+          },
+        });
+        const h = harness({ bindings, ...overrides }, { ...live, generation: service });
+        h.recipes.recipe.mockResolvedValue(branchRecipe);
+        return { h, service, answer: await h.hello() };
+      }
+
+      it("takes another item's saved binding first and saves the result after authenticated", async () => {
+        const { h, service, answer } = await login(
+          [sibling({ custom: "Branch" })],
+          [{ slot: "branch", field: { custom: "Region" } }],
+        );
+        expect(answer).toEqual({ ok: true });
+        await vi.waitFor(() => expect(h.fields).toHaveBeenCalledTimes(2));
+        expect(h.fields.mock.calls.map(([read]) => read.fieldId)).toEqual([
+          `custom.${snapshotId}.0`,
+          "login.password",
+        ]);
+        expect(service.slotFields).toHaveBeenCalledWith(branchRecipe.id);
+        await vi.waitFor(() => expect(h.store.update).toHaveBeenCalled());
+        expect(h.settings.settings.bindings).toContainEqual(
+          expect.objectContaining({
+            recipeId: branchRecipe.id,
+            itemId,
+            slots: [
+              { slot: "branch", field: { custom: "Branch" } },
+              { slot: "password", field: "password" },
+            ],
+          }),
+        );
+      });
+
+      it("falls back to the generated map when no sibling binding resolves on the item", async () => {
+        const { h, answer } = await login(
+          [sibling({ custom: "Gone" })],
+          [{ slot: "branch", field: { custom: "Region" } }],
+        );
+        expect(answer).toEqual({ ok: true });
+        await vi.waitFor(() => expect(h.fields).toHaveBeenCalledTimes(2));
+        expect(h.fields.mock.calls[0]![0].fieldId).toBe(`custom.${snapshotId}.1`);
+      });
+
+      it("ignores a sibling binding of another origin or recipe", async () => {
+        const { answer } = await login(
+          [
+            sibling({ custom: "Branch" }, { origin: "https://other.example" }),
+            sibling({ custom: "Branch" }, { recipeId: "another-recipe" }),
+          ],
+          undefined,
+        );
+        expect(answer).toEqual({ ok: false, reason: "binding-not-found" });
+      });
+
+      it.each<[string, Awaited<ReturnType<LoginGeneration["slotFields"]>> | Error, string]>([
+        ["no map", undefined, "binding-not-found"],
+        ["an unreadable map", new Error("synthetic storage failure"), "binding-not-found"],
+        [
+          "a map without the slot",
+          [{ slot: "region", field: { custom: "Region" } }],
+          "binding-not-found",
+        ],
+        [
+          "a map naming a missing field",
+          [{ slot: "branch", field: { custom: "Gone" } }],
+          "field-missing",
+        ],
+        [
+          "a map whose same-name count changed",
+          [{ slot: "branch", field: { custom: "Branch", position: 1, count: 3 } }],
+          "field-count-changed",
+        ],
+      ])("stops before any read with %s", async (_label, map, reason) => {
+        const { h, answer } = await login([], map);
+        expect(answer).toEqual({ ok: false, reason });
+        expect(h.fields).not.toHaveBeenCalled();
+        expect(executes()).toEqual([]);
+        expect(h.store.update).not.toHaveBeenCalled();
+      });
+
+      it("refuses a built binding whose field the item excludes", async () => {
+        const { h, answer } = await login(
+          [],
+          [{ slot: "branch", field: { custom: "Branch" } }],
+          regionAndBranch,
+          {
+            connections: [
+              {
+                connectionId,
+                enabled: true,
+                selection: { mode: "all", groupIds: [], itemIds: [] },
+                excludedItemIds: [],
+                excludedFields: [{ itemId, fieldId: `custom.${snapshotId}.0` }],
+              },
+            ],
+          },
+        );
+        expect(answer).toEqual({ ok: false, reason: "binding-field-excluded" });
+        expect(h.fields).not.toHaveBeenCalled();
+      });
+    });
   });
   it("does not answer probe controls outside the probe build", async () => {
     const h = harness();
@@ -3383,6 +3701,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         service: { connection: async () => connection },
         transport: { generateRecipe: vi.fn(), judgeCompletion },
         storage: { read: async () => undefined, write: async () => undefined },
+        slotStorage: { read: async () => undefined, write: async () => undefined },
         sync,
         refresh,
       });

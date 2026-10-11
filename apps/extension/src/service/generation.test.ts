@@ -1,6 +1,6 @@
 import type { LoginObservation, RecipeGenerationRequest } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { createLoginGeneration, GENERATION_RETRY_MS } from "./generation";
+import { createLoginGeneration, GENERATION_RETRY_MS, MAX_GENERATED_SLOT_MAPS } from "./generation";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTransport } from "./transport";
 
@@ -407,5 +407,202 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
     const h = setup();
     expect(await h.generation.generate({ ...request, slots: [totp] })).toBe("none");
     expect(h.transport.generateRecipe).not.toHaveBeenCalled();
+  });
+});
+
+describe("generated slot maps (ADR 0027)", () => {
+  const offered: RecipeGenerationRequest = {
+    ...request,
+    slots: [
+      ...request.slots,
+      {
+        id: "custom-1",
+        kind: "identifier",
+        description: "value of the user's vault field named in fieldName",
+        fieldName: "Branch number",
+      },
+      {
+        id: "custom-2",
+        kind: "hidden",
+        description: "concealed value of the user's vault field named in fieldName, such as a PIN",
+        fieldName: "PIN",
+        fieldPosition: { position: 2, count: 2 },
+      },
+    ],
+  };
+  const customSlots = [
+    { slot: "branch-number", offered: "custom-1" },
+    { slot: "pin-code", offered: "custom-2" },
+  ];
+  const mapped = [
+    { slot: "branch-number", field: { custom: "Branch number" } },
+    { slot: "pin-code", field: { custom: "PIN", position: 2, count: 2 } },
+  ];
+  const recipeId = recipeChange.recipeId;
+  const idOf = (index: number) => `gen-${index.toString(16).padStart(32, "0")}`;
+
+  function slotSetup(
+    options: {
+      customSlots?: { slot: string; offered: string }[];
+      stored?: unknown;
+      failWrite?: boolean;
+    } = {},
+  ) {
+    let stored = options.stored;
+    const order: string[] = [];
+    const slotStorage = {
+      read: vi.fn(async () => structuredClone(stored)),
+      write: vi.fn(async (value: unknown) => {
+        order.push("write");
+        if (options.failWrite) throw new Error("synthetic storage failure");
+        stored = structuredClone(value);
+      }),
+    };
+    const transport = {
+      generateRecipe: vi.fn<ServiceTransport["generateRecipe"]>(
+        async (_origin, _credential, sent) => ({
+          kind: "result" as const,
+          result: {
+            version: 1 as const,
+            status: "recipe" as const,
+            change: {
+              ...recipeChange,
+              recipeId: sent.observation.path === "/login" ? recipeId : idOf(0),
+            },
+            ...(options.customSlots === undefined
+              ? { customSlots }
+              : options.customSlots.length
+                ? { customSlots: options.customSlots }
+                : {}),
+          },
+        }),
+      ),
+      judgeCompletion: vi.fn<ServiceTransport["judgeCompletion"]>(),
+    };
+    const service = {
+      connection: vi.fn(async (): Promise<ServiceConnection | undefined> => connection),
+    };
+    let attempts: unknown;
+    const generation = createLoginGeneration({
+      service,
+      transport,
+      storage: {
+        read: async () => structuredClone(attempts),
+        write: async (value) => {
+          attempts = structuredClone(value);
+        },
+      },
+      slotStorage,
+      sync: vi.fn(async () => {
+        order.push("sync");
+        return "synced";
+      }),
+      refresh: vi.fn(async () => "synced"),
+    });
+    return { generation, service, slotStorage, order, stored: () => stored };
+  }
+
+  it("remembers the offered fields per recipe before reporting it", async () => {
+    const h = slotSetup();
+    expect(await h.generation.slotFields(recipeId)).toBeUndefined();
+    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(h.order).toEqual(["write", "sync"]);
+    expect(h.stored()).toEqual({
+      version: 1,
+      maps: [
+        { service: connection.origin, deviceId: connection.deviceId, recipeId, slots: mapped },
+      ],
+    });
+    expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
+    // No value and no item reaches storage: only names, positions and counts.
+    expect(JSON.stringify(h.stored())).not.toMatch(/item|value/iu);
+  });
+
+  it("answers only for the paired service, device and recipe", async () => {
+    const h = slotSetup();
+    await h.generation.generate(offered);
+    expect(await h.generation.slotFields(idOf(7))).toBeUndefined();
+    h.service.connection.mockResolvedValue({ ...connection, deviceId: "another-device" });
+    expect(await h.generation.slotFields(recipeId)).toBeUndefined();
+    h.service.connection.mockResolvedValue({ ...connection, origin: "https://other.example.com" });
+    expect(await h.generation.slotFields(recipeId)).toBeUndefined();
+    h.service.connection.mockResolvedValue(undefined);
+    expect(await h.generation.slotFields(recipeId)).toBeUndefined();
+    h.service.connection.mockResolvedValue(connection);
+    expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
+  });
+
+  it("reads maps another worker wrote and ignores a stored map for another device", async () => {
+    const entry = (deviceId: string) => ({
+      service: connection.origin,
+      deviceId,
+      recipeId,
+      slots: mapped,
+    });
+    const h = slotSetup({ stored: { version: 1, maps: [entry("another-device")] } });
+    expect(await h.generation.slotFields(recipeId)).toBeUndefined();
+    const own = slotSetup({ stored: { version: 1, maps: [entry(connection.deviceId)] } });
+    expect(await own.generation.slotFields(recipeId)).toEqual(mapped);
+    // An unreadable record counts as no maps.
+    const broken = slotSetup({
+      stored: {
+        version: 1,
+        maps: [
+          {
+            ...entry(connection.deviceId),
+            slots: [{ slot: "Branch number", field: { custom: "Branch number" } }],
+          },
+        ],
+      },
+    });
+    expect(await broken.generation.slotFields(recipeId)).toBeUndefined();
+  });
+
+  it.each([
+    ["an unknown request slot", [{ slot: "branch-number", offered: "custom-9" }]],
+    ["a built-in slot", [...customSlots, { slot: "secret-word", offered: "password" }]],
+    ["no custom slot", []],
+  ])("writes nothing for a mapping that names %s", async (_label, mapping) => {
+    const h = slotSetup({ customSlots: mapping });
+    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(h.slotStorage.write).not.toHaveBeenCalled();
+    expect(await h.generation.slotFields(recipeId)).toBeUndefined();
+  });
+
+  it("keeps nothing in memory that it could not write, and still reports the recipe", async () => {
+    const h = slotSetup({ failWrite: true });
+    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(h.order).toEqual(["write", "sync"]);
+    expect(await h.generation.slotFields(recipeId)).toBeUndefined();
+  });
+
+  it("keeps at most 200 recipes, replacing a recipe's map and dropping the oldest", async () => {
+    const full = Array.from({ length: MAX_GENERATED_SLOT_MAPS }, (_, index) => ({
+      service: connection.origin,
+      deviceId: connection.deviceId,
+      recipeId: idOf(index + 1),
+      slots: [{ slot: "old-slot", field: { custom: "Old" } }],
+    }));
+    const h = slotSetup({ stored: { version: 1, maps: full } });
+    expect(MAX_GENERATED_SLOT_MAPS).toBe(200);
+    expect(await h.generation.slotFields(idOf(1))).toEqual(full[0]!.slots);
+    await h.generation.generate(offered);
+    const maps = (h.stored() as { maps: { recipeId: string }[] }).maps;
+    expect(maps).toHaveLength(200);
+    expect(maps[0]!.recipeId).toBe(idOf(2));
+    expect(maps.at(-1)!.recipeId).toBe(recipeId);
+    expect(await h.generation.slotFields(idOf(1))).toBeUndefined();
+    expect(await h.generation.slotFields(idOf(2))).toEqual(full[1]!.slots);
+
+    // A recipe generated again replaces its own map instead of adding one.
+    const again = slotSetup({ stored: h.stored() });
+    await again.generation.generate({
+      ...offered,
+      observation: { ...observation, path: "/other" },
+    });
+    await again.generation.generate(offered);
+    const after = (again.stored() as { maps: { recipeId: string }[] }).maps;
+    expect(after).toHaveLength(200);
+    expect(after.filter((entry) => entry.recipeId === recipeId)).toHaveLength(1);
   });
 });

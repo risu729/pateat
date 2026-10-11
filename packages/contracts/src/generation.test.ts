@@ -88,6 +88,93 @@ describe("recipe generation contracts", () => {
   });
 });
 
+describe("custom slots in a generated recipe (ADR 0027)", () => {
+  const custom = {
+    ...recipe,
+    slots: ["email", "branch-number", "pin-code"],
+    steps: [
+      {
+        kind: "fill",
+        path: "/login",
+        fields: [
+          { slot: "email", target: { by: "id", value: "email" } },
+          { slot: "branch-number", target: { by: "id", value: "branch" } },
+          { slot: "pin-code", target: { by: "id", value: "pin" } },
+        ],
+      },
+      recipe.steps[1],
+    ],
+  };
+  const change = { recipeId: "gen-1", revision: 2, state: "active", recipe: custom };
+  const answer = (customSlots: unknown) =>
+    v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change, customSlots });
+
+  it("maps recipe slots to offered request slots", () => {
+    expect(v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change })).toBe(true);
+    expect(answer([{ slot: "branch-number", offered: "custom-1" }])).toBe(true);
+    expect(
+      answer([
+        { slot: "branch-number", offered: "custom-1" },
+        { slot: "pin-code", offered: "custom-2" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("refuses an empty, duplicate or oversized mapping", () => {
+    expect(answer([])).toBe(false);
+    expect(
+      answer([
+        { slot: "branch-number", offered: "custom-1" },
+        { slot: "branch-number", offered: "custom-2" },
+      ]),
+    ).toBe(false);
+    expect(
+      answer([
+        { slot: "branch-number", offered: "custom-1" },
+        { slot: "pin-code", offered: "custom-1" },
+      ]),
+    ).toBe(false);
+    const nine = Array.from({ length: 9 }, (_, index) => ({
+      slot: `slot-${"abcdefghi"[index]!.repeat(2)}`,
+      offered: `custom-${index + 1}`,
+    }));
+    const wide = {
+      ...change,
+      recipe: { ...custom, slots: [...custom.slots, ...nine.map((entry) => entry.slot)] },
+    };
+    const many = (entries: typeof nine) =>
+      v.is(recipeGenerationResultSchema, {
+        version: 1,
+        status: "recipe",
+        change: wide,
+        customSlots: entries,
+      });
+    expect(many(nine.slice(0, 8))).toBe(true);
+    expect(many(nine)).toBe(false);
+  });
+
+  it("refuses a slot the recipe lacks, a non-generic slot or an unsafe offered ID", () => {
+    expect(answer([{ slot: "region", offered: "custom-1" }])).toBe(false);
+    // Built-in slots and field names never come back as custom slots.
+    for (const slot of ["password", "Branch number", "branch-2"])
+      expect(answer([{ slot, offered: "custom-1" }])).toBe(false);
+    for (const offered of ["", "custom 1", "x".repeat(65)])
+      expect(answer([{ slot: "branch-number", offered }])).toBe(false);
+    expect(answer([{ slot: "branch-number", offered: "custom-1", field: "Branch" }])).toBe(false);
+  });
+
+  it("never carries a mapping on another status", () => {
+    expect(
+      v.is(recipeGenerationResultSchema, {
+        version: 1,
+        status: "abstained",
+        reason: "ambiguous",
+        customSlots: [{ slot: "branch-number", offered: "custom-1" }],
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("page judgement contracts (ADR 0027)", () => {
   const change = { recipeId: "gen-1", revision: 2, state: "active", recipe };
 

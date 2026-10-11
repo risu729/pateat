@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   builtInLoginSlots,
+  genericSlotIdSchema,
   loginObservationSchema,
   semanticSlotsSchema,
   showsCodeField,
@@ -164,5 +165,94 @@ describe("code fields on a generated page (ADR 0027)", () => {
     const branch = { id: "branch", kind: "identifier", description: "bank branch number" } as const;
     expect(slotsForPage(page as never, [branch, builtInLoginSlots.totp])).toEqual([branch]);
     expect(slotsForPage(page as never, [builtInLoginSlots.totp])).toEqual([]);
+  });
+});
+
+describe("custom-field slots (ADR 0027)", () => {
+  const custom = (extra: object = {}) => ({
+    id: "custom-1",
+    kind: "identifier",
+    description: "value of the user's vault field named in fieldName",
+    fieldName: "Branch number",
+    ...extra,
+  });
+  const accepts = (slots: object[]) => v.safeParse(semanticSlotsSchema, slots).success;
+
+  it("accepts a hidden slot but never a shape on it", () => {
+    expect(accepts([custom({ kind: "hidden", fieldName: "PIN" })])).toBe(true);
+    const shape = { length: 4, classes: ["ascii-digit"], email: false };
+    expect(accepts([custom({ kind: "hidden", fieldName: "PIN", valueShape: shape })])).toBe(false);
+  });
+
+  it("allows a field position only with a field name, a count of 2 or more and a position within it", () => {
+    expect(accepts([custom({ fieldPosition: { position: 2, count: 2 } })])).toBe(true);
+    expect(accepts([custom({ fieldPosition: { position: 1, count: 1000 } })])).toBe(true);
+    for (const fieldPosition of [
+      { position: 1, count: 1 },
+      { position: 3, count: 2 },
+      { position: 0, count: 2 },
+      { position: 1.5, count: 2 },
+      { position: 1, count: 1001 },
+      { position: 1 },
+      { position: 1, count: 2, index: 0 },
+    ])
+      expect(accepts([custom({ fieldPosition })])).toBe(false);
+    const { fieldName: _name, ...unnamed } = custom();
+    expect(accepts([{ ...unnamed, fieldPosition: { position: 1, count: 2 } }])).toBe(false);
+  });
+
+  it("allows up to 20 slots", () => {
+    const many = (count: number) =>
+      Array.from({ length: count }, (_, index) =>
+        custom({ id: `custom-${index + 1}`, fieldName: `Field ${index + 1}` }),
+      );
+    expect(accepts(many(20))).toBe(true);
+    expect(accepts(many(21))).toBe(false);
+  });
+
+  it("refuses two slots that name the same vault field", () => {
+    const second = { id: "custom-2" };
+    expect(accepts([custom(), custom({ ...second, fieldName: "Branch" })])).toBe(true);
+    expect(accepts([custom(), custom(second)])).toBe(false);
+    // Positions tell same-name fields apart; the same position twice does not.
+    const at = (position: number) => ({ fieldPosition: { position, count: 2 } });
+    expect(accepts([custom(at(1)), custom({ ...second, ...at(2) })])).toBe(true);
+    expect(accepts([custom(at(1)), custom({ ...second, ...at(1) })])).toBe(false);
+    expect(accepts([custom(), custom({ ...second, ...at(1) })])).toBe(true);
+    // Slots without a field name never clash with each other.
+    expect(accepts([builtInLoginSlots.username, builtInLoginSlots.password])).toBe(true);
+  });
+
+  it.each([
+    ["branch", true],
+    ["branch-number", true],
+    ["store-branch-code-id", true],
+    ["store-branch-code-id-x", false],
+    ["store-branch-code-ids-extra", false],
+    ["a", false],
+    ["branch-n", false],
+    ["Branch-number", false],
+    ["branch_number", false],
+    ["branch--number", false],
+    ["-branch", false],
+    ["branch-", false],
+    ["branch2", false],
+    ["account-number-1234", false],
+    ["支店番号", false],
+    ["username", false],
+    ["password", false],
+    ["totp", false],
+    ["user-name", true],
+    ["", false],
+  ])("treats %j as a generic slot ID: %s", (value, valid) => {
+    expect(v.is(genericSlotIdSchema, value)).toBe(valid);
+  });
+
+  it("bounds a generic slot ID at 40 characters", () => {
+    const words = (length: number) =>
+      ["a".repeat(length - 30), "b".repeat(9), "c".repeat(9), "d".repeat(9)].join("-");
+    expect(words(40)).toHaveLength(40);
+    expect(v.is(genericSlotIdSchema, words(40))).toBe(true);
+    expect(v.is(genericSlotIdSchema, words(41))).toBe(false);
   });
 });
