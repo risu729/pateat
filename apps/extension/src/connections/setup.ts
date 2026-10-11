@@ -280,7 +280,12 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         next: current.data,
         catalog,
         ...(flow.enabled === undefined ? {} : { enabled: flow.enabled }),
-        sameCustomFields: accepted.data.sameCustomFields,
+        // Only a comparison with the very snapshot this adoption replaces counts.
+        sameCustomFields:
+          accepted.data.comparedSnapshotId !== undefined &&
+          accepted.data.comparedSnapshotId === prior.data?.accepted?.snapshotId
+            ? accepted.data.sameCustomFields
+            : [],
       });
       if (!alive(flow)) {
         clear(flow);

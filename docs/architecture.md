@@ -309,8 +309,8 @@ snapshot that is still open, the crypto host also compares the decrypted custom
 fields (name, value, type and linked source, in order) of each protected item;
 equal fields rebind as an unchanged sequence would. Each Worker
 returns HMAC-SHA-256 digests under a key the offscreen document creates and keeps,
-so the background learns only "equal" or "different", never a value or an
-unkeyed hash a short value could be guessed from
+so no value leaves the crypto host and a digest cannot be tested offline against
+guesses of a short value; it is no defense against a compromised background
 ([ADR 0025](adr/0025-automatic-vault-sync.md#protected-items-after-a-sync)).
 
 Review must identify the current snapshot and settings revision. Start every

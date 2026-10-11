@@ -361,6 +361,7 @@ describe("custom-field comparison with the replaced snapshot", () => {
     const other = crypto.randomUUID();
     const result = await h.manager.accept(compare([itemId, other, "not-a-uuid", itemId]));
     expect(result.ok && result.data.sameCustomFields).toEqual([itemId]);
+    expect(result.ok && result.data.comparedSnapshotId).toBe(old.handle.snapshotId);
     expect(h.events).toEqual([
       "open",
       "verify-all",
@@ -404,6 +405,16 @@ describe("custom-field comparison with the replaced snapshot", () => {
       expect(h.manager.status().ready).toBe(true);
     },
   );
+  it("forgets the live session at once when its digest request ended it", async () => {
+    const h = harness();
+    await accepted(h);
+    h.events.length = 0;
+    h.host.customFieldDigests.mockResolvedValueOnce({ ok: false, error: { code: "timeout" } });
+    const result = await h.manager.accept(compare());
+    expect(result.ok && result.data.sameCustomFields).toEqual([]);
+    expect(result.ok && result.data.comparedSnapshotId).toBeUndefined();
+    expect(h.events.indexOf("lock")).toBeLessThan(h.events.indexOf("commit"));
+  });
   it("compares nothing without an open session for the record being replaced", async () => {
     const h = harness();
     await accepted(h);

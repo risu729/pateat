@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { browser } from "wxt/browser";
 import { toBase64Url } from "../passkeys/encoding";
+import { withDigestKey } from "./custom-digest";
 import {
   boundedMessage,
   commandSchema,
@@ -172,9 +173,7 @@ export function startCryptoOffscreen() {
       deadline: Date.now() + 30_000,
     });
     // Any key the background sent is replaced.
-    worker.postMessage(
-      op.kind === "custom-digest" ? { ...command, operation: { ...op, key: digestKey } } : command,
-    );
+    worker.postMessage(withDigestKey(command, digestKey));
     send({
       version: 1,
       type: "crypto.dispatched",

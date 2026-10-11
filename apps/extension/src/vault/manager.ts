@@ -256,6 +256,14 @@ export function createLocalVaultManager(options: {
         options.host.customFieldDigests(old.session, itemIds),
         options.host.customFieldDigests(next.session, itemIds, signal),
       ]);
+      // A timed-out or failed request on the live session has ended it in the crypto host;
+      // forget it here too, so a later failed write does not leave logins on a dead handle.
+      if (
+        !before.ok &&
+        ["timeout", "crypto-locked", "crypto-failed"].includes(before.error.code) &&
+        live?.opened === old
+      )
+        await lockLive();
       if (!before.ok || !after.ok) return [];
       return itemIds.filter((id) => {
         const digest = before.data.digests[id];
@@ -297,6 +305,8 @@ export function createLocalVaultManager(options: {
         summary: LocalVaultSummary;
         /** Compared items whose custom fields are unchanged; empty when none were compared. */
         sameCustomFields: string[];
+        /** The replaced snapshot those items were compared with. */
+        comparedSnapshotId?: string;
       }>
     > {
       if (!profile) return vaultFailure("invalid-profile");
@@ -430,6 +440,9 @@ export function createLocalVaultManager(options: {
             handle: structuredClone(handle),
             summary: summary(ready.data),
             sameCustomFields: sameFields,
+            ...(sameFields.length > 0 && previous.data?.accepted
+              ? { comparedSnapshotId: previous.data.accepted.snapshotId }
+              : {}),
           },
         };
       } catch {

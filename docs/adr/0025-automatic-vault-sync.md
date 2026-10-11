@@ -112,10 +112,16 @@ a closed old session or any failed request counts as different and never fails t
 sync.
 
 Each digest is HMAC-SHA-256 under a random 32-byte key that the offscreen document
-creates once and adds to every request it forwards to a Worker. The background never
-holds the key, so it learns only "equal" or "different"; no value, and no unkeyed hash
-from which a short value such as a PIN could be guessed, leaves the crypto host. A
-device without the old snapshot open still relies on review.
+creates once and adds to every request it forwards to a Worker, replacing any key the
+background sent. The background compares the digests and keeps only the item IDs that
+matched. No value leaves the crypto host, and a digest seen in a log, memory dump or
+storage cannot be tested offline against guesses of a short value such as a PIN. This
+does not protect against a compromised background, which could open its own session
+with guessed values and compare digests; such a background already holds the unlock
+key ([ADR 0006](0006-atomic-local-vault-cache.md)). The comparison counts only when it
+was made against the snapshot being replaced, and a digest request that ended the old
+session also drops it from the manager. A device without the old snapshot open still
+relies on review.
 
 ### Differences from the official extension
 
