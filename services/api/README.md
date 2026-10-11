@@ -1,11 +1,12 @@
 # API
 
 This Worker is the optional private settings/recipe sync service with device enrollment.
-It has no vault or inference implementation, and it is not deployed. The `DB` D1 binding
-is declared in `cloudflare.config.ts`, but no database is provisioned. cf deploy
-provisions declared bindings that lack an ID, so record the bootstrapped database ID
-there before enabling server delivery; a routine release must not create the database
-implicitly.
+It has no vault or inference implementation, and it is not deployed. The `pateat` D1
+database was bootstrapped on 2026-10-11, and `cloudflare.config.ts` records its ID. cf
+deploy provisions declared bindings that lack an ID, so the release artifact refuses a
+build without one; a routine release never creates the database implicitly. The
+release applies the committed migrations to that database before activation
+([delivery](../../docs/delivery.md)).
 
 ## Routes
 

@@ -15,14 +15,17 @@ preserve its required rule rather than treating that as permanent ineligibility.
 See [merging](#merging).
 
 Successful main-push CI packages the exact tested production Worker output with
-repository, revision, run/attempt, tool versions and per-file hashes. The artifact does
-not yet carry the committed D1 migrations, and enrollment has not been verified against
-a real Access application, so the sync API cannot be released yet. The `DB` binding has
-no database ID; cf deploy would provision one, so set the bootstrapped ID before
-enabling delivery. A deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`
-Worker secrets and an Access application covering only `/enroll` and `/manage`; the
-owner pages answer 503 without them. Artifact tests reject tampering and mismatched
-provenance.
+repository, revision, run/attempt, tool versions and per-file hashes, plus the
+committed top-level D1 migration files (`services/api/migrations/*.sql`) and the D1
+database ID recorded in the build. The `pateat` database was bootstrapped on
+2026-10-11 in the owner's account with an APAC location hint, and its ID is in
+`cloudflare.config.ts`; packing and restore refuse a build whose `DB` binding has no ID,
+because cf deploy would provision a new database. Restore also checks that the
+migrations match both the manifest and the checked-out revision. Enrollment has not
+been verified against a real Access application, so the sync API cannot be released
+yet. A deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets
+and an Access application covering only `/enroll` and `/manage`; the owner pages answer
+503 without them. Artifact tests reject tampering and mismatched provenance.
 
 `deploy-server.yml` is manual and disabled until `SERVER_DEPLOY_ENABLED=true`.
 Before enabling it, provision the Worker/routing and set repository variables
@@ -33,8 +36,12 @@ HTTPS `/health` URL. Put the scoped `CLOUDFLARE_API_TOKEN` secret in the
 Dispatch on main with `ci_run_id` identifying successful main-push CI for the
 current revision. The workflow verifies the run's identity, event and conclusion,
 restores only its hashed artifact, rechecks main within a non-cancelling release
-lock, deploys through the pinned action without rebuilding, and verifies returned
-deployment IDs and the hosted revision. Failed delivery stays failed; each retry
+lock, applies the released migrations, deploys through the pinned action without
+rebuilding, and verifies returned deployment IDs and the hosted revision. Before
+`cf d1 migrations apply`, it reads the database by the recorded ID and requires the
+name `pateat`; afterwards no migration may remain unapplied. A failed migration
+stops the release before activation, and the serving Worker keeps running because
+migrations are additive. Failed delivery stays failed; each retry
 or later release requires an explicit dispatch. The complete service release
 gates below remain planned, including automatic promotion/failure acknowledgement.
 

@@ -424,8 +424,8 @@ Local Miniflare tests cover unknown, malformed and revoked credentials, owner an
 device isolation, stale and concurrent writes, tombstones, cursor paging, strict
 schema rejection, media type and body limits, and fail-closed handling of corrupt
 stored documents. Concurrent cases interleave within one local runtime, not hosted
-D1. A migration check regenerates SQL from the Drizzle schema. The D1 database is
-not provisioned, and nothing is deployed.
+D1. A migration check regenerates SQL from the Drizzle schema. The D1 database was
+created on 2026-10-11 (see [delivery](delivery.md)); nothing is deployed yet.
 
 The second slice adds the service side of
 [device enrollment](architecture.md#device-enrollment). The Worker verifies Cloudflare
@@ -529,8 +529,7 @@ the real settings store over in-memory storage; no running service has been trie
   optional `launchWebAuthFlow` variant.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
-- Inference adapters, spending accounting and the release artifact's migration SQL
-  remain separate slices.
+- Inference adapters and spending accounting remain separate slices.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first approval. Before the service is offered to other people, it needs
   per-owner storage and request limits; today only `/redeem` is rate limited (per
