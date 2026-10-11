@@ -149,6 +149,29 @@ test("reports a revocation that lost to another write and shows the current reci
   await expect.poll(() => client.revokeRecipe).toHaveBeenLastCalledWith("bank-signin", 2);
 });
 
+test("moves focus between Revoke and Confirm while the list is refreshing", async () => {
+  const client = mockClient({ version: 1, recipes: [active("bank-signin")] });
+  const queryClient = await mount(client);
+  await expect
+    .element(page.getByRole("button", { name: "Revoke recipe bank-signin" }))
+    .toBeVisible();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  client.recipes.mockImplementationOnce(async () => {
+    await held;
+    return { version: 1, recipes: [active("bank-signin")] };
+  });
+  void queryClient.invalidateQueries();
+  await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
+  await expect.element(page.getByRole("button", { name: "Confirm" })).toHaveFocus();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Revoke recipe bank-signin" }))
+    .toHaveFocus();
+  expect(client.recipes).toHaveBeenCalledTimes(2);
+  release();
+});
+
 test("revokes the revision the owner confirmed, even if the list refreshes meanwhile", async () => {
   const client = mockClient({ version: 1, recipes: [active("bank-signin")] });
   const queryClient = await mount(client);
