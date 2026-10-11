@@ -730,7 +730,21 @@ extension 2026.9.3, Bitwarden Cloud US.
   showed its own window. The options page's site-default account list did not filter by
   site, did not show usernames, and could not tell apart items with the same name, so
   the owner could not pick the right item; that is tracked as executor work.
-- Not tested: a primary sign-in with a discoverable (username-less) passkey.
+- Not tested at this build: a primary sign-in with a discoverable (username-less)
+  passkey. It passed later on `https://my.jcb.co.jp` (below).
+
+Evidence, 2026-10-11, `https://my.jcb.co.jp` with a saved site default, in the owner's
+Chrome 154.0.8037.98 with the official Bitwarden extension 2026.9.3 and the same real
+account, production build at main `623dc39`:
+
+- The first retry still delegated. The service-worker log (`Pateat passkey request`, see
+  [Why a passkey request was delegated](development.md#why-a-passkey-request-was-delegated))
+  showed `rpId: "my.jcb.co.jp"`, `allowCredentials: 0`, `stored: 5`, `accepted: 5`,
+  `siteDefault: 0`, `siteDefaultItem: "unset"`, `reason: "ambiguous-credential"`. The
+  default was in the options page's unsaved draft only; the page then had a separate
+  save button, which is now gone (#160).
+- After saving, the username-less primary sign-in succeeded with no Bitwarden or Windows
+  window, so Pateat signed it with the default's passkey among the five.
 
 Evidence, 2026-10-11, after the move to `@bitwarden/sdk-internal` `0.2.0-main.1099`
 (#151), in the owner's Chrome with the same real account: on a production build at main
