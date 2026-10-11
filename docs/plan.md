@@ -20,13 +20,12 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   host-access revocation, and the site-access warning and prompt in installed Chrome
   ([remaining M3 integration gaps](#remaining-m3-integration-gaps)).
 - M4: sync against the deployed service, the
-  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing,
-  device-independent item selection and field exclusions, a WIF token exchange against
-  Anthropic) and the remaining M4 AI work under
+  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing, synced item
+  selection and field exclusions ([ADR 0023](adr/0023-synced-vault-policy.md)), a WIF
+  token exchange against Anthropic) and the remaining M4 AI work under
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
-  `advance` step, naming `accountSwitch`, ADR 0010
-  hints, `checkPlanValues` and the post-fill check in the executor, the real-page
-  corpus) and the finite-choice role.
+  `advance` step, naming `accountSwitch`, ADR 0010 hints, `checkPlanValues` and the
+  post-fill check in the executor, the real-page corpus) and the finite-choice role.
 - M5: the passkey chooser window
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
   implemented and tested in Playwright Chromium only), real sites that wrap `get`
@@ -637,7 +636,9 @@ tests cover it.
   Worker tests; the route is not deployed. The extension switch, with the typed-code
   flow removed, is not implemented.
 - Settings that use device-local connection IDs, such as item selection and field
-  exclusions, have no device-independent form yet and are not synced (ADR 0013).
+  exclusions, are not synced yet.
+  [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
+  review; it is not implemented.
 - Done: the [owner web UI](architecture.md#owner-web-ui) serves its React app, assets
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
@@ -1186,8 +1187,9 @@ support for every site or vault format. Keep observed limitations explicit.
   setting over the existing policy shape is later work. Nonzero-counter
   synchronization is deferred.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
-  among several URI-matched items, how synced field exclusions
-  move to device-independent references, and where custom-field review happens.
+  among several URI-matched items. How synced field exclusions move to
+  device-independent references, and where custom-field review happens, are decided in
+  [ADR 0023](adr/0023-synced-vault-policy.md).
 - Enrollment and device credential lifetime (90 days unused, renewed on use; see
   [service sync progress](#service-sync-progress)) are settled, and a lost
   device is replaced by pairing a new one, since the service holds settings and recipes

@@ -5,6 +5,8 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
 Each part lands in its own PR. Parts A, B and C are implemented; D is not yet.
+Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
+a binding that names a missing custom field (not implemented yet).
 
 Date: 2026-10-11
 
