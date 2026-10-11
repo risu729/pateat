@@ -891,9 +891,9 @@ for the data the service holds
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI
   generation. Creating or editing recipe JSON is not offered; development keeps using
-  `PUT /v1/recipes/:recipeId`. Settings that still use device-local IDs (connections,
-  item selection and field exclusions) are not shown until their device-independent
-  form is decided.
+  `PUT /v1/recipes/:recipeId`. Item selection and field exclusions are not shown yet;
+  once synced ([ADR 0023](adr/0023-synced-vault-policy.md)) the web UI first only lists
+  them, and they are edited on the extension's settings page.
 
   Claude credentials are entered on `/manage/claude`, a temporary script-free page
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,

@@ -47,10 +47,10 @@ vault keeps the count, so the binding then fills the other field; this is a know
 limitation. Item and field names are stored for display and logging; a site default
 keeps its optional `itemName` for the same reason (owner decision, 2026-10-11). Site
 defaults and bindings saved on a device also keep that vault connection's label as an
-optional, display-only `accountName` (2026-10-11). Still
-open: how the other synced settings that use local IDs today, such as field exclusions,
-are converted, and where custom-field review happens and keeps its state now that the
-extension page no longer edits settings.
+optional, display-only `accountName` (2026-10-11).
+[ADR 0023](0023-synced-vault-policy.md) converts the other settings that used local IDs
+(item selection and field exclusions) to synced form, adds the provider server to these
+references, and decides where custom-field review happens and how its state is synced.
 
 ### Recipes and account bindings
 
