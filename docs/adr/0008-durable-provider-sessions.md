@@ -4,7 +4,9 @@ Status: accepted and implemented in the provider-session PR. Native browser acce
 uses synthetic providers; real-account refresh behavior is unverified. Amended on
 2026-10-11 by the owner's
 [compatibility before release](../development.md#compatibility-before-release)
-decision: the version 1 database is no longer upgraded in place.
+decision: the version 1 database is no longer upgraded in place. Amended again on
+2026-10-11, when the owner approved automatic vault sync: a refresh that fails without
+a rejection restores the session instead of leaving the claim.
 
 Date: 2026-10-10
 
@@ -21,8 +23,13 @@ the mapper needs, because refresh responses omit them.
 
 Before a refresh request, commit a token-free claim by compare-and-swap; only the
 writer whose claim committed sends the request. Keep the previous refresh token only
-in that worker's memory. A restart or an unknown network outcome leaves the claim,
-which then requires password sign-in; a claim is never replayed. Once the claim has
+in that worker's memory. When the refresh fails with a network error, a timeout, HTTP
+429 or a 5xx status, the provider has not rejected the token, so the claim is swapped
+back to the previous session (same refresh token, new revision) and a later sync sends
+it again. Bitwarden issues reusable refresh tokens (`TokenUsage.ReUse`), so the captured
+token stays valid even if the server processed the lost request. Any other failure, or
+a worker restart while the request is in flight, leaves the claim, which then requires
+password sign-in. Once the claim has
 committed, closing the options page does not abort the request or the rotation commit;
 only the transport timeout bounds them. Commit a rotated token before syncing and keep
 the captured token when the response omits it. A session is usable only until 60

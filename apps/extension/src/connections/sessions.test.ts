@@ -189,21 +189,67 @@ describe("explicit sync acquisition", () => {
       expect(h.memory.raw()).toMatchObject({ refreshToken: "synthetic-refresh-token" });
     },
   );
-  it("an unknown network outcome leaves the claim and never replays it", async () => {
+  it.each([
+    { code: "network" },
+    { code: "timeout" },
+    { code: "http-error", status: 429 },
+    { code: "http-error", status: 503 },
+  ] as const)("a refresh that fails with $code $status restores the session", async (error) => {
+    const h = harness();
+    await h.retain();
+    const before = h.memory.raw() as Record<string, unknown>;
+    h.advance(3_600_000);
+    h.refreshToken.mockResolvedValueOnce({ ok: false, error });
+    expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({ ok: false, error });
+    const restored = h.memory.raw() as Record<string, unknown>;
+    expect(restored["state"]).toBe("active");
+    expect(restored["refreshToken"]).toBe("synthetic-refresh-token");
+    expect(restored["revision"]).not.toBe(before["revision"]);
+    expect(await h.sessions.status(accountProfile)).toBe("refresh-required");
+    // The same refresh token is sent again; the provider reuses it.
+    h.refreshToken.mockResolvedValueOnce(h.refreshed());
+    const retried = await h.sessions.acquire(accountProfile, h.context());
+    expect(retried.ok).toBe(true);
+    expect(h.refreshToken).toHaveBeenLastCalledWith({
+      connectionId: accountProfile.connectionId,
+      refreshToken: "synthetic-refresh-token",
+    });
+  });
+  it.each([
+    { code: "http-error", status: 401 },
+    { code: "redirect" },
+    { code: "invalid-response" },
+  ] as const)("a refresh that fails with $code $status leaves the claim", async (error) => {
     const h = harness();
     await h.retain();
     h.advance(3_600_000);
-    h.refreshToken.mockResolvedValueOnce({ ok: false, error: { code: "network" } });
-    expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({
-      ok: false,
-      error: { code: "network" },
-    });
+    h.refreshToken.mockResolvedValueOnce({ ok: false, error });
+    expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({ ok: false, error });
     expect(await h.sessions.status(accountProfile)).toBe("reauthentication-required");
     expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({
       ok: false,
       error: { code: "setup-reauthentication-required" },
     });
     expect(h.refreshToken).toHaveBeenCalledTimes(1);
+  });
+  it("forget during a refresh that later fails is not undone by the restore", async () => {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    h.refreshToken.mockImplementationOnce(async () => {
+      await held;
+      return { ok: false, error: { code: "network" } };
+    });
+    const pending = h.sessions.acquire(accountProfile, h.context());
+    await vi.waitFor(() => expect(h.refreshToken).toHaveBeenCalled());
+    expect(await h.sessions.forget(accountProfile)).toEqual({ ok: true, data: true });
+    release();
+    expect(await pending).toEqual({ ok: false, error: { code: "network" } });
+    expect(h.memory.raw()).toBeUndefined();
   });
   it("a rejected refresh forgets the session", async () => {
     const h = harness();
