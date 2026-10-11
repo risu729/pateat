@@ -453,6 +453,12 @@ describe("custom-field comparison with the replaced snapshot", () => {
       expect(h.opened.size).toBe(1);
       // The next sync skips the comparison so a repeating failure cannot block it.
       h.host.customFieldDigests.mockClear();
+      // A skipping sync that does not commit leaves the skip for the next one.
+      h.store.compareAndSwap.mockResolvedValueOnce({
+        ok: false,
+        error: { code: "cache-quota-exceeded" },
+      });
+      expect((await h.manager.accept(compare())).ok).toBe(false);
       const next = await h.manager.accept(compare());
       expect(next.ok && next.data.sameCustomFields).toEqual([]);
       expect(h.host.customFieldDigests).not.toHaveBeenCalled();
@@ -491,6 +497,7 @@ describe("custom-field comparison with the replaced snapshot", () => {
     expect(h.entry()).toEqual(durable);
     expect(h.manager.status().ready).toBe(false);
     expect((await h.manager.listFields(old.handle, itemId)).ok).toBe(false);
+    expect(h.opened.size).toBe(0);
   });
   it("compares nothing without an open session for the record being replaced", async () => {
     const h = harness();

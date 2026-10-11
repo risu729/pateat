@@ -110,8 +110,9 @@ order). An item whose two digests are equal is treated as unchanged: its custom-
 exclusions move to the new snapshot without review. An unknown or undecryptable item,
 a closed old session or any failed request counts as different. Only a failure that may
 have ended the new session (a timeout, a locked or failed crypto host) fails the sync,
-before the write, so the stored old snapshot stays; the next automatic check or **Sync**
-then skips the comparison once, so a failure that repeats cannot block every sync.
+before the write, so the stored old snapshot stays. Later automatic checks and **Sync**
+then skip the comparison, counting every item as different, until a sync commits, so a
+failure that repeats cannot block every sync.
 
 Each digest is HMAC-SHA-256 under a random 32-byte key that the offscreen document
 creates once and adds to every request it forwards to a Worker, replacing any key the

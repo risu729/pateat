@@ -86,7 +86,7 @@ export function createLocalVaultManager(options: {
   const retirements = new Set<Promise<void>>();
   let uncertain = false;
   // Set when a comparison may have ended the candidate, so a failure that repeats cannot
-  // block every sync: the next accept skips the comparison and relies on review.
+  // block every sync: accepts skip the comparison and rely on review until one commits.
   let skipComparison = false;
   const summary = (entry: VaultEntry): LocalVaultSummary => ({
     connectionId: entry.profile.connectionId,
@@ -395,9 +395,11 @@ export function createLocalVaultManager(options: {
             : { items: [], candidateEnded: false };
         if (!current(captured, op.signal)) return vaultFailure("cancelled");
         // A candidate the crypto host may have ended cannot serve logins; fail before the
-        // write so the stored snapshot stays and the next sync retries without comparing.
-        skipComparison = comparison.candidateEnded;
-        if (comparison.candidateEnded) return vaultFailure("crypto-failed");
+        // write so the stored snapshot stays and later syncs retry without comparing.
+        if (comparison.candidateEnded) {
+          skipComparison = true;
+          return vaultFailure("crypto-failed");
+        }
         const sameFields = comparison.items;
         await options.checkpoint?.("before-write");
         if (!current(captured, op.signal)) return vaultFailure("cancelled");
@@ -442,6 +444,7 @@ export function createLocalVaultManager(options: {
           return vaultFailure("storage-uncertain");
         }
         uncertain = false;
+        skipComparison = false;
         const handle = handleFor(ready.data);
         // Retain metadata only; the host owns encrypted items and native keys.
         live = { handle, opened: candidate, summary: summary(ready.data) };
