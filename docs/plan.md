@@ -26,9 +26,9 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
   `advance` step, a Claude baseline on the real-page corpus) and the finite-choice
   role.
-- M5: closing the passkey chooser window and a long wait in it in installed Chrome
+- M5: a long wait in the passkey chooser window in installed Chrome
   ([ADR 0021](adr/0021-account-choice-outside-settings.md); choosing, the browser
-  fallback and asking again after a logout have passed, see
+  fallback, closing the window and asking again after a logout have passed, see
   [passkey progress](#passkey-progress)), real sites that wrap `get` themselves, and a
   navigation during signing.
 - M6: Chrome use coexistence, operational docs, hosted smoke checks beyond `/health`,
@@ -905,7 +905,8 @@ at main `8581f1d`, on `https://accounts.pixiv.net` (two pixiv passkey items):
   extension". Bitwarden's window did not appear.
 - Choosing one with the box ticked logged in, and `/manage/sites` then listed it as the
   default for `https://accounts.pixiv.net`. "Use the browser or another extension"
-  opened Bitwarden's own window, which worked.
+  opened Bitwarden's own window, which worked, and so did closing the window with its
+  close button.
 - After a Pateat sign-in and a logout in the same tab, the next "Log in with passkey"
   opened the window with "Pateat signed in to this site from this tab before", the
   default first as "Site default" and "Replace the default account for
