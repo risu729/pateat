@@ -123,6 +123,21 @@ test("a connection appears under a stable pseudonym with its server, and only it
     expect((await setupProbe(first.page, { action: "status" })).configCalls).toBe(
       before.configCalls,
     );
+    // A failed settings-page Sync is logged and listed in the bug report.
+    expect(
+      await setupRequest(options, { type: "connection.sync", connectionId: accepted.connectionId }),
+    ).toEqual({ ok: false, error: { code: "provider-permission-required" } });
+    await expect
+      .poll(async () => {
+        await page.getByRole("button", { name: "Refresh" }).click();
+        return preview(page);
+      })
+      .toMatch(
+        new RegExp(
+          `Recent problems \\(24 h, newest first\\):\\n  \\S+Z warn vault\\.sync ${pseudonym} provider-permission-required\\n`,
+          "u",
+        ),
+      );
     await setupProbe(first.page, { action: "configure", variant: "unchanged" });
     expect(report).toMatch(/1 items \(login 1, TOTP \d, passkey \d\) \+ \d unsupported/u);
     for (const absent of [

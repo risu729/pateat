@@ -545,8 +545,13 @@ The worker fetches `/health` only for a paired service with site access, and
 requires, with a 5 s timeout and no credentials. It never reads the config's
 `environment` (host URLs) or a third-party server's name other than Vaultwarden.
 **Copy for bug report** shows the exact text before copying it; that text leaves out
-the unlock KDF parameters. Labels, emails, item names and IDs, URLs and host names are
-never part of the summary.
+the unlock KDF parameters. It ends with the log's last update (`Updated <time> from
+<revision>`), its warnings and errors of the last 24 hours (newest 10, one line each
+with the time, level, event and allowlisted field values) and the count of passkey
+requests left to the browser in those 24 hours by reason. The worker builds these lines
+from the log and numbers sites and recipes in them as in a download, but separately,
+so `site-1` there can be another site than in **Download logs**. Labels, emails, item
+names and IDs, URLs and host names are never part of the summary.
 
 ### Local log
 
@@ -561,6 +566,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `runtime.started` | debug | build revision |
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
+| `vault.sync` | info for a result and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
 | `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |

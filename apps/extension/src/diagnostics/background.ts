@@ -160,6 +160,19 @@ export function createDiagnosticsLog(options: {
         } while (again);
       })().finally(() => (watching = undefined));
     },
+    /** A settings-page Sync: its outcome code, and on failure the mismatch check. */
+    vaultSync(connectionId: string, reply: SetupReply) {
+      const outcome = reply.ok ? reply.kind : reply.error.code;
+      void logger.log(
+        "vault.sync",
+        {
+          connection: connectionId,
+          outcome,
+          check: reply.ok ? undefined : reply.error.check,
+        },
+        { level: reply.ok || outcome === "cancelled" ? "info" : "warn" },
+      );
+    },
     recipeSync(outcome: RecipeSyncOutcome) {
       void logger.log(
         "service.sync",

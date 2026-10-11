@@ -132,6 +132,24 @@ export const diagnosticsStatusSchema = v.strictObject({
       debugUntil: v.optional(count),
     }),
   ),
+  /** The log's lines for a bug report; sites are numbered apart from the download. */
+  recent: v.optional(
+    v.strictObject({
+      problems: v.pipe(v.array(v.pipe(v.string(), v.maxLength(2048))), v.maxLength(10)),
+      updated: v.optional(
+        v.strictObject({ time, from: v.pipe(v.string(), v.regex(/^[0-9A-Za-z._-]{1,64}$/u)) }),
+      ),
+      passkeyDelegations: v.pipe(
+        v.array(
+          v.strictObject({
+            reason: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
+            count,
+          }),
+        ),
+        v.maxLength(32),
+      ),
+    }),
+  ),
   /** Up to four per connection plus the build, service, recipe and log checks. */
   checks: v.pipe(v.array(checkSchema), v.maxLength(320)),
 });

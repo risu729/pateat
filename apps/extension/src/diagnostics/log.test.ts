@@ -7,6 +7,7 @@ import {
   TRUNCATED,
   createLogger,
   formatLogExport,
+  recentLog,
   stackPositions,
   type KnownSites,
   type LogEntry,
@@ -329,6 +330,76 @@ describe("log export", () => {
   });
 });
 
+describe("recent log for a bug report", () => {
+  const HOUR = 60 * 60_000;
+  const entry = (
+    time: number,
+    level: LogEntry["level"],
+    event: LogEntry["event"],
+    fields: LogEntry["fields"],
+  ): LogEntry => ({ time, level, event, fields });
+
+  it("lists the newest warnings and errors of 24 hours with sites numbered", () => {
+    const entries = [
+      entry(NOW - 25 * HOUR, "warn", "service.sync", { outcome: "rejected" }),
+      entry(NOW - 3 * HOUR, "info", "runtime.updated", {
+        previousBuild: "9cf8356",
+        build: "1c42ad3",
+        version: "0.1.0",
+      }),
+      entry(NOW - 2 * HOUR, "warn", "vault.sync", {
+        connection: "bitwarden:5c1e9a",
+        outcome: "account-mismatch",
+        check: "token-email",
+      }),
+      entry(NOW - HOUR, "warn", "login.attempt", {
+        origin: "https://bank.example",
+        recipe: "bank-signin",
+        state: "blocked",
+        outcome: "structural-mismatch",
+        // Not allowlisted for this event.
+        email: "owner@example.com",
+      }),
+      entry(NOW - 30 * 60_000, "info", "passkey.request", {
+        origin: "https://bank.example",
+        outcome: "delegate",
+        reason: "no-credential",
+      }),
+      entry(NOW - 20 * 60_000, "info", "passkey.request", {
+        origin: "origin:7d2b91aa",
+        outcome: "delegate",
+        reason: "no-credential",
+      }),
+      entry(NOW - 10 * 60_000, "info", "passkey.request", {
+        origin: "origin:7d2b91aa",
+        outcome: "delegate",
+        reason: "Owner's Secret",
+      }),
+      ...Array.from({ length: 12 }, (_, index) =>
+        entry(NOW - 5 * 60_000 + index, "error", "error.unhandled", {
+          source: "rejection",
+          name: "TypeError",
+        }),
+      ),
+    ];
+    const recent = recentLog(entries, NOW);
+    expect(recent.problems).toHaveLength(10);
+    expect(recent.problems[0]).toBe(
+      `${new Date(NOW - 5 * 60_000).toISOString().slice(0, 16)}Z error error.unhandled rejection TypeError`,
+    );
+    const all = recentLog(entries.slice(0, 7), NOW);
+    expect(all.problems).toEqual([
+      `${new Date(NOW - HOUR).toISOString().slice(0, 16)}Z warn login.attempt site-1 recipe-1 blocked structural-mismatch`,
+      `${new Date(NOW - 2 * HOUR).toISOString().slice(0, 16)}Z warn vault.sync bitwarden:5c1e9a account-mismatch token-email`,
+    ]);
+    expect(all.updated).toEqual({ time: NOW - 3 * HOUR, from: "9cf8356" });
+    expect(all.passkeyDelegations).toEqual([{ reason: "no-credential", count: 2 }]);
+    const text = JSON.stringify(all);
+    for (const secret of ["bank.example", "bank-signin", "owner@example.com", "Secret"])
+      expect(text).not.toContain(secret);
+  });
+});
+
 describe("unhandled errors", () => {
   it("keep the class name, extension positions and only Pateat's own codes", async () => {
     const listeners = new Map<string, (event: Event) => void>();
@@ -423,6 +494,52 @@ describe("unhandled errors", () => {
     const serialized = JSON.stringify(entries);
     for (const secret of ["connection-secret-id", "Personal vault", "owner@example.com"])
       expect(serialized).not.toContain(secret);
+    vi.restoreAllMocks();
+  });
+
+  it("logs a settings-page Sync by outcome, and a failure as a warning", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    log.vaultSync("connection-secret-id", {
+      ok: true,
+      kind: "ready",
+      connectionId: "connection-secret-id",
+      snapshotId: "snapshot-1",
+      policyReviewItemIds: [],
+    });
+    log.vaultSync("connection-secret-id", {
+      ok: false,
+      error: { code: "account-mismatch", check: "token-email" },
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    const entries = await log.logger.entries();
+    expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
+      [
+        "vault.sync",
+        "info",
+        { connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u), outcome: "ready" },
+      ],
+      [
+        "vault.sync",
+        "warn",
+        {
+          connection: entries[0]?.fields["connection"],
+          outcome: "account-mismatch",
+          check: "token-email",
+        },
+      ],
+    ]);
+    expect(JSON.stringify(entries)).not.toContain("connection-secret-id");
     vi.restoreAllMocks();
   });
 
