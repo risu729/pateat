@@ -21,8 +21,9 @@ This scoped grant does not assert that the separate `services/api` program is
 covered merely by residing in this repository. Any future combination with
 GPL-covered code must be assessed before conveying that combination. The owner web UI
 that the service sends to browsers bundles `packages/contracts`, so that bundle is
-conveyed under GPL-3.0-only; each page names its source revision and links the
-repository and the third-party notices.
+conveyed under GPL-3.0-only, as the owner decided on 2026-10-11 rather than keeping
+separate API schemas outside `packages/contracts`. Each page names its source
+revision and links the GPL text, the repository and the third-party notices.
 
 When distributing an extension binary, provide the matching Corresponding Source
 and build/install instructions with equivalent access next to the binary. A
