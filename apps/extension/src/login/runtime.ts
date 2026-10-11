@@ -81,6 +81,7 @@ const STORAGE_KEY = "pateat.login-attempts.v1";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
 const PICKS_KEY = "pateat.login-picks.v1";
 const CHOICES_KEY = "pateat.login-choices.v1";
+const LOGOUTS_KEY = "pateat.login-logouts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
@@ -95,10 +96,13 @@ type SettingsRuntime = {
  * An account choice used by an attempt but not saved yet (ADR 0013); `connectionId` is the
  * local connection the attempt used, so only that account is saved.
  */
-type UnsavedChoice = { binding: SavedLoginBinding; connectionId: string };
-/** Settings with the choice added where missing; the same object when nothing changes. */
+type UnsavedChoice = { binding: SavedLoginBinding; connectionId: string; replace?: boolean };
+/**
+ * Settings with the choice added where missing, or replacing the site default for an
+ * account picked to become it; the same object when nothing changes.
+ */
 const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
-  saveLoginChoice(value, choice.binding);
+  saveLoginChoice(value, choice.binding, { replace: choice.replace === true });
 type LiveDocument = {
   document: LoginDocument;
   token: string;
@@ -147,11 +151,31 @@ const pickedAccountSchema = v.strictObject({
   makeDefault: v.boolean(),
 });
 type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
-/** A document refused because several accounts match it; the popup offers these. */
+/**
+ * A document refused because several accounts match it, or because its tab logged out
+ * of the site (`logout`, ADR 0021 D); the popup offers these candidates.
+ */
 const pendingChoiceSchema = v.strictObject({
   document: loginDocumentSchema,
   candidates: v.array(v.strictObject({ connectionId: v.string(), itemId: v.string() })),
+  logout: v.optional(v.literal(true)),
 });
+/** A tab and origin that logged out after a Pateat login; it asks until a pick logs in. */
+const logoutSchema = v.strictObject({
+  tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  origin: v.string(),
+});
+/**
+ * A login that ended with a result, or that ended when the tab left its origin (ADR 0022);
+ * its first step showing again in the tab's page means a logout (ADR 0021 D). A switch,
+ * a stop, or a result still being reconciled does not.
+ */
+const finishedLogin = (metadata: LoginAttemptMetadata) =>
+  metadata.state === "authenticated" ||
+  (metadata.state === "blocked" &&
+    ["credential-rejected", "wrong-account", "left-origin", "interrupted"].includes(
+      metadata.outcome ?? "",
+    ));
 type PendingChoice = v.InferOutput<typeof pendingChoiceSchema>;
 type Execution = {
   metadata: LoginAttemptMetadata;
@@ -282,6 +306,8 @@ export function createLoginRuntime(
   const persisted = new Map<string, LoginAttemptMetadata>();
   const picked = new Map<number, PickedAccount>();
   const pending = new Map<number, PendingChoice>();
+  /** By `recordKey`: tabs that logged out of an origin and have not picked an account yet. */
+  const logouts = new Set<string>();
   // Toolbar and session storage failures only lose the badge or a pick; never a login.
   const quietly = (work: () => Promise<unknown>) =>
     Promise.resolve()
@@ -293,29 +319,42 @@ export function createLoginRuntime(
   // Picks and waiting choices outlive a worker restart, as the tab's badge does. Every
   // change to them happens after this load.
   const sessionLoaded = quietly(async () => {
-    const stored = await browser.storage.session.get([PICKS_KEY, CHOICES_KEY]);
+    const stored = await browser.storage.session.get([PICKS_KEY, CHOICES_KEY, LOGOUTS_KEY]);
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
     if (picks.success) for (const entry of picks.output) picked.set(entry.tabId, entry);
     const choices = v.safeParse(v.array(pendingChoiceSchema), stored[CHOICES_KEY] ?? []);
     if (choices.success)
       for (const entry of choices.output) pending.set(entry.document.tabId, entry);
+    const left = v.safeParse(v.array(logoutSchema), stored[LOGOUTS_KEY] ?? []);
+    if (left.success)
+      for (const entry of left.output) logouts.add(recordKey(entry.tabId, entry.origin));
   });
   async function saveSession(): Promise<void> {
     await browser.storage.session.set({
       [PICKS_KEY]: [...picked.values()],
       [CHOICES_KEY]: [...pending.values()],
+      [LOGOUTS_KEY]: [...logouts].map((key) => {
+        const at = key.indexOf(" ");
+        return { tabId: Number(key.slice(0, at)), origin: key.slice(at + 1) };
+      }),
     });
   }
   /** Badges the tab and records the refused document for the popup (ADR 0021). */
-  function offerChoice(document: LoginDocument, candidates: PendingChoice["candidates"]): void {
-    pending.set(document.tabId, { document, candidates });
+  function offerChoice(
+    document: LoginDocument,
+    candidates: PendingChoice["candidates"],
+    logout = false,
+  ): void {
+    pending.set(document.tabId, { document, candidates, ...(logout ? { logout } : {}) });
     void quietly(saveSession);
     const { tabId } = document;
     void quietly(() => browser.action.setBadgeText({ tabId, text: String(candidates.length) }));
     void quietly(() =>
       browser.action.setTitle({
         tabId,
-        title: `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
+        title: logout
+          ? "Pateat: you logged out of this site in this tab. Click to choose an account."
+          : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
       }),
     );
   }
@@ -438,6 +477,20 @@ export function createLoginRuntime(
       ? run.metadata
       : persisted.get(recordKey(tabId, documentOrigin));
   }
+  /**
+   * Whether another tab holds the origin: a record in any state, or a logout still asking
+   * there. Cookies can be shared across tabs, so either keeps this tab from logging in.
+   */
+  function heldElsewhere(tabId: number, siteOrigin: string): boolean {
+    return (
+      [...persisted.values()].some(
+        (entry) => entry.account.origin === siteOrigin && entry.document.tabId !== tabId,
+      ) ||
+      [...logouts].some(
+        (key) => key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`),
+      )
+    );
+  }
   /** The attempt a tab runs, else the one it last recorded. */
   function tabAttempt(tabId: number): LoginAttemptMetadata | undefined {
     const run = attempts.get(tabId);
@@ -488,6 +541,14 @@ export function createLoginRuntime(
       if (waiting && live) clearChoice(tabId);
       return { ok: false, reason: "no-choice" };
     }
+    if (waiting.logout)
+      return {
+        ok: true,
+        origin: waiting.document.origin,
+        documentId: waiting.document.documentId,
+        candidates: waiting.candidates,
+        logout: true,
+      };
     // A default saved since the refusal decides the page's next login instead.
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
@@ -566,6 +627,14 @@ export function createLoginRuntime(
     // Re-inserted, so the last record of a tab is the one it wrote last.
     persisted.delete(key);
     persisted.set(key, parseAttemptMetadata(metadata));
+    await write();
+  }
+  /** Releases one tab's record for one origin after a logout (ADR 0021 D). */
+  async function forget(key: string): Promise<void> {
+    persisted.delete(key);
+    await write();
+  }
+  async function write(): Promise<void> {
     const snapshot = [...persisted.values()];
     storageQueue = storageQueue.then(async () => {
       if (!storageHealthy) throw new Error("Attempt storage unavailable");
@@ -658,8 +727,41 @@ export function createLoginRuntime(
       ...(metadata?.outcome || live.reason ? { outcome: metadata?.outcome ?? live.reason } : {}),
     }).catch(() => undefined);
   }
+  /**
+   * Every eligible provider URI match for the document across all enabled connections;
+   * in a frame, only items that also match the tab's URL (ADR 0017). Any connection or
+   * item that could not be evaluated refuses rather than listing part of them.
+   */
+  async function siteCandidates(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+  ) {
+    const find = (url: string) =>
+      findLiveSiteCandidates({
+        settings: snapshot.snapshot.settings,
+        catalog: snapshot.catalog,
+        url,
+        match: uris!,
+      });
+    const scope = await find(live.url);
+    if (!scope.ok) return { reason: scope.reason };
+    if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
+    if (scope.incompleteItems.length > 0) return { reason: "item-uri-unevaluated" };
+    if (!live.topUrl) return { candidates: scope.candidates };
+    const top = await find(live.topUrl);
+    if (!top.ok) return { reason: top.reason };
+    if (top.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
+    if (top.incompleteItems.length > 0) return { reason: "item-uri-unevaluated" };
+    return {
+      candidates: scope.candidates.filter((entry) =>
+        top.candidates.some(
+          (other) => other.connectionId === entry.connectionId && other.itemId === entry.itemId,
+        ),
+      ),
+    };
+  }
   type Choice = { connectionId: string; itemId: string; saved: boolean; pick?: PickedAccount };
-  type Refusal = { reason: string; candidates?: PendingChoice["candidates"] };
+  type Refusal = { reason: string; candidates?: PendingChoice["candidates"]; logout?: true };
   /**
    * The account for this document. A saved site default wins. Without one, a single
    * eligible provider URI match across all enabled connections is used for this attempt
@@ -669,6 +771,7 @@ export function createLoginRuntime(
   async function choose(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
+    asking = false,
   ): Promise<Choice | Refusal> {
     // An account picked in the popup wins for the document it restarted and the attempt that
     // document started; its item must still match the page and pass every check below.
@@ -685,6 +788,27 @@ export function createLoginRuntime(
     const saved = snapshot.snapshot.settings.siteDefaults.find(
       (entry) => entry.origin === live.document.origin,
     );
+    if (asking) {
+      // After a logout the tab asks, with the saved default first (ADR 0021 D).
+      const listed: PendingChoice["candidates"] = [];
+      const mapped = saved && siteDefaultConnection(saved, snapshot.catalog);
+      if (saved && mapped?.ok)
+        listed.push({ connectionId: mapped.connectionId, itemId: saved.itemId });
+      if (uris) {
+        const found = await siteCandidates(snapshot, live);
+        // Without the matches, the saved default alone is still offered.
+        if ("reason" in found && !listed.length) return { reason: found.reason };
+        for (const entry of "reason" in found ? [] : found.candidates)
+          if (
+            !listed.some(
+              (other) => other.connectionId === entry.connectionId && other.itemId === entry.itemId,
+            )
+          )
+            listed.push({ connectionId: entry.connectionId, itemId: entry.itemId });
+      }
+      if (!listed.length) return { reason: saved ? "default-unavailable" : "default-not-set" };
+      return { reason: "logged-out", candidates: listed.slice(0, 100), logout: true };
+    }
     if (saved) {
       const connection = siteDefaultConnection(saved, snapshot.catalog);
       return connection.ok
@@ -700,33 +824,9 @@ export function createLoginRuntime(
     if (cached?.snapshots === snapshots)
       return { connectionId: cached.connectionId, itemId: cached.itemId, saved: false };
     delete live.autoChoice;
-    const scope = await findLiveSiteCandidates({
-      settings: snapshot.snapshot.settings,
-      catalog: snapshot.catalog,
-      url: live.url,
-      match: uris,
-    });
-    if (!scope.ok) return { reason: scope.reason };
-    if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
-    if (scope.incompleteItems.length > 0) return { reason: "item-uri-unevaluated" };
-    let candidates = scope.candidates;
-    if (live.topUrl) {
-      // In a frame, only items that also match the tab's URL are eligible (ADR 0017).
-      const top = await findLiveSiteCandidates({
-        settings: snapshot.snapshot.settings,
-        catalog: snapshot.catalog,
-        url: live.topUrl,
-        match: uris,
-      });
-      if (!top.ok) return { reason: top.reason };
-      if (top.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
-      if (top.incompleteItems.length > 0) return { reason: "item-uri-unevaluated" };
-      candidates = candidates.filter((entry) =>
-        top.candidates.some(
-          (other) => other.connectionId === entry.connectionId && other.itemId === entry.itemId,
-        ),
-      );
-    }
+    const found = await siteCandidates(snapshot, live);
+    if ("reason" in found) return { reason: found.reason };
+    const { candidates } = found;
     if (candidates.length > 1)
       return {
         reason: "account-ambiguous",
@@ -904,6 +1004,7 @@ export function createLoginRuntime(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     recipe: LoginRecipe,
+    asking = false,
   ) {
     let catalog: VaultCatalog;
     let policy = snapshot.snapshot;
@@ -915,12 +1016,13 @@ export function createLoginRuntime(
       const top = await topScope(snapshot, live, account, catalog);
       if (top) return { ok: false as const, reason: top.reason };
     } else {
-      const chosen = await choose(snapshot, live);
+      const chosen = await choose(snapshot, live, asking);
       if ("reason" in chosen)
         return {
           ok: false as const,
           reason: chosen.reason,
           ...(chosen.candidates ? { candidates: chosen.candidates } : {}),
+          ...(chosen.logout ? { logout: true as const } : {}),
         };
       const scope = await liveScope(snapshot, live, chosen);
       if ("reason" in scope) return { ok: false as const, reason: scope.reason };
@@ -956,7 +1058,12 @@ export function createLoginRuntime(
       }
       // A pick made for this login only is never saved.
       if ((!chosen.saved || !bound.saved) && (!chosen.pick || chosen.pick.makeDefault))
-        choice = { binding: bound.synced, connectionId: chosen.connectionId };
+        choice = {
+          binding: bound.synced,
+          connectionId: chosen.connectionId,
+          // An account picked to become the default replaces another saved one.
+          ...(chosen.pick?.makeDefault ? { replace: true } : {}),
+        };
     }
     const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding);
     if (!plan.ok) return plan;
@@ -1602,8 +1709,14 @@ export function createLoginRuntime(
     const oldLive = documents.get(key);
     const sameDocument = oldLive !== undefined && sameLoginDocument(oldLive.document, document);
     // A document may announce again when its form appears or its URL changes in place,
-    // but never while it already carries an attempt, terminal or not.
-    if (sameDocument && (oldLive.token !== token || attempts.get(document.tabId)?.live === oldLive))
+    // but never while it already carries an attempt, unless that login finished and the
+    // document now watches for a logout (ADR 0021 D).
+    const carried = attempts.get(document.tabId);
+    if (
+      sameDocument &&
+      (oldLive.token !== token ||
+        (carried?.live === oldLive && !(document.frameId === 0 && finishedLogin(carried.metadata))))
+    )
       return { ok: false, reason: "duplicate-document" };
     if (oldLive && !sameDocument)
       await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
@@ -1649,7 +1762,43 @@ export function createLoginRuntime(
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     }
     // A document resumes only its own origin's record in the tab, even an ended one.
-    const recorded = recordFor(document.tabId, document.origin);
+    let recorded = recordFor(document.tabId, document.origin);
+    const logoutKey = recordKey(document.tabId, document.origin);
+    if (
+      recorded &&
+      finishedLogin(recorded) &&
+      recorded.document.frameId === 0 &&
+      document.frameId === 0
+    ) {
+      // Until the recipe's first step shows again, the page keeps watching for it.
+      if (start?.path !== live.path) {
+        const starts = await startsFor(document.origin);
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        return { ok: false, reason: "logged-in", starts };
+      }
+      // It shows again after a finished login: a logout. Only this tab's record for this
+      // origin is released, and the tab asks for an account (ADR 0021 D).
+      const released = recorded;
+      if (attempts.get(document.tabId)?.metadata.id === released.id)
+        attempts.delete(document.tabId);
+      if (picked.get(document.tabId)?.attemptId === released.id) picked.delete(document.tabId);
+      // The tab must keep asking after a restart, so its logout is stored first.
+      logouts.add(logoutKey);
+      try {
+        await saveSession();
+      } catch {
+        logouts.delete(logoutKey);
+        return refuse("storage-unavailable");
+      }
+      try {
+        await forget(logoutKey);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      recorded = undefined;
+    }
+    const asking = !recorded && logouts.has(logoutKey);
     // A tab runs one attempt at a time; another one still running holds it.
     const running = tabAttempt(document.tabId);
     if (running && !terminal(running) && running.id !== recorded?.id) return refuse("tab-busy");
@@ -1725,22 +1874,28 @@ export function createLoginRuntime(
     } catch {
       return refuse("closed-tab");
     }
-    const plan = await planFor(snapshot, live, recipe);
+    if (asking && heldElsewhere(document.tabId, document.origin)) {
+      // Cookies are shared across tabs, so another tab's login still holds the site.
+      void quietly(() =>
+        browser.action.setTitle({
+          tabId: document.tabId,
+          title: "Pateat: another tab logged in to this site. Close it to choose an account here.",
+        }),
+      );
+      return refuse("origin-busy");
+    }
+    const plan = await planFor(snapshot, live, recipe, asking);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     if (!plan.ok) {
-      // Only a fresh start can be restarted with a picked account (ADR 0021).
-      if (!previous && "candidates" in plan && plan.candidates)
-        offerChoice(document, plan.candidates);
+      // Only a fresh start can be restarted with a picked account (ADR 0021). The page
+      // after an account switch belongs to that login, so it offers none.
+      if (!previous && !switched && "candidates" in plan && plan.candidates)
+        offerChoice(document, plan.candidates, "logout" in plan && plan.logout === true);
       return refuse(plan.reason);
     }
-    // Cookies can be shared across tabs. Preserve this conservative origin owner even at terminal state until tab closure.
-    if (
-      [...persisted.values()].some(
-        (entry) =>
-          entry.account.origin === document.origin && entry.document.tabId !== document.tabId,
-      )
-    )
-      return refuse("origin-busy");
+    // Cookies can be shared across tabs. Preserve this conservative origin owner even at
+    // terminal state until tab closure, and while a tab that logged out of it still asks.
+    if (heldElsewhere(document.tabId, document.origin)) return refuse("origin-busy");
     if (!previous && persisted.size >= 100) return refuse("attempt-limit");
     // Another document of the tab, such as a frame, may have started an attempt while this
     // one was checked, and the tab runs one attempt at a time. Nothing below awaits until
@@ -1795,14 +1950,18 @@ export function createLoginRuntime(
     const pick = picked.get(document.tabId);
     if (
       !previous &&
-      pick?.attemptId === undefined &&
-      pick?.documentId === document.documentId &&
-      pick.connectionId === plan.account.connectionId &&
-      pick.itemId === plan.account.itemId
+      pick?.connectionId === plan.account.connectionId &&
+      pick.itemId === plan.account.itemId &&
+      (pick.attemptId === undefined
+        ? pick.documentId === document.documentId
+        : // The login a pick started goes on past an account switch.
+          switched && pick.attemptId === recorded?.id)
     ) {
       pick.attemptId = metadata.id;
       void quietly(saveSession);
     }
+    // A login started after a logout ends the tab's asking for this origin.
+    if (!previous && logouts.delete(logoutKey)) void quietly(saveSession);
     await save(run);
     await publish(live, metadata);
     void drive(run);
@@ -1909,8 +2068,11 @@ export function createLoginRuntime(
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
     attempts.delete(tabId);
     void sessionLoaded.then(async () => {
-      const waited = pending.delete(tabId);
-      if (picked.delete(tabId) || waited) await quietly(saveSession);
+      let changed = pending.delete(tabId);
+      if (picked.delete(tabId)) changed = true;
+      for (const key of logouts)
+        if (key.startsWith(`${tabId} `)) changed = logouts.delete(key) || changed;
+      if (changed) await quietly(saveSession);
       return undefined;
     });
     storageQueue = storageQueue

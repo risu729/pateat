@@ -103,6 +103,8 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = crypto.randomUUID();
   let cancelled = false;
+  // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
+  let ended = false;
   const used = new Set<string>();
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
@@ -234,6 +236,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       unwatch();
     } else if (parsed.output.starts) {
       watch(parsed.output.starts, parsed.output.generate === true);
+      // In the document that logged in, a form still showing is not a logout; only its
+      // next appearance is (ADR 0021 D).
+      if (ended && !start) announced = starts.some(ready);
       // A refused start means the background did not see the form on this path yet, for
       // example while the tab still shows the previous URL.
       if (start) retry();
@@ -317,6 +322,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           location.origin,
         );
       respond({ ok: true });
+      // A finished login keeps watching: its first step showing again means a logout.
+      if (!ended && (command.state === "authenticated" || command.state === "blocked")) {
+        ended = true;
+        void announce(false).catch(() => undefined);
+      }
       return false;
     }
     if (command.type === "login.extract") {
