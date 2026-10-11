@@ -887,7 +887,8 @@ describe("display names from this device's catalog", () => {
   });
   const unnamed = settingsOf({
     siteDefaults: [account("https://bank.example")],
-    // A binding made by AI generation, whose item has been renamed since.
+    // A binding made by AI generation, whose item has been renamed since; another device
+    // may still hold the old label, so the stored name is kept.
     bindings: [{ ...binding("https://bank.example"), itemName: "Old name" }],
   });
   const { slots, ...owner } = binding("https://bank.example");
@@ -896,7 +897,7 @@ describe("display names from this device's catalog", () => {
       { ...account("https://bank.example"), itemName: "Example Bank", accountName: "risu" },
     ],
     // In the schema's key order, as the service and the settings store return it.
-    bindings: [{ ...owner, accountName: "risu", slots }],
+    bindings: [{ ...owner, itemName: "Old name", accountName: "risu", slots }],
   });
 
   it("names entries of an account connected here once, then writes nothing", async () => {
@@ -923,9 +924,12 @@ describe("display names from this device's catalog", () => {
     expect(transport.saveSettings).toHaveBeenCalledOnce();
     expect(after()!.revision).toBe(8);
     expect(applied).toHaveBeenCalledOnce();
+    // The second sync finds every entry named and does not build the catalog.
+    expect(catalog).toHaveBeenCalledOnce();
   });
 
-  it("writes nothing when the names already match", async () => {
+  it("does not read the catalog when every entry is named", async () => {
+    const catalog = vi.fn(async () => catalogOf(vault("connection-1", USER, "Desktop")));
     const {
       sync,
       transport,
@@ -934,9 +938,10 @@ describe("display names from this device's catalog", () => {
       local: named,
       service: state(4, named),
       base: baseOf(4, named),
-      catalog: async () => catalogOf(vault("connection-1", USER)),
+      catalog,
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(catalog).not.toHaveBeenCalled();
     expect(transport.saveSettings).not.toHaveBeenCalled();
     expect(after()!.revision).toBe(7);
   });
@@ -988,6 +993,17 @@ describe("display names from this device's catalog", () => {
       }),
     );
     const refreshed = refreshDisplayNames(synced, catalogOf(vault("connection-1", USER)));
+    // Another device's item label is kept too, even where this vault's label differs.
+    expect(
+      refreshDisplayNames(
+        syncedSettings(
+          settingsOf({
+            siteDefaults: [{ ...account("https://bank.example"), itemName: "New name" }],
+          }),
+        ),
+        catalogOf(vault("connection-1", USER)),
+      ).siteDefaults,
+    ).toEqual([{ ...account("https://bank.example"), itemName: "New name", accountName: "risu" }]);
     expect(refreshed.siteDefaults).toEqual([
       { ...account("https://bank.example"), itemName: "Example Bank", accountName: "Laptop vault" },
       { ...account("https://shop.example", "item-gone"), accountName: "risu" },

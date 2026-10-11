@@ -355,18 +355,18 @@ Chrome yet.
   chooses again.
 - A site default names the provider account and item
   (`{ origin, provider, userId, itemId, itemName?, accountName? }`, ADR 0013).
-  `itemName` is the item's label and `accountName` the vault connection's label when
-  the default was saved, kept only for display, such as for an account that is not
-  connected here; a default can lack them. A binding has the same optional
-  `accountName` beside its required `itemName`; settings sync fills in both (see
-  [service sync progress](#service-sync-progress)). The executor and the
-  settings page find this device's connection through the catalog connection's
-  `userId`, and an account that is not connected here refuses as `connection-missing`,
-  one connected twice as `account-ambiguous`, and one whose vault is locked or
-  unavailable as `vault-unavailable`; the settings page refuses to save a default it
-  could not use. An automatic choice is checked in the same form, so the only URI match
-  of an account connected twice also refuses as `account-ambiguous`. The device-local
-  form with a `connectionId` was removed before release
+  `itemName` is the item's label and `accountName` the vault connection's label when the
+  default was saved, kept only for display, such as for an account that is not connected
+  here; a default can lack them. A binding has the same optional `accountName` beside
+  its required `itemName`; settings sync fills in a missing name (see
+  [service sync progress](#service-sync-progress)). The executor and the settings page
+  find this device's connection through the catalog connection's `userId`, and an
+  account that is not connected here refuses as `connection-missing`, one connected
+  twice as `account-ambiguous`, and one whose vault is locked or unavailable as
+  `vault-unavailable`; the settings page refuses to save a default it could not use. An
+  automatic choice is checked in the same form, so the only URI match of an account
+  connected twice also refuses as `account-ambiguous`. The device-local form with a
+  `connectionId` was removed before release
   ([compatibility before release](development.md#compatibility-before-release)).
 - The settings page lists, as the default account for an origin, only the items its
   unsaved draft allows that could serve it: a provider URI match for `origin/`, a static
@@ -563,22 +563,24 @@ uploaded document over 120 KiB of the service's 128 KiB body limit) is not appli
 the settings page says the settings no longer fit; when a later attempt in the same sync
 goes over, an earlier upload stays. Local settings change through the settings store's
 revision check, only when the merge differs from them, so an unchanged sync does not
-stop running login attempts. Before the merge is uploaded and written, the display
-names of site defaults and bindings whose provider account is connected exactly once on
-this device follow its catalog: the item's current label, and the connection's label
-where an entry has no account name yet; an account name already set is kept, and an
-account that is not connected here, connected twice or locked, or a catalog that cannot
-be read, leaves the names as they are. Only names that differ change, so a settled sync
-still writes nothing. While a login is running, including one between pages, the
-upload still happens but the local write waits for a later sync, for at most two minutes
-after the first wait. The time of the first wait is stored under
-`pateat.sync-settings-hold.v1`, so the limit holds across service worker restarts, and
-it is cleared when a sync finds no login running. A later sync starts when the recipe
-schedule is due again. Saving settings on the extension's page or saving an automatic
-account choice starts a sync at once. A recipe sync that cannot reach the service skips
-settings, a 401 from either request marks the device rejected, and the settings page
-shows a complete sync only when both finished. Unit tests use a synthetic service and
-the real settings store over in-memory storage; no running service has been tried.
+stop running login attempts. Before the merge is uploaded and written, the display names
+that site defaults and bindings lack are filled in from this device's catalog when their
+provider account is connected exactly once here: the item's label and the connection's
+label. A name already set is never overwritten, since another device may label the
+account differently or hold an older item label until its vault syncs; an account that
+is not connected here, connected twice or unavailable, or a catalog that cannot be read,
+leaves the names as they are. The catalog is built only when an entry lacks a name, so a
+settled sync neither restores the vaults nor writes anything. While a login is running,
+including one between pages, the upload still happens but the local write waits for a
+later sync, for at most two minutes after the first wait. The time of the first wait is
+stored under `pateat.sync-settings-hold.v1`, so the limit holds across service worker
+restarts, and it is cleared when a sync finds no login running. A later sync starts when
+the recipe schedule is due again. Saving settings on the extension's page or saving an
+automatic account choice starts a sync at once. A recipe sync that cannot reach the
+service skips settings, a 401 from either request marks the device rejected, and the
+settings page shows a complete sync only when both finished. Unit tests use a synthetic
+service and the real settings store over in-memory storage; no running service has been
+tried.
 
 ### Remaining M4 service gaps
 
