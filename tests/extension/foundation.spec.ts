@@ -12,7 +12,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SettingsResponse } from "../../packages/contracts/src/index";
+import { PATEAT_EXTENSION_ID, type SettingsResponse } from "../../packages/contracts/src/index";
 import { ACTION_ICON_PATHS } from "../../apps/extension/src/connections/action-icon";
 import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
 
@@ -27,6 +27,7 @@ type TestChrome = {
   };
   tabs: {
     create: (options: { url: string; active: boolean }) => Promise<{ id: number }>;
+    get: (id: number) => Promise<{ url?: string }>;
   };
 };
 
@@ -100,6 +101,8 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     48: "icon/48.png",
     128: "icon/128.png",
   });
+  // The toolbar icon opens the current-site popup (ADR 0021).
+  expect(manifest.action).toMatchObject({ default_popup: "popup.html", default_title: "Pateat" });
   // The worker switches to the unlocked icon once a vault can unlock automatically.
   expect(manifest.action.default_icon).toEqual({
     16: "icon-locked/16.png",
@@ -167,6 +170,8 @@ test("production package permits local storage, the crypto host and the HTTPS lo
 
 test("probe options support keyboard policy validation and pass accessibility checks", async () => {
   await withExtension(probeDirectory, async (context, _worker, id) => {
+    // The probe build keeps its path-derived ID and never shares production storage.
+    expect(id).not.toBe(PATEAT_EXTENSION_ID);
     const page = await context.newPage();
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -247,8 +252,110 @@ test("packaged toolbar icons for both vault lock states load in Chrome", async (
   });
 });
 
+test("the toolbar popup edits the active tab's site through the settings store", async () => {
+  await withExtension(extensionDirectory, async (context, _worker, id) => {
+    await context.route("https://bank.example/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<title>Bank</title><p>Bank</p>" }),
+    );
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${id}/popup.html`);
+    // Opened as a tab, the active tab is the popup's own extension page, not a website.
+    await expect(popup.locator("#popup-unsupported")).toBeVisible();
+    const send = (page: Page, message: unknown) =>
+      page.evaluate(
+        (request) =>
+          (globalThis as unknown as { chrome: TestChrome }).chrome.runtime
+            .sendMessage(request)
+            .then(
+              (response) => response ?? "unanswered",
+              () => "unanswered",
+            ),
+        message,
+      );
+    const get = (page: Page) => send(page, { version: 1, type: "settings.get" });
+    const initial = await get(popup);
+    expect(initial).toMatchObject({ ok: true, snapshot: { revision: 0 } });
+    // Other extension pages still cannot read, save or search settings.
+    const diagnostics = await context.newPage();
+    await diagnostics.goto(`chrome-extension://${id}/diagnostics.html`);
+    expect(await get(diagnostics)).toBe("unanswered");
+    const { settings } = (initial as Extract<SettingsResponse, { ok: true }>).snapshot;
+    expect(
+      await send(diagnostics, {
+        version: 1,
+        type: "settings.save",
+        expectedRevision: 0,
+        settings: {
+          ...settings,
+          excludedSites: [{ hostname: "x.example", includeSubdomains: false }],
+        },
+      }),
+    ).toBe("unanswered");
+    expect(
+      await send(diagnostics, {
+        version: 1,
+        type: "settings.site-accounts",
+        origin: "https://bank.example",
+        settings,
+      }),
+    ).toBe("unanswered");
+    // Nor ask which accounts a refused login could use.
+    expect(await send(diagnostics, { version: 1, type: "login.choice.get", tabId: 0 })).toBe(
+      "unanswered",
+    );
+    await diagnostics.close();
+    expect(await get(popup)).toMatchObject({ snapshot: { revision: 0 } });
+
+    // A popup reads the active tab of its window; here it stays an inactive tab.
+    const bank = await popup.evaluate(
+      (url) =>
+        (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.create({ url, active: true }),
+      "https://bank.example/login",
+    );
+    // A tab's `url` appears once its page commits.
+    await expect
+      .poll(() =>
+        popup.evaluate(
+          async (tabId) =>
+            (await (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.get(tabId)).url,
+          bank.id,
+        ),
+      )
+      .toBe("https://bank.example/login");
+    const opened = context.waitForEvent("page", (page) => page.url().endsWith("/popup.html"));
+    await popup.evaluate(
+      (url) =>
+        (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.create({
+          url,
+          active: false,
+        }),
+      `chrome-extension://${id}/popup.html`,
+    );
+    const site = await opened;
+    await expect(site.locator("#popup-origin")).toHaveText("bank.example");
+    await expect(site.locator("#popup-accounts-note")).toContainText("No vault item matches");
+    // No login in the tab waits for a choice, so none is offered.
+    expect(await send(site, { version: 1, type: "login.choice.get", tabId: bank.id })).toEqual({
+      ok: false,
+      reason: "no-choice",
+    });
+    await expect(site.locator("#popup-choice-heading")).toHaveCount(0);
+    await site.getByRole("button", { name: "Exclude bank.example" }).click();
+    await expect(site.locator("#popup-site-status")).toContainText("Excluded");
+    expect(await get(site)).toMatchObject({
+      ok: true,
+      snapshot: {
+        revision: 1,
+        settings: { excludedSites: [{ hostname: "bank.example", includeSubdomains: false }] },
+      },
+    });
+  });
+});
+
 test("installed production offers manual setup with an empty real catalog and rejects extra request fields", async () => {
   await withExtension(extensionDirectory, async (context, _worker, id) => {
+    // Chrome derives the committed ID from the manifest key (ADR 0020).
+    expect(id).toBe(PATEAT_EXTENSION_ID);
     const page = await context.newPage();
     await page.goto(`chrome-extension://${id}/options.html`);
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();

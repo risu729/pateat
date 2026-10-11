@@ -1,7 +1,8 @@
 # ADR 0019: Local diagnostics page and logs
 
-Status: accepted by the owner on 2026-10-11. The diagnostics page and the logs are
-implemented; the Bitwarden server version is not yet.
+Status: accepted by the owner on 2026-10-11 and amended the same day (see
+[Amendment: server information](#amendment-server-information)). The diagnostics page,
+the logs and the Bitwarden server information are implemented.
 
 Date: 2026-10-11
 
@@ -75,7 +76,8 @@ The owner approved the following on 2026-10-11.
   log does not become a browsing history.
 - Copy and download replace origins, passkey RP IDs and recipe IDs with `site-1` and
   `recipe-1` within one export unless the user opts in. Self-hosted Bitwarden and Pateat
-  service host names are never shown. The unlock KDF is never exported.
+  service host names are never shown. The unlock KDF parameters are never exported
+  (amended below: the KDF family is).
 - Exceptions keep `error.name` and stack positions; `error.message` is kept only when it
   equals one of Pateat's own error codes, because engine messages can quote input.
 - Each event has a Valibot schema that allowlists its fields; unknown fields are dropped
@@ -106,3 +108,23 @@ The owner approved the following on 2026-10-11.
 - A pseudonym cannot be traced across a log clear or another device.
 - Delivery is split into the diagnostics page, the logs and the Bitwarden server
   version, each in its own PR.
+
+## Amendment: server information
+
+After testing the page in Chrome on 2026-10-11, the owner found the bug report too thin
+to act on and asked for Bitwarden and Pateat server details. On 2026-10-11 the owner
+approved all of the following; this section records the Bitwarden part, and the other
+parts are recorded with their implementations.
+
+- Per enabled connection with the provider permission, the worker reads
+  `GET {api}/config` without credentials. It keeps only `version` and the server kind
+  from `server`: `null` means Bitwarden, the name `Vaultwarden` means Vaultwarden, and
+  any other name is shown only as `third-party`. A third-party server's version is
+  labelled as the Bitwarden version it is compatible with. The response's
+  `environment`, which holds host URLs, is never read.
+- A check reports whether `/config` was reachable, by reason code.
+- The bug report now carries the unlock KDF family (`PBKDF2` or `Argon2id`), because
+  unlock failures differ by family. Its parameters stay on the page only.
+- Also approved and recorded with their own changes: recent warnings and errors in the
+  bug report, with a new `vault.sync` log event, and an authenticated Pateat service
+  endpoint for this device's server-side state.

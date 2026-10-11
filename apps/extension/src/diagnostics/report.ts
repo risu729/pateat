@@ -1,5 +1,6 @@
-// The text "Copy for bug report" copies (ADR 0019). It leaves out the unlock KDF, which
-// is shown on the page only.
+// The text "Copy for bug report" copies (ADR 0019). It keeps the KDF family but leaves out
+// its parameters, which are shown on the page only.
+import { installLabel, serverLabel, syncSignIn } from "./labels";
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 export type BrowserInfo = { name: string; version: string; installType: string };
@@ -16,12 +17,14 @@ export function shortRevision(revision: string): string {
 function connectionLine(entry: DiagnosticsConnection): string {
   const parts = [
     entry.environment,
+    ...(entry.server ? [serverLabel(entry.server)] : []),
     entry.state,
     `auto-unlock ${entry.autoUnlock}`,
-    `session ${entry.providerSession}`,
+    syncSignIn(entry.providerSession),
   ];
   if (entry.storageError) parts.push(`storage ${entry.storageError}`);
   if (entry.acceptedAt !== undefined) parts.push(`synced ${utcMinute(entry.acceptedAt)}`);
+  if (entry.kdfType) parts.push(`KDF ${entry.kdfType}`);
   if (entry.items)
     parts.push(
       `${entry.items.total} items (login ${entry.items.login}, TOTP ${entry.items.totp}, passkey ${entry.items.passkey}) + ${entry.items.unsupported} unsupported`,
@@ -50,7 +53,7 @@ function serviceLine(service: DiagnosticsStatus["service"]): string {
 export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): string {
   const { build } = status;
   const lines = [
-    `Pateat ${build.version} (${shortRevision(build.revision)}, ${build.mode}, ${browser.installType})`,
+    `Pateat ${build.version} (${shortRevision(build.revision)}) · ${build.mode} build · ${installLabel(browser.installType)} (${browser.installType})`,
     `${browser.name} ${browser.version} · ${status.platform.os} ${status.platform.arch}`,
     `Permissions: ${[...status.permissions.permissions, ...status.permissions.origins].join(", ")}${status.permissions.otherOrigins ? ` + ${status.permissions.otherOrigins} granted sites` : ""}`,
     `Bitwarden SDK ${build.bitwardenSdk} · protocol ${build.bitwardenProtocol}`,

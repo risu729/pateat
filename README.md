@@ -2,10 +2,10 @@
 
 Auto Login for Chrome.
 
-A planned Chrome extension that completes configured login flows using the
-user's existing vault. Bitwarden is the first integration; the design is
-vault-neutral and covers passwords, custom fields, TOTP, and existing software
-passkeys. Multiple vault connections and site/item/field controls are part of the
+A Chrome extension that completes configured login flows using the user's own
+Bitwarden vault. **Pateat supports only Bitwarden for the time being**; other vaults
+are not planned for now. It covers passwords, custom fields, TOTP and existing software
+passkeys. Several Bitwarden connections and site/item/field controls are part of the
 initial design.
 
 The extension executes locally, including in background tabs. AI helps identify
@@ -22,14 +22,16 @@ implementation commitments; the [plan](docs/plan.md) defines delivery boundaries
 
 The name comes from Latin _pateat_: "let it be open."
 
-**Status: Bitwarden connection preview.** The settings page saves local exclusion
-policies and next-login account defaults. It requests host access only for a
-configured provider. A manual Bitwarden connection syncs the
-vault, decrypts it locally with the official OSS SDK, keeps an encrypted cache with
-optional automatic unlock across browser restarts, and lists value-free metadata
-for those policies. Real-account compatibility is unverified. Production website
-login, inference and passkeys remain unimplemented; the login executor runs only in
-a separate localhost-only synthetic probe. No hosted service has been deployed.
+**Status: in development, not released.** A manual Bitwarden connection syncs the vault,
+decrypts it locally with the official OSS SDK and keeps an encrypted cache with optional
+automatic unlock across browser restarts; it has connected one real Bitwarden Cloud US
+account (V1 keys, PBKDF2; other KDFs, V2 keys and MFA methods are unverified). On HTTPS
+sites the extension runs login recipes from the service and asks the service to generate
+one with Claude for a login page that has a vault match but no recipe. It signs with
+passkeys stored in the vault, which has worked on real sites. The service runs at
+`pateat.takuk.me` for the owner. Recipe sync and generation are verified against a local
+Worker only, and a password login on a real site has not been verified yet; the
+[plan](docs/plan.md) lists the open gates.
 
 See [development](docs/development.md) for installation and checks. The production
 extension is built into `apps/extension/.output/chrome-mv3/`; the separate probe

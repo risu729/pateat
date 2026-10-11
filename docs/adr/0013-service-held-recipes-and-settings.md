@@ -7,7 +7,7 @@ current contract in `packages/contracts`. `/v1/settings` stores it as part of th
 settings document, but the executor does not use it yet (see the [plan](../plan.md)).
 Amended on 2026-10-11 by [ADR 0021](0021-account-choice-outside-settings.md): the
 extension's toolbar popup also edits the current site's default account and exclusion,
-and manual and one-time account choices are made there (not implemented yet).
+and manual and one-time account choices are made there.
 
 Date: 2026-10-10
 

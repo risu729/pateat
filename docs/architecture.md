@@ -1,11 +1,8 @@
 # Proposed architecture
 
-Status: accepted reference design. The foundation implements local metadata-only policy
-settings, status contracts, a localhost-only synthetic executor probe and a
-device-authenticated settings/recipe sync Worker with Access-verified device enrollment
-that has not been tried against a real Access application. The
-capabilities below remain planned unless [the plan](plan.md) records their
-implementation and evidence.
+Status: accepted reference design. Sections with their own status line say what is
+implemented; otherwise the capabilities below remain planned unless
+[the plan](plan.md) records their implementation and evidence.
 
 ## Product boundary
 
@@ -13,7 +10,9 @@ A Chrome MV3 extension logs into the user's configured accounts, including
 background tabs operated by another browser agent. Bitwarden is the first vault
 adapter, not the product identity. Passwords, custom fields, TOTP, and existing
 exportable software passkeys belong in scope. Another vault can be added behind
-the same narrow capability boundary when there is a concrete second integration.
+the same narrow capability boundary when there is a concrete second integration. For
+the time being Pateat supports only Bitwarden, and no other vault is planned (owner
+decision, 2026-10-11).
 
 The client works without a native helper or desktop daemon. Settings, recipes and
 account bindings live on the owner's self-hosted Pateat service and are edited on its
@@ -326,10 +325,11 @@ codes are distinct from future automatic email/SMS challenge retrieval.
 
 Settings, exclusions, account defaults and inference settings are edited on the
 service's owner-authenticated web UI
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's own page
-covers only vault connection, re-authentication, unlock and service pairing. The toolbar
-popup is a third place that edits the current site's default account and exclusion
-([ADR 0021](adr/0021-account-choice-outside-settings.md), not implemented yet). Chrome
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's settings
+page handles vault connection, re-authentication, unlock and service pairing, and still
+edits local policy, exclusions and account defaults. The toolbar popup edits only the
+active tab's site default account and exclusion, through the same worker-owned store
+([ADR 0021](adr/0021-account-choice-outside-settings.md)). Chrome
 use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
@@ -352,8 +352,8 @@ a single eligible provider URI match is used and saved only after the login is
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not
 log out the current session. No match or several matches require a choice rather than
 trying accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md)
-(not implemented yet) the choice is made in the toolbar popup for the refused document
-and may be one-time; after a finished login in a tab, the recipe's first step appearing
+the choice is made in the toolbar popup for the refused document and may be one-time.
+Not implemented yet: after a finished login in a tab, the recipe's first step appearing
 again in that tab asks for a choice again instead of logging in. Automatic
 logout/relogin when the user picks another account while logged in stays later. Cookies
 may be shared across
@@ -380,8 +380,10 @@ sites with host access and needs a cached recipe for the exact origin before any
 or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also
 needs the tab's page admitted, and its account must match the tab's URL as well as the
 frame's ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe
-generation: a tab's own page without a recipe that shows a login field within 10 seconds
-and has a vault URI match is observed and sent at most once a day per origin and path
+generation: a tab's own page on whose path no recipe starts that shows a login field
+within 10 seconds and has a vault URI match is observed and sent at most once a day per
+origin and path, unless the tab holds an attempt record other than an account switch on
+that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
 recipe cache and starts at once; after its final submission the resulting page is sent
 once to learn its completion ([ADR 0018](adr/0018-recipe-generation-route.md)).
@@ -531,26 +533,39 @@ that exact page URL and returns a value-free summary
 
 - the manifest version with the build revision (`PATEAT_REVISION` in CI, otherwise the
   checkout's `git rev-parse HEAD`), build mode, the pinned Bitwarden SDK version and the
-  Bitwarden protocol label; the page adds the Chrome version and install type;
+  Bitwarden protocol label; the page adds the Chrome version and install type
+  (`development` is shown as `unpacked install (development)`);
 - the platform, granted API permissions, the manifest's host patterns (other granted
   origins are only counted) and the toolbar icon state;
 - per Bitwarden connection, an HMAC pseudonym of its ID (`bitwarden:5c1e9a`, keyed by a
   non-extractable per-device key in IndexedDB `pateat.diagnostics.v1`), the environment
-  kind, setup state, automatic unlock, sync sign-in, the vault record's accepted time
+  kind, the server from `GET {api}/config` (the release number of its `version`
+  without any suffix, and, from `server`, whether it is Bitwarden, Vaultwarden or
+  another third-party server, whose version is the Bitwarden version it is compatible
+  with), setup state, automatic unlock, sync sign-in, the vault record's accepted time
   and read failure code, item counts by type (trash excluded) while the vault is
-  unlocked, and, on the page only, the unlock KDF;
+  unlocked, the unlock KDF family (`PBKDF2` or `Argon2id`) and, on the page only, its
+  parameters;
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
 - setting counts, `storage.local` usage, the log's size and debug state, and checks
-  for site access, the crypto host, each vault cache and sync sign-in, service
+  for site access, the crypto host, each vault cache and sync sign-in
+  (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
+  the token, and info without it, since Sync needs the stored unlock key), the vault
+  copy's age (info, since the vault syncs only from the settings page), each
+  Bitwarden server's `/config` (warn when it fails or is not checked), service
   reachability, clock skew over 30 s against the service `Date` header, a recipe sync
-  older than 24 hours and errors logged in the last 24 hours.
+  older than 24 hours and errors logged in the last 24 hours. Reworded states keep the
+  raw code in parentheses.
 
-The worker fetches `/health` only for a paired service with site access. **Copy for bug
-report** shows the exact text before copying it; that text leaves out the unlock KDF.
-Labels, emails, item names and IDs, URLs and host names are never part of the summary.
-The Bitwarden server version is accepted in ADR 0019 but not implemented yet.
+The worker fetches `/health` only for a paired service with site access, and
+`{api}/config` only for an enabled connection whose provider permission sync also
+requires, with a 5 s timeout and no credentials. It never reads the config's
+`environment` (host URLs) or a third-party server's name other than Vaultwarden.
+**Copy for bug report** shows the exact text before copying it; that text leaves out
+the unlock KDF parameters. Labels, emails, item names and IDs, URLs and host names are
+never part of the summary.
 
 ### Local log
 
@@ -625,20 +640,22 @@ completion; its attempts stay unknown. A recipe's completion and absent elements
 its rejection and any one step's elements together stay within one 24-element
 observation.
 
-A step names its element with an allowlisted locator, never CSS: an `id` or `name`
-(any ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
+A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
+ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), or, for a click or a state check
 only, a button's text: `{ "by": "text", "value": "ログイン" }` names the `<button>`
 whose rendered text (or, without any, its images' `alt`), the
 `<input type="submit|button">` whose value, or the `<input type="image">` whose `alt`
 equals the value after whitespace is collapsed (owner decision, 2026-10-11). Hidden
-buttons and hidden text inside a button do not count, and text over 120 characters
-gives no locator. The executor compares strings and acts only when exactly one element
+buttons and hidden text inside a button do not count, and text over 120 characters gives
+no locator. The executor compares strings and acts only when exactly one element
 matches; more than one is a structural mismatch. It clicks buttons and image buttons,
-never links. A click is not tied to the form the previous fill used: a page that
-shows a second, previously hidden button with the same text stops the attempt as
-ambiguous, but if the observed button is removed and another button with the same
-text remains, that one is clicked.
+never links, except a recipe's `accountSwitch`, which may be an `<a href>` link named by
+its rendered text. The extractor gives a link a text locator only on a login page and
+only when no other link and no button shows that text. A click is not tied to the form
+the previous fill used: a page that shows a second, previously hidden button with the
+same text stops the attempt as ambiguous, but if the observed button is removed and
+another button with the same text remains, that one is clicked.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button
@@ -676,7 +693,16 @@ chose on 2026-10-11 to redact observed text before it is sent: email-like string
 including masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊`
 become `[masked]`; and runs of four or more ASCII or fullwidth digits become
 `[number]` (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be
-detected and stay. Model
+detected and stay. When such a page already shows a chosen account and offers a
+button or link to use another one, the generation role may name it as the plan's
+`accountSwitch`; it must be an observed button or link that the plan neither fills nor
+uses as its action. The generated recipe keeps the first switch a page names that no
+step clicks. Only links inside the login form are observed, so a switch link outside it
+is not named. A button whose text a link elsewhere on the page shows too, and a button
+that would submit a form, are never clicked as a switch; the attempt then ends
+`wrong-account`. Locating links by text means in-form links without an `id`, `name` or
+`data-testid` are now observed as well, with their redacted labels, and a switch
+link's redacted rendered text is stored in the recipe. Model
 output must pass structural and semantic checks on the server and again locally.
 Screenshot, audio and video collection are deferred. A provider's multimodal
 support does not enable these inputs without a separate privacy/evaluation gate.
@@ -750,14 +776,14 @@ OIDC/passkey authentication is a later adapter. Self-hosting is the target, but
 owner-scoped data allows other operators to serve multiple users later.
 
 Enrollment pairs a device with a verified owner through setup. Store only hashed
-revocable high-entropy device credentials server-side; scope every query and
-write by verified owner/device. CORS is not authentication. No shared universal
-credential is shipped in the extension. Enrollment transport, expiry, and recovery
-are a pre-service acceptance gate, not an invented finished authentication flow.
-Separate Access-protected enrollment from device-authenticated API routes: a
-device token does not automatically pass an Access gate. Steady-state API access
-must not require an interactive Access cookie for each call. Service login does
-not authenticate or unlock a vault.
+revocable high-entropy device credentials server-side; scope every query and write by
+verified owner/device. CORS is not authentication. No shared universal credential is
+shipped in the extension. Enrollment is implemented and deployed
+([device enrollment](#device-enrollment)), and credentials expire after 90 days unused.
+Separate Access-protected enrollment from device-authenticated API routes: a device
+token does not automatically pass an Access gate. Steady-state API access must not
+require an interactive Access cookie for each call. Service login does not authenticate
+or unlock a vault.
 
 Initial synced settings are server-readable so service login can restore them
 without another recovery key. E2EE settings sync is a later option. Provider
@@ -792,13 +818,41 @@ Use a monthly USD limit initially; select the default amount during service
 implementation. Timeouts, request limits, bounded retries and sanitized
 diagnostics remain necessary.
 
+### Service limits
+
+Status: implemented. The owner asked on 2026-10-11 for common-sense per-owner limits
+sized for their own use; Claude chose these amounts. Revisit them, and add a byte
+quota, before the service is offered to other people.
+
+- Requests. The `OWNER_LIMITER` rate-limit binding allows 120 requests a minute per
+  owner on `/v1`, counting all of the owner's devices together, and 120 a minute per
+  verified Access identity on `/manage/api`. The check runs right after authentication
+  and before any body is read; a refused request gets 429 `rate_limited` with
+  `Retry-After: 60`. The hosted limiter is approximate and counts per Cloudflare
+  location. `/redeem` keeps its own 10 a minute per client address. Recipe generation
+  is also bounded by spend and one call at a time
+  ([ADR 0018](adr/0018-recipe-generation-route.md)).
+- Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
+  republishing a tombstone beyond that answers 409 `recipe_limit`; updating or revoking
+  an active recipe always works, and a revocation frees its place. Generation answers
+  `unavailable` with `recipe-limit` before any model call when a first page would add a
+  recipe, or after the call if the last place was taken meanwhile.
+- Recipe history. Each recipe keeps its newest 10 revisions; a winning write deletes
+  older ones in the same D1 batch, and a revocation keeps only the tombstone. Nothing
+  reads older revisions. At the 128 KiB body limit this bounds an owner's active recipes
+  to about 1.2 GiB; generated recipes are a few KiB each. Tombstones are not counted:
+  each is two small rows and one change-feed entry, left for the later byte quota.
+- Unchanged. Settings are one document of at most 120 KiB per owner. The inference
+  request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
+  counted: each pairing needs an interactive Access login.
+
 ### Device enrollment
 
 Status: the typed-code flow below is implemented and deployed, and the owner paired a
 real Chrome through Access with it on 2026-10-11. Direct pairing
-([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; it is not
-implemented yet. Both satisfy the separation above without a cookie on steady-state
-API calls.
+([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; so far only
+the fixed production extension ID is implemented. Both satisfy the separation above
+without a cookie on steady-state API calls.
 
 - Route families. One Access application covers the whole service host, so a new route
   is protected by default (owner decision, 2026-10-11). A second, more specific Access
@@ -832,25 +886,33 @@ API calls.
   unknown verifiers return the same response. The owner chose direct pairing over
   `chrome.identity.launchWebAuthFlow`, which would add the `identity` permission
   ([ADR 0020](adr/0020-direct-device-pairing.md)).
-- Lifetime and recovery. Credentials stay valid until revoked; an idle expiry is
-  an open decision. The Access-protected management page lists and revokes the
-  owner's devices, and a device can revoke itself on sign-out. A lost device is
+- Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
+  each authenticated use renews it; there is no absolute lifetime and no rotation (owner
+  decision, 2026-10-11). The service records a device's last use at most once a day
+  with a conditional update, so the recorded time can lag by up to a day and a device
+  can expire up to a day before 90 days of real non-use. An expired
+  credential gets 401 `device_expired`, which the extension handles like a revoked
+  device: it stops syncing and asks for a new pairing. A revoked device keeps getting
+  `device_revoked`. The Access-protected management page lists the owner's devices
+  with their last use, marks expired ones, and revokes devices; a device can revoke
+  itself on sign-out. A lost device is
   revoked from another Access login and a replacement re-enrolls. Revocation stops
   later requests; a request already authenticated may still complete. It stops
   service access only and neither erases offline caches nor touches any vault.
 
 Local tests cover signature, issuer, audience, expiry and subject checks, approval
 CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
-cleanup of stale approvals, cross-owner management and self-revocation. JWT
-verification worked against the real Access application when the owner paired on
-2026-10-11. Still open: the credential idle-expiry decision.
+cleanup of stale approvals, cross-owner management, self-revocation, and credential
+idle expiry with its daily renewal. JWT verification worked against the real Access
+application when the owner paired on 2026-10-11. Credential idle expiry has local
+tests only so far.
 
 ### Owner web UI
 
-Status: design approved by the owner on 2026-10-11. The app, its Access-checked
-assets and API, and the devices, sites, account bindings and recipes pages are
-implemented and tested locally. It replaces the extension's settings page for the data
-the service holds
+Status: design approved by the owner on 2026-10-11. The app, its Access-checked assets
+and API, and the devices, sites, account bindings and recipes pages are implemented,
+tested locally and deployed with the service. It replaces the extension's settings page
+for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the

@@ -4,6 +4,7 @@ import {
   defaultLoginBinding,
   findLoginBinding,
   isSiteExcluded,
+  loginDocumentSchema,
   loginObservationSchema,
   nextLoginOperation,
   loginStepEffect,
@@ -61,6 +62,12 @@ import {
   type ProbeAccount,
 } from "./dummy";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
+import {
+  choiceRequestSchema,
+  pickRequestSchema,
+  type ChoiceResponse,
+  type PickResponse,
+} from "./choice-wire";
 import type { LoginSites } from "./sites";
 import {
   loginFillsUsername,
@@ -70,6 +77,9 @@ import {
 } from "./vault";
 
 const STORAGE_KEY = "pateat.login-attempts.v1";
+/** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
+const PICKS_KEY = "pateat.login-picks.v1";
+const CHOICES_KEY = "pateat.login-choices.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
@@ -114,6 +124,29 @@ type LiveDocument = {
 /** Documents are tracked per frame; a tab still runs at most one attempt. */
 const frameKey = (document: { tabId: number; frameId: number }) =>
   `${document.tabId}:${document.frameId}`;
+/**
+ * An account the user picked in the toolbar popup (ADR 0021). It is used instead of the
+ * saved default by the refused document it restarted and then by the attempt that
+ * document started, on that login's later pages too. It is saved as the default after
+ * `authenticated` only with `makeDefault`.
+ */
+const pickedAccountSchema = v.strictObject({
+  tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  origin: v.string(),
+  documentId: v.string(),
+  /** Set once the picked login starts; until then the pick applies to `documentId` only. */
+  attemptId: v.optional(v.string()),
+  connectionId: v.string(),
+  itemId: v.string(),
+  makeDefault: v.boolean(),
+});
+type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
+/** A document refused because several accounts match it; the popup offers these. */
+const pendingChoiceSchema = v.strictObject({
+  document: loginDocumentSchema,
+  candidates: v.array(v.strictObject({ connectionId: v.string(), itemId: v.string() })),
+});
+type PendingChoice = v.InferOutput<typeof pendingChoiceSchema>;
 type Execution = {
   metadata: LoginAttemptMetadata;
   recipe: LoginRecipe;
@@ -253,6 +286,51 @@ export function createLoginRuntime(
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
   const persisted = new Map<number, LoginAttemptMetadata>();
+  const picked = new Map<number, PickedAccount>();
+  const pending = new Map<number, PendingChoice>();
+  // Toolbar and session storage failures only lose the badge or a pick; never a login.
+  const quietly = (work: () => Promise<unknown>) =>
+    Promise.resolve()
+      .then(work)
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+  // Picks and waiting choices outlive a worker restart, as the tab's badge does. Every
+  // change to them happens after this load.
+  const sessionLoaded = quietly(async () => {
+    const stored = await browser.storage.session.get([PICKS_KEY, CHOICES_KEY]);
+    const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
+    if (picks.success) for (const entry of picks.output) picked.set(entry.tabId, entry);
+    const choices = v.safeParse(v.array(pendingChoiceSchema), stored[CHOICES_KEY] ?? []);
+    if (choices.success)
+      for (const entry of choices.output) pending.set(entry.document.tabId, entry);
+  });
+  async function saveSession(): Promise<void> {
+    await browser.storage.session.set({
+      [PICKS_KEY]: [...picked.values()],
+      [CHOICES_KEY]: [...pending.values()],
+    });
+  }
+  /** Badges the tab and records the refused document for the popup (ADR 0021). */
+  function offerChoice(document: LoginDocument, candidates: PendingChoice["candidates"]): void {
+    pending.set(document.tabId, { document, candidates });
+    void quietly(saveSession);
+    const { tabId } = document;
+    void quietly(() => browser.action.setBadgeText({ tabId, text: String(candidates.length) }));
+    void quietly(() =>
+      browser.action.setTitle({
+        tabId,
+        title: `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
+      }),
+    );
+  }
+  function clearChoice(tabId: number): void {
+    if (!pending.delete(tabId)) return;
+    void quietly(saveSession);
+    void quietly(() => browser.action.setBadgeText({ tabId, text: "" }));
+    void quietly(() => browser.action.setTitle({ tabId, title: "Pateat" }));
+  }
   let storageQueue: Promise<void> = Promise.resolve();
   let storageHealthy = true;
   let checkpoint: "before-delivery" | "before-ack" | undefined;
@@ -354,6 +432,113 @@ export function createLoginRuntime(
     sender.id === browser.runtime.id &&
     sender.url === browser.runtime.getURL("/options.html") &&
     !sender.tab?.url?.startsWith("http:");
+  const fromPopup = (sender: Sender) =>
+    sender.id === browser.runtime.id && sender.url === browser.runtime.getURL("/popup.html");
+  const reviving = new Map<number, Promise<void>>();
+  /**
+   * Asks a refused document that a restarted worker knows only from session storage to
+   * announce again; that offers its choice again, or clears it once the document is gone.
+   */
+  function revive(waiting: PendingChoice): Promise<void> {
+    const { tabId, frameId, documentId } = waiting.document;
+    let running = reviving.get(tabId);
+    if (!running) {
+      running = browser.tabs
+        .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId, documentId })
+        .then(
+          () => undefined,
+          () => {
+            if (pending.get(tabId) === waiting) clearChoice(tabId);
+          },
+        )
+        .finally(() => reviving.delete(tabId));
+      reviving.set(tabId, running);
+    }
+    return running;
+  }
+  /** The refused document of a tab and the accounts it could use, for the popup. */
+  async function choiceFor(tabId: number): Promise<ChoiceResponse> {
+    await sessionLoaded;
+    let waiting = pending.get(tabId);
+    if (waiting && !documents.has(frameKey(waiting.document))) {
+      await revive(waiting);
+      waiting = pending.get(tabId);
+    }
+    const live = waiting && documents.get(frameKey(waiting.document));
+    if (
+      !waiting ||
+      !live ||
+      !sameLoginDocument(live.document, waiting.document) ||
+      attempts.has(tabId)
+    ) {
+      // The document announced again without being refused for several accounts.
+      if (waiting && live) clearChoice(tabId);
+      return { ok: false, reason: "no-choice" };
+    }
+    // A default saved since the refusal decides the page's next login instead.
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
+    if (
+      !snapshot.ok ||
+      snapshot.snapshot.settings.siteDefaults.some(
+        (entry) => entry.origin === waiting.document.origin,
+      )
+    ) {
+      if (snapshot.ok) clearChoice(tabId);
+      return { ok: false, reason: "no-choice" };
+    }
+    return {
+      ok: true,
+      origin: waiting.document.origin,
+      documentId: waiting.document.documentId,
+      candidates: waiting.candidates,
+    };
+  }
+  /**
+   * Restarts the refused document's login with the picked account: the document announces
+   * again and a new attempt starts from the recipe's first step, if that step still shows.
+   */
+  async function pickFor(request: v.InferOutput<typeof pickRequestSchema>): Promise<PickResponse> {
+    const offered = await choiceFor(request.tabId);
+    const waiting = pending.get(request.tabId);
+    if (!offered.ok || !waiting || offered.documentId !== request.documentId)
+      return { ok: false, reason: "no-choice" };
+    if (
+      !offered.candidates.some(
+        (entry) => entry.connectionId === request.connectionId && entry.itemId === request.itemId,
+      )
+    )
+      return { ok: false, reason: "not-a-candidate" };
+    const pick: PickedAccount = {
+      tabId: request.tabId,
+      origin: waiting.document.origin,
+      documentId: waiting.document.documentId,
+      connectionId: request.connectionId,
+      itemId: request.itemId,
+      makeDefault: request.makeDefault,
+    };
+    picked.set(request.tabId, pick);
+    clearChoice(request.tabId);
+    let gone = false;
+    try {
+      await saveSession();
+      // The document answers once its new announce is handled, started or refused.
+      await browser.tabs.sendMessage(
+        request.tabId,
+        { version: 1, type: "login.reconnect" },
+        { frameId: waiting.document.frameId, documentId: waiting.document.documentId },
+      );
+    } catch {
+      gone = true;
+    }
+    if (pick.attemptId !== undefined) return { ok: true };
+    // A pick that started nothing is dropped; the form's next appearance asks again.
+    if (picked.get(request.tabId) === pick) {
+      picked.delete(request.tabId);
+      await quietly(saveSession);
+    }
+    return { ok: false, reason: gone ? "document-gone" : "not-started" };
+  }
   function current(run: Execution): boolean {
     return (
       attempts.get(run.live.document.tabId) === run &&
@@ -453,8 +638,8 @@ export function createLoginRuntime(
       ...(metadata?.outcome || live.reason ? { outcome: metadata?.outcome ?? live.reason } : {}),
     }).catch(() => undefined);
   }
-  type Choice = { connectionId: string; itemId: string; saved: boolean };
-  type Refusal = { reason: string };
+  type Choice = { connectionId: string; itemId: string; saved: boolean; pick?: PickedAccount };
+  type Refusal = { reason: string; candidates?: PendingChoice["candidates"] };
   /**
    * The account for this document. A saved site default wins. Without one, a single
    * eligible provider URI match across all enabled connections is used for this attempt
@@ -465,6 +650,18 @@ export function createLoginRuntime(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
   ): Promise<Choice | Refusal> {
+    // An account picked in the popup wins for the document it restarted and the attempt that
+    // document started; its item must still match the page and pass every check below.
+    await sessionLoaded;
+    const pick = picked.get(live.document.tabId);
+    const owner = attempts.get(live.document.tabId)?.metadata ?? persisted.get(live.document.tabId);
+    if (
+      pick?.origin === live.document.origin &&
+      (pick.attemptId === undefined
+        ? pick.documentId === live.document.documentId
+        : owner?.id === pick.attemptId)
+    )
+      return { connectionId: pick.connectionId, itemId: pick.itemId, saved: false, pick };
     const saved = snapshot.snapshot.settings.siteDefaults.find(
       (entry) => entry.origin === live.document.origin,
     );
@@ -510,7 +707,14 @@ export function createLoginRuntime(
         ),
       );
     }
-    if (candidates.length > 1) return { reason: "account-ambiguous" };
+    if (candidates.length > 1)
+      return {
+        reason: "account-ambiguous",
+        candidates: candidates.map((entry) => ({
+          connectionId: entry.connectionId,
+          itemId: entry.itemId,
+        })),
+      };
     const [only] = candidates;
     if (!only) return { reason: "default-not-set" };
     // The same answer covers the item origin check below; no second query is needed.
@@ -692,7 +896,12 @@ export function createLoginRuntime(
       if (top) return { ok: false as const, reason: top.reason };
     } else {
       const chosen = await choose(snapshot, live);
-      if ("reason" in chosen) return { ok: false as const, reason: chosen.reason };
+      if ("reason" in chosen)
+        return {
+          ok: false as const,
+          reason: chosen.reason,
+          ...(chosen.candidates ? { candidates: chosen.candidates } : {}),
+        };
       const scope = await liveScope(snapshot, live, chosen);
       if ("reason" in scope) return { ok: false as const, reason: scope.reason };
       const top = await topScope(snapshot, live, chosen, snapshot.catalog);
@@ -712,6 +921,10 @@ export function createLoginRuntime(
         // the chosen item's provider account as a saved default would be. An account
         // connected more than once therefore stays ambiguous, as it would once saved.
         policy = structuredClone(policy);
+        // A picked account replaces a saved default for this document.
+        policy.settings.siteDefaults = policy.settings.siteDefaults.filter(
+          (entry) => entry.origin !== live.document.origin,
+        );
         policy.settings.siteDefaults.push({
           origin: live.document.origin,
           provider: bound.synced.provider,
@@ -721,7 +934,8 @@ export function createLoginRuntime(
           ...(bound.synced.accountName ? { accountName: bound.synced.accountName } : {}),
         });
       }
-      if (!chosen.saved || !bound.saved)
+      // A pick made for this login only is never saved.
+      if ((!chosen.saved || !bound.saved) && (!chosen.pick || chosen.pick.makeDefault))
         choice = { binding: bound.synced, connectionId: chosen.connectionId };
     }
     const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding);
@@ -1205,15 +1419,14 @@ export function createLoginRuntime(
   }
   /**
    * Whether this document may be sent for generation once it shows a sign-in input: a
-   * top-level page on an origin with no cached recipe, whose path was not sent in the
-   * last day (ADR 0016). A recipe starting on another path, or several starting on this
-   * one, still counts as the origin's recipe.
+   * top-level page on whose path no cached recipe of its origin starts (several starting
+   * there count too), and whose path was not sent in the last day (ADR 0016).
    */
   async function offersGeneration(live: LiveDocument): Promise<boolean> {
     if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return false;
     if (probeMode && live.document.origin === origin) return false;
     const steps = await recipes.firstSteps(live.document.origin).catch(() => undefined);
-    if (steps === undefined || steps.length) return false;
+    if (steps === undefined || steps.some((step) => step.path === live.path)) return false;
     return generation.available(live.document.origin, live.path).catch(() => false);
   }
   /**
@@ -1298,10 +1511,19 @@ export function createLoginRuntime(
     const sequence = (hellos.get(helloKey) ?? 0) + 1;
     hellos.set(helloKey, sequence);
     await loaded;
+    await sessionLoaded;
     const document = await identify(sender);
     if (!document || !sender.url) return { ok: false, reason: "unauthorized-document" };
     if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     const key = frameKey(document);
+    // A new page in the tab replaces the document that waited for a choice.
+    const waiting = pending.get(document.tabId);
+    if (
+      waiting?.document.frameId === 0 &&
+      document.frameId === 0 &&
+      waiting.document.documentId !== document.documentId
+    )
+      clearChoice(document.tabId);
     // `sender.url` keeps the URL the document loaded with; a same-document URL change
     // (history.pushState) of the tab's page shows only in the tab's committed URL. A frame
     // inside the page keeps its load URL and records the tab's URL to match as well.
@@ -1476,7 +1698,12 @@ export function createLoginRuntime(
     }
     const plan = await planFor(snapshot, live, recipe);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-    if (!plan.ok) return refuse(plan.reason);
+    if (!plan.ok) {
+      // Only a fresh start can be restarted with a picked account (ADR 0021).
+      if (!previous && "candidates" in plan && plan.candidates)
+        offerChoice(document, plan.candidates);
+      return refuse(plan.reason);
+    }
     // Cookies can be shared across tabs. Preserve this conservative origin owner even at terminal state until tab closure.
     if (
       [...persisted.values()].some(
@@ -1532,6 +1759,18 @@ export function createLoginRuntime(
     };
     attempts.set(document.tabId, run);
     reportAttempt(metadata);
+    clearChoice(document.tabId);
+    const pick = picked.get(document.tabId);
+    if (
+      !previous &&
+      pick?.attemptId === undefined &&
+      pick?.documentId === document.documentId &&
+      pick.connectionId === plan.account.connectionId &&
+      pick.itemId === plan.account.itemId
+    ) {
+      pick.attemptId = metadata.id;
+      void quietly(saveSession);
+    }
     await save(run);
     await publish(live, metadata);
     void drive(run);
@@ -1589,6 +1828,13 @@ export function createLoginRuntime(
       }
       return undefined;
     }
+    if (fromPopup(sender)) {
+      const ask = v.safeParse(choiceRequestSchema, message);
+      if (ask.success) return choiceFor(ask.output.tabId);
+      const pick = v.safeParse(pickRequestSchema, message);
+      if (pick.success) return pickFor(pick.output);
+      return undefined;
+    }
     const hello = v.safeParse(helloSchema, message);
     if (hello.success)
       return ready(sender, hello.output.token, hello.output.start, hello.output.signIn);
@@ -1630,6 +1876,11 @@ export function createLoginRuntime(
     for (const key of hellos.keys()) if (key.startsWith(`${tabId}:`)) hellos.delete(key);
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
     attempts.delete(tabId);
+    void sessionLoaded.then(async () => {
+      const waited = pending.delete(tabId);
+      if (picked.delete(tabId) || waited) await quietly(saveSession);
+      return undefined;
+    });
     storageQueue = storageQueue
       .then(async () => {
         await loaded;
@@ -1663,6 +1914,9 @@ export function createLoginRuntime(
           // Every frame announces again; a frame inside the page may hold the attempt.
           .sendMessage(tabId, { version: 1, type: "login.reconnect" })
           .catch(() => undefined);
+      await sessionLoaded;
+      for (const waiting of pending.values())
+        if (!tabIds.has(waiting.document.tabId)) void revive(waiting);
       return undefined;
     })
     .catch(() => undefined);

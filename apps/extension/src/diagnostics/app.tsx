@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "../options/button";
+import { installLabel, serverLabel, syncSignIn } from "./labels";
 import { formatReport, shortRevision, utcMinute, type BrowserInfo } from "./report";
 import type {
   DiagnosticsCheck,
@@ -49,9 +50,11 @@ function Version({ status, browser }: { status: DiagnosticsStatus; browser: Brow
       <h2 id="version-heading">Version</h2>
       <dl>
         <Row term="Pateat" id="diagnostics-version">
-          {build.version} ({shortRevision(build.revision)}, {build.mode})
+          {build.version} ({shortRevision(build.revision)}) · {build.mode} build
         </Row>
-        <Row term="Install type">{browser.installType}</Row>
+        <Row term="Install type">
+          {installLabel(browser.installType)} ({browser.installType})
+        </Row>
         <Row term="Browser" id="diagnostics-browser">
           {browser.name} {browser.version}
         </Row>
@@ -97,12 +100,13 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
         <dl key={entry.id} aria-label={entry.id}>
           <Row term="Connection">{entry.id}</Row>
           <Row term="Environment">{entry.environment}</Row>
+          {entry.server && <Row term="Server">{serverLabel(entry.server)}</Row>}
           <Row term="State">
             {entry.state}
             {entry.storageError && ` (${entry.storageError})`}
           </Row>
           <Row term="Automatic unlock">{entry.autoUnlock}</Row>
-          <Row term="Sync sign-in">{entry.providerSession}</Row>
+          <Row term="Sync sign-in">{syncSignIn(entry.providerSession)}</Row>
           <Row term="Last vault sync">{time(entry.acceptedAt)}</Row>
           {entry.items && (
             <Row term="Items">
@@ -110,7 +114,9 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
               {entry.items.passkey}) + {entry.items.unsupported} unsupported
             </Row>
           )}
-          {entry.unlockKdf && <Row term="Unlock KDF (not copied)">{entry.unlockKdf}</Row>}
+          {entry.unlockKdf && (
+            <Row term="Unlock KDF (only the type is copied)">{entry.unlockKdf}</Row>
+          )}
         </dl>
       ))}
     </section>

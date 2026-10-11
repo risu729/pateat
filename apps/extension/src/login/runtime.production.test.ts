@@ -50,6 +50,14 @@ const fake = vi.hoisted(() => {
     removed: [] as ((tabId: number) => void)[],
     /** The document's description of itself, by the page asked for. */
     extracted: {} as Record<string, unknown>,
+    /** `chrome.storage.session`. */
+    session: {} as Record<string, unknown>,
+    /** Tab-specific toolbar badge text and title. */
+    badges: {} as Record<number, { text?: string; title?: string }>,
+    /** Each `login.reconnect` and the document it was sent to. */
+    reconnects: [] as { tabId: number; frameId?: number; documentId?: string }[],
+    /** The document's announce in answer to `login.reconnect`, as the content script does. */
+    onReconnect: undefined as undefined | (() => Promise<unknown>),
   };
   const browser = {
     runtime: {
@@ -57,7 +65,24 @@ const fake = vi.hoisted(() => {
       getURL: (path: string) => `chrome-extension://synthetic-extension${path}`,
     },
     permissions: { contains: async () => state.granted },
+    action: {
+      setBadgeText: async ({ tabId, text }: { tabId: number; text: string }) => {
+        state.badges[tabId] = { ...state.badges[tabId], text };
+      },
+      setTitle: async ({ tabId, title }: { tabId: number; title: string }) => {
+        state.badges[tabId] = { ...state.badges[tabId], title };
+      },
+    },
     storage: {
+      session: {
+        get: async (keys: string[]) =>
+          Object.fromEntries(
+            keys.filter((key) => key in state.session).map((key) => [key, state.session[key]]),
+          ),
+        set: async (values: Record<string, unknown>) => {
+          Object.assign(state.session, structuredClone(values));
+        },
+      },
       local: {
         setAccessLevel: async () => undefined,
         get: async (keys: string[]) =>
@@ -75,11 +100,15 @@ const fake = vi.hoisted(() => {
       sendMessage: async (
         _tabId: number,
         message: Record<string, unknown>,
-        options?: { documentId?: string },
+        options?: { frameId?: number; documentId?: string },
       ) => {
         if (options?.documentId && state.gone.has(options.documentId))
           throw new Error("Could not establish connection. Receiving end does not exist.");
         state.messages.push(structuredClone(message) as (typeof state.messages)[number]);
+        if (message["type"] === "login.reconnect") {
+          state.reconnects.push({ tabId: _tabId, ...options });
+          return (await state.onReconnect?.()) ?? { ok: false };
+        }
         if (message["type"] === "login.await") {
           state.onAwait?.();
           return state.awaited;
@@ -354,6 +383,10 @@ describe("production login document admission", () => {
   });
   beforeEach(() => {
     fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
     fake.state.messages = [];
     fake.state.granted = true;
     fake.state.pageUrl = "https://login.example/signin";
@@ -1308,6 +1341,176 @@ describe("production login document admission", () => {
       expect(executes()).toEqual([]);
       expect(h.store.update).not.toHaveBeenCalled();
     });
+    describe("when the popup picks one of several matches (ADR 0021)", () => {
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      const ask = (h: ReturnType<typeof harness>, from: never = popup) =>
+        h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, from);
+      const pick = (
+        h: ReturnType<typeof harness>,
+        overrides: Record<string, unknown> = {},
+        from: never = popup,
+      ) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.choice.pick",
+            tabId: 1,
+            documentId: "synthetic-document",
+            connectionId,
+            itemId: otherItemId,
+            makeDefault: false,
+            ...overrides,
+          },
+          from,
+        );
+      const matching = () =>
+        harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: both }),
+        });
+      const refused = async () => {
+        const h = matching();
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        // The document announces again when asked, with its first step still showing.
+        fake.state.onReconnect = () => h.hello();
+        return h;
+      };
+      const offered = {
+        ok: true,
+        origin,
+        documentId: "synthetic-document",
+        candidates: [
+          { connectionId, itemId },
+          { connectionId, itemId: otherItemId },
+        ],
+      };
+      it("badges the tab and offers only the refused document's candidates", async () => {
+        const h = await refused();
+        expect(fake.state.badges[1]).toEqual({
+          text: "2",
+          title: "Pateat: 2 accounts match this page. Click to choose one.",
+        });
+        expect(await ask(h)).toEqual(offered);
+        // Only the popup page may ask or pick; the settings page and the site cannot.
+        expect(await ask(h, trusted)).toBeUndefined();
+        expect(await ask(h, sender())).toBeUndefined();
+        expect(await pick(h, {}, trusted)).toBeUndefined();
+        expect(await pick(h, {}, sender())).toBeUndefined();
+        expect(fake.state.reconnects).toEqual([]);
+        expect(h.fields).not.toHaveBeenCalled();
+      });
+      it("restarts only the refused document with a one-time pick and saves nothing", async () => {
+        const h = await refused();
+        expect(await pick(h)).toEqual({ ok: true });
+        expect(fake.state.reconnects).toEqual([
+          { tabId: 1, frameId: 0, documentId: "synthetic-document" },
+        ]);
+        expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+        expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
+        await vi.waitFor(() =>
+          expect(JSON.stringify(fake.state.messages)).toContain("authenticated"),
+        );
+        expect(h.fields.mock.calls[0]![0]).toMatchObject({
+          account: { origin, connectionId, itemId: otherItemId },
+          fieldId: "login.password",
+        });
+        expect(h.store.update).not.toHaveBeenCalled();
+      });
+      it("saves a pick marked as the default only after authenticated", async () => {
+        const h = await refused();
+        fake.state.onReconnect = async () => {
+          const started = await h.hello();
+          expect(h.store.update).not.toHaveBeenCalled();
+          return started;
+        };
+        expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
+        await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
+        expect(h.settings.settings.siteDefaults).toEqual([
+          expect.objectContaining({ origin, userId, itemId: otherItemId }),
+        ]);
+      });
+      it("refuses a pick that is not offered, for another document, or after the page left", async () => {
+        const h = await refused();
+        expect(await pick(h, { itemId: "80000000-0000-4000-8000-000000000009" })).toEqual({
+          ok: false,
+          reason: "not-a-candidate",
+        });
+        expect(await pick(h, { documentId: "other-document" })).toEqual({
+          ok: false,
+          reason: "no-choice",
+        });
+        fake.state.gone.add("synthetic-document");
+        expect(await pick(h)).toEqual({ ok: false, reason: "document-gone" });
+        // Nothing stays picked: the next announcement is refused again.
+        fake.state.gone.clear();
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        expect(h.fields).not.toHaveBeenCalled();
+      });
+      it("drops a pick that started nothing, and the form's next appearance asks again", async () => {
+        const h = await refused();
+        // The form moved past its first step, so the document announces without a start.
+        fake.state.onReconnect = () => h.hello({}, false);
+        expect(await pick(h)).toEqual({ ok: false, reason: "not-started" });
+        expect(fake.state.session["pateat.login-picks.v1"]).toEqual([]);
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        expect(fake.state.badges[1]?.text).toBe("2");
+        expect(h.fields).not.toHaveBeenCalled();
+      });
+      it("offers the choice again after a worker restart, or clears it once the page is gone", async () => {
+        await refused();
+        // A new worker starts with only session storage; its badge survived.
+        const restarted = matching();
+        fake.state.onReconnect = () => restarted.hello();
+        expect(await ask(restarted)).toEqual(offered);
+        expect(fake.state.reconnects.at(-1)).toEqual({
+          tabId: 1,
+          frameId: 0,
+          documentId: "synthetic-document",
+        });
+
+        const again = matching();
+        fake.state.gone.add("synthetic-document");
+        expect(await ask(again)).toEqual({ ok: false, reason: "no-choice" });
+        expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+        await vi.waitFor(() => expect(fake.state.session["pateat.login-choices.v1"]).toEqual([]));
+      });
+      it("ends the choice once a default is saved for the site", async () => {
+        const h = await refused();
+        h.settings.settings.siteDefaults = [{ origin, provider: "bitwarden", userId, itemId }];
+        expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
+        expect(await pick(h)).toEqual({ ok: false, reason: "no-choice" });
+        expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+        expect(fake.state.reconnects).toEqual([]);
+      });
+      it("keeps the pick with the attempt it started and forgets it when the tab closes", async () => {
+        const h = await refused();
+        expect(await pick(h)).toEqual({ ok: true });
+        expect(fake.state.session).toEqual({
+          "pateat.login-picks.v1": [
+            {
+              tabId: 1,
+              origin,
+              documentId: "synthetic-document",
+              attemptId: expect.any(String),
+              connectionId,
+              itemId: otherItemId,
+              makeDefault: false,
+            },
+          ],
+          "pateat.login-choices.v1": [],
+        });
+        for (const listener of fake.state.removed) listener(1);
+        await vi.waitFor(() =>
+          expect(fake.state.session).toEqual({
+            "pateat.login-picks.v1": [],
+            "pateat.login-choices.v1": [],
+          }),
+        );
+      });
+    });
     it("needs a manual binding when the recipe has a slot other than the built-ins", async () => {
       const h = harness(unsaved, {
         allowedOrigins: [],
@@ -1569,7 +1772,7 @@ describe("production login document admission", () => {
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
     });
 
-    it("offers nothing for a page sent recently, an origin with a recipe, a frame or an incomplete description", async () => {
+    it("offers nothing for a page sent recently, a path a recipe starts on, a frame or an incomplete description", async () => {
       const service = generation({ available: async () => false });
       const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
       h.recipes.recipe.mockResolvedValue(undefined);
@@ -1578,9 +1781,9 @@ describe("production login document admission", () => {
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
 
       service.available.mockResolvedValue(true);
-      // A recipe for the origin that starts on another path, or an unreadable cache.
+      // Recipes that start on this path (two, so neither is selected), or an unreadable cache.
       fake.state.extracted = { login: loginPage };
-      h.recipes.firstSteps.mockResolvedValue([{ ...generated.steps[0]!, path: "/elsewhere" }]);
+      h.recipes.firstSteps.mockResolvedValue([generated.steps[0]!, generated.steps[0]!]);
       expect(await h.signIn()).not.toHaveProperty("generate");
       h.recipes.firstSteps.mockRejectedValue(new Error("cache"));
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
@@ -1613,6 +1816,55 @@ describe("production login document admission", () => {
           }),
         ),
       ).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("offers the page an account switch leads to when no recipe starts on its path", async () => {
+      const service = generation();
+      const h = harness({}, { uris, username: true, generation: service });
+      const switching = parseLoginRecipe({
+        ...recipe,
+        accountSwitch: { by: "text", value: "Use another account" },
+      });
+      h.recipes.recipe.mockImplementation(async (_origin, path) =>
+        path === "/signin" ? switching : undefined,
+      );
+      h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+      );
+      fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.switch"),
+      );
+      // The switch leads to an email page; the origin's only recipe starts on `/signin`.
+      fake.state.pageUrl = "https://login.example/signin/id";
+      expect(await h.hello({ documentId: "next-page" }, false)).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+        starts: [expect.objectContaining({ path: "/signin" })],
+        generate: true,
+      });
+      expect(service.available).toHaveBeenCalledWith(origin, "/signin/id");
+    });
+
+    it("offers no page of a tab whose attempt ended without a switch", async () => {
+      const service = generation();
+      const h = harness({}, { uris, username: true, generation: service });
+      h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+      );
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "wrong-account" }]),
+      );
+      fake.state.pageUrl = "https://login.example/signin/id";
+      expect(await h.hello({ documentId: "next-page" }, false)).not.toHaveProperty("generate");
+      // Another tab on the same page, without an attempt, is offered.
+      expect(await h.hello({ documentId: "other-tab", tab: { id: 2 } }, false)).toMatchObject({
+        generate: true,
+      });
       expect(service.generate).not.toHaveBeenCalled();
     });
 

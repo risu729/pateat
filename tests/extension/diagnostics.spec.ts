@@ -42,7 +42,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await page.goto(`chrome-extension://${id}/diagnostics.html`);
     await expect(page.getByRole("heading", { name: "Diagnostics", exact: true })).toBeVisible();
     await expect(page.locator("#diagnostics-version")).toHaveText(
-      /^0\.1\.0 \(([0-9a-f]{7}|development), production\)$/u,
+      /^0\.1\.0 \(([0-9a-f]{7}|development)\) · production build$/u,
     );
     await expect(page.locator("#diagnostics-browser")).toHaveText(/^(Chrome|Chromium) \d+\./u);
     await expect(page.locator("#diagnostics-sdk")).toHaveText(/^0\.2\.0-main\.\d+$/u);
@@ -53,7 +53,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await expect(page.locator("#diagnostics-service")).toHaveText("not-configured");
     const report = await preview(page);
     expect(report).toMatch(
-      /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development), production, development\)\n/u,
+      /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development)\) · production build · unpacked install \(development\)\n/u,
     );
     expect(report).toContain("Permissions: storage, offscreen, https://*/*");
     expect(report).toContain("Pateat service: not-configured");
@@ -84,7 +84,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
   }
 });
 
-test("a connection appears under a stable pseudonym and its KDF stays out of the report", async () => {
+test("a connection appears under a stable pseudonym with its server, and only its KDF family is copied", async () => {
   await withVaultProfile(async (open) => {
     const first = await open();
     await setupProbe(first.page, { action: "configure", variant: "unchanged" });
@@ -104,17 +104,34 @@ test("a connection appears under a stable pseudonym and its KDF stays out of the
     await expect(page.locator("#diagnostics-checks")).toContainText(
       `${pseudonym} vault cache ready`,
     );
+    await expect(page.locator("#diagnostics-checks")).toContainText(
+      `${pseudonym} Bitwarden server 2026.9.2`,
+    );
     await expect(page.getByText(/^PBKDF2-SHA256 \d+$|^Argon2id /u)).toBeVisible();
     const report = await preview(page);
-    expect(report).toContain(`${pseudonym}: cloud-us · ready · auto-unlock enabled`);
+    expect(report).toContain(
+      `${pseudonym}: cloud-us · Bitwarden server 2026.9.2 · ready · auto-unlock enabled`,
+    );
+    expect(report).toMatch(/ · KDF (PBKDF2|Argon2id) · /u);
+    // Without the provider permission sync needs, the server is not asked.
+    await setupProbe(first.page, { action: "configure", variant: "unchanged", permission: false });
+    const before = await setupProbe(first.page, { action: "status" });
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect(page.locator("#diagnostics-checks")).toContainText(
+      `${pseudonym} server not checked (no-site-access)`,
+    );
+    expect((await setupProbe(first.page, { action: "status" })).configCalls).toBe(
+      before.configCalls,
+    );
+    await setupProbe(first.page, { action: "configure", variant: "unchanged" });
     expect(report).toMatch(/1 items \(login 1, TOTP \d, passkey \d\) \+ \d unsupported/u);
     for (const absent of [
       v1Email,
       "Synthetic vault",
       accepted.connectionId,
       accepted.snapshotId,
-      "PBKDF2",
-      "Argon2",
+      "PBKDF2-SHA256",
+      "Argon2id m=",
     ])
       expect(report).not.toContain(absent);
     const shown = await page.content();

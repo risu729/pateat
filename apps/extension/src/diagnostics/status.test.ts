@@ -19,6 +19,9 @@ const SECRET_EMAIL = "owner@example.test";
 const SECRET_LABEL = "Owner private vault";
 const SERVICE_ORIGIN = "https://pateat.private.example";
 
+const server = async () =>
+  ({ ok: true, data: { version: "2026.9.2", kind: "bitwarden" } }) as const;
+
 const setupStatus = (
   overrides: Partial<Extract<SetupReply, { kind: "status" }>["connections"][number]> = {},
 ): SetupReply => ({
@@ -92,7 +95,7 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
     }),
     declaredOrigins: ["https://*/*"],
     hasAllSiteAccess: async () => true,
-    connections: { status: async () => setupStatus(), read: async () => record() },
+    connections: { status: async () => setupStatus(), read: async () => record(), server },
     cryptoHost: () => ({ ready: true, sessions: 1 }),
     actionIcon: async () => "unlocked",
     serviceState: async () => ({
@@ -164,6 +167,11 @@ describe("diagnostics status", () => {
     });
     expect(status.logs).toEqual({ entries: 120, bytes: 18_000, recentErrors: 2 });
     expect(status.checks).toContainEqual({
+      id: `vault-age:${connection!.id}`,
+      level: "info",
+      detail: `${connection!.id} vault synced 25 min ago (Sync from settings only)`,
+    });
+    expect(status.checks).toContainEqual({
       id: "logs",
       level: "warn",
       detail: "2 errors logged in the last 24 h",
@@ -196,7 +204,7 @@ describe("diagnostics status", () => {
       expect(serialized).not.toContain(secret);
   });
 
-  it("keeps a pseudonym stable for one key and leaves the KDF out of the report", async () => {
+  it("keeps a pseudonym stable for one key and copies only the KDF family", async () => {
     const deps = dependencies();
     const first = await collectDiagnostics(deps);
     const second = await collectDiagnostics(deps);
@@ -206,12 +214,52 @@ describe("diagnostics status", () => {
       version: "154.0.7712.45",
       installType: "normal",
     });
-    expect(report).toContain("Pateat 0.1.0 (1c42ad3, production, normal)");
+    expect(report).toContain(
+      "Pateat 0.1.0 (1c42ad3) · production build · Web Store install (normal)",
+    );
+    expect(report).toContain("· sync sign-in active ·");
     expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted sites");
     expect(report).toContain("warn clock 95 s behind the service");
     expect(report).toContain("3 items (login 2, TOTP 1, passkey 1) + 1 unsupported");
-    expect(report).not.toContain("PBKDF2");
+    // The KDF family is copied; its parameters stay on the page.
+    expect(report).toContain("· KDF PBKDF2 ·");
+    expect(report).toContain("self-hosted · Bitwarden server 2026.9.2 · ready");
     expect(report).not.toContain("600000");
+  });
+
+  it("explains an expired sync token that the next Sync tries to renew", async () => {
+    const collect = (autoUnlock: "enabled" | "disabled") =>
+      collectDiagnostics(
+        dependencies({
+          connections: {
+            status: async () => setupStatus({ providerSession: "refresh-required", autoUnlock }),
+            read: async () => record(),
+            server,
+          },
+        }),
+      );
+    const status = await collect("enabled");
+    const id = status.connections[0]!.id;
+    expect(status.checks).toContainEqual({
+      id: `sync:${id}`,
+      level: "ok",
+      detail: `${id} sync sign-in kept, next Sync tries to renew it (refresh-required)`,
+    });
+    expect(
+      formatReport(status, { name: "Chrome", version: "156", installType: "development" }),
+    ).toMatch(
+      /^Pateat .* · unpacked install \(development\)\n[\s\S]*sync sign-in kept, next Sync tries to renew it \(refresh-required\)/u,
+    );
+    // Sync reads the stored unlock key, so without auto-unlock the token cannot be renewed.
+    expect(v.is(diagnosticsStatusSchema, status)).toBe(true);
+    const manual = await collect("disabled");
+    expect(v.is(diagnosticsStatusSchema, manual)).toBe(true);
+    const manualId = manual.connections[0]!.id;
+    expect(manual.checks).toContainEqual({
+      id: `sync:${manualId}`,
+      level: "info",
+      detail: `${manualId} sync sign-in kept, next Sync tries to renew it (refresh-required); Sync needs auto-unlock`,
+    });
   });
 
   it("checks the service only with site access and reports failures by code", async () => {
@@ -246,6 +294,7 @@ describe("diagnostics status", () => {
           status: async () =>
             setupStatus({ state: "unavailable", providerSession: "reauthentication-required" }),
           read: async () => ({ ok: false, error: { code: "invalid-cache-record" } }),
+          server,
         },
       }),
     );
@@ -258,7 +307,7 @@ describe("diagnostics status", () => {
     expect(status.checks).toContainEqual({
       id: `sync:${id}`,
       level: "warn",
-      detail: `${id} sync sign-in reauthentication-required`,
+      detail: `${id} sync sign-in needs the password (reauthentication-required)`,
     });
     expect(status.connections[0]?.items).toBeUndefined();
   });
@@ -321,11 +370,95 @@ describe("diagnostics status", () => {
         connections: {
           status: async () => setupStatus({ state: "configured" }),
           read: async () => argon,
+          server,
         },
       }),
     );
     expect(status.connections[0]?.items).toBeUndefined();
     expect(status.connections[0]?.unlockKdf).toBe("Argon2id m=64 MiB t=3 p=4");
+    expect(status.connections[0]?.kdfType).toBe("Argon2id");
+  });
+
+  it("reads the Bitwarden server config only for enabled connections", async () => {
+    const reads = vi.fn(server);
+    const enabled = await collectDiagnostics(
+      dependencies({
+        connections: {
+          status: async () => setupStatus(),
+          read: async () => record(),
+          server: reads,
+        },
+      }),
+    );
+    const id = enabled.connections[0]!.id;
+    expect(enabled.connections[0]?.server).toEqual({
+      ok: true,
+      version: "2026.9.2",
+      kind: "bitwarden",
+    });
+    expect(enabled.checks).toContainEqual({
+      id: `server:${id}`,
+      level: "ok",
+      detail: `${id} Bitwarden server 2026.9.2`,
+    });
+    expect(reads).toHaveBeenCalledWith(CONNECTION_ID);
+    reads.mockClear();
+    const disabled = await collectDiagnostics(
+      dependencies({
+        connections: {
+          status: async () => setupStatus({ state: "disabled" }),
+          read: async () => record(),
+          server: reads,
+        },
+      }),
+    );
+    expect(reads).not.toHaveBeenCalled();
+    expect(disabled.connections[0]?.server).toBeUndefined();
+  });
+
+  it("names a compatible server and reports config failures by code", async () => {
+    const collect = (
+      result: Awaited<ReturnType<DiagnosticsDependencies["connections"]["server"]>>,
+    ) =>
+      collectDiagnostics(
+        dependencies({
+          connections: {
+            status: async () => setupStatus(),
+            read: async () => record(),
+            server: async () => result,
+          },
+        }),
+      );
+    const vaultwarden = await collect({
+      ok: true,
+      data: { version: "2025.12.0", kind: "vaultwarden" },
+    });
+    expect(
+      formatReport(vaultwarden, { name: "Chrome", version: "156", installType: "normal" }),
+    ).toContain("self-hosted · Vaultwarden, compatible with Bitwarden 2025.12.0 · ready");
+    for (const [result, detail] of [
+      [{ ok: false, error: { code: "timeout" } }, "server config failed (timeout)"],
+      [
+        { ok: false, error: { code: "http-error", status: 404 } },
+        "server config failed (http-error 404)",
+      ],
+      [
+        { ok: false, error: { code: "provider-permission-required" } },
+        "server not checked (no-site-access)",
+      ],
+      [{ ok: false, error: { code: "Not A Code" } }, "server config failed (unavailable)"],
+      [undefined, "server config failed (unavailable)"],
+    ] as const) {
+      // eslint-disable-next-line no-await-in-loop
+      const status = await collect(result);
+      const id = status.connections[0]!.id;
+      expect(v.is(diagnosticsStatusSchema, status)).toBe(true);
+      expect(status.checks).toContainEqual({
+        id: `server:${id}`,
+        level: "warn",
+        detail: `${id} ${detail}`,
+      });
+    }
   });
 
   it("rejects a summary with any field the page must not receive", () => {

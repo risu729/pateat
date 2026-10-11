@@ -4,7 +4,7 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
-Not implemented yet; each part below lands in its own PR.
+Each part lands in its own PR. Parts A and B are implemented; C and D are not yet.
 
 Date: 2026-10-11
 
@@ -54,7 +54,10 @@ Choosing one stores the choice in `chrome.storage.session` for that `documentId`
 sends `login.reconnect` to that document only. The page announces itself again and a new
 attempt starts from the recipe's first step on the same page, with no reload. Text the
 user typed is overwritten. If the form has moved past its first step, nothing runs and
-the popup says so.
+the popup says so. The choice then applies to the login it started, including its later
+pages; a choice that starts nothing is dropped, and the form's next appearance asks
+again. The waiting choice is also kept in `chrome.storage.session`, so it survives a
+service-worker restart like the badge does.
 
 The choice becomes the site default only after the outcome is `authenticated`, through
 the existing automatic-choice save. A "make default" checkbox is on by default and off

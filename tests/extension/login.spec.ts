@@ -631,6 +631,11 @@ test("executes branch, account and password across documents in an inactive tab"
       expect(evidence.identityClicks).toBe(1);
       expect(evidence.submitClicks).toBe(1);
       expect(evidence.extensionFrames).toBe(0);
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain('"authenticated"');
       const status = await send(options, { version: 1, type: "login.probe.status" });
       expect(JSON.stringify(status)).not.toContain("Pateat-synthetic-only!");
       expect(JSON.stringify(status)).not.toContain("00001234");
@@ -1062,13 +1067,14 @@ test("a competing tab cannot race the existing owner of the same site session", 
       expect(await clicks(first)).toBe(1);
       expect(await clicks(second)).toBe(0);
       await expect(second.locator("#password")).toHaveValue("");
-      const response = (await send(options, { version: 1, type: "login.probe.status" })) as {
-        attempts: { id: string; document: { tabId: number }; state: string }[];
-      };
-      const authenticated = response.attempts.filter(
-        (attempt) => attempt.state === "authenticated",
-      );
-      expect(authenticated).toHaveLength(1);
+      await expect
+        .poll(async () => {
+          const response = (await send(options, { version: 1, type: "login.probe.status" })) as {
+            attempts: { state: string }[];
+          };
+          return response.attempts.filter((attempt) => attempt.state === "authenticated");
+        })
+        .toHaveLength(1);
     });
   } finally {
     await fixture.close();
@@ -1182,12 +1188,15 @@ test("a login form inside a same-site frame logs in within the frame", async () 
       expect(await frame?.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0))).toBe(
         1,
       );
-      const status = (await send(options, { version: 1, type: "login.probe.status" })) as {
-        attempts: { state: string; submissions: number; document: { frameId: number } }[];
-      };
-      expect(status.attempts).toHaveLength(1);
-      expect(status.attempts[0]).toMatchObject({ state: "authenticated", submissions: 1 });
-      expect(status.attempts[0]!.document.frameId).toBeGreaterThan(0);
+      const status = async () =>
+        (await send(options, { version: 1, type: "login.probe.status" })) as {
+          attempts: { state: string; submissions: number; document: { frameId: number } }[];
+        };
+      // The frame shows `#authenticated` before the attempt records its result.
+      await expect
+        .poll(async () => (await status()).attempts)
+        .toMatchObject([{ state: "authenticated", submissions: 1 }]);
+      expect((await status()).attempts[0]!.document.frameId).toBeGreaterThan(0);
     });
   } finally {
     await fixture.close();
@@ -1241,13 +1250,22 @@ test("an unrelated frame beside the form does not disturb the page's login", asy
       await page.goto(`${fixture.origin}/single?ad`);
       await expect(page.locator("#authenticated")).toBeVisible();
       expect(await clicks(page)).toBe(1);
-      const status = (await send(options, { version: 1, type: "login.probe.status" })) as {
-        attempts: { state: string; document: { frameId: number } }[];
-        documents: { frameId: number }[];
-      };
-      expect(status.attempts).toMatchObject([{ state: "authenticated", document: { frameId: 0 } }]);
-      // The advertisement frame announced itself too, without an attempt of its own.
-      expect(status.documents.some((entry) => entry.frameId > 0)).toBe(true);
+      const status = async () =>
+        (await send(options, { version: 1, type: "login.probe.status" })) as {
+          attempts: { state: string; document: { frameId: number } }[];
+          documents: { frameId: number }[];
+        };
+      // The page shows `#authenticated` before the attempt records its result. The
+      // advertisement frame announces itself too, without an attempt of its own.
+      await expect
+        .poll(async () => {
+          const { attempts, documents } = await status();
+          return { attempts, adFrame: documents.some((entry) => entry.frameId > 0) };
+        })
+        .toMatchObject({
+          attempts: [{ state: "authenticated", document: { frameId: 0 } }],
+          adFrame: true,
+        });
     });
   } finally {
     await fixture.close();

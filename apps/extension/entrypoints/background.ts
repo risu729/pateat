@@ -77,6 +77,8 @@ export default defineBackground(() => {
     setIcon: (path) => browser.action.setIcon({ path }),
   });
   void actionIcon.refresh();
+  // A badge counts the accounts a refused login could use (ADR 0021).
+  void browser.action.setBadgeBackgroundColor({ color: "#115e59" }).catch(() => undefined);
   const settings = connections.settings;
   const serviceTransport = createServiceTransport();
   const service = createServiceRuntime({
@@ -197,6 +199,7 @@ export default defineBackground(() => {
         const configuration = await connections.registry.get(connectionId);
         return configuration ? connections.vaultFor(configuration.profile).store.read() : undefined;
       },
+      server: (connectionId) => connections.serverConfig(connectionId),
     },
     cryptoHost: () => cryptoHost.status(),
     actionIcon: async () => actionIconState(await connections.vaultStates()),
@@ -230,9 +233,13 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void actionIcon.refresh();
   });
-  browser.action.onClicked.addListener(() => {
-    void browser.runtime.openOptionsPage();
-  });
+  // The settings page and the toolbar popup edit settings through the same store (ADR 0021).
+  const settingsPages = new Set([
+    browser.runtime.getURL("/options.html"),
+    browser.runtime.getURL("/popup.html"),
+  ]);
+  const fromSettingsPage = (sender: { id?: string; url?: string }) =>
+    sender.id === browser.runtime.id && settingsPages.has(sender.url ?? "");
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (
@@ -271,8 +278,7 @@ export default defineBackground(() => {
       return true;
     }
     if (
-      sender.id === browser.runtime.id &&
-      sender.url === browser.runtime.getURL("/options.html") &&
+      fromSettingsPage(sender) &&
       message !== null &&
       typeof message === "object" &&
       (message.type === "settings.get" || message.type === "settings.save")
@@ -288,8 +294,7 @@ export default defineBackground(() => {
       return true;
     }
     if (
-      sender.id === browser.runtime.id &&
-      sender.url === browser.runtime.getURL("/options.html") &&
+      fromSettingsPage(sender) &&
       message !== null &&
       typeof message === "object" &&
       message.type === "settings.site-accounts"

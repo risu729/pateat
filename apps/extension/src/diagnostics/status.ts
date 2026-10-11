@@ -7,6 +7,7 @@ import type { SetupReply } from "../connections/types";
 import type { VaultEntry, VaultResult } from "../vault/record";
 import type { LogSummary } from "./log";
 import type { Pseudonyms } from "./pseudonym";
+import { age, serverLabel, syncSignIn } from "./labels";
 import type {
   DiagnosticsCheck,
   DiagnosticsConnection,
@@ -24,6 +25,10 @@ export const DIAGNOSTICS_TIMEOUT_MS = 15_000;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 
+export type ServerConfigResult =
+  | { ok: true; data: { version: string; kind: "bitwarden" | "vaultwarden" | "third-party" } }
+  | { ok: false; error: { code: string; status?: number } };
+
 type StatusConnection = Extract<SetupReply, { kind: "status" }>["connections"][number];
 
 export type DiagnosticsDependencies = {
@@ -39,6 +44,8 @@ export type DiagnosticsDependencies = {
   connections: {
     status(): Promise<SetupReply>;
     read(connectionId: string): Promise<VaultResult<VaultEntry | null> | undefined>;
+    /** The provider's public `/config`, only with the provider permission sync uses. */
+    server(connectionId: string): Promise<ServerConfigResult | undefined>;
   };
   cryptoHost(): { ready: boolean; sessions: number };
   /** The toolbar icon's own rule (`actionIconState`). */
@@ -114,18 +121,48 @@ function itemCounts(prepared: unknown): DiagnosticsConnection["items"] {
   return items;
 }
 
-function unlockKdf(prepared: unknown): string | undefined {
+function unlockKdf(
+  prepared: unknown,
+): Pick<DiagnosticsConnection, "kdfType" | "unlockKdf"> | undefined {
   const parsed = v.safeParse(v.looseObject({ kdf: kdfSchema }), prepared);
   if (!parsed.success) return undefined;
   const { kdf } = parsed.output;
   return "pBKDF2" in kdf
-    ? `PBKDF2-SHA256 ${kdf.pBKDF2.iterations}`
-    : `Argon2id m=${kdf.argon2id.memory} MiB t=${kdf.argon2id.iterations} p=${kdf.argon2id.parallelism}`;
+    ? { kdfType: "PBKDF2", unlockKdf: `PBKDF2-SHA256 ${kdf.pBKDF2.iterations}` }
+    : {
+        kdfType: "Argon2id",
+        unlockKdf: `Argon2id m=${kdf.argon2id.memory} MiB t=${kdf.argon2id.iterations} p=${kdf.argon2id.parallelism}`,
+      };
+}
+
+const serverErrorSchema = v.pipe(v.string(), v.regex(/^[a-z0-9-]{1,64}$/u));
+
+/** Reads the server config for an enabled connection; a disabled one sends nothing. */
+async function serverConfig(
+  deps: DiagnosticsDependencies,
+  status: StatusConnection,
+): Promise<DiagnosticsConnection["server"]> {
+  if (status.state === "disabled") return undefined;
+  const result = await deps.connections.server(status.connectionId).catch(() => undefined);
+  if (!result) return { ok: false, error: "unavailable" };
+  if (result.ok) return { ok: true, version: result.data.version, kind: result.data.kind };
+  const { code, status: httpStatus } = result.error;
+  return {
+    ok: false,
+    error:
+      code === "provider-permission-required"
+        ? "no-site-access"
+        : v.is(serverErrorSchema, code)
+          ? code
+          : "unavailable",
+    ...(httpStatus === undefined ? {} : { status: httpStatus }),
+  };
 }
 
 async function connection(
   deps: DiagnosticsDependencies,
   status: StatusConnection,
+  server: DiagnosticsConnection["server"],
 ): Promise<DiagnosticsConnection> {
   const id = `bitwarden:${await deps.pseudonym("connection", status.connectionId, 6)}`;
   const record = await deps.connections.read(status.connectionId).catch(() => undefined);
@@ -142,7 +179,8 @@ async function connection(
     ...(record && !record.ok ? { storageError: record.error.code } : {}),
     ...(accepted ? { acceptedAt: accepted.acceptedAt } : {}),
     ...(items ? { items } : {}),
-    ...(kdf ? { unlockKdf: kdf } : {}),
+    ...kdf,
+    ...(server ? { server } : {}),
   };
 }
 
@@ -249,7 +287,7 @@ async function service(
   return result;
 }
 
-function connectionChecks(item: DiagnosticsConnection): DiagnosticsCheck[] {
+function connectionChecks(item: DiagnosticsConnection, now: number): DiagnosticsCheck[] {
   const vault: DiagnosticsCheck = item.storageError
     ? { id: `vault:${item.id}`, level: "error", detail: `${item.id} ${item.storageError}` }
     : item.state === "review-required" || item.state === "unavailable"
@@ -257,17 +295,49 @@ function connectionChecks(item: DiagnosticsConnection): DiagnosticsCheck[] {
       : item.state === "disabled"
         ? { id: `vault:${item.id}`, level: "info", detail: `${item.id} disabled` }
         : { id: `vault:${item.id}`, level: "ok", detail: `${item.id} vault cache ${item.state}` };
+  // Sync needs the stored unlock key, so an expired token renews only with auto-unlock on.
   const session: DiagnosticsCheck =
-    item.providerSession === "active" || item.providerSession === "refresh-required"
-      ? { id: `sync:${item.id}`, level: "ok", detail: `${item.id} sync sign-in active` }
+    item.providerSession === "active" ||
+    (item.providerSession === "refresh-required" && item.autoUnlock === "enabled")
+      ? {
+          id: `sync:${item.id}`,
+          level: "ok",
+          detail: `${item.id} ${syncSignIn(item.providerSession)}`,
+        }
       : item.state === "disabled"
         ? { id: `sync:${item.id}`, level: "info", detail: `${item.id} sync sign-in not used` }
-        : {
-            id: `sync:${item.id}`,
-            level: "warn",
-            detail: `${item.id} sync sign-in ${item.providerSession}`,
-          };
-  return [vault, session];
+        : item.providerSession === "refresh-required"
+          ? {
+              id: `sync:${item.id}`,
+              level: "info",
+              detail: `${item.id} ${syncSignIn(item.providerSession)}; Sync needs auto-unlock`,
+            }
+          : {
+              id: `sync:${item.id}`,
+              level: "warn",
+              detail: `${item.id} ${syncSignIn(item.providerSession)}`,
+            };
+  // The vault syncs only from the settings page, so an old copy is expected, not a fault.
+  const synced: DiagnosticsCheck[] =
+    item.acceptedAt === undefined
+      ? []
+      : [
+          {
+            id: `vault-age:${item.id}`,
+            level: "info",
+            detail: `${item.id} vault synced ${age(now - item.acceptedAt)} ago (Sync from settings only)`,
+          },
+        ];
+  const server: DiagnosticsCheck[] = item.server
+    ? [
+        {
+          id: `server:${item.id}`,
+          level: item.server.ok ? "ok" : "warn",
+          detail: `${item.id} ${serverLabel(item.server)}`,
+        },
+      ]
+    : [];
+  return [vault, session, ...synced, ...server];
 }
 
 function serviceChecks(value: DiagnosticsStatus["service"], now: number): DiagnosticsCheck[] {
@@ -334,12 +404,16 @@ export async function collectDiagnostics(
     deps.logs().catch(() => undefined),
   ]);
   const listed = setup?.ok && setup.kind === "status" ? setup.connections : [];
+  // Network reads run together; each has its own timeout. Neither promise may reject,
+  // since a failing store read below would leave them unawaited.
+  const servers = listed.map((entry) => serverConfig(deps, entry));
+  const pendingService = service(deps, now);
   const connections: DiagnosticsConnection[] = [];
   // Sequential native-store reads, as the setup status does.
-  for (const entry of listed)
+  for (const [index, entry] of listed.entries())
     // eslint-disable-next-line no-await-in-loop
-    connections.push(await connection(deps, entry));
-  const serviceStatus = await service(deps, now);
+    connections.push(await connection(deps, entry, await servers[index]));
+  const serviceStatus = await pendingService;
   const host = deps.cryptoHost();
   const collectedAt = now();
   const checks: DiagnosticsCheck[] = [
@@ -352,7 +426,7 @@ export async function collectDiagnostics(
     ...(setup?.ok
       ? []
       : [{ id: "connections", level: "error", detail: "connections unreadable" } as const]),
-    ...connections.flatMap(connectionChecks),
+    ...connections.flatMap((item) => connectionChecks(item, collectedAt)),
     ...serviceChecks(serviceStatus, collectedAt),
     !logs
       ? { id: "logs", level: "error", detail: "logs unreadable" }

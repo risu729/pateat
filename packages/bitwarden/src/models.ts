@@ -95,3 +95,32 @@ export const encryptedSyncEnvelopeSchema = v.looseObject({
 
 /** Opaque provider DTO; successful parsing does not make it an authoritative usable snapshot. */
 export type EncryptedSyncEnvelope = v.InferOutput<typeof encryptedSyncEnvelopeSchema>;
+
+/**
+ * The release number of a version such as `2026.9.2`; third-party servers report the
+ * Bitwarden version they emulate. A suffix such as `-fork` can name a build or host, so it
+ * is dropped.
+ */
+const RELEASE = /^(\d{1,4}\.\d{1,2}\.\d{1,4})(?:[-+.][\x21-\x7e]{0,64})?$/u;
+const serverConfigSchema = v.object({
+  object: v.optional(v.literal("config")),
+  version: v.pipe(v.string(), v.regex(RELEASE)),
+  // `server` is null on Bitwarden's own servers; `environment` (host URLs) is never read.
+  server: v.nullish(v.object({ name: v.optional(v.unknown()) })),
+});
+export type BitwardenServerConfig = {
+  version: string;
+  /** Only Vaultwarden is named; any other third-party name is left out. */
+  kind: "bitwarden" | "vaultwarden" | "third-party";
+};
+
+export function parseServerConfig(input: unknown): BitwardenServerConfig | undefined {
+  const parsed = v.safeParse(serverConfigSchema, input);
+  if (!parsed.success) return undefined;
+  const { server } = parsed.output;
+  const version = RELEASE.exec(parsed.output.version)?.[1];
+  if (version === undefined) return undefined;
+  if (!server) return { version, kind: "bitwarden" };
+  const name = typeof server.name === "string" ? server.name.trim().toLowerCase() : "";
+  return { version, kind: name === "vaultwarden" ? "vaultwarden" : "third-party" };
+}
