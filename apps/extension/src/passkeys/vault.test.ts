@@ -1,9 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDefaultSettings, type SettingsResponse, type VaultCatalog } from "@pateat/contracts";
+import {
+  createDefaultSettings,
+  type SettingsResponse,
+  type SettingsSnapshot,
+  type VaultCatalog,
+} from "@pateat/contracts";
 import type { PasskeyMatches } from "../crypto/passkey";
 import { vaultFailure } from "../vault/record";
 import { selectPasskey } from "./select";
-import { createVaultPasskeySource, findVaultPasskeys, type PasskeyFinder } from "./vault";
+import {
+  createVaultPasskeySource,
+  findVaultPasskeys,
+  rememberVaultPasskey,
+  type PasskeyFinder,
+  type VaultPasskeyCandidate,
+} from "./vault";
 
 const snapshotId = "11111111-1111-4111-8111-111111111111";
 const userId = "33333333-3333-4333-8333-333333333333";
@@ -114,6 +125,7 @@ const stored = (itemId: string, connectionId = "live") => ({
   userHandle: "dXNlcg",
   discoverable: true,
   counter: 0,
+  userName: "synthetic-user",
 });
 const matches = (
   ids: readonly string[],
@@ -157,6 +169,11 @@ describe("vault passkey candidates", () => {
         discoverable: true,
         counter: 0,
         preferred: false,
+        display: {
+          item: `Synthetic ${itemId.slice(0, 4)}`,
+          userName: "synthetic-user",
+          account: "Live",
+        },
       })),
     });
   });
@@ -532,5 +549,74 @@ describe("vault passkey source", () => {
       );
       expect(manager.signPasskey).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe("saving a chosen passkey as the site default", () => {
+  const chosen = (itemId = second, overrides: Partial<VaultPasskeyCandidate> = {}) => ({
+    connectionId: "live",
+    userId,
+    snapshotId,
+    itemId,
+    settingsRevision: 3,
+    credentialId: "cred",
+    rpId,
+    userHandle: "dXNlcg",
+    discoverable: true,
+    counter: 0,
+    ...overrides,
+  });
+  const store = (response = saved()) => {
+    let current = response;
+    const update = vi.fn(
+      async (expected: number | undefined, mutate: (s: SettingsSnapshot) => SettingsSnapshot) => {
+        expect(expected).toBe(current.snapshot.revision);
+        current = { ...current, snapshot: mutate(current.snapshot) };
+        return current.snapshot;
+      },
+    );
+    return {
+      settings: { handle: vi.fn(async () => current), update },
+      update,
+      defaults: () => current.snapshot.settings.siteDefaults,
+    };
+  };
+
+  it("names the item by provider account and replaces the origin's earlier default", async () => {
+    const replaced = store(saved({ siteDefault: first }));
+    expect(
+      await rememberVaultPasskey({ settings: replaced.settings, origin, candidate: chosen() }),
+    ).toBe(true);
+    expect(replaced.defaults()).toEqual([
+      {
+        origin,
+        provider: "bitwarden",
+        userId,
+        itemId: second,
+        itemName: "Synthetic 5555",
+        accountName: "Live",
+      },
+    ]);
+    // Saving the same default again writes nothing.
+    expect(
+      await rememberVaultPasskey({ settings: replaced.settings, origin, candidate: chosen() }),
+    ).toBe(true);
+    expect(replaced.update).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["a newer settings revision", saved({ revision: 4 }), chosen()],
+    ["a newer snapshot", saved({ snapshot: otherSnapshotId }), chosen()],
+    ["a quarantined item", saved(), chosen(quarantined)],
+    ["an excluded item", saved(), chosen(excluded)],
+    ["an excluded site", saved({ excludedSite: "github.com" }), chosen()],
+    // Both connections name the same account, so the default would not lead back to one.
+    ["an account connected twice", saved({ other: "ready", sameAccount: true }), chosen()],
+  ])("saves nothing after %s", async (_name, response, candidate) => {
+    const unchanged = store(response);
+    expect(await rememberVaultPasskey({ settings: unchanged.settings, origin, candidate })).toBe(
+      false,
+    );
+    expect(unchanged.update).not.toHaveBeenCalled();
   });
 });

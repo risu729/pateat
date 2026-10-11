@@ -46,7 +46,10 @@ The first credential type is WIF, used by the owner's own deployment first:
 - Each owner registers that issuer in their own Claude Console (Settings → Workload
   identity → Custom OIDC). They create a service account and a federation rule whose
   `subject_prefix` is exactly `owner:<ownerId>`, preferably with the
-  `workspace:inference` scope.
+  `workspace:inference` scope. On 2026-10-11 the Console's Connect workload wizard
+  offered only `workspace:developer` and `org:admin`, so the owner's first rule uses
+  `workspace:developer`, which also allows Files, Skills and Managed Agents in its
+  workspace ([API README](../../services/api/README.md#claude-credentials)).
 - The service stores per owner only non-secret identifiers: `federationRuleId`
   (`fdrl_…`), `organizationId`, `serviceAccountId` (`svac_…`) and `workspaceId`
   (`wrkspc_…`). On 2026-10-11 the owner chose a temporary script-free

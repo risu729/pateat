@@ -20,15 +20,15 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   host-access revocation, and the site-access warning and prompt in installed Chrome
   ([remaining M3 integration gaps](#remaining-m3-integration-gaps)).
 - M4: sync against the deployed service, the
-  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing,
-  device-independent item selection and field exclusions, a WIF token exchange against
-  Anthropic) and the remaining M4 AI work under
+  [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing, synced item
+  selection and field exclusions ([ADR 0023](adr/0023-synced-vault-policy.md)), a WIF
+  token exchange against Anthropic) and the remaining M4 AI work under
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
-  `advance` step, naming `accountSwitch`, ADR 0010
-  hints, `checkPlanValues` and the post-fill check in the executor, the real-page
-  corpus) and the finite-choice role.
+  `advance` step, naming `accountSwitch`, ADR 0010 hints, `checkPlanValues` and the
+  post-fill check in the executor, the real-page corpus) and the finite-choice role.
 - M5: the passkey chooser window
-  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), real sites that wrap `get`
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
+  implemented and tested in Playwright Chromium only), real sites that wrap `get`
   themselves, and a navigation during signing.
 - M6: Chrome use coexistence, operational docs, hosted smoke checks beyond `/health`,
   installed-Chrome dummy-account tests and measured limits.
@@ -529,37 +529,73 @@ created on 2026-10-11 and the service is deployed at `pateat.takuk.me` (see
 [delivery](delivery.md)).
 
 The second slice adds the service side of
-[device enrollment](architecture.md#device-enrollment). The Worker verifies Cloudflare
+[device pairing](architecture.md#device-enrollment). The Worker verifies Cloudflare
 Access tokens itself (RS256 signature against the team keys, issuer, audience, expiry
-and a user subject) and maps the issuer and subject to an owner. An Access-protected
-page records the owner's approval of a device's SHA-256 challenge with the code they
-typed, an anonymous rate-limited route exchanges the verifier for a device credential
-once and only if that code matches the one derived from the verifier, and the owner can
-list and revoke devices; a device can revoke itself. Local tests use synthetic signing
-keys and cover forged, expired, wrong-audience and service tokens, missing
-configuration, CSRF, code mismatch and retyping, approval by an account that only saw
-the link, replay, concurrent redemption, expiry, cleanup, rate limits and cross-owner
-revocation.
+and a user subject) and maps the issuer and subject to an owner. `POST /pair`
+([ADR 0020](adr/0020-direct-device-pairing.md)) sits behind Access, accepts only an
+`Origin` naming an extension ID in `PAIRING_EXTENSION_IDS`, limits pairing per
+identity, creates the owner on first pairing and answers the device credential once.
+The owner can list and revoke devices; a device can revoke itself. Local Worker tests
+use synthetic signing keys and extension IDs and cover forged, expired, wrong-audience
+and service tokens, missing configuration, refused and missing origins, strict bodies,
+the per-identity limit, concurrent first pairings, the absence of CORS headers, the
+removed `/enroll` and `/redeem` routes and cross-owner revocation. The typed-code
+`/enroll` and `/redeem` flow it replaced, with its `enrollments` table, is removed;
+a D1 migration drops the table.
 
 The extension side of pairing is the third slice. The settings page has an optional sync
-service panel: it accepts only an exact HTTPS origin, asks the background to start
-pairing, and shows the short code with a button that opens the approval page in an
-ordinary tab. The background keeps the verifier and, after redemption, the device
-credential in trusted extension storage; neither crosses the runtime message boundary.
-Pairing asks Chrome for site access to the service host when the user has withheld it,
-and a pending pairing offers to ask again instead of being cancelled. The page polls
-redemption every ten seconds only while it stays open and a pairing is pending; the
-background allows at most one redemption every six seconds and waits a minute after a
-rate limit. A pairing is abandoned on the first request after 15 minutes, and an issued
+service panel: it accepts only an exact HTTPS origin and a device name that passes the
+shared label schema. **Pair this device** asks Chrome for site access to the service
+host inside the click, then asks the background to pair. The background service worker
+sends one `POST /pair` with the browser's cookies, unfollowed redirects and
+`X-Requested-With: XMLHttpRequest`, and writes the credential straight into trusted
+extension storage; it never crosses the runtime message boundary. An Access redirect,
+a `401`, or a response that is not JSON, such as the Access login page, means the user
+must sign in; a non-JSON `429` or `5xx` edge error page counts as rate limiting or an
+unexpected answer instead. On a sign-in the page opens
+`<service>/manage` in a new tab once per click, retries once when it is shown or focused
+again, and offers **Try again** and **Open sign-in page**; a later retry opens no tab by
+itself. Nothing is stored until the service has created the device, and an issued
 credential whose write failed is kept in memory and saved on the next request. An
 unreadable stored connection fails closed until the owner forgets it. Disconnecting
 revokes the device with its own credential and forgets it locally even when the service
-cannot confirm, in which case the page points to the management page. Requests refuse
-redirects, send no cookies and bound response bodies. Unit tests use synthetic responses
-and in-memory storage; component tests cover address validation, polling, code mismatch,
-expiry, cancellation, site access requests, forgetting an unreadable connection and an
-unconfirmed disconnect. The owner paired their Chrome with the deployed service on
-2026-10-11 ([device enrollment](architecture.md#device-enrollment)).
+cannot confirm, in which case the page points to the management page. Only pairing sends
+cookies; the `/v1` requests refuse redirects, send no cookies and bound response bodies.
+
+Unit tests cover the transport with synthetic responses, including a synthetic
+`opaqueredirect`, HTML login, `401` and denial pages, edge error pages, each error code,
+oversized bodies and timeouts; the settings client's sign-in tab URL and its refusal of
+an invalid origin; and the background runtime with in-memory storage. Component tests in
+Vitest Browser Mode cover one-click pairing, the sign-in tab, **Try again**, the focus
+and visibility retry, no second automatic tab, each error message, declined site access
+and the absence of any code. `tests/extension/pairing-service.spec.ts` loads the
+production build in bundled Chromium against the built Worker behind a loopback stand-in
+for Access, which forwards a request carrying a synthetic `CF_Authorization` cookie with
+a synthetic signed assertion and redirects any other to a login page. With the cookie,
+one click paired: the `POST /pair` came from the background with
+`Origin: chrome-extension://ekcnbbomcllhpomkeofikjagmjoibffk` and the cookie, the
+settings page sent no request to the service, and the first `/v1` sync sent no cookie.
+Without it, the page opened `/manage` once and paired after **Try again**, or by itself
+on the `focus` event that the test sends after bringing the page to the front; headless
+Chromium does not reliably send one itself. This shows bundled Chromium behavior only.
+The stand-in does not model Access's own `401`, denial page or cookie validation; only
+the transport unit tests' synthetic responses cover those.
+
+On 2026-10-11 the owner ran this in the console of Pateat's **service worker**
+(production build of main `59a2d12`, console context `background.js`):
+
+```js
+fetch("https://pateat.takuk.me/manage/api/devices", { credentials: "include", redirect: "manual" })
+```
+
+It returned `200`, type `basic`, with the device list. So installed Chrome sends the
+Access session cookie on the background's requests to the service host. The Access
+application's cookie settings at that time (SameSite, HttpOnly, binding cookie) are not
+recorded yet. On 2026-10-11 the post-deploy probe ran from the background of the owner's
+old install, whose path-derived ID is not listed, against revision `ac33781`:
+`POST /pair` returned `403`, type `basic`, with `extension_not_allowed`, and created no
+device. So the Access cookie reaches the Worker and the extension `Origin` arrives
+intact. Installed Chrome has not paired directly with the deployed service yet.
 
 The fourth slice syncs recipes into a last-known-good cache that the login executor
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
@@ -638,13 +674,15 @@ tests cover it.
 
 ### Remaining M4 service gaps
 
-- Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md)):
-  the manifest `key` that fixes the production extension ID and the Access-protected
-  `POST /pair` route, beside the typed-code flow, are implemented and covered by local
-  Worker tests; the route is not deployed. The extension switch, with the typed-code
-  flow removed, is not implemented.
+- Pairing in installed Chrome against the deployed service
+  ([ADR 0020](adr/0020-direct-device-pairing.md)): after release, the owner removes
+  `redeem` from the "pateat bypass" Access application, notes its cookie settings, and
+  runs the
+  [installed Chrome pairing check](development.md#installed-chrome-service-pairing).
 - Settings that use device-local connection IDs, such as item selection and field
-  exclusions, have no device-independent form yet and are not synced (ADR 0013).
+  exclusions, are not synced yet.
+  [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
+  review; it is not implemented.
 - Done: the [owner web UI](architecture.md#owner-web-ui) serves its React app, assets
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
@@ -656,11 +694,17 @@ tests cover it.
   to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the `inference_credentials`
-  table and `resolveClaudeCredential` exist and are tested against a fake token endpoint
-  only. Owners enter identifiers on the temporary `/manage/claude` page until the React
-  web UI replaces it; no exchange with Anthropic's real token endpoint has been made.
+  table and `resolveClaudeCredential` exist. Owners enter identifiers on the temporary
+  `/manage/claude` page until the React web UI replaces it. On 2026-10-11 at 12:26 UTC
+  the deployed service at `pateat.takuk.me` exchanged a real assertion with Anthropic.
+  The owner's federation rule is scoped to `workspace:developer`, because the Console
+  offered no `workspace:inference`, and the token was valid for 10 minutes. The first
+  real generation call followed at 12:27 UTC for `https://my.jcb.co.jp/Login`. The model
+  abstained (`insufficient-evidence`, $0.008), because the installed build's extractor
+  skipped the page's login control: an `<a>` without `href` that submits the form
+  from `onclick`.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
-  owner on first approval. Per-owner [service limits](architecture.md#service-limits)
+  owner on first pairing. Per-owner [service limits](architecture.md#service-limits)
   cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
   sized for the owner's own use; a byte quota is still needed before the service is
   offered to other people.
@@ -849,7 +893,8 @@ field and give the coarse shape (length, character classes, email form) of a log
 username or Text field value, and observations carry page `maxLength`, `minLength` and
 `inputMode`. `checkPlanValues` checks a plan against the real values before filling and
 turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
-carries synthetic values. The vault adapter and runtime do not supply these hints yet.
+carries synthetic values. The executor applies the same check to the real inputs before
+filling. The vault adapter and runtime do not supply these hints yet.
 `valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
 resolve Linked fields and never pass Hidden, password or TOTP values.
 
@@ -968,46 +1013,124 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
-- Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
-  the post-fill check before the click in the executor.
-- A real-page corpus per ADR 0012.
+- Supplying ADR 0010 hints from the vault adapter. The executor runs the local value
+  check before filling and the post-fill check before the click
+  ([Background execution](architecture.md#background-execution)).
+- A Claude baseline on the real-page corpus, then Japanese pages for it. The
+  finite-choice provider is chosen only after that baseline exists. The owner chose on
+  2026-10-11 to run the baseline after the MyJCB generation fix, about five cases at a
+  time with fixes between batches, and to take Japanese pages from both public login
+  pages opened in the owner's Chrome and the request log.
+
+The real-page corpus per ADR 0012 starts with
+[Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
+`mise run //packages/inference:corpus:formasaurus <absolute checkout path>` renders each
+of its 954 annotated pages in Chromium with scripts off, meta refreshes removed, every
+request but the saved document aborted and no host resolvable, observes it with
+`extractLoginObservation` and labels the observation from the Formasaurus annotations.
+`packages/inference/src/corpus/formasaurus.json` keeps only the derived observations,
+labels and the source page name. Each case sends the slots the extension sends for an
+item with a username and a password (`builtInLoginSlots` in `packages/contracts`). The
+ground truth is the page's single login form: its username, email or "username or email"
+field, its password field and its one submit control. A page the extension would send
+(it has a password field, or a field marked `username` or `one-time-code`) without a
+login form, such as a sign-up page, must abstain. A page is left out when its truth is
+unclear: several login forms, a password field in an unannotated form or outside any
+form, any field in an unannotated form or outside a form on a page without a login form,
+another field in the login form (a captcha or a security code), a password-only form, a
+form without one clear submit control, or annotations that do not line up with the
+parsed forms.
+
+Before publishing, every case was reviewed for personal data (2026-10-11, by an
+independent review agent and the importer's author). Held back: a private person's
+homepage, a forum for cashing out stolen funds, and a page whose path carried an encoded
+session ID (Magento's `/referer/<base64>/`); the importer now skips long opaque path
+segments. The corpus holds 78 plans and 17 abstentions. Two pages are Japanese
+(`buyee.jp`, `zeiri4.com`); `language` comes from the extractor's script heuristic,
+which also marks one Chinese page `ja` and every other non-Japanese page `en`. The owner
+chose on 2026-10-11 to publish the derived page text (titles, headings and labels) as
+is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
+sites appear twice with the same login form.
+`mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
+it; `--from` and `--count` run a slice of the corpus in its fixed order, so it can be
+run in batches. Each case in the report carries the plan in candidate IDs.
+
+`--provider heuristic` scores a free, model-free comparator (`heuristicPlan` in
+`packages/inference/src/heuristic.ts`, not used at runtime): the one form with a single
+sign-in password, its `username` or `email` field or else the nearest field before the
+password that an identifier may fill and that is not marked as a one-time code, and
+its first button after the password, or else its first button. Without such a form,
+the one form whose only fill field is marked `username` or `email` advances. It reads no
+labels, and its inputs pass the same schema and completeness gate as generation. On
+2026-10-11, with the corpus as merged in `e5b4244`, it scored:
+
+| Corpus | Correct | Correct abstentions | Missed | False submits | Semantic accuracy |
+| --- | --- | --- | --- | --- | --- |
+| Real pages (95) | 76 | 15 | 0 | 4 | 0.958 |
+| Synthetic (16) | 7 | 2 | 2 | 5 | 0.5625 |
+
+Its real-page false submits are two sign-up pages with a single password field, which it
+takes for a login, and two login forms where a "create account" button follows the
+password. The real-page corpus is mostly plain username and password forms, which form
+heuristics already handle; the synthetic corpus holds the bank, decoy and multi-step
+pages where they fail.
+
+The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
+the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
+one, which inference rejects without a call; 126 were complete. In 62 of the 109, the
+only shown select, radio button, text area or other unsupported input was outside the
+login form, for example a search form's category select. In 42 none was shown, so a
+control without a unique `id`, `name` or `data-testid` is the likely cause (inferred,
+not measured). The saved pages have no stylesheets, so elements a live page hides may
+count here. The extractor refuses `;jsessionid=` and ASP.NET session segments but not
+other session IDs in a path, such as Magento's `/referer/<base64>/`.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
 locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
 title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
 strings, and refuses a path that carries a session ID (matrix parameters such as
-`;jsessionid=`, or ASP.NET segments such as `/(S(...))/`). Label text
-is rendered text only: scripts, styles, `<noscript>`, SVG, hidden elements and
-select or text area contents never contribute. Only forms that hold a field count,
-or every control outside a form when a field is outside one. There the candidates
-are visible text, email, tel, number and password inputs, checkboxes, buttons
-(disabled ones too, since many enable after typing) and, as context only, links.
-Hidden, collapsed, `aria-hidden` and before-the-page-start inputs are skipped as likely
-traps. Labels come from `aria-labelledby`,
-`aria-label`, `<label>`, the text next to a field (the preceding table cell, `<dt>` or
-sibling, at most three levels up, never across another control or its label), then
-`title`; image `alt` names buttons, including `<input type="image">`. Text is redacted
-as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is
-the first of `id`, `name` and `data-testid` that matches exactly one element, as the
+`;jsessionid=`, or ASP.NET segments such as `/(S(...))/`). Label text is rendered text
+only: scripts, styles, `<noscript>`, SVG, hidden elements and select or text area
+contents never contribute. Only forms that hold a field count, or every control outside
+a form when a field is outside one. There the candidates are visible text, email, tel,
+number and password inputs, checkboxes, buttons (disabled ones too, since many enable
+after typing), script buttons with an `id`, `name` or `data-testid` (an `<a>` without
+`href` that has an `onclick` attribute, or an element with `role="button"`, as
+[architecture](architecture.md#declarative-recipes-and-ai) describes) and, as context
+only, links. Hidden, collapsed, `aria-hidden` and before-the-page-start inputs are
+skipped as likely traps. Labels come from `aria-labelledby`, `aria-label`, `<label>`,
+the text next to a field (the preceding table cell, `<dt>` or sibling, at most three
+levels up, never across another control or its label), then `title`; image `alt` names
+buttons, including `<input type="image">`. Text is redacted as
+[architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is the
+first of `id`, `name` and `data-testid` that matches exactly one element, as the
 executor resolves it; a button without one gets a text locator when its text matches
-exactly one button and redaction leaves it unchanged. A field, button or checkbox
-without a target, a control the executor cannot act on (a select, radio, text area,
-another input type, or a read-only, disabled, transparent or tiny field), a control in
-a shadow root, or more than 48 candidates makes the observation incomplete, so
-inference rejects it; a page without a field is refused. A field in any open shadow
-root marks it incomplete too, as it may be the real login. Links are context only: the
-plan check accepts only a button as the page action. Known limits: a read-only
-username shown again on a password step makes that step incomplete, and honeypot
-inputs moved to the right or clipped by `overflow: hidden` stay candidates.
-`extractSignedInObservation` describes the page after a generated recipe's final
-submission the same way, but over the whole page: every field, then buttons and links in
-document order up to 48 candidates. A field it cannot describe marks it incomplete;
-buttons and links past the limit or without a locator are left out, since they are only
-possible sign-in markers. There, an attribute locator that redaction would change counts
-as no locator, so an account number in an `id` is never sent.
-`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
-pages.
+exactly one button and redaction leaves it unchanged. In a login form, a field, button
+or checkbox without a target, a control the executor cannot act on (a select, radio,
+text area, another input type, or a read-only, disabled, transparent or tiny field) or a
+control in a shadow root makes the observation incomplete, as do more than 48
+candidates, so inference rejects it; a page without a field is refused. The login forms
+are those with one password field that is not `new-password`, or with a `username` or
+`one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
+field; otherwise every form that holds a field. Any other form with such a control, such
+as a search form with a category select or a sign-up form with a birth-date select, is
+left out entirely, so every form the observation describes is complete. On the 233
+observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
+incomplete ones from 108 to 52: 55 became complete, each still showing the form
+Formasaurus labels as the login form, and one whose login form has no locatable control
+now gives no observation. A field in any open shadow root
+marks it incomplete too, as it may be the real login. Links are context only: the plan
+check accepts only a button as the page action. Known limits: a read-only username shown
+again on a password step makes that step incomplete, and honeypot inputs moved to the
+right or clipped by `overflow: hidden` stay candidates. `extractSignedInObservation`
+describes the page after a generated recipe's final submission the same way, but over
+the whole page: every field, then buttons and links in document order up to 48
+candidates. A field it cannot describe marks it incomplete; buttons and links past the
+limit or without a locator are left out, since they are only possible sign-in markers.
+There, an attribute locator that redaction would change counts as no locator, so an
+account number in an `id` is never sent. `mise run //apps/extension:test:dom` covers
+these cases in Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
@@ -1064,11 +1187,30 @@ the attempt it started, wins over a saved default there, and still has to match 
 page and pass every policy check; a pick that starts nothing is dropped, so the form's
 next appearance asks again. "Make it the default for this site" (on by default,
 off in a private window) saves the pick through the existing choice save after
-`authenticated`. Choosing again after a logout (part D) is not built yet.
+`authenticated`; it replaces another saved default only when the user picked it. The
+passkey chooser window is implemented: a request matching several passkeys, none of them
+the site default, opens `passkey-picker.html` to choose one once or as the default.
+
+Choosing again after a logout (part D, passwords) is built. After a login in a tab ended
+as `authenticated`, or `blocked` with `credential-rejected`, `wrong-account`,
+`left-origin` or `interrupted`, a page of that origin in the tab's top frame answers
+`logged-in` with the first steps to watch, and the content script keeps watching, also
+in the document that logged in once its status reports the end; there a form that is
+still showing does not count until it shows again. When a first step then shows, the
+tab's record for that origin is released and the tab asks with reason `logged-out`: the
+badge and popup list the saved default first and every URI match, even a single one. The
+tab and origin are kept in `pateat.login-logouts.v1` in `chrome.storage.session`, so a
+reload or a restarted worker asks again until a pick logs in. Another tab's record still
+blocks the site with `origin-busy`, and the tab's tooltip says so; while the tab asks,
+other tabs of the site are refused `origin-busy` as well. If the URI matches cannot be
+listed, the saved default alone is offered. A login whose result is still `reconciling`
+is resumed, not taken as a logout. Frame logins and sites whose logout page shows only a
+password step are not detected. The passkey half of part D belongs to part C.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
-API keys, SSO or device approval; external email/SMS OTP and magic links; and separately
+API keys, SSO or device approval; signing in to sites through an identity provider
+(policy in ADR 0026); external email/SMS OTP and magic links; and separately
 authorized post-login actions, including transactions and approvals. UI extensions,
 automatic account switching (logging out and in again when another account is picked
 while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe
@@ -1084,7 +1226,7 @@ permissions or initial acceptance requirements.
 | M1: Tooling and runtime probes                | WXT skeleton, shared Valibot contracts, mise/hk, mandatory CI                                            | Frozen installation; full checks; packaged extension build; early injection/background execution in isolated Chromium and a small installed-Chrome/Chrome-use dummy-page coexistence probe; compatible cf/Workers test harness |
 | M2: Local login engine and settings           | Dummy vault adapter, settings page, multi-connection policies, saved site defaults, declarative executor | Multi-field/multi-page fixtures; policy precedence, excluded-site pass-through, background, navigation, interruption and concurrency tests; no automatic extension UI                                                          |
 | M3: Bitwarden passwords                       | First real adapter, local sync/crypto, persistent unlock, custom fields and TOTP                         | Synthetic protocol/crypto vectors; supported environment/authentication and TOTP cases below; restart/unlock; no vault writes; explicit unsupported cases; controlled account test only when authorized                        |
-| M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe/binding sync and web UI, Claude generation adapter (ADR 0014) | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; benchmark report |
+| M4: Private settings/recipe service and AI    | Worker+D1, Access-session pairing, settings/recipe/binding sync and web UI, Claude generation adapter (ADR 0014) | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; benchmark report |
 | M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, configured UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
 | M6: Integrated acceptance and server delivery | Chrome use coexistence, operational docs, hosted service release                                         | Installed Chrome dummy-account tests plus artifact-verified deployment and hosted synthetic smoke checks; measured limits documented                                                                                           |
 
@@ -1184,9 +1326,10 @@ support for every site or vault format. Keep observed limitations explicit.
   setting over the existing policy shape is later work. Nonzero-counter
   synchronization is deferred.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
-  among several URI-matched items, how synced field exclusions
-  move to device-independent references, and where custom-field review happens.
-- Enrollment and device credential lifetime (90 days unused, renewed on use; see
+  among several URI-matched items. How synced field exclusions move to
+  device-independent references, and where custom-field review happens, are decided in
+  [ADR 0023](adr/0023-synced-vault-policy.md).
+- Pairing and device credential lifetime (90 days unused, renewed on use; see
   [service sync progress](#service-sync-progress)) are settled, and a lost
   device is replaced by pairing a new one, since the service holds settings and recipes
   ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Pricing (ADR 0014's $4

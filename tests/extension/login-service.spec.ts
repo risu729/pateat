@@ -159,10 +159,16 @@ test("a recipe and binding synced from the service log in with the live vault an
             credential: service.credential,
           },
         );
-        // The settings page's pairing check syncs as soon as the device is connected.
-        expect(await send(options, { version: 1, type: "service.pair.check" })).toMatchObject({
+        expect(await send(options, { version: 1, type: "service.get" })).toMatchObject({
           ok: true,
           state: { kind: "connected" },
+        });
+        // Saving settings syncs at once; the earlier save already scheduled the next one.
+        await settingsRequest(options, {
+          version: 1,
+          type: "settings.save",
+          expectedRevision: local.snapshot.revision,
+          settings: local.snapshot.settings,
         });
         await expect
           .poll(async () => JSON.stringify(await storedRecipes(browser.background)))
@@ -207,6 +213,18 @@ test("a recipe and binding synced from the service log in with the live vault an
         await expect
           .poll(async () => (await settingsRequest(options)).snapshot.settings.siteDefaults)
           .toEqual([savedDefault]);
+
+        // The diagnostics page reads the service's own record for this device.
+        const diagnostics = await browser.context.newPage();
+        await diagnostics.goto(`chrome-extension://${browser.extensionId}/diagnostics.html`);
+        await expect(diagnostics.locator("#diagnostics-service-generation")).toHaveText(
+          "recipe generation off, no Claude credentials on the service (credentials-not-configured)",
+        );
+        await diagnostics.getByRole("button", { name: "Copy for bug report" }).click();
+        await expect(diagnostics.locator("#report-preview")).toContainText(
+          /Service record: paired \S+Z · 1 recipes · settings revision \d+ · recipe generation off/u,
+        );
+        await expect(diagnostics.locator("#report-preview")).not.toContainText(service.deviceId);
 
         // After a full restart the cached recipe, binding and saved account still apply,
         // with the service gone.

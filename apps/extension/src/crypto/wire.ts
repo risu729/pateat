@@ -133,6 +133,8 @@ export const passkeyMatchesSchema = v.strictObject({
         userHandle: v.nullable(base64Url(1, 86)),
         discoverable: v.boolean(),
         counter: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(0xff_ff_ff_ff)),
+        // 256 code points, each up to two UTF-16 units.
+        userName: v.nullable(v.pipe(v.string(), v.minLength(1), v.maxLength(512))),
       }),
     ),
     v.maxLength(10_000),

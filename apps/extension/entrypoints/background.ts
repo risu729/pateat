@@ -18,9 +18,15 @@ import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
+import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
-import { createVaultPasskeyFinder, createVaultPasskeySource } from "../src/passkeys/vault";
+import {
+  createVaultPasskeyFinder,
+  createVaultPasskeySource,
+  rememberVaultPasskey,
+  type VaultPasskeyCandidate,
+} from "../src/passkeys/vault";
 import { createLoginGeneration } from "../src/service/generation";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
@@ -79,6 +85,7 @@ export default defineBackground(() => {
       void actionIcon.refresh();
       diagnosticsLog.vaultStateMayChange();
     },
+    onSync: diagnosticsLog.vaultSync,
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
@@ -190,18 +197,46 @@ export default defineBackground(() => {
     findPasskeys: createVaultPasskeyFinder(connections),
     readField: vaultFields,
   });
+  // ADR 0021: one Pateat window to choose among several matching passkeys.
+  const passkeyChooser = createPasskeyChooser({
+    pageUrl: browser.runtime.getURL(CHOOSER_PAGE),
+    createWindow: (options) => browser.windows.create(options),
+    removeWindow: (windowId) => browser.windows.remove(windowId),
+    async tabWindowBounds(tabId) {
+      const tab = await browser.tabs.get(tabId);
+      return browser.windows.get(tab.windowId);
+    },
+    async focusTab(tabId) {
+      const tab = await browser.tabs.get(tabId);
+      await browser.windows.update(tab.windowId, { focused: true });
+    },
+    onWindowRemoved: (listener) => browser.windows.onRemoved.addListener(listener),
+    onTabRemoved: (listener) => browser.tabs.onRemoved.addListener(listener),
+    keepAlive,
+  });
+  // Saving bumps the revision every login attempt checks; never stop a running login with it.
+  const rememberPasskey = async (origin: string, candidate: VaultPasskeyCandidate) => {
+    if (await login.active()) return;
+    await rememberVaultPasskey({ settings: loginSettings, origin, candidate });
+  };
   const passkeyProbe =
-    import.meta.env.MODE === "probe" ? createProbePasskeySource(vaultPasskeys) : undefined;
+    import.meta.env.MODE === "probe"
+      ? createProbePasskeySource(vaultPasskeys, rememberPasskey)
+      : undefined;
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
         extensionId: browser.runtime.id,
         timeoutMs: passkeyProbe.timeoutMs,
         policy: passkeyProbe.policy,
+        chooser: passkeyChooser,
+        remember: passkeyProbe.remember,
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
         // Only the local log keeps it; the page never learns why.
         report: diagnosticsLog.passkey,
+        chooser: passkeyChooser,
+        remember: rememberPasskey,
       });
 
   // Value-free per-device state for bug reports (ADR 0019).
@@ -240,9 +275,17 @@ export default defineBackground(() => {
     serviceOrigin: async () => (await service.connection())?.origin,
     hasSiteAccess: (origin) =>
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
+    async serviceDevice(origin) {
+      const connection = await service.connection();
+      // Paired again meanwhile, or rejected by a sync since the page's own read.
+      return connection?.origin === origin && !connection.rejected
+        ? serviceTransport.device(connection.origin, connection.credential)
+        : undefined;
+    },
     fetch: (input, init) => fetch(input, init),
     settings: async () => (await settings.read()).settings,
     logs: () => logger.summary(),
+    recentLog: () => logger.recent(),
     storage: {
       localBytes: () => browser.storage.local.getBytesInUse(null),
       recipeCache: () => recipeCacheStorage.read(),
@@ -357,7 +400,7 @@ export default defineBackground(() => {
         (response) => {
           // A completed pairing syncs at once; an open settings page keeps a stale cache moving.
           if (response.ok && response.state.kind === "connected") {
-            if (message.type === "service.pair.check") void recipeSync.sync();
+            if (message.type === "service.pair") void recipeSync.sync();
             else recipeSync.refreshIfStale();
           }
           // The previous owner's recipes are not kept once their device is gone.
@@ -380,6 +423,12 @@ export default defineBackground(() => {
       void (
         message.type === "diagnostics.status" ? diagnostics() : diagnosticsLog.handle(message)
       ).then(sendResponse);
+      return true;
+    }
+    const chooserReply =
+      sender.id === browser.runtime.id ? passkeyChooser.handle(message, sender) : undefined;
+    if (chooserReply) {
+      void chooserReply.then(sendResponse, () => sendResponse({ ok: false }));
       return true;
     }
 

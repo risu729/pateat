@@ -12,7 +12,7 @@ import {
 
 // Times are Unix epoch milliseconds. JSON documents are revalidated on every read.
 
-/** Enrollment creates owners from a verified service identity. */
+/** Pairing creates owners from a verified service identity. */
 export const owners = sqliteTable("owners", {
   id: text("id").primaryKey(),
   createdAt: integer("created_at").notNull(),
@@ -60,34 +60,6 @@ export const devices = sqliteTable(
   (table) => [
     uniqueIndex("devices_token_hash_unique").on(table.tokenHash),
     index("devices_owner_idx").on(table.ownerId),
-  ],
-);
-
-/**
- * An owner-approved pairing, keyed by the SHA-256 challenge of a verifier only the
- * extension holds. Redeemed rows stay so a challenge can never mint a second device.
- */
-export const enrollments = sqliteTable(
-  "enrollments",
-  {
-    challenge: text("challenge").primaryKey(),
-    ownerId: text("owner_id")
-      .notNull()
-      .references(() => owners.id),
-    label: text("label").notNull(),
-    /** The normalized code the owner typed; redemption must derive the same one. */
-    code: text("code").notNull(),
-    approvedAt: integer("approved_at").notNull(),
-    expiresAt: integer("expires_at").notNull(),
-    redeemedAt: integer("redeemed_at"),
-    deviceId: text("device_id").references(() => devices.id),
-  },
-  (table) => [
-    index("enrollments_expires_idx").on(table.expiresAt),
-    check(
-      "enrollments_redemption_check",
-      sql`(${table.redeemedAt} IS NULL) = (${table.deviceId} IS NULL)`,
-    ),
   ],
 );
 

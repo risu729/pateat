@@ -126,8 +126,9 @@ on the installation.
   send `login.reconnect` only to the refused document within ten seconds.
 - Compare the decrypted custom fields of protected items between the old and new
   snapshot inside the crypto host. When they are equal, the item stays usable without
-  a new review; only "equal" or "different" leaves the crypto host. This complements
-  the synced custom-field review records proposed for ADR 0023.
+  a new review, and the new evidence is recorded as reviewed in the synced record of
+  [ADR 0023](0023-synced-vault-policy.md); only "equal" or "different" leaves the crypto
+  host.
 - Show items awaiting review on the toolbar icon, and tell the settings page why its
   save met a revision conflict after an automatic sync.
 

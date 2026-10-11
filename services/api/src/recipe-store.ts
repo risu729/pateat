@@ -58,7 +58,7 @@ export async function readHead(db: D1Database, ownerId: string, recipeId: string
 }
 
 /** The owner's active recipe count, inside a statement so a batch checks it atomically. */
-function activeRecipes(ownerId: string) {
+export function activeRecipes(ownerId: string) {
   return sql<number>`(SELECT COUNT(*) FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.state} = 'active')`;
 }
 

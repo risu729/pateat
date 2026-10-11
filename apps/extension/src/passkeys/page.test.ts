@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installPasskeyPage } from "./page";
-import { PAGE_CHANNEL, type PageResult } from "./wire";
+import { PAGE_CHANNEL, PAGE_MAX_WAIT_MS, PAGE_TIMEOUT_MS, type PageResult } from "./wire";
 
 const origin = "https://login.example.com";
 type Message = { channel: string; type: string; id: string };
@@ -43,6 +43,7 @@ function fakePage(relay: (message: Message) => Array<Record<string, unknown>> = 
     nativeGet,
     posted,
     prototypes: { credential: PublicKeyCredential.prototype },
+    post: (data: unknown) => scope.postMessage(data),
   };
 }
 
@@ -79,6 +80,33 @@ describe("MAIN-world passkey wrapper", () => {
     await vi.advanceTimersByTimeAsync(1);
     await expect(result).resolves.toBe("native");
     expect(page.posted.map((message) => message.type)).toEqual(["get", "cancel"]);
+  });
+
+  it("delegates once the relay falls silent, and keeps waiting while it repeats its ack", async () => {
+    vi.useFakeTimers();
+    const page = fakePage((message) =>
+      message.type === "get" ? [{ type: "ack", id: message.id }] : [],
+    );
+    const silent = page.container.get({ publicKey });
+    await vi.advanceTimersByTimeAsync(PAGE_TIMEOUT_MS - 1);
+    expect(page.nativeGet).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(silent).resolves.toBe("native");
+
+    const held = page.container.get({ publicKey });
+    await vi.advanceTimersByTimeAsync(0);
+    const id = page.posted.at(-1)!.id;
+    const heartbeat = setInterval(
+      () => page.post({ channel: PAGE_CHANNEL, type: "ack", id }),
+      PAGE_TIMEOUT_MS / 3,
+    );
+    await vi.advanceTimersByTimeAsync(PAGE_MAX_WAIT_MS - 1);
+    expect(page.nativeGet).toHaveBeenCalledOnce();
+    // The absolute limit holds even while the relay keeps answering.
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(held).resolves.toBe("native");
+    expect(page.nativeGet).toHaveBeenCalledTimes(2);
+    clearInterval(heartbeat);
   });
 
   it("rejects with the caller's abort reason and cancels the operation", async () => {

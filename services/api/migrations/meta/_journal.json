@@ -57,6 +57,13 @@
       "when": 1791718940107,
       "tag": "0007_device_last_used",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791722060758,
+      "tag": "0008_drop_enrollments",
+      "breakpoints": true
     }
   ]
 }

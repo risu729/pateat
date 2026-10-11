@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "../options/button";
-import { installLabel, serverLabel, syncSignIn } from "./labels";
+import {
+  deviceFailureLabel,
+  generationLabel,
+  installLabel,
+  serverLabel,
+  syncSignIn,
+} from "./labels";
 import { formatReport, shortRevision, utcMinute, type BrowserInfo } from "./report";
 import type {
   DiagnosticsCheck,
@@ -157,6 +163,23 @@ function Service({ status }: { status: DiagnosticsStatus }) {
             </Row>
           </>
         )}
+        {service.device &&
+          (service.device.ok ? (
+            <>
+              <Row term="Paired" id="diagnostics-service-paired">
+                {time(service.device.pairedAt)}
+              </Row>
+              <Row term="Recipes on the service">{service.device.recipes}</Row>
+              <Row term="Settings revision on the service">{service.device.settingsRevision}</Row>
+              <Row term="Recipe generation" id="diagnostics-service-generation">
+                {generationLabel(service.device.generation)}
+              </Row>
+            </>
+          ) : (
+            <Row term="Service record" id="diagnostics-service-record">
+              {deviceFailureLabel(service.device.error)}
+            </Row>
+          ))}
       </dl>
     </section>
   );
@@ -424,7 +447,10 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
       {preview !== undefined && (
         <section aria-labelledby="preview-heading" className="panel">
           <h2 id="preview-heading">Bug report text</h2>
-          <p className="note">This exact text is copied. Check it before posting.</p>
+          <p className="note">
+            This exact text is copied. Check it before posting. Sites are numbered here separately
+            from <strong>Download logs</strong>, so <code>site-1</code> may differ.
+          </p>
           <pre id="report-preview" className="overflow-x-auto text-sm whitespace-pre-wrap">
             {preview}
           </pre>

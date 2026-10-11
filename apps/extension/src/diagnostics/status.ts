@@ -5,10 +5,11 @@ import type { BitwardenProfile } from "@pateat/bitwarden";
 import type { LocalSettings, ServiceState } from "@pateat/contracts";
 import * as v from "valibot";
 import type { SetupReply } from "../connections/types";
+import type { DeviceStateResult } from "../service/transport";
 import type { VaultEntry, VaultResult } from "../vault/record";
-import type { LogSummary } from "./log";
+import type { LogSummary, RecentLog } from "./log";
 import type { Pseudonyms } from "./pseudonym";
-import { age, serverLabel, syncSignIn } from "./labels";
+import { age, deviceFailureLabel, generationLabel, serverLabel, syncSignIn } from "./labels";
 import type {
   DiagnosticsCheck,
   DiagnosticsConnection,
@@ -57,9 +58,12 @@ export type DiagnosticsDependencies = {
   /** Only the paired origin is read, for its site access and health. */
   serviceOrigin(): Promise<string | undefined>;
   hasSiteAccess(origin: string): Promise<boolean>;
+  /** `GET /v1/device` with the paired credential, only for that origin; nothing if unpaired. */
+  serviceDevice(origin: string): Promise<DeviceStateResult | undefined>;
   fetch: typeof fetch;
   settings(): Promise<LocalSettings>;
   logs(): Promise<LogSummary>;
+  recentLog(): Promise<RecentLog>;
   storage: {
     localBytes(): Promise<number>;
     recipeCache(): Promise<unknown>;
@@ -242,6 +246,24 @@ async function health(
   }
 }
 
+/** The service's own counts for this device's owner; it never rejects. */
+async function device(
+  deps: DiagnosticsDependencies,
+  origin: string,
+): Promise<DiagnosticsStatus["service"]["device"]> {
+  let result: DeviceStateResult | undefined;
+  try {
+    result = await deps.serviceDevice(origin);
+  } catch {
+    return { ok: false, error: "unavailable" };
+  }
+  if (!result) return undefined;
+  if (result.kind === "rejected") return { ok: false, error: "rejected" };
+  if (result.kind === "failed") return { ok: false, error: result.error };
+  const { pairedAt, recipes, settingsRevision, generation } = result.state;
+  return { ok: true, pairedAt, recipes, settingsRevision, generation };
+}
+
 const recipeCacheSchema = v.looseObject({ recipes: v.array(v.unknown()) });
 const scheduleSchema = v.looseObject({ retryAt: v.pipe(v.number(), v.integer(), v.minValue(0)) });
 const baseSchema = v.looseObject({ revision: v.pipe(v.number(), v.integer(), v.minValue(0)) });
@@ -258,7 +280,6 @@ async function service(
     return { kind: "unavailable" };
   }
   if (!state || state.kind === "disconnected") return { kind: "not-configured" };
-  if (state.kind === "pairing") return { kind: "pairing" };
   const result: DiagnosticsStatus["service"] = {
     kind: "connected",
     ...(state.rejected ? { rejected: true } : {}),
@@ -287,9 +308,15 @@ async function service(
   if (origin) {
     const access = await deps.hasSiteAccess(origin).catch(() => false);
     result.siteAccess = access;
-    result.health = access
-      ? await health(deps, origin, now)
-      : { ok: false, error: "no-site-access" };
+    if (access) {
+      // A rejected credential is not sent again.
+      const [checked, record] = await Promise.all([
+        health(deps, origin, now),
+        state.rejected ? undefined : device(deps, origin),
+      ]);
+      result.health = checked;
+      if (record) result.device = record;
+    } else result.health = { ok: false, error: "no-site-access" };
   }
   return result;
 }
@@ -356,11 +383,45 @@ function connectionChecks(item: DiagnosticsConnection, now: number): Diagnostics
   return [vault, session, ...synced, ...server];
 }
 
+/** Recipe generation, and whether this device's copy has caught up with the service. */
+function deviceChecks(value: DiagnosticsStatus["service"]): DiagnosticsCheck[] {
+  const { device: record } = value;
+  if (!record) return [];
+  if (!record.ok)
+    return [{ id: "service-record", level: "warn", detail: deviceFailureLabel(record.error) }];
+  // Each differs until the next sync, so a difference is information, not a fault.
+  const differences: string[] = [];
+  // A full cache holds only part of the recipes by design; its own check reports it.
+  if (value.recipes && !value.cacheFull && value.recipes.count !== record.recipes)
+    differences.push(`service ${record.recipes} recipes, cached ${value.recipes.count}`);
+  // No stored base means settings never synced, which matches revision 0.
+  const local = value.settingsRevision ?? 0;
+  if (local !== record.settingsRevision)
+    differences.push(`settings revision service ${record.settingsRevision}, here ${local}`);
+  return [
+    {
+      id: "generation",
+      level:
+        record.generation === "ok"
+          ? "ok"
+          : record.generation === "credentials-not-configured"
+            ? "info"
+            : "warn",
+      detail: generationLabel(record.generation),
+    },
+    differences.length
+      ? {
+          id: "service-copy",
+          level: "info",
+          detail: differences.join("; "),
+        }
+      : { id: "service-copy", level: "ok", detail: "recipes and settings match the service" },
+  ];
+}
+
 function serviceChecks(value: DiagnosticsStatus["service"], now: number): DiagnosticsCheck[] {
   if (value.kind === "not-configured")
     return [{ id: "service", level: "info", detail: "Pateat service not paired" }];
-  if (value.kind === "pairing")
-    return [{ id: "service", level: "info", detail: "Pateat service pairing in progress" }];
   if (value.kind === "unavailable")
     return [{ id: "service", level: "error", detail: "service record unreadable" }];
   const checks: DiagnosticsCheck[] = [];
@@ -394,6 +455,7 @@ function serviceChecks(value: DiagnosticsStatus["service"], now: number): Diagno
         : { id: "clock", level: "ok", detail: `clock within ${CLOCK_SKEW_WARNING_MS / 1000} s` },
     );
   }
+  checks.push(...deviceChecks(value));
   if (value.syncedAt === undefined)
     checks.push({ id: "recipe-sync", level: "warn", detail: "recipes not synced yet" });
   else if (now - value.syncedAt > RECIPE_SYNC_OVERDUE_MS)
@@ -410,15 +472,17 @@ export async function collectDiagnostics(
   deps: DiagnosticsDependencies,
 ): Promise<DiagnosticsStatus> {
   const now = deps.now ?? Date.now;
-  const [platform, permissions, siteAccess, setup, settings, localBytes, logs] = await Promise.all([
-    deps.platform().catch(() => ({ os: "unknown", arch: "unknown" })),
-    deps.permissions().catch((): { permissions?: string[]; origins?: string[] } => ({})),
-    deps.hasAllSiteAccess().catch(() => false),
-    deps.connections.status().catch(() => undefined),
-    deps.settings().catch(() => undefined),
-    deps.storage.localBytes().catch(() => undefined),
-    deps.logs().catch(() => undefined),
-  ]);
+  const [platform, permissions, siteAccess, setup, settings, localBytes, logs, recent] =
+    await Promise.all([
+      deps.platform().catch(() => ({ os: "unknown", arch: "unknown" })),
+      deps.permissions().catch((): { permissions?: string[]; origins?: string[] } => ({})),
+      deps.hasAllSiteAccess().catch(() => false),
+      deps.connections.status().catch(() => undefined),
+      deps.settings().catch(() => undefined),
+      deps.storage.localBytes().catch(() => undefined),
+      deps.logs().catch(() => undefined),
+      deps.recentLog().catch(() => undefined),
+    ]);
   const listed = setup?.ok && setup.kind === "status" ? setup.connections : [];
   // Network reads run together; each has its own timeout. Neither promise may reject,
   // since a failing store read below would leave them unawaited.
@@ -484,6 +548,7 @@ export async function collectDiagnostics(
       : {}),
     storage: localBytes === undefined ? {} : { localBytes },
     ...(logs ? { logs } : {}),
+    ...(recent ? { recent } : {}),
     checks,
   };
 }

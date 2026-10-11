@@ -168,6 +168,7 @@ function harness(
               userHandle: "BAUG",
               discoverable: true,
               counter: 0,
+              userName: null,
             },
           ],
           unavailableItemIds: [],

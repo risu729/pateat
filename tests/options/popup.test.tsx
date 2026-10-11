@@ -385,3 +385,38 @@ test("a pick that starts nothing says so, and a default set here ends the choice
     .element(page.getByRole("heading", { name: "Choose an account" }))
     .not.toBeInTheDocument();
 });
+
+test("after a logout, the popup lists the saved default first, even alone", async () => {
+  const settings = createDefaultSettings();
+  settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-work-account",
+    itemId: "primary",
+  });
+  const { client } = store(saved(3, settings));
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "signed-out",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+    logout: true,
+  });
+  await mount(client, "https://bank.example/", choices);
+  await expect
+    .element(page.getByText("You logged out of this site in this tab", { exact: false }))
+    .toBeVisible();
+  const radios = page.getByRole("radio");
+  await expect
+    .element(radios.first())
+    .toHaveAccessibleName("Demo team account (Demo work vault) · default");
+  await expect.element(radios.first()).toBeChecked();
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  expect(choices.pick).toHaveBeenCalledWith(
+    expect.objectContaining({ documentId: "signed-out", connectionId: "demo-work" }),
+  );
+});

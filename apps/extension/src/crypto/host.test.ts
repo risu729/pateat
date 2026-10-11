@@ -480,6 +480,7 @@ describe("fixed operations, session scope and reply fencing", () => {
     userHandle: "c3ludGhldGljLXVzZXI",
     discoverable: true,
     counter: 0,
+    userName: null,
   };
   const signInput = {
     itemId,

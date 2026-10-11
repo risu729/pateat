@@ -16,7 +16,7 @@ export default defineConfig({
       // The owner web UI built from manage/index.html, read by the Worker after Access.
       ASSETS: bindings.assets(),
       // The Access team domain (`<team>.cloudflareaccess.com`) and application
-      // audience tag that guard /pair, /enroll and /manage. Unset values fail closed.
+      // audience tag that guard /pair and /manage. Unset values fail closed.
       ACCESS_TEAM_DOMAIN: bindings.secret(),
       ACCESS_AUD: bindings.secret(),
       // The public origin (`https://<host>`) and ES256 key set of the OIDC issuer that
@@ -29,11 +29,6 @@ export default defineConfig({
       PAIRING_EXTENSION_IDS: bindings.json([PATEAT_EXTENSION_ID]),
       // Bounds pairing per signed-in identity.
       PAIR_LIMITER: bindings.rateLimit({ namespace: "1003", simple: { limit: 10, period: 60 } }),
-      // Bounds anonymous credential redemption per client address.
-      REDEEM_LIMITER: bindings.rateLimit({
-        namespace: "1001",
-        simple: { limit: 10, period: 60 },
-      }),
       // Bounds device and web UI requests per owner (docs/architecture.md#service-limits).
       OWNER_LIMITER: bindings.rateLimit({
         namespace: "1002",

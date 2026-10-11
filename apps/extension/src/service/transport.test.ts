@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createServiceTransport } from "./transport";
+import { DEVICE_TIMEOUT_MS, createServiceTransport } from "./transport";
 
 // Synthetic responses only; no request leaves the test.
 
 const ORIGIN = "https://pateat.example.com";
-const VERIFIER = "V".repeat(43);
 const CREDENTIAL = `pateat_device_${"C".repeat(43)}`;
 
 function respond(status: number, body?: unknown, init: ResponseInit = {}) {
@@ -18,105 +17,177 @@ function respond(status: number, body?: unknown, init: ResponseInit = {}) {
   });
 }
 
-describe("redeem", () => {
-  it("posts only the verifier with hardened fetch options", async () => {
-    const fetch = respond(404, { error: "enrollment_not_found" });
-    expect(await createServiceTransport({ fetch }).redeem(ORIGIN, VERIFIER)).toEqual({
-      kind: "pending",
-    });
+describe("pair", () => {
+  const LABEL = "Work laptop";
+  const issued = {
+    version: 1,
+    deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
+    credential: CREDENTIAL,
+  };
+  const pair = (fetch: typeof globalThis.fetch, timeoutMs?: number) =>
+    createServiceTransport({ fetch, ...(timeoutMs ? { timeoutMs } : {}) }).pair(ORIGIN, LABEL);
+  /** What the Worker answers: JSON with its own media type. */
+  const json = (status: number, body: unknown) =>
+    respond(status, body, { headers: { "Content-Type": "application/json" } });
+
+  it("posts only the label with the browser's session and no credential", async () => {
+    const fetch = json(201, issued);
+    expect(await pair(fetch)).toEqual({ kind: "issued", result: issued });
     const [url, init] = fetch.mock.calls[0]!;
-    expect(url).toBe(`${ORIGIN}/redeem`);
+    expect(url).toBe(`${ORIGIN}/pair`);
     expect(init).toMatchObject({
       method: "POST",
-      redirect: "error",
-      credentials: "omit",
+      redirect: "manual",
+      credentials: "include",
       cache: "no-store",
       referrerPolicy: "no-referrer",
-      headers: { "Content-Type": "application/json" },
     });
-    expect(JSON.parse(init!.body as string)).toEqual({ version: 1, verifier: VERIFIER });
+    expect(init!.headers).toEqual({
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    });
+    expect(JSON.parse(init!.body as string)).toEqual({ version: 1, label: LABEL });
   });
 
-  it("accepts a valid credential", async () => {
-    const result = {
-      version: 1,
-      deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
-      credential: CREDENTIAL,
-    };
-    expect(
-      await createServiceTransport({ fetch: respond(200, result) }).redeem(ORIGIN, VERIFIER),
-    ).toEqual({ kind: "issued", result });
+  it("accepts JSON with a charset", async () => {
+    const fetch = respond(201, issued, {
+      headers: { "Content-Type": "application/json; charset=UTF-8" },
+    });
+    expect(await pair(fetch)).toEqual({ kind: "issued", result: issued });
   });
 
   it.each([
-    [
-      "a malformed credential",
-      200,
-      { version: 1, deviceId: "x", credential: "y" },
-      "unexpected-response",
-    ],
-    [
-      "an extra field",
-      200,
-      {
-        version: 1,
-        deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
-        credential: CREDENTIAL,
-        owner: "x",
-      },
-      "unexpected-response",
-    ],
-    ["a non-JSON body", 200, "<html>", "unexpected-response"],
-    ["an unknown 404", 404, { error: "not_found" }, "unexpected-response"],
-    ["a rate limit", 429, { error: "rate_limited" }, "rate-limited"],
-    ["a server error", 500, { error: "internal_error" }, "unexpected-response"],
-  ])("rejects %s", async (_, status, body, error) => {
-    expect(
-      await createServiceTransport({ fetch: respond(status, body) }).redeem(ORIGIN, VERIFIER),
-    ).toEqual({ kind: "failed", error });
+    ["a malformed credential", { version: 1, deviceId: "x", credential: "y" }],
+    ["an extra field", { ...issued, owner: "x" }],
+  ])("rejects %s", async (_, body) => {
+    expect(await pair(json(201, body))).toEqual({ kind: "failed", error: "unexpected-response" });
   });
 
-  it("recognizes a code mismatch", async () => {
-    const fetch = respond(409, { error: "enrollment_code_mismatch" });
-    expect(await createServiceTransport({ fetch }).redeem(ORIGIN, VERIFIER)).toEqual({
-      kind: "code-mismatch",
-    });
+  it("asks for a sign-in on Access's redirect without reading it", async () => {
+    // A synthetic stand-in: Chrome's `redirect: "manual"` answer has type
+    // "opaqueredirect", status 0, no headers and no body.
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async (input) =>
+        ({
+          type: "opaqueredirect",
+          status: 0,
+          ok: false,
+          redirected: false,
+          url: String(input),
+          headers: new Headers(),
+          body: null,
+        }) as Response,
+    );
+    expect(await pair(fetch)).toEqual({ kind: "sign-in-needed" });
   });
 
-  it("refuses redirected and oversized responses", async () => {
-    const redirected = vi.fn<typeof fetch>(async () => {
-      const response = new Response("{}", { status: 200 });
-      Object.defineProperty(response, "url", { value: "https://elsewhere.example.com/redeem" });
+  /** A response that is not the Worker's JSON, as Access or the Cloudflare edge sends. */
+  const page = (status: number, body: string, type: string | undefined) =>
+    vi.fn<typeof globalThis.fetch>(async (input) => {
+      const response = new Response(body, { status });
+      if (type) response.headers.set("Content-Type", type);
+      else response.headers.delete("Content-Type");
+      Object.defineProperty(response, "url", { value: String(input) });
       return response;
     });
-    expect(await createServiceTransport({ fetch: redirected }).redeem(ORIGIN, VERIFIER)).toEqual({
-      kind: "failed",
-      error: "unexpected-response",
+
+  it.each([
+    ["an HTML login page", 200, "<!doctype html><title>Sign in</title>", "text/html"],
+    ["an HTML 401 page", 401, "<!doctype html><title>Sign in</title>", "text/html"],
+    ["an HTML denial page", 403, "<!doctype html><title>Forbidden</title>", "text/html"],
+    ["a body without a media type", 200, JSON.stringify(issued), undefined],
+  ])("asks for a sign-in on %s", async (_, status, body, type) => {
+    expect(await pair(page(status, body, type))).toEqual({ kind: "sign-in-needed" });
+  });
+
+  it.each([
+    ["an edge rate-limit page", 429, "rate-limited"],
+    ["an edge server error page", 500, "unexpected-response"],
+    ["an edge bad gateway page", 502, "unexpected-response"],
+    ["an edge unavailable page", 503, "unexpected-response"],
+    ["an edge timeout page", 524, "unexpected-response"],
+  ] as const)("does not ask for a sign-in on %s", async (_, status, error) => {
+    const fetch = page(status, "<!doctype html><title>Error</title>", "text/html; charset=UTF-8");
+    expect(await pair(fetch)).toEqual({ kind: "failed", error });
+  });
+
+  it.each([
+    ["the Worker's 401", 401, { error: "unauthorized" }, { kind: "sign-in-needed" }],
+    [
+      "a rejected sign-in",
+      403,
+      { error: "forbidden" },
+      { kind: "failed", error: "sign-in-rejected" },
+    ],
+    [
+      "an unlisted extension",
+      403,
+      { error: "extension_not_allowed" },
+      { kind: "failed", error: "extension-not-allowed" },
+    ],
+    [
+      "missing pairing settings",
+      503,
+      { error: "pairing_unavailable" },
+      { kind: "failed", error: "pairing-unavailable" },
+    ],
+    [
+      "missing Access settings",
+      503,
+      { error: "access_unavailable" },
+      { kind: "failed", error: "pairing-unavailable" },
+    ],
+    ["a rate limit", 429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
+    ["an unknown 403", 403, { error: "other" }, { kind: "failed", error: "unexpected-response" }],
+    [
+      "a bad request",
+      400,
+      { error: "bad_request" },
+      { kind: "failed", error: "unexpected-response" },
+    ],
+    ["a 200 answer", 200, issued, { kind: "failed", error: "unexpected-response" }],
+    [
+      "a server error",
+      500,
+      { error: "internal_error" },
+      { kind: "failed", error: "unexpected-response" },
+    ],
+  ])("maps %s", async (_, status, body, expected) => {
+    expect(await pair(json(status, body))).toEqual(expected);
+  });
+
+  it("refuses redirected, oversized and unparsable answers", async () => {
+    const redirected = vi.fn<typeof globalThis.fetch>(async () => {
+      const response = Response.json(issued, { status: 201 });
+      Object.defineProperty(response, "url", { value: "https://elsewhere.example.com/pair" });
+      return response;
     });
-    const huge = respond(200, `"${"x".repeat(20_000)}"`);
-    expect(await createServiceTransport({ fetch: huge }).redeem(ORIGIN, VERIFIER)).toEqual({
-      kind: "failed",
-      error: "unexpected-response",
-    });
+    expect(await pair(redirected)).toEqual({ kind: "failed", error: "unexpected-response" });
+    const huge = json(201, `"${"x".repeat(20_000)}"`);
+    expect(await pair(huge)).toEqual({ kind: "failed", error: "unexpected-response" });
+    const broken = respond(201, "{", { headers: { "Content-Type": "application/json" } });
+    expect(await pair(broken)).toEqual({ kind: "failed", error: "unexpected-response" });
   });
 
   it("reports network failures and timeouts as unreachable", async () => {
-    const offline = vi.fn<typeof fetch>(async () => {
+    const offline = vi.fn<typeof globalThis.fetch>(async () => {
       throw new TypeError("Failed to fetch");
     });
-    expect(await createServiceTransport({ fetch: offline }).redeem(ORIGIN, VERIFIER)).toEqual({
-      kind: "failed",
-      error: "unreachable",
-    });
-    const hanging = vi.fn<typeof fetch>(
+    expect(await pair(offline)).toEqual({ kind: "failed", error: "unreachable" });
+    const hanging = vi.fn<typeof globalThis.fetch>(
       (_input, init) =>
         new Promise((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new DOMException("", "AbortError")));
         }),
     );
-    expect(
-      await createServiceTransport({ fetch: hanging, timeoutMs: 10 }).redeem(ORIGIN, VERIFIER),
-    ).toEqual({ kind: "failed", error: "unreachable" });
+    expect(await pair(hanging, 10)).toEqual({ kind: "failed", error: "unreachable" });
+  });
+
+  it("sends no cookies and follows no redirects on device routes", async () => {
+    const fetch = respond(204);
+    await createServiceTransport({ fetch }).revoke(ORIGIN, CREDENTIAL);
+    expect(fetch.mock.calls[0]![1]).toMatchObject({ redirect: "error", credentials: "omit" });
+    expect(fetch.mock.calls[0]![1]!.headers).not.toHaveProperty("X-Requested-With");
   });
 });
 
@@ -162,6 +233,70 @@ describe("revoke", () => {
         CREDENTIAL,
       ),
     ).toEqual({ kind: "failed", error: "unexpected-response" });
+  });
+});
+
+describe("device state", () => {
+  const state = {
+    version: 1,
+    pairedAt: 1_760_000_000_000,
+    recipes: 3,
+    settingsRevision: 7,
+    generation: "monthly-limit",
+  };
+
+  it("reads the device route with the credential", async () => {
+    const fetch = respond(200, state);
+    expect(await createServiceTransport({ fetch }).device(ORIGIN, CREDENTIAL)).toEqual({
+      kind: "state",
+      state,
+    });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/device`);
+    expect(init).toMatchObject({
+      method: "GET",
+      headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      redirect: "error",
+      credentials: "omit",
+      cache: "no-store",
+    });
+  });
+
+  it.each([
+    ["an unknown field", 200, { ...state, deviceId: "dev_1" }, "unexpected-response"],
+    ["an unknown status", 200, { ...state, generation: "busy" }, "unexpected-response"],
+    ["a server error", 500, { error: "internal_error" }, "unexpected-response"],
+    ["a rate limit", 429, { error: "rate_limited" }, "rate-limited"],
+  ])("refuses %s", async (_name, status, body, error) => {
+    expect(
+      await createServiceTransport({ fetch: respond(status, body) }).device(ORIGIN, CREDENTIAL),
+    ).toEqual({ kind: "failed", error });
+  });
+
+  it.each(["device_revoked", "device_expired", "unauthorized"])(
+    "reports a rejected credential: %s",
+    async (error) => {
+      expect(
+        await createServiceTransport({ fetch: respond(401, { error }) }).device(ORIGIN, CREDENTIAL),
+      ).toEqual({ kind: "rejected" });
+    },
+  );
+
+  it("gives up sooner than sync, since the diagnostics page waits for it", async () => {
+    vi.useFakeTimers();
+    try {
+      const hanging = vi.fn<typeof globalThis.fetch>(
+        (_input, init) =>
+          new Promise((_resolve, reject) =>
+            init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+          ),
+      );
+      const pending = createServiceTransport({ fetch: hanging }).device(ORIGIN, CREDENTIAL);
+      await vi.advanceTimersByTimeAsync(DEVICE_TIMEOUT_MS);
+      expect(await pending).toEqual({ kind: "failed", error: "unreachable" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

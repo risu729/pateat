@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { fromBase64Url } from "./encoding";
 import {
   PAGE_CHANNEL,
+  PAGE_MAX_WAIT_MS,
   PAGE_TIMEOUT_MS,
   RELAY_ACK_TIMEOUT_MS,
   pageReplySchema,
@@ -96,12 +97,20 @@ export function snapshotGetOptions(options: unknown): BridgedGetRequest | undefi
   const userVerification = optional(pk["userVerification"]);
   const mediation = optional(record["mediation"]);
   if (rpId === null || userVerification === null || mediation === null) return undefined;
+  // Only a plain number is read; any other value is left out, which only lengthens Pateat's
+  // wait up to its own limit and never changes what the browser receives.
+  const rawTimeout = pk["timeout"];
+  const timeout =
+    typeof rawTimeout === "number" && rawTimeout >= 0 && rawTimeout <= 0xff_ff_ff_ff
+      ? Math.trunc(rawTimeout)
+      : undefined;
   return {
     challenge: toBase64Url(challenge),
     allowCredentials,
     ...(rpId === undefined ? {} : { rpId }),
     ...(userVerification === undefined ? {} : { userVerification }),
     ...(mediation === undefined ? {} : { mediation }),
+    ...(timeout === undefined ? {} : { timeout }),
   };
 }
 
@@ -250,6 +259,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
       const finish = (outcome: PageResult | { kind: "aborted" }) => {
         if (!pending.delete(id)) return;
         clearTimeout(timer);
+        clearTimeout(limit);
         clearTimeout(ackTimer);
         signal?.removeEventListener("abort", onAbort);
         if (outcome.kind !== "assertion" && outcome.kind !== "delegate")
@@ -257,10 +267,20 @@ export function installPasskeyPage(scope: PageScope = window): void {
         resolve(outcome);
       };
       const onAbort = () => finish({ kind: "aborted" });
-      const timer = setTimeout(() => finish({ kind: "cancelled" }), PAGE_TIMEOUT_MS);
+      const expire = () => finish({ kind: "cancelled" });
+      // Each acknowledgement from the relay restarts this; the limit below does not move.
+      let timer = setTimeout(expire, PAGE_TIMEOUT_MS);
+      const limit = setTimeout(expire, PAGE_MAX_WAIT_MS);
       // A removed or invalidated relay never acknowledges; do not hold the caller for long.
-      const ackTimer = setTimeout(() => finish({ kind: "cancelled" }), RELAY_ACK_TIMEOUT_MS);
-      pending.set(id, { finish, acknowledge: () => clearTimeout(ackTimer) });
+      const ackTimer = setTimeout(expire, RELAY_ACK_TIMEOUT_MS);
+      pending.set(id, {
+        finish,
+        acknowledge() {
+          clearTimeout(ackTimer);
+          clearTimeout(timer);
+          timer = setTimeout(expire, PAGE_TIMEOUT_MS);
+        },
+      });
       signal?.addEventListener("abort", onAbort, { once: true });
       post({ channel: PAGE_CHANNEL, type: "get", id, request });
     });

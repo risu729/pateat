@@ -4,13 +4,32 @@
 run = "tsc --noEmit -p tsconfig.json"
 
 [tasks.test]
-description = "Score AI role adapters on the synthetic corpus with fake providers."
+description = "Score AI role adapters on the synthetic corpus with fake providers; check the real-page corpus."
 run = "node ../../node_modules/vitest/vitest.mjs run"
 
 [tasks.bench]
-description = "Run the paid Claude generation benchmark on the synthetic corpus (owner approval per run)."
+description = "Benchmark generation on a corpus: Claude (paid, owner approval per run) or the free heuristic."
 usage = '''
-flag "--paid" help="Confirm the owner approved this paid run."
+flag "--paid" help="Confirm the owner approved this paid Claude run."
 flag "--max-cost-usd <usd>" default="2" help="Stop before a call that could exceed this estimated spend."
+flag "--corpus <name>" default="synthetic" help="The synthetic corpus or the real-page corpus." {
+  choices "synthetic" "real"
+}
+flag "--provider <name>" default="claude" help="Claude, or the model-free heuristic comparator." {
+  choices "claude" "heuristic"
+}
+flag "--from <index>" default="0" help="Index of the first case, to run the corpus in batches."
+flag "--count <n>" help="Number of cases in this batch; all remaining when omitted."
 '''
-run = "bun ../../scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }}"
+run = "bun ../../scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }} --corpus {{ usage.corpus }} --provider {{ usage.provider }} --from {{ usage.from }} {% if usage.count %}--count {{ usage.count }}{% endif %}"
+
+[tasks."corpus:formasaurus"]
+description = "Regenerate the real-page corpus from a local Formasaurus checkout (ADR 0012)."
+usage = '''
+arg "<source>" help="Absolute path to a Formasaurus checkout; its commit is recorded in the corpus."
+flag "--chromium <path>" help="Chromium executable, when Playwright's own is not installed."
+'''
+run = [
+  "bun ../../scripts/formasaurus/import.ts --source {{ usage.source }} {% if usage.chromium %}--chromium {{ usage.chromium }}{% endif %}",
+  "oxfmt src/corpus/formasaurus.json",
+]

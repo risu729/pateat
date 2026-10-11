@@ -2,8 +2,9 @@ import * as v from "valibot";
 import type { LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
-import { isButton } from "../page/text";
+import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
+import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { acceptsSecret } from "./inputs";
 import {
@@ -40,7 +41,14 @@ function writable(element: Element | undefined): element is HTMLInputElement {
   );
 }
 function clickable(element: Element | undefined): element is HTMLElement {
-  return element !== undefined && isButton(element) && visible(element) && !element.disabled;
+  if (element === undefined) return false;
+  if (isButton(element)) return visible(element) && !element.disabled;
+  return (
+    element instanceof HTMLElement &&
+    isScriptButton(element) &&
+    visible(element) &&
+    element.getAttribute("aria-disabled") !== "true"
+  );
 }
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
@@ -87,6 +95,11 @@ function showsSignIn(): boolean {
   });
 }
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/**
+ * How long a preparing fill waits for the page's own input handlers before checking that
+ * the page accepted the values (ADR 0010).
+ */
+const fillSettleMs = 500;
 
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
@@ -96,6 +109,8 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = crypto.randomUUID();
   let cancelled = false;
+  // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
+  let ended = false;
   const used = new Set<string>();
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
@@ -172,7 +187,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "value",
           "alt",
           "aria-hidden",
+          "aria-disabled",
           "inert",
+          "role",
+          "onclick",
+          "href",
         ],
       });
       addEventListener("popstate", schedule);
@@ -223,6 +242,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       unwatch();
     } else if (parsed.output.starts) {
       watch(parsed.output.starts, parsed.output.generate === true);
+      // In the document that logged in, a form still showing is not a logout; only its
+      // next appearance is (ADR 0021 D).
+      if (ended && !start) announced = starts.some(ready);
       // A refused start means the background did not see the form on this path yet, for
       // example while the tab still shows the previous URL.
       if (start) retry();
@@ -306,6 +328,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           location.origin,
         );
       respond({ ok: true });
+      // A finished login keeps watching: its first step showing again means a logout.
+      if (!ended && (command.state === "authenticated" || command.state === "blocked")) {
+        ended = true;
+        void announce(false).catch(() => undefined);
+      }
       return false;
     }
     if (command.type === "login.extract") {
@@ -335,7 +362,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     void (async () => {
       const operation = command.operation;
       let mutated = false;
-      const fail = (reason: "structural-mismatch" | "timeout" | "cancelled" | "wrong-account") => ({
+      const fail = (
+        reason:
+          | "structural-mismatch"
+          | "timeout"
+          | "cancelled"
+          | "wrong-account"
+          | "value-mismatch"
+          | "fill-rejected",
+      ) => ({
         ok: false,
         reason,
         mutation: mutated ? "possible" : "none",
@@ -419,8 +454,21 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             return fail("wrong-account");
           }
         }
+        // Every value must fit its input before anything is filled (ADR 0010).
+        if (
+          step.fields.some(
+            (field, index) =>
+              inputValueMismatch(
+                writableInputs[index]!,
+                command.values.find((entry) => entry.slot === field.slot)!.value,
+              ) !== undefined,
+          )
+        )
+          return fail("value-mismatch");
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch");
+        // Messages already shown are not the page's answer to this fill.
+        const baseline = step.effect === "prepare" ? fillBaseline(writableInputs) : undefined;
         for (const [index, field] of step.fields.entries()) {
           const input = inputs[index] as HTMLInputElement;
           // Each mutation repeats scope/connected checks; events may synchronously change the page.
@@ -433,7 +481,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             current[0] !== input ||
             !writable(input) ||
             input.form !== form ||
-            !acceptsSecret(input, value.secret)
+            !acceptsSecret(input, value.secret) ||
+            inputValueMismatch(input, value.value) !== undefined
           )
             return fail("cancelled");
           // Mark uncertainty before calling into DOM/page code, including a throwing setter.
@@ -446,6 +495,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             input.dispatchEvent(new Event(step.event!, { bubbles: true }));
           }
           value.value = "";
+        }
+        // A preparing fill is followed by a click; the page's own validation must accept
+        // the values first. An effectful fill has already submitted through its event.
+        if (baseline) {
+          await pause(fillSettleMs);
+          if (cancelled) return fail("cancelled");
+          // The page replaced the form, perhaps signing in by itself; the background
+          // observes the page instead of clicking.
+          if (writableInputs.some((input) => !input.isConnected))
+            return fail("structural-mismatch");
+          if (rejectsFill(writableInputs, baseline)) return fail("fill-rejected");
         }
         return { ok: true, mutation: "possible" };
       }

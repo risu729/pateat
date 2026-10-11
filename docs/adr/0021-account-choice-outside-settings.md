@@ -4,7 +4,10 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
-Each part lands in its own PR. Parts A and B are implemented; C and D are not yet.
+Each part lands in its own PR. Parts A, B and C and the password half of D are
+implemented; the passkey half of D is not yet.
+Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
+a binding that names a missing custom field (not implemented yet).
 
 Date: 2026-10-11
 
@@ -91,6 +94,20 @@ The worker is kept alive while the window waits. The default is saved only after
 assertion has been returned, because a settings save cancels pending passkey requests.
 In incognito no window opens and the request is delegated as before.
 
+As implemented: the page learns nothing new while it waits. The isolated relay repeats
+its existing acknowledgement every 5 s while the background works, and the page's 15 s
+limit counts from the latest one, under an absolute limit of 2 minutes 15 s. A `timeout`
+below 10 s is raised to 10 s, as Chrome raises it for its own UI. The window opens only
+for a visible, focused, active document with at least 5 s of that wait left, and
+signing after a choice gets its own 10 s. One window is open at a time; a second request
+delegates. Leaving the page cancels its pending requests. "Use the browser" or closing
+the window delegates only after the window has closed and the tab's window has been
+focused again (each step waits at most 2 s), so the browser's own prompt has focus. When
+the origin already has a default that holds none of the matching passkeys, the
+checkbox starts unticked and says it replaces that default, because the same default
+also picks the password login account. The default is not saved while a password login
+is running, as for an automatic account choice.
+
 ### D. After a logout, choose again (detection L1)
 
 Once a Pateat login in a tab has finished, the next appearance of a recipe's first step
@@ -102,7 +119,10 @@ with the default listed first.
 
 Only that tab's own finished attempt record is released. Another tab holding an attempt
 for the origin still blocks with `origin-busy`, because cookies are shared across tabs;
-that tab's tooltip says why. The runtime and the content script must keep watching after
+that tab's tooltip says why. For the same reason, while the tab asks, other tabs of the
+origin are refused `origin-busy` too, so they cannot log in again behind the logout.
+A result Pateat could not observe stays `reconciling` and is resumed by the next page,
+not taken as a logout. The runtime and the content script must keep watching after
 a finished attempt, including after an in-document (SPA) logout.
 
 Known gaps:

@@ -42,6 +42,8 @@ export function createConnectionRuntime(
      * either can change which connections unlock automatically.
      */
     onVaultStateMayChange?: () => void;
+    /** Called with each settings-page Sync result, for the local log. */
+    onSync?: (connectionId: string, reply: SetupReply) => void;
   } = {},
 ) {
   const registry = options.registry ?? createBrowserConnectionRegistry();
@@ -238,6 +240,13 @@ export function createConnectionRuntime(
         .then((reply) => {
           pending -= 1;
           options.onVaultStateMayChange?.();
+          if (request.type === "connection.sync") {
+            try {
+              options.onSync?.(request.connectionId, reply);
+            } catch {
+              // Logging never holds back the reply.
+            }
+          }
           if (connected) {
             try {
               port.postMessage({ requestId: request.requestId, result: reply });

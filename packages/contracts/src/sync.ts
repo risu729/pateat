@@ -124,8 +124,6 @@ export const syncErrorCodeSchema = v.picklist([
   "rate_limited",
   /** The write would make the owner hold more active recipes than the service keeps. */
   "recipe_limit",
-  "enrollment_not_found",
-  "enrollment_code_mismatch",
   "internal_error",
 ]);
 export const syncErrorSchema = v.variant("error", [
@@ -144,3 +142,26 @@ export type SyncRecipeChanges = v.InferOutput<typeof syncRecipeChangesSchema>;
 export type SyncRecipeWrite = v.InferOutput<typeof syncRecipeWriteSchema>;
 export type SyncRecipeWriteResult = v.InferOutput<typeof syncRecipeWriteResultSchema>;
 export type SyncError = v.InferOutput<typeof syncErrorSchema>;
+
+/**
+ * `GET /v1/device`: what the service holds for the calling device's owner, for the
+ * diagnostics page (ADR 0019). Counts, times and codes only.
+ */
+export const syncDeviceStateSchema = v.strictObject({
+  version: v.literal(1),
+  /** When this device was paired. */
+  pairedAt: sequence,
+  /** The owner's recipes that are not deleted. */
+  recipes: sequence,
+  /** The owner's settings revision; 0 when none is stored. */
+  settingsRevision: revision,
+  /** Whether recipe generation would be attempted now, without asking Claude. */
+  generation: v.picklist([
+    "ok",
+    "credentials-not-configured",
+    "issuer-unavailable",
+    "monthly-limit",
+    "daily-limit",
+  ]),
+});
+export type SyncDeviceState = v.InferOutput<typeof syncDeviceStateSchema>;

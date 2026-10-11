@@ -109,6 +109,23 @@ export function publicKeySet(config: IssuerConfig) {
   };
 }
 
+/** Whether the signing key imports, as signing needs; nothing is signed or sent. */
+export async function signingKeyImports(config: IssuerConfig): Promise<boolean> {
+  const { kty, crv, x, y, d } = config.signingKey;
+  try {
+    await crypto.subtle.importKey(
+      "jwk",
+      { kty, crv, x, y, d },
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Signs a fresh single-use assertion for one owner. Call it only with the owner of
  * the authenticated request; the subject is what the owner's federation rule trusts.

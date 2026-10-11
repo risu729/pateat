@@ -101,8 +101,35 @@ const healthSchema = v.variant("ok", [
   }),
 ]);
 
+/** `GET /v1/device`: the service's own record for this device and its owner. */
+const deviceSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    pairedAt: time,
+    recipes: count,
+    settingsRevision: count,
+    generation: v.picklist([
+      "ok",
+      "credentials-not-configured",
+      "issuer-unavailable",
+      "monthly-limit",
+      "daily-limit",
+    ]),
+  }),
+  v.strictObject({
+    ok: v.literal(false),
+    error: v.picklist([
+      "rejected",
+      "unreachable",
+      "unexpected-response",
+      "rate-limited",
+      "unavailable",
+    ]),
+  }),
+]);
+
 const serviceSchema = v.strictObject({
-  kind: v.picklist(["not-configured", "pairing", "connected", "unavailable"]),
+  kind: v.picklist(["not-configured", "connected", "unavailable"]),
   rejected: v.optional(v.literal(true)),
   cacheFull: v.optional(v.literal(true)),
   siteAccess: v.optional(v.boolean()),
@@ -112,6 +139,27 @@ const serviceSchema = v.strictObject({
   recipes: v.optional(v.strictObject({ count, bytes: count })),
   nextSyncAt: v.optional(time),
   health: v.optional(healthSchema),
+  device: v.optional(deviceSchema),
+});
+
+/**
+ * `recentLog` in `log.ts`: lines of at most `RECENT_LINE_LENGTH`, `RECENT_PROBLEMS` lines,
+ * `RECENT_DELEGATION_REASONS` reasons, and its revision and code checks.
+ */
+export const recentLogSchema = v.strictObject({
+  problems: v.pipe(v.array(v.pipe(v.string(), v.maxLength(2048))), v.maxLength(10)),
+  updated: v.optional(
+    v.strictObject({ time, from: v.pipe(v.string(), v.regex(/^[0-9A-Za-z._-]{1,64}$/u)) }),
+  ),
+  passkeyDelegations: v.pipe(
+    v.array(
+      v.strictObject({
+        reason: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
+        count,
+      }),
+    ),
+    v.maxLength(32),
+  ),
 });
 
 export const diagnosticsStatusSchema = v.strictObject({
@@ -147,6 +195,8 @@ export const diagnosticsStatusSchema = v.strictObject({
       debugUntil: v.optional(count),
     }),
   ),
+  /** The log's lines for a bug report; sites are numbered apart from the download. */
+  recent: v.optional(recentLogSchema),
   /** Up to four per connection plus the build, service, recipe and log checks. */
   checks: v.pipe(v.array(checkSchema), v.maxLength(320)),
 });
