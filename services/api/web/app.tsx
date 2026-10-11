@@ -2,7 +2,10 @@ import type { ManageClient } from "./api";
 import { DevicesPage } from "./devices";
 
 const revision = PATEAT_BUILD_REVISION;
-const sourceUrl = `https://github.com/risu729/pateat/tree/${/^[0-9a-f]{40}$/.test(revision) ? revision : "main"}`;
+// The source offer and license text are the repository at the exact built commit.
+const sourceRef = /^[0-9a-f]{40}$/.test(revision) ? revision : "main";
+const sourceUrl = `https://github.com/risu729/pateat/tree/${sourceRef}`;
+const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-GPL-3.0.txt`;
 
 /** Pages the app renders, by path; the Worker serves the app only at these paths. */
 const PAGES = [{ path: "/manage", title: "Devices" }] as const;
@@ -32,7 +35,7 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
       <main>{current ? <DevicesPage client={client} /> : <p>No such page.</p>}</main>
       <footer className="border-t border-slate-200 pt-4 text-sm text-slate-600">
         Pateat {revision}. This page includes code licensed under the{" "}
-        <a className="text-teal-800 underline" href="/manage/assets/LICENSE-GPL-3.0.txt">
+        <a className="text-teal-800 underline" href={licenseUrl}>
           GPL-3.0-only
         </a>
         ;{" "}

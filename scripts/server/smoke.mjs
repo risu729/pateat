@@ -49,10 +49,6 @@ assert.match(
   await readFile(join(assetsDirectory, "manage", "assets", "notices.md"), "utf8"),
   /shadcn/,
 );
-assert.match(
-  await readFile(join(assetsDirectory, "manage", "assets", "LICENSE-GPL-3.0.txt"), "utf8"),
-  /GNU GENERAL PUBLIC LICENSE\s+Version 3/,
-);
 assert.equal(config.assets?.runWorkerFirst, true, "Assets must pass the Worker's Access check");
 
 const runtime = new Miniflare({
