@@ -182,18 +182,17 @@ deployed service or the service acceptance gates in
 ## Hosted smoke checks
 
 After each release activates and `/health` reports its revision, the deploy job runs
-`smoke/hosted.ts` against the hosted server. It checks that `/manage`,
-`/manage/api/devices` and `/enroll` are answered by Access even with a forged
-`Cf-Access-Jwt-Assertion`, then seeds two synthetic owners with IDs starting `smoke-`
-and one approved `enrollments` row each, through the D1 REST API with the deploy
-token. Approving a pairing normally needs an owner's Access sign-in, so the job writes
-the approval itself; synthetic owners get no `owner_identities` row, so no sign-in can
-reach them. Each owner then redeems through `POST /redeem` like the extension (a
-replay must fail), and the checks cover missing and unknown credentials, the stored
-credential digest, settings and recipe round trips, owners neither seeing nor changing
-each other's data, and `DELETE /v1/device` followed by `device_revoked`. Every row of
-every `smoke-` owner is deleted before and after the checks, also after a failure.
-A failed check fails the release. The checks never call inference.
+`smoke/hosted.ts` against the hosted server. It checks that `/manage` and
+`/manage/api/devices` are answered by Access even with a forged
+`Cf-Access-Jwt-Assertion`. It then seeds two synthetic owners with IDs starting
+`smoke-`, each with one device whose credential it generates and stores only as a
+SHA-256 digest, through the D1 REST API with the deploy token. Pairing a device needs
+an owner's Access sign-in, so the job writes the device itself; synthetic owners get no
+`owner_identities` row, so no sign-in can reach them. Over HTTPS the checks cover
+missing and unknown credentials, settings and recipe round trips, owners neither seeing
+nor changing each other's data, and `DELETE /v1/device` followed by `device_revoked`.
+Every row of every `smoke-` owner is deleted before and after the checks, also after a
+failure. A failed check fails the release. The checks never call inference.
 
 `test/hosted-smoke.test.ts` runs the same checks against the local Worker, so a
 contract or schema change that would break them fails CI first; it also requires

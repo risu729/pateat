@@ -1,11 +1,13 @@
-import { createEnrollmentChallenge, enrollmentCode } from "@pateat/contracts";
+import { deviceCredentialSchema } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
+import { hashDeviceToken } from "../src/auth";
 import {
   OWNER_TABLES,
   SMOKE_OWNER_PREFIX,
   checkAccessGate,
-  createPairing,
+  createDeviceCredential,
   removeSmokeOwners,
   runHostedSmoke,
   type Fetch,
@@ -16,15 +18,7 @@ import {
 // local Worker and D1 so a contract or schema change cannot break them unnoticed.
 
 const ORIGIN = "https://pateat.invalid";
-// Redemption is rate limited per address, so each check run gets its own.
-function addressed(): Fetch {
-  const address = `192.0.2.${Math.floor(Math.random() * 254) + 1}`;
-  return (url, init) => {
-    const headers = new Headers(init?.headers);
-    headers.set("CF-Connecting-IP", address);
-    return exports.default.fetch(url, { ...init, headers });
-  };
-}
+const worker: Fetch = (url, init) => exports.default.fetch(url, init);
 // Like the D1 REST API, bind every parameter as text.
 const query: Query = async (sql, params = []) =>
   (
@@ -47,13 +41,12 @@ async function smokeRows() {
 
 describe("hosted smoke checks", () => {
   it("pass against the Worker and leave no synthetic rows", async () => {
-    const passed = await runHostedSmoke(ORIGIN, addressed(), query);
+    const passed = await runHostedSmoke(ORIGIN, worker, query);
     expect(passed).toContain("Owners cannot read or change each other's settings and recipes.");
     expect(await smokeRows()).toBe(0);
   });
 
   it("clean up even when a check fails", async () => {
-    const worker = addressed();
     const failing: Fetch = (url, init) =>
       new URL(url).pathname === "/v1/recipes"
         ? Promise.resolve(Response.json({ version: 1, changes: [] }))
@@ -65,7 +58,6 @@ describe("hosted smoke checks", () => {
   });
 
   it("fail when another owner's data is visible", async () => {
-    const worker = addressed();
     let firstCredential: string | undefined;
     const leaking: Fetch = async (url, init) => {
       const headers = new Headers(init?.headers);
@@ -116,10 +108,10 @@ describe("hosted smoke checks", () => {
     expect(owned.sort()).toEqual([...OWNER_TABLES].sort());
   });
 
-  it("derive pairing values exactly like the extension", async () => {
-    const pairing = await createPairing();
-    expect(pairing.challenge).toBe(await createEnrollmentChallenge(pairing.verifier));
-    expect(pairing.code).toBe(await enrollmentCode(pairing.verifier));
+  it("create device credentials the service accepts", async () => {
+    const { credential, tokenHash } = await createDeviceCredential();
+    expect(v.is(deviceCredentialSchema, credential)).toBe(true);
+    expect(tokenHash).toBe(await hashDeviceToken(credential));
   });
 });
 

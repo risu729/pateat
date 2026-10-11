@@ -1,10 +1,11 @@
 // Hosted smoke checks for a released server (docs/delivery.md). They exercise the
-// deployed entry points over HTTPS: anonymous redemption, device bearer credentials,
-// settings and recipe sync, revocation and Access in front of owner pages.
+// deployed entry points over HTTPS: device bearer credentials, settings and recipe
+// sync, revocation and Access in front of owner pages.
 //
-// The deploy job seeds synthetic owners through D1 itself, because an owner's own
-// approval needs an Access sign-in. Synthetic owners get no `owner_identities` row,
-// so no sign-in can ever reach them, and every row they own is deleted afterwards.
+// The deploy job seeds synthetic owners and their devices through D1 itself, because
+// pairing a device needs an owner's Access sign-in. Synthetic owners get no
+// `owner_identities` row, so no sign-in can ever reach them, and every row they own
+// is deleted afterwards.
 //
 // Node runs this file directly (type stripping), and the Worker tests import it, so
 // it uses Web APIs only and imports nothing from the workspace.
@@ -37,39 +38,20 @@ export const OWNER_TABLES = [
   "owner_identities",
 ] as const;
 
-const ENROLLMENT_TTL_MS = 10 * 60 * 1000;
-const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-function encodeBase64Url(bytes: Uint8Array): string {
-  let output = "";
-  for (let index = 0; index < bytes.length; index += 3) {
-    const chunk = (bytes[index]! << 16) | ((bytes[index + 1] ?? 0) << 8) | (bytes[index + 2] ?? 0);
-    const length = Math.min(4, Math.ceil(((bytes.length - index) * 8) / 6));
-    for (let digit = 0; digit < length; digit += 1)
-      output += BASE64URL[(chunk >> (18 - digit * 6)) & 63];
-  }
-  return output;
-}
-
-async function sha256(text: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /**
- * The extension's pairing values for a fresh verifier: its challenge and the code the
- * owner would type. A Worker test keeps these equal to `@pateat/contracts`.
+ * A device credential shaped like `createDeviceToken` in src/auth.ts and the digest
+ * the service stores for it. A Worker test keeps the shape accepted.
  */
-export async function createPairing() {
-  const verifier = encodeBase64Url(crypto.getRandomValues(new Uint8Array(32)));
-  const challenge = encodeBase64Url(await sha256(verifier));
-  const digest = await sha256(`pateat-enrollment-code:${verifier}`);
-  let bits = 0n;
-  for (const byte of digest.subarray(0, 5)) bits = (bits << 8n) | BigInt(byte);
-  let code = "";
-  for (let index = 7; index >= 0; index -= 1)
-    code += CROCKFORD[Number((bits >> BigInt(index * 5)) & 31n)];
-  return { verifier, challenge, code: `${code.slice(0, 4)}-${code.slice(4)}` };
+export async function createDeviceCredential() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const base64 = btoa(String.fromCharCode(...bytes));
+  const credential = `pateat_device_${base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+  return { credential, tokenHash: await sha256Hex(credential) };
 }
 
 function check(condition: unknown, message: string): asserts condition {
@@ -124,54 +106,17 @@ function recipeDocument(id: string, revision: number) {
   };
 }
 
-/**
- * Seeds a synthetic owner with one approved pairing, then redeems it anonymously
- * like the extension does. The owner exists before any device, so a failed redeem
- * still leaves only rows that cleanup removes.
- */
-async function pairOwner(origin: string, fetch: Fetch, query: Query): Promise<Device> {
+/** Seeds a synthetic owner with one device; the owner row comes first for cleanup. */
+async function seedOwner(query: Query): Promise<Device> {
   const ownerId = `${SMOKE_OWNER_PREFIX}${crypto.randomUUID()}`;
-  const pairing = await createPairing();
-  const now = Date.now();
-  await query("INSERT INTO owners (id, created_at) VALUES (?, ?)", [ownerId, String(now)]);
+  const deviceId = crypto.randomUUID();
+  const { credential, tokenHash } = await createDeviceCredential();
+  const now = String(Date.now());
+  await query("INSERT INTO owners (id, created_at) VALUES (?, ?)", [ownerId, now]);
   await query(
-    "INSERT INTO enrollments (challenge, owner_id, label, code, approved_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
-    [
-      pairing.challenge,
-      ownerId,
-      "Pateat smoke test",
-      pairing.code,
-      String(now),
-      String(now + ENROLLMENT_TTL_MS),
-    ],
+    "INSERT INTO devices (id, owner_id, token_hash, label, created_at) VALUES (?, ?, ?, ?, ?)",
+    [deviceId, ownerId, tokenHash, "Pateat smoke test", now],
   );
-  const redeem = () =>
-    fetch(`${origin}/redeem`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ version: 1, verifier: pairing.verifier }),
-    });
-  const response = await redeem();
-  check(response.status === 200, `redeem answered ${response.status}`);
-  const body = (await response.json()) as Record<string, unknown>;
-  const { deviceId, credential } = body;
-  check(
-    body["version"] === 1 &&
-      typeof deviceId === "string" &&
-      typeof credential === "string" &&
-      /^pateat_device_[A-Za-z0-9_-]{43}$/.test(credential),
-    "redeem returned an unexpected body",
-  );
-  const replay = await redeem();
-  check(replay.status === 404, `a redeemed pairing answered ${replay.status} on replay`);
-
-  // Only a hex SHA-256 digest of the credential is stored.
-  const [row] = await query("SELECT owner_id, token_hash FROM devices WHERE id = ?", [deviceId]);
-  const digest = [...(await sha256(credential))]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  check(row?.["owner_id"] === ownerId, "the redeemed device belongs to another owner");
-  check(row?.["token_hash"] === digest, "the stored device credential is not its digest");
   return { ownerId, deviceId, credential };
 }
 
@@ -203,7 +148,7 @@ function client(origin: string, fetch: Fetch) {
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /**
- * Pairs two synthetic owners and checks device authentication, settings and recipe
+ * Seeds two synthetic owners and checks device authentication, settings and recipe
  * round trips, owner separation and revocation. Synthetic rows are always removed.
  * Returns the names of the passed checks for the release summary.
  */
@@ -224,9 +169,8 @@ export async function runHostedSmoke(origin: string, fetch: Fetch, query: Query)
     }
     passed.push("Missing and unknown device credentials are refused.");
 
-    const first = await pairOwner(origin, fetch, query);
-    const second = await pairOwner(origin, fetch, query);
-    passed.push("Two synthetic owners paired through /redeem; a pairing redeems once.");
+    const first = await seedOwner(query);
+    const second = await seedOwner(query);
 
     const empty = { version: 1, revision: 0, settings: null };
     check(same((await api(first, "/v1/settings")).json, empty), "a new owner has settings");
@@ -304,7 +248,7 @@ export async function runHostedSmoke(origin: string, fetch: Fetch, query: Query)
  */
 export async function checkAccessGate(origin: string, fetch: Fetch) {
   const { host } = new URL(origin);
-  const paths = ["/manage", "/manage/api/devices", "/enroll"];
+  const paths = ["/manage", "/manage/api/devices"];
   const responses = await Promise.all(
     paths.map((path) =>
       fetch(`${origin}${path}`, {
