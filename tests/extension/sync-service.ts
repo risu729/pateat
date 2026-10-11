@@ -18,7 +18,7 @@ export type SyncService = {
 };
 
 /**
- * Serves the built API Worker (`mise run build:server`) on loopback HTTPS with a fresh
+ * Serves the built API Worker (`mise run //services/api:build`) on loopback HTTPS with a fresh
  * local D1 database, one owner and one device. Nothing leaves the machine.
  */
 export async function startSyncService(): Promise<SyncService> {
