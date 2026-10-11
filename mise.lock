@@ -200,9 +200,9 @@ backend = "npm:oxlint"
 specifiers = ["1.87.0"]
 
 [[tools."npm:typescript"]]
-version = "6.0.3"
+version = "7.0.2"
 backend = "npm:typescript"
-specifiers = ["6.0.3"]
+specifiers = ["7.0.2"]
 
 [[tools.oxfmt]]
 version = "0.72.0"
