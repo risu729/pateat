@@ -1042,7 +1042,13 @@ segments. The corpus holds 78 plans and 17 abstentions. Two pages are Japanese
 which also marks one Chinese page `ja` and every other non-Japanese page `en`. The owner
 chose on 2026-10-11 to publish the derived page text (titles, headings and labels) as
 is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
-sites appear twice with the same login form.
+sites appear twice with the same login form. It was regenerated on 2026-10-11 with the
+extractor of main `84df607`, which locates links by their text (#184) and observes
+script buttons (#206); the first import used an extractor from before #184. The cases,
+their plans and their abstentions are unchanged. The observations gained 132 links that
+only their text can locate, which the probe now resolves among links as the executor
+does; candidate IDs shifted with them. No observed candidate in a Formasaurus login form
+is a script button. The 132 link texts were reviewed for personal data and hold none.
 `mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
 it; `--from` and `--count` run a slice of the corpus in its fixed order, so it can be
 run in batches. Each case in the report carries the plan in candidate IDs.
@@ -1054,7 +1060,8 @@ password that an identifier may fill and that is not marked as a one-time code, 
 its first button after the password, or else its first button. Without such a form,
 the one form whose only fill field is marked `username` or `email` advances. It reads no
 labels, and its inputs pass the same schema and completeness gate as generation. On
-2026-10-11, with the corpus as merged in `e5b4244`, it scored:
+2026-10-11 it scored the same on the corpus as merged in `e5b4244` and as regenerated
+from `84df607`:
 
 | Corpus | Correct | Correct abstentions | Missed | False submits | Semantic accuracy |
 | --- | --- | --- | --- | --- | --- |
@@ -1069,7 +1076,8 @@ pages where they fail.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
-one, which inference rejects without a call; 126 were complete. In 62 of the 109, the
+one, which inference rejects without a call; 126 were complete. These totals were the
+same on main `84df607`. In 62 of the 109, the
 only shown select, radio button, text area or other unsupported input was outside the
 login form, for example a search form's category select. In 42 none was shown, so a
 control without a unique `id`, `name` or `data-testid` is the likely cause (inferred,
