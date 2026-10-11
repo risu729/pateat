@@ -46,6 +46,8 @@ const STATUS_TEXT = {
   failed: "The token exchange did not complete. Try again later.",
 } as const;
 
+const INVALID_ROW = "The stored identifiers are no longer valid. Enter them again.";
+
 function validFor(milliseconds: number) {
   const seconds = Math.max(0, Math.round(milliseconds / 1000));
   return seconds < 120
@@ -57,9 +59,11 @@ function settingsPage(
   c: Parameters<typeof page>[0],
   status: 200 | 400,
   ownerId: string,
-  values: FormValues | null,
-  notice?: string,
+  saved: WifIdentifiers | null,
+  options: { notice?: string; form?: FormValues } = {},
 ) {
+  const { notice, form } = options;
+  const values = form ?? saved;
   const issuer = readIssuerConfig(c.env)?.issuer;
   return page(
     c,
@@ -87,11 +91,31 @@ function settingsPage(
           </tr>
           <tr>
             <th scope="row">Scope</th>
-            <td><code>workspace:inference</code></td>
+            <td>
+              <code>workspace:inference</code> if the Console offers it, otherwise
+              <code>workspace:developer</code>
+            </td>
           </tr>
         </tbody>
       </table>
-      <p>Then copy the identifiers the Console shows for that rule. None of them is a secret.</p>
+      <h2>Saved identifiers</h2>
+      ${
+        saved
+          ? html`<table>
+              <tbody>
+                ${FIELDS.map(
+                  ([name, label]) =>
+                    html`<tr>
+                      <th scope="row">${label}</th>
+                      <td><code>${saved[name]}</code></td>
+                    </tr>`,
+                )}
+              </tbody>
+            </table>`
+          : html`<p>None yet.</p>`
+      }
+      <h2>Update identifiers</h2>
+      <p>Copy the identifiers the Console shows for that rule. None of them is a secret.</p>
       <form method="post" action="/manage/claude">
         ${FIELDS.map(
           ([name, label, placeholder]) =>
@@ -119,6 +143,16 @@ function settingsPage(
   );
 }
 
+/** The stored identifiers, or null when none are stored or the row no longer validates. */
+async function readSaved(db: D1Database, ownerId: string) {
+  try {
+    return await readWifCredential(db, ownerId);
+  } catch (error) {
+    if (!v.isValiError(error)) throw error;
+    return null;
+  }
+}
+
 /**
  * Guards its own routes: no app-wide `/manage` middleware applies, so it alone keeps
  * the page Access-only, same-origin and body-limited.
@@ -140,13 +174,7 @@ export const manageClaudeRoutes = new Hono<ApiEnv>()
     } catch (error) {
       if (!v.isValiError(error)) throw error;
       // Keep the form reachable so the owner can replace a row the schema no longer accepts.
-      return settingsPage(
-        c,
-        200,
-        ownerId,
-        null,
-        "The stored identifiers are no longer valid. Enter them again.",
-      );
+      return settingsPage(c, 200, ownerId, null, { notice: INVALID_ROW });
     }
   })
   .post("/", requireFormBody, async (c) => {
@@ -156,25 +184,28 @@ export const manageClaudeRoutes = new Hono<ApiEnv>()
     if (!form.success) return message(c, 400, "Invalid request", "The form was malformed.");
     const ids = v.safeParse(wifIdentifiersSchema, form.output);
     if (!ids.success)
-      return settingsPage(
-        c,
-        400,
-        ownerId,
-        form.output,
-        "Check the identifiers: fdrl_…, an organization UUID, svac_… and wrkspc_….",
-      );
+      return settingsPage(c, 400, ownerId, await readSaved(c.env.DB, ownerId), {
+        form: form.output,
+        notice: "Check the identifiers: fdrl_…, an organization UUID, svac_… and wrkspc_….",
+      });
     await saveWifCredential(c.env.DB, ownerId, ids.output);
     return c.redirect("/manage/claude", 303);
   })
   .post("/test", requireFormBody, async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     if (!ownerId) return message(c, 404, "Not found", "Pair a device with this account first.");
-    const result = await resolveClaudeCredential(c.env, ownerId);
+    let result;
+    try {
+      result = await resolveClaudeCredential(c.env, ownerId);
+    } catch (error) {
+      if (!v.isValiError(error)) throw error;
+      return settingsPage(c, 200, ownerId, null, { notice: INVALID_ROW });
+    }
     // The token itself is discarded; only the outcome is shown.
     const notice =
       result.status === "ready"
         ? `Anthropic issued a token valid for ${validFor(result.expiresAt - Date.now())}.`
         : STATUS_TEXT[result.status] +
           ("httpStatus" in result && result.httpStatus ? ` (HTTP ${result.httpStatus})` : "");
-    return settingsPage(c, 200, ownerId, await readWifCredential(c.env.DB, ownerId), notice);
+    return settingsPage(c, 200, ownerId, await readSaved(c.env.DB, ownerId), { notice });
   });
