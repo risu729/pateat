@@ -41,10 +41,11 @@ per device and per sync. When several custom fields share a name, the reference 
 stores its position among them and how many there are; if that count changes, the
 binding is not used until it is reviewed again. Swapping two same-name fields in the
 vault keeps the count, so the binding then fills the other field; this is a known
-limitation. Item and field names are stored for display and logging. Still open: how the
-other synced settings that use local IDs today, such as field exclusions, are converted,
-and where custom-field review happens and keeps its state now that the extension page no
-longer edits settings.
+limitation. Item and field names are stored for display and logging; a site default
+keeps its optional `itemName` for the same reason (owner decision, 2026-10-11). Still
+open: how the other synced settings that use local IDs today, such as field exclusions,
+are converted, and where custom-field review happens and keeps its state now that the
+extension page no longer edits settings.
 
 ### Recipes and account bindings
 

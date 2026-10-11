@@ -1,5 +1,4 @@
-import type { LoginObservation, ValueShape } from "./observation";
-import { valueCharacterClasses } from "./observation";
+import { valueCharacterClasses, type LoginObservation, type ValueShape } from "@pateat/contracts";
 import type { PagePlan } from "./plan";
 
 const classOf = (character: string): ValueShape["classes"][number] => {

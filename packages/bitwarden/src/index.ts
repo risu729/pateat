@@ -10,7 +10,7 @@ export {
   type BitwardenAccountBinding,
   type PreparedBitwardenAccount,
 } from "./account";
-export type { BitwardenErrorCode, BitwardenResult } from "./errors";
+export type { BitwardenErrorCode, BitwardenMismatchCheck, BitwardenResult } from "./errors";
 export {
   createLocalFieldSnapshot,
   type LocalFieldSnapshot,

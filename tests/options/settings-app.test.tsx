@@ -246,6 +246,23 @@ test("keyboard add forms validate locally and recover input focus after add and 
   expect(client.saveSettings).not.toHaveBeenCalled();
 });
 
+test("a default for an account not connected here shows its saved item name", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "another-account",
+    itemId: "remote-item",
+    itemName: "Remote bank login",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await expect
+    .element(control("site-defaults"))
+    .toMatchTextContent("account another-account (not available here) / Remote bank login");
+});
+
 test("malformed save responses are rejected at the runtime boundary and keep the draft blocked", async () => {
   const send = vi
     .fn<(message: unknown) => Promise<unknown>>()

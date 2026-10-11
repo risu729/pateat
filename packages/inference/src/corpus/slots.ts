@@ -1,4 +1,4 @@
-import type { SemanticSlot } from "../observation";
+import type { SemanticSlot } from "@pateat/contracts";
 
 /** Synthetic semantic slots. Descriptions name meanings only; no values or bindings. */
 export const slots = {

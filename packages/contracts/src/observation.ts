@@ -1,4 +1,4 @@
-import { loginOriginSchema, loginStepSchema, loginTargetSchema } from "@pateat/contracts";
+import { loginOriginSchema, loginStepSchema, loginTargetSchema } from "./login";
 import * as v from "valibot";
 
 const identifier = v.pipe(

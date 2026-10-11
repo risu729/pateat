@@ -1,11 +1,12 @@
-import { loginStepSchema, type LoginStep } from "@pateat/contracts";
-import * as v from "valibot";
 import {
   actionRoles,
+  loginStepSchema,
   type LoginObservation,
+  type LoginStep,
   type ObservedCandidate,
   type SemanticSlot,
-} from "./observation";
+} from "@pateat/contracts";
+import * as v from "valibot";
 
 /**
  * A role's proposal for the observed page, expressed in observation-local candidate

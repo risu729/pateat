@@ -77,7 +77,13 @@ export const setupRequestSchema = v.variant("type", [
 ]);
 const errorCode = v.pipe(v.string(), v.minLength(1), v.maxLength(80), v.regex(/^[a-z-]+$/));
 const replySchema = v.union([
-  v.strictObject({ ok: v.literal(false), error: v.strictObject({ code: errorCode }) }),
+  v.strictObject({
+    ok: v.literal(false),
+    error: v.strictObject({
+      code: errorCode,
+      check: v.optional(v.pipe(v.string(), v.maxLength(40), v.regex(/^[a-z-]+$/))),
+    }),
+  }),
   v.strictObject({
     ok: v.literal(true),
     kind: v.literal("ready"),

@@ -585,7 +585,7 @@ describe("production login document admission", () => {
       expect(h.store.update.mock.calls[0]![0]).toBe(1);
       // The saved default names the provider account, not this device's connection.
       expect(h.settings.settings.siteDefaults).toEqual([
-        { origin, provider: "bitwarden", userId, itemId },
+        { origin, provider: "bitwarden", userId, itemId, itemName: "Synthetic item" },
       ]);
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
       // One query per document while every connection's snapshot is unchanged.

@@ -218,6 +218,7 @@ export function saveLoginChoice(
             provider: binding.provider,
             userId: binding.userId,
             itemId: binding.itemId,
+            itemName: binding.itemName,
           },
         ],
     bindings: hasBinding ? bindings : [...bindings, binding],

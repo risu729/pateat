@@ -275,9 +275,16 @@ describe("automatic account choice", () => {
     const settings = createDefaultSettings({ connections: [] });
     const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
     const saved = saveLoginChoice(settings, chosen, "live");
-    // A new default names the provider account, never the local connection.
+    // A new default names the provider account, never the local connection, and keeps
+    // the item name for display.
     expect(saved.siteDefaults).toEqual([
-      { origin, provider: "bitwarden", userId: account.userId, itemId: account.itemId },
+      {
+        origin,
+        provider: "bitwarden",
+        userId: account.userId,
+        itemId: account.itemId,
+        itemName: chosen.itemName,
+      },
     ]);
     expect(saved.bindings).toEqual([chosen]);
     expect(v.is(localSettingsSchema, saved)).toBe(true);
@@ -299,6 +306,26 @@ describe("automatic account choice", () => {
     // A saved choice without a binding gains one.
     const unbound = { ...saved, bindings: [] };
     expect(saveLoginChoice(unbound, chosen, "live").bindings).toEqual([chosen]);
+
+    // A default saved before item names, or with another name, is never rewritten.
+    for (const itemName of [undefined, "Renamed item"]) {
+      const older = {
+        ...saved,
+        siteDefaults: [
+          {
+            origin,
+            provider: "bitwarden",
+            userId: account.userId,
+            itemId: account.itemId,
+            ...(itemName ? { itemName } : {}),
+          },
+        ],
+        bindings: [],
+      };
+      const updated = saveLoginChoice(older, chosen, "live");
+      expect(updated.siteDefaults).toBe(older.siteDefaults);
+      expect(updated.bindings).toEqual([chosen]);
+    }
 
     const manual = {
       ...chosen,
