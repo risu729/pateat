@@ -177,6 +177,7 @@ describe("Claude settings page", () => {
     const body = await response.text();
     expect(body).toContain(`<code>owner:${ownerId}</code>`);
     expect(body).toContain("<code>https://pateat.invalid</code>");
+    expect(body).toContain("<p>None yet.</p>");
     expect(body).not.toContain("<script");
   });
 
@@ -193,9 +194,10 @@ describe("Claude settings page", () => {
       federation_rule_id: ids.federationRuleId,
       workspace_id: ids.workspaceId,
     });
-    expect(await (await request("/manage/claude", access)).text()).toContain(
-      `value="${ids.serviceAccountId}"`,
-    );
+    const shown = await (await request("/manage/claude", access)).text();
+    expect(shown).toContain(`value="${ids.serviceAccountId}"`);
+    expect(shown).toContain(`<td><code>${ids.federationRuleId}</code></td>`);
+    expect(shown).not.toContain("None yet.");
   });
 
   it("keeps the form reachable when the stored row is no longer valid", async () => {
@@ -260,6 +262,9 @@ describe("Claude settings page", () => {
     const body = await granted.text();
     expect(body).toContain("Anthropic issued a token valid for 10 minutes.");
     expect(body).not.toContain("sk-ant-oat01");
+    // The page after a test still shows what is saved.
+    expect(body).toContain(`value="${ids.workspaceId}"`);
+    expect(body).toContain(`<td><code>${ids.workspaceId}</code></td>`);
     const assertion = tokenRequests.at(-1)!["assertion"]!;
     expect(Jwt.decode(assertion).payload["sub"]).toBe(`owner:${ownerId}`);
 
