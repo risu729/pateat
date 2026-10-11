@@ -25,11 +25,11 @@ boundary as of 2026-10-10. No Bitwarden endorsement or trademark grant is implie
 
 For the Pateat revision accompanying an artifact, install the tools pinned in
 `mise.toml` and `mise.lock`, then run `mise run install` and
-`mise run build:extension`. The independent synthetic test variant is built by
-`mise run build:probe`. See [development](development.md) for checks and the
-installed-Chrome probe setup. Chrome's developer-mode Load unpacked action can
-load the emitted extension directory; no private signing key is required to run
-a modified unpacked copy.
+`mise run //apps/extension:build`. The independent synthetic test variant is built by
+`mise run //apps/extension:build:probe`. See [development](development.md) for checks
+and the installed-Chrome probe setup. Chrome's developer-mode Load unpacked action can
+load the emitted extension directory; no private signing key is required to run a
+modified unpacked copy.
 
 To rebuild the SDK itself, start from the exact source commit above and follow its
 [WASM README](https://github.com/bitwarden/sdk-internal/blob/af7a4b34c0819a9d241260f65b30272bb40dc451/crates/bitwarden-wasm-internal/README.md)
