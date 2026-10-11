@@ -349,14 +349,16 @@ export async function startLoginFixture(
         ),
       );
     } else if (path === "/sign-in") {
-      // A page with no recipe: a generated one fills the password and opens /account.
+      // A page with no recipe: a generated one fills the password and opens /account. The
+      // page reads its run ID itself, so nothing from the request URL is written into it.
       response.end(
         html(
           '<h1>Synthetic sign-in</h1><form><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button></form>',
           `document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
-          ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});` : ""}
+          const runId = new URLSearchParams(location.search).get('runId');
+          if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});
           location.href = '/account';
         });`,
         ),
