@@ -718,6 +718,15 @@ export function createLoginRuntime(
       documents.get(frameKey(run.live.document)) === run.live
     );
   }
+  /**
+   * Whether a policy write now would stop this attempt while it can still make progress. A
+   * login whose result settled as unknown counts only while this worker checks or judges
+   * one of its pages: such a record stays until its tab closes, and counting it would hold
+   * policy writes for as long (ADR 0027).
+   */
+  function inProgress(run: Execution): boolean {
+    return current(run) && !terminal(run.metadata) && (run.running || !run.metadata.settled);
+  }
   async function save(run: Execution): Promise<void> {
     await keep(run.metadata);
   }
@@ -794,9 +803,7 @@ export function createLoginRuntime(
       choice.binding.itemId !== used.itemId ||
       choice.binding.origin !== used.origin ||
       // Saving bumps the revision every attempt checks; never stop another login with it.
-      [...attempts.values()].some(
-        (other) => other !== run && current(other) && !terminal(other.metadata),
-      )
+      [...attempts.values()].some((other) => other !== run && inProgress(other))
     )
       return;
     // Writing bumps the policy revision for every attempt, so skip a choice already saved.
@@ -2554,17 +2561,14 @@ export function createLoginRuntime(
     .catch(() => undefined);
   /**
    * Whether a login is in progress; a policy write now would stop it. An attempt between
-   * pages has no current document, so its saved state counts too, once it is loaded. A
-   * login whose result settled as unknown counts only while this worker checks or judges
-   * one of its pages: such a record stays until its tab closes, and counting it would hold
-   * settings and vault writes until their limits run out for every later login.
+   * pages has no current document, so its saved state counts too, once it is loaded;
+   * a settled one counts only as `inProgress` says.
    */
   async function active(): Promise<boolean> {
     await loaded;
     return (
-      [...attempts.values()].some(
-        (run) => current(run) && !terminal(run.metadata) && (run.running || !run.metadata.settled),
-      ) || [...persisted.values()].some((metadata) => !terminal(metadata) && !metadata.settled)
+      [...attempts.values()].some(inProgress) ||
+      [...persisted.values()].some((metadata) => !terminal(metadata) && !metadata.settled)
     );
   }
   /**

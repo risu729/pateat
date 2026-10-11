@@ -1531,6 +1531,34 @@ describe("production login document admission", () => {
       );
       expect(h.store.update).not.toHaveBeenCalled();
     });
+    it("saves the choice next to a login whose result settled as unknown", async () => {
+      const second = "https://second.example";
+      const { completion: _unlearned, ...generated } = recipe;
+      const h = harness(
+        {
+          siteDefaults: [{ origin: second, provider: "bitwarden", userId, itemId }],
+          bindings: [],
+        },
+        { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }) },
+      );
+      h.recipes.recipe.mockImplementation(async (at: string) =>
+        at === origin ? recipe : at === second ? { ...generated, origin: second } : undefined,
+      );
+      fake.state.tabUrls[2] = `${second}/signin`;
+      const attempts = () =>
+        (fake.state.storage["pateat.login-attempts.v2"] ?? []) as Record<string, unknown>[];
+      expect(await h.hello({ tab: { id: 2 }, url: `${second}/signin` })).toEqual({ ok: true });
+      // The record stays until its tab closes; it must not hold the choice off for as long.
+      await vi.waitFor(
+        () => expect(attempts()).toMatchObject([{ state: "reconciling", settled: true }]),
+        { timeout: 6_000 },
+      );
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
+      expect(h.settings.settings.siteDefaults).toContainEqual(
+        expect.objectContaining({ origin, itemId }),
+      );
+    }, 10_000);
     it("never saves an account other than the one the attempt used", async () => {
       const replaced = "60000000-0000-4000-8000-000000000002";
       const onlyOther = uriMatch({
