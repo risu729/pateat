@@ -159,10 +159,16 @@ test("a recipe and binding synced from the service log in with the live vault an
             credential: service.credential,
           },
         );
-        // The settings page's pairing check syncs as soon as the device is connected.
-        expect(await send(options, { version: 1, type: "service.pair.check" })).toMatchObject({
+        expect(await send(options, { version: 1, type: "service.get" })).toMatchObject({
           ok: true,
           state: { kind: "connected" },
+        });
+        // Saving settings syncs at once; the earlier save already scheduled the next one.
+        await settingsRequest(options, {
+          version: 1,
+          type: "settings.save",
+          expectedRevision: local.snapshot.revision,
+          settings: local.snapshot.settings,
         });
         await expect
           .poll(async () => JSON.stringify(await storedRecipes(browser.background)))

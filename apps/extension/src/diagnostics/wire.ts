@@ -114,7 +114,7 @@ const deviceSchema = v.variant("ok", [
 ]);
 
 const serviceSchema = v.strictObject({
-  kind: v.picklist(["not-configured", "pairing", "connected", "unavailable"]),
+  kind: v.picklist(["not-configured", "connected", "unavailable"]),
   rejected: v.optional(v.literal(true)),
   cacheFull: v.optional(v.literal(true)),
   siteAccess: v.optional(v.boolean()),

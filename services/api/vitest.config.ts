@@ -45,7 +45,6 @@ export default defineConfig({
           PAIRING_EXTENSION_IDS: ["abcdefghijklmnopabcdefghijklmnop"],
         },
         ratelimits: {
-          REDEEM_LIMITER: { namespace_id: "1001", simple: { limit: 10, period: 60 } },
           OWNER_LIMITER: { namespace_id: "1002", simple: { limit: 120, period: 60 } },
           PAIR_LIMITER: { namespace_id: "1003", simple: { limit: 10, period: 60 } },
         },

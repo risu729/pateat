@@ -3,19 +3,15 @@ import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 import type { ServiceClient } from "../../apps/extension/src/options/service-client";
 import { ServiceConnection } from "../../apps/extension/src/options/service-connection";
-import type { ServiceResponse, ServiceState } from "../../packages/contracts/src/index";
+import type {
+  ServiceErrorCode,
+  ServiceResponse,
+  ServiceState,
+} from "../../packages/contracts/src/index";
 
 // Synthetic service state only; no request leaves the page.
 
 const ORIGIN = "https://pateat.example.com";
-const pairing: ServiceState = {
-  kind: "pairing",
-  origin: ORIGIN,
-  label: "Work laptop",
-  code: "ABCD-EFGH",
-  enrollUrl: `${ORIGIN}/enroll?challenge=${"A".repeat(43)}&label=Work+laptop`,
-  expiresAt: Date.now() + 15 * 60 * 1000,
-};
 const connected: ServiceState = {
   kind: "connected",
   origin: ORIGIN,
@@ -27,20 +23,28 @@ const ok = (state: ServiceState, revoked?: boolean): ServiceResponse => ({
   state,
   ...(revoked === undefined ? {} : { revoked }),
 });
+const failed = (error: ServiceErrorCode): ServiceResponse => ({
+  ok: false,
+  error,
+  state: { kind: "disconnected" },
+});
 
 function mockClient(initial: ServiceState = { kind: "disconnected" }) {
   return {
     get: vi.fn<ServiceClient["get"]>().mockResolvedValue(ok(initial)),
     requestSiteAccess: vi.fn<ServiceClient["requestSiteAccess"]>().mockResolvedValue(true),
     forget: vi.fn<ServiceClient["forget"]>().mockResolvedValue(ok({ kind: "disconnected" })),
-    start: vi.fn<ServiceClient["start"]>().mockResolvedValue(ok(pairing)),
-    check: vi.fn<ServiceClient["check"]>().mockResolvedValue(ok(pairing)),
-    cancel: vi.fn<ServiceClient["cancel"]>().mockResolvedValue(ok({ kind: "disconnected" })),
+    pair: vi.fn<ServiceClient["pair"]>().mockResolvedValue(ok(connected)),
     disconnect: vi
       .fn<ServiceClient["disconnect"]>()
       .mockResolvedValue(ok({ kind: "disconnected" }, true)),
-    openApproval: vi.fn<ServiceClient["openApproval"]>().mockResolvedValue(undefined),
+    openSignIn: vi.fn<ServiceClient["openSignIn"]>().mockResolvedValue(undefined),
   };
+}
+
+async function submitPair(origin = ORIGIN) {
+  await page.getByLabelText("Service address", { exact: true }).fill(origin);
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
 }
 
 afterEach(async () => {
@@ -48,7 +52,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-test("starts pairing only with an exact HTTPS address", async () => {
+test("pairs in one click with an exact HTTPS address and shows no code", async () => {
   const client = mockClient();
   await render(<ServiceConnection client={client} pollMs={60_000} />);
   const address = page.getByLabelText("Service address", { exact: true });
@@ -60,44 +64,138 @@ test("starts pairing only with an exact HTTPS address", async () => {
     // oxlint-disable-next-line no-await-in-loop -- one form, filled in turn
     await expect.element(page.getByRole("alert").getByText(/Enter an HTTPS address/)).toBeVisible();
   }
-  expect(client.start).not.toHaveBeenCalled();
+  expect(client.pair).not.toHaveBeenCalled();
 
   await address.fill(`${ORIGIN}/`);
-  await page.getByLabelText("Device name", { exact: true }).fill("Work laptop");
+  await page.getByLabelText("Device name", { exact: true }).fill("  Work laptop  ");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   expect(client.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
-  expect(client.start).toHaveBeenCalledWith(ORIGIN, "Work laptop");
-  await expect.element(page.getByText("ABCD-EFGH", { exact: true })).toBeVisible();
+  expect(client.pair).toHaveBeenCalledExactlyOnceWith(ORIGIN, "Work laptop");
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByText(/is paired with https:\/\/pateat\.example\.com/))
+    .toBeVisible();
+  expect(client.openSignIn).not.toHaveBeenCalled();
+  // No typed-code flow remains.
+  expect(document.body.textContent).not.toMatch(/code|approval/i);
+  await expect.element(page.getByRole("button", { name: "Try again" })).not.toBeInTheDocument();
 });
 
-test("does not start pairing when site access is declined", async () => {
+test("validates the device name with the shared label rules", async () => {
+  const client = mockClient();
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await page.getByLabelText("Service address", { exact: true }).fill(ORIGIN);
+  const name = page.getByLabelText("Device name", { exact: true });
+  await name.fill("   ");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(page.getByRole("alert").getByText("Enter a device name.")).toBeVisible();
+  await name.fill("Tab\tname");
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect
+    .element(page.getByRole("alert").getByText(/without control characters/))
+    .toBeVisible();
+  expect(client.requestSiteAccess).not.toHaveBeenCalled();
+  expect(client.pair).not.toHaveBeenCalled();
+});
+
+test("does not pair when site access is declined", async () => {
   const client = mockClient();
   client.requestSiteAccess.mockResolvedValue(false);
   await render(<ServiceConnection client={client} pollMs={60_000} />);
-  await page.getByLabelText("Service address", { exact: true }).fill(ORIGIN);
-  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await submitPair();
   await expect.element(page.getByText(/site access when Chrome asks/)).toBeVisible();
-  expect(client.start).not.toHaveBeenCalled();
+  expect(client.pair).not.toHaveBeenCalled();
+  expect(client.openSignIn).not.toHaveBeenCalled();
 });
 
-test("asks for site access again without abandoning a pairing", async () => {
-  const client = mockClient(pairing);
+test("opens the sign-in page once and pairs on Try again", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
   await render(<ServiceConnection client={client} pollMs={60_000} />);
-  await expect.element(page.getByText("ABCD-EFGH", { exact: true })).toBeVisible();
+  await submitPair();
   await expect
-    .element(page.getByRole("button", { name: "Allow site access" }))
-    .not.toBeInTheDocument();
-  await cleanup();
+    .element(
+      page.getByText(`Sign in to ${ORIGIN} in the new tab, then come back here.`, { exact: false }),
+    )
+    .toBeVisible();
+  await expect.element(page.getByText(/ask its operator/)).toBeVisible();
+  expect(client.openSignIn).toHaveBeenCalledExactlyOnceWith(ORIGIN);
 
-  const blocked = mockClient();
-  blocked.get.mockResolvedValue({ ok: false, error: "site-access-needed", state: pairing });
-  blocked.check.mockResolvedValue(ok(connected));
-  await render(<ServiceConnection client={blocked} pollMs={60_000} />);
-  await page.getByRole("button", { name: "Allow site access", exact: true }).click();
-  expect(blocked.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
-  expect(blocked.check).toHaveBeenCalledOnce();
-  expect(blocked.cancel).not.toHaveBeenCalled();
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  expect(client.pair).toHaveBeenCalledTimes(2);
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome");
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+  expect(client.openSignIn).toHaveBeenCalledOnce();
+});
+
+test("opens no second tab automatically while sign-in is still needed", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValue(failed("sign-in-needed"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(/in the new tab/)).toBeVisible();
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect.element(page.getByText(/open the sign-in page, then come back here/)).toBeVisible();
+  expect(client.pair).toHaveBeenCalledTimes(2);
+  expect(client.openSignIn).toHaveBeenCalledOnce();
+
+  await page.getByRole("button", { name: "Open sign-in page", exact: true }).click();
+  expect(client.openSignIn).toHaveBeenCalledTimes(2);
+  expect(client.openSignIn).toHaveBeenLastCalledWith(ORIGIN);
+  expect(client.pair).toHaveBeenCalledTimes(2);
+});
+
+test("retries once when the page is shown or focused again", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  let pairs = 0;
+  client.pair.mockImplementation(async () => {
+    pairs += 1;
+    return ok(connected);
+  });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(/in the new tab/)).toBeVisible();
+  expect(client.pair).toHaveBeenCalledOnce();
+  // Returning fires both events; only one retry follows.
+  document.dispatchEvent(new Event("visibilitychange"));
+  window.dispatchEvent(new Event("focus"));
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(pairs).toBe(1);
+  expect(client.pair).toHaveBeenCalledTimes(2);
+});
+
+test("does not retry on focus before a sign-in page was opened", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValue(failed("unreachable"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(/could not be reached/)).toBeVisible();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+});
+
+test.each([
+  ["sign-in-rejected", /did not accept your sign-in/],
+  ["extension-not-allowed", /does not accept this build of Pateat.*PAIRING_EXTENSION_IDS/],
+  ["pairing-unavailable", /Pairing is not configured on this service/],
+  ["unreachable", /could not be reached/],
+  ["rate-limited", /slow down/],
+  ["unexpected-response", /unexpected answer/],
+] as const)("explains %s and offers Try again", async (error, text) => {
+  const client = mockClient();
+  client.pair.mockResolvedValue(failed(error));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(text)).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Open sign-in page" }))
+    .not.toBeInTheDocument();
+  expect(client.openSignIn).not.toHaveBeenCalled();
 });
 
 test("keeps the way out while forgetting fails", async () => {
@@ -137,71 +235,6 @@ test("forgets an unreadable saved connection", async () => {
   await expect
     .element(page.getByRole("button", { name: "Forget saved connection" }))
     .not.toBeInTheDocument();
-});
-
-test("opens the approval page and polls until paired", async () => {
-  const client = mockClient(pairing);
-  // Hold the first check so the pairing view stays until the approval page is opened.
-  let release: () => void = () => undefined;
-  client.check
-    .mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          release = () => resolve({ ok: false, error: "code-mismatch", state: pairing });
-        }),
-    )
-    .mockResolvedValueOnce(ok(connected));
-  await render(<ServiceConnection client={client} pollMs={50} />);
-  await page.getByRole("button", { name: "Open approval page", exact: true }).click();
-  expect(client.openApproval).toHaveBeenCalledWith(pairing.enrollUrl);
-  await vi.waitFor(() => expect(client.check).toHaveBeenCalledOnce());
-  // Once paired, the page waits for the first recipe sync through `get` instead.
-  client.get.mockResolvedValue(ok(connected));
-  release();
-  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
-  await expect
-    .element(page.getByText(/is paired with https:\/\/pateat\.example\.com/))
-    .toBeVisible();
-  const calls = client.check.mock.calls.length;
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  expect(client.check.mock.calls.length).toBe(calls);
-});
-
-test("clears a transient error once the service answers again", async () => {
-  const client = mockClient(pairing);
-  client.check.mockResolvedValueOnce({ ok: false, error: "unreachable", state: pairing });
-  await render(<ServiceConnection client={client} pollMs={50} />);
-  await expect.element(page.getByText(/could not be reached/)).toBeVisible();
-  await expect
-    .element(page.getByText("Waiting for approval on the service.", { exact: true }))
-    .toBeVisible();
-});
-
-test("explains a mismatched code and keeps the pairing", async () => {
-  const client = mockClient(pairing);
-  client.check.mockResolvedValue({ ok: false, error: "code-mismatch", state: pairing });
-  await render(<ServiceConnection client={client} pollMs={50} />);
-  await expect.element(page.getByText(/The approval page has a different code/)).toBeVisible();
-  await expect.element(page.getByText("ABCD-EFGH", { exact: true })).toBeVisible();
-});
-
-test("returns to the form when a pairing expires or is cancelled", async () => {
-  const client = mockClient(pairing);
-  client.check.mockResolvedValue({
-    ok: false,
-    error: "pairing-expired",
-    state: { kind: "disconnected" },
-  });
-  await render(<ServiceConnection client={client} pollMs={50} />);
-  await expect.element(page.getByText(/Pairing expired/)).toBeVisible();
-  await expect.element(page.getByLabelText("Service address", { exact: true })).toBeVisible();
-
-  await cleanup();
-  const cancelling = mockClient(pairing);
-  await render(<ServiceConnection client={cancelling} pollMs={60_000} />);
-  await page.getByRole("button", { name: "Cancel pairing", exact: true }).click();
-  expect(cancelling.cancel).toHaveBeenCalledOnce();
-  await expect.element(page.getByText("Pairing cancelled.", { exact: true })).toBeVisible();
 });
 
 test("shows when recipes last synced and when the service rejects the device", async () => {
@@ -249,5 +282,5 @@ test("tells the owner when the service could not confirm a disconnect", async ()
   await expect
     .element(page.getByText(/Revoke this device from https:\/\/pateat\.example\.com\/manage/))
     .toBeVisible();
-  expect(client.check).not.toHaveBeenCalled();
+  expect(client.pair).not.toHaveBeenCalled();
 });

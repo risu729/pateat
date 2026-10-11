@@ -792,7 +792,7 @@ vector search, or an agent framework without a demonstrated need. Use bound SQL
 parameters through the approved Drizzle integration, with Hono for API routing
 and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
-sync, enrollment and device management routes and the recipe generation routes of
+sync, pairing and device management routes and the recipe generation routes of
 [ADR 0018](adr/0018-recipe-generation-route.md), with their limits and the
 [ADR 0012](adr/0012-inference-request-log.md) request log, as described in
 [its README](../services/api/README.md).
@@ -802,15 +802,15 @@ supported integration or verified JWT, not an untrusted email header. Access-fre
 OIDC/passkey authentication is a later adapter. Self-hosting is the target, but
 owner-scoped data allows other operators to serve multiple users later.
 
-Enrollment pairs a device with a verified owner through setup. Store only hashed
-revocable high-entropy device credentials server-side; scope every query and write by
-verified owner/device. CORS is not authentication. No shared universal credential is
-shipped in the extension. Enrollment is implemented and deployed
-([device enrollment](#device-enrollment)), and credentials expire after 90 days unused.
-Separate Access-protected enrollment from device-authenticated API routes: a device
-token does not automatically pass an Access gate. Steady-state API access must not
-require an interactive Access cookie for each call. Service login does not authenticate
-or unlock a vault.
+Pairing uses the browser's login session to the service
+([ADR 0020](adr/0020-direct-device-pairing.md);
+[device enrollment](#device-enrollment)), and credentials expire after 90 days unused.
+Store only hashed revocable high-entropy device credentials server-side; scope every
+query and write by verified owner/device. CORS is not authentication. No shared
+universal credential is shipped in the extension. Separate Access-protected pairing from
+device-authenticated API routes: a device token does not automatically pass an Access
+gate. Steady-state API access must not require an interactive Access cookie for each
+call. Service login does not authenticate or unlock a vault.
 
 Initial synced settings are server-readable so service login can restore them
 without another recovery key. E2EE settings sync is a later option. Provider
@@ -856,8 +856,8 @@ quota, before the service is offered to other people.
   verified Access identity on `/manage/api`. The check runs right after authentication
   and before any body is read; a refused request gets 429 `rate_limited` with
   `Retry-After: 60`. The hosted limiter is approximate and counts per Cloudflare
-  location. `/redeem` keeps its own 10 a minute per client address. Recipe generation
-  is also bounded by spend and one call at a time
+  location. `/pair` keeps its own 10 a minute per verified Access identity. Recipe
+  generation is also bounded by spend and one call at a time
   ([ADR 0018](adr/0018-recipe-generation-route.md)).
 - Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
   republishing a tombstone beyond that answers 409 `recipe_limit`; updating or revoking
@@ -875,19 +875,19 @@ quota, before the service is offered to other people.
 
 ### Device enrollment
 
-Status: the typed-code flow below is implemented and deployed, and the owner paired a
-real Chrome through Access with it on 2026-10-11. Direct pairing
-([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; so far the
-fixed production extension ID and the service's `POST /pair` route are implemented, and
-the extension still uses the typed code. Both satisfy the separation above
-without a cookie on steady-state API calls.
+Status: direct pairing ([ADR 0020](adr/0020-direct-device-pairing.md)) is implemented
+and tested locally, including in bundled Chromium against the built Worker behind a
+synthetic Access stand-in. It has not yet paired installed Chrome with the deployed
+service. It replaced the typed-code flow, which the owner had used to pair a real
+Chrome through Access on 2026-10-11. Pairing uses the owner's login session once;
+steady-state API calls carry no cookie.
 
 - Route families. One Access application covers the whole service host, so a new route
   is protected by default (owner decision, 2026-10-11). A second, more specific Access
   application with a Bypass policy exempts the paths that cannot pass an interactive
-  login: the `/v1` sync routes, which accept only device credentials; `/redeem`, which
-  is anonymous; `/health`; and the two `/.well-known` issuer routes that Anthropic
-  fetches anonymously. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself:
+  login: the `/v1` sync routes, which accept only device credentials; `/health`; and the
+  two `/.well-known` issuer routes that Anthropic fetches anonymously. The Worker
+  verifies the `Cf-Access-Jwt-Assertion` JWT itself:
   signature against the team JWKS, configured audience tag and issuer, and expiry. It
   never trusts the plain identity headers. The owner key is the issuer plus the token
   subject, not the email address. Verification uses Hono's JWT utility with the team
@@ -895,25 +895,24 @@ without a cookie on steady-state API calls.
   dedicated JWT library would need its own owner decision. Tokens without an expiry or a
   user subject, such as service tokens, are refused. The public keys are edge-cached for
   five minutes, so a rotated key may be refused briefly.
-- Pairing. The extension background generates a 256-bit verifier and keeps it in trusted
-  extension storage. The settings page opens the enrollment page in an ordinary tab with
-  only its SHA-256 challenge and a device label. It also shows a short code: 40 bits of
-  a tagged SHA-256 of the verifier in Crockford base32, so anyone who sees the link
-  still cannot compute it. After Access login, the owner types that code and confirms.
-  The confirmation is a same-origin form POST (Origin or `Sec-Fetch-Site` checked) on a
-  page that cannot be framed, and records an approval with the typed code for that
-  owner, valid for 10 minutes; the same owner may retype the code until redemption
-  without extending that time. A redeemed challenge, or one with another owner's
-  unexpired approval, cannot be approved again, and the page says which.
-- Redemption. The extension polls an unauthenticated redemption route with the verifier,
-  rate limited per client address. A matching, approved, unexpired and unredeemed
-  enrollment whose typed code equals the verifier's code creates the device and returns
-  its credential once; only its hash is stored, as today. So a link carrying someone
-  else's challenge, or a challenge another account saw and approved, yields no device. A
-  wrong code is reported only to the verifier holder; unapproved, expired, redeemed and
-  unknown verifiers return the same response. The owner chose direct pairing over
-  `chrome.identity.launchWebAuthFlow`, which would add the `identity` permission
-  ([ADR 0020](adr/0020-direct-device-pairing.md)).
+- Pairing. **Pair this device** on the settings page asks for site access to the
+  service, then the extension's background service worker sends one `POST /pair` with
+  the device label, `credentials: "include"`, `redirect: "manual"` and
+  `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
+  The route sits behind Access; the Worker verifies the token and requires
+  `Origin: chrome-extension://<id>` for an ID in `PAIRING_EXTENSION_IDS`, which lists
+  Pateat's manifest-pinned production ID. It then limits pairing per identity, creates
+  the owner on first pairing and the device, and answers the credential once; only its
+  hash is stored. The background writes the credential straight into trusted extension
+  storage; it never reaches the settings page. The Worker sends no CORS headers, so no
+  web page can read the answer, and pages cannot set an extension `Origin`. An Access
+  redirect, a `401`, or a response that is not JSON, such as the Access login page,
+  means "sign in first"; a non-JSON `429` or `5xx`, such as a Cloudflare edge error
+  page, counts as rate limiting or an unexpected failure instead. On "sign in first" the
+  settings page opens `<service>/manage` in a new tab once per click, retries once when
+  it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
+  refused sign-in, an unlisted extension ID and a service without pairing settings each
+  have their own message.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day
@@ -924,16 +923,22 @@ without a cookie on steady-state API calls.
   `device_revoked`. The Access-protected management page lists the owner's devices
   with their last use, marks expired ones, and revokes devices; a device can revoke
   itself on sign-out. A lost device is
-  revoked from another Access login and a replacement re-enrolls. Revocation stops
+  revoked from another Access login and a replacement pairs again. Revocation stops
   later requests; a request already authenticated may still complete. It stops
   service access only and neither erases offline caches nor touches any vault.
 
-Local tests cover signature, issuer, audience, expiry and subject checks, approval
-CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
-cleanup of stale approvals, cross-owner management, self-revocation, and credential
-idle expiry with its daily renewal. JWT verification worked against the real Access
-application when the owner paired on 2026-10-11. Credential idle expiry has local
-tests only so far.
+Local tests cover the token's signature, issuer, audience, expiry and subject checks;
+the pairing route's Origin list, body validation, per-identity limit, missing CORS
+headers and concurrent first pairings; the extension transport's mapping of redirects,
+login pages and error codes; the background's storage of the credential; the settings
+page's sign-in tab, retry and messages; and, in bundled Chromium with the production
+build, a pairing whose request came from the background with the session cookie and
+the extension `Origin`, followed by cookie-free `/v1` sync. Cross-owner management,
+self-revocation and credential idle expiry with its daily renewal are covered as well.
+The browser test's Access stand-in does not model Access's own `401`, denial page or
+cookie validation; only the transport unit tests' synthetic responses cover those. JWT
+verification worked against the real Access application when the owner paired with
+the typed code on 2026-10-11. Credential idle expiry has local tests only so far.
 
 ### Owner web UI
 
@@ -948,8 +953,7 @@ field exclusions and custom-field review, which need the device's vault catalog
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
   Worker as static assets. The first version has these pages:
-  - Devices: the current list and revocation, moved into the app. `/enroll` stays a
-    script-free page.
+  - Devices: the current list and revocation, moved into the app.
   - Sites: add and delete `excludedSites` entries; list and delete `siteDefaults`
     entries. Deleting a default restores the automatic single-match choice.
   - Account bindings: list and delete `bindings` entries. Deleting one makes that item

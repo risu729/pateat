@@ -1,24 +1,20 @@
 import {
-  createEnrollmentChallenge,
-  createEnrollmentVerifier,
-  enrollmentCode,
-  enrollmentRedeemResultSchema,
+  devicePairResultSchema,
   manageDevicesSchema,
   manageRecipesSchema,
-  type EnrollmentRedeemResult,
+  type DevicePairResult,
   type LoginRecipe,
 } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { app } from "../src/app";
-import { createDeviceToken, hashDeviceToken } from "../src/auth";
+import { createDeviceToken } from "../src/auth";
 import {
   claims,
   deviceApi,
   forgedAccess,
   installAccessKeys,
-  ISSUER,
   jwks,
   newSubject,
   ORIGIN,
@@ -30,20 +26,13 @@ import {
 } from "./access-helpers";
 import { awaitRoomInMinute } from "./limiter";
 
-// Synthetic Access keys and identities only. Every test uses fresh subjects and
-// verifiers so results never depend on rows written by another test.
+// Synthetic Access keys, identities and extension IDs only. Every test uses fresh
+// subjects so results never depend on rows written by another test.
 
 installAccessKeys();
 
-function postForm(path: string, access: string | undefined, fields: Record<string, string>) {
-  return request(path, {
-    method: "POST",
-    access,
-    redirect: "manual",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: ORIGIN },
-    body: new URLSearchParams(fields),
-  });
-}
+/** The synthetic extension ID listed in vitest.config.ts. */
+const EXTENSION_ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
 
 /** A web UI API call as its own page makes it: same origin unless `origin` says otherwise. */
 function manageApi(
@@ -55,36 +44,20 @@ function manageApi(
   return request(path, { method, access, headers: origin ? { Origin: origin } : {} });
 }
 
-async function pairing(label = "Test laptop") {
-  const verifier = createEnrollmentVerifier();
-  const challenge = await createEnrollmentChallenge(verifier);
-  return { verifier, challenge, label, code: await enrollmentCode(verifier) };
-}
-
-type Pairing = Awaited<ReturnType<typeof pairing>>;
-
-function approve(by: Owner, pending: Pairing, code = pending.code) {
-  return postForm("/enroll", by.token, {
-    challenge: pending.challenge,
-    label: pending.label,
-    code,
-  });
-}
-
-function redeem(verifier: string, client = crypto.randomUUID()) {
-  return request("/redeem", {
+function postPair(access: string | undefined, label = "Test laptop") {
+  return request("/pair", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "CF-Connecting-IP": client },
-    body: JSON.stringify({ version: 1, verifier }),
+    access,
+    headers: { "Content-Type": "application/json", Origin: EXTENSION_ORIGIN },
+    body: JSON.stringify({ version: 1, label }),
   });
 }
 
-async function enroll(by: Owner, label = "Test laptop"): Promise<EnrollmentRedeemResult> {
-  const pending = await pairing(label);
-  expect((await approve(by, pending)).status).toBe(200);
-  const response = await redeem(pending.verifier);
-  expect(response.status).toBe(200);
-  return v.parse(enrollmentRedeemResultSchema, await response.json());
+/** Pairs a device for `by` as the extension does (ADR 0020). */
+async function pairDevice(by: Owner, label = "Test laptop"): Promise<DevicePairResult> {
+  const response = await postPair(by.token, label);
+  expect(response.status).toBe(201);
+  return v.parse(devicePairResultSchema, await response.json());
 }
 
 describe("Access verification", () => {
@@ -97,18 +70,16 @@ describe("Access verification", () => {
   });
 
   it("guards every owner route", async () => {
-    const pending = await pairing();
-    const query = new URLSearchParams({ challenge: pending.challenge, label: pending.label });
     const responses = await Promise.all([
-      request(`/enroll?${query}`),
-      postForm("/enroll", undefined, { ...Object.fromEntries(query), code: pending.code }),
+      postPair(undefined),
       request("/manage"),
       request("/manage/assets/app.js"),
       request("/manage/api/devices"),
       manageApi(`/manage/api/devices/${crypto.randomUUID()}/revoke`, undefined, "POST"),
     ]);
-    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401, 401]);
-    expect(await responses[4]!.json()).toEqual({ error: "unauthorized" });
+    expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401]);
+    expect(await responses[0]!.json()).toEqual({ error: "unauthorized" });
+    expect(await responses[3]!.json()).toEqual({ error: "unauthorized" });
   });
 
   it("accepts a valid token", async () => {
@@ -152,288 +123,37 @@ describe("Access verification", () => {
     expect(responses.map((response) => response.status)).toEqual([503, 503, 503]);
   });
 
+  it("no longer serves the typed-code pairing routes", async () => {
+    const by = await owner();
+    const responses = await Promise.all([
+      request("/enroll?challenge=x&label=Laptop", { access: by.token }),
+      request("/enroll", {
+        method: "POST",
+        access: by.token,
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: ORIGIN },
+        body: new URLSearchParams({ challenge: "x", label: "Laptop", code: "ABCD-EFGH" }),
+      }),
+      request("/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, verifier: "A".repeat(43) }),
+      }),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404]);
+    const bodies = await Promise.all(responses.map((response) => response.json()));
+    expect(bodies).toEqual([
+      { error: "not_found" },
+      { error: "not_found" },
+      { error: "not_found" },
+    ]);
+    expect(await ownerIdFor(by.subject)).toBeNull();
+  });
+
   it("does not gate device routes or health behind Access", async () => {
     expect((await request("/health")).status).toBe(200);
     const response = await request("/v1/settings", { access: (await owner()).token });
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
-  });
-});
-
-describe("enrollment approval", () => {
-  it("renders an escaped, unframeable page without the code", async () => {
-    const by = await owner();
-    const pending = await pairing('<script>alert("x")</script>');
-    const response = await request(
-      `/enroll?${new URLSearchParams({ challenge: pending.challenge, label: pending.label })}`,
-      { access: by.token },
-    );
-    expect(response.status).toBe(200);
-    const body = await response.text();
-    expect(body).not.toContain("<script>");
-    expect(body).toContain("&lt;script&gt;");
-    expect(body).not.toContain(pending.code);
-    expect(response.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
-    expect(response.headers.get("X-Frame-Options")).toBe("DENY");
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-  });
-
-  it("rejects malformed pairing requests", async () => {
-    const by = await owner();
-    const pending = await pairing();
-    const queries = [
-      { challenge: "short", label: "Laptop" },
-      { challenge: pending.challenge, label: " " },
-      { challenge: pending.challenge, label: "Laptop", extra: "1" },
-    ];
-    const responses = await Promise.all(
-      queries.map((query) =>
-        request(`/enroll?${new URLSearchParams(query)}`, { access: by.token }),
-      ),
-    );
-    expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
-  });
-
-  it("rejects malformed codes before changing state", async () => {
-    const by = await owner();
-    const pending = await pairing();
-    const responses = await Promise.all(
-      ["", "0000", "ABCD-EFGU"].map((code) => approve(by, pending, code)),
-    );
-    expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
-    expect(await ownerIdFor(by.subject)).toBeNull();
-    expect((await redeem(pending.verifier)).status).toBe(404);
-  });
-
-  it("redeems only with the code derived from the verifier, which the owner may retype", async () => {
-    const by = await owner();
-    const pending = await pairing();
-    const other = await pairing();
-    expect((await approve(by, pending, other.code)).status).toBe(200);
-    const mistyped = await redeem(pending.verifier);
-    expect(mistyped.status).toBe(409);
-    expect(await mistyped.json()).toEqual({ error: "enrollment_code_mismatch" });
-    // Retyping on the same page replaces the stored code until redemption.
-    const typed = ` ${pending.code.replace("-", " ").toLowerCase()} `;
-    const before = await env.DB.prepare("SELECT expires_at FROM enrollments WHERE challenge = ?")
-      .bind(pending.challenge)
-      .first<{ expires_at: number }>();
-    expect((await approve(by, pending, typed)).status).toBe(200);
-    // Retyping keeps the original expiry.
-    const after = await env.DB.prepare("SELECT expires_at FROM enrollments WHERE challenge = ?")
-      .bind(pending.challenge)
-      .first<{ expires_at: number }>();
-    expect(after?.expires_at).toBe(before?.expires_at);
-    expect((await redeem(pending.verifier)).status).toBe(200);
-  });
-
-  it("does not let another account that saw the link capture the device", async () => {
-    const victim = await owner();
-    const observer = await owner();
-    const pending = await pairing();
-    // The observer knows the challenge but not the verifier-derived code.
-    const guess = await enrollmentCode(createEnrollmentVerifier());
-    expect((await approve(observer, pending, guess)).status).toBe(200);
-    const blocked = await approve(victim, pending);
-    expect(blocked.status).toBe(409);
-    expect(await blocked.text()).toContain("Approved by another account");
-    expect((await redeem(pending.verifier)).status).toBe(409);
-    const devices = await env.DB.prepare("SELECT COUNT(*) AS count FROM devices WHERE owner_id = ?")
-      .bind(await ownerIdFor(observer.subject))
-      .first<{ count: number }>();
-    expect(devices?.count).toBe(0);
-  });
-
-  it("rejects cross-site and non-form approvals before changing state", async () => {
-    const by = await owner();
-    const pending = await pairing();
-    const { challenge, label, code } = pending;
-    const fields = new URLSearchParams({ challenge, label, code });
-    const crossSite = [
-      { "Content-Type": "application/x-www-form-urlencoded" },
-      { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://attacker.example" },
-      {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Origin: "https://attacker.example",
-        "Sec-Fetch-Site": "cross-site",
-      },
-    ];
-    const responses = await Promise.all(
-      crossSite.map((headers) =>
-        request("/enroll", { method: "POST", access: by.token, headers, body: fields }),
-      ),
-    );
-    expect(responses.map((response) => response.status)).toEqual([403, 403, 403]);
-    const json = await request("/enroll", {
-      method: "POST",
-      access: by.token,
-      headers: { "Content-Type": "application/json", Origin: ORIGIN },
-      body: JSON.stringify(pending),
-    });
-    expect(json.status).toBe(415);
-    expect(await ownerIdFor(by.subject)).toBeNull();
-  });
-
-  it("maps one identity to one owner", async () => {
-    const by = await owner();
-    await Promise.all([approve(by, await pairing()), approve(by, await pairing())]);
-    await approve(by, await pairing());
-    const { results } = await env.DB.prepare(
-      "SELECT owner_id FROM owner_identities WHERE issuer = ? AND subject = ?",
-    )
-      .bind(ISSUER, by.subject)
-      .all();
-    expect(results).toHaveLength(1);
-    const orphans = await env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM owners WHERE id NOT IN (SELECT owner_id FROM owner_identities) AND id NOT LIKE 'owner-%'",
-    ).first<{ count: number }>();
-    expect(orphans?.count).toBe(0);
-  });
-
-  it("treats a repeated approval by the same owner as the same approval", async () => {
-    const by = await owner();
-    const pending = await pairing();
-    expect((await approve(by, pending)).status).toBe(200);
-    expect((await approve(by, { ...pending, label: "Renamed" })).status).toBe(200);
-    const row = await env.DB.prepare("SELECT label FROM enrollments WHERE challenge = ?")
-      .bind(pending.challenge)
-      .first<{ label: string }>();
-    expect(row?.label).toBe(pending.label);
-  });
-
-  it("refuses a challenge approved by another owner or already redeemed", async () => {
-    const first = await owner();
-    const second = await owner();
-    const pending = await pairing();
-    expect((await approve(first, pending)).status).toBe(200);
-    expect((await approve(second, pending)).status).toBe(409);
-    expect((await redeem(pending.verifier)).status).toBe(200);
-    expect((await approve(first, pending)).status).toBe(409);
-  });
-
-  it("removes expired unredeemed approvals and allows a fresh approval", async () => {
-    const by = await owner();
-    const stale = await pairing();
-    const pending = await pairing();
-    expect((await approve(by, stale)).status).toBe(200);
-    expect((await approve(by, pending)).status).toBe(200);
-    await env.DB.prepare("UPDATE enrollments SET expires_at = ? WHERE challenge IN (?, ?)")
-      .bind(Date.now() - 1, stale.challenge, pending.challenge)
-      .run();
-    expect((await approve(by, pending)).status).toBe(200);
-    const remaining = await env.DB.prepare(
-      "SELECT challenge FROM enrollments WHERE challenge IN (?, ?)",
-    )
-      .bind(stale.challenge, pending.challenge)
-      .all<{ challenge: string }>();
-    expect(remaining.results.map((row) => row.challenge)).toEqual([pending.challenge]);
-    expect((await redeem(pending.verifier)).status).toBe(200);
-  });
-});
-
-describe("credential redemption", () => {
-  it("is not available before approval", async () => {
-    const pending = await pairing();
-    const response = await redeem(pending.verifier);
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: "enrollment_not_found" });
-  });
-
-  it("issues one working credential and stores only its hash", async () => {
-    const by = await owner();
-    const pending = await pairing("Work laptop");
-    await approve(by, pending);
-    const response = await redeem(pending.verifier);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-    const result = v.parse(enrollmentRedeemResultSchema, await response.json());
-
-    const device = await env.DB.prepare(
-      "SELECT id, owner_id, token_hash, label, created_at, last_used_at, revoked_at FROM devices WHERE id = ?",
-    )
-      .bind(result.deviceId)
-      .first();
-    expect(device).toEqual({
-      id: result.deviceId,
-      owner_id: await ownerIdFor(by.subject),
-      token_hash: await hashDeviceToken(result.credential),
-      label: "Work laptop",
-      created_at: expect.any(Number),
-      last_used_at: device?.["created_at"],
-      revoked_at: null,
-    });
-    const enrollment = await env.DB.prepare(
-      "SELECT redeemed_at, device_id FROM enrollments WHERE challenge = ?",
-    )
-      .bind(pending.challenge)
-      .first();
-    expect(enrollment).toEqual({ redeemed_at: expect.any(Number), device_id: result.deviceId });
-
-    expect((await deviceApi(result.credential)).status).toBe(200);
-    expect((await redeem(pending.verifier)).status).toBe(404);
-  });
-
-  it("issues at most one credential under concurrent redemption", async () => {
-    const by = await owner();
-    const pending = await pairing();
-    await approve(by, pending);
-    const responses = await Promise.all([
-      redeem(pending.verifier),
-      redeem(pending.verifier),
-      redeem(pending.verifier),
-    ]);
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 404, 404]);
-    const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM devices WHERE owner_id = ?")
-      .bind(await ownerIdFor(by.subject))
-      .first<{ count: number }>();
-    expect(count?.count).toBe(1);
-  });
-
-  it("refuses expired approvals", async () => {
-    const by = await owner();
-    const pending = await pairing();
-    await approve(by, pending);
-    await env.DB.prepare("UPDATE enrollments SET expires_at = ? WHERE challenge = ?")
-      .bind(Date.now() - 1, pending.challenge)
-      .run();
-    expect((await redeem(pending.verifier)).status).toBe(404);
-  });
-
-  it("rejects the challenge in place of the verifier", async () => {
-    const by = await owner();
-    const pending = await pairing();
-    await approve(by, pending);
-    expect((await redeem(pending.challenge)).status).toBe(404);
-  });
-
-  it("validates bodies strictly", async () => {
-    const client = crypto.randomUUID();
-    const send = (body: string, type = "application/json") =>
-      request("/redeem", {
-        method: "POST",
-        headers: { "Content-Type": type, "CF-Connecting-IP": client },
-        body,
-      });
-    const verifier = createEnrollmentVerifier();
-    expect((await send(JSON.stringify({ version: 1, verifier }), "text/plain")).status).toBe(415);
-    expect((await send("{")).status).toBe(400);
-    expect((await send(JSON.stringify({ version: 1, verifier, ownerId: "x" }))).status).toBe(400);
-    expect((await send(JSON.stringify({ version: 1, verifier: "short" }))).status).toBe(400);
-    expect((await send(JSON.stringify({ version: 1, verifier: "x".repeat(8000) }))).status).toBe(
-      413,
-    );
-    expect((await request("/redeem")).status).toBe(405);
-  });
-
-  it("rate limits each client address", async () => {
-    const client = crypto.randomUUID();
-    const statuses: number[] = [];
-    for (let attempt = 0; attempt < 12; attempt += 1)
-      // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
-      statuses.push((await redeem(createEnrollmentVerifier(), client)).status);
-    expect(statuses.slice(0, 10).every((status) => status === 404)).toBe(true);
-    expect(statuses.slice(10)).toEqual([429, 429]);
-    expect((await redeem(createEnrollmentVerifier())).status).toBe(404);
   });
 });
 
@@ -542,9 +262,9 @@ describe("owner web UI", () => {
   it("lists only the signed-in owner's devices, newest first", async () => {
     const first = await owner();
     const second = await owner();
-    const older = await enroll(first, "First owner laptop");
-    await enroll(second, "Second owner phone");
-    const newer = await enroll(first, "First owner phone");
+    const older = await pairDevice(first, "First owner laptop");
+    await pairDevice(second, "Second owner phone");
+    const newer = await pairDevice(first, "First owner phone");
     const response = await request("/manage/api/devices", { access: first.token });
     const body = v.parse(manageDevicesSchema, await response.json());
     expect(body.devices.map((device) => [device.id, device.label, device.revokedAt])).toEqual([
@@ -557,8 +277,8 @@ describe("owner web UI", () => {
 
   it("revokes an owned device", async () => {
     const by = await owner();
-    const kept = await enroll(by, "Kept");
-    const revoked = await enroll(by, "Revoked");
+    const kept = await pairDevice(by, "Kept");
+    const revoked = await pairDevice(by, "Revoked");
     const path = `/manage/api/devices/${revoked.deviceId}/revoke`;
     const response = await manageApi(path, by.token, "POST");
     expect(response.status).toBe(204);
@@ -581,8 +301,8 @@ describe("owner web UI", () => {
   it("cannot revoke another owner's device or an unknown one", async () => {
     const first = await owner();
     const second = await owner();
-    const target = await enroll(first);
-    await enroll(second);
+    const target = await pairDevice(first);
+    await pairDevice(second);
     const responses = await Promise.all([
       ...[second, await owner()].map((by) =>
         manageApi(`/manage/api/devices/${target.deviceId}/revoke`, by.token, "POST"),
@@ -597,7 +317,7 @@ describe("owner web UI", () => {
 
   it("rejects cross-site and origin-less revocation", async () => {
     const by = await owner();
-    const target = await enroll(by);
+    const target = await pairDevice(by);
     const path = `/manage/api/devices/${target.deviceId}/revoke`;
     const responses = await Promise.all([
       manageApi(path, by.token, "POST", "https://attacker.example"),
@@ -639,7 +359,7 @@ describe("owner web UI settings", () => {
   it("keeps each owner's settings apart", async () => {
     const first = await owner();
     const second = await owner();
-    await Promise.all([enroll(first), enroll(second)]);
+    await Promise.all([pairDevice(first), pairDevice(second)]);
     expect((await putSettings(first, { version: 1, expectedRevision: 0, settings })).status).toBe(
       200,
     );
@@ -657,7 +377,7 @@ describe("owner web UI settings", () => {
 
   it("updates a device-written revision and makes a stale device write conflict", async () => {
     const by = await owner();
-    const device = await enroll(by);
+    const device = await pairDevice(by);
     const deviceWrite = (expectedRevision: number, body: unknown) =>
       deviceApi(device.credential, "/v1/settings", {
         method: "PUT",
@@ -685,7 +405,7 @@ describe("owner web UI settings", () => {
 
   it("refuses a document larger than devices sync", async () => {
     const by = await owner();
-    await enroll(by);
+    await pairDevice(by);
     const long = ["a", "b", "c"].map((letter) => letter.repeat(60)).join(".");
     const large = {
       ...settings,
@@ -715,7 +435,7 @@ describe("owner web UI settings", () => {
 
   it("writes the document devices sync, recorded as written by the web UI", async () => {
     const by = await owner();
-    const device = await enroll(by);
+    const device = await pairDevice(by);
     const write = await putSettings(by, { version: 1, expectedRevision: 0, settings });
     expect(write.status).toBe(200);
     expect(await write.json()).toEqual({ version: 1, revision: 1, settings });
@@ -743,7 +463,7 @@ describe("owner web UI settings", () => {
 
   it("changes nothing on a stale revision and returns the current state", async () => {
     const by = await owner();
-    await enroll(by);
+    await pairDevice(by);
     expect((await putSettings(by, { version: 1, expectedRevision: 0, settings })).status).toBe(200);
     const stale = await putSettings(by, {
       version: 1,
@@ -759,7 +479,7 @@ describe("owner web UI settings", () => {
 
   it("refuses vault connections, invalid documents, other media types and other origins", async () => {
     const by = await owner();
-    await enroll(by);
+    await pairDevice(by);
     const connection = {
       connectionId: "connection-1",
       enabled: true,
@@ -856,7 +576,7 @@ describe("owner web UI recipes", () => {
   it("lists only the owner's recipes, most recently changed first, with their documents", async () => {
     const first = await owner();
     const second = await owner();
-    const [device, other] = await Promise.all([enroll(first), enroll(second)]);
+    const [device, other] = await Promise.all([pairDevice(first), pairDevice(second)]);
     expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
     expect((await publish(device.credential, "shop-signin", 0)).status).toBe(200);
     expect((await publish(other.credential, "other-signin", 0)).status).toBe(200);
@@ -889,7 +609,7 @@ describe("owner web UI recipes", () => {
 
   it("revokes a recipe as a tombstone devices receive, recorded as written by the web UI", async () => {
     const by = await owner();
-    const device = await enroll(by);
+    const device = await pairDevice(by);
     expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
     const response = await revoke(by, "bank-signin", 1);
     expect(response.status).toBe(200);
@@ -914,7 +634,7 @@ describe("owner web UI recipes", () => {
 
   it("refuses a stale or repeated revocation and returns the current head", async () => {
     const by = await owner();
-    const device = await enroll(by);
+    const device = await pairDevice(by);
     expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
     expect((await publish(device.credential, "bank-signin", 1)).status).toBe(200);
     const stale = await revoke(by, "bank-signin", 1);
@@ -940,7 +660,7 @@ describe("owner web UI recipes", () => {
   it("never revokes another owner's recipe, an unknown one or from another origin", async () => {
     const first = await owner();
     const second = await owner();
-    const [device] = await Promise.all([enroll(first), enroll(second)]);
+    const [device] = await Promise.all([pairDevice(first), pairDevice(second)]);
     expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
     const responses = await Promise.all([
       revoke(second, "bank-signin", 1),
@@ -965,8 +685,8 @@ describe("owner web UI recipes", () => {
 describe("device self-revocation", () => {
   it("revokes only the calling device", async () => {
     const by = await owner();
-    const leaving = await enroll(by);
-    const staying = await enroll(by);
+    const leaving = await pairDevice(by);
+    const staying = await pairDevice(by);
     const response = await deviceApi(leaving.credential, "/v1/device", { method: "DELETE" });
     expect(response.status).toBe(204);
     expect(await (await deviceApi(leaving.credential)).json()).toEqual({
@@ -983,7 +703,7 @@ describe("device self-revocation", () => {
     const unknown = createDeviceToken();
     expect((await deviceApi(unknown, "/v1/device", { method: "DELETE" })).status).toBe(401);
     const by = await owner();
-    const device = await enroll(by);
+    const device = await pairDevice(by);
     expect((await deviceApi(device.credential, "/v1/device", { method: "PUT" })).status).toBe(405);
   });
 });

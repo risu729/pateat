@@ -33,10 +33,13 @@ owner's account with an APAC location hint, and its ID is in `cloudflare.config.
 packing and restore refuse a build whose `DB` binding has no ID, because cf deploy would
 provision a new database. Restore also checks that the migrations match both the
 manifest and the checked-out revision. The setup order below sets the release
-credentials last, after enrollment works through Access; it did when the owner paired on
-2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A deployment also
-needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the owner pages answer
-503 without them. Artifact tests reject tampering and mismatched provenance.
+credentials last, after pairing works through Access; the typed-code enrollment did when
+the owner paired on 2026-10-11. For direct pairing, only the post-deploy probe has run
+against the deployed service so far; no installed build has paired directly yet
+([device enrollment](architecture.md#device-enrollment)). A
+deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the
+owner pages answer 503 without them. Artifact tests reject tampering and mismatched
+provenance.
 
 ### Production settings
 
@@ -50,7 +53,7 @@ The owner decided these on 2026-10-11, following the kogane repository:
   (WARP); the owner decided on 2026-10-11 that owner pages need not open from a phone
   without WARP. A more specific Access application with a Bypass policy exempts the
   paths clients call without an Access login: `/v1/*` (device credentials from the
-  extension's background), `/redeem` (anonymous pairing), `/health` (release check),
+  extension's background), `/health` (release check),
   and `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
   anonymously by Anthropic for Workload Identity Federation). The Worker still
   verifies the Access token itself on the owner pages. `POST /pair` (direct pairing,
@@ -71,7 +74,7 @@ The owner decided these on 2026-10-11, following the kogane repository:
   as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
 - Preview: there is no preview deployment for now. Without the owner web UI there is
   nothing to review in a browser: the routes outside Access are `/health`, the OIDC
-  discovery documents, `/redeem` and the device-authenticated `/v1/*`, which the
+  discovery documents and the device-authenticated `/v1/*`, which the
   Worker tests cover, and a useful preview would need its own D1 database and Access
   setup. Add a `worker-preview` deployment with a separate preview D1 binding, as biwa
   does for its docs, when the owner web UI exists. The web UI now exists; adding the
@@ -81,7 +84,7 @@ The owner decided these on 2026-10-11, following the kogane repository:
 successful main-push CI run starts a release. Until the production
 credentials exist, each run fails at its first step without changing anything. Set the
 release credentials last: first bootstrap the Worker and its Custom Domain, the two
-Access applications and the Worker secrets, and verify enrollment through Access;
+Access applications and the Worker secrets, and verify pairing through Access;
 otherwise a release would apply migrations and then fail to activate a missing Worker.
 Then set the `production` environment variables `CLOUDFLARE_ACCOUNT_ID`,
 `SERVER_WORKER=pateat-api` and `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the
@@ -169,7 +172,7 @@ bypass.
   Run the hk/mise verification graph, documentation links, lint, formatting,
   type checks, unit/runtime tests, extension packaging and relevant browser
   acceptance tests. CodeQL requirements are configured explicitly.
-- Test Worker contracts, Access identity validation, device enrollment/revocation,
+- Test Worker contracts, Access identity validation, device pairing/revocation,
   owner-scoped settings/recipe access and D1 locally. Verify that service login
   cannot authenticate or unlock a vault. Mock providers and use dummy accounts;
   PR CI needs no production, vault or inference secrets. Untrusted
@@ -207,9 +210,9 @@ for the typed-config/test-harness compatibility gate.
    finish/reconcile the release instead of cancelling it for a newer run. Provision the
    Worker/D1/routing and scoped credentials in a distinct initial bootstrap operation.
    Keep bootstrap permissions separate from routine code releases; resource names,
-   account IDs and enrollment are M6 inputs. The D1 database was bootstrapped early, on
+   account IDs and pairing are M6 inputs. The D1 database was bootstrapped early, on
    2026-10-11, and its ID is in the config. The initial service bootstrap includes
-   Access identity configuration and a verified device enrollment/revocation flow. Do
+   Access identity configuration and a verified device pairing/revocation flow. Do
    not distribute a universal service credential with the extension. D1 initially stores
    private settings in server-readable form; vault credentials and decryption keys
    remain local.

@@ -359,7 +359,7 @@ export default defineBackground(() => {
         (response) => {
           // A completed pairing syncs at once; an open settings page keeps a stale cache moving.
           if (response.ok && response.state.kind === "connected") {
-            if (message.type === "service.pair.check") void recipeSync.sync();
+            if (message.type === "service.pair") void recipeSync.sync();
             else recipeSync.refreshIfStale();
           }
           // The previous owner's recipes are not kept once their device is gone.

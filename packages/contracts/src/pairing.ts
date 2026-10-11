@@ -1,7 +1,7 @@
 import * as v from "valibot";
 
 // Device pairing contracts shared by the service and the extension (ADR 0020). The
-// extension's background is to send one `POST /pair` carrying the owner's login session;
+// extension's background sends one `POST /pair` carrying the owner's login session;
 // the service answers with the device credential exactly once and keeps only its hash.
 
 export const deviceCredentialSchema = v.pipe(
