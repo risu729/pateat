@@ -30,8 +30,11 @@ and an Access application covering only `/enroll` and `/manage`; the owner pages
 `deploy-server.yml` is manual and disabled until `SERVER_DEPLOY_ENABLED=true`.
 Before enabling it, provision the Worker/routing and set repository variables
 `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api`, and `SERVER_HEALTH_URL` to its
-HTTPS `/health` URL. Put the scoped `CLOUDFLARE_API_TOKEN` secret in the
-`production` environment. This repository does not supply or provision them.
+HTTPS `/health` URL. Put the `CLOUDFLARE_API_TOKEN` secret in the `production`
+environment only. The owner chose on 2026-10-11 to use this one token for both the
+migrations and the deployment, as in kogane, because both run in the same job; it is
+limited to editing the `pateat-api` Worker and `D1: Edit`. This repository does not
+supply or provision them.
 
 Dispatch on main with `ci_run_id` identifying successful main-push CI for the
 current revision. The workflow verifies the run's identity, event and conclusion,
@@ -40,8 +43,11 @@ lock, applies the released migrations, deploys through the pinned action without
 rebuilding, and verifies returned deployment IDs and the hosted revision. Before
 `cf d1 migrations apply`, it reads the database by the recorded ID and requires the
 name `pateat`; afterwards no migration may remain unapplied. A failed migration
-stops the release before activation, and the serving Worker keeps running because
-migrations are additive. Failed delivery stays failed; each retry
+stops the release before activation. Migrations must be additive so the serving
+Worker keeps running on the new schema; nothing checks this automatically, and cf
+compares applied migrations by name only, so an applied migration file is never
+edited. `cf d1 migrations` is a preview command of the pinned beta cf; recheck this
+step when cf is updated. Failed delivery stays failed; each retry
 or later release requires an explicit dispatch. The complete service release
 gates below remain planned, including automatic promotion/failure acknowledgement.
 
@@ -127,13 +133,14 @@ for the typed-config/test-harness compatibility gate.
    starts, finish/reconcile the release instead of cancelling it for a newer run.
    Provision the Worker/D1/routing and scoped credentials in a distinct initial
    bootstrap operation. Keep bootstrap permissions separate from routine code
-   releases; resource names, account/database IDs and enrollment are M6 inputs.
+   releases; resource names, account IDs and enrollment are M6 inputs. The D1
+   database was bootstrapped early, on 2026-10-11, and its ID is in the config.
    The initial service bootstrap includes Access identity configuration and a
    verified device enrollment/revocation flow. Do not distribute a universal
    service credential with the extension. D1 initially stores private settings
    in server-readable form; vault credentials and decryption keys remain local.
 3. Apply additive, backward-compatible D1 migrations using the caller's task and
-   a separately scoped credential. cf migrations take a database ID and default
+   the production token above. cf migrations take a database ID and default
    to remote execution; use explicit local mode in tests. Verify target identity
    before execution. The previous Worker must still run against the new schema.
 4. Use the owner's deployment action, pinned to a reviewed full commit SHA, with

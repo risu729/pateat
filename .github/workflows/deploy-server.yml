@@ -87,8 +87,8 @@ jobs:
             echo "deploy=false" >> "${GITHUB_OUTPUT}"
             echo "Superseded by main revision ${current}; dispatch again with its CI run." >> "${GITHUB_STEP_SUMMARY}"
           fi
-      # Migrations are additive, so the serving Worker keeps working on the new schema.
-      # A failed migration stops the release before activation.
+      # Migrations must be additive so the serving Worker keeps working on the new
+      # schema. A failed migration stops the release before activation.
       - name: Apply the released migrations to the recorded database
         if: ${{ steps.current.outputs.deploy == 'true' }}
         timeout-minutes: 10
@@ -102,7 +102,11 @@ jobs:
           # Verify the target before changing it: the exact ID and its expected name.
           "${cf[@]}" d1 get "${DATABASE}" |
             jq -e --arg id "${DATABASE}" '(.result // .) | .uuid == $id and .name == "pateat"' > /dev/null
-          "${cf[@]}" d1 migrations list "${DATABASE}" --dir "${migrations}" | tee -a "${GITHUB_STEP_SUMMARY}"
+          {
+            echo '```json'
+            "${cf[@]}" d1 migrations list "${DATABASE}" --dir "${migrations}"
+            echo '```'
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
           "${cf[@]}" d1 migrations apply "${DATABASE}" --dir "${migrations}"
           "${cf[@]}" d1 migrations list "${DATABASE}" --dir "${migrations}" |
             jq -e 'length == 0' > /dev/null

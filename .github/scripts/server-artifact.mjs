@@ -9,6 +9,7 @@ const migrationsPath = "services/api/migrations";
 const releasePath = "work/server-release";
 const databaseName = "pateat";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+export const migrationNamePattern = /^\d{4}_[a-z0-9_]+\.sql$/u;
 
 async function toolVersions() {
   return {
@@ -58,7 +59,7 @@ export function verifyProvenance(manifest, expected) {
   assert(Array.isArray(manifest.files) && manifest.files.length > 0);
   assert(Array.isArray(manifest.migrations) && manifest.migrations.length > 0);
   assert(
-    manifest.migrations.every(({ path }) => /^\d{4}_[a-z0-9_]+\.sql$/u.test(path)),
+    manifest.migrations.every(({ path }) => migrationNamePattern.test(path)),
     "Migrations are flat numbered SQL files",
   );
   assert.match(manifest.database ?? "", uuidPattern);

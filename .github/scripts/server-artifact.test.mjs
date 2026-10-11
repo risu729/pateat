@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { copyMigrations, inventory, verifyBuild, verifyProvenance } from "./server-artifact.mjs";
+import {
+  copyMigrations,
+  inventory,
+  migrationNamePattern,
+  verifyBuild,
+  verifyProvenance,
+} from "./server-artifact.mjs";
 
 test("release provenance refuses a PR, a different revision, run, or attempt", () => {
   const expected = {
@@ -40,6 +46,13 @@ test("release provenance refuses a PR, a different revision, run, or attempt", (
   assert.throws(() =>
     verifyProvenance({ ...manifest, migrations: [{ path: "meta/_journal.json" }] }, expected),
   );
+});
+
+test("committed migrations have names the release accepts", async () => {
+  // Pack runs only on main; catch a name it would refuse in pull request CI.
+  const names = (await readdir("services/api/migrations")).filter((name) => name.endsWith(".sql"));
+  assert(names.length > 0);
+  for (const name of names) assert.match(name, migrationNamePattern);
 });
 
 test("released migrations are the top-level SQL files only", async () => {
