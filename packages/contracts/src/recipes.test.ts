@@ -274,7 +274,7 @@ describe("automatic account choice", () => {
   it("saves the choice and binding once and never replaces existing ones", () => {
     const settings = createDefaultSettings({ connections: [] });
     const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
-    const saved = saveLoginChoice(settings, chosen, "live");
+    const saved = saveLoginChoice(settings, chosen);
     // A new default names the provider account, never the local connection, and keeps
     // the item name for display.
     expect(saved.siteDefaults).toEqual([
@@ -288,26 +288,18 @@ describe("automatic account choice", () => {
     ]);
     expect(saved.bindings).toEqual([chosen]);
     expect(v.is(localSettingsSchema, saved)).toBe(true);
-    expect(saveLoginChoice(saved, chosen, "live")).toBe(saved);
+    expect(saveLoginChoice(saved, chosen)).toBe(saved);
 
     // A saved choice of another item or account wins; nothing is added for this one.
     const other = { ...chosen, itemId: "00000000-0000-4000-8000-000000000003" };
-    expect(saveLoginChoice(saved, other, "live")).toBe(saved);
-    expect(saveLoginChoice(saved, { ...chosen, userId: "other-account" }, "live")).toBe(saved);
-
-    // A legacy default matches by its local connection ID.
-    const legacy = {
-      ...settings,
-      siteDefaults: [{ origin, connectionId: "live", itemId: account.itemId }],
-    };
-    expect(saveLoginChoice(legacy, chosen, "live").bindings).toEqual([chosen]);
-    expect(saveLoginChoice(legacy, chosen, "other-connection")).toBe(legacy);
+    expect(saveLoginChoice(saved, other)).toBe(saved);
+    expect(saveLoginChoice(saved, { ...chosen, userId: "other-account" })).toBe(saved);
 
     // A saved choice without a binding gains one.
     const unbound = { ...saved, bindings: [] };
-    expect(saveLoginChoice(unbound, chosen, "live").bindings).toEqual([chosen]);
+    expect(saveLoginChoice(unbound, chosen).bindings).toEqual([chosen]);
 
-    // A default saved before item names, or with another name, is never rewritten.
+    // A default without an item name, or with another name, is never rewritten.
     for (const itemName of [undefined, "Renamed item"]) {
       const older = {
         ...saved,
@@ -322,7 +314,7 @@ describe("automatic account choice", () => {
         ],
         bindings: [],
       };
-      const updated = saveLoginChoice(older, chosen, "live");
+      const updated = saveLoginChoice(older, chosen);
       expect(updated.siteDefaults).toBe(older.siteDefaults);
       expect(updated.bindings).toEqual([chosen]);
     }
@@ -331,16 +323,14 @@ describe("automatic account choice", () => {
       ...chosen,
       slots: [{ slot: "username", field: { custom: "Login ID" } }, chosen.slots[1]!],
     };
-    expect(saveLoginChoice({ ...saved, bindings: [manual] }, chosen, "live").bindings).toEqual([
-      manual,
-    ]);
+    expect(saveLoginChoice({ ...saved, bindings: [manual] }, chosen).bindings).toEqual([manual]);
   });
 
   it("keys bindings by origin, so a moved recipe can be bound again", () => {
     const chosen = defaultLoginBinding(recipe("bank-signin", "/login"), account)!;
     const moved = { ...chosen, origin: "https://login.bank.example" };
     const settings = { ...createDefaultSettings({ connections: [] }), bindings: [chosen] };
-    const saved = saveLoginChoice(settings, moved, "live");
+    const saved = saveLoginChoice(settings, moved);
     expect(saved.bindings).toEqual([chosen, moved]);
     expect(v.is(localSettingsSchema, saved)).toBe(true);
   });
@@ -352,11 +342,12 @@ describe("automatic account choice", () => {
       ...settings,
       siteDefaults: Array.from({ length: 1000 }, (_, index) => ({
         origin: `https://site${index}.example`,
-        connectionId: "live",
+        provider: "bitwarden",
+        userId: account.userId,
         itemId: "item",
       })),
     };
-    expect(saveLoginChoice(full, chosen, "live")).toBe(full);
+    expect(saveLoginChoice(full, chosen)).toBe(full);
   });
 
   it("truncates or replaces the display-only item name", () => {

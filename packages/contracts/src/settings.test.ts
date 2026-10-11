@@ -19,7 +19,8 @@ function withDefault() {
   const settings = createDefaultSettings();
   settings.siteDefaults.push({
     origin: "https://bank.example",
-    connectionId: "demo-personal",
+    provider: "dummy",
+    userId: "demo-personal-account",
     itemId: "primary",
   });
   return settings;
@@ -211,7 +212,6 @@ describe("scoped metadata eligibility and next-login defaults", () => {
       "an item name over 200 characters",
       { provider: "dummy", userId: "a", itemName: "x".repeat(201) },
     ],
-    ["an item name on a legacy entry", { connectionId: "demo-personal", itemName: "Primary" }],
   ])("rejects a site default with %s", (_label, fields) => {
     const settings = createDefaultSettings();
     settings.siteDefaults.push({
@@ -246,12 +246,12 @@ describe("scoped metadata eligibility and next-login defaults", () => {
 
   it("reports missing and ineligible saved references, without selecting another account", () => {
     const settings = withDefault();
-    settings.siteDefaults[0]!.connectionId = "missing";
+    settings.siteDefaults[0]!.userId = "missing";
     expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
       ok: false,
       reason: "connection-missing",
     });
-    settings.siteDefaults[0]!.connectionId = "demo-personal";
+    settings.siteDefaults[0]!.userId = "demo-personal-account";
     settings.siteDefaults[0]!.itemId = "missing";
     expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
       ok: false,
@@ -290,13 +290,23 @@ describe("strict settings schema", () => {
       {
         ...settings,
         siteDefaults: [
-          { origin: "https://bank.example/", connectionId: "demo-personal", itemId: "primary" },
+          {
+            origin: "https://bank.example/",
+            provider: "dummy",
+            userId: "demo-personal-account",
+            itemId: "primary",
+          },
         ],
       },
       {
         ...settings,
         siteDefaults: [
-          { origin: "https://user@bank.example", connectionId: "demo-personal", itemId: "primary" },
+          {
+            origin: "https://user@bank.example",
+            provider: "dummy",
+            userId: "demo-personal-account",
+            itemId: "primary",
+          },
         ],
       },
       {

@@ -23,28 +23,24 @@ export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
 const encoder = new TextEncoder();
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
-type AccountDefault = Extract<SiteDefault, { provider: string }>;
 type ExcludedSite = LocalSettings["excludedSites"][number];
-type Binding = NonNullable<LocalSettings["bindings"]>[number];
+type Binding = LocalSettings["bindings"][number];
 
 /**
  * The part of the settings that means the same on every device (ADR 0013). Vault
- * connections, item selection, field exclusions and legacy site defaults that name a
- * device-local connection ID stay on this device.
+ * connections, item selection and field exclusions stay on this device.
  */
 export type SyncedSettings = {
   excludedSites: ExcludedSite[];
-  siteDefaults: AccountDefault[];
+  siteDefaults: SiteDefault[];
   bindings: Binding[];
 };
-
-const accountDefault = (entry: SiteDefault): entry is AccountDefault => "provider" in entry;
 
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
   return {
     excludedSites: settings.excludedSites,
-    siteDefaults: settings.siteDefaults.filter(accountDefault),
-    bindings: settings.bindings ?? [],
+    siteDefaults: settings.siteDefaults,
+    bindings: settings.bindings,
   };
 }
 
@@ -107,7 +103,7 @@ export type SettingsSyncOutcome =
   | TransportFailure;
 
 const siteKey = (entry: ExcludedSite) => entry.hostname;
-const defaultKey = (entry: AccountDefault) => entry.origin;
+const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
   JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
@@ -175,20 +171,9 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
   );
 }
 
-/** Local settings with the synced part replaced; a legacy default yields to a synced one. */
+/** Local settings with the synced part replaced. */
 function applySynced(settings: LocalSettings, synced: SyncedSettings): LocalSettings {
-  const origins = new Set(synced.siteDefaults.map((entry) => entry.origin));
-  return {
-    ...settings,
-    excludedSites: synced.excludedSites,
-    siteDefaults: [
-      ...settings.siteDefaults.filter(
-        (entry) => !accountDefault(entry) && !origins.has(entry.origin),
-      ),
-      ...synced.siteDefaults,
-    ],
-    bindings: synced.bindings,
-  };
+  return { ...settings, ...synced };
 }
 
 /** The service holds only the synced part; it never stores device-local connections. */

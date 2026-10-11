@@ -232,8 +232,9 @@ an enforced organization URI-match-defaults policy applies, using the pinned SDK
 exemptions for owners, admins and provider users. Pateat cannot see the official
 clients' local default setting. Differing enforced defaults, or malformed policy or
 domain data, mark that part unavailable; affected URIs report unavailable rather than
-falling back. Caches accepted before this change keep working for fields but report
-URI matching unavailable until the next accepted sync.
+falling back. A retained context that no longer readmits, for example after an IDNA
+table change, is dropped: fields keep working, and URI matching reports unavailable
+until the next accepted sync.
 
 The owner asked for official-client URI rules. The remaining differences (Regex, no
 Domain fallback on unavailable context, no access to the local default setting) are
@@ -347,17 +348,18 @@ Chrome yet.
   `credential-rejected` or an unknown outcome. Saving bumps the settings revision every
   attempt checks, so it is skipped while another login is still running; the next login
   chooses again.
-- A site default saved from now on names the provider account and item
+- A site default names the provider account and item
   (`{ origin, provider, userId, itemId, itemName? }`, ADR 0013). `itemName` is the
   item's label when the default was saved, kept only for display, such as for an
-  account that is not connected here; older entries lack it, and builds that predate it
-  reject settings that contain it. The executor and the settings page
-  find this device's connection through the catalog connection's `userId`, and an
-  account that is not connected here refuses as `connection-missing`, one connected
-  twice as `account-ambiguous`, and one whose vault is locked or unavailable as
-  `vault-unavailable`; the settings page refuses to save a default it could not use. A
-  default saved earlier with a `connectionId` is still read and used as before and is
-  never rewritten.
+  account that is not connected here; a default can lack it. The executor and the
+  settings page find this device's connection through the catalog connection's
+  `userId`, and an account that is not connected here refuses as `connection-missing`,
+  one connected twice as `account-ambiguous`, and one whose vault is locked or
+  unavailable as `vault-unavailable`; the settings page refuses to save a default it
+  could not use. An automatic choice is checked in the same form, so the only URI match
+  of an account connected twice also refuses as `account-ambiguous`. The device-local
+  form with a `connectionId` was removed before release
+  ([compatibility before release](development.md#compatibility-before-release)).
 - The settings page lists, as the default account for an origin, only the items its
   unsaved draft allows that could serve it: a provider URI match for `origin/`, a static
   `allowedOrigins` entry, or a stored passkey whose RP ID is the origin's host or a
@@ -404,8 +406,8 @@ Chrome yet.
   and no saved binding refuses as `binding-not-found`; a connection without a `userId`
   refuses as `vault-unavailable`. Production reads recipes from the synced recipe cache
   described under [service sync progress](#service-sync-progress), and bindings from the
-  synced settings described there. An extension or service build that predates
-  `bindings` rejects settings that contain them. Provider-derived origins remain open.
+  synced settings described there. Settings always carry a `bindings` list, which may be
+  empty. Provider-derived origins remain open.
 - A fill step refuses as `structural-mismatch` before writing anything unless all of its
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy
@@ -427,20 +429,22 @@ Chrome yet.
 ## Provider session progress
 
 Implemented as [ADR 0008](adr/0008-durable-provider-sessions.md) describes. The native
-IndexedDB database is upgraded in place from version 1 to 2 and gains a
-`providerSessions` store; vault records still never contain tokens. A token-free refresh
-claim commits by compare-and-swap before HTTP, a restart or unknown outcome requires
-password sign-in instead of replaying it, rotation commits before sync, and an absent
-refresh token keeps the captured one. Local forget, permission loss for that provider,
-a rejected refresh or access token, and a mismatched account context clear only the
-sync session. Startup only reads state; the settings page shows sync sign-in and
-automatic unlock separately and labels forget as local.
+IndexedDB database at version 2 holds a `records` store and a `providerSessions` store;
+vault records still never contain tokens. A version 1 database from an earlier build
+fails to open until the extension is reinstalled
+([compatibility before release](development.md#compatibility-before-release)). A
+token-free refresh claim commits by compare-and-swap before HTTP, a restart or unknown
+outcome requires password sign-in instead of replaying it, rotation commits before sync,
+and an absent refresh token keeps the captured one. Local forget, permission loss for
+that provider, a rejected refresh or access token, and a mismatched account context
+clear only the sync session. Startup only reads state; the settings page shows sync
+sign-in and automatic unlock separately and labels forget as local.
 
 Unit tests cover claims, rotation, concurrent writers, forget and permission races,
 expiry from the token's own claims, and per-provider permission loss. Isolated Chromium
-tests cover the blocked and released version 1 upgrade, the native session store's
-guards and readback, two password-free syncs after a full profile reopen, and local
-forget and permission removal with offline unlock kept. These use synthetic providers.
+tests cover the native session store's guards and readback, two password-free syncs
+after a full profile reopen, and local forget and permission removal with offline unlock
+kept. These use synthetic providers.
 An
 [installed-Chrome check](research/2026-10-10-feasibility.md#installed-chrome-provider-session-check-2026-10-10)
 confirmed a password-free Sync after a full browser restart with the synthetic probe.
@@ -519,26 +523,25 @@ storage; no running service has been tried.
 
 The fifth slice syncs the device-independent settings in the same run, after recipes:
 site exclusions, site defaults that name a provider account and item, and account
-bindings. Vault connections, item selection, field exclusions and legacy site defaults
-that name a device-local connection ID stay on the device; the service document always
-has an empty `connections` list. The background reads `GET /v1/settings` and merges
-three copies per entry (exclusions by hostname, defaults by origin, bindings by recipe,
-origin and account): the last agreed base, stored under `pateat.sync-settings.v1`, the
-local settings and the service's. A side that changed an entry since that base wins, and
-the service wins when both changed it; removing an entry counts as a change. The base
-keeps the service's copy and the local copy it accounts for. Both are the same after a
-complete sync; after an upload whose local write has not happened yet, the local copy is
-still the one the merge started from, so a merged entry the device has not written yet
-is not read as a local removal, and a local edit made meanwhile still wins. The base is
-used only when the service revision is newer than the stored one, or equal with the same
-content. Without a base (a new pairing, a device paired before this sync existed, or a
-service whose revision went back below the stored one or matches it with other content)
-both sides' entries are kept, the service wins where they differ, and nothing is
-removed. A service restored to an older state whose revision has since passed the stored
-one is merged against the stored base, so its removals apply. Writing the base is best
-effort; when that write fails, the next sync uses the older base, which can drop a later
-local edit to an entry that the sync with the lost base changed. Disconnecting forgets
-the base but keeps local settings, so pairing with another owner's service uploads this
+bindings. Vault connections, item selection and field exclusions stay on the device; the
+service document always has an empty `connections` list. The background reads
+`GET /v1/settings` and merges three copies per entry (exclusions by hostname, defaults
+by origin, bindings by recipe, origin and account): the last agreed base, stored under
+`pateat.sync-settings.v1`, the local settings and the service's. A side that changed an
+entry since that base wins, and the service wins when both changed it; removing an entry
+counts as a change. The base keeps the service's copy and the local copy it accounts
+for. Both are the same after a complete sync; after an upload whose local write has not
+happened yet, the local copy is still the one the merge started from, so a merged entry
+the device has not written yet is not read as a local removal, and a local edit made
+meanwhile still wins. The base is used only when the service revision is newer than the
+stored one, or equal with the same content. Without a base (a new pairing, or a service
+whose revision went back below the stored one or matches it with other content) both
+sides' entries are kept, the service wins where they differ, and nothing is removed. A
+service restored to an older state whose revision has since passed the stored one is
+merged against the stored base, so its removals apply. Writing the base is best effort;
+when that write fails, the next sync uses the older base, which can drop a later local
+edit to an entry that the sync with the lost base changed. Disconnecting forgets the
+base but keeps local settings, so pairing with another owner's service uploads this
 device's synced settings there. The merge is written back with a conditional
 `PUT /v1/settings`, and a stale service or local revision merges again, in up to three
 attempts per sync. A merge over the settings limits (1,000 entries per list, or an
@@ -551,8 +554,7 @@ upload still happens but the local write waits for a later sync, for at most two
 after the first wait. The time of the first wait is stored under
 `pateat.sync-settings-hold.v1`, so the limit holds across service worker restarts, and
 it is cleared when a sync finds no login running. A later sync starts when the recipe
-schedule is due again. A local legacy default is replaced when the service names an
-account for its origin. Saving settings on the extension's page or saving an automatic
+schedule is due again. Saving settings on the extension's page or saving an automatic
 account choice starts a sync at once. A recipe sync that cannot reach the service skips
 settings, a 401 from either request marks the device rejected, and the settings page
 shows a complete sync only when both finished. Unit tests use a synthetic service and

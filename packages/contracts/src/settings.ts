@@ -103,22 +103,15 @@ export const savedLoginBindingSchema = v.strictObject({
   ),
 });
 
-/**
- * The saved account for one origin. New entries name the provider account and item
- * (ADR 0013); the legacy device-local form with `connectionId` is still read so settings
- * saved before the change keep working, but is no longer written.
- */
-export const siteDefaultSchema = v.union([
-  v.strictObject({
-    origin: originSchema,
-    provider: identifier,
-    userId: identifier,
-    itemId: identifier,
-    /** For display only, such as on the service's web UI; absent in older entries. */
-    itemName: v.optional(vaultNameSchema),
-  }),
-  v.strictObject({ origin: originSchema, connectionId: identifier, itemId: identifier }),
-]);
+/** The saved account for one origin, named by provider account and item (ADR 0013). */
+export const siteDefaultSchema = v.strictObject({
+  origin: originSchema,
+  provider: identifier,
+  userId: identifier,
+  itemId: identifier,
+  /** For display only, such as on the service's web UI. */
+  itemName: v.optional(vaultNameSchema),
+});
 
 export const connectionSettingsSchema = v.strictObject({
   connectionId: identifier,
@@ -167,26 +160,24 @@ export const localSettingsSchema = v.pipe(
         "Duplicate origins",
       ),
     ),
-    /** Synced account bindings (ADR 0013); absent in settings saved before they existed. */
-    bindings: v.optional(
-      v.pipe(
-        v.array(savedLoginBindingSchema),
-        v.maxLength(1000),
-        v.check(
-          (bindings) =>
-            new Set(
-              bindings.map((entry) =>
-                JSON.stringify([
-                  entry.recipeId,
-                  entry.origin,
-                  entry.provider,
-                  entry.userId,
-                  entry.itemId,
-                ]),
-              ),
-            ).size === bindings.length,
-          "Duplicate account bindings",
-        ),
+    /** Synced account bindings (ADR 0013). */
+    bindings: v.pipe(
+      v.array(savedLoginBindingSchema),
+      v.maxLength(1000),
+      v.check(
+        (bindings) =>
+          new Set(
+            bindings.map((entry) =>
+              JSON.stringify([
+                entry.recipeId,
+                entry.origin,
+                entry.provider,
+                entry.userId,
+                entry.itemId,
+              ]),
+            ),
+          ).size === bindings.length,
+        "Duplicate account bindings",
       ),
     ),
   }),
@@ -371,6 +362,7 @@ export function createDefaultSettings(catalog: VaultCatalog = DUMMY_VAULT_CATALO
     })),
     excludedSites: [],
     siteDefaults: [],
+    bindings: [],
   };
 }
 
@@ -446,9 +438,8 @@ export type SiteDefaultConnection =
   | { ok: false; reason: "connection-missing" | "account-ambiguous" | "vault-unavailable" };
 
 /**
- * The local connection a saved site default names: its own `connectionId` in the legacy
- * form, otherwise the one catalog connection of that provider account. An account
- * connected twice is ambiguous. With no match while a connection of that provider
+ * The local connection a saved site default names: the one catalog connection of that
+ * provider account. An account connected twice is ambiguous. With no match while a connection of that provider
  * cannot name its account (locked or unavailable), the vault is unavailable rather than
  * the account missing.
  */
@@ -456,7 +447,6 @@ export function siteDefaultConnection(
   entry: SiteDefault,
   catalog: VaultCatalog,
 ): SiteDefaultConnection {
-  if ("connectionId" in entry) return { ok: true, connectionId: entry.connectionId };
   const sameProvider = catalog.connections.filter(
     (connection) => connection.provider === entry.provider,
   );

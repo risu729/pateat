@@ -12,7 +12,9 @@ day to keep Pateat's wrapper outermost whatever the extension order (see
 [Bridge topology](#bridge-topology)). Also on 2026-10-10 the owner chose to register the
 bridge in the production build on every top-level HTTPS page and to sign wherever the
 item selection allows on sites that are not excluded, rather than only on sites with a
-synced recipe.
+synced recipe. Amended on 2026-10-11 by the owner's
+[compatibility before release](../development.md#compatibility-before-release)
+decision: a site default saved with a `connectionId` is no longer read.
 
 Date: 2026-10-10
 
@@ -133,9 +135,8 @@ For example, two items each store a credential with `rpId` `github.com`, and
 `siteDefaults: [{ origin: "https://github.com", provider: "bitwarden", userId, itemId }]`
 naming one of them, Pateat signs with that item; without it, the browser handles the
 request. An allow list usually narrows the matches to one before this step. As for
-logins, a default resolves to the one local connection of that provider account, and a
-legacy default saved with a `connectionId` still names that connection. An account that
-is connected twice, or not connected here, gives no default.
+logins, a default resolves to the one local connection of that provider account. An
+account that is connected twice, or not connected here, gives no default.
 
 ### Credential eligibility and assertion
 

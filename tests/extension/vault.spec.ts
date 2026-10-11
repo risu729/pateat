@@ -110,7 +110,7 @@ test("matches actual SDK-decrypted URIs with retained context after full profile
   });
 });
 
-test("an accepted cache without URI context reports matching unavailable", async () => {
+test("an accepted cache whose URI context was dropped reports matching unavailable", async () => {
   await withVaultProfile(async (open) => {
     const { page } = await open();
     await vaultData<Accepted>(page, { action: "accept", kind: "uri-without-context" });

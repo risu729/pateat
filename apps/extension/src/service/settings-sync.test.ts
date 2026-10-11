@@ -160,15 +160,12 @@ describe("settings sync on a new pairing", () => {
     const local = settingsOf({
       connections: [localConnection],
       excludedSites: [site("intranet.example")],
-      siteDefaults: [
-        account("https://bank.example"),
-        { origin: "https://legacy.example", connectionId: "connection-1", itemId: "item-2" },
-      ],
+      siteDefaults: [account("https://bank.example")],
       bindings: [binding("https://bank.example")],
     });
     const { sync, service, base, local: after, applied } = setup({ local });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
-    // Connections and legacy defaults name device-local IDs; they never leave the device.
+    // Connections name device-local IDs; they never leave the device.
     const uploaded = settingsOf({
       excludedSites: [site("intranet.example")],
       siteDefaults: [account("https://bank.example")],
@@ -195,8 +192,7 @@ describe("settings sync on a new pairing", () => {
       excludedSites: [site("local-only.example")],
       siteDefaults: [
         account("https://bank.example", "item-local"),
-        { origin: "https://legacy.example", connectionId: "connection-1", itemId: "item-2" },
-        { origin: "https://shop.example", connectionId: "connection-1", itemId: "item-3" },
+        account("https://shop.example", "item-3"),
       ],
     });
     const remote = settingsOf({
@@ -213,16 +209,7 @@ describe("settings sync on a new pairing", () => {
     };
     expect(service()).toEqual(state(4, { connections: [], ...merged }));
     expect(after()?.revision).toBe(8);
-    expect(after()?.settings).toEqual({
-      connections: [localConnection],
-      excludedSites: merged.excludedSites,
-      // A legacy default stays unless the service now names an account for its origin.
-      siteDefaults: [
-        { origin: "https://legacy.example", connectionId: "connection-1", itemId: "item-2" },
-        ...merged.siteDefaults,
-      ],
-      bindings: merged.bindings,
-    });
+    expect(after()?.settings).toEqual({ connections: [localConnection], ...merged });
     expect(applied).toHaveBeenCalledOnce();
   });
 
@@ -301,7 +288,7 @@ describe("settings sync after the first", () => {
         ...agreed,
         // Removed on the service.
         excludedSites: [],
-        bindings: [...(agreed.bindings ?? []), binding("https://shop.example")],
+        bindings: [...agreed.bindings, binding("https://shop.example")],
       }),
       base: baseOf(4, agreed),
     });
@@ -598,23 +585,6 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("too-large");
     expect(transport.saveSettings).not.toHaveBeenCalled();
     expect(after()?.revision).toBe(7);
-  });
-
-  it("counts this device's legacy defaults against the local limit", async () => {
-    const legacy = Array.from({ length: 999 }, (_, index) => ({
-      origin: `https://legacy-${index}.example`,
-      connectionId: "connection-1",
-      itemId: "item-1",
-    }));
-    const { sync, transport } = setup({
-      local: settingsOf({ siteDefaults: legacy }),
-      service: state(
-        4,
-        settingsOf({ siteDefaults: [account("https://a.example"), account("https://b.example")] }),
-      ),
-    });
-    expect(await sync.run(CONNECTION, never)).toBe("too-large");
-    expect(transport.saveSettings).not.toHaveBeenCalled();
   });
 
   it("refuses an upload over the service's body limit", async () => {

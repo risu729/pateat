@@ -66,9 +66,12 @@ export type PreparedBitwardenAccount = {
   unavailableItems: { itemId: string; reason: "unsupported-cipher-type" }[];
   minimumSecurityVersion: 1 | 2;
   coverage: "received-envelope";
-  /** Optional for caches accepted before metadata retention was implemented. */
-  encryptedMetadata?: v.InferOutput<typeof encryptedCatalogContextSchema>;
-  /** Optional for caches accepted before URI context retention; matching then stays unavailable. */
+  encryptedMetadata: v.InferOutput<typeof encryptedCatalogContextSchema>;
+  /**
+   * Always retained at acceptance. Admission drops one that no longer readmits (for example
+   * after an IDNA table change), and a record rewritten from that admitted copy, such as
+   * when auto-unlock is disabled, keeps it absent; URI matching then stays unavailable.
+   */
   uriMatchContext?: BitwardenUriMatchContext;
 };
 export interface BitwardenAccountMapper {
@@ -105,7 +108,7 @@ export function admitPreparedBitwardenAccount(
           v.maxLength(10_000),
         ),
         coverage: v.literal("received-envelope"),
-        encryptedMetadata: v.optional(encryptedCatalogContextSchema),
+        encryptedMetadata: encryptedCatalogContextSchema,
         uriMatchContext: v.optional(v.unknown()),
       }),
       structuredClone(input),

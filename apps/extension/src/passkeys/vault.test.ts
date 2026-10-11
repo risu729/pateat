@@ -38,8 +38,7 @@ function saved(
     quarantine?: string[];
     /** A second enabled connection holding the same item ID as `first`. */
     other?: VaultCatalog["connections"][number]["state"];
-    defaultConnection?: string;
-    /** Saves the default by provider account (the current form) instead of connection ID. */
+    /** The provider account the default names; `live`'s account when absent. */
     defaultAccount?: string;
     /** Connects the other connection to the same Bitwarden account as `live`. */
     sameAccount?: boolean;
@@ -88,20 +87,12 @@ function saved(
   });
   settings.connections[1]!.enabled = options.other !== undefined;
   if (options.siteDefault)
-    settings.siteDefaults.push(
-      options.defaultAccount
-        ? {
-            origin,
-            provider: "bitwarden",
-            userId: options.defaultAccount,
-            itemId: options.siteDefault,
-          }
-        : {
-            origin,
-            connectionId: options.defaultConnection ?? "live",
-            itemId: options.siteDefault,
-          },
-    );
+    settings.siteDefaults.push({
+      origin,
+      provider: "bitwarden",
+      userId: options.defaultAccount ?? userId,
+      itemId: options.siteDefault,
+    });
   if (options.excludedSite)
     settings.excludedSites.push({ hostname: options.excludedSite, includeSubdomains: false });
   return {
@@ -256,7 +247,7 @@ describe("vault passkey candidates", () => {
     });
     // The same item ID in another connection is not the default.
     const chosen = await findVaultPasskeys({
-      saved: saved({ other: "ready", siteDefault: first, defaultConnection: "other" }),
+      saved: saved({ other: "ready", siteDefault: first, defaultAccount: otherUserId }),
       origin,
       rpId,
       find,

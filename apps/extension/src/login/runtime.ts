@@ -69,11 +69,14 @@ type SettingsRuntime = {
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
   ): Promise<SettingsSnapshot>;
 };
-/** An account choice used by an attempt but not saved yet (ADR 0013). */
+/**
+ * An account choice used by an attempt but not saved yet (ADR 0013); `connectionId` is the
+ * local connection the attempt used, so only that account is saved.
+ */
 type UnsavedChoice = { binding: SavedLoginBinding; connectionId: string };
 /** Settings with the choice added where missing; the same object when nothing changes. */
 const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
-  saveLoginChoice(value, choice.binding, choice.connectionId);
+  saveLoginChoice(value, choice.binding);
 type LiveDocument = {
   document: LoginDocument;
   token: string;
@@ -196,7 +199,7 @@ export function createLoginRuntime(
         const parsed = v.parse(configureSchema, {
           version: 1,
           type: "login.probe.configure",
-          ...(typeof config === "string" ? { origin: config } : (config as object)),
+          ...(config as object),
         });
         origin = parsed.origin;
         account = parsed.account ?? DEMO_PROBE_ACCOUNT;
@@ -546,7 +549,7 @@ export function createLoginRuntime(
     const item = connection?.items.find((entry) => entry.id === choice.itemId);
     if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
     const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
-    const saved = findLoginBinding(settingsValue.bindings ?? [], recipe, owner);
+    const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
     const binding = saved ?? defaultLoginBinding(recipe, { ...owner, itemName: item.label });
     if (!binding) return { ok: false, reason: "binding-not-found" };
     const resolved = resolveBindingFields(
@@ -590,16 +593,6 @@ export function createLoginRuntime(
       const top = await topScope(snapshot, live, chosen, snapshot.catalog);
       if (top) return { ok: false as const, reason: top.reason };
       catalog = scope.catalog;
-      if (!chosen.saved) {
-        // The automatic choice acts as this document's default in memory only; the
-        // connection-ID form is fine here because this copy is never saved.
-        policy = structuredClone(policy);
-        policy.settings.siteDefaults.push({
-          origin: live.document.origin,
-          connectionId: chosen.connectionId,
-          itemId: chosen.itemId,
-        });
-      }
       const bound = bindingFor(
         catalog,
         snapshot.snapshot.settings,
@@ -609,6 +602,19 @@ export function createLoginRuntime(
       );
       if (!bound.ok) return { ok: false as const, reason: bound.reason };
       binding = bound.binding;
+      if (!chosen.saved) {
+        // The automatic choice acts as this document's default in memory only, named by
+        // the chosen item's provider account as a saved default would be. An account
+        // connected more than once therefore stays ambiguous, as it would once saved.
+        policy = structuredClone(policy);
+        policy.settings.siteDefaults.push({
+          origin: live.document.origin,
+          provider: bound.synced.provider,
+          userId: bound.synced.userId,
+          itemId: bound.synced.itemId,
+          itemName: bound.synced.itemName,
+        });
+      }
       if (!chosen.saved || !bound.saved)
         choice = { binding: bound.synced, connectionId: chosen.connectionId };
     }
