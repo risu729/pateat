@@ -4,7 +4,7 @@ import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton } from "../page/text";
 import { findTargets } from "../page/targets";
-import { inputValueMismatch, pageFeedback, rejectsFill } from "../page/fill-checks";
+import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { acceptsSecret } from "./inputs";
 import {
@@ -447,7 +447,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch");
         // Messages already shown are not the page's answer to this fill.
-        const feedback = step.effect === "prepare" ? pageFeedback(document) : undefined;
+        const baseline = step.effect === "prepare" ? fillBaseline(writableInputs) : undefined;
         for (const [index, field] of step.fields.entries()) {
           const input = inputs[index] as HTMLInputElement;
           // Each mutation repeats scope/connected checks; events may synchronously change the page.
@@ -460,7 +460,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             current[0] !== input ||
             !writable(input) ||
             input.form !== form ||
-            !acceptsSecret(input, value.secret)
+            !acceptsSecret(input, value.secret) ||
+            inputValueMismatch(input, value.value) !== undefined
           )
             return fail("cancelled");
           // Mark uncertainty before calling into DOM/page code, including a throwing setter.
@@ -476,10 +477,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         }
         // A preparing fill is followed by a click; the page's own validation must accept
         // the values first. An effectful fill has already submitted through its event.
-        if (feedback) {
+        if (baseline) {
           await pause(fillSettleMs);
           if (cancelled) return fail("cancelled");
-          if (rejectsFill(writableInputs, feedback, document)) return fail("fill-rejected");
+          if (rejectsFill(writableInputs, baseline)) return fail("fill-rejected");
         }
         return { ok: true, mutation: "possible" };
       }

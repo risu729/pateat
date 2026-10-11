@@ -70,11 +70,18 @@ decision:
   fills nothing and ends the attempt as `value-mismatch` without a retry, since the
   same values would fail again.
 - Check 2 runs after a fill that prepares a click, waiting 500 ms. It reads
-  `validity.valid`, which fires no `invalid` event for the page to react to. Live
-  regions are `role="alert"`, `role="status"` and `aria-live` polite or assertive;
-  `log`, `marquee` and `timer` regions change on their own and are not read. A message
+  `validity.valid`, which fires no `invalid` event for the page to react to.
+  `aria-invalid="true"` counts only when the fill turned it on, and a custom validity
+  message only when it is new, so a mark left by an earlier failed sign-in that no
+  script clears does not stop the fill. A filled input that was replaced or removed
+  counts as a rejection.
+- `role="alert"` and `aria-live="assertive"` regions count anywhere on the page.
+  `role="status"` and `aria-live="polite"` regions count only inside the filled form
+  or when a filled input names them in `aria-describedby` or `aria-errormessage`,
+  since pages also use them for timers and search suggestions. A region that contains
+  a filled input, and `log`, `marquee` and `timer` regions, are not read. A message
   counts as new only when its text differs from every message shown before the fill.
-  A rejection ends the attempt as `fill-rejected` without a retry or the click. A fill
+- A rejection ends the attempt as `fill-rejected` without a retry or the click. A fill
   that submits through its own input event gets only check 1.
 
 ## Consequences

@@ -912,7 +912,7 @@ test("values the page would not accept are never submitted", async () => {
       /* eslint-enable no-await-in-loop */
       // A message the page already showed, rendered again on input, is not a rejection.
       const shown = await context.newPage();
-      await shown.goto(`${fixture.origin}/single?reject-fill=shown&maxlength=64`);
+      await shown.goto(`${fixture.origin}/single?reject-fill=shown`);
       await expect(shown.locator("#authenticated")).toBeVisible();
       expect(await clicks(shown)).toBe(1);
     });

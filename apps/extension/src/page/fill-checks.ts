@@ -20,17 +20,60 @@ export function inputValueMismatch(
   );
 }
 
-// Alerts and the live regions that announce messages. `log`, `marquee` and `timer`
-// regions change on their own and are not read.
-const feedbackSelector =
-  '[role="alert"], [role="status"], [aria-live="polite"], [aria-live="assertive"]';
+// Alerts count anywhere on the page. Status and polite live regions also announce
+// unrelated things (timers, search suggestions, banners), so they count only inside the
+// filled form or when a filled input names them. `log`, `marquee` and `timer` regions
+// change on their own and are never read.
+const alertSelector = '[role="alert"], [aria-live="assertive"]';
+const statusSelector = '[role="status"], [aria-live="polite"]';
 
-/** The rendered texts of the alerts and live regions, to compare after a fill. */
-export function pageFeedback(root: ParentNode): ReadonlySet<string> {
+/** What the page showed before a fill, to compare with once its handlers ran. */
+export interface FillBaseline {
+  readonly texts: ReadonlySet<string>;
+  /** Per filled input: whether it was marked invalid, and its custom validity message. */
+  readonly inputs: readonly { ariaInvalid: boolean; customError: string }[];
+}
+
+const validityFlags = [
+  "badInput",
+  "patternMismatch",
+  "rangeOverflow",
+  "rangeUnderflow",
+  "stepMismatch",
+  "tooLong",
+  "tooShort",
+  "typeMismatch",
+  "valueMissing",
+] as const satisfies readonly (keyof ValidityState)[];
+
+const ariaInvalid = (input: HTMLInputElement) =>
+  input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
+
+function feedbackTexts(inputs: readonly HTMLInputElement[]): Set<string> {
+  const root = inputs[0]?.ownerDocument ?? document;
+  const form = inputs[0]?.form;
+  const named = new Set(
+    inputs.flatMap((input) =>
+      ["aria-describedby", "aria-errormessage"].flatMap((name) =>
+        (input.getAttribute(name) ?? "").split(/\s+/u).filter(Boolean),
+      ),
+    ),
+  );
+  const regions = [
+    ...root.querySelectorAll(alertSelector),
+    ...[...root.querySelectorAll(statusSelector)].filter(
+      (element) => form?.contains(element) || named.has(element.id),
+    ),
+  ];
   const texts = new Set<string>();
-  for (const element of root.querySelectorAll(feedbackSelector)) {
-    // Visually hidden announcements (clipped to one pixel) still count as rendered.
-    if (!(element instanceof HTMLElement) || !element.checkVisibility({ visibilityProperty: true }))
+  for (const element of regions) {
+    // A region around the inputs changes with any text of the form, such as a password
+    // visibility toggle; visually hidden announcements still count as rendered.
+    if (
+      !(element instanceof HTMLElement) ||
+      inputs.some((input) => element.contains(input)) ||
+      !element.checkVisibility({ visibilityProperty: true })
+    )
       continue;
     const text = element.innerText.replace(/\s+/gu, " ").trim();
     if (text) texts.add(text);
@@ -38,26 +81,39 @@ export function pageFeedback(root: ParentNode): ReadonlySet<string> {
   return texts;
 }
 
+export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline {
+  return {
+    texts: feedbackTexts(inputs),
+    inputs: inputs.map((input) => ({
+      ariaInvalid: ariaInvalid(input),
+      customError: input.validity.customError ? input.validationMessage : "",
+    })),
+  };
+}
+
 /**
- * Whether the page rejected a fill once its own handlers ran: a filled input fails its
- * constraint validation (read without firing `invalid`) or has `aria-invalid="true"`,
- * or an alert or live region shows text that none showed before the fill.
+ * Whether the page rejected a fill once its own handlers ran: a filled input was
+ * replaced or removed, fails its constraint validation (read without firing `invalid`),
+ * became `aria-invalid="true"`, or an alert or relevant live region shows text that none
+ * showed before the fill. A mark the input already had before the fill, such as one
+ * left by an earlier failed sign-in that no script clears, is not the page's answer.
  */
-export function rejectsFill(
-  inputs: readonly HTMLInputElement[],
-  before: ReadonlySet<string>,
-  root: ParentNode,
-): boolean {
-  if (
-    inputs.some(
-      (input) =>
-        input.isConnected &&
-        (!input.validity.valid ||
-          input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true"),
-    )
-  )
-    return true;
+export function rejectsFill(inputs: readonly HTMLInputElement[], before: FillBaseline): boolean {
+  const rejected = inputs.some((input, index) => {
+    if (!input.isConnected) return true;
+    const previous = before.inputs[index]!;
+    if (ariaInvalid(input) && !previous.ariaInvalid) return true;
+    const { validity } = input;
+    if (validity.valid) return false;
+    // Only an unchanged custom message that was already set is left over.
+    const leftOver =
+      validity.customError &&
+      validityFlags.every((flag) => !validity[flag]) &&
+      previous.customError !== "" &&
+      input.validationMessage === previous.customError;
+    return !leftOver;
+  });
   // Compared by text, so a page that re-renders a message it already showed is not a
   // new message.
-  return [...pageFeedback(root)].some((text) => !before.has(text));
+  return rejected || [...feedbackTexts(inputs)].some((text) => !before.texts.has(text));
 }
