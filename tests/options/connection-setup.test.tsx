@@ -324,33 +324,39 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
       </QueryClientProvider>,
     );
     await expect.element(page.getByText("Saved settings loaded · Revision 0")).toBeVisible();
+    // The draft's save is still pending when setup replaces the vault metadata.
+    let resolveSave!: (value: SettingsResponse) => void;
+    settings.saveSettings.mockReturnValueOnce(
+      new Promise<SettingsResponse>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
     await page.getByLabelText("Hostname", { exact: true }).fill("draft.example");
     await page.getByRole("button", { name: "Add excluded site", exact: true }).click();
-    const save = page.getByRole("button", { name: "Save settings", exact: true });
-    await expect.element(save).toBeEnabled();
     await fillNew();
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
     await vi.waitFor(() => expect(connection.begin).toHaveBeenCalledTimes(1));
     await expect
       .element(page.getByText(/Vault metadata changed\. Your unsaved draft has been preserved/))
       .toBeVisible();
-    await expect.element(save).toBeDisabled();
+    resolveSave(saved(1));
+    await expect
+      .element(page.getByText(/Vault metadata changed while settings were being saved/))
+      .toBeVisible();
     expect(document.getElementById("excluded-sites")?.textContent).toContain("draft.example");
     expect(settings.getSettings).toHaveBeenCalledTimes(1);
-    expect(settings.saveSettings).not.toHaveBeenCalled();
     // Editing further cannot unblock a draft based on potentially replaced vault metadata.
     await page.getByLabelText("Hostname", { exact: true }).fill("next-draft.example");
     await page.getByRole("button", { name: "Add excluded site", exact: true }).click();
-    await expect.element(save).toBeDisabled();
+    expect(settings.saveSettings).toHaveBeenCalledTimes(1);
     settings.getSettings.mockResolvedValue(saved(7));
     await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
     await expect.element(page.getByText("Saved settings loaded · Revision 7")).toBeVisible();
     expect(document.getElementById("excluded-sites")?.textContent).not.toContain("draft.example");
     await page.getByLabelText("Hostname", { exact: true }).fill("reviewed.example");
     await page.getByRole("button", { name: "Add excluded site", exact: true }).click();
-    await expect.element(save).toBeEnabled();
-    await save.click();
-    expect(settings.saveSettings.mock.calls[0]?.[0]).toMatchObject({ expectedRevision: 7 });
+    await vi.waitFor(() => expect(settings.saveSettings).toHaveBeenCalledTimes(2));
+    expect(settings.saveSettings.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 7 });
   },
 );
 

@@ -76,7 +76,6 @@ for (const [variant, matched] of [
       await options.locator("#add-default").click();
 
       // The matches are looked up again from the vault, never saved with the defaults.
-      await options.locator("#save-settings").click();
       await expect(options.locator("#settings-status")).toContainText("Settings saved");
       const stored = await settingsRequest(options);
       expect(stored.snapshot.settings.siteDefaults).toMatchObject([
