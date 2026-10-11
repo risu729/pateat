@@ -126,7 +126,11 @@ export default defineBackground(() => {
         timeoutMs: passkeyProbe.timeoutMs,
         policy: passkeyProbe.policy,
       })
-    : createPasskeyRuntime(vaultPasskeys, { extensionId: browser.runtime.id });
+    : createPasskeyRuntime(vaultPasskeys, {
+        extensionId: browser.runtime.id,
+        // Only this extension's service worker console shows it; the page never learns why.
+        report: (report) => console.info("Pateat passkey request", report),
+      });
 
   browser.runtime.onConnect.addListener((port) => {
     connections.attach(port);

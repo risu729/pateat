@@ -204,6 +204,32 @@ passkey or provider is involved.
    and **Another provider is locked** add a synthetic provider wrapper to the page for
    runs without one.
 
+### Why a passkey request was delegated
+
+The production build writes one `Pateat passkey request` line per bridged request to its
+own service worker console. The console shows only lines written while it is open, so
+open it first: turn on **Developer mode** in `chrome://extensions`, click **service
+worker** under Pateat, then make the passkey request on the site. Each line holds:
+
+- `origin`, `outcome` (`assertion`, `delegate` or `cancelled`) and the delegate
+  `reason`;
+- once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
+  the site listed);
+- once the vault was searched, `stored` (eligible stored passkeys with that RP ID in
+  searched connections; excluded and quarantined items are not counted), `accepted`
+  (those the request accepts), `siteDefault` and `siteDefaultAccepted` (the same counts
+  for the origin's site default item), `siteDefaultItem` (`unset`, `unresolved` when
+  the saved account matches no connection, `not-searched` when the item is ineligible
+  or its connection was not searched, or `searched`) and `complete`.
+
+For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
+passkey is not one the request accepts. No line at all means the request never reached
+Pateat's background: the page's options were not ones the bridge copies, another
+provider's wrapper did not call Pateat's, or the request came from a subframe. Lines
+never hold credential IDs, user handles or item IDs, and the page is never told the
+reason. They do name every HTTPS origin that asked, including excluded sites, but only
+in this local console.
+
 ### Manual Bitwarden setup preview
 
 The connection setup slice is implemented and tested with synthetic responses. Its
