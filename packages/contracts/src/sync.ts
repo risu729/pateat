@@ -120,6 +120,8 @@ export const syncErrorCodeSchema = v.picklist([
   "payload_too_large",
   "unsupported_media_type",
   "rate_limited",
+  /** The write would make the owner hold more active recipes than the service keeps. */
+  "recipe_limit",
   "enrollment_not_found",
   "enrollment_code_mismatch",
   "internal_error",

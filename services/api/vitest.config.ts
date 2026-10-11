@@ -42,7 +42,10 @@ export default defineConfig({
           OIDC_ISSUER: "https://pateat.invalid",
           OIDC_SIGNING_KEYS: oidcSigningKeys,
         },
-        ratelimits: { REDEEM_LIMITER: { namespace_id: "1001", simple: { limit: 10, period: 60 } } },
+        ratelimits: {
+          REDEEM_LIMITER: { namespace_id: "1001", simple: { limit: 10, period: 60 } },
+          OWNER_LIMITER: { namespace_id: "1002", simple: { limit: 120, period: 60 } },
+        },
       },
     }),
   ],

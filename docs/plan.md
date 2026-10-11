@@ -606,9 +606,10 @@ the real settings store over in-memory storage; no running service has been trie
   `/manage/claude` page until the React web UI replaces it; no exchange with
   Anthropic's real token endpoint has been made.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
-  owner on first approval. Before the service is offered to other people, it needs
-  per-owner storage and request limits; today only `/redeem` is rate limited (per
-  client address) and request bodies are size-capped.
+  owner on first approval. Per-owner [service limits](architecture.md#service-limits)
+  cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
+  sized for the owner's own use; a byte quota is still needed before the service is
+  offered to other people.
 
 ## Passkey progress
 
