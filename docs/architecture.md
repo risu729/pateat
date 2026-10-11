@@ -439,7 +439,10 @@ record, it is locked. The manifest's default action icon is the locked one; the 
 re-reads the records when it starts, at browser start, after each vault record write and
 after each settings-page connection request
 (`apps/extension/src/connections/action-icon.ts`). The owner confirmed the switch in
-installed Chrome on 2026-10-11 (main 863ad90 or later).
+installed Chrome on 2026-10-11 (main 863ad90 or later). After a full Chrome 154 restart
+with automatic unlock on main f7d3cf5, the icon showed the logo with no visible gray
+phase; this is expected, because the built manifest's `action.default_icon` is the
+locked icon and the worker replaces it as soon as it reads the active records.
 
 ## Declarative recipes and AI
 
