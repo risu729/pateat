@@ -76,6 +76,12 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   const manifest = JSON.parse(await readFile(resolve(extensionDirectory, "manifest.json"), "utf8"));
   expect(manifest.manifest_version).toBe(3);
   expect(manifest.options_ui).toMatchObject({ page: "options.html", open_in_tab: true });
+  expect(manifest.icons).toEqual({
+    16: "icon/16.png",
+    32: "icon/32.png",
+    48: "icon/48.png",
+    128: "icon/128.png",
+  });
   // Owner-approved install-time HTTPS access (ADR 0009): top-level only. The ADR 0007
   // passkey bridge is the only MAIN-world script.
   expect(
