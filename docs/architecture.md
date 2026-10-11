@@ -51,7 +51,7 @@ compatibility claim or an alternative cloud-browser implementation.
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
 | Settings page           | Vault connection, re-authentication, unlock and service pairing                            | Deliberate user setup only; no auto-opening during login        |
 | Toolbar popup           | Current site's default account and exclusion; choosing among several matches (ADR 0021) | Item names and login usernames only; opened only by the user    |
-| Passkey chooser window  | Choosing among several passkeys for one pending request (ADR 0021)                       | Item names and passkey user names only                           |
+| Passkey chooser window  | Choosing a passkey for one pending request: several match, or Pateat signed in the tab   | Item names and passkey user names only                           |
 | Worker API + D1         | Settings, recipes and account bindings, owner web UI, device authorization, inference, request log | Service credentials only; no vault values or keys               |
 | AI provider             | Match observed elements and propose declarative steps                                      | No vault values, account bindings, cookies, or assertions       |
 
@@ -406,7 +406,8 @@ Do not inject `chrome-extension://` iframes, automatic overlays or unlock window
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
 settings. The one extension window is the passkey chooser of
 [ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
-with several matches from a focused page, and never in incognito. Do not attach our own
+from a focused page, with several matches or after Pateat signed in from the same tab,
+and never in incognito. Do not attach our own
 debugger in normal operation. Another installed extension can still inject a conflicting
 frame; coexistence requires an explicit compatibility test and documented settings.
 
@@ -809,7 +810,9 @@ It shows only item names, passkey user names and connection labels. The backgrou
 answers its messages only from that page, for the request token in its URL and from the
 window it opened, and keeps the worker alive while the window waits. Choosing signs with
 that passkey; a ticked checkbox then saves it as the origin's site default. Any other
-ending delegates to the browser.
+ending delegates to the browser. The background also keeps, per tab in session storage,
+the RP IDs it signed for; a later request with no allow list for one of them in that tab
+opens the window even for one match or a site default, because it may follow a logout.
 
 ## Minimal service
 

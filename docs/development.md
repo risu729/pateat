@@ -302,18 +302,22 @@ passkey or provider is involved. The probe build has its own
 3. Open `http://localhost:3848/`. **Wrapped at document start** must read
    `true`. Another passkey provider's wrapper also reads `true`; only the next
    steps show that Pateat answered.
-4. Click **Sign in with a passkey** and **Sign in requiring UV**. Each must report
+4. Click **Sign in with a passkey**. It must report
    `Pateat, flags 0x1d, signature verified` without any browser or provider
-   prompt.
-5. Open **Request on page load**. Without a gesture it must also report a
-   verified Pateat assertion.
+   prompt. Then click **Sign in requiring UV** in the same tab. Because Pateat signed in
+   from this tab, its chooser window opens
+   ([ADR 0021](adr/0021-account-choice-outside-settings.md) part D) with its checkbox
+   unticked; choose the synthetic passkey, and the page must report the same.
+5. Open **Request on page load** in a new tab. Without a gesture it must also report a
+   verified Pateat assertion. In the tab of step 4 it would open the chooser instead.
 6. Open **Permissions Policy denies passkeys** and click the first button. The
    page must report the browser's `NotAllowedError`, not a Pateat assertion.
 7. Record whether another installed passkey provider's UI appeared at any step. With
    another provider installed, steps 4 and 5 must still report Pateat assertions without
-   that provider's UI. **Another provider wraps later**, **Another provider falls back**
-   and **Another provider is locked** add a synthetic provider wrapper to the page for
-   runs without one.
+   that provider's UI; Pateat's own chooser window in step 4 is expected.
+   **Another provider wraps later**, **Another provider falls back** and
+   **Another provider is locked** add a synthetic provider wrapper to the page for runs
+   without one.
 
 ### Filing a bug report
 
@@ -352,7 +356,10 @@ holds:
 - when the chooser window opened, `chooser`: `chosen`, `browser` (the user picked the
   browser), `closed` (the window, its tab or the request ended) or `unavailable` (the
   window could not open, or another request held it). A delegation after the window
-  has the reason `chooser-` plus that value, or `timeout`.
+  has the reason `chooser-` plus that value, or `timeout`;
+- `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
+  again. Such a request that cannot open the window is delegated with
+  `chooser-unavailable`.
 
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached

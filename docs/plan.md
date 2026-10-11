@@ -13,8 +13,8 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
 - M2: the synthetic engine and settings gates have passed
   ([local settings progress](#local-settings-progress)). One-time account choices and
   choosing again after a logout
-  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), with tests over several
-  tabs on one origin, are not implemented.
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)) are implemented and tested
+  in Playwright Chromium only.
 - M3: a password login on a real site, individual MFA methods, other KDFs, V2 keys and
   organization items on a real account, and the site-access warning and prompt in
   installed Chrome
@@ -1220,13 +1220,15 @@ the refused document to announce again and offers the same choice, or clears the
 when the document is gone. A default saved for the site meanwhile ends the choice. The
 background sends `login.reconnect` to the refused document only and answers the popup
 once that document's announce is handled. A pick applies to that document and then to
-the attempt it started, wins over a saved default there, and still has to match the
-page and pass every policy check; a pick that starts nothing is dropped, so the form's
-next appearance asks again. "Make it the default for this site" (on by default,
-off in a private window) saves the pick through the existing choice save after
-`authenticated`; it replaces another saved default only when the user picked it. The
-passkey chooser window is implemented: a request matching several passkeys, none of them
-the site default, opens `passkey-picker.html` to choose one once or as the default.
+the attempt it started, wins over a saved default there, and still has to match the page
+and pass every policy check; a pick that starts nothing is dropped, so the form's next
+appearance asks again. "Make it the default for this site" (on by default, off in a
+private window) saves the pick through the existing choice save after `authenticated`;
+it replaces another saved default only when the user picked it. The passkey chooser
+window is implemented: a request matching several passkeys, none of them the site
+default, opens `passkey-picker.html` to choose one once or as the default. After Pateat
+signed for an RP ID in a tab, a username-less request for it there opens the window even
+for one match or a default (part D, passkeys).
 
 Choosing again after a logout (part D, passwords) is built. After a login in a tab ended
 as `authenticated`, or `blocked` with `credential-rejected`, `wrong-account`,
@@ -1242,7 +1244,7 @@ blocks the site with `origin-busy`, and the tab's tooltip says so; while the tab
 other tabs of the site are refused `origin-busy` as well. If the URI matches cannot be
 listed, the saved default alone is offered. A login whose result is still `reconciling`
 is resumed, not taken as a logout. Frame logins and sites whose logout page shows only a
-password step are not detected. The passkey half of part D belongs to part C.
+password step are not detected.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
