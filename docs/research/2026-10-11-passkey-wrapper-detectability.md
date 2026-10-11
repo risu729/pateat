@@ -35,11 +35,12 @@ Every extension that runs page-world code has the same stack-trace exposure; the
 official Bitwarden extension's page script is served from
 `chrome-extension://nngceckbapebfimnlniiiahkandclblb/`.
 
-At `a62ada1`, the `result` message also carried the background's delegate
-reason. `not-configured` told the page that the owner had excluded the site (or that
-settings or the vault catalog could not be read), `ambiguous-credential` that the vault
-held several passkeys for the site, `vault-incomplete` that a connection or item could
-not be searched, and `no-credential` that none of these held. The relay now posts only `{ kind: "delegate" }`.
+At `a62ada1`, the `result` message also carried the background's delegate reason.
+`not-configured` told the page that the owner had excluded the site (or that settings or
+the vault catalog could not be read), `ambiguous-credential` that the vault held several
+passkeys for the site, `vault-incomplete` that a connection or item could not be
+searched, and `no-credential` that none of these held. The relay now posts only
+`{ kind: "delegate" }`.
 
 Claimed assertions are plain objects whose prototypes are set to
 `PublicKeyCredential.prototype` and `AuthenticatorAssertionResponse.prototype`, which
