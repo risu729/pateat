@@ -57,7 +57,14 @@ mise exec -- hk check --all --no-fail-fast
 ```
 
 The shared checks include Oxlint, Oxfmt, separate TypeScript checking,
-Markdown/TOML/YAML validation, and GitHub Actions hygiene. CI uses the same task
+Markdown/TOML/YAML validation, GitHub Actions hygiene, `mise fmt` and
+`mise task validate` for `mise.toml`, `hk validate` and Pkl formatting for `hk.pkl`,
+and Betterleaks secret scanning. Betterleaks reports only medium- and high-confidence
+matches: fixtures, tests and the synthetic corpus are full of low-confidence generic
+matches such as `password: "password"`, while vendor token formats (GitHub `ghp_`,
+Anthropic `sk-ant-`, Cloudflare API tokens) are medium confidence or higher. A secret
+without a vendor prefix, such as a Bitwarden API `client_secret`, only matches the
+generic rules and is not reported. CI uses the same task
 graph. `mise run fix` applies explicit formatting/lint fixes; the check task must
 not mutate source files. Renovate tracks the pinned dependencies and tooling.
 
