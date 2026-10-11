@@ -11,6 +11,6 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "test", "*.config.ts", "worker-runtime.ts", ".cloudflare/types"],
+  "include": ["src", "test", "smoke", "*.config.ts", "worker-runtime.ts", ".cloudflare/types"],
   "exclude": ["test/fixtures"]
 }

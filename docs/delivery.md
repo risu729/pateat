@@ -228,6 +228,16 @@ commit `6a93154ef1c550b760d8582bcf59d8d4a0710788`. Recheck the release and input
 when writing workflows. Caller tasks own migrations and hosted application tests;
 the action owns deployment and deployment readback.
 
+The hosted smoke checks are in
+[services/api/README.md](../services/api/README.md#hosted-smoke-checks). They obtain
+owners and devices without a person and without changing Access: the deploy job,
+which already holds D1 write access for migrations, inserts synthetic owners and their
+pairing approvals into D1, and the devices are then minted through the public
+`/redeem` route. Access-authenticated approval at `/enroll` is therefore not exercised
+by a hosted check. It is covered by Worker tests with synthetic Access tokens and by
+pairing in the owner's Chrome; automating it would need an Access service token that
+the Worker accepts as an owner, which is a separate owner decision.
+
 ## Failure and rollback
 
 If migrations fail, do not deploy. If activation/readback/smoke checks fail,
