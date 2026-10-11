@@ -411,7 +411,7 @@ after the Latin name ("let it be open"). The arch is green `#1C9A7E`, the keysto
 gold `#E0A100`, and the background is transparent. Both colors stay visible on light
 and dark Chrome toolbars; the mark avoids blue and shield shapes so it is not
 confused with the official Bitwarden extension. The source is
-`apps/extension/icons/icon.svg`; `mise run render:icons` writes the committed ONGs
+`apps/extension/icons/icon.svg`; `mise run render:icons` writes the committed PNG files
 in `apps/extension/public/icon/`, drawing the 128 px store icon at 96 px with
 transparent padding.
 

@@ -1,5 +1,5 @@
 // Rasterizes the extension icon sources into the PNG sizes Chrome reads.
-// Chrome does not accept SVG manifest icons, so the ONGs are committed outputs.
+// Chrome does not accept SVG manifest icons, so the PNG files are committed outputs.
 import { chromium } from "@playwright/test";
 import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
