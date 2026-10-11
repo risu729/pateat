@@ -121,8 +121,9 @@ from the service closing the window: a settings change no longer cancels a reque
 once its window has opened. It still cancels requests that never opened one. After a
 choice, the chosen passkey is looked up again under the settings current then, since
 they may have changed meanwhile, and is used only if they still offer it; otherwise the
-request is delegated with `settings-changed`. A failed lookup or signing after a choice
-is tried once more.
+request is delegated with `settings-changed` (or `vault-incomplete` when the vault could
+not be searched in full). A lookup or signing after a choice that fails is tried once
+more.
 
 ### D. After a logout, choose again (detection L1)
 

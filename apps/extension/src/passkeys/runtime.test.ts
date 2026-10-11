@@ -507,7 +507,7 @@ describe("passkey chooser window", () => {
     expect(remember).not.toHaveBeenCalled();
   });
 
-  it("tries a failed signing after a choice once more", async () => {
+  it("tries a failed lookup or signing after a choice once more", async () => {
     const backing = several();
     vi.mocked(backing.sign).mockRejectedValueOnce(new Error("passkey-stale"));
     const runtime = createPasskeyRuntime(backing, {
@@ -518,12 +518,29 @@ describe("passkey chooser window", () => {
     expect(backing.candidates).toHaveBeenCalledTimes(3);
     expect(backing.sign).toHaveBeenCalledTimes(2);
 
+    // A lookup that throws is tried again too.
+    vi.mocked(backing.candidates)
+      .mockResolvedValueOnce({ candidates: pair, complete: true })
+      .mockRejectedValueOnce(new Error("vault-unavailable"));
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(backing.candidates).toHaveBeenCalledTimes(6);
+    expect(backing.sign).toHaveBeenCalledTimes(3);
+
+    // A lookup that could not search the whole vault says so.
+    vi.mocked(backing.candidates)
+      .mockResolvedValueOnce({ candidates: pair, complete: true })
+      .mockResolvedValueOnce({ candidates: [], complete: false });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "vault-incomplete",
+    });
+
     vi.mocked(backing.sign).mockRejectedValue(new Error("passkey-unavailable"));
     expect(await runtime.handle(get(), sender())).toEqual({
       kind: "delegate",
       reason: "assertion-failed",
     });
-    expect(backing.sign).toHaveBeenCalledTimes(4);
+    expect(backing.sign).toHaveBeenCalledTimes(5);
   });
 
   it("delegates a choice the changed settings no longer offer", async () => {

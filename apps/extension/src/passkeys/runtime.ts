@@ -269,24 +269,27 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           signal,
         );
       type Signed = { credential: TCandidate; assertion: Awaited<ReturnType<typeof signWith>> };
-      // A failure in the lookup or the signing, as when settings change meanwhile, gets one
-      // more try.
+      // Looks the chosen passkey up under the current settings and signs with it. A lookup or
+      // signing that throws, as when settings change meanwhile, gets one more try.
       const signCurrent = async (
         credentialId: string,
         retry: boolean,
-      ): Promise<Signed | undefined> => {
-        const current = await abortable(
-          source.candidates(origin, admission.request.rpId, signal),
-          signal,
-        );
-        const same = current
-          ? matchingPasskeys(admission.request, current.candidates).filter(
-              (entry) => entry.credentialId === credentialId && entry.counter === 0,
-            )
-          : [];
-        if (same.length !== 1) return undefined;
-        const candidate = same[0]!;
+      ): Promise<Signed | { reason: string }> => {
         try {
+          const current = await abortable(
+            source.candidates(origin, admission.request.rpId, signal),
+            signal,
+          );
+          const same = current
+            ? matchingPasskeys(admission.request, current.candidates).filter(
+                (entry) => entry.credentialId === credentialId && entry.counter === 0,
+              )
+            : [];
+          if (same.length !== 1)
+            return {
+              reason: current?.complete === false ? "vault-incomplete" : "settings-changed",
+            };
+          const candidate = same[0]!;
           return { credential: candidate, assertion: await signWith(candidate) };
         } catch (error) {
           if (signal.aborted || !retry) throw error;
@@ -364,7 +367,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         // tab's login, and signing refuses a candidate from older settings. So the chosen
         // passkey is looked up again and used only if the current settings still offer it.
         const signed = await signCurrent(chosen.credentialId, true);
-        if (!signed) return { kind: "delegate", reason: "settings-changed" };
+        if ("reason" in signed) return { kind: "delegate", reason: signed.reason };
         ({ credential, assertion } = signed);
         // The site default is saved already.
         makeDefault = choice.makeDefault && credential.preferred !== true;
