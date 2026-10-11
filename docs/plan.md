@@ -144,8 +144,9 @@ fields when `kdfSettings` is absent or null, which the server model allows until
 PM-28143 cleanup. On 2026-10-11 Bitwarden Cloud US (server 2026.9.2) answered
 `/accounts/prelogin/password` for a real account with only those flat fields
 (`{"kdf":0,"kdfIterations":600000,"kdfMemory":null,"kdfParallelism":null}`), and setup
-had stopped with `invalid-response` because `kdfSettings` was required. Real-account
-setup after this change is not yet re-verified.
+had stopped with `invalid-response` because `kdfSettings` was required. With this
+change, real-account setup on Cloud US succeeded at main `f7d3cf5` on 2026-10-11
+([passkey evidence](#passkey-progress)).
 
 The transport supports explicit manual authenticator/email codes and new-device
 OTP submission as request shapes. Challenge, rejection and interactive/unsupported
@@ -634,9 +635,10 @@ public key, and gets the browser's own credential once the item is excluded. A
 production-build test checks that the bridge is installed at document start there, that
 no content script posts a message to the page, and that with no vault connected the
 request goes to the browser. A claimed assertion from a vault passkey is tested only
-through the probe build, which wraps the same vault source. Real-site interoperability
-and real-account use remain open; a navigation during signing relies on Chrome dropping
-the response to the replaced document.
+through the probe build, which wraps the same vault source. The first real-site and
+real-account results are listed below; a primary sign-in with a discoverable passkey is
+still untested, and a navigation during signing relies on Chrome dropping the response
+to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
 extension ID from stack traces; the relay posts only the outcome of a request to the
@@ -675,6 +677,23 @@ Evidence, 2026-10-10, synthetic relying party only:
   2026.6.1. Both buttons and the page-load request reported `Pateat, flags 0x1d,
   signature verified`, with Bitwarden unlocked and again with it locked after a reload.
   No Bitwarden window appeared, and no request errored or stayed pending.
+
+Evidence, 2026-10-11, real sites with the owner's real Bitwarden account: production
+build at main `f7d3cf5`, the owner's Chrome 154.0.8037.98, the official Bitwarden
+extension 2026.9.3, Bitwarden Cloud US.
+
+- Setup connected the real account after a new-device verification code, and Sync
+  succeeded ("Vault verified and local cache accepted.").
+- `https://www.npmjs.com`: the site asks for the passkey as a second-factor security
+  key. Bitwarden's autofill entered the username and password, and the security-key
+  step then succeeded with no Chrome or Bitwarden window, which indicates Pateat signed
+  it unattended.
+- `https://my.jcb.co.jp`: about six passkeys for this RP ID are stored in separate login
+  items and no site default was set, so Pateat delegated as designed and Bitwarden
+  showed its own window. The options page's site-default account list did not filter by
+  site, did not show usernames, and could not tell apart items with the same name, so
+  the owner could not pick the right item; that is tracked as executor work.
+- Not tested: a primary sign-in with a discoverable (username-less) passkey.
 
 ## AI evaluation harness progress
 
