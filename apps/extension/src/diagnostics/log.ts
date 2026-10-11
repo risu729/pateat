@@ -104,6 +104,7 @@ export const LOG_EVENTS = {
       siteDefaultAccepted: "count",
       siteDefaultItem: "code",
       complete: "flag",
+      chooser: "code",
     },
   },
   "error.unhandled": {

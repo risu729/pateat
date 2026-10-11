@@ -9,6 +9,12 @@ export default defineContentScript({
   // WXT would otherwise post a start message naming the extension ID to every page.
   noScriptStartedPostMessage: true,
   main(ctx) {
-    ctx.onInvalidated(installPasskeyRelay((message) => browser.runtime.sendMessage(message)));
+    ctx.onInvalidated(
+      installPasskeyRelay(
+        (message) => browser.runtime.sendMessage(message),
+        // An extension reload or update leaves this script without a runtime ID.
+        () => browser.runtime?.id !== undefined,
+      ),
+    );
   },
 });

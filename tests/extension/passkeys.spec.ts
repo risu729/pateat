@@ -1,4 +1,11 @@
-import { chromium, test, expect, type BrowserContext, type Page } from "@playwright/test";
+import {
+  chromium,
+  test,
+  expect,
+  type BrowserContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -81,6 +88,7 @@ type Spec = {
   userVerification?: string;
   allow?: string[];
   mediation?: string;
+  timeout?: number;
 };
 const challengeHex = () => createHash("sha256").update(crypto.randomUUID()).digest("hex");
 
@@ -173,7 +181,7 @@ function expectNativeAssertion(result: Serialized, origin: string, challenge: st
   });
 }
 
-type ProbeControl = { ok: boolean; signatures: number };
+type ProbeControl = { ok: boolean; signatures: number; remembered: string[] };
 /** Probe controls are accepted only from the extension's own options page. */
 async function probeControls(context: BrowserContext, extensionId: string) {
   const options = await context.newPage();
@@ -193,6 +201,7 @@ async function probeControls(context: BrowserContext, extensionId: string) {
         await send({ version: 1, type: "passkey.probe.configure", ...settings }),
       ).toMatchObject({ ok: true }),
     signatures: async () => (await send({ version: 1, type: "passkey.probe.status" })).signatures,
+    remembered: async () => (await send({ version: 1, type: "passkey.probe.status" })).remembered,
   };
 }
 
@@ -349,6 +358,118 @@ test("abort rejects with the caller's reason and a slow bridge delegates", async
       // Outlast both delayed signatures: cancellation and the deadline must have stopped them.
       await page.waitForTimeout(3500);
       expect(await probe.signatures()).toBe(0);
+    });
+  } finally {
+    server.close();
+  }
+});
+
+/** Starts a request and returns the chooser window it opens; `settle` reads the page's result. */
+async function requestWithChooser(context: BrowserContext, page: Page, spec: Spec) {
+  await page.evaluate((value) => {
+    (window as unknown as { nextSpec: Spec }).nextSpec = value;
+  }, spec);
+  const opened = context.waitForEvent("page", {
+    predicate: (candidate) => candidate.url().includes("/passkey-picker.html"),
+  });
+  await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+  const chooser = await opened;
+  await expect(chooser.getByRole("heading", { name: "Choose a passkey" })).toBeVisible();
+  return {
+    chooser,
+    settle: () =>
+      page.evaluate(() => (window as unknown as { pending: Promise<Serialized> }).pending),
+  };
+}
+
+/** Clicks a chooser button; the background closes the window as it receives the answer. */
+async function choose(button: Locator) {
+  const closed = button.page().waitForEvent("close");
+  await button.click({ noWaitAfter: true }).catch((error: unknown) => {
+    if (!button.page().isClosed()) throw error;
+  });
+  await closed;
+}
+
+const secondCredentialId = Buffer.from(`${PROBE_PASSKEY.credentialId}01`, "hex").toString(
+  "base64url",
+);
+
+test("several matching passkeys open Pateat's chooser window", async () => {
+  const { server, origin } = await startRelyingParty();
+  try {
+    await withLoginExtension(async (context, _worker, extensionId) => {
+      const probe = await probeControls(context, extensionId);
+      await probe.configure({ count: 2 });
+      const page = await openRelyingParty(context, origin);
+
+      // Choosing the second passkey signs with it and saves it as the default afterwards.
+      const chosen = challengeHex();
+      const first = await requestWithChooser(context, page, { challenge: chosen });
+      const list = first.chooser.getByRole("list", { name: "Matching passkeys" });
+      await expect(list.getByRole("button")).toHaveText([
+        "Synthetic passkey 1synthetic-user-1Probe",
+        "Synthetic passkey 2synthetic-user-2Probe",
+      ]);
+      await expect(
+        first.chooser.getByRole("checkbox", { name: "Use this account for localhost" }),
+      ).toBeChecked();
+      await choose(list.getByRole("button", { name: /Synthetic passkey 2/u }));
+      const result = await first.settle();
+      if ("error" in result) throw new Error(`Expected an assertion, got ${result.error}`);
+      expect(result.id).toBe(secondCredentialId);
+      await expect.poll(() => probe.remembered()).toEqual([secondCredentialId]);
+
+      // A one-time choice is not saved.
+      const onceChallenge = challengeHex();
+      const once = await requestWithChooser(context, page, { challenge: onceChallenge });
+      await once.chooser.getByRole("checkbox").uncheck();
+      await choose(once.chooser.getByRole("button", { name: /Synthetic passkey 1/u }));
+      expectPateatAssertion(await once.settle(), origin, onceChallenge);
+      expect(await probe.remembered()).toEqual([secondCredentialId]);
+
+      // "Use the browser" and closing the window both hand the request to the browser.
+      const browserChallenge = challengeHex();
+      const toBrowser = await requestWithChooser(context, page, { challenge: browserChallenge });
+      await choose(
+        toBrowser.chooser.getByRole("button", { name: "Use the browser or another extension" }),
+      );
+      expectNativeAssertion(await toBrowser.settle(), origin, browserChallenge);
+      const closedChallenge = challengeHex();
+      const closed = await requestWithChooser(context, page, { challenge: closedChallenge });
+      await closed.chooser.close();
+      expectNativeAssertion(await closed.settle(), origin, closedChallenge);
+
+      // The page aborting its request closes the window.
+      const aborted = await requestWithChooser(context, page, { challenge: challengeHex() });
+      const abortedClosed = aborted.chooser.waitForEvent("close");
+      await page.evaluate(() => {
+        const scope = window as unknown as { controller: AbortController; abortReason: unknown };
+        scope.abortReason = { synthetic: "abort" };
+        scope.controller.abort(scope.abortReason);
+      });
+      expect(await aborted.settle()).toEqual({ error: "caller-reason" });
+      await abortedClosed;
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("the chooser keeps the request open past the page's 15-second backstop", async () => {
+  test.setTimeout(60_000);
+  const { server, origin } = await startRelyingParty();
+  try {
+    await withLoginExtension(async (context, _worker, extensionId) => {
+      const probe = await probeControls(context, extensionId);
+      await probe.configure({ count: 2 });
+      const page = await openRelyingParty(context, origin);
+      const challenge = challengeHex();
+      // Without a heartbeat, the page would give up after 15 seconds and the background after 10.
+      const waiting = await requestWithChooser(context, page, { challenge, timeout: 60_000 });
+      await page.waitForTimeout(17_000);
+      await choose(waiting.chooser.getByRole("button", { name: /Synthetic passkey 1/u }));
+      expectPateatAssertion(await waiting.settle(), origin, challenge);
     });
   } finally {
     server.close();

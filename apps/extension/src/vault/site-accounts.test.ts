@@ -79,6 +79,7 @@ const passkey = (itemId: string, rpId: string) => ({
   userHandle: "AQID",
   discoverable: true,
   counter: 0,
+  userName: null,
 });
 const passkeys =
   (holders: Record<string, string[]> = {}): PasskeyFinder =>

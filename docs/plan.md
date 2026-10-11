@@ -28,7 +28,8 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   hints, `checkPlanValues` and the post-fill check in the executor, the real-page
   corpus) and the finite-choice role.
 - M5: the passkey chooser window
-  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), real sites that wrap `get`
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
+  implemented and tested in Playwright Chromium only), real sites that wrap `get`
   themselves, and a navigation during signing.
 - M6: Chrome use coexistence, operational docs, hosted smoke checks beyond `/health`,
   installed-Chrome dummy-account tests and measured limits.
@@ -1056,7 +1057,9 @@ the attempt it started, wins over a saved default there, and still has to match 
 page and pass every policy check; a pick that starts nothing is dropped, so the form's
 next appearance asks again. "Make it the default for this site" (on by default,
 off in a private window) saves the pick through the existing choice save after
-`authenticated`. Choosing again after a logout (part D) is not built yet.
+`authenticated`. The passkey chooser window is implemented: a request matching several
+passkeys, none of them the site default, opens `passkey-picker.html` to choose one once
+or as the default. Choosing again after a logout (part D) is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

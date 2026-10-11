@@ -191,6 +191,7 @@ describe("stored passkey listing", () => {
           userHandle: "c3ludGhldGljLXVzZXItaWQ",
           discoverable: true,
           counter: 0,
+          userName: "synthetic-user",
         },
       ],
     });
@@ -265,6 +266,7 @@ describe("stored passkey search by RP ID", () => {
           userHandle: "c3ludGhldGljLXVzZXItaWQ",
           discoverable: true,
           counter: 0,
+          userName: "synthetic-user",
         })),
         unavailableItemIds: [ids.corrupt],
       },

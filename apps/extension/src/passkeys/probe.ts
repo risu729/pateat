@@ -30,6 +30,8 @@ export const probeControlSchema = v.variant("type", [
     discoverable: v.optional(v.boolean()),
     signDelayMs: v.optional(delayMs),
     timeoutMs: v.optional(v.pipe(delayMs, v.minValue(1))),
+    /** How many localhost passkeys to offer; more than one opens the chooser window. */
+    count: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(3))),
     presence: v.optional(v.picklist(["always", "activation"])),
     verification: v.optional(v.picklist(["always", "never"])),
   }),
@@ -47,10 +49,13 @@ const hex = (value: string) =>
  */
 export function createProbePasskeySource<TOther extends PasskeyCandidate>(
   other?: PasskeySource<TOther>,
+  rememberOther?: (origin: string, candidate: TOther) => Promise<void>,
 ): {
   source: PasskeySource;
   /** Synthetic controls, accepted only from the probe build's own options page. */
   control(message: unknown): unknown;
+  /** Counts localhost defaults instead of saving them; other origins go to `rememberOther`. */
+  remember(origin: string, candidate: PasskeyCandidate): Promise<void>;
   timeoutMs: () => number;
   policy: () => PasskeyPolicy;
 } {
@@ -60,7 +65,9 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
   let signDelayMs = 0;
   let timeoutMs = 10_000;
   let policy = INITIAL_PASSKEY_POLICY;
+  let count = 1;
   let signatures = 0;
+  let remembered: string[] = [];
   let keyPromise: Promise<CryptoKey> | undefined;
   const key = () => {
     keyPromise ??= (async () => {
@@ -107,14 +114,22 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
         return found;
       }
       if (!enabled) return undefined;
-      const candidate: PasskeyCandidate = {
-        credentialId: toBase64Url(hex(PROBE_PASSKEY.credentialId)),
+      // Further passkeys share the test-vector key under their own credential IDs.
+      const candidates = Array.from({ length: count }, (_, index): PasskeyCandidate => ({
+        credentialId: toBase64Url(
+          hex(PROBE_PASSKEY.credentialId + (index === 0 ? "" : `0${index}`)),
+        ),
         rpId: PROBE_PASSKEY.rpId,
         userHandle: PROBE_PASSKEY.userHandle,
         discoverable,
         counter,
-      };
-      return { candidates: [candidate], complete: true };
+        display: {
+          item: `Synthetic passkey ${index + 1}`,
+          userName: `synthetic-user-${index + 1}`,
+          account: "Probe",
+        },
+      }));
+      return { candidates, complete: true };
     },
     async sign(candidate, authenticatorData, clientDataHash, signal) {
       if (others.has(candidate)) {
@@ -137,20 +152,27 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
     source,
     timeoutMs: () => timeoutMs,
     policy: () => policy,
+    async remember(origin, candidate) {
+      if (others.has(candidate)) await rememberOther?.(origin, candidate as TOther);
+      else remembered.push(candidate.credentialId);
+    },
     control(message) {
       const parsed = v.safeParse(probeControlSchema, message);
       if (!parsed.success) return { ok: false };
-      if (parsed.output.type === "passkey.probe.status") return { ok: true, signatures };
+      if (parsed.output.type === "passkey.probe.status")
+        return { ok: true, signatures, remembered };
       enabled = parsed.output.enabled ?? true;
       counter = parsed.output.counter ?? 0;
       discoverable = parsed.output.discoverable ?? true;
       signDelayMs = parsed.output.signDelayMs ?? 0;
       timeoutMs = parsed.output.timeoutMs ?? 10_000;
+      count = parsed.output.count ?? 1;
+      remembered = [];
       policy = Object.freeze({
         presence: parsed.output.presence ?? INITIAL_PASSKEY_POLICY.presence,
         verification: parsed.output.verification ?? INITIAL_PASSKEY_POLICY.verification,
       });
-      return { ok: true, signatures };
+      return { ok: true, signatures, remembered };
     },
   };
 }

@@ -18,9 +18,15 @@ import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
+import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
-import { createVaultPasskeyFinder, createVaultPasskeySource } from "../src/passkeys/vault";
+import {
+  createVaultPasskeyFinder,
+  createVaultPasskeySource,
+  rememberVaultPasskey,
+  type VaultPasskeyCandidate,
+} from "../src/passkeys/vault";
 import { createLoginGeneration } from "../src/service/generation";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
@@ -162,18 +168,46 @@ export default defineBackground(() => {
     findPasskeys: createVaultPasskeyFinder(connections),
     readField: vaultFields,
   });
+  // ADR 0021: one Pateat window to choose among several matching passkeys.
+  const passkeyChooser = createPasskeyChooser({
+    pageUrl: browser.runtime.getURL(CHOOSER_PAGE),
+    createWindow: (options) => browser.windows.create(options),
+    removeWindow: (windowId) => browser.windows.remove(windowId),
+    async tabWindowBounds(tabId) {
+      const tab = await browser.tabs.get(tabId);
+      return browser.windows.get(tab.windowId);
+    },
+    async focusTab(tabId) {
+      const tab = await browser.tabs.get(tabId);
+      await browser.windows.update(tab.windowId, { focused: true });
+    },
+    onWindowRemoved: (listener) => browser.windows.onRemoved.addListener(listener),
+    onTabRemoved: (listener) => browser.tabs.onRemoved.addListener(listener),
+    keepAlive,
+  });
+  // Saving bumps the revision every login attempt checks; never stop a running login with it.
+  const rememberPasskey = async (origin: string, candidate: VaultPasskeyCandidate) => {
+    if (await login.active()) return;
+    await rememberVaultPasskey({ settings: loginSettings, origin, candidate });
+  };
   const passkeyProbe =
-    import.meta.env.MODE === "probe" ? createProbePasskeySource(vaultPasskeys) : undefined;
+    import.meta.env.MODE === "probe"
+      ? createProbePasskeySource(vaultPasskeys, rememberPasskey)
+      : undefined;
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
         extensionId: browser.runtime.id,
         timeoutMs: passkeyProbe.timeoutMs,
         policy: passkeyProbe.policy,
+        chooser: passkeyChooser,
+        remember: passkeyProbe.remember,
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
         // Only the local log keeps it; the page never learns why.
         report: diagnosticsLog.passkey,
+        chooser: passkeyChooser,
+        remember: rememberPasskey,
       });
 
   // Value-free per-device state for bug reports (ADR 0019).
@@ -339,6 +373,12 @@ export default defineBackground(() => {
       void (
         message.type === "diagnostics.status" ? diagnostics() : diagnosticsLog.handle(message)
       ).then(sendResponse);
+      return true;
+    }
+    const chooserReply =
+      sender.id === browser.runtime.id ? passkeyChooser.handle(message, sender) : undefined;
+    if (chooserReply) {
+      void chooserReply.then(sendResponse, () => sendResponse({ ok: false }));
       return true;
     }
 
