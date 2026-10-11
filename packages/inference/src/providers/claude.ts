@@ -14,19 +14,34 @@ export const claudeGeneration = {
 // Pinned so ANTHROPIC_BASE_URL in the environment can never redirect the key elsewhere.
 const anthropicBaseUrl = "https://api.anthropic.com/v1";
 
+const credentialValue = v.pipe(v.string(), v.trim(), v.nonEmpty());
+
 /**
- * Builds the Claude model for `createRecipeGenerator`. The key is passed explicitly and
- * never read from the environment. Server-side `fallbacks` stay unset: a failure of
- * this model is returned as an error, never retried on another model.
+ * How the adapter authenticates: an API key (the benchmark), or a short-lived access
+ * token from a Workload Identity Federation exchange (the service, ADR 0015).
  */
-export function createClaudeGenerationModel(options: {
-  apiKey: string;
-  /** Test seam only. */
-  fetch?: typeof globalThis.fetch;
-}) {
-  const apiKey = v.parse(v.pipe(v.string(), v.trim(), v.nonEmpty()), options.apiKey);
+export type ClaudeCredential = { apiKey: string } | { authToken: string };
+
+/**
+ * Builds the Claude model for `createRecipeGenerator`. The credential is passed
+ * explicitly and never read from the environment. Server-side `fallbacks` stay unset: a
+ * failure of this model is returned as an error, never retried on another model.
+ */
+export function createClaudeGenerationModel(
+  options: ClaudeCredential & {
+    /** Test seam only. */
+    fetch?: typeof globalThis.fetch;
+  },
+) {
+  // Exactly one non-empty credential, so the provider never falls back to the environment.
+  if ("authToken" in options && "apiKey" in options)
+    throw new TypeError("Pass either apiKey or authToken, not both.");
+  const credential =
+    "authToken" in options
+      ? { authToken: v.parse(credentialValue, options.authToken) }
+      : { apiKey: v.parse(credentialValue, options.apiKey) };
   const provider = createAnthropic({
-    apiKey,
+    ...credential,
     baseURL: anthropicBaseUrl,
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });

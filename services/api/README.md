@@ -1,11 +1,11 @@
 # API
 
 This Worker is the optional private settings/recipe sync service with device enrollment.
-It has no vault or inference implementation, and it is not deployed. The `pateat` D1
-database was bootstrapped on 2026-10-11, and `cloudflare.config.ts` records its ID. cf
-deploy provisions declared bindings that lack an ID, so the release artifact refuses a
-build without one; a routine release never creates the database implicitly. The
-release applies the committed migrations to that database before activation
+It has no vault implementation and no inference route yet, and it is not deployed. The
+`pateat` D1 database was bootstrapped on 2026-10-11, and `cloudflare.config.ts` records
+its ID. cf deploy provisions declared bindings that lack an ID, so the release artifact
+refuses a build without one; a routine release never creates the database implicitly.
+The release applies the committed migrations to that database before activation
 ([delivery](../../docs/delivery.md)).
 
 ## Routes
@@ -17,6 +17,8 @@ framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
 | Route | Purpose |
 | --- | --- |
 | `GET`/`HEAD /health` | Build revision probe; other methods return 405 |
+| `GET /.well-known/openid-configuration` | OIDC discovery for Claude Workload Identity Federation |
+| `GET /.well-known/jwks.json` | Public halves of the issuer's ES256 keys |
 | `GET /v1/settings` | Current synced settings; revision 0 with `settings: null` before the first write |
 | `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state |
 | `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
@@ -27,6 +29,9 @@ framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
 | `POST /redeem` | Exchange an approved verifier for a device credential, once |
 | `GET /manage` | Access page listing the owner's devices |
 | `POST /manage/devices/:deviceId/revoke` | Revoke one of the owner's devices |
+| `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
+| `POST /manage/claude` | Save the owner's four WIF identifiers |
+| `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
 
 `/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only
 the SHA-256 digest of each 256-bit device credential and derives the owner from it;
@@ -55,13 +60,48 @@ so a losing writer changes nothing. Each head write takes the owner's next seque
 number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
 its revision, and only an explicit later write can republish the recipe.
 
+## Claude credentials
+
+[ADR 0015](../../docs/adr/0015-per-owner-claude-credentials.md) gives each owner their
+own Claude credentials. `src/claude/` holds the only path from an owner to a credential:
+
+- The Worker is an OIDC issuer. `OIDC_ISSUER` is its public origin, such as
+  `https://pateat.example.com` (HTTPS, no port, path or IP literal), and
+  `OIDC_SIGNING_KEYS` is `{ "signingKeyId": "2026-10", "keys": [<private ES256 JWK>] }`.
+  `mise run generate:oidc-key [kid]` prints a new value; send it straight to the
+  Worker secret. Every listed key is published in the JWKS without `d`, and only
+  `signingKeyId` signs. To rotate, add the new key, wait at least 15 minutes, switch
+  `signingKeyId`, and remove the old key after five more minutes. Without valid
+  settings both `/.well-known` routes answer 503 and nothing is signed.
+- The `inference_credentials` table holds one row per owner with kind `wif` and the
+  identifiers of the owner's own federation rule: `fdrl_…`, the organization UUID,
+  `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on
+  `/manage/claude`, a temporary script-free page that the React web UI will replace.
+  It also applies its own Access, same-origin and body-size checks, so it stays
+  guarded if the app-wide `/manage/*` middleware changes. Its test button only
+  exchanges a token, which calls no model and costs nothing.
+- `resolveClaudeCredential(env, ownerId)` signs a fresh assertion
+  `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`
+  that lasts five minutes. It exchanges the assertion once at
+  `https://api.anthropic.com/v1/oauth/token` and returns `{ authToken }` for
+  `createClaudeGenerationModel`. The `ownerId` must come from the authenticated request
+  scope. Anthropic answers every denied assertion with the same 401, so the reason is
+  only visible in the owner's Console authentication history.
+
+In the owner's Claude Console (Settings → Workload identity → Connect workload →
+Custom OIDC), the issuer URL is `OIDC_ISSUER`, with discovery. The federation rule
+matches `subject_prefix` `owner:<ownerId>` exactly, may also match audience
+`https://api.anthropic.com`, and should use the `workspace:inference` scope.
+
 ## Schema and tests
 
 `src/db/schema.ts` is the Drizzle schema. Run `mise run generate:server-migrations`
 after changing it and commit the generated `migrations/`; `check:server-migrations`
 fails when they drift. Vitest applies the committed migrations to a local Miniflare D1
 database. Sync tests seed synthetic owners and devices directly; enrollment tests sign
-synthetic Access tokens with keys generated per run. The concurrency cases interleave
+synthetic Access tokens with keys generated per run. Claude credential tests use a
+synthetic issuer key generated per run and a fake token endpoint; they never reach
+Anthropic. The concurrency cases interleave
 requests in one local runtime; they do not demonstrate hosted D1 behavior.
 
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds

@@ -9,6 +9,8 @@ import { message } from "./pages";
 import { deviceRoutes } from "./routes/device";
 import { enrollRoutes } from "./routes/enroll";
 import { manageRoutes } from "./routes/manage";
+import { manageClaudeRoutes } from "./routes/manage-claude";
+import { oidcRoutes } from "./routes/oidc";
 import { recipeRoutes } from "./routes/recipes";
 import { redeemRoutes } from "./routes/redeem";
 import { settingsRoutes } from "./routes/settings";
@@ -33,6 +35,10 @@ export const app = new Hono<ApiEnv>()
       : c.json(body);
   })
   .all("/health", methodNotAllowed("GET, HEAD"))
+  // Anonymous issuer metadata for Anthropic's Workload Identity Federation (ADR 0015).
+  .route("/.well-known", oidcRoutes)
+  .all("/.well-known/openid-configuration", methodNotAllowed("GET, HEAD"))
+  .all("/.well-known/jwks.json", methodNotAllowed("GET, HEAD"))
   // Owner pages sit behind one Access application; the Worker still verifies its
   // token itself. Forms are same-origin only, and Access runs before any body read.
   .use(
@@ -55,6 +61,9 @@ export const app = new Hono<ApiEnv>()
   )
   .route("/enroll", enrollRoutes)
   .all("/enroll", methodNotAllowed("GET, POST"))
+  .route("/manage/claude", manageClaudeRoutes)
+  .all("/manage/claude", methodNotAllowed("GET, POST"))
+  .all("/manage/claude/test", methodNotAllowed("POST"))
   .route("/manage", manageRoutes)
   .all("/manage", methodNotAllowed("GET"))
   .all("/manage/devices/:deviceId/revoke", methodNotAllowed("POST"))

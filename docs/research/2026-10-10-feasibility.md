@@ -400,3 +400,34 @@ unlock behaved as documented. Sync after disabling automatic unlock showed a raw
 Not established: revocation of real host access, because the probe answers provider
 permission checks synthetically; service-worker console output; and any real-account
 refresh.
+
+## First real-account sign-in, 2026-10-11
+
+The owner signed in from the production build of `main` at `9a156a3` to a personal
+Bitwarden Cloud US account (server 2026.9.2, V1 keys, PBKDF2). The network log
+showed password prelogin 200, token 400 (new-device verification), token 200 after
+the code, and sync 200; Pateat then rejected the result as `account-mismatch`.
+Only request paths, statuses and response key names were extracted; no values were
+read or recorded.
+
+Sync `userDecryption.masterPasswordUnlock` carried a `containedKeyId` (and
+`userKeyId`). Bitwarden server `v2026.9.2` sets that hint only in sync, not in the
+token response's `UserDecryptionOptions.MasterPasswordUnlock`, so the exact
+comparison of the two copies failed. A source audit of the same server version
+also found three response shapes that synthetic fixtures had not modeled and that
+would reject ordinary items next: stored cipher `data` is PascalCase with nulls
+omitted while the response model carries explicit nulls, identity `data` spells
+`SSN` in capitals, and attachments carry `"object": "attachment"`. Shared
+collections use `type` 0. The fix, with a modern V1 fixture of this shape, is in
+[PR #80](https://github.com/risu729/pateat/pull/80).
+
+After #80 and the local delete of [PR #85](https://github.com/risu729/pateat/pull/85)
+reached `main`, the owner deleted the four leftover connections from the failed
+attempts and added a new connection to the same account in the installed Chrome.
+Setup completed with "Local vault ready", automatic unlock enabled and the sync
+sign-in saved. The request log, read for paths and statuses only, again showed
+prelogin 200, token 400 with `device_error` (the expected new-device verification
+challenge), token 200 after the code, and sync 200. Deleted connections stayed
+gone, and the action icon switched state as expected. This confirms first setup
+against one real Cloud US account with V1 keys and PBKDF2; other KDFs, V2 keys,
+organization items, MFA methods and refresh are not covered by it.

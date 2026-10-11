@@ -16,6 +16,10 @@ export default defineConfig({
       // audience tag that guard /enroll and /manage. Unset values fail closed.
       ACCESS_TEAM_DOMAIN: bindings.secret(),
       ACCESS_AUD: bindings.secret(),
+      // The public origin (`https://<host>`) and ES256 key set of the OIDC issuer that
+      // owners trust for Claude Workload Identity Federation. Unset values fail closed.
+      OIDC_ISSUER: bindings.secret(),
+      OIDC_SIGNING_KEYS: bindings.secret(),
       // Bounds anonymous credential redemption per client address.
       REDEEM_LIMITER: bindings.rateLimit({
         namespace: "1001",

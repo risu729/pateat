@@ -10,7 +10,9 @@ type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
 type Connection = StatusReply["connections"][number];
 const inputClass = "w-full rounded-lg border border-slate-400 bg-white px-3 py-2.5";
-function errorMessage(code: string): string {
+function errorMessage(code: string, check?: string): string {
+  if (code === "account-mismatch")
+    return `The provider's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;
   const messages: Record<string, string> = {
     "provider-permission-required":
       "Provider access was not granted. Use the connection button to grant access.",
@@ -143,6 +145,7 @@ export function BitwardenSetup({
   const [enabled, setEnabled] = useState(true);
   const [enableUnlock, setEnableUnlock] = useState(false);
   const [challenge, setChallenge] = useState<Challenge>();
+  const [confirmingDelete, setConfirmingDelete] = useState<string>();
   const [provider, setProvider] = useState<0 | 1>(0);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
@@ -197,7 +200,7 @@ export function BitwardenSetup({
     if (epoch !== generation.current) return;
     if (!result.ok) {
       setChallenge(undefined);
-      setMessage(errorMessage(result.error.code));
+      setMessage(errorMessage(result.error.code, result.error.check));
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
@@ -235,6 +238,14 @@ export function BitwardenSetup({
         "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.",
       );
       await readConnections(epoch);
+    } else if (result.kind === "deleted") {
+      setMessage(
+        "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+      );
+      const deleted = result.connectionId;
+      setExisting((previous) => (previous?.connectionId === deleted ? undefined : previous));
+      catalogChanged.current();
+      await readConnections(epoch);
     } else if (result.kind === "disabled") {
       setMessage(
         "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.",
@@ -248,6 +259,7 @@ export function BitwardenSetup({
     operation.current = true;
     const epoch = ++generation.current;
     setBusy(true);
+    setConfirmingDelete(undefined);
     // Invoke synchronously: provider permission must keep the original click gesture.
     void action(epoch)
       .catch(() => {
@@ -430,6 +442,51 @@ export function BitwardenSetup({
               >
                 Forget sync sign-in
               </Button>
+              {confirmingDelete === connection.connectionId ? (
+                <>
+                  <Button
+                    type="button"
+                    disabled={busy || !!challenge}
+                    aria-label={`${connection.label}: Confirm delete connection`}
+                    onClick={() =>
+                      start(async (epoch) => {
+                        await receive(
+                          await client.deleteConnection(connection.connectionId),
+                          epoch,
+                        );
+                      })
+                    }
+                  >
+                    Confirm delete
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    aria-label={`${connection.label}: Keep connection`}
+                    onClick={() => {
+                      setConfirmingDelete(undefined);
+                      setMessage("Connection kept.");
+                    }}
+                  >
+                    Keep connection
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || !!challenge}
+                  aria-label={`${connection.label}: Delete connection`}
+                  onClick={() => {
+                    setConfirmingDelete(connection.connectionId);
+                    setMessage(
+                      `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
+                    );
+                  }}
+                >
+                  Delete connection
+                </Button>
+              )}
             </div>
           </li>
         ))}

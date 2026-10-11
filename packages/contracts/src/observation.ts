@@ -1,4 +1,4 @@
-import { loginOriginSchema, loginStepSchema, loginTargetSchema } from "@pateat/contracts";
+import { loginOriginSchema, loginStepSchema, loginTargetSchema } from "./login";
 import * as v from "valibot";
 
 const identifier = v.pipe(
@@ -74,8 +74,9 @@ export const loginObservationSchema = v.pipe(
     language: v.picklist(["ja", "en", "mixed"]),
     title: v.optional(observedText),
     headings: v.optional(v.pipe(v.array(observedText), v.maxLength(8))),
-    // The extractor sets false when it dropped eligible elements or text; such an
+    // The extractor sets false when it dropped an element a recipe may need; such an
     // observation is rejected rather than relying on a model to guess the rest.
+    // Text bounded to its length limit or redacted is not counted as dropped.
     complete: v.boolean(),
     candidates: v.pipe(v.array(observedCandidateSchema), v.minLength(1), v.maxLength(48)),
   }),

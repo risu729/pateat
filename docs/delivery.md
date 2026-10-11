@@ -6,13 +6,14 @@ are excluded. The server remains optional for the eventual local login core.
 
 ## Current foundation workflows
 
-`ci.yml` runs the complete mise/hk graph, including isolated browser tests, on
-every PR and main push. `CI Check` requires successful verification, including
-when an upstream job failed, skipped or was cancelled. `codeql.yml` analyzes
-TypeScript/JavaScript and Actions separately. GitHub now detects the repository
-languages, but native Code Quality setup still reports the feature as unavailable;
-preserve its required rule rather than treating that as permanent ineligibility.
-See [merging](#merging).
+`ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
+and main push. `CI Check` requires successful verification, including when an upstream
+job failed, skipped or was cancelled. `codeql.yml` analyzes TypeScript/JavaScript and
+Actions separately. GitHub Code Quality is not used: since its
+[2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
+it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
+repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
+the other active risu729 repositories. See [merging](#merging).
 
 Successful main-push CI packages the exact tested production Worker output with
 repository, revision, run/attempt, tool versions and per-file hashes, plus the
@@ -60,7 +61,7 @@ signoff required, issues enabled, discussions/wiki/projects/downloads disabled.
 Apply their default-
 branch rules: prohibit deletion/force-push/creation, require linear history,
 signatures and PRs, zero required approvals, required `CI Check` from GitHub
-Actions, CodeQL errors/high security alerts, and Code Quality errors. Preserve
+Actions, and CodeQL errors/high security alerts (no Code Quality rule). Preserve
 administrator bypass; do not weaken rules just because the first PR has no CI.
 
 The initial main commit has an empty tree. The owner authorized the documentation
@@ -80,12 +81,9 @@ are created for this PR.
 
 ### Merging
 
-Try an ordinary squash merge first. While the required Code Quality rule blocks it
-because the repository's Code Quality setup still reports the feature as
-unavailable, an authorized PR may use the administrator squash bypass only after
-CI, CodeQL and the required independent review pass. Recheck the live setup state
-before each bypass. This is a temporary exception, not a resolution of the M1
-gate above: do not delete or weaken the rule.
+Merge an authorized PR with an ordinary squash merge once CI, CodeQL and the
+required independent review pass. Normal merges do not use the administrator
+bypass.
 
 ## Complete-service CI requirements
 
@@ -95,7 +93,7 @@ gate above: do not delete or weaken the rule.
 - Install immutable-pinned Actions, exact mise tools and frozen dependencies.
   Run the hk/mise verification graph, documentation links, lint, formatting,
   type checks, unit/runtime tests, extension packaging and relevant browser
-  acceptance tests. CodeQL/Code Quality requirements are configured explicitly.
+  acceptance tests. CodeQL requirements are configured explicitly.
 - Test Worker contracts, Access identity validation, device enrollment/revocation,
   owner-scoped settings/recipe access and D1 locally. Verify that service login
   cannot authenticate or unlock a vault. Mock providers and use dummy accounts;

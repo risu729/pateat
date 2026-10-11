@@ -24,8 +24,8 @@ installed shell status, and document-start/inactive-tab identity probe;
 [CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
 downloaded Windows Chromium still fails before launch with a missing SideBySide
 assembly. The later installed-Chrome synthetic probe passed the early login gate;
-broader coexistence remains a separate M1 gate. Code Quality setup remains
-unavailable after language detection; see [merging](delivery.md#merging).
+broader coexistence remains a separate M1 gate. Code Quality is not used, and normal
+merges need no bypass; see [merging](delivery.md#merging).
 
 ## Local settings progress
 
@@ -301,6 +301,14 @@ cannot clear unresolved exclusions or that binding history. Separate cache/setti
 stores detect mismatched state after interruption; they do not provide one atomic
 combined commit. Catalog bounds are validated before unlock-key export and cache commit.
 
+The settings page can delete a connection locally, as
+[Development](development.md#manual-bitwarden-setup-preview) describes. Unit, options
+component and isolated Chromium tests cover deletion with synthetic providers, including
+removed native records after a full profile reopen. The owner also deleted leftover
+connections in the installed Chrome on 2026-10-11, then completed first setup against
+a real Bitwarden Cloud account
+([evidence](research/2026-10-10-feasibility.md#first-real-account-sign-in-2026-10-11)).
+
 [PR #20](https://github.com/risu729/pateat/pull/20) passed
 [full Linux CI](https://github.com/risu729/pateat/actions/runs/38047201686) with 766
 package, 72 connection, 73 vault, 47 host, 42 contract, 21 options and 69 extension
@@ -333,7 +341,10 @@ Chrome yet.
   attempt checks, so it is skipped while another login is still running; the next login
   chooses again.
 - A site default saved from now on names the provider account and item
-  (`{ origin, provider, userId, itemId }`, ADR 0013); the executor and the settings page
+  (`{ origin, provider, userId, itemId, itemName? }`, ADR 0013). `itemName` is the
+  item's label when the default was saved, kept only for display, such as for an
+  account that is not connected here; older entries lack it, and builds that predate it
+  reject settings that contain it. The executor and the settings page
   find this device's connection through the catalog connection's `userId`, and an
   account that is not connected here refuses as `connection-missing`, one connected
   twice as `account-ambiguous`, and one whose vault is locked or unavailable as
@@ -347,8 +358,12 @@ Chrome yet.
   as `item-origin-mismatch`. Page URLs over 8192 characters and answers from another
   snapshot refuse as `vault-unavailable`. Static `allowedOrigins` remain empty for live
   items; Domain-mode subdomains and raw StartsWith rules cannot be expressed as exact
-  origins, so do not derive them. Synthetic unit tests cover these paths; a native
-  browser run waits for cached recipes.
+  origins, so do not derive them. Synthetic unit tests cover these paths, and
+  `tests/extension/login-service.spec.ts` runs the chain in Chromium: the built API
+  Worker, served locally over HTTPS with a local D1 database, holds a recipe and a
+  binding; the extension syncs both, chooses the synthetic Bitwarden item by its single
+  URI match, logs in on a routed HTTPS site, uploads the saved account and logs in again
+  after a full browser restart.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. An unavailable connection or an item awaiting field review
@@ -529,7 +544,16 @@ the real settings store over in-memory storage; no running service has been trie
   optional `launchWebAuthFlow` variant.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
-- Inference adapters and spending accounting remain separate slices.
+- The owner web UI for settings, bindings and recipes is designed
+  ([architecture](architecture.md#owner-web-ui)) but not implemented.
+- Inference adapters and spending accounting remain separate slices. The inference
+  route authenticates to Claude per owner through Workload Identity Federation
+  ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
+  key is a later second option. The issuer metadata routes, the
+  `inference_credentials` table and `resolveClaudeCredential` exist and are tested
+  against a fake token endpoint only. Owners enter identifiers on the temporary
+  `/manage/claude` page until the React web UI replaces it; no exchange with
+  Anthropic's real token endpoint has been made.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first approval. Before the service is offered to other people, it needs
   per-owner storage and request limits; today only `/redeem` is rate limited (per
@@ -645,8 +669,9 @@ Evidence, 2026-10-10, synthetic relying party only:
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
-contract carries bounded, value-free element roles, locators and labels; incomplete
-observations are rejected before inference. The generation/repair role uses AI SDK
+contract (`packages/contracts/src/observation.ts`, for the extension extractor) carries
+bounded, value-free element roles, locators and labels; incomplete observations are
+rejected before inference. The generation/repair role uses AI SDK
 structured output and the finite-choice role uses the SDK decision contract with an
 explicit none option per question. Both resolve observation-local candidate IDs, check
 slot/role compatibility, joint mapping uniqueness and same-form grouping, refuse secrets
@@ -738,13 +763,53 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
 
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
-- The extension observation extractor with privacy fixtures. Expect Japanese pages to
-  put labels in adjacent table cells, use image buttons labeled only by `alt`, and
-  offer software keyboards.
+- Calling the extension observation extractor (below) under the automatic send rule
+  of [ADR 0016](adr/0016-recipe-generation-trigger.md).
+- Locators for elements without a usable `id`, `name` or `data-testid`, approved by the
+  owner on 2026-10-11: `{ "by": "text", "value": "ログイン" }` clicks the one button
+  whose text, `value` or image `alt` equals the value (more than one match is a
+  structural mismatch); `id` and `name` values may use any printable ASCII
+  (`ctl00$Main$txtUserId`, `user[login]`); and the executor clicks
+  `<input type="image">`. The plan check must also stop accepting a link as the page
+  action, which the executor cannot click.
+- A different remembered account, approved by the owner on 2026-10-11: on a step that
+  fills a secret but no username, the executor compares the account shown in that
+  form and the page headings with the selected account's username, locally only. If
+  they differ (`myaccount@example.com` shown while `my2@example.com` is selected), it
+  fills nothing, clicks the recipe's optional `accountSwitch` target and restarts from
+  the first step; without one it stops with `wrong-account`. A masked value consistent
+  with the username (`m***@example.com`) cannot be told apart and proceeds.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
-- A real-page corpus per ADR 0012, then moving the observation contract to
-  `packages/contracts` when the service shares it.
+- A real-page corpus per ADR 0012.
+
+`extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
+`LoginObservation` from a page's DOM; nothing calls it yet. It reads element types,
+locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
+title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
+strings, and refuses a path that carries a session ID (matrix parameters such as
+`;jsessionid=`, or ASP.NET segments such as `/(S(...))/`). Label text
+is rendered text only: scripts, styles, `<noscript>`, SVG, hidden elements and
+select or text area contents never contribute. Only forms that hold a field count,
+or every control outside a form when a field is outside one. There the candidates
+are visible text, email, tel, number and password inputs, checkboxes, buttons
+(disabled ones too, since many enable after typing) and, as context only, links.
+Hidden, collapsed, `aria-hidden` and before-the-page-start inputs are skipped as likely
+traps. Labels come from `aria-labelledby`,
+`aria-label`, `<label>`, the text next to a field (the preceding table cell, `<dt>` or
+sibling, at most three levels up, never across another control or its label), then
+`title`; image `alt` names buttons. Text is redacted as
+[architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is
+the first of `id`, `name` and `data-testid` that matches exactly one element, as the
+executor resolves it. A field, button or checkbox without such a target, a control the
+executor cannot act on (an image button, select, radio, text area, another input type,
+or a read-only, disabled, transparent or tiny field), a control in a shadow root, or
+more than 48 candidates makes the observation incomplete, so inference rejects it; a
+page without a field is refused. A field in any open shadow root marks it incomplete
+too, as it may be the real login. Known limits: a read-only username shown again on a
+password step makes that step incomplete, and honeypot inputs moved to the right or
+clipped by `overflow: hidden` stay candidates. `mise run test:observation` covers these
+cases in Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
@@ -786,8 +851,8 @@ nonzero passkey counter writeback and passkey creation; Bitwarden provider login
 with passkeys, API keys, SSO or device approval; external email/SMS OTP and magic
 links; and separately authorized post-login actions, including transactions and
 approvals. UI extensions, account switching, a mode without the service, direct AI,
-recipe sharing, additional service auth, E2EE settings sync and MCP are also
-deferred. They are extension points, not
+recipe sharing, additional service auth, E2EE settings sync, MCP and Vaultwarden
+support are also deferred. They are extension points, not
 implicit permissions or initial acceptance requirements.
 
 ## Ordered milestones
@@ -862,6 +927,10 @@ claiming compatibility. This provider setup is separate from website OTP
 automation. Preserve supported Bitwarden TOTP forms, including raw Base32,
 `otpauth://totp/` parameters and Steam form; verify algorithms, digits, periods
 and clock boundaries. Do not imply HOTP support from URI parsing alone.
+Vaultwarden support is later work (owner request, 2026-10-11). A self-hosted
+connection to a Vaultwarden URL is accepted, but Pateat is tested only against
+official Bitwarden server response shapes, so Vaultwarden compatibility is
+unverified until its own response shapes and sign-in flow are tested.
 
 ## Mandatory acceptance matrix
 

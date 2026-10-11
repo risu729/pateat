@@ -220,6 +220,55 @@ export function rawV2Account() {
   };
 }
 
+/** Synthetic values in the shape a current personal V1 account receives: modern AccountKeys
+ * without signing keys or security state, and userDecryption carrying key ID hints the
+ * token copy of MasterPasswordUnlock does not repeat. */
+export function rawModernV1Account() {
+  const raw = rawV1Account();
+  const accountKeys = () => ({
+    signatureKeyPair: null,
+    publicKeyEncryptionKeyPair: {
+      wrappedPrivateKey: v1PrivateKey,
+      publicKey: accountPublicKey,
+      signedPublicKey: null,
+      object: "publicKeyEncryptionKeyPair",
+    },
+    securityState: null,
+    object: "privateKeys",
+  });
+  const kdf = { kdfType: 0, iterations: 100_000, memory: null, parallelism: null };
+  return {
+    token: {
+      ...raw.token,
+      AccountKeys: accountKeys(),
+      UserDecryptionOptions: {
+        HasMasterPassword: true,
+        MasterPasswordUnlock: {
+          Kdf: { KdfType: 0, Iterations: 100_000, Memory: null, Parallelism: null },
+          MasterKeyEncryptedUserKey: v1WrappedUserKey,
+          Salt: v1Email,
+        },
+        Object: "userDecryptionOptions",
+      },
+    },
+    sync: {
+      ...raw.sync,
+      profile: { ...raw.sync.profile, accountKeys: accountKeys() },
+      userDecryption: {
+        masterPasswordUnlock: {
+          kdf,
+          masterKeyEncryptedUserKey: v1WrappedUserKey,
+          salt: v1Email,
+          containedKeyId: modernV1KeyId,
+        },
+        webAuthnPrfOptions: [],
+        userKeyId: modernV1KeyId,
+      },
+    },
+  };
+}
+const modernV1KeyId = "0123456789abcdef0123456789abcdef";
+
 export function rawOrganizationAccount() {
   const raw = rawV1Account();
   raw.token.Key = ORG_ACCOUNT_MASTER_KEY_WRAPPED_USER_KEY;

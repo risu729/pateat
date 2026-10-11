@@ -336,6 +336,27 @@ describe("settings sync after the first", () => {
     });
   });
 
+  it("applies a default that differs only in its item name once, then stays settled", async () => {
+    const named = { ...account("https://bank.example"), itemName: "Example Bank" };
+    const serviceSettings = { ...agreed, siteDefaults: [named] };
+    const {
+      sync,
+      transport,
+      local: after,
+    } = setup({
+      local: agreed,
+      service: state(5, serviceSettings),
+      base: baseOf(4, agreed),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+    expect(after()!.settings.siteDefaults).toEqual([named]);
+    const revision = after()!.revision;
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+    expect(after()!.revision).toBe(revision);
+  });
+
   it("removes an entry deleted on this device from the service", async () => {
     const { sync, service } = setup({
       local: { ...agreed, excludedSites: [] },

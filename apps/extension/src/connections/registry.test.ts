@@ -86,4 +86,24 @@ describe("value-free immutable connection registry", () => {
     expect(h.storage.write).not.toHaveBeenCalled();
     expect(h.stored()).toHaveLength(1);
   });
+  it("removes only the requested connection, serialized behind a pending addition", async () => {
+    const a = configuration();
+    const b = configuration("50000000-0000-4000-8000-000000000002");
+    const h = harness([a]);
+    await Promise.all([h.registry.put(b), h.registry.remove(a.profile.connectionId)]);
+    expect(h.stored()).toEqual([b]);
+    expect(await h.registry.get(a.profile.connectionId)).toBeUndefined();
+  });
+  it("treats removing an absent connection as done without writing", async () => {
+    const a = configuration();
+    const h = harness([a]);
+    await h.registry.remove("50000000-0000-4000-8000-000000000009");
+    expect(h.storage.write).not.toHaveBeenCalled();
+    expect(h.stored()).toEqual([a]);
+  });
+  it("does not rewrite corrupt durable metadata while removing", async () => {
+    const h = harness([{ ...configuration(), password: "synthetic-secret" }]);
+    await expect(h.registry.remove("50000000-0000-4000-8000-000000000001")).rejects.toThrow();
+    expect(h.storage.write).not.toHaveBeenCalled();
+  });
 });

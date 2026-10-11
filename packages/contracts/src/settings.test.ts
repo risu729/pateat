@@ -189,10 +189,29 @@ describe("scoped metadata eligibility and next-login defaults", () => {
     });
   });
 
+  it("keeps an optional item name on a provider-account default", () => {
+    const settings = createDefaultSettings();
+    const named = {
+      origin: "https://bank.example",
+      provider: "dummy",
+      userId: "account-1",
+      itemId: "primary",
+      itemName: "Example Bank",
+    };
+    settings.siteDefaults.push(named);
+    expect(parseLocalSettings(settings).siteDefaults).toEqual([named]);
+  });
+
   it.each([
     ["a mixed entry", { connectionId: "demo-personal", provider: "dummy", userId: "a" }],
     ["an entry without a user ID", { provider: "dummy" }],
     ["an entry without a provider", { userId: "a" }],
+    ["an empty item name", { provider: "dummy", userId: "a", itemName: "" }],
+    [
+      "an item name over 200 characters",
+      { provider: "dummy", userId: "a", itemName: "x".repeat(201) },
+    ],
+    ["an item name on a legacy entry", { connectionId: "demo-personal", itemName: "Primary" }],
   ])("rejects a site default with %s", (_label, fields) => {
     const settings = createDefaultSettings();
     settings.siteDefaults.push({
