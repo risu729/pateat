@@ -1012,11 +1012,11 @@ run in batches. Each case in the report carries the plan in candidate IDs.
 `--provider heuristic` scores a free, model-free comparator (`heuristicPlan` in
 `packages/inference/src/heuristic.ts`, not used at runtime): the one form with a single
 sign-in password, its `username` or `email` field or else the nearest field before the
-password that an identifier may fill and whose `autocomplete` names no other purpose,
-and its first button after the password, or else its first button. Without such a form,
+password that an identifier may fill and that is not marked as a one-time code, and
+its first button after the password, or else its first button. Without such a form,
 the one form whose only fill field is marked `username` or `email` advances. It reads no
 labels, and its inputs pass the same schema and completeness gate as generation. On
-2026-10-11 (this corpus, as merged in `e5b4244`) it scored:
+2026-10-11, with the corpus as merged in `e5b4244`, it scored:
 
 | Corpus | Correct | Correct abstentions | Missed | False submits | Semantic accuracy |
 | --- | --- | --- | --- | --- | --- |

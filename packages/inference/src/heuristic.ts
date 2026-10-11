@@ -19,8 +19,6 @@ import {
 const identifierRoles = new Set<ObservedCandidate["role"]>(["text", "email", "tel"]);
 const identifierHints = new Set(["username", "email"]);
 const fillable = new Set<ObservedCandidate["role"]>(fillRoles);
-// Fields whose autocomplete names another purpose are never taken as the identifier.
-const otherPurposes = new Set(["one-time-code", "new-password", "current-password"]);
 
 const local = (
   outcome:
@@ -81,18 +79,19 @@ export function heuristicPlan(
     const password = passwordsIn(form)[0]!;
     const at = form.indexOf(password);
     const named = hinted(form);
-    const field =
-      named.length === 1
-        ? named[0]
+    // The fallback never takes a field marked as a one-time code for the identifier.
+    const nearest = () =>
+      identifier === undefined
+        ? undefined
         : form
             .slice(0, at)
             .reverse()
             .find(
               (candidate) =>
-                identifier !== undefined &&
                 slotAccepts(identifier.kind, candidate) &&
-                !otherPurposes.has(candidate.autocomplete ?? ""),
+                candidate.autocomplete !== "one-time-code",
             );
+    const field = named.length === 1 ? named[0] : nearest();
     const action =
       form.slice(at + 1).find((candidate) => candidate.role === "button") ??
       form.find((candidate) => candidate.role === "button");
