@@ -76,6 +76,10 @@ export const LOG_EVENTS = {
       synced: "flag",
     },
   },
+  "vault.sync": {
+    level: "info",
+    fields: { connection: "connection", outcome: "code", check: "code" },
+  },
   "service.sync": { level: "info", fields: { outcome: "code" } },
   "login.attempt": {
     level: "info",
@@ -555,6 +559,10 @@ export function createLogger(deps: LoggerDependencies) {
     started,
     prune: () => serial(prune),
     entries: () => serial(entries),
+    /** The log's lines for a bug report. */
+    async recent(): Promise<RecentLog> {
+      return recentLog(await serial(entries), now());
+    },
     async summary(): Promise<LogSummary> {
       const [all, until] = await Promise.all([serial(entries), debugDeadline()]);
       const since = now() - 24 * HOUR_MS;
@@ -595,14 +603,10 @@ export function createLogger(deps: LoggerDependencies) {
 
 export type Logger = ReturnType<typeof createLogger>;
 
-/**
- * The text that leaves the page on "Download logs". Unless `includeSites`, every origin
- * and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within this export.
- */
-export function formatLogExport(
-  entries: readonly LogEntry[],
-  context: { version: string; revision: string; exportedAt: number; includeSites: boolean },
-): string {
+type Substitute = (kind: "origin" | "rpId" | "recipe", value: string) => string;
+
+/** Numbers sites as `site-N` and recipes as `recipe-N`, in order of first appearance. */
+function siteSubstitution(): Substitute {
   const sites = new Map<string, string>();
   const recipes = new Map<string, string>();
   const replace = (names: Map<string, string>, prefix: string, value: string) => {
@@ -613,30 +617,50 @@ export function formatLogExport(
     }
     return replaced;
   };
-  const lines = entries.map((entry) => {
-    const kinds: Readonly<Record<string, FieldKind>> = LOG_EVENTS[entry.event].fields;
-    const fields: Record<string, FieldValue> = {};
-    for (const [key, value] of Object.entries(entry.fields)) {
-      const kind = kinds[key];
-      // Only allowlisted fields that still pass their stored-value check leave the page.
-      if (!kind || (value !== TRUNCATED && !v.is(STORED_SCHEMAS[kind], value))) continue;
-      if (context.includeSites || typeof value !== "string" || value === TRUNCATED)
-        fields[key] = value;
-      else if (kind === "origin") fields[key] = replace(sites, "site", value);
-      else if (kind === "rpId") {
-        // An RP ID shares its number with the origin of the same host.
-        const origin = `https://${value}`;
-        fields[key] = replace(sites, "site", sites.has(origin) ? origin : value);
-      } else if (kind === "recipe") fields[key] = replace(recipes, "recipe", value);
-      else fields[key] = value;
-    }
-    return JSON.stringify({
+  return (kind, value) => {
+    if (kind === "origin") return replace(sites, "site", value);
+    if (kind === "recipe") return replace(recipes, "recipe", value);
+    // An RP ID shares its number with the origin of the same host.
+    const origin = `https://${value}`;
+    return replace(sites, "site", sites.has(origin) ? origin : value);
+  };
+}
+
+/** Only allowlisted fields that still pass their stored-value check leave the page. */
+function exportedFields(entry: LogEntry, substitute?: Substitute): Record<string, FieldValue> {
+  const kinds: Readonly<Record<string, FieldKind>> = LOG_EVENTS[entry.event].fields;
+  const fields: Record<string, FieldValue> = {};
+  for (const [key, value] of Object.entries(entry.fields)) {
+    const kind = kinds[key];
+    if (!kind || (value !== TRUNCATED && !v.is(STORED_SCHEMAS[kind], value))) continue;
+    fields[key] =
+      substitute &&
+      typeof value === "string" &&
+      value !== TRUNCATED &&
+      (kind === "origin" || kind === "rpId" || kind === "recipe")
+        ? substitute(kind, value)
+        : value;
+  }
+  return fields;
+}
+
+/**
+ * The text that leaves the page on "Download logs". Unless `includeSites`, every origin
+ * and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within this export.
+ */
+export function formatLogExport(
+  entries: readonly LogEntry[],
+  context: { version: string; revision: string; exportedAt: number; includeSites: boolean },
+): string {
+  const substitute = context.includeSites ? undefined : siteSubstitution();
+  const lines = entries.map((entry) =>
+    JSON.stringify({
       time: new Date(entry.time).toISOString(),
       level: entry.level,
       event: entry.event,
-      ...fields,
-    });
-  });
+      ...exportedFields(entry, substitute),
+    }),
+  );
   const header = JSON.stringify({
     pateat: context.version,
     revision: context.revision,
@@ -645,4 +669,68 @@ export function formatLogExport(
     entries: entries.length,
   });
   return [header, ...lines].join("\n") + "\n";
+}
+
+export const RECENT_PROBLEMS = 10;
+export const RECENT_WINDOW_MS = 24 * HOUR_MS;
+export const RECENT_LINE_LENGTH = 2048;
+export const RECENT_DELEGATION_REASONS = 32;
+
+/** The log's part of "Copy for bug report"; sites are always numbered. */
+export type RecentLog = {
+  /** Warnings and errors from the last 24 hours, newest first. */
+  problems: string[];
+  /** The last update this log saw, from any time it still holds. */
+  updated?: { time: number; from: string };
+  /** Passkey requests left to the browser in the last 24 hours, by reason. */
+  passkeyDelegations: { reason: string; count: number }[];
+};
+
+export function recentLog(entries: readonly LogEntry[], now: number): RecentLog {
+  const since = now - RECENT_WINDOW_MS;
+  const substitute = siteSubstitution();
+  const newest = [...entries].sort((a, b) => b.time - a.time);
+  const problems = newest
+    // A far-future time (a wrong clock) is left out rather than listed first.
+    .filter(
+      (entry) =>
+        (entry.level === "warn" || entry.level === "error") &&
+        entry.time >= since &&
+        entry.time <= now + RECENT_WINDOW_MS,
+    )
+    .slice(0, RECENT_PROBLEMS)
+    .map((entry) =>
+      [
+        `${new Date(entry.time).toISOString().slice(0, 16)}Z`,
+        entry.level,
+        entry.event,
+        ...Object.values(exportedFields(entry, substitute)).map(String),
+      ]
+        .join(" ")
+        .slice(0, RECENT_LINE_LENGTH),
+    );
+  const update = newest.find((entry) => entry.event === "runtime.updated");
+  const from = update?.fields["previousBuild"];
+  const delegations = new Map<string, number>();
+  for (const entry of entries) {
+    const reason = entry.fields["reason"];
+    if (
+      entry.event === "passkey.request" &&
+      entry.time >= since &&
+      entry.fields["outcome"] === "delegate" &&
+      typeof reason === "string" &&
+      v.is(KIND_SCHEMAS.code, reason)
+    )
+      delegations.set(reason, (delegations.get(reason) ?? 0) + 1);
+  }
+  return {
+    problems,
+    ...(update && typeof from === "string" && v.is(KIND_SCHEMAS.revision, from)
+      ? { updated: { time: update.time, from } }
+      : {}),
+    passkeyDelegations: [...delegations]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, RECENT_DELEGATION_REASONS)
+      .map(([reason, count]) => ({ reason, count })),
+  };
 }

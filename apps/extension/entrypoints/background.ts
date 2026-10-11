@@ -76,6 +76,7 @@ export default defineBackground(() => {
       void actionIcon.refresh();
       diagnosticsLog.vaultStateMayChange();
     },
+    onSync: diagnosticsLog.vaultSync,
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
@@ -248,6 +249,7 @@ export default defineBackground(() => {
     fetch: (input, init) => fetch(input, init),
     settings: async () => (await settings.read()).settings,
     logs: () => logger.summary(),
+    recentLog: () => logger.recent(),
     storage: {
       localBytes: () => browser.storage.local.getBytesInUse(null),
       recipeCache: () => recipeCacheStorage.read(),
