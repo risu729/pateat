@@ -437,6 +437,24 @@ masked value consistent with the username (`m***@example.com`, `****1234`) proce
 as does an item without a username, a username of another kind (`taro99`) or a page that
 shows no comparable identifier. A masked number that is not the account, such as a card
 number on a password page, still stops a digits-only username: a known limitation.
+A recipe can name an `accountSwitch` target: the button or `<a href>` link that switches
+to another account (`{ "by": "text", "value": "Use another account" }`; text locators
+match link text only here; the recipe must not use it for a click step or `rejection`).
+When the page shows another account, nothing was submitted in the attempt, and that
+target matches exactly one shown link or button that does not submit a form, the
+background first records the attempt as `account-switched` (blocked, no submission
+spent) and then has the content script click it. The click happens only within 10
+seconds, on the same path, while the target still matches exactly that element;
+otherwise the record becomes `wrong-account` and keeps holding the tab. After the click,
+the tab's next document of that origin that reports ready starts a new attempt instead
+of resuming, so
+a recipe that starts on the page the switch leads to logs in, such as an email page at
+`/signin/id` after a password page at `/signin/pwd` that showed `myaccount@example.com`
+(owner decision, 2026-10-11). That attempt carries the switch and never clicks another:
+a page that still shows another account ends it `wrong-account`. Without the target,
+or when it is missing or ambiguous, the attempt ends `wrong-account` as above. A switch
+that changes the account in place, without loading a new document, does not continue
+the login.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.

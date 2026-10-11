@@ -60,6 +60,8 @@ export const attemptMetadataSchema = v.pipe(
     operationEffect: v.optional(v.picklist(["prepare", "advance", "submit"])),
     mutationIntent: v.optional(v.literal(true)),
     outcome: v.optional(loginOutcomeSchema),
+    /** This attempt follows an account switch in its tab; it never clicks another one. */
+    accountSwitched: v.optional(v.literal(true)),
   }),
   v.check(
     (metadata) =>
@@ -138,12 +140,14 @@ export const loginAttemptEventSchema = v.variant("type", [
   }),
   /**
    * The page shows another account than the selected one, found before any mutation of
-   * this fill. It ends the attempt without a retry.
+   * this fill. It ends the attempt without a retry; `switched` records that the recipe's
+   * account switch was clicked.
    */
   v.strictObject({
     type: v.literal("WRONG_ACCOUNT"),
     operationId: identifier,
     document: loginDocumentSchema,
+    switched: v.optional(v.literal(true)),
   }),
   v.strictObject({ type: v.literal("RETRY") }),
   v.strictObject({ type: v.literal("POLICY_CHANGED") }),
@@ -249,16 +253,23 @@ function record(
             ? true
             : context.retryRequired,
       };
-    case "WRONG_ACCOUNT":
+    case "WRONG_ACCOUNT": {
+      // Like a confirmed preflight failure, the reserved fill effect never started.
+      const submissions =
+        context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
+          ? context.submissions - 1
+          : context.submissions;
       return {
-        outcome: "wrong-account",
-        // Like a confirmed preflight failure, the reserved fill effect never started.
-        submissions:
-          context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
-            ? context.submissions - 1
-            : context.submissions,
+        // A switch starts a fresh attempt with a full budget, so it is recorded only once
+        // per sign-in and only before anything was submitted.
+        outcome:
+          event.switched && !context.accountSwitched && submissions === 0
+            ? "account-switched"
+            : "wrong-account",
+        submissions,
         mutationIntent: undefined,
       };
+    }
     case "RETRY":
       return {
         retries: context.retries + 1,
@@ -473,6 +484,7 @@ export function createAttemptMetadata(input: {
   policyRevision: number;
   account: LoginAccount;
   document: LoginDocument;
+  accountSwitched?: boolean;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
   if (input.account.origin !== recipe.origin)
@@ -493,6 +505,7 @@ export function createAttemptMetadata(input: {
     retries: 0,
     maxRetries: 2,
     usedOperationIds: [],
+    ...(input.accountSwitched ? { accountSwitched: true } : {}),
   });
 }
 
@@ -517,6 +530,16 @@ export function createLoginAttempt(value: unknown) {
       return parseAttemptMetadata({ ...snapshot.context, state: snapshot.value });
     },
   });
+}
+
+/**
+ * Records that the account switch was not clicked after all: the attempt ends as
+ * `wrong-account`, which keeps holding its tab like any other ended attempt.
+ */
+export function withdrawAccountSwitch(value: unknown): LoginAttemptMetadata {
+  const metadata = parseAttemptMetadata(value);
+  if (metadata.state !== "blocked" || metadata.outcome !== "account-switched") return metadata;
+  return parseAttemptMetadata({ ...metadata, outcome: "wrong-account" });
 }
 
 /** Restart always observes; it never restores an actor snapshot with pending actions. */

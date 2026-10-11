@@ -26,6 +26,16 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, { by: "id", value: "a" }))).toEqual(["a"]);
   });
 
+  it("matches links by text only when asked, for an account switch", () => {
+    page(
+      `<a id="a" href="/switch"> Use another <b>account</b> </a><a id="b">Use another account</a>
+      <a id="c" href="/x" hidden>Use another account</a><button id="d">Use another account</button>`,
+    );
+    const target = { by: "text", value: "Use another account" } as const;
+    expect(ids(findTargets(document, target))).toEqual(["d"]);
+    expect(ids(findTargets(document, target, { links: true }))).toEqual(["a", "d"]);
+  });
+
   it("matches buttons by collapsed rendered text, input value or image alt", () => {
     page(
       `<button id="a"> <span>ログ</span><span>​イン</span> </button>

@@ -161,6 +161,14 @@ export const loginRecipeSchema = v.pipe(
       }),
     ),
     rejection: v.optional(loginTargetSchema),
+    /**
+     * The button or link that switches to another account, such as "Use another account"
+     * on a password page for a remembered account. When a fill finds the page showing
+     * another account than the selected one, the executor clicks it once and ends the
+     * attempt, so a recipe that starts on the page it leads to can log in (owner
+     * decision, 2026-10-11).
+     */
+    accountSwitch: v.optional(loginTargetSchema),
     maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
   }),
   v.check(
@@ -200,6 +208,15 @@ export const loginRecipeSchema = v.pipe(
       24,
     "Too many result elements to observe with a step",
   ),
+  // The switch is clicked instead of signing in, so it must not be a step's own button.
+  v.check((recipe) => {
+    if (!recipe.accountSwitch) return true;
+    const key = JSON.stringify(recipe.accountSwitch);
+    return ![
+      ...recipe.steps.flatMap((step) => (step.kind === "click" ? [step.target] : [])),
+      ...(recipe.rejection ? [recipe.rejection] : []),
+    ].some((target) => JSON.stringify(target) === key);
+  }, "Account switch target is a step or rejection target"),
 );
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
@@ -245,6 +262,8 @@ export const loginOutcomeSchema = v.picklist([
   "cancelled",
   // The page shows a different account than the one selected; nothing was filled.
   "wrong-account",
+  // As "wrong-account", and the recipe's account switch was clicked.
+  "account-switched",
 ]);
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;

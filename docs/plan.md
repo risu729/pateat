@@ -892,12 +892,17 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   fills a secret but no username, the executor compares the account shown in that
   form and the page headings with the selected account's username, locally only. If
   they differ (`myaccount@example.com` shown while `my2@example.com` is selected), it
-  fills nothing, clicks the recipe's optional `accountSwitch` target and restarts from
-  the first step; without one it stops with `wrong-account`. A masked value consistent
-  with the username (`m***@example.com`) cannot be told apart and proceeds. The
-  comparison and the `wrong-account` stop are implemented
-  ([Background execution](architecture.md#background-execution)); `accountSwitch` and
-  the restart are not yet.
+  fills nothing and stops with `wrong-account`. A masked value consistent with the
+  username (`m***@example.com`) cannot be told apart and proceeds. The owner chose on
+  2026-10-11 how the switch continues: the executor clicks the recipe's optional
+  `accountSwitch` target once and ends the attempt, and the login continues with the
+  recipe that starts on the page the switch leads to, generated there if none exists
+  ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The comparison, the stop, the
+  switch click and the new attempt on the next page are implemented
+  ([Background execution](architecture.md#background-execution)). Still to do:
+  generating for a page where no recipe starts (after the generation trigger lands),
+  one generated recipe per start path on the service, and naming `accountSwitch`
+  (including link text) in the extractor and the generator.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
 - A real-page corpus per ADR 0012.

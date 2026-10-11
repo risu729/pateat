@@ -107,6 +107,16 @@ describe("declarative login boundaries", () => {
     expect(parseLoginRecipe({ ...wide, rejection: undefined }).steps).toHaveLength(2);
   });
 
+  it("refuses an account switch that is a step's button or the rejection", () => {
+    const other = { by: "text", value: "Use another account" } as const;
+    expect(parseLoginRecipe({ ...recipe(), accountSwitch: other }).accountSwitch).toEqual(other);
+    for (const target of [
+      { by: "id", value: "login" },
+      { by: "id", value: "rejected" },
+    ])
+      expect(() => parseLoginRecipe({ ...recipe(), accountSwitch: target })).toThrow();
+  });
+
   it("accepts a generated recipe whose completion is not learned yet", () => {
     const { completion: _unlearned, ...generated } = recipe();
     expect(parseLoginRecipe(generated)).toEqual(generated);

@@ -145,6 +145,7 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
       target: target("authenticated"),
     },
     rejection: target("rejected"),
+    ...(path === "/single" ? { accountSwitch: { by: "text", value: "Use another account" } } : {}),
     maxSubmissions: multi || inputAdvance ? 2 : 1,
   });
 }

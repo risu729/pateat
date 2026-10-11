@@ -15,6 +15,7 @@ import {
   saveLoginChoice,
   siteDefaultConnection,
   transitionLoginAttempt,
+  withdrawAccountSwitch,
   validateLoginOperation,
   type LoginAttemptEvent,
   type LoginAccountBinding,
@@ -355,6 +356,13 @@ export function createLoginRuntime(
     await save(run);
     await publish(run.live, run.metadata);
     if (run.metadata.state === "authenticated" && run.choice) await remember(run);
+  }
+  async function withdrawSwitch(run: Execution): Promise<void> {
+    const tabId = run.live.document.tabId;
+    if (attempts.get(tabId) !== run || persisted.get(tabId)?.id !== run.metadata.id) return;
+    run.metadata = withdrawAccountSwitch(run.metadata);
+    await save(run);
+    await publish(run.live, run.metadata);
   }
   /**
    * Saves an automatic account choice after `authenticated` (ADR 0013). The settings must
@@ -1026,6 +1034,10 @@ export function createLoginRuntime(
             operation,
             values,
             ...(expected ? { account: expected } : {}),
+            // One switch per tab: an attempt that follows a switch never clicks another.
+            ...(expected && run.recipe.accountSwitch && !run.metadata.accountSwitched
+              ? { accountSwitch: run.recipe.accountSwitch }
+              : {}),
           });
         } finally {
           for (const entry of values) entry.value = "";
@@ -1047,11 +1059,31 @@ export function createLoginRuntime(
           result.output.reason === "wrong-account" &&
           result.output.mutation === "none"
         ) {
+          const switched =
+            result.output.switchable === true &&
+            run.recipe.accountSwitch !== undefined &&
+            !run.metadata.accountSwitched;
           await change(run, {
             type: "WRONG_ACCOUNT",
             operationId: operation.operationId,
             document: run.live.document,
+            ...(switched ? { switched: true } : {}),
           });
+          // The switch is recorded before the click, so the page it leads to starts a new
+          // attempt instead of resuming this one (owner decision, 2026-10-11).
+          if (run.metadata.outcome === "account-switched") {
+            const clicked =
+              current(run) &&
+              v.safeParse(
+                v.object({ ok: v.literal(true) }),
+                await send(run.live, {
+                  type: "login.switch",
+                  operationId: operation.operationId,
+                }).catch(() => undefined),
+              ).success;
+            // Without the click the attempt ends as `wrong-account` and keeps its tab.
+            if (!clicked) await withdrawSwitch(run);
+          }
           return;
         }
         if (!matchedResult || !result.output.ok) {
@@ -1303,7 +1335,15 @@ export function createLoginRuntime(
     };
     if (busy) return refuse("tab-busy");
     if (!storageHealthy) return refuse("storage-unavailable");
-    const previous = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    const recorded = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    // After an account switch, the tab's next document of that origin starts a new
+    // attempt, which may use another recipe. It carries the switch, so it never clicks
+    // another one.
+    const switched =
+      recorded?.state === "blocked" &&
+      recorded.outcome === "account-switched" &&
+      recorded.account.origin === document.origin;
+    const previous = switched ? undefined : recorded;
     // Look up the recipe first: a page without one never opens the policy catalog or vault.
     const recipe =
       probeMode && document.origin === origin
@@ -1386,7 +1426,7 @@ export function createLoginRuntime(
     // Another document of the tab, such as a frame, may have started an attempt while this
     // one was checked. Nothing below awaits until the attempt is registered.
     if (
-      (attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId))?.id !== previous?.id
+      (attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId))?.id !== recorded?.id
     )
       return refuse("tab-busy");
     let metadata: LoginAttemptMetadata;
@@ -1409,6 +1449,7 @@ export function createLoginRuntime(
             itemId: plan.account.itemId,
           },
           document,
+          accountSwitched: switched,
         }),
         { type: "RESOLVE" },
       );

@@ -127,3 +127,17 @@ export function buttonText(element: Element): string | undefined {
   const text = collapseText(raw);
   return text && text.length <= buttonTextLimit ? text : undefined;
 }
+
+/**
+ * A rendered `<a href>` link's text, collapsed, like {@link buttonText}: none when the
+ * link is not rendered, or its text is empty or longer than 120 code units.
+ */
+export function linkText(element: Element): string | undefined {
+  if (!(element instanceof HTMLAnchorElement) || !element.hasAttribute("href") || !shown(element))
+    return undefined;
+  const readLimit = buttonTextLimit * 4;
+  const raw = renderedText(element, readLimit);
+  if (raw === undefined || raw.length > readLimit) return undefined;
+  const text = collapseText(raw);
+  return text && text.length <= buttonTextLimit ? text : undefined;
+}
