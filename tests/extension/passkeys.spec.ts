@@ -476,7 +476,8 @@ test("after Pateat signed in a tab, the next username-less request there asks ag
       await expect(list.getByRole("button")).toHaveText([
         "Synthetic passkey 1synthetic-user-1Probe",
       ]);
-      await asked.chooser.getByRole("checkbox").uncheck();
+      // Saving it as the default is opt-in here: this may be a one-off switch.
+      await expect(asked.chooser.getByRole("checkbox")).not.toBeChecked();
       await choose(list.getByRole("button", { name: /Synthetic passkey 1/u }));
       expectPateatAssertion(await asked.settle(), origin, again);
 

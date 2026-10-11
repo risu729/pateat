@@ -48,7 +48,8 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
       }
       setView(response.view);
       // Replacing an existing default is opt-in: it also changes the password login account.
-      setMakeDefault(!response.view.replacesDefault);
+      // So is saving a passkey chosen after a sign-in in this tab, which may be a one-off switch.
+      setMakeDefault(!response.view.replacesDefault && !response.view.again);
     };
     void load();
   }, [client]);
@@ -86,6 +87,8 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
     );
   const host = new URL(view.origin).host;
   const rows = view.entries.map((entry, index) => ({ entry, index }));
+  // Choosing the site default saves nothing, so a list of only that has no checkbox.
+  const canSave = view.entries.some((entry) => !entry.preferred);
   return (
     <main className={MAIN}>
       <h1>Choose a passkey</h1>
@@ -102,11 +105,11 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
         </p>
       )}
       {/* Above the list, so it is seen before a choice is made. */}
-      <p className="my-4 flex items-start gap-2">
+      <p className="my-4 flex items-start gap-2" hidden={!canSave}>
         <input
           id={checkboxId}
           type="checkbox"
-          checked={makeDefault}
+          checked={makeDefault && canSave}
           disabled={sending}
           onChange={(event) => setMakeDefault(event.target.checked)}
         />

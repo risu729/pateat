@@ -141,8 +141,9 @@ its single stored credential is eligible as below. Then:
    unfocused page, or another request holds it).
 
 A request with no allow list for an RP ID that Pateat already signed for in the same tab
-skips steps 1 and 2: it opens the chooser for any number of matches, the default first,
-and never signs unasked (ADR 0021 part D).
+skips steps 1 and 2: it opens the chooser for one or more matches, the default first,
+and never signs unasked (ADR 0021 part D). If a connection or item could not be
+searched, it is delegated even when the default is among the matches.
 
 Matches are counted after the request's allow list, or its discoverable-credential
 requirement, narrows them. A passkey-only item with no fields is eligible; an item whose

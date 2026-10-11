@@ -139,8 +139,9 @@ tab in `chrome.storage.session` (`pateat.passkey-signed.v1`, at most 8 per tab a
 tabs), so they survive a worker restart, and a tab's entry goes when the tab closes. A
 navigation in the tab keeps it, since a logout often navigates. The window lists the
 site default first, marked as such, and says that Pateat signed in from this tab before.
-Choosing the default saves nothing; choosing another passkey replaces the default only
-with the checkbox ticked, which then starts unticked. When the window cannot open (the
+The checkbox starts unticked, because switching accounts may be a one-off, and it is
+hidden when every listed passkey is the site default, since choosing the default saves
+nothing. When the window cannot open (the
 same cases as C) or a connection or item could not be searched, the request goes to
 the browser instead of being signed unasked.
 

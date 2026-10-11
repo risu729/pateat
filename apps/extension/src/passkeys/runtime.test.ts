@@ -658,6 +658,20 @@ describe("asking again after Pateat signed in a tab", () => {
     expect(remember).toHaveBeenCalledWith(origin, withDefault[0]);
   });
 
+  it("hands the request to the browser when the person asks for it", async () => {
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose: vi.fn<PasskeyChooser["choose"]>(async () => ({ kind: "browser" })) },
+      signedTabs: signedTabs([7, "example.com"]),
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "chooser-browser",
+    });
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
   it("signs named credentials silently, as in a re-authentication", async () => {
     const choose = chosen();
     const runtime = createPasskeyRuntime(source(), {
@@ -689,6 +703,23 @@ describe("asking again after Pateat signed in a tab", () => {
     expect(await runtime.handle(get(), sender({ documentLifecycle: "prerender" }))).toEqual(
       unavailable,
     );
+    const hurried = { ...get(), request: { ...request, timeout: 1 } };
+    // The vault lookup uses up the wait before the window could open.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const slow = createPasskeyRuntime(
+        source({
+          candidates: vi.fn(async () => {
+            vi.setSystemTime(Date.now() + 9_000);
+            return { candidates: [candidate], complete: true };
+          }),
+        }),
+        { extensionId, chooser: choose, signedTabs: signedTabs([7, "example.com"]) },
+      );
+      expect(await slow.handle(hurried, sender())).toEqual(unavailable);
+    } finally {
+      vi.useRealTimers();
+    }
     const incomplete = createPasskeyRuntime(
       source({
         candidates: vi.fn(async () => ({ candidates: withDefault, complete: false })),
