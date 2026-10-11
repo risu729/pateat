@@ -354,7 +354,10 @@ scripts/host permissions and browser events, not a popup or focus event as the e
 trigger. A static content script runs on every top-level HTTPS page; the background
 admits non-excluded sites with host access and needs a cached recipe for the exact
 origin before any policy or vault access
-([ADR 0009](adr/0009-install-time-https-site-access.md)). Inactive, frozen, discarded,
+([ADR 0009](adr/0009-install-time-https-site-access.md)). The planned exception is
+recipe generation: a page without a recipe that shows a login field and has a vault URI
+match is observed and sent at most once a day per origin and path
+([ADR 0016](adr/0016-recipe-generation-trigger.md)). Inactive, frozen, discarded,
 and navigated documents are different states; only live documents can execute.
 
 Do not inject `chrome-extension://` iframes, automatic overlays, unlock windows,
@@ -456,7 +459,7 @@ Bound the full input, including candidate/question text, and reject incomplete
 observations instead of relying on provider truncation.
 
 Extract an allowlisted observation before filling. The proposed observation contract
-and offline role adapters live in `packages/inference` until the service shares them;
+lives in `packages/contracts` and the offline role adapters in `packages/inference`;
 see [AI evaluation harness progress](plan.md#ai-evaluation-harness-progress).
 Exclude values, hidden inputs,
 raw HTML, screenshots, query strings, and unrelated page text by default. Labels
@@ -624,6 +627,45 @@ CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, e
 cleanup of stale approvals, cross-owner management and self-revocation. Still open:
 probing JWT verification against a real Access application with the owner's approval,
 the credential idle-expiry decision, and the optional `launchWebAuthFlow` variant.
+
+### Owner web UI
+
+Status: design approved by the owner on 2026-10-11; not implemented. It replaces the
+extension's settings page for the data the service holds
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
+
+- Pages. A React app under `/manage`, built with the same approved stack as the
+  extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
+  Worker as static assets. The first version has these pages:
+  - Devices: the current list and revocation, moved into the app. `/enroll` stays a
+    script-free page.
+  - Sites: add and delete `excludedSites` entries; list and delete `siteDefaults`
+    entries. Deleting a default restores the automatic single-match choice.
+  - Account bindings: list and delete `bindings` entries. Deleting one makes that item
+    fall back to the built-in-slot binding.
+  - Recipes: list active and revoked recipes, show one recipe's steps, completion and
+    rejection targets and its JSON, and revoke it with a tombstone.
+
+  The UI does not pick vault items or fields, because the item list exists only on
+  devices. Choices are saved by login or by AI generation, and bindings come from AI
+  generation. Creating or editing recipe JSON is not offered; development keeps using
+  `PUT /v1/recipes/:recipeId`. Settings that still use device-local IDs (connections,
+  item selection and field exclusions) are not shown until their device-independent
+  form is decided.
+- Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
+  routes accept only device credentials. The API shares the owner-scoped read and
+  write code of `/v1/settings` and `/v1/recipes/:recipeId`. Writes carry the revision
+  the page last read; a stale write changes nothing and returns the current state. The
+  stored settings document keeps `connections` empty. Devices receive the change on
+  their next settings or recipe sync. The device ID columns recording who wrote a
+  settings or recipe revision become nullable; null means the web UI wrote it.
+- Display names. A site default stores an optional `itemName` beside its item ID, as
+  bindings already do, so the page can name the item; entries without it show the ID.
+- Authentication. The Access application that covers `/enroll` and `/manage` also
+  covers the app's assets and `/manage/api/*`. The Worker verifies the Access token
+  on each API request as it does for the current pages, finds the owner by issuer and
+  subject without creating one, and accepts only same-origin requests. The page's
+  Content Security Policy allows scripts from its own origin only, with no framing.
 
 ## Deferred interfaces and challenges
 

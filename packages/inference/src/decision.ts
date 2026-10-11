@@ -7,7 +7,7 @@ import {
   type LoginObservation,
   type ObservedCandidate,
   type SemanticSlot,
-} from "./observation";
+} from "@pateat/contracts";
 import {
   createUsageMeter,
   noUsage,

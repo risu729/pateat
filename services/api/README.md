@@ -1,11 +1,11 @@
 # API
 
 This Worker is the optional private settings/recipe sync service with device enrollment.
-It has no vault or inference implementation, and it is not deployed. The `DB` D1 binding
-is declared in `cloudflare.config.ts`, but no database is provisioned. cf deploy
-provisions declared bindings that lack an ID, so record the bootstrapped database ID
-there before enabling server delivery; a routine release must not create the database
-implicitly.
+It has no vault implementation and no inference route yet, and it is not deployed. The
+`DB` D1 binding is declared in `cloudflare.config.ts`, but no database is provisioned.
+cf deploy provisions declared bindings that lack an ID, so record the bootstrapped
+database ID there before enabling server delivery; a routine release must not create the
+database implicitly.
 
 ## Routes
 
@@ -16,6 +16,8 @@ framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
 | Route | Purpose |
 | --- | --- |
 | `GET`/`HEAD /health` | Build revision probe; other methods return 405 |
+| `GET /.well-known/openid-configuration` | OIDC discovery for Claude Workload Identity Federation |
+| `GET /.well-known/jwks.json` | Public halves of the issuer's ES256 keys |
 | `GET /v1/settings` | Current synced settings; revision 0 with `settings: null` before the first write |
 | `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state |
 | `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
@@ -54,13 +56,44 @@ so a losing writer changes nothing. Each head write takes the owner's next seque
 number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
 its revision, and only an explicit later write can republish the recipe.
 
+## Claude credentials
+
+[ADR 0015](../../docs/adr/0015-per-owner-claude-credentials.md) gives each owner their
+own Claude credentials. `src/claude/` holds the only path from an owner to a credential:
+
+- The Worker is an OIDC issuer. `OIDC_ISSUER` is its public origin, such as
+  `https://pateat.example.com` (HTTPS, no port, path or IP literal), and
+  `OIDC_SIGNING_KEYS` is `{ "signingKeyId": "2026-10", "keys": [<private ES256 JWK>] }`.
+  `mise run generate:oidc-key [kid]` prints a new value; send it straight to the
+  Worker secret. Every listed key is published in the JWKS without `d`, and only
+  `signingKeyId` signs. To rotate, add the new key, wait at least 15 minutes, switch
+  `signingKeyId`, and remove the old key after five more minutes. Without valid
+  settings both `/.well-known` routes answer 503 and nothing is signed.
+- The `inference_credentials` table holds one row per owner with kind `wif` and the
+  identifiers of the owner's own federation rule: `fdrl_…`, the organization UUID,
+  `svac_…` and `wrkspc_…`. None is a secret. No route writes them yet.
+- `resolveClaudeCredential(env, ownerId)` signs a fresh assertion
+  `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`
+  that lasts five minutes. It exchanges the assertion once at
+  `https://api.anthropic.com/v1/oauth/token` and returns `{ authToken }` for
+  `createClaudeGenerationModel`. The `ownerId` must come from the authenticated request
+  scope. Anthropic answers every denied assertion with the same 401, so the reason is
+  only visible in the owner's Console authentication history.
+
+In the owner's Claude Console (Settings → Workload identity → Connect workload →
+Custom OIDC), the issuer URL is `OIDC_ISSUER`, with discovery. The federation rule
+matches `subject_prefix` `owner:<ownerId>` exactly, may also match audience
+`https://api.anthropic.com`, and should use the `workspace:inference` scope.
+
 ## Schema and tests
 
 `src/db/schema.ts` is the Drizzle schema. Run `mise run generate:server-migrations`
 after changing it and commit the generated `migrations/`; `check:server-migrations`
 fails when they drift. Vitest applies the committed migrations to a local Miniflare D1
 database. Sync tests seed synthetic owners and devices directly; enrollment tests sign
-synthetic Access tokens with keys generated per run. The concurrency cases interleave
+synthetic Access tokens with keys generated per run. Claude credential tests use a
+synthetic issuer key generated per run and a fake token endpoint; they never reach
+Anthropic. The concurrency cases interleave
 requests in one local runtime; they do not demonstrate hosted D1 behavior.
 
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds

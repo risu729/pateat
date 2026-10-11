@@ -28,6 +28,7 @@ const schema = v.variant("action", [
       "removed",
       "builtin-changed",
       "passkey",
+      "uri",
     ]),
     challenge: v.optional(v.picklist(["none", "mfa", "new-device", "rejected"]), "none"),
     permission: v.optional(v.boolean(), true),

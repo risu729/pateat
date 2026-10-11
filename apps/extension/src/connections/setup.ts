@@ -18,8 +18,13 @@ const error = (code: Extract<SetupReply, { ok: false }>["error"]["code"]): Setup
   ok: false,
   error: { code },
 });
-/** The single reply boundary: a failure carries only its code, never a provider status or detail. */
-const replyOf = (result: SetupReply): SetupReply => (result.ok ? result : error(result.error.code));
+/** The single reply boundary: a failure carries only its code, never a provider status or
+ * value. An account mismatch also names the failed check so a real-account report is actionable. */
+const replyOf = (result: SetupReply): SetupReply => {
+  if (result.ok) return result;
+  const { code, check } = result.error;
+  return code === "account-mismatch" && check ? { ok: false, error: { code, check } } : error(code);
+};
 type Authenticated = Extract<PasswordTokenOutcome, { kind: "authenticated" }>;
 type Flow = {
   id: string;
