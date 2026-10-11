@@ -33,6 +33,16 @@ the task graph. Bun manages dependencies; pinned supported Node executes tools
 that require it, notably cf. Commit mise and Bun lockfiles after resolving them,
 never hand-author a purported installed dependency graph.
 
+A development tool used only as a command is a mise tool, not a devDependency: the
+TypeScript compiler is `npm:typescript` in `mise.toml`, so `tsc` comes from mise. A
+package that code or configuration imports stays in `package.json` even when it also has
+a command, as cf (`cloudflare.config.ts`), drizzle-kit (`drizzle.config.ts`), WXT,
+Vitest and Playwright do. Each version is pinned in one place only; Bun's version is the
+`bun` tool in `mise.toml`, with no `packageManager` field. Bun still installs TypeScript
+into its store as a peer of `@risu729/tsconfigs` and an optional peer of WXT and
+Valibot; no task uses that copy, and it can lag the mise pin until the Bun lock is
+refreshed.
+
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
 release tag. hk provides the single complete check entrypoint,
 delegating work to mise. Avoid recursion between hk check and mise checks.
