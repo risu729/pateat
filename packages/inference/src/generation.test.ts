@@ -13,12 +13,18 @@ import {
 
 const page = evaluationCorpus[0]!;
 const limits = { timeoutMs: 1_000, maxInputBytes: 16_384 };
-const plan = (fields: [string, string][], action = "sign-in", purpose = "submit") =>
+const plan = (
+  fields: [string, string][],
+  action = "sign-in",
+  purpose = "submit",
+  accountSwitch?: string,
+) =>
   JSON.stringify({
     result: {
       decision: "plan",
       fields: fields.map(([slot, candidate]) => ({ slot, candidate })),
       action: { candidate: action, purpose },
+      ...(accountSwitch === undefined ? {} : { accountSwitch }),
     },
   });
 const request = { observation: page.observation, slots: page.slots };
@@ -68,6 +74,23 @@ describe("recipe generation role", () => {
       },
       { kind: "click", path: "/login", target: { by: "id", value: "sign-in" }, purpose: "submit" },
     ]);
+  });
+
+  it("returns the account switch a plan names as its locator", async () => {
+    // The corpus page has no switch; a link stands in for one.
+    const { generate } = generatorReturning(
+      plan([["password", "password"]], "sign-in", "submit", "register"),
+    );
+    const outcome = await generate(request);
+    if (outcome.status !== "ok") throw new Error("expected a plan");
+    expect(outcome.value).toMatchObject({
+      accountSwitch: "register",
+      switchTarget: { by: "id", value: "register" },
+    });
+    const { generate: plain } = generatorReturning(plan([["password", "password"]]));
+    const without = await plain(request);
+    if (without.status !== "ok") throw new Error("expected a plan");
+    expect(without.value).not.toHaveProperty("switchTarget");
   });
 
   it("sends only the bounded observation, slots and instructions", async () => {
@@ -128,6 +151,26 @@ describe("recipe generation role", () => {
       "duplicate-candidate",
     ],
     ["no fields", plan([]), "empty-plan"],
+    [
+      "the action as the account switch",
+      plan([["email", "email"]], "sign-in", "submit", "sign-in"),
+      "duplicate-candidate",
+    ],
+    [
+      "a field as the account switch",
+      plan([["email", "email"]], "sign-in", "submit", "email"),
+      "duplicate-candidate",
+    ],
+    [
+      "an unknown account switch",
+      plan([["email", "email"]], "sign-in", "submit", "elsewhere"),
+      "unknown-candidate",
+    ],
+    [
+      "an input as the account switch",
+      plan([["email", "email"]], "sign-in", "submit", "password"),
+      "incompatible-role",
+    ],
   ])("rejects %s as invalid output", async (_name, text, detail) => {
     const { generate } = generatorReturning(text);
     expect(await generate(request)).toMatchObject({

@@ -294,7 +294,7 @@ describe("extractLoginObservation", () => {
     });
   });
 
-  it("keeps only located links inside a form with fields, without affecting completeness", () => {
+  it("keeps only links inside a form with fields, without affecting completeness", () => {
     page(
       `<nav><a id="home" href="/">Home</a></nav>
       <form id="search"><button id="s">Search</button><a id="adv" href="/adv">Advanced</a></form>
@@ -307,8 +307,23 @@ describe("extractLoginObservation", () => {
       observation.candidates.map((candidate) => [candidate.target.value, candidate.group]),
     ).toEqual([
       ["user", "f1"],
+      ["Help", "f1"],
       ["reset", "f1"],
       ["go", "f1"],
+    ]);
+  });
+
+  it("locates a link without an id by its text, only when no other link or button shares it", () => {
+    page(
+      `<form><p>my2@example.com</p><input id="pw" type="password">
+        <a href="/switch">Use another account</a><a href="/help">Help</a><a href="/faq">Help</a>
+        <a href="/s">Sign in</a><a href="/me">Not my2@example.com?</a>
+        <button id="go">Sign in</button></form>`,
+    );
+    expect(observe().candidates.map(({ role, target }) => [role, target])).toEqual([
+      ["password", { by: "id", value: "pw" }],
+      ["link", { by: "text", value: "Use another account" }],
+      ["button", { by: "id", value: "go" }],
     ]);
   });
 
