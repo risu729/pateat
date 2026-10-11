@@ -16,13 +16,13 @@ decision, 2026-10-11).
 
 The client works without a native helper or desktop daemon. Settings, recipes and
 account bindings live on the owner's self-hosted Pateat service and are edited on its
-web UI ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension
-keeps a last-known-good cache, so login keeps working while the service is offline,
-and a reinstalled extension restores the data by syncing. A mode without the service
-is later scope. Missing recipes produce an explicit result rather than guessing.
-Bitwarden sync still needs its own service. The same Worker provides the initial
-inference path. Direct extension-to-AI calls with user-owned keys are a later option,
-not the recommended initial setup.
+web UI ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension keeps
+a last-known-good cache, so login keeps working while the service is offline, and a
+reinstalled extension restores the data by syncing. A mode without the service is
+planned for [phase 3](plan.md#phase-3-public-release). Missing recipes produce an
+explicit result rather than guessing. Bitwarden sync still needs its own service. The
+same Worker provides the initial inference path. Direct extension-to-AI calls with
+user-owned keys are a later option, not the recommended initial setup.
 
 Configure accounts and site permissions once, then automatically fill and submit
 login forms. Cover multi-page flows and separate branch/account/password fields,
@@ -359,25 +359,25 @@ passkey handling while preserving ordinary browser authentication. Apply them
 before collecting observations; policy changes cancel stale work.
 
 The account choice is a saved site default applied on the next login. A default names
-the provider account and item, not this device's connection. Without one,
-a single eligible provider URI match is used and saved only after the login is
-`authenticated`; a saved choice keeps winning when more items match later
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not
-log out the current session. No match or several matches require a choice rather than
-trying accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md)
-the choice is made in the toolbar popup for the refused document and may be one-time.
-After a finished login in a tab, the recipe's first step appearing again in that tab's
-page asks for a choice again instead of logging in, with the saved default first; the
-passkey half of this is not implemented yet. Automatic
-logout/relogin when the user picks another account while logged in stays later. Cookies
-may be shared across
-tabs even during initial login. The first executor conservatively locks an origin
-to one owner tab until closure. A tab keeps one attempt record per origin and runs one
-attempt at a time; a page resumes only its own origin's record, and a top-level attempt
-that may have submitted ends `left-origin` when the tab moves to another origin
-([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
-domains need explicit coordination before broader support, not a guessed relationship
-between origins.
+the provider account and item, not this device's connection. Without one, a single
+eligible provider URI match is used and saved only after the login is `authenticated`; a
+saved choice keeps winning when more items match later
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not log
+out the current session. No match or several matches require a choice rather than trying
+accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md) the
+choice is made in the toolbar popup for the refused document and may be one-time. After
+a finished login in a tab, the recipe's first step appearing again in that tab's page
+asks for a choice again instead of logging in, with the saved default first; the passkey
+half of this is not implemented yet. Automatic logout/relogin when the user picks
+another account while logged in stays later. Cookies may be shared across tabs even
+during initial login. Another tab's login of the origin that is running or ended without
+success holds the origin until that tab closes; an `authenticated` one, or one that
+ended `interrupted` without submitting, does not. A tab keeps one attempt record per
+origin and runs one attempt at a time; a page resumes only its own origin's record, and
+a top-level attempt that may have submitted ends `left-origin` when the tab moves to
+another origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider
+shared-session domains need explicit coordination before broader support, not a guessed
+relationship between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic

@@ -1086,7 +1086,35 @@ test("navigation invalidates a pending wait before it can fill the replacement d
   }
 });
 
-test("a competing tab cannot race the existing owner of the same site session", async () => {
+test("a competing tab cannot race a login of the same site that is still running", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const first = await context.newPage();
+      await first.goto(`${fixture.origin}/delayed`);
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain('"executing"');
+      const second = await context.newPage();
+      await second.goto(`${fixture.origin}/single`);
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain("origin-busy");
+      expect(await clicks(second)).toBe(0);
+      await expect(second.locator("#password")).toHaveValue("");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("another tab logs in once the site's login in the first tab authenticated", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -1095,16 +1123,12 @@ test("a competing tab cannot race the existing owner of the same site session", 
       const first = await context.newPage();
       await first.goto(`${fixture.origin}/single`);
       await expect(first.locator("#authenticated")).toBeVisible();
+      // The login form showing in a new tab means the site's session has ended (ADR 0022).
       const second = await context.newPage();
       await second.goto(`${fixture.origin}/single`);
-      await expect
-        .poll(async () =>
-          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
-        )
-        .toContain("origin-busy");
+      await expect(second.locator("#authenticated")).toBeVisible();
       expect(await clicks(first)).toBe(1);
-      expect(await clicks(second)).toBe(0);
-      await expect(second.locator("#password")).toHaveValue("");
+      expect(await clicks(second)).toBe(1);
       await expect
         .poll(async () => {
           const response = (await send(options, { version: 1, type: "login.probe.status" })) as {
@@ -1112,7 +1136,7 @@ test("a competing tab cannot race the existing owner of the same site session", 
           };
           return response.attempts.filter((attempt) => attempt.state === "authenticated");
         })
-        .toHaveLength(1);
+        .toHaveLength(2);
     });
   } finally {
     await fixture.close();

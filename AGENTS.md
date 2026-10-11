@@ -34,7 +34,7 @@
   [Windows notes](docs/development.md#windows-notes).
 - Keep vault secrets local, recipes declarative, and login execution scoped to
   the configured account, origin, tab, frame, and document.
-- Preserve the plan's initial/later boundaries and independently granted provider
+- Preserve the roadmap's phase boundaries and independently granted provider
   capabilities; adding an adapter or interface must not expand permissions.
 - Separate implementation, test and independent PR review roles. In Codex, use Sol
   High subagents (`gpt-6.1-sol` with high reasoning); other agents use subagents
@@ -48,9 +48,12 @@
 
 ## Continuing the work
 
-- A merged PR is not a stopping point. Continue with the next slice in
-  [docs/plan.md](docs/plan.md) until the initial scope passes its acceptance gates,
-  including login in the owner's installed Chrome.
+- A merged PR is not a stopping point. Continue with the next slice of the current phase
+  in the [roadmap](docs/plan.md#roadmap) until that phase is done, then the next phase;
+  phase 1 ends with login on the owner's everyday sites in their installed Chrome.
+- Create GitHub issues only in phase 4. Until then, docs/plan.md is the tracker.
+- A thread that researches something lands its findings in its own docs PR, including
+  the roadmap lines they change.
 - Owner-approved and not to be re-proposed: local persistent retention of the
   unlock key for automatic unlock across browser restarts
   ([ADR 0006](docs/adr/0006-atomic-local-vault-cache.md)). Do not describe it as
