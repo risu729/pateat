@@ -6,8 +6,10 @@
       "description": "Update mise tools in one branch so each run regenerates mise.lock once. Later rules regroup TypeScript.",
       "matchManagers": ["mise"],
       "matchUpdateTypes": ["minor", "patch"],
-      "excludeDepNames": ["python"],
-      "groupName": "mise tools"
+      "groupName": "mise tools",
+      "matchDepNames": [
+        "!python"
+      ]
     },
     {
       "description": "Offer each Python minor separately: a new minor can lack wheels for the pypi tools mise installs without building.",
