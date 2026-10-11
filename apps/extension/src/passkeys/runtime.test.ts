@@ -245,6 +245,7 @@ describe("passkey runtime reports", () => {
     // The site default's passkey is not discoverable, so a request without an allow list
     // cannot use it and the two other passkeys stay ambiguous.
     expect(report).toHaveBeenCalledWith({
+      tabId: 7,
       origin,
       outcome: "delegate",
       reason: "ambiguous-credential",
@@ -275,12 +276,14 @@ describe("passkey runtime reports", () => {
       ),
     ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     expect(report).toHaveBeenLastCalledWith({
+      tabId: 7,
       origin,
       outcome: "delegate",
       reason: "unsupported-mediation",
     });
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
     expect(report).toHaveBeenLastCalledWith({
+      tabId: 7,
       origin,
       outcome: "assertion",
       rpId: "example.com",
