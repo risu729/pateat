@@ -6,7 +6,10 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const extension = fileURLToPath(new URL("../apps/extension/", import.meta.url));
-const icons = [{ source: "icons/icon.svg", output: "public/icon" }];
+const icons = [
+  { source: "icons/icon.svg", output: "public/icon" },
+  { source: "icons/icon-locked.svg", output: "public/icon-locked" },
+];
 // Chrome's guidance draws the 128 px store icon at 96 px with transparent padding.
 const sizes = [
   { size: 16, art: 16 },

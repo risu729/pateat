@@ -415,9 +415,16 @@ confused with the official Bitwarden extension. The source is
 in `apps/extension/public/icon/`, drawing the 128 px store icon at 96 px with
 transparent padding.
 
-Owner-approved, not yet implemented: the toolbar icon shows whether the vault is
-locked, as the Bitwarden extension does. Unlocked shows the logo; locked draws the
-whole mark gray `#8A8F98` with the keystone lifted out of the arch.
+The toolbar icon shows whether Pateat can log in without asking for a password, as the
+Bitwarden extension shows its lock state (owner-approved). Unlocked shows the logo;
+locked draws the whole mark gray `#8A8F98` with the keystone lifted out of the arch
+(`apps/extension/icons/icon-locked.svg`). The icon is unlocked only when at least one
+vault connection exists and every configured connection holds an active local vault
+record, so automatic unlock needs no password; otherwise, including an unreadable
+record, it is locked. The manifest's default action icon is the locked one; the worker
+re-reads the records when it starts, at browser start, after each vault record write and
+after each settings-page connection request
+(`apps/extension/src/connections/action-icon.ts`).
 
 ## Declarative recipes and AI
 

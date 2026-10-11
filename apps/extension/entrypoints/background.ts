@@ -13,6 +13,7 @@ import {
 import { createBrowserCryptoHost } from "../src/crypto/browser";
 import { createCryptoProbe, createCryptoProbeControls } from "../src/crypto/probe";
 import { createVaultProbe } from "../src/vault/probe";
+import { createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
@@ -50,7 +51,14 @@ export default defineBackground(() => {
           containsPermission: syntheticSetup.containsPermission,
         }
       : {}),
+    onVaultStateMayChange: () => void actionIcon.refresh(),
   });
+  // The manifest default is the locked icon; a running worker switches it.
+  const actionIcon = createActionIcon({
+    states: () => connections.vaultStates(),
+    setIcon: (path) => browser.action.setIcon({ path }),
+  });
+  void actionIcon.refresh();
   const settings = connections.settings;
   const serviceTransport = createServiceTransport();
   const service = createServiceRuntime({
@@ -116,6 +124,10 @@ export default defineBackground(() => {
   });
   browser.permissions.onRemoved.addListener(() => {
     void connections.service.permissionsRemoved().catch(() => undefined);
+  });
+  // Wakes the worker at browser start so automatic unlock shows the unlocked icon.
+  browser.runtime.onStartup.addListener(() => {
+    void actionIcon.refresh();
   });
   browser.action.onClicked.addListener(() => {
     void browser.runtime.openOptionsPage();

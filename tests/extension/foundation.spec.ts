@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SettingsResponse } from "../../packages/contracts/src/index";
+import { ACTION_ICON_PATHS } from "../../apps/extension/src/connections/action-icon";
 import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
@@ -81,6 +82,11 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     32: "icon/32.png",
     48: "icon/48.png",
     128: "icon/128.png",
+  });
+  // The worker switches to the unlocked icon once a vault can unlock automatically.
+  expect(manifest.action.default_icon).toEqual({
+    16: "icon-locked/16.png",
+    32: "icon-locked/32.png",
   });
   // Owner-approved install-time HTTPS access (ADR 0009): top-level only. The ADR 0007
   // passkey bridge is the only MAIN-world script.
@@ -181,6 +187,34 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await expect(page.locator("#site-defaults")).toContainText("https://bank.example");
     await expect(page.locator("#default-origin")).toBeFocused();
     expect(pageErrors).toEqual([]);
+  });
+});
+
+test("packaged toolbar icons for both vault lock states load in Chrome", async () => {
+  await withExtension(extensionDirectory, async (context, _worker, id) => {
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${id}/options.html`);
+    const results = await page.evaluate(
+      async (sets) => {
+        const action = (
+          globalThis as unknown as {
+            chrome: { action: { setIcon: (details: { path: unknown }) => Promise<void> } };
+          }
+        ).chrome.action;
+        return Promise.all(
+          sets.map((path) =>
+            action.setIcon({ path }).then(
+              () => "loaded",
+              (error: Error) => error.message,
+            ),
+          ),
+        );
+      },
+      [ACTION_ICON_PATHS.unlocked, ACTION_ICON_PATHS.locked, { 16: "/icon-missing/16.png" }],
+    );
+    expect(results.slice(0, 2)).toEqual(["loaded", "loaded"]);
+    // A missing file is rejected, so the loads above prove the packaged PNG files exist.
+    expect(results[2]).not.toBe("loaded");
   });
 });
 

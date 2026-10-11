@@ -9,7 +9,11 @@ export default defineConfig({
     name: "Pateat",
     description: "Local login assistant — foundation preview. Login is not implemented.",
     minimum_chrome_version: "120",
-    action: { default_title: "Open Pateat settings" },
+    action: {
+      default_title: "Open Pateat settings",
+      // Until the worker reads the vault records, show the locked icon.
+      default_icon: { 16: "icon-locked/16.png", 32: "icon-locked/32.png" },
+    },
     permissions: ["storage", "offscreen"],
     // Owner-approved install-time HTTPS site access (ADR 0009). The login content script
     // runs on every HTTPS page; only non-excluded sites with a cached recipe can execute.
