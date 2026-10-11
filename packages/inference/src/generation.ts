@@ -1,24 +1,16 @@
 import { loginObservationSchema, loginStepSchema, semanticSlotsSchema } from "@pateat/contracts";
-import { valibotSchema } from "@ai-sdk/valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import { generateText, Output, wrapLanguageModel, type LanguageModel } from "ai";
+import type { LanguageModel } from "ai";
 import * as v from "valibot";
-import { classifyInferenceError } from "./errors";
 import {
-  createUsageMeter,
   noUsage,
-  normalizeUsage,
-  raceAbort,
-  refusalCategoryCode,
   requestBytes,
   roleLimitsSchema,
-  unknownUsage,
-  type AbstentionReason,
-  type InferenceErrorCode,
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
-import { validatePagePlan, type PlanRejection, type ValidatedPagePlan } from "./plan";
+import { validatePagePlan, type ValidatedPagePlan } from "./plan";
+import { runStructuredRole, type Interpreted } from "./structured";
 
 const reference = v.pipe(v.string(), v.maxLength(64));
 
@@ -123,83 +115,24 @@ export function createRecipeGenerator(config: {
     if (requestBytes([generationInstructions, prompt, outputSchemaJson]) > limits.maxInputBytes)
       return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
 
-    let calls = 0;
-    let lastMetadata: unknown;
-    const meter = createUsageMeter();
-    const timeout = AbortSignal.timeout(limits.timeoutMs);
-    const signal = request.abortSignal ? AbortSignal.any([request.abortSignal, timeout]) : timeout;
-    const model = wrapLanguageModel({
+    return runStructuredRole({
       model: config.model,
-      middleware: {
-        specificationVersion: "v4",
-        wrapGenerate: async ({ doGenerate }) => {
-          calls += 1;
-          lastMetadata = undefined;
-          try {
-            const result = await raceAbort(doGenerate(), signal);
-            lastMetadata = result.providerMetadata;
-            meter.record(
-              normalizeUsage({
-                inputTokens: result.usage.inputTokens.total,
-                outputTokens: result.usage.outputTokens.total,
-              }),
-            );
-            return result;
-          } catch (error) {
-            meter.record(unknownUsage);
-            throw error;
-          }
-        },
+      instructions: generationInstructions,
+      prompt,
+      schema: generatedPlanSchema,
+      name: "login_page_plan",
+      limits,
+      maxOutputTokens,
+      abortSignal: request.abortSignal,
+      refusalCategory: config.refusalCategory,
+      interpret: (output): Interpreted<ValidatedPagePlan> => {
+        const draft = output.result;
+        if (draft.decision === "abstain") return { status: "abstained", reason: draft.reason };
+        const validated = validatePagePlan(observation.output, slots.output, draft);
+        return validated.ok
+          ? { status: "ok", value: validated.plan }
+          : { status: "failed", error: "invalid-output", detail: validated.reason };
       },
     });
-    const outcome = (
-      result:
-        | { status: "ok"; value: ValidatedPagePlan }
-        | { status: "abstained"; reason: AbstentionReason }
-        | { status: "failed"; error: InferenceErrorCode; detail?: PlanRejection },
-    ): InferenceOutcome<ValidatedPagePlan> => {
-      const category =
-        result.status === "failed" && result.error === "refused"
-          ? refusalCategoryCode(config.refusalCategory?.(lastMetadata))
-          : undefined;
-      return {
-        ...result,
-        ...(category === undefined ? {} : { refusalCategory: category }),
-        calls,
-        usage: meter.total(),
-      };
-    };
-    try {
-      const result = await generateText({
-        model,
-        instructions: generationInstructions,
-        prompt,
-        output: Output.object({
-          schema: valibotSchema(generatedPlanSchema),
-          name: "login_page_plan",
-        }),
-        maxRetries: limits.maxRetries,
-        maxOutputTokens,
-        abortSignal: signal,
-        // Prompts, page text and outputs must never reach global telemetry integrations.
-        telemetry: { isEnabled: false },
-      });
-      if (result.finishReason === "length")
-        return outcome({ status: "failed", error: "truncated" });
-      if (result.finishReason === "content-filter")
-        return outcome({ status: "failed", error: "refused" });
-      const draft = result.output.result;
-      if (draft.decision === "abstain")
-        return outcome({ status: "abstained", reason: draft.reason });
-      const validated = validatePagePlan(observation.output, slots.output, draft);
-      if (!validated.ok)
-        return outcome({ status: "failed", error: "invalid-output", detail: validated.reason });
-      return outcome({ status: "ok", value: validated.plan });
-    } catch (error) {
-      return outcome({
-        status: "failed",
-        error: classifyInferenceError(error, { timeout, caller: request.abortSignal }),
-      });
-    }
   };
 }

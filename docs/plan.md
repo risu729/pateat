@@ -747,6 +747,17 @@ carries synthetic values. The vault adapter and runtime do not supply these hint
 `valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
 resolve Linked fields and never pass Hidden, password or TOTP values.
 
+For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
+generated recipe one page at a time: the first page starts it at revision 1, and a
+later page is appended only after a step that advances, within the contract's bounds.
+`createCompletionJudge` sends the page shown after the final submission, with the
+login paths, and returns `signed-in` with a button or link marker, `rejected` or
+`challenge`, or abstains when unclear. A marker that is not a button or link, or a page
+that still shows a current-password input, fails as `invalid-output`. `addCompletion`
+stores the marker as the recipe's `completion` in the next revision, unless one of the
+recipe's own steps uses that target on the same path. Both roles share
+`runStructuredRole` for metering, timeouts and disabled telemetry.
+
 A 16-page synthetic Japanese/English corpus covers bank branch/account/password
 (including an unlabeled page distinguishable only by length),
 identifier-first and password steps, one-time codes, decoy search/sign-up/SSO controls,
