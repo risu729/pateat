@@ -12,7 +12,6 @@ import { SettingsApp } from "../../apps/extension/src/options/settings-app";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,
-  getFoundationStatus,
   type SettingsResponse,
 } from "../../packages/contracts/src/index";
 
@@ -61,7 +60,6 @@ function mockClient() {
         settings: structuredClone(request.settings),
       },
     })),
-    getStatus: vi.fn<SettingsClient["getStatus"]>().mockResolvedValue(getFoundationStatus()),
   };
 }
 
@@ -437,7 +435,6 @@ test("malformed save responses are rejected at the runtime boundary and keep the
     .fn<(message: unknown) => Promise<unknown>>()
     .mockImplementation(async (message) => {
       const type = (message as { type: string }).type;
-      if (type === "runtime.status.get") return getFoundationStatus();
       if (type === "settings.get") return saved();
       if (type === "settings.site-accounts")
         return demoSiteAccounts((message as { origin: string }).origin);

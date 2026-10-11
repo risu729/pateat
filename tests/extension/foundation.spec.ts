@@ -252,19 +252,10 @@ test("installed production offers manual setup with an empty real catalog and re
     const page = await context.newPage();
     await page.goto(`chrome-extension://${id}/options.html`);
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
-    await expect(page.locator("#runtime-status")).toHaveText(
-      "Extension ready · Automatic login unavailable",
-    );
-    await expect(page.locator("#vault-status")).toHaveCount(0);
     await expect(page.locator("#bitwarden-setup-status")).toHaveText(
       "Connections loaded. Add a vault or sign in again below.",
     );
-    await expect(page.locator("#service-status")).toHaveText("Not configured");
-    await expect(page.locator("#login-status")).toHaveText("Not implemented");
-    await page.getByRole("button", { name: "Refresh status" }).click();
-    await expect(page.locator("#runtime-status")).toHaveText(
-      "Extension ready · Automatic login unavailable",
-    );
+    await expect(page.locator("#diagnostics-link")).toHaveAttribute("href", "diagnostics.html");
     const saved = await page.evaluate(async () => {
       const chrome = (globalThis as unknown as { chrome: TestChrome }).chrome;
       return (await chrome.runtime.sendMessage({
@@ -286,8 +277,7 @@ test("installed production offers manual setup with an empty real catalog and re
           return (
             (await chrome.runtime.sendMessage({
               version: 1,
-              type: "runtime.status.get",
-              grant: "vault.read",
+              type: "diagnostics.status",
             })) !== undefined
           );
         } catch {

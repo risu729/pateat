@@ -15,7 +15,6 @@ import { SettingsApp } from "../../apps/extension/src/options/settings-app";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,
-  getFoundationStatus,
   type SettingsResponse,
 } from "../../packages/contracts/src/index";
 import type { SetupReply } from "../../apps/extension/src/connections/types";
@@ -311,7 +310,6 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     const settings = {
       getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(saved(0)),
       saveSettings: vi.fn<SettingsClient["saveSettings"]>().mockResolvedValue(saved(1)),
-      getStatus: vi.fn<SettingsClient["getStatus"]>().mockResolvedValue(getFoundationStatus()),
       findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
         version: 1,
         ok: false,
