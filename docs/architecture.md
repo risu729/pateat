@@ -671,10 +671,13 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
 | `vault.sync` | info for a result and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
-| `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
-| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
+| `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy` unless a recipe was added, updated or removed, then info; info for `unreachable`; else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache |
+| `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop |
+| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
+| `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
 | `recipe.generate` | info | origin, `recipe` or `none` |
+| `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
 | `log.dropped` | warn | origin, events dropped over the page limit |
@@ -684,24 +687,34 @@ Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in fu
 when a site default, binding, excluded site or cached recipe names it; any other
 becomes `origin:7d2b91aa` or `rp:7d2b91aa`. The rule applies when the entry is
 written, so a site set up later keeps its earlier pseudonymous entries, also in a
-download with site addresses included. Login, recipe generation and passkey
-events are limited to 20 per minute per tab and origin, and unhandled errors to 20 per
-minute in all. The first event dropped in a window is logged at once as `log.dropped`
-with `count: 1`; the rest are counted when the window ends and the next event or prune
-runs, so a worker that stops first loses only that remainder. `debug` entries are
-written only for 24 hours after **Enable debug logging**. Retention: 14 days; `debug`
-entries for 24 hours; at most 5,000 `debug` and `info` entries (oldest `debug` first,
-then `info`) and 1,000 `warn` and `error` entries, pruned at worker start and every 500
-writes.
+download with site addresses included.
+
+The causes of `policy-changed` are `settings-synced` and `settings-saved` (the settings
+changed while the login ran), `settings-revision` (a check found a settings revision
+other than the login's, also when a page resumes the login), `settings-unavailable`,
+`plan` (the settings or vault no longer allow the login's account on this page, with the
+plan's refusal reason such as `connection-disabled`, or `account-changed`),
+`vault-replaced` (a vault sync replaced the snapshot that authorized a value before it
+was delivered) and `field-unavailable` (a vault field could not be read).
+
+Login, judgement, handler, recipe generation and passkey events are limited to 20 per
+minute per tab and origin, and unhandled errors to 20 per minute in all. The first event
+dropped in a window is logged at once as `log.dropped` with `count: 1`; the rest are
+counted when the window ends and the next event or prune runs, so a worker that stops
+first loses only that remainder. `debug` entries are written only for 24 hours after
+**Enable debug logging**. Retention: 14 days; `debug` entries for 24 hours; at most
+5,000 `debug` and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn`
+and `error` entries, pruned at worker start and every 500 writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug`, accepted from the same page URL
-only. **Download logs** previews the exact JSON Lines text and saves it through a
-`Blob` link (no `downloads` permission): a header line with the version, revision and
-export time, then one line per entry. Unless **Include site addresses and recipe IDs**
-is checked, every origin, pseudonymized origin and RP ID becomes `site-N` and every
-recipe ID `recipe-N`, numbered within that export. **Clear logs** deletes every entry
-and replaces the pseudonym key.
+only. **Download logs** previews the exact JSON Lines text and saves it through a `Blob`
+link (no `downloads` permission): a header line with the version, revision and export
+time, then one line per entry. **Copy all** puts the same text on the clipboard in full,
+without selecting the scrolled preview by hand, and reports how many entries it copied.
+Unless **Include site addresses and recipe IDs** is checked, every origin, pseudonymized
+origin and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that
+export. **Clear logs** deletes every entry and replaces the pseudonym key.
 
 ## Declarative recipes and AI
 
@@ -718,11 +731,22 @@ never reports `authenticated` with it: a submission ends `credential-rejected`, 
 to a later step, or stays unknown (`unknown-submit`), so no account choice is saved.
 An unknown attempt stays in `reconciling` until its tab closes or, for a top-level
 attempt, until the tab shows a page of another origin that Pateat may run on
-(`left-origin`, ADR 0022): meanwhile it holds the origin, blocks saving account
-choices from other tabs and defers settings writes for at most two minutes, counted
-from the first deferred write until a sync runs with no login in progress. The
-extension sends a page no check explains to be judged, which settles such attempts
+(`left-origin`, ADR 0022): meanwhile it holds the origin. The extension sends a page
+no check explains to be judged, which settles such attempts
 ([Background execution](#background-execution)).
+
+A login in progress keeps off the writes that would stop it. A passkey chosen in the
+chooser as a site default is not saved, nor is an account choice from another tab's
+login while this worker runs a login.
+The vault replacement waits ([ADR 0025](adr/0025-automatic-vault-sync.md)), and so does
+the settings sync's local write, for at most two minutes, counted from the first
+deferred write until a sync runs with no login in progress. An attempt counts until it
+ends or its result settles as unknown, also between pages and after a worker restart,
+and a settled one counts again only while the extension checks or judges one of its
+pages. A settled attempt stays until its tab closes, so counting it would use up the two
+minutes for every later login. A policy write while an attempt is settled stops it as
+`POLICY_CHANGED`, so its later pages are no longer judged
+([ADR 0027](adr/0027-per-account-login-routes.md)).
 
 A completion may also list up to four `absent` elements. The executor reports
 `authenticated` only when the completion target is unique on its path and every

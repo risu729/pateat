@@ -299,7 +299,7 @@ export function createLoginGeneration(options: {
       observation: LoginObservation,
     ) {
       const connection = await connected();
-      if (!connection) return { verdict: "retry" };
+      if (!connection) return { verdict: "retry", reason: "not-connected" };
       const answer = await transport.judgeCompletion(
         connection.origin,
         connection.credential,
@@ -321,6 +321,18 @@ export function createLoginGeneration(options: {
         result?.status === "challenge"
       )
         return { verdict: result.status };
+      // For the local log: the transport's, the service's or the model call's code.
+      const reason =
+        answer.kind === "rejected"
+          ? "device-rejected"
+          : answer.kind === "failed"
+            ? answer.error
+            : result?.status === "unavailable"
+              ? result.reason
+              : result?.status === "failed"
+                ? result.error
+                : undefined;
+      const refusal = reason ? { reason } : {};
       // A temporary refusal before any model call (ADR 0027): the service was busy,
       // unreachable or over its own request limit, the device was rejected, or the request
       // failed before the model. Every other answer, including a permanent refusal such as
@@ -332,8 +344,8 @@ export function createLoginGeneration(options: {
         (result?.status === "unavailable" && result.reason === "busy") ||
         (result?.status === "failed" && failedBeforeModel.has(result.error))
       )
-        return { verdict: "retry" };
-      return { verdict: "unclear" };
+        return { verdict: "retry", ...refusal };
+      return { verdict: "unclear", ...refusal };
     },
   };
 }

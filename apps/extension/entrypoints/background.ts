@@ -58,7 +58,7 @@ export default defineBackground(() => {
   // First, so the logger sees errors from everything set up below.
   const diagnosticsLog = createDiagnosticsLog({
     build: { version: browser.runtime.getManifest().version, revision: PATEAT_BUILD_REVISION },
-    settings: async () => (await settings.read()).settings,
+    settings: () => settings.read(),
     recipeCache: () => recipeCacheStorage.read(),
     connections: () => connections.service.status(),
   });
@@ -116,8 +116,9 @@ export default defineBackground(() => {
     hold: settingsHoldStorage,
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
-      login.settingsChanged();
+      login.settingsChanged("synced");
       passkeys.settingsChanged();
+      diagnosticsLog.settingsChanged("synced");
     },
     deferred: () => login.active(),
     catalog: async () => {
@@ -385,8 +386,9 @@ export default defineBackground(() => {
     ) {
       void settings.handle(message).then((response) => {
         if (message.type === "settings.save" && response.ok) {
-          login.settingsChanged();
+          login.settingsChanged("saved");
           passkeys.settingsChanged();
+          diagnosticsLog.settingsChanged("saved");
           void recipeSync.sync();
         }
         return sendResponse(response);

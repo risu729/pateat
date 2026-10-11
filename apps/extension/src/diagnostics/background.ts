@@ -4,7 +4,7 @@ import * as v from "valibot";
 import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
-import type { RecipeSyncOutcome } from "../service/recipes";
+import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
 import {
   KNOWN_ERROR_CODES,
   createLogger,
@@ -47,7 +47,7 @@ const recipeCacheOriginsSchema = v.looseObject({
 
 export function createDiagnosticsLog(options: {
   build: { version: string; revision: string };
-  settings(): Promise<LocalSettings>;
+  settings(): Promise<{ revision: number; settings: LocalSettings }>;
   recipeCache(): Promise<unknown>;
   connections(): Promise<SetupReply>;
   /** For tests: another database and event target than the worker's. */
@@ -62,11 +62,12 @@ export function createDiagnosticsLog(options: {
     ...(options.databaseName ? { databaseName: options.databaseName } : {}),
     build: options.build,
     async knownSites(): Promise<KnownSites> {
-      const [settings, cache] = await Promise.all([
+      const [snapshot, cache] = await Promise.all([
         options.settings().catch(() => undefined),
         options.recipeCache().catch(() => undefined),
       ]);
       const recipes = v.safeParse(recipeCacheOriginsSchema, cache);
+      const settings = snapshot?.settings;
       return {
         origins: new Set([
           ...(settings?.siteDefaults.map((site) => site.origin) ?? []),
@@ -173,12 +174,41 @@ export function createDiagnosticsLog(options: {
         { level: reply.ok || outcome === "cancelled" ? "info" : "warn" },
       );
     },
-    recipeSync(outcome: RecipeSyncOutcome) {
+    /** A routine sync is quiet unless it changed the recipe cache. */
+    recipeSync(outcome: RecipeSyncOutcome, changes: RecipeSyncChanges) {
+      const changed = changes.added + changes.updated + changes.removed > 0;
       void logger.log(
         "service.sync",
-        { outcome },
-        { level: QUIET_SYNC.has(outcome) ? "debug" : outcome === "unreachable" ? "info" : "warn" },
+        {
+          outcome,
+          scope: changes.scope,
+          added: changes.added || undefined,
+          updated: changes.updated || undefined,
+          removed: changes.removed || undefined,
+        },
+        {
+          level: QUIET_SYNC.has(outcome)
+            ? changed
+              ? "info"
+              : "debug"
+            : outcome === "unreachable"
+              ? "info"
+              : "warn",
+        },
       );
+    },
+    /**
+     * Settings were synced from the service or saved on the settings page: running logins
+     * and passkey requests stop. The entry carries the settings revision read when it is written.
+     */
+    settingsChanged(source: "synced" | "saved") {
+      void options
+        .settings()
+        .then(
+          (snapshot) => snapshot.revision,
+          () => undefined,
+        )
+        .then((revision) => logger.log("settings.changed", { source, revision }));
     },
     login(report: LoginReport) {
       const source = { tabId: report.tabId, origin: report.origin };
@@ -194,6 +224,34 @@ export function createDiagnosticsLog(options: {
           { origin: report.origin, outcome: report.outcome },
           { source },
         );
+      else if (report.type === "judge")
+        void logger.log(
+          "recipe.judge",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            route: report.route,
+            verdict: report.verdict,
+            reason: report.reason,
+            takenOver: report.takenOver,
+          },
+          // The answer follows; the request alone matters only when no answer came.
+          { source, level: report.verdict === "sent" ? "debug" : "info" },
+        );
+      else if (report.type === "handler")
+        void logger.log(
+          "login.handler",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            handler: report.handler,
+            kind: report.kind,
+            outcome: report.outcome,
+            steps: report.steps,
+          },
+          { source },
+        );
       else
         void logger.log(
           "login.attempt",
@@ -203,7 +261,12 @@ export function createDiagnosticsLog(options: {
             state: report.state,
             step: report.stepIndex,
             steps: report.stepCount,
+            operation: report.operation,
+            effect: report.effect,
+            handler: report.handler,
             outcome: report.outcome,
+            cause: report.cause,
+            reason: report.reason,
           },
           {
             source,

@@ -214,6 +214,11 @@ export function logFilename(ms: number): string {
   return `pateat-logs-${iso.slice(0, 10).replaceAll("-", "")}-${iso.slice(11, 16).replace(":", "")}.jsonl`;
 }
 
+/** Entries in an export: every line after its header line. */
+function exportedEntries(text: string): number {
+  return Math.max(0, text.trimEnd().split("\n").length - 1);
+}
+
 function Logs({
   status,
   client,
@@ -249,6 +254,22 @@ function Logs({
       setPreview(undefined);
       setMessage("Unable to read the logs.");
     }
+  }
+  async function copy(text: string) {
+    const request = latest.current;
+    let copied = true;
+    try {
+      await client.copy(text);
+    } catch {
+      copied = false;
+    }
+    // A preview closed or cleared meanwhile keeps its own message.
+    if (request !== latest.current) return;
+    setMessage(
+      copied
+        ? `Copied ${plural(exportedEntries(text), "entry", "entries")}.`
+        : "Copy failed. Use Save file instead.",
+    );
   }
   return (
     <section aria-labelledby="logs-heading" className="panel">
@@ -326,7 +347,7 @@ function Logs({
       {preview !== undefined && (
         <div>
           <p className="note">
-            This exact text is saved. Check it before attaching it to a bug report.
+            This exact text is saved or copied. Check it before attaching it to a bug report.
           </p>
           <label className="mb-3 flex items-center gap-2">
             <input
@@ -351,6 +372,15 @@ function Logs({
               }}
             >
               Save file
+            </Button>
+            <Button
+              id="copy-logs"
+              type="button"
+              variant="outline"
+              disabled={pending !== undefined}
+              onClick={() => void copy(preview.text)}
+            >
+              Copy all
             </Button>
             <Button
               type="button"

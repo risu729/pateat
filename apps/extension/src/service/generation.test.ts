@@ -209,10 +209,12 @@ describe("recipe generation requests", () => {
     });
     expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
       verdict: "unclear",
+      reason: "invalid-output",
     });
     // An unreachable service is a temporary refusal, so the page is given back.
     expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
       verdict: "retry",
+      reason: "unreachable",
     });
   });
 
@@ -226,14 +228,20 @@ describe("recipe generation requests", () => {
   });
   it.each([
     // Temporary refusals before any model call give the page back.
-    ["a busy service", unavailable("busy"), "retry"],
-    ["the service's own request limit", { kind: "failed", error: "rate-limited" }, "retry"],
-    ["an unreachable service", { kind: "failed", error: "unreachable" }, "retry"],
-    ["a rejected device", { kind: "rejected" }, "retry"],
+    ["a busy service", unavailable("busy"), "retry", "busy"],
+    [
+      "the service's own request limit",
+      { kind: "failed", error: "rate-limited" },
+      "retry",
+      "rate-limited",
+    ],
+    ["an unreachable service", { kind: "failed", error: "unreachable" }, "retry", "unreachable"],
+    ["a rejected device", { kind: "rejected" }, "retry", "device-rejected"],
     ...(["incomplete-observation", "invalid-request", "input-too-large"] as const).map((error) => [
       `a request that failed before the model (${error})`,
       failure(error),
       "retry",
+      error,
     ]),
     // Permanent refusals and anything that may follow a model call spend it.
     ...(
@@ -248,19 +256,35 @@ describe("recipe generation requests", () => {
         "credentials-not-configured",
         "token-exchange-failed",
       ] as const
-    ).map((reason) => [`the permanent refusal ${reason}`, unavailable(reason), "unclear"]),
-    ["the provider's rate limit", failure("rate-limited"), "unclear"],
+    ).map((reason) => [`the permanent refusal ${reason}`, unavailable(reason), "unclear", reason]),
+    ["the provider's rate limit", failure("rate-limited"), "unclear", "rate-limited"],
     [
       "a model that abstained",
       { kind: "result", result: { version: 1, status: "unclear" } },
       "unclear",
+      undefined,
     ],
-    ["a failure after the model call", failure("truncated"), "unclear"],
-    ["a timeout, which may follow a model call", { kind: "failed", error: "timeout" }, "unclear"],
-    ["an unexpected answer", { kind: "failed", error: "unexpected-response" }, "unclear"],
-  ] as [string, Awaited<ReturnType<ServiceTransport["judgeCompletion"]>>, string][])(
-    "gives a judged page back only after a temporary refusal: %s",
-    async (_name, answer, verdict) => {
+    ["a failure after the model call", failure("truncated"), "unclear", "truncated"],
+    [
+      "a timeout, which may follow a model call",
+      { kind: "failed", error: "timeout" },
+      "unclear",
+      "timeout",
+    ],
+    [
+      "an unexpected answer",
+      { kind: "failed", error: "unexpected-response" },
+      "unclear",
+      "unexpected-response",
+    ],
+  ] as [
+    string,
+    Awaited<ReturnType<ServiceTransport["judgeCompletion"]>>,
+    string,
+    string | undefined,
+  ][])(
+    "gives a judged page back only after a temporary refusal, naming its code: %s",
+    async (_name, answer, verdict, reason) => {
       const h = setup();
       h.transport.judgeCompletion.mockResolvedValueOnce(answer);
       expect(
@@ -268,7 +292,7 @@ describe("recipe generation requests", () => {
           ...observation,
           path: "/home",
         }),
-      ).toEqual({ verdict });
+      ).toEqual({ verdict, ...(reason ? { reason } : {}) });
     },
   );
 });
@@ -367,6 +391,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       // eslint-disable-next-line no-await-in-loop
       expect(await h.generation.judge(recipeChange.recipeId, 3, "password", webauthn)).toEqual({
         verdict: "unclear",
+        reason,
       });
     }
   });
