@@ -8,18 +8,28 @@ publishing is excluded. A mode without the service is later scope
 ## Current foundation workflows
 
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
-and main push, and repeats the packaged-extension browser tests on Windows. `CI Check`
-requires both jobs to succeed, including when an upstream job failed, skipped or was
-cancelled. A newer push to a PR cancels its older run, but each main push finishes its
-own run; otherwise frequent merges would cancel every main run before it could package a
-release and start `deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and
-Actions separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only
-compares results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no
-Actions cache: dependency caching is off by default in advanced setup and its TRAP
-cache is disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the two jobs
-share their checkout, mise and Bun install steps through YAML anchors (`&checkout`,
-`&mise`, `&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits
-anchored workflows on a best-effort basis. GitHub Code Quality is not used: since its
+and main push, and repeats the packaged-extension browser tests on Windows. The
+packaged-extension suite (`tests/extension`, 123 tests one after another in one worker)
+took about six minutes on Linux and seven on Windows, the longest step of every run
+(about 8.5 minutes in total on 2026-10-11). Both jobs therefore run as four shards
+(`Verify (1/4)` to `(4/4)` and `Windows browser (1/4)` to `(4/4)`): each shard sets
+`PATEAT_E2E_SHARD=<current>/<total>`, which `tests/extension/playwright.config.ts` turns
+into Playwright's `shard`, and the four shards together run every test once. Every Linux
+shard still runs the rest of the graph; only shard 1 packs the server artifact on a main
+push. The suite splits by test (`fullyParallel`) because splitting by file left
+`login.spec.ts` alone in a shard of about three minutes; each job still runs one worker.
+`CI Check` requires every job of both matrices to succeed, including when an upstream
+job failed, skipped or was cancelled. A newer push to a PR cancels its older run, but
+each main push finishes its own run; otherwise frequent merges would cancel every main
+run before it could package a release and start `deploy-server.yml`. `codeql.yml`
+analyzes TypeScript/JavaScript and Actions separately. Linux jobs pin `ubuntu-26.04`;
+the `CI Check` aggregate only compares results, so it runs on the single-CPU
+`ubuntu-slim` runner. CodeQL needs no Actions cache: dependency caching is off by
+default in advanced setup and its TRAP cache is disabled, so the workflow sets
+`cache-mode: none`. In `ci.yml` the two jobs share their checkout, mise and Bun install
+steps through YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once
+in `ci.yml`; zizmor warns that it audits anchored workflows on a best-effort basis.
+GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
