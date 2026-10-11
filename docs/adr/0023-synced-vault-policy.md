@@ -87,7 +87,8 @@ The settings document gains two lists, so that a merge works per account and per
   new connection is disabled today. Disabled connections stay unlocked and can be synced
   by hand, but are not used for login or passkeys and are left out of automatic vault
   sync. A device that should differ will use another settings profile, which the owner
-  asked to design for (recorded separately).
+  asked to design for
+  ([ADR 0024](0024-settings-profiles.md)).
 - Built-in fields keep their IDs. A custom field is named like a binding reference, by
   name with `position` (from 1) and `count` among fields of that name, but it is a
   separate type: `count` may be 1, and unnamed fields (catalog `name: null`, including
