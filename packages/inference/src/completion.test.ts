@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCompletionJudge } from "./completion";
+import { completionInstructions, createCompletionJudge } from "./completion";
 import { generationRequest, textModel, textResult } from "./testing/fake-models";
 
 // A synthetic page shown after signing in. No real site or account data.
@@ -146,5 +146,73 @@ describe("sign-in judge", () => {
     });
     expect(await small(request)).toMatchObject({ status: "failed", error: "input-too-large" });
     expect(sent).toEqual([]);
+  });
+});
+
+describe("passkey button on a challenge page (ADR 0027)", () => {
+  const webauthn = {
+    ...signedIn,
+    path: "/login/webauthn",
+    title: "Two-factor authentication",
+    headings: ["Use your security key"],
+    candidates: [
+      {
+        id: "key",
+        role: "button",
+        target: { by: "text", value: "Use security key" },
+        label: "Use security key",
+      },
+      { id: "recovery", role: "link", target: { by: "id", value: "recovery" }, label: "Recovery" },
+      { id: "code", role: "text", target: { by: "id", value: "code" }, label: "Code" },
+    ],
+  };
+  const challenge = { ...request, observation: webauthn };
+
+  it("names the page's passkey button as the challenge's next element", async () => {
+    expect(
+      await judgeReturning({ decision: "challenge", passkeyButton: "key" }).judge(challenge),
+    ).toMatchObject({
+      status: "ok",
+      value: { decision: "challenge", next: { by: "text", value: "Use security key" } },
+    });
+  });
+
+  it.each(["recovery", "code", "missing"])(
+    "keeps a plain challenge when the named element %s is not a button",
+    async (passkeyButton) => {
+      const outcome = await judgeReturning({ decision: "challenge", passkeyButton }).judge(
+        challenge,
+      );
+      expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
+      expect(outcome.status === "ok" && "next" in outcome.value).toBe(false);
+    },
+  );
+
+  it("fails closed on a passkey button outside a challenge", async () => {
+    expect(
+      await judgeReturning({
+        decision: "signed-in",
+        marker: "logout",
+        passkeyButton: "logout",
+      }).judge(request),
+    ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+
+  it("tells the model never to name a button that registers a passkey", () => {
+    expect(completionInstructions).toMatch(/passkeyButton/u);
+    expect(completionInstructions).toMatch(/Never name a button that registers, adds, creates/u);
+  });
+
+  it("accepts the route's and handlers' paths", async () => {
+    const paths = Array.from({ length: 48 }, (_, index) => `/p${index}`);
+    expect(
+      await judgeReturning({ decision: "rejected" }).judge({ ...request, loginPaths: paths }),
+    ).toMatchObject({ status: "ok" });
+    expect(
+      await judgeReturning({ decision: "rejected" }).judge({
+        ...request,
+        loginPaths: [...paths, "/p48"],
+      }),
+    ).toMatchObject({ status: "failed", error: "invalid-request" });
   });
 });

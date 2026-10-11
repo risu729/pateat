@@ -908,3 +908,305 @@ describe("completion judgement", () => {
     }
   });
 });
+
+describe("page judgement (ADR 0027)", () => {
+  const judgeReply = (result: unknown) => ({ text: JSON.stringify({ result }) });
+  const webauthnPage = observation("/login/webauthn", [
+    element("key", "button", "Use security key"),
+    element("recovery", "link", "Use a recovery code"),
+  ]);
+  const dayStart = () => Date.now() - (Date.now() % DAY_MS);
+  const judgements = (device: Device) =>
+    rows(
+      "SELECT recipe_id, revision, path FROM page_judgements WHERE owner_id = ? ORDER BY recipe_id, revision, path",
+      device.ownerId,
+    );
+  const seed = (device: Device, recipeId: string, revision: number, path: string, at: number) =>
+    env.DB.prepare(
+      "INSERT INTO page_judgements (owner_id, recipe_id, revision, path, judged_at) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(device.ownerId, recipeId, revision, path, at)
+      .run();
+  const spend = (device: Device) =>
+    rows(
+      "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
+      device.ownerId,
+    );
+  const head = async (device: Device, recipeId: string) =>
+    (
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        recipeId,
+      )
+    )[0]?.["revision"];
+
+  it("names the route, which must be one the stored recipe has", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const calls = sent.length;
+    const passkeyRoute = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
+      version: 1,
+      revision: 2,
+      route: "passkey",
+      observation: homePage,
+    });
+    expect(passkeyRoute.status).toBe(400);
+    expect(sent).toHaveLength(calls);
+    replies.push(judgeReply({ decision: "rejected" }));
+    const response = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
+      version: 1,
+      revision: 2,
+      route: "password",
+      observation: homePage,
+    });
+    expect(await response.json()).toEqual({ version: 1, status: "rejected" });
+    // The logged request names the route.
+    const [logged] = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      device.ownerId,
+    );
+    expect(JSON.parse(String(logged!.request))).toMatchObject({
+      route: "password",
+      loginPaths: ["/login", "/password"],
+    });
+  });
+
+  it("judges the page after an advance whose next step never appeared", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    expect((await complete(device, first.change.recipeId, 1)).body).toMatchObject({
+      status: "signed-in",
+      change: {
+        revision: 2,
+        recipe: { completion: { path: "/home", target: { by: "id", value: "logout" } } },
+      },
+    });
+    expect(sent).toHaveLength(2);
+  });
+
+  it("judges a recipe that already has a completion without changing it on signed-in", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    expect((await complete(device, change.recipeId, 2)).body).toMatchObject({
+      status: "signed-in",
+      change: { revision: 3 },
+    });
+    const welcome = observation("/welcome", [element("account", "button", "Account")]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "account" }));
+    expect((await complete(device, change.recipeId, 3, welcome)).body).toEqual({
+      version: 1,
+      status: "signed-in",
+    });
+    expect(sent).toHaveLength(4);
+    expect(await head(device, change.recipeId)).toBe(3);
+  });
+
+  it("does not judge a page that shows a route fill field or the completion marker", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    await complete(device, change.recipeId, 2);
+    const calls = sent.length;
+    const before = await spend(device);
+    const stored = await judgements(device);
+    for (const page of [
+      // The completion marker proves the sign-in already.
+      observation("/elsewhere", [element("logout", "button", "Sign out")]),
+      // A route's fill field on another path than its step's.
+      observation("/session", [
+        element("password", "password", "Password"),
+        element("help", "link", "Help"),
+      ]),
+    ])
+      // oxlint-disable-next-line no-await-in-loop -- Each page is sent on its own.
+      expect((await complete(device, change.recipeId, 3, page)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "not-judgeable",
+      });
+    expect(sent).toHaveLength(calls);
+    expect(await spend(device)).toEqual(before);
+    expect(await judgements(device)).toEqual(stored);
+  });
+
+  it("judges each revision and path once", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "challenge" }));
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    const calls = sent.length;
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "already-judged",
+    });
+    expect(sent).toHaveLength(calls);
+    // Another path of the same revision is judged; here it adds a handler.
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    expect((await complete(device, change.recipeId, 2, webauthnPage)).body).toMatchObject({
+      status: "challenge",
+      change: { revision: 3 },
+    });
+    // The new revision may judge the first path again.
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    expect((await complete(device, change.recipeId, 3)).body).toMatchObject({
+      status: "signed-in",
+      change: { revision: 4 },
+    });
+    expect(sent).toHaveLength(calls + 2);
+    expect(await judgements(device)).toEqual([
+      { recipe_id: change.recipeId, revision: 2, path: "/home" },
+      { recipe_id: change.recipeId, revision: 2, path: "/login/webauthn" },
+      { recipe_id: change.recipeId, revision: 3, path: "/home" },
+    ]);
+  });
+
+  it("judges a recipe at most 20 times a UTC day, whatever the path", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const calls = sent.length;
+    for (let index = 0; index < 20; index++)
+      // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
+      await seed(device, change.recipeId, 1, `/p${index}`, dayStart() + index);
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judgement-limit",
+    });
+    expect(sent).toHaveLength(calls);
+  });
+
+  it("counts only this recipe's judgements of the current UTC day", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    for (let index = 0; index < 19; index++)
+      // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
+      await seed(device, change.recipeId, 2, `/today-${index}`, dayStart() + index);
+    for (let index = 0; index < 5; index++) {
+      // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
+      await seed(device, change.recipeId, 2, `/yesterday-${index}`, dayStart() - 1 - index);
+      // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
+      await seed(device, "gen-other", 1, `/other-${index}`, dayStart() + index);
+    }
+    replies.push(judgeReply({ decision: "rejected" }));
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "rejected",
+    });
+    // That was the 20th today; the next page waits for the next UTC day.
+    expect(
+      (await complete(device, change.recipeId, 2, { ...homePage, path: "/welcome" })).body,
+    ).toMatchObject({ reason: "judgement-limit" });
+  });
+
+  it("purges older revisions' judgements once their day is over", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seed(device, change.recipeId, 1, "/old", dayStart() - 1);
+    await seed(device, change.recipeId, 1, "/recent", dayStart());
+    await seed(device, change.recipeId, 2, "/current", dayStart() - 1);
+    await seed(device, "gen-other", 1, "/other", dayStart() - 1);
+    replies.push(judgeReply({ decision: "rejected" }));
+    await complete(device, change.recipeId, 2);
+    expect(await judgements(device)).toEqual([
+      { recipe_id: change.recipeId, revision: 1, path: "/recent" },
+      { recipe_id: change.recipeId, revision: 2, path: "/current" },
+      { recipe_id: change.recipeId, revision: 2, path: "/home" },
+      { recipe_id: "gen-other", revision: 1, path: "/other" },
+    ]);
+  });
+
+  it("adds a passkey handler for a challenge naming a security-key button", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    const judged = await complete(device, change.recipeId, 2, webauthnPage);
+    expect(judged).toMatchObject({
+      status: 200,
+      body: {
+        version: 1,
+        status: "challenge",
+        change: {
+          recipeId: change.recipeId,
+          revision: 3,
+          state: "active",
+          recipe: {
+            revision: 3,
+            steps: change.recipe.steps,
+            handlers: [
+              { kind: "passkey", path: "/login/webauthn", target: { by: "id", value: "key" } },
+            ],
+          },
+        },
+      },
+    });
+    expect(await head(device, change.recipeId)).toBe(3);
+    expect(
+      await rows(
+        "SELECT created_by_device_id FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ? AND revision = 3",
+        device.ownerId,
+        change.recipeId,
+      ),
+    ).toEqual([{ created_by_device_id: device.deviceId }]);
+    // Later judgements tell the model the handler's path is part of the login.
+    replies.push(judgeReply({ decision: "unclear" }));
+    await complete(device, change.recipeId, 3);
+    expect(JSON.stringify(sent.at(-1)!.body)).toContain(
+      String.raw`\"loginPaths\":[\"/login\",\"/password\",\"/login/webauthn\"]`,
+    );
+  });
+
+  it("answers a plain challenge for a registration button or a duplicate handler", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const register = observation("/login/webauthn", [
+      element("add", "button", "Add a passkey"),
+      element("key", "button", "Use security key"),
+    ]);
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "add" }));
+    expect((await complete(device, change.recipeId, 2, register)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    expect(await head(device, change.recipeId)).toBe(2);
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    const added = await complete(device, change.recipeId, 2, { ...webauthnPage, path: "/mfa" });
+    expect(added.body).toMatchObject({ status: "challenge", change: { revision: 3 } });
+    // Another button on a path that already has a passkey handler adds nothing.
+    const again = observation("/mfa", [element("other", "button", "Use your passkey")]);
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "other" }));
+    expect((await complete(device, change.recipeId, 3, again)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    expect(await head(device, change.recipeId)).toBe(3);
+  });
+
+  it("makes one model call for a page sent twice at once", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const calls = sent.length;
+    let concurrent: unknown;
+    during = async () => {
+      concurrent = (await complete(device, change.recipeId, 2)).body;
+    };
+    replies.push(judgeReply({ decision: "rejected" }));
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "rejected",
+    });
+    expect(concurrent).toMatchObject({ status: "unavailable" });
+    expect((await complete(device, change.recipeId, 2)).body).toMatchObject({
+      reason: "already-judged",
+    });
+    expect(sent).toHaveLength(calls + 1);
+  });
+});

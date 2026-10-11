@@ -192,6 +192,34 @@ describe("local field references and permission boundaries", () => {
     });
   });
 
+  it("flags a login password or TOTP without a value as empty, without values", () => {
+    const flags = (login: Record<string, unknown>) =>
+      Object.fromEntries(
+        snapshot({ ...localLoginView(), login: { ...localLoginView().login, ...login } })
+          .list()
+          .filter((field) => field.empty)
+          .map((field) => [field.ref.fieldId, field.empty]),
+      );
+    // The fixture has a password and no TOTP secret.
+    expect(flags({})).toEqual({ "login.totp-code": true });
+    expect(flags({ password: "" })).toEqual({ "login.password": true, "login.totp-code": true });
+    expect(flags({ password: null })).toEqual({
+      "login.password": true,
+      "login.totp-code": true,
+    });
+    const totp = `otpauth://totp/Synthetic?secret=${rfcTotpSecrets.SHA1}`;
+    expect(flags({ totp })).toEqual({});
+    expect(flags({ password: "", totp })).toEqual({ "login.password": true });
+    // Only the password and TOTP carry the flag; an empty username is still listed plainly.
+    expect(flags({ username: "", totp })).toEqual({});
+    // Other item types list no login fields to flag.
+    expect(
+      snapshot(localCardView())
+        .list()
+        .some((field) => field.empty),
+    ).toBe(false);
+  });
+
   // Bitwarden's hidden-password permission still allows autofill. Pateat's
   // explicit source exclusion must win regardless of this visibility flag.
   it.each([false, null, undefined])(

@@ -209,3 +209,120 @@ describe("recipe generation requests", () => {
     });
   });
 });
+
+describe("handlers and code fields in generation requests (ADR 0027)", () => {
+  const totp = { id: "totp", kind: "one-time-code" as const, description: "one-time code" };
+  const handled = {
+    ...recipeChange,
+    revision: 2,
+    recipe: {
+      ...recipeChange.recipe,
+      revision: 2,
+      handlers: [
+        {
+          kind: "passkey" as const,
+          path: "/login/webauthn",
+          target: { by: "text" as const, value: "Use security key" },
+        },
+      ],
+    },
+  };
+  const webauthn = { ...observation, path: "/login/webauthn" };
+
+  it("waits for the cache before handing a judged handler's recipe to the login", async () => {
+    const h = setup();
+    let synced!: () => void;
+    h.sync.mockImplementationOnce(
+      () => new Promise<string>((resolve) => (synced = () => resolve("synced"))),
+    );
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "challenge", change: handled },
+    });
+    let settled = false;
+    const judged = h.generation
+      .judge(recipeChange.recipeId, 1, "password", webauthn)
+      .finally(() => (settled = true));
+    await vi.waitFor(() => expect(h.sync).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    synced();
+    expect(await judged).toEqual({ verdict: "challenge", recipe: handled.recipe });
+    expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      recipeChange.recipeId,
+      { version: 1, revision: 1, route: "password", observation: webauthn },
+    );
+    // A failed refresh still hands the recipe over; the login checks it before use.
+    h.sync.mockRejectedValueOnce(new Error("offline"));
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "challenge", change: handled },
+    });
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).toEqual({
+      verdict: "challenge",
+      recipe: handled.recipe,
+    });
+  });
+
+  it("answers signed-in without a change and does not wait for the cache", async () => {
+    const h = setup();
+    h.sync.mockImplementationOnce(() => new Promise<string>(() => {}));
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "signed-in" },
+    });
+    expect(
+      await h.generation.judge(recipeChange.recipeId, 3, "password", { ...observation, path: "/" }),
+    ).toEqual({ verdict: "signed-in" });
+    for (const reason of ["already-judged", "judgement-limit", "not-judgeable"] as const) {
+      h.transport.judgeCompletion.mockResolvedValueOnce({
+        kind: "result",
+        result: { version: 1, status: "unavailable", reason },
+      });
+      // eslint-disable-next-line no-await-in-loop
+      expect(await h.generation.judge(recipeChange.recipeId, 3, "password", webauthn)).toEqual({
+        verdict: "unclear",
+      });
+    }
+  });
+
+  it("offers the TOTP slot only for a page with a code field", async () => {
+    const h = setup();
+    expect(await h.generation.generate({ ...request, slots: [...request.slots, totp] })).toBe(
+      "recipe",
+    );
+    expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      request,
+    );
+    const coded: LoginObservation = {
+      ...observation,
+      path: "/verify",
+      candidates: [
+        ...observation.candidates,
+        {
+          id: "c2",
+          role: "text",
+          target: { by: "id", value: "code" },
+          autocomplete: "one-time-code",
+        },
+      ],
+    };
+    const withCode = { ...request, observation: coded, slots: [...request.slots, totp] };
+    expect(await h.generation.generate(withCode)).toBe("recipe");
+    expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      withCode,
+    );
+  });
+
+  it("sends no request whose only slot is a TOTP the page has no field for", async () => {
+    const h = setup();
+    expect(await h.generation.generate({ ...request, slots: [totp] })).toBe("none");
+    expect(h.transport.generateRecipe).not.toHaveBeenCalled();
+  });
+});

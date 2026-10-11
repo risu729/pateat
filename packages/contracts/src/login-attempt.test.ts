@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  attemptPlan,
   createAttemptMetadata,
   nextLoginOperation,
   parseAttemptMetadata,
@@ -885,5 +886,325 @@ describe("submission and failure reconciliation", () => {
       transitionLoginAttempt(revoked, { type: "OPERATION_OK", operationId: "fill-one" }),
     ).toEqual(revoked);
     expect(nextLoginOperation(revoked, recipe, document, "fill-again")).toBeUndefined();
+  });
+});
+
+describe("second-factor handlers in an attempt (ADR 0027)", () => {
+  const securityKey = { by: "text", value: "Use security key" } as const;
+  const handled: LoginRecipe = {
+    ...recipe,
+    handlers: [
+      { kind: "passkey", path: "/webauthn", target: securityKey },
+      { kind: "passkey", path: "/login", target: { by: "id", value: "use-key" } },
+    ],
+  };
+  const factsWithKey = { ...facts, passkey: true };
+  const webauthn = { ...document, documentId: "document-webauthn" };
+  const handler = (index = 0, change: Record<string, unknown> = {}) => ({
+    type: "HANDLER" as const,
+    handler: index,
+    steps: 1,
+    effects: 1,
+    document: webauthn,
+    ...change,
+  });
+  function awaiting(selected = handled) {
+    let attempt = transitionLoginAttempt(
+      createAttemptMetadata({
+        id: "attempt-one",
+        recipe: selected,
+        policyRevision: 3,
+        account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+        route: "password",
+        facts: factsWithKey,
+        document,
+      }),
+      { type: "RESOLVE" },
+    );
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "click-one",
+      kind: "click",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId: "click-one" });
+    return transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "click-one" });
+  }
+
+  it("records the route, the item's facts and no entered handler at the start", () => {
+    const attempt = createAttemptMetadata({
+      id: "attempt-one",
+      recipe: handled,
+      policyRevision: 3,
+      account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+      route: "password",
+      facts: factsWithKey,
+      document,
+    });
+    expect(attempt).toMatchObject({
+      route: "password",
+      facts: factsWithKey,
+      handlers: [],
+      // Only the route's steps; a handler's steps join when it is entered.
+      stepCount: 2,
+      maxSubmissions: 1,
+    });
+    expect(parseAttemptMetadata(attempt)).toEqual(attempt);
+    for (const malformed of [
+      { ...attempt, route: "passkey" },
+      { ...attempt, facts: { ...facts, sso: true } },
+      { ...attempt, facts: { password: true } },
+      {
+        ...attempt,
+        handlers: [
+          { index: 0, start: 2 },
+          { index: 0, start: 3 },
+        ],
+      },
+      {
+        ...attempt,
+        handlers: Array.from({ length: 5 }, (_, index) => ({ index, start: index + 2 })),
+      },
+      { ...attempt, handlers: [{ index: 16, start: 2 }] },
+      { ...attempt, stepCount: 41 },
+      { ...attempt, maxSubmissions: 13 },
+    ])
+      expect(() => parseAttemptMetadata(malformed)).toThrow();
+  });
+
+  it("enters a handler after the final submission and grows the attempt's budget", () => {
+    const before = awaiting();
+    expect(before).toMatchObject({ state: "awaiting-result", stepIndex: 1, submissions: 1 });
+    const entered = transitionLoginAttempt(before, handler());
+    expect(entered).toMatchObject({
+      state: "ready",
+      stepIndex: 2,
+      stepCount: 3,
+      submissions: 1,
+      maxSubmissions: 2,
+      handlers: [{ index: 0, start: 2 }],
+      document: webauthn,
+    });
+    expect(entered.operationId).toBeUndefined();
+    expect(entered.outcome).toBeUndefined();
+    // The handler's click is the attempt's next operation, in the handler's document.
+    const operation = nextLoginOperation(entered, handled, webauthn, "key-one", 1000)!;
+    expect(operation).toMatchObject({
+      stepIndex: 2,
+      step: { kind: "click", path: "/webauthn", target: securityKey, purpose: "submit" },
+      document: webauthn,
+    });
+    expect(nextLoginOperation(entered, handled, document, "key-one")).toBeUndefined();
+    // Its submission fits the grown budget.
+    let clicking = transitionLoginAttempt(entered, {
+      type: "PREPARE",
+      operationId: "key-one",
+      kind: "click",
+    });
+    clicking = transitionLoginAttempt(clicking, { type: "SUBMIT_INTENT", operationId: "key-one" });
+    expect(clicking).toMatchObject({ state: "submit-intent", submissions: 2 });
+    expect(validateLoginOperation(operation, clicking, webauthn, 3, 1001)).toBe(true);
+    const signedIn = transitionLoginAttempt(
+      transitionLoginAttempt(clicking, { type: "SUBMITTED", operationId: "key-one" }),
+      { type: "OBSERVED", result: "authenticated", document: webauthn },
+    );
+    expect(signedIn.state).toBe("authenticated");
+  });
+
+  it("enters a handler while reconciling after the page navigated", () => {
+    const navigated = transitionLoginAttempt(awaiting(), { type: "NAVIGATED", document: webauthn });
+    expect(navigated).toMatchObject({ state: "reconciling", outcome: "unknown-submit" });
+    const entered = transitionLoginAttempt(navigated, handler());
+    expect(entered).toMatchObject({
+      state: "ready",
+      stepIndex: 2,
+      stepCount: 3,
+      maxSubmissions: 2,
+      handlers: [{ index: 0, start: 2 }],
+    });
+    expect(entered.outcome).toBeUndefined();
+    expect(nextLoginOperation(entered, handled, webauthn, "key-one")?.stepIndex).toBe(2);
+  });
+
+  it("runs each handler at most once per login", () => {
+    const entered = transitionLoginAttempt(awaiting(), handler());
+    let clicked = transitionLoginAttempt(entered, {
+      type: "PREPARE",
+      operationId: "key-one",
+      kind: "click",
+    });
+    clicked = transitionLoginAttempt(clicked, { type: "SUBMIT_INTENT", operationId: "key-one" });
+    clicked = transitionLoginAttempt(clicked, { type: "SUBMITTED", operationId: "key-one" });
+    expect(clicked.state).toBe("awaiting-result");
+    expect(transitionLoginAttempt(clicked, handler())).toEqual(clicked);
+    // Another handler of the recipe may still follow the handler's click.
+    expect(transitionLoginAttempt(clicked, handler(1))).toMatchObject({
+      state: "ready",
+      handlers: [
+        { index: 0, start: 2 },
+        { index: 1, start: 3 },
+      ],
+      stepCount: 4,
+      maxSubmissions: 3,
+    });
+  });
+
+  it("refuses a handler outside the result of an effect step", () => {
+    // Not from `ready`: nothing was submitted for the handler to follow.
+    const ready = transitionLoginAttempt(detected(handled), { type: "RESOLVE" });
+    expect(transitionLoginAttempt(ready, handler())).toEqual(ready);
+    // Not after a preparing fill whose result is reconciled.
+    const filling = transitionLoginAttempt(
+      transitionLoginAttempt(ready, { type: "PREPARE", operationId: "fill-one", kind: "fill" }),
+      { type: "MUTATION_INTENT", operationId: "fill-one" },
+    );
+    const interrupted = transitionLoginAttempt(filling, { type: "INTERRUPTED" });
+    expect(interrupted.state).toBe("reconciling");
+    expect(transitionLoginAttempt(interrupted, handler())).toEqual(interrupted);
+    // Not in another tab or frame, or on another origin.
+    const before = awaiting();
+    for (const elsewhere of [
+      { ...webauthn, tabId: 8 },
+      { ...webauthn, frameId: 0 },
+      { ...webauthn, origin: "https://evil.example" },
+    ])
+      expect(transitionLoginAttempt(before, handler(0, { document: elsewhere }))).toEqual(before);
+    // Not once the attempt ended.
+    for (const result of ["authenticated", "challenge"] as const) {
+      const ended = transitionLoginAttempt(before, { type: "OBSERVED", result, document });
+      expect(transitionLoginAttempt(ended, handler())).toEqual(ended);
+    }
+  });
+
+  it("refuses a handler beyond the attempt's step, submission and handler caps", () => {
+    const before = awaiting();
+    const roomy = { ...before, stepCount: 36, maxSubmissions: 10 };
+    expect(transitionLoginAttempt(roomy, handler(0, { steps: 4, effects: 2 }))).toMatchObject({
+      state: "ready",
+      stepCount: 40,
+      maxSubmissions: 12,
+    });
+    const steps = { ...before, stepCount: 37 };
+    expect(transitionLoginAttempt(steps, handler(0, { steps: 4 }))).toEqual(steps);
+    const effects = { ...before, maxSubmissions: 11 };
+    expect(transitionLoginAttempt(effects, handler(0, { effects: 2 }))).toEqual(effects);
+    const many = {
+      ...before,
+      handlers: [2, 3, 4, 5].map((index) => ({ index, start: 1 })),
+    };
+    expect(transitionLoginAttempt(many, handler())).toEqual(many);
+    // The event itself is bounded.
+    for (const malformed of [
+      handler(0, { steps: 0 }),
+      handler(0, { steps: 5 }),
+      handler(0, { effects: 0 }),
+      handler(16),
+    ])
+      expect(() => transitionLoginAttempt(before, malformed)).toThrow();
+  });
+
+  it("takes over only a newer recipe revision", () => {
+    const before = awaiting();
+    expect(transitionLoginAttempt(before, { type: "REVISED", recipeRevision: 3 })).toEqual({
+      ...before,
+      recipeRevision: 3,
+    });
+    for (const recipeRevision of [2, 1])
+      expect(transitionLoginAttempt(before, { type: "REVISED", recipeRevision })).toEqual(before);
+    // A revised attempt issues operations only for the revision it took over.
+    const revised = transitionLoginAttempt(
+      transitionLoginAttempt(before, { type: "REVISED", recipeRevision: 3 }),
+      handler(),
+    );
+    expect(nextLoginOperation(revised, handled, webauthn, "key-one")).toBeUndefined();
+    expect(
+      nextLoginOperation(revised, { ...handled, revision: 3 }, webauthn, "key-one"),
+    ).toMatchObject({ stepIndex: 2 });
+  });
+
+  it("refuses an operation when the recorded handlers do not match the recipe", () => {
+    // The event's step count disagrees with the handler's own steps.
+    const mismatched = transitionLoginAttempt(awaiting(), handler(0, { steps: 2 }));
+    expect(mismatched.stepCount).toBe(4);
+    expect(nextLoginOperation(mismatched, handled, webauthn, "key-one")).toBeUndefined();
+    // The recipe lacks the entered handler.
+    const entered = transitionLoginAttempt(awaiting(), handler(1));
+    expect(
+      nextLoginOperation(entered, { ...handled, handlers: [handled.handlers![0]!] }, webauthn, "k"),
+    ).toBeUndefined();
+    expect(attemptPlan({ ...handled, handlers: undefined }, entered)).toBeUndefined();
+  });
+
+  it("continues the route's next step after a handler entered mid-route", () => {
+    const threeStep: LoginRecipe = {
+      ...recipe,
+      maxSubmissions: 2,
+      steps: [
+        {
+          kind: "click",
+          path: "/identity",
+          target: { by: "id", value: "next" },
+          purpose: "advance",
+        },
+        ...recipe.steps,
+      ],
+      handlers: [{ kind: "passkey", path: "/identity", target: securityKey }],
+    };
+    let attempt = transitionLoginAttempt(detected(threeStep), { type: "RESOLVE" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "advance-one",
+      kind: "click",
+      effect: "advance",
+    });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "SUBMIT_INTENT",
+      operationId: "advance-one",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "advance-one" });
+    attempt = transitionLoginAttempt(attempt, handler());
+    expect(attempt).toMatchObject({
+      state: "ready",
+      stepIndex: 1,
+      stepCount: 4,
+      maxSubmissions: 3,
+      handlers: [{ index: 0, start: 1 }],
+    });
+    expect(
+      attemptPlan(threeStep, attempt)?.map((entry) => [entry.step.kind, entry.handler]),
+    ).toEqual([
+      ["click", undefined],
+      ["click", 0],
+      ["fill", undefined],
+      ["click", undefined],
+    ]);
+    expect(nextLoginOperation(attempt, threeStep, webauthn, "key-one")).toMatchObject({
+      stepIndex: 1,
+      step: { kind: "click", target: securityKey },
+    });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "key-one",
+      kind: "click",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId: "key-one" });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "key-one" });
+    const passwordPage = { ...document, documentId: "document-password" };
+    attempt = transitionLoginAttempt(attempt, {
+      type: "OBSERVED",
+      result: "continue",
+      document: passwordPage,
+    });
+    expect(attempt).toMatchObject({ state: "ready", stepIndex: 2, submissions: 2 });
+    expect(nextLoginOperation(attempt, threeStep, passwordPage, "fill-one")).toMatchObject({
+      stepIndex: 2,
+      step: { kind: "fill", path: "/login" },
+    });
   });
 });

@@ -176,6 +176,16 @@ describe("value-free catalog admission", () => {
       expect(v.safeParse(localVaultMetadataSchema, value).success).toBe(false);
     },
   );
+  it("admits only a literal empty flag on a field", () => {
+    const value = metadata();
+    Object.assign(value.items[0]!.fields[0]!, { empty: true });
+    expect(v.safeParse(localVaultMetadataSchema, value).success).toBe(true);
+    for (const empty of [false, "true", 1, null]) {
+      const invalid = metadata();
+      Object.assign(invalid.items[0]!.fields[0]!, { empty });
+      expect(v.safeParse(localVaultMetadataSchema, invalid).success).toBe(false);
+    }
+  });
   it("withholds field names it cannot carry exactly instead of truncating them", () => {
     expect(vaultFieldName("PIN")).toBe("PIN");
     expect(vaultFieldName("x".repeat(200))).toBe("x".repeat(200));

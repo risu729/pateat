@@ -1,6 +1,8 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
+  generationUnavailableReasonSchema,
+  recipeCompletionRequestSchema,
   recipeCompletionResultSchema,
   recipeGenerationRequestSchema,
   recipeGenerationResultSchema,
@@ -83,5 +85,52 @@ describe("recipe generation contracts", () => {
         reason: "low-confidence",
       }),
     ).toBe(false);
+  });
+});
+
+describe("page judgement contracts (ADR 0027)", () => {
+  const change = { recipeId: "gen-1", revision: 2, state: "active", recipe };
+
+  it("names the login's route, defaulting to the password route", () => {
+    expect(
+      v.parse(recipeCompletionRequestSchema, { version: 1, revision: 2, observation }),
+    ).toEqual({ version: 1, revision: 2, route: "password", observation });
+    expect(
+      v.parse(recipeCompletionRequestSchema, {
+        version: 1,
+        revision: 2,
+        route: "password",
+        observation,
+      }).route,
+    ).toBe("password");
+    for (const route of ["passkey", "sso", ""])
+      expect(
+        v.is(recipeCompletionRequestSchema, { version: 1, revision: 2, route, observation }),
+      ).toBe(false);
+  });
+
+  it("answers signed-in and challenge with or without a change", () => {
+    for (const status of ["signed-in", "challenge"]) {
+      expect(v.is(recipeCompletionResultSchema, { version: 1, status })).toBe(true);
+      expect(v.is(recipeCompletionResultSchema, { version: 1, status, change })).toBe(true);
+      expect(
+        v.is(recipeCompletionResultSchema, {
+          version: 1,
+          status,
+          change: { ...change, revision: 3 },
+        }),
+      ).toBe(false);
+    }
+    for (const status of ["rejected", "unclear"])
+      expect(v.is(recipeCompletionResultSchema, { version: 1, status, change })).toBe(false);
+  });
+
+  it("names the judging limits as unavailable reasons", () => {
+    for (const reason of ["already-judged", "judgement-limit", "not-judgeable"]) {
+      expect(v.is(generationUnavailableReasonSchema, reason)).toBe(true);
+      expect(
+        v.is(recipeCompletionResultSchema, { version: 1, status: "unavailable", reason }),
+      ).toBe(true);
+    }
   });
 });
