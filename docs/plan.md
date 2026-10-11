@@ -4,12 +4,14 @@ Status on 2026-10-11 (main `b00b5b7`): M0 completed in
 [PR #1](https://github.com/risu729/pateat/pull/1). The production extension connects a
 real Bitwarden account, admits HTTPS sites
 ([ADR 0009](adr/0009-install-time-https-site-access.md)), runs synced or generated
-recipes and signs with stored passkeys; passkey sign-ins have passed on real sites. The
-service runs at `pateat.takuk.me` with automatic releases, hosted smoke checks, the
-owner web UI and Claude recipe generation under spending caps; the deployed service
-first called Anthropic on 2026-10-11 at 12:27 UTC. Work follows the
-[roadmap](#roadmap) below; the milestone gates still open are assigned to its phases
-there.
+recipes and signs with stored passkeys; passkey sign-ins have passed on real sites. A
+generated recipe has run in installed Chrome only on `https://www.npmjs.com`, where the
+attempt stopped as `policy-changed` before
+[#234](https://github.com/risu729/pateat/pull/234). The service runs at
+`pateat.takuk.me` with automatic releases, hosted smoke checks, the owner web UI and
+Claude recipe generation under spending caps; the deployed service first called
+Anthropic on 2026-10-11 at 12:27 UTC. Work follows the [roadmap](#roadmap) below, which
+assigns the milestone gates still open to its phases.
 
 This plan is the single work tracker until the remaining tasks move to issues in
 [phase 4](#phase-4-issues-and-work-as-needed). Issues and PRs link to these gates rather
@@ -17,59 +19,68 @@ than maintaining a second roadmap.
 
 ## Roadmap
 
-The owner set these phases on 2026-10-11 (18:11 UTC). They replace "until the initial
-scope passes every M1-M6 gate" as the point where the current work is done. The
-milestone table under [ordered milestones](#ordered-milestones) still defines what each
-milestone delivers; a milestone gate not listed in a phase below is already met.
+The owner set these phases on 2026-10-11 (18:11 UTC): first make Pateat complete enough
+to use, then use it and fix what comes up, then release it publicly, then track the rest
+as issues. The milestone table under [ordered milestones](#ordered-milestones) still
+defines what each milestone delivers. Every milestone gate that was open on 2026-10-11
+is listed in one phase below; placing the gates the owner's message did not mention (the
+Bitwarden account checks in phase 3, and the rest in phase 4) is a proposal for the
+owner to confirm.
 
 ### Phase 1: usable
 
 Done when Pateat logs in on the sites the owner uses every day, in the owner's installed
 Chrome, on a production build of main.
 
-- Start from a list of those sites, written by the owner. The list stays in the
-  project's files, not in this repository.
+- Start from a list of those sites. It names the owner's own accounts, so it stays in
+  the project's files rather than in this repository.
 - Finish the fixes in flight: login attempts whose result settled as unknown no longer
   hold settings writes for the next login, and a vault replacement no longer runs during
   a login; diagnostics log events for sync, page judgements, handlers and the source of
   `policy-changed`.
 - [ADR 0027](adr/0027-per-account-login-routes.md) deliveries 1 (custom-field names and
   Text shapes in generation), 3 (start-page routes) and 4 (the `totp` handler), merged
-  in that order. Delivery 2 is merged ([#223](https://github.com/risu729/pateat/pull/223)).
+  in that order. Delivery 2 is merged
+  ([#223](https://github.com/risu729/pateat/pull/223)).
 - Continue a generated recipe on the page after an `advance` step (email, then Next,
   then password), as listed under
   [AI evaluation harness progress](#ai-evaluation-harness-progress). The owner rated it
   high priority.
-- Installed-Chrome checks still open: npmjs.com logs in with no action from the owner
-  and a later login makes no Claude call (after
-  [#234](https://github.com/risu729/pateat/pull/234)); choosing again after a logout on
-  the password side ([#210](https://github.com/risu729/pateat/pull/210)); a long wait in
-  the passkey chooser ([#232](https://github.com/risu729/pateat/pull/232)); changing a
-  site's exclusion or default in the toolbar popup; the badge and popup choice on a site
-  with two matches ([#187](https://github.com/risu729/pateat/pull/187)); a vault item
-  edit picked up by the automatic sync
-  ([#222](https://github.com/risu729/pateat/pull/222),
-  [#224](https://github.com/risu729/pateat/pull/224)).
-- `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged and the
-  24-hour wait after the abstention (until 2026-10-12 12:27 UTC) has passed, so the first
-  recipe names both its password and passkey routes; a recipe generated earlier gets no
-  routes without being revoked ([ADR 0027](adr/0027-per-account-login-routes.md),
+- Installed-Chrome checks still open:
+  - M3's password login on a real site, and M4's sync against the deployed service:
+    `https://www.npmjs.com` logs in with no action from the owner through a recipe the
+    service generated, and a later login makes no Claude call (after
+    [#234](https://github.com/risu729/pateat/pull/234)).
+  - Choosing again after a logout on the password side
+    ([#210](https://github.com/risu729/pateat/pull/210)).
+  - A long wait in the passkey chooser
+    ([#232](https://github.com/risu729/pateat/pull/232)).
+  - Changing a site's exclusion or default in the toolbar popup.
+  - The badge and popup choice on a site with two matches
+    ([#187](https://github.com/risu729/pateat/pull/187)).
+  - A vault item edit picked up by the automatic sync
+    ([#222](https://github.com/risu729/pateat/pull/222),
+    [#224](https://github.com/risu729/pateat/pull/224)).
+- `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged and the 24-hour
+  wait after the abstention (until 2026-10-12 12:27 UTC) has passed, so the first recipe
+  names both its password and passkey routes. A recipe generated earlier gets no routes
+  without being revoked ([ADR 0027](adr/0027-per-account-login-routes.md),
   [ADR 0018](adr/0018-recipe-generation-route.md)).
 
 ### Phase 2: use it and fix what comes up
 
-- The owner uses Pateat on many sites and reports bugs; Claude also fixes problems it
+- The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
   keeps local; that is a design to bring to the owner first.
 - Browser agents that drive the owner's Chrome, such as Claude in Chrome and ChatGPT's
-  agent in Chrome, must get logged in by Pateat and continue. This is the M1/M6
-  "Chrome use coexistence" gate, and it can only be checked by using them.
-- UI improvements, with the owner reporting what bothers them in daily use: the
-  extension and the service web UI in one pass, using
-  [stop-describing-ui](https://github.com/artouc/stop-describing-ui) for the copy and
-  Claude Design to fix the base design tokens. Small fixes for broken UI still land as
-  found.
+  agent in Chrome, must be logged in by Pateat and carry on with their task. This is the
+  M1/M6 "Chrome use coexistence" gate, and it can only be checked by using them.
+- UI improvements, with the owner reporting what bothers them in daily use. The owner
+  planned on 2026-10-11 to polish the extension and the service web UI in one pass with
+  [stop-describing-ui](https://github.com/artouc/stop-describing-ui), and to fix the
+  base design tokens with Claude Design in this phase. Small fixes for broken UI still
+  land as found.
 - Features found missing during use are added here.
 
 ### Phase 3: public release
@@ -80,18 +91,26 @@ Once the fixes have settled:
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
   docs.
-- A mode without the service, with the AI called from the extension.
-- The finite-choice role (Clef), after the larger real-page corpus the owner asked for.
+- A mode without the service. Where recipes, settings and AI calls come from without the
+  service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
+  source of truth, needs a design the owner approves before implementation.
+- The finite-choice role with Clef, which the owner chose to implement here. On
+  2026-10-11 the owner asked for a larger corpus of real pages before planning it.
 - Anyone can use Pateat: users download the extension from GitHub Releases. The service
   is not opened to other people. Continuous delivery publishes each extension release
   there and meets the [Corresponding Source](sdk-source.md) requirements. Store
   publishing stays excluded.
+- Proposed: the Bitwarden account checks that matter once other people install Pateat,
+  each with the owner's approval for real-account use: individual Bitwarden two-step
+  methods, other KDFs, V2 keys and organization items, the install-time site-access
+  warning and the prompt after site access was withheld, installed-Chrome dummy-account
+  tests and measured limits.
 
 ### Phase 4: issues and work as needed
 
 The remaining tasks become GitHub issues, and each is built when it is needed. Issues
-get their own priority and area labels; GitHub's default labels are removed. No issues
-are created before this phase.
+get their own priority and area labels, and GitHub's default labels may be removed. No
+issues are created before this phase.
 
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
@@ -106,21 +125,23 @@ are created before this phase.
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
   ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later work, the ADR 0027
-  cases it does not handle, generation for passkey-only start pages, and the open
-  checks: individual Bitwarden MFA methods, other KDFs, V2 keys and organization items
-  on a real account, the site-access warning and prompt in installed Chrome, pairing
-  while signed out of Access, real sites that wrap `get`, a navigation during signing,
-  installed-Chrome dummy-account tests and measured limits.
+  cases it does not handle, and generation for passkey-only start pages.
+- Proposed: the remaining checks, namely pairing while signed out of Access and the
+  Access cookie settings, real sites that wrap `get`, and a navigation during signing.
+
+### Research
+
+- Personal data autofill beyond logins: names, addresses, email addresses and password
+  generation. The owner asked on 2026-10-11 to research its scope and the existing
+  extensions and record the result. If none fits, building it into Pateat is to be
+  considered.
 
 ### To consider, not planned
 
-- Personal data autofill beyond logins: names, addresses, email addresses and password
-  generation. Research the scope and the existing extensions first and record the
-  result; if none fits, consider building it into Pateat.
 - With Bitwarden writes, keeping Pateat's per-item metadata in Bitwarden custom fields,
   such as which profiles may use an item or which identity provider a site uses, so the
   service could be limited to recipe generation and sharing. Choosing the default among
-  several vaults is the hard part, so this would at most be opt-in.
+  several vaults is the hard part, so this would likely be opt-in.
 
 ## Foundation progress
 
@@ -694,7 +715,8 @@ recorded yet. On 2026-10-11 the post-deploy probe ran from the background of the
 old install, whose path-derived ID is not listed, against revision `ac33781`:
 `POST /pair` returned `403`, type `basic`, with `extension_not_allowed`, and created no
 device. So the Access cookie reaches the Worker and the extension `Origin` arrives
-intact. Installed Chrome has not paired directly with the deployed service yet.
+intact. Installed Chrome later paired directly on 2026-10-11 (see
+[remaining M4 service gaps](#remaining-m4-service-gaps)).
 
 The fourth slice syncs recipes into a last-known-good cache that the login executor
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
@@ -1473,11 +1495,12 @@ API keys, SSO or device approval; signing in to sites through an identity provid
 post-login actions, including transactions and approvals. UI extensions, automatic
 account switching (logging out and in again when another account is picked while logged
 in, recorded in ADR 0021), a badge counting the matching items on every site that has
-one (also recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings sync, MCP, Vaultwarden support and vaults other
-than Bitwarden are also deferred. They are extension points, not implicit permissions or
-initial acceptance requirements. A mode without the service and direct AI are planned
-for [phase 3](#phase-3-public-release); the [roadmap](#roadmap) says which of these
-deferred items become issues.
+one (also recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
+sync, MCP, Vaultwarden support and vaults other than Bitwarden are also deferred. They
+are extension points, not implicit permissions or initial acceptance requirements. A
+mode without the service and direct AI are planned for
+[phase 3](#phase-3-public-release); the [roadmap](#roadmap) says which of these deferred
+items become issues.
 
 ## Ordered milestones
 
@@ -1601,13 +1624,14 @@ support for every site or vault format. Keep observed limitations explicit.
   (`services/api/src/claude/calls.ts`), so a limit is passed by at most one call.
 - Benchmark generation/repair and finite-choice roles separately on the same
   Japanese/English synthetic login corpus. Measure the ADR 0014 Claude configuration for
-  generation; Clef-flash, Clef and Jev for decisions are optional later candidates.
-  Report semantic correctness, false-submit count, abstentions, joint mapping
-  consistency, p50/p95 end-to-end latency and usage/cost. Test invalid candidate IDs,
-  malformed probabilities, context overflow and incomplete observations. Clef vendor
-  latency/price claims are research inputs, not Pateat measurements. Present results to
-  the owner; a model or effort change is an owner decision, and evaluating a candidate
-  does not authorize adopting it. There is no latency promise. Use only the configured
+  generation; for decisions, the owner chose Clef for
+  [phase 3](#phase-3-public-release), and Clef-flash and Jev remain candidates. Report
+  semantic correctness, false-submit count, abstentions, joint mapping consistency,
+  p50/p95 end-to-end latency and usage/cost. Test invalid candidate IDs, malformed
+  probabilities, context overflow and incomplete observations. Clef vendor latency/price
+  claims are research inputs, not Pateat measurements. Present results to the owner; a
+  model or effort change is an owner decision, and evaluating a candidate does not
+  authorize adopting it. There is no latency promise. Use only the configured
   provider/model for each role; its failure is an error, not an automatic fallback.
   Cached recipes continue after an AI/budget failure.
 

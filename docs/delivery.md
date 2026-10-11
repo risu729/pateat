@@ -48,11 +48,10 @@ carries the run attempt, so a failed main run is retried with "Re-run all jobs":
 attempt and the deployment rejects it. The service browser tests in other shards build
 their own copy of the Worker output. The setup order below sets the release credentials
 last, after pairing works through Access; the typed-code enrollment did when the owner
-paired on 2026-10-11. For direct pairing, only the post-deploy probe has run against the
-deployed service so far; no installed build has paired directly yet
-([device enrollment](architecture.md#device-enrollment)). A deployment also needs the
-`ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the owner pages answer 503 without
-them. Artifact tests reject tampering and mismatched provenance.
+paired on 2026-10-11. Installed Chrome first paired directly with the deployed service
+on 2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A deployment
+also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the owner pages
+answer 503 without them. Artifact tests reject tampering and mismatched provenance.
 
 ### Production settings
 
