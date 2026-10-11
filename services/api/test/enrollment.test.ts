@@ -115,6 +115,15 @@ function request(path: string, init: RequestInit & { access?: string | undefined
   return exports.default.fetch(`${ORIGIN}${path}`, { ...init, headers });
 }
 
+/**
+ * The local limiter counts in wall-clock minutes, so a loop that crosses a minute
+ * boundary would start a fresh count; start the loop at least 10 s before one.
+ */
+async function awaitRoomInMinute() {
+  const left = 60_000 - (Date.now() % 60_000);
+  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
+}
+
 function postForm(path: string, access: string | undefined, fields: Record<string, string>) {
   return request(path, {
     method: "POST",
@@ -471,7 +480,7 @@ describe("credential redemption", () => {
     const result = v.parse(enrollmentRedeemResultSchema, await response.json());
 
     const device = await env.DB.prepare(
-      "SELECT id, owner_id, token_hash, label, created_at, revoked_at FROM devices WHERE id = ?",
+      "SELECT id, owner_id, token_hash, label, created_at, last_used_at, revoked_at FROM devices WHERE id = ?",
     )
       .bind(result.deviceId)
       .first();
@@ -481,6 +490,7 @@ describe("credential redemption", () => {
       token_hash: await hashDeviceToken(result.credential),
       label: "Work laptop",
       created_at: expect.any(Number),
+      last_used_at: device?.["created_at"],
       revoked_at: null,
     });
     const enrollment = await env.DB.prepare(
@@ -638,6 +648,28 @@ describe("owner web UI", () => {
     expect(await ownerIdFor(subject)).toBeNull();
   });
 
+  it("rate limits the API per Access identity before the origin check", async () => {
+    const { token } = await owner();
+    await awaitRoomInMinute();
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 120; attempt += 1)
+      // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
+      statuses.push((await request("/manage/api/devices", { access: token })).status);
+    expect(statuses.every((status) => status === 200)).toBe(true);
+    const limited = await manageApi(
+      `/manage/api/devices/${crypto.randomUUID()}/revoke`,
+      token,
+      "POST",
+      "https://attacker.example",
+    );
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("60");
+    expect(await limited.json()).toEqual({ error: "rate_limited" });
+    expect((await request("/manage/api/devices", { access: (await owner()).token })).status).toBe(
+      200,
+    );
+  }, 20_000);
+
   it("lists only the signed-in owner's devices, newest first", async () => {
     const first = await owner();
     const second = await owner();
@@ -650,6 +682,8 @@ describe("owner web UI", () => {
       [newer.deviceId, "First owner phone", null],
       [older.deviceId, "First owner laptop", null],
     ]);
+    // A new device counts as used when it is paired.
+    for (const device of body.devices) expect(device.lastUsedAt).toBe(device.createdAt);
   });
 
   it("revokes an owned device", async () => {
@@ -1003,10 +1037,8 @@ describe("owner web UI recipes", () => {
     )
       .bind(await ownerIdFor(by.subject))
       .all();
-    expect(rows.results).toEqual([
-      { revision: 1, state: "active", created_by_device_id: device.deviceId },
-      { revision: 2, state: "revoked", created_by_device_id: null },
-    ]);
+    // A revoked recipe keeps only its tombstone.
+    expect(rows.results).toEqual([{ revision: 2, state: "revoked", created_by_device_id: null }]);
     // A device may still publish an explicit replacement after the tombstone.
     expect((await publish(device.credential, "bank-signin", 2)).status).toBe(200);
   });

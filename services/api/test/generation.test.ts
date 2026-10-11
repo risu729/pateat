@@ -9,6 +9,7 @@ import { env, exports } from "cloudflare:workers";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
+import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
 import { generatedRecipeId } from "../src/recipes/generate";
 
@@ -135,8 +136,8 @@ async function owner({ claude = true } = {}): Promise<Device> {
   await env.DB.batch([
     env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)").bind(ownerId, Date.now()),
     env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at) VALUES (?, ?, ?, ?)",
-    ).bind(deviceId, ownerId, await hashDeviceToken(token), Date.now()),
+      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+    ).bind(deviceId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
   ]);
   if (claude)
     await saveWifCredential(env.DB, ownerId, {
@@ -745,6 +746,34 @@ describe("recipe generation", () => {
     expect(sent).toHaveLength(5);
   });
 
+  it("stores the account switch the model names", async () => {
+    const device = await owner();
+    const remembered = observation("/password", [
+      element("password", "password", "Password"),
+      element("sign-in", "button", "Sign in"),
+      {
+        id: "switch",
+        role: "link",
+        target: { by: "text", value: "Use another account" },
+        label: "Use another account",
+      },
+    ]);
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "password", candidate: "password" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+          accountSwitch: "switch",
+        },
+      }),
+    });
+    expect(await generate(device, remembered)).toMatchObject({
+      status: "recipe",
+      change: { recipe: { accountSwitch: { by: "text", value: "Use another account" } } },
+    });
+  });
+
   it("stops generating once the owner revokes the recipe in the web UI", async () => {
     const device = await owner();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -767,6 +796,36 @@ describe("recipe generation", () => {
       reason: "recipe-revoked",
     });
     expect(sent).toHaveLength(1);
+  });
+
+  it("needs room for one more active recipe before a first page's call", async () => {
+    const device = await owner();
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+       INSERT INTO recipe_heads (owner_id, recipe_id, revision, state, sequence, write_id, updated_at)
+       SELECT ?, 'seeded-' || i, 1, 'active', 1000000 + i, 'seed-' || i, ? FROM n`,
+    )
+      .bind(MAX_ACTIVE_RECIPES - 1, device.ownerId, Date.now())
+      .run();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+
+    const other = observation("/signin", emailPage.candidates, "https://other.example.test");
+    expect(await generate(device, other)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ path: "/login" }]);
+    // Continuing a stored recipe adds none.
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toMatchObject({ status: "recipe", change: { revision: 2 } });
   });
 });
 

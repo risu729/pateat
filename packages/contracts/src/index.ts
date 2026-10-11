@@ -1,4 +1,5 @@
 export * from "./enrollment";
+export * from "./extension-id";
 export * from "./generation";
 export * from "./settings";
 export * from "./settings-store";

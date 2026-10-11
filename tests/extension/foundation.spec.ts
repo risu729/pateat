@@ -12,7 +12,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SettingsResponse } from "../../packages/contracts/src/index";
+import { PATEAT_EXTENSION_ID, type SettingsResponse } from "../../packages/contracts/src/index";
 import { ACTION_ICON_PATHS } from "../../apps/extension/src/connections/action-icon";
 import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
 
@@ -170,6 +170,8 @@ test("production package permits local storage, the crypto host and the HTTPS lo
 
 test("probe options support keyboard policy validation and pass accessibility checks", async () => {
   await withExtension(probeDirectory, async (context, _worker, id) => {
+    // The probe build keeps its path-derived ID and never shares production storage.
+    expect(id).not.toBe(PATEAT_EXTENSION_ID);
     const page = await context.newPage();
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -297,6 +299,10 @@ test("the toolbar popup edits the active tab's site through the settings store",
         settings,
       }),
     ).toBe("unanswered");
+    // Nor ask which accounts a refused login could use.
+    expect(await send(diagnostics, { version: 1, type: "login.choice.get", tabId: 0 })).toBe(
+      "unanswered",
+    );
     await diagnostics.close();
     expect(await get(popup)).toMatchObject({ snapshot: { revision: 0 } });
 
@@ -328,6 +334,12 @@ test("the toolbar popup edits the active tab's site through the settings store",
     const site = await opened;
     await expect(site.locator("#popup-origin")).toHaveText("bank.example");
     await expect(site.locator("#popup-accounts-note")).toContainText("No vault item matches");
+    // No login in the tab waits for a choice, so none is offered.
+    expect(await send(site, { version: 1, type: "login.choice.get", tabId: bank.id })).toEqual({
+      ok: false,
+      reason: "no-choice",
+    });
+    await expect(site.locator("#popup-choice-heading")).toHaveCount(0);
     await site.getByRole("button", { name: "Exclude bank.example" }).click();
     await expect(site.locator("#popup-site-status")).toContainText("Excluded");
     expect(await get(site)).toMatchObject({
@@ -342,6 +354,8 @@ test("the toolbar popup edits the active tab's site through the settings store",
 
 test("installed production offers manual setup with an empty real catalog and rejects extra request fields", async () => {
   await withExtension(extensionDirectory, async (context, _worker, id) => {
+    // Chrome derives the committed ID from the manifest key (ADR 0020).
+    expect(id).toBe(PATEAT_EXTENSION_ID);
     const page = await context.newPage();
     await page.goto(`chrome-extension://${id}/options.html`);
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();

@@ -19,6 +19,8 @@ export const manageDeviceSchema = v.strictObject({
   /** Empty for a device paired without a label. */
   label: v.pipe(v.string(), v.maxLength(64)),
   createdAt: timestamp,
+  /** Recorded at most once a day, so it can lag the real last use by a day. */
+  lastUsedAt: timestamp,
   revokedAt: v.nullable(timestamp),
 });
 /** Newest first. */
@@ -86,6 +88,8 @@ export const manageErrorCodeSchema = v.picklist([
   "method_not_allowed",
   "payload_too_large",
   "unsupported_media_type",
+  /** Too many requests from this identity in the last minute. */
+  "rate_limited",
   "internal_error",
 ]);
 export const manageErrorSchema = v.strictObject({ error: manageErrorCodeSchema });

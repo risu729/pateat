@@ -49,6 +49,12 @@ export const devices = sqliteTable(
     tokenHash: text("token_hash").notNull(),
     label: text("label").notNull().default(""),
     createdAt: integer("created_at").notNull(),
+    /**
+     * The last authenticated use, recorded at most once a day. A device unused for
+     * `DEVICE_IDLE_LIMIT_MS` is expired. Pairing sets it; the default exists only because
+     * SQLite adds a NOT NULL column with one, and a device left at 0 is expired.
+     */
+    lastUsedAt: integer("last_used_at").notNull().default(0),
     revokedAt: integer("revoked_at"),
   },
   (table) => [
@@ -120,7 +126,10 @@ export const recipeHeads = sqliteTable(
   ],
 );
 
-/** Immutable history; a revoked revision is a tombstone without a document. */
+/**
+ * Immutable rows; each recipe keeps its newest revisions (`KEPT_RECIPE_REVISIONS`), and a
+ * revoked revision is a tombstone without a document.
+ */
 export const recipeRevisions = sqliteTable(
   "recipe_revisions",
   {

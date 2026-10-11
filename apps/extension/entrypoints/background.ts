@@ -77,6 +77,8 @@ export default defineBackground(() => {
     setIcon: (path) => browser.action.setIcon({ path }),
   });
   void actionIcon.refresh();
+  // A badge counts the accounts a refused login could use (ADR 0021).
+  void browser.action.setBadgeBackgroundColor({ color: "#115e59" }).catch(() => undefined);
   const settings = connections.settings;
   const serviceTransport = createServiceTransport();
   const service = createServiceRuntime({

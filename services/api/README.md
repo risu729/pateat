@@ -1,7 +1,8 @@
 # API
 
-This Worker is the optional private settings/recipe sync service with device enrollment.
-It has no vault implementation, and it is not deployed. It generates recipes with the
+This Worker is the private settings/recipe sync service with device enrollment, deployed
+at `pateat.takuk.me` ([delivery](../../docs/delivery.md)). It has no vault
+implementation. It generates recipes with the
 owner's own Claude credentials ([recipe generation](#recipe-generation)). The
 `pateat` D1 database was bootstrapped on 2026-10-11, and `cloudflare.config.ts` records
 its ID. cf deploy provisions declared bindings that lack an ID, so the release artifact
@@ -33,7 +34,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
 | `POST /redeem` | Exchange an approved verifier for a device credential, once |
 | `GET /manage`, `/manage/sites`, `/manage/bindings`, `/manage/recipes` | Owner web UI (React app): devices, excluded sites and site defaults, account bindings, recipes |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
-| `GET /manage/api/devices` | The owner's devices, newest first |
+| `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
@@ -43,14 +44,16 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
 
-`/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only
-the SHA-256 digest of each 256-bit device credential and derives the owner from it;
-paths and bodies never name an owner. Unknown credentials return 401 `unauthorized`
-and revoked ones 401 `device_revoked`, before any body is read. Bodies must be
+`/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only the
+SHA-256 digest of each 256-bit device credential and derives the owner from it; paths
+and bodies never name an owner. Unknown credentials return 401 `unauthorized`, revoked
+ones 401 `device_revoked` and ones unused for 90 days 401 `device_expired`, before any
+body is read. Each accepted request renews the device's `last_used_at`, at most once a
+day; migration 0007 started existing devices at their pairing time. Bodies must be
 `application/json` and at most 128 KiB. Synced settings are server-readable policy
-metadata; device-local field policies, vault values and provider sessions are
-rejected by the strict schemas. Stored documents are revalidated on read and fail
-closed with a 500 `internal_error`.
+metadata; device-local field policies, vault values and provider sessions are rejected
+by the strict schemas. Stored documents are revalidated on read and fail closed with a
+500 `internal_error`.
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/redeem`, `/health`, `/.well-known/openid-configuration`
@@ -86,6 +89,14 @@ and writes the history row in the same D1 batch, guarded by a per-request write 
 so a losing writer changes nothing. Each head write takes the owner's next sequence
 number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
 its revision, and only an explicit later write can republish the recipe.
+
+[Per-owner limits](../../docs/architecture.md#service-limits) live in `src/limits.ts`.
+The `OWNER_LIMITER` binding allows 120 requests a minute per owner on `/v1` and per
+Access identity on `/manage/api`, checked before any body is read; over it, 429
+`rate_limited` with `Retry-After: 60`. An owner holds at most 1,000 active recipes: a
+write that would add one more answers 409 `recipe_limit`, checked in the claim
+statement itself. The same batch deletes revisions older than the newest 10, and every
+earlier revision when the write revokes the recipe.
 
 ## Claude credentials
 
@@ -133,9 +144,11 @@ a code, or `unavailable` with a reason when no model was called.
   own. Without `base`, an active recipe is returned as is; with `base`, the page's steps
   are appended after the recipe's last `advance` step. A stale `base` gets the current
   recipe back, a revoked recipe answers `recipe-revoked`, a `base` whose recipe was not
-  generated for this origin and its start path answers `recipe-conflict`, and a `base`
-  that is not a generated recipe ID is 400. The model maps the slots, the plan is
-  checked with `validatePagePlan`, and the steps are stored with a conditional write.
+  generated for this origin and its start path answers `recipe-conflict`, a first page
+  that would exceed the active recipe limit answers `recipe-limit` (before the model
+  call, or after it if the last place was taken meanwhile), and a `base` that is not a
+  generated recipe ID is 400. The model maps the slots, the plan is checked with
+  `validatePagePlan`, and the steps are stored with a conditional write.
 - `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, observation }`
   for the page after the final `submit` step of that revision, on the recipe's origin.
   The login paths come from the stored recipe. A `signed-in` marker passes
@@ -179,6 +192,29 @@ artifact smoke test executes that bundle in workerd. None of this demonstrates a
 deployed service or the service acceptance gates in
 [the delivery plan](../../docs/delivery.md).
 
+## Hosted smoke checks
+
+After each release activates and `/health` reports its revision, the deploy job runs
+`smoke/hosted.ts` against the hosted server. It checks that `/manage` and
+`/manage/api/devices` are answered by Access even with a forged
+`Cf-Access-Jwt-Assertion`. It then seeds two synthetic owners with IDs starting
+`smoke-`, each with one device whose credential it generates and stores only as a
+SHA-256 digest, through the D1 REST API with the deploy token. Pairing a device needs
+an owner's Access sign-in, so the job writes the device itself; synthetic owners get no
+`owner_identities` row, so no sign-in can reach them. Over HTTPS the checks cover
+missing and unknown credentials, settings and recipe round trips, owners neither seeing
+nor changing each other's data, and `DELETE /v1/device` followed by `device_revoked`.
+Every row of every `smoke-` owner is deleted before and after the checks, also after a
+failed check. A run killed by its timeout or a cancel leaves its rows until the next
+release removes them; their device credentials were never stored or printed. Cleanup
+removes every `smoke-` owner, so the checks run only inside the deploy job's
+`server-production` lock. A failed check fails the release. The checks never call
+inference.
+
+`test/hosted-smoke.test.ts` runs the same checks against the local Worker, so a
+contract or schema change that would break them fails CI first; it also requires
+`OWNER_TABLES` to list every table with an `owner_id` column, which cleanup depends on.
+
 The Worker bundles `packages/contracts` and `packages/inference`, which are
 GPL-3.0-only, and the Apache-2.0 AI SDK. Running it is not
 conveying it, but assess that combination as [LICENSING.md](../../LICENSING.md)
@@ -187,4 +223,4 @@ requires before distributing a built Worker.
 The configuration records the bootstrapped D1 database and the Custom Domain
 `pateat.takuk.me`; the account, credentials and Access applications are owner settings
 outside the repository. The server delivery workflow runs after every successful main
-CI and fails before any change until those deployment inputs exist.
+CI and releases the newest tested main revision ([delivery](../../docs/delivery.md)).

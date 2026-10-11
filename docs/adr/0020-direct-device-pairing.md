@@ -2,7 +2,8 @@
 
 Status: the decisions under "Owner decisions" were approved by the owner on 2026-10-11.
 The implementation choices further down are Claude's; they are not owner decisions and
-may change in their PRs. Not implemented yet; the [plan](../plan.md) tracks the work.
+may change in their PRs. The manifest `key` is implemented; `POST /pair` and the
+extension switch are not yet, and the [plan](../plan.md) tracks them.
 This replaces the typed-code pairing in the architecture's
 [device enrollment](../architecture.md#device-enrollment) section and settles the
 "enrollment transport" that [ADR 0003](0003-service-and-ai.md) left open.
@@ -152,9 +153,9 @@ Access Bypass application ("pateat bypass").
   `site-access-needed`.
 - **A stolen session.** Non-browser clients can send any `Origin`. Someone holding a
   stolen `CF_Authorization` cookie can therefore pair, and the credential they get stays
-  valid until revoked, beyond the session that minted it. The old flow had the same
-  property. The owner sees and revokes such a device on `/manage`. Access's optional
-  binding cookie makes a stolen cookie unusable.
+  valid until revoked or unused for 90 days, beyond the session that minted it. The old
+  flow had the same property. The owner sees and revokes such a device on `/manage`.
+  Access's optional binding cookie makes a stolen cookie unusable.
 - **Other extensions in the same browser.** This risk remains. Any extension with host
   access to the service host can already read `/manage/api/*` with the owner's cookie,
   as the probe showed (`requireSameOrigin` guards only state-changing methods), and
@@ -225,4 +226,7 @@ These need the owner's answer:
   decision and is not planned. A separate admin view of every user's devices is a
   different feature; the owner suggested it would be its own page behind its own Access
   rule.
-- **Credential idle expiry** stays open, unchanged by this ADR.
+
+Credential idle expiry, which this ADR left open, was decided separately on
+2026-10-11: a credential expires after 90 days unused and each use renews it (see the
+architecture's [device enrollment](../architecture.md#device-enrollment)).

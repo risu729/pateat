@@ -120,6 +120,8 @@ export function describeError(error: unknown): string {
       return "The recipe changed elsewhere or is already revoked. The page now shows its current state.";
     case "settings_conflict":
       return "The settings changed elsewhere, for example by a device sync. The page now shows the current settings; make the change again.";
+    case "rate_limited":
+      return "Too many requests in the last minute. Wait a minute and try again.";
     case "bad_request":
       return "The change was refused because the settings would be invalid, for example over a list limit.";
     default:

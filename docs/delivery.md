@@ -1,8 +1,9 @@
 # CI and server delivery
 
-Status: foundation CI and guarded server delivery after main CI are implemented.
-Deployment has not been executed. Extension store publishing is excluded. The server
-remains optional for the eventual local login core.
+Status: CI and guarded server delivery after main CI are implemented, and the service
+has been released automatically to `pateat.takuk.me` since 2026-10-11. Extension store
+publishing is excluded. A mode without the service is later scope
+([plan](plan.md#initial-delivery-and-later-scope)).
 
 ## Current foundation workflows
 
@@ -25,17 +26,17 @@ repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here 
 the other active risu729 repositories. See [merging](#merging).
 
 Successful main-push CI packages the exact tested production Worker output with
-repository, revision, run/attempt, tool versions and per-file hashes, plus the
-committed top-level D1 migration files (`services/api/migrations/*.sql`) and the D1
-database ID recorded in the build. The `pateat` database was bootstrapped on
-2026-10-11 in the owner's account with an APAC location hint, and its ID is in
-`cloudflare.config.ts`; packing and restore refuse a build whose `DB` binding has no ID,
-because cf deploy would provision a new database. Restore also checks that the
-migrations match both the manifest and the checked-out revision. Enrollment has not
-been verified against a real Access application yet; the setup order below therefore
-sets the release credentials last. A deployment also needs the `ACCESS_TEAM_DOMAIN`
-and `ACCESS_AUD` Worker secrets; the owner pages answer 503 without them. Artifact
-tests reject tampering and mismatched provenance.
+repository, revision, run/attempt, tool versions and per-file hashes, plus the committed
+top-level D1 migration files (`services/api/migrations/*.sql`) and the D1 database ID
+recorded in the build. The `pateat` database was bootstrapped on 2026-10-11 in the
+owner's account with an APAC location hint, and its ID is in `cloudflare.config.ts`;
+packing and restore refuse a build whose `DB` binding has no ID, because cf deploy would
+provision a new database. Restore also checks that the migrations match both the
+manifest and the checked-out revision. The setup order below sets the release
+credentials last, after enrollment works through Access; it did when the owner paired on
+2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A deployment also
+needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the owner pages answer
+503 without them. Artifact tests reject tampering and mismatched provenance.
 
 ### Production settings
 
@@ -67,7 +68,8 @@ The owner decided these on 2026-10-11, following the kogane repository:
   discovery documents, `/redeem` and the device-authenticated `/v1/*`, which the
   Worker tests cover, and a useful preview would need its own D1 database and Access
   setup. Add a `worker-preview` deployment with a separate preview D1 binding, as biwa
-  does for its docs, when the owner web UI exists.
+  does for its docs, when the owner web UI exists. The web UI now exists; adding the
+  preview is not scheduled yet.
 
 `deploy-server.yml` has no enable switch: the owner decided on 2026-10-11 that every
 successful main-push CI run starts a release. Until the production
@@ -227,6 +229,16 @@ As of research, reuse
 commit `6a93154ef1c550b760d8582bcf59d8d4a0710788`. Recheck the release and inputs
 when writing workflows. Caller tasks own migrations and hosted application tests;
 the action owns deployment and deployment readback.
+
+The hosted smoke checks are in
+[services/api/README.md](../services/api/README.md#hosted-smoke-checks). They obtain
+owners and devices without a person and without changing Access: the deploy job,
+which already holds D1 write access for migrations, inserts synthetic owners and
+device rows into D1 and then uses those devices through the hosted `/v1` routes.
+Issuing a device through Access is therefore not exercised by a hosted check, so that
+part of item 5 stays open. It is covered by Worker tests with synthetic Access tokens
+and by pairing in the owner's Chrome; automating it would need an Access service token
+that the Worker accepts as an owner, which is a separate owner decision.
 
 ## Failure and rollback
 

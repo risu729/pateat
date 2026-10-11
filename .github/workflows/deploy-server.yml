@@ -198,3 +198,12 @@ jobs:
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment-id }}
           VERSION_ID: ${{ steps.deploy.outputs.version-id }}
         run: mise exec -- node .github/scripts/server-health.mjs
+      # Synthetic owners are seeded in D1 and every row they own is removed again;
+      # see services/api/README.md. A failure leaves the release failed.
+      - name: Run hosted smoke checks
+        if: ${{ steps.source.outputs.release == 'true' }}
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DATABASE: ${{ steps.restore.outputs.database }}
+        run: mise exec -- node services/api/smoke/hosted.ts
