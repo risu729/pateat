@@ -219,6 +219,8 @@ export async function startLoginFixture(
       const shown = fixtureUrl.searchParams.get("shown");
       const switchTo = fixtureUrl.searchParams.get("switch");
       const masked = /^[A-Za-z0-9@.*]+$/u;
+      // `?maxlength` limits the password input, such as below the synthetic password.
+      const maxLength = fixtureUrl.searchParams.get("maxlength");
       response.end(
         html(
           `<h1>Synthetic single-page login</h1>${
@@ -242,10 +244,7 @@ export async function startLoginFixture(
               "text-current-password": 'type="text" autocomplete="current-password"',
             }[fixtureUrl.searchParams.get("password-input") ?? ""] ?? 'type="password"'
           }${
-            // `?maxlength` limits the password input, such as below the synthetic password.
-            /^\d{1,3}$/u.test(fixtureUrl.searchParams.get("maxlength") ?? "")
-              ? ` maxlength="${fixtureUrl.searchParams.get("maxlength")}"`
-              : ""
+            maxLength !== null && /^\d{1,3}$/u.test(maxLength) ? ` maxlength="${maxLength}"` : ""
           }></label><button id="login" type="button">Log in</button>${
             // `?ad` embeds an unrelated frame beside the form, like an advertisement.
             fixtureUrl.searchParams.has("ad")
