@@ -563,7 +563,9 @@ and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
 sync, enrollment and device management routes described in
 [its README](../services/api/README.md); inference and its request log
-([ADR 0012](adr/0012-inference-request-log.md)) remain planned.
+([ADR 0012](adr/0012-inference-request-log.md)) remain planned. The generation route,
+its limits and how a generated recipe learns its completion target are decided in
+[ADR 0018](adr/0018-recipe-generation-route.md).
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
