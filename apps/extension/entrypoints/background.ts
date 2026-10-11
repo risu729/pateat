@@ -20,10 +20,12 @@ import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createVaultPasskeyFinder, createVaultPasskeySource } from "../src/passkeys/vault";
+import { createLoginGeneration } from "../src/service/generation";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
 import {
+  createBrowserGenerationAttemptStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
@@ -99,6 +101,12 @@ export default defineBackground(() => {
         return snapshot;
       }),
   };
+  // A model call can outlast the worker's 30-second idle timeout; an extension API call
+  // resets it, so the answer is not lost with a stopped worker.
+  const keepAlive = <T>(work: Promise<T>): Promise<T> => {
+    const timer = setInterval(() => void browser.runtime.getPlatformInfo(), 20_000);
+    return work.finally(() => clearInterval(timer));
+  };
   const vaultUris = createVaultUriMatcher(connections);
   const vaultFields = createVaultFieldSource(connections);
   const login = createLoginRuntime(loginSettings, {
@@ -109,6 +117,15 @@ export default defineBackground(() => {
     sites: createLoginSites(settings),
     recipes: recipeSync.recipes,
     uris: vaultUris,
+    generation: createLoginGeneration({
+      service,
+      transport: {
+        generateRecipe: (...request) => keepAlive(serviceTransport.generateRecipe(...request)),
+        judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
+      },
+      storage: createBrowserGenerationAttemptStorage(),
+      sync: () => recipeSync.sync(),
+    }),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const vaultPasskeys = createVaultPasskeySource(connections);

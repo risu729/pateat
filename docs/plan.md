@@ -408,7 +408,9 @@ Chrome yet.
   granted host access (a frame also needs its tab's page admitted;
   [ADR 0017](adr/0017-login-forms-in-frames.md)), with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
-  stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
+  stop with `recipe-not-found` before the policy catalog or vault is opened, unless the
+  page qualifies for recipe generation
+  ([ADR 0016](adr/0016-recipe-generation-trigger.md)). Only the
   probe build grants its loopback origin to the probe item and supplies recipes and
   bindings. Recipes and account bindings come from the service cache
   ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The executor looks up the
@@ -855,12 +857,13 @@ The second owner-approved run (2026-10-10, main `d105f76`, cap $2) gave:
 must abstain still do. With one sample per case this cannot show that the refusal will
 not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
-- The extension side of [ADR 0018](adr/0018-recipe-generation-route.md): calling
-  `POST /v1/recipes/generate`, using the returned recipe at once, writing the
-  bindings, and sending the post-login page once to learn `completion`. The service
-  routes, limits and request log are implemented.
-- Calling the extension observation extractor (below) under the automatic send rule
-  of [ADR 0016](adr/0016-recipe-generation-trigger.md).
+- Continuing a generated recipe on the page after an `advance` step, through the
+  generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
+  extension already sends a recipe's first page under the automatic send rule of
+  [ADR 0016](adr/0016-recipe-generation-trigger.md), runs the returned recipe at once
+  with the built-in-slot binding, saves that binding with the account choice after
+  `authenticated`, and sends the page after the final submission once to learn
+  `completion`. The service routes, limits and request log are implemented.
 - A different remembered account, approved by the owner on 2026-10-11: on a step that
   fills a secret but no username, the executor compares the account shown in that
   form and the page headings with the selected account's username, locally only. If
@@ -876,7 +879,7 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
 - A real-page corpus per ADR 0012.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
-`LoginObservation` from a page's DOM; nothing calls it yet. It reads element types,
+`LoginObservation` from a page's DOM for recipe generation. It reads element types,
 locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
 title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
 strings, and refuses a path that carries a session ID (matrix parameters such as
@@ -903,6 +906,12 @@ root marks it incomplete too, as it may be the real login. Links are context onl
 plan check accepts only a button as the page action. Known limits: a read-only
 username shown again on a password step makes that step incomplete, and honeypot
 inputs moved to the right or clipped by `overflow: hidden` stay candidates.
+`extractSignedInObservation` describes the page after a generated recipe's final
+submission the same way, but over the whole page: every field, then buttons and links in
+document order up to 48 candidates. A field it cannot describe marks it incomplete;
+buttons and links past the limit or without a locator are left out, since they are only
+possible sign-in markers. There, an attribute locator that redaction would change counts
+as no locator, so an account number in an `id` is never sent.
 `mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
 pages.
 

@@ -367,11 +367,14 @@ admits non-excluded sites with host access and needs a cached recipe for the exa
 origin before any policy or vault access
 ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the tab's
 page admitted, and its account must match the tab's URL as well as the frame's
-([ADR 0017](adr/0017-login-forms-in-frames.md)). The planned exception is
-recipe generation: a page without a recipe that shows a login field and has a vault URI
-match is observed and sent at most once a day per origin and path
-([ADR 0016](adr/0016-recipe-generation-trigger.md)). Inactive, frozen, discarded,
-and navigated documents are different states; only live documents can execute.
+([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
+tab's own page without a recipe that shows a login field within 10 seconds and has a
+vault URI match is observed and sent at most once a day per origin and path
+([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
+recipe cache and starts at once; after its final submission the resulting page is sent
+once to learn its completion ([ADR 0018](adr/0018-recipe-generation-route.md)).
+Inactive, frozen, discarded, and navigated documents are different states; only live
+documents can execute.
 
 Do not inject `chrome-extension://` iframes, automatic overlays, unlock windows,
 or passkey choosers into the flow. Start with no page UI; use an icon badge and

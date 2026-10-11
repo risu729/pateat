@@ -348,6 +348,30 @@ export async function startLoginFixture(
           `<h1>Synthetic frame host</h1><iframe id="login-frame" title="Synthetic sign-in" src="http://127.0.0.1:${framePort}/single" width="600" height="300"></iframe>`,
         ),
       );
+    } else if (path === "/sign-in") {
+      // A page with no recipe: a generated one fills the password and opens /account. The
+      // page reads its run ID itself, so nothing from the request URL is written into it.
+      response.end(
+        html(
+          '<h1>Synthetic sign-in</h1><form><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button></form>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          const runId = new URLSearchParams(location.search).get('runId');
+          if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});
+          location.href = '/account';
+        });`,
+        ),
+      );
+    } else if (path === "/account") {
+      response.end(
+        html(
+          "<h1>Synthetic account</h1>",
+          `document.body.insertAdjacentHTML('afterbegin', sessionStorage.getItem('passwordMatched') === 'true'
+          ? '<h2 id="signed-in">Your synthetic account</h2><button id="sign-out" type="button">Sign out</button>'
+          : '<h2 id="rejected">Credentials rejected</h2>');`,
+        ),
+      );
     } else if (path === "/ambiguous") {
       response.end(
         html(
