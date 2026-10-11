@@ -373,22 +373,55 @@ describe("response admission and diagnostics", () => {
     ).toEqual({ ok: true, data: unknown });
   });
 
-  it.each(["legacy", "password"] as const)(
-    "rejects a response for the other prelogin mode: %s",
-    async (mode) => {
-      const fetch = vi
-        .fn<Fetch>()
-        .mockResolvedValue(jsonResponse(mode === "legacy" ? passwordPrelogin : legacyPrelogin));
-      expect(
-        await transport(fetch).prelogin({
-          connectionId: cloudProfile.connectionId,
-          email: "synthetic@example.test",
-          mode,
-        }),
-      ).toEqual({ ok: false, error: { code: "invalid-response" } });
-      expect(fetch).toHaveBeenCalledTimes(1);
-    },
-  );
+  it("rejects a password-prelogin envelope on the legacy route", async () => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse(passwordPrelogin));
+    expect(
+      await transport(fetch).prelogin({
+        connectionId: cloudProfile.connectionId,
+        email: "synthetic@example.test",
+        mode: "legacy",
+      }),
+    ).toEqual({ ok: false, error: { code: "invalid-response" } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    legacyPrelogin,
+    { ...legacyPrelogin, kdfSettings: null, salt: null },
+    { kdf: 1, kdfIterations: 3, kdfMemory: 64, kdfParallelism: 4 },
+  ])("accepts flat KDF fields on the password route without kdfSettings %#", async (body) => {
+    // Bitwarden Cloud US (2026.9.2) answered /accounts/prelogin/password with legacyPrelogin.
+    const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse(body));
+    expect(
+      await transport(fetch).prelogin({
+        connectionId: cloudProfile.connectionId,
+        email: "synthetic@example.test",
+        mode: "password",
+      }),
+    ).toEqual({ ok: true, data: body });
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      "https://identity.bitwarden.com/accounts/prelogin/password",
+    );
+  });
+
+  it.each([
+    {},
+    { salt: "synthetic-salt" },
+    { kdfSettings: null, kdf: null, kdfIterations: null },
+    { kdf: 0, kdfIterations: null },
+    { kdf: null, kdfIterations: 600_000 },
+    { kdf: 1, kdfIterations: 3, kdfMemory: 64 },
+    { kdf: 1, kdfIterations: 3, kdfParallelism: 4 },
+  ])("rejects a password prelogin without any complete KDF settings %#", async (body) => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse(body));
+    expect(
+      await transport(fetch).prelogin({
+        connectionId: cloudProfile.connectionId,
+        email: "synthetic@example.test",
+        mode: "password",
+      }),
+    ).toEqual({ ok: false, error: { code: "invalid-response" } });
+  });
 
   it.each([
     "object",

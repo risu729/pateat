@@ -44,6 +44,24 @@ describe("local password authentication known answers", () => {
     ).toEqual({ ok: true, data: { connectionId, masterPasswordHash: argon2Auth.expected } });
   });
 
+  it("derives from flat KDF fields and the email salt when password prelogin omits kdfSettings", async () => {
+    expect(
+      await derivePasswordAuthentication(
+        modern({ kdf: 0, kdfIterations: 100_000, kdfMemory: null, kdfParallelism: null }),
+        sdk,
+      ),
+    ).toEqual({ ok: true, data: { connectionId, masterPasswordHash: pbkdf2Auth.expected } });
+    expect(
+      await derivePasswordAuthentication(
+        {
+          ...modern({ kdf: 1, kdfIterations: 4, kdfMemory: 32, kdfParallelism: 2, salt: null }),
+          email: argon2Auth.salt,
+        },
+        sdk,
+      ),
+    ).toEqual({ ok: true, data: { connectionId, masterPasswordHash: argon2Auth.expected } });
+  });
+
   it("normalizes the explicit modern authentication salt independently of email", async () => {
     expect(
       await derivePasswordAuthentication(
@@ -169,6 +187,9 @@ describe("local authentication admission and cancellation", () => {
     { ...input(), password: "\uDC00" },
     { ...input(), email: "\uD800" },
     modern({ kdfSettings: { kdfType: 0, iterations: 100_000 }, salt: "\uD800" }),
+    modern({ kdf: 0, kdfIterations: 4999 }),
+    modern({ kdf: 1, kdfIterations: 4, kdfMemory: 32 }),
+    modern({ salt: "synthetic" }),
   ])("rejects malformed authentication input before SDK derivation %#", async (request) => {
     const derive = vi.spyOn(sdk.PureCrypto, "derive_kdf_material");
     expect(await derivePasswordAuthentication(request, sdk)).toEqual({

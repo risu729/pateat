@@ -39,7 +39,7 @@ function newInput(): Extract<SetupBegin, { kind: "new" }> {
   };
 }
 const closers: (() => unknown)[] = [];
-function harness(options: { existing?: boolean } = {}) {
+function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
   let clock = accountNow * 1000;
   let permission = true;
   let durable: VaultEntry | null = options.existing ? activeEntry() : null;
@@ -81,7 +81,10 @@ function harness(options: { existing?: boolean } = {}) {
     let body: unknown;
     let status = 200;
     if (stage === "prelogin")
-      body = { kdfSettings: { kdfType: 0, iterations: 100_000 }, salt: v1Email };
+      body = options.prelogin ?? {
+        kdfSettings: { kdfType: 0, iterations: 100_000 },
+        salt: v1Email,
+      };
     else if (stage === "token") {
       const next = tokenResponses.shift();
       body = next?.body ?? raw.token;
@@ -295,6 +298,20 @@ describe("options setup composition using the fixed real transport", () => {
     noSecrets(result);
     noSecrets([...h.configurations.values()]);
     expect(h.policy.adopt.mock.calls[0]?.[0].catalog.items[0]?.allowedOrigins).toEqual([]);
+  });
+  it("completes setup when password prelogin answers only the flat KDF fields", async () => {
+    // Bitwarden Cloud US (2026.9.2) answered /accounts/prelogin/password in this shape.
+    const prelogin = { kdf: 0, kdfIterations: 600_000, kdfMemory: null, kdfParallelism: null };
+    const h = harness({ prelogin });
+    const result = await h.caller.begin(newInput());
+    expect(result).toMatchObject({ ok: true, kind: "ready" });
+    expect(h.fetch.mock.calls[0]?.[0]).toBe(
+      "https://identity.bitwarden.com/accounts/prelogin/password",
+    );
+    expect(h.host.deriveAuthentication).toHaveBeenCalledWith(
+      expect.objectContaining({ prelogin: { mode: "password", response: prelogin } }),
+      expect.any(AbortSignal),
+    );
   });
   it("a missing provider permission performs no HTTP or expensive crypto", async () => {
     const h = harness();

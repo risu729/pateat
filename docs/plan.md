@@ -133,7 +133,13 @@ WebCrypto for the protocol's one-iteration hash, with independent upstream
 answers and a synthetic MV3 probe. Authentication prelogin parameters remain
 separate from vault-unlock parameters. The pinned SDK's transitional missing/null
 prelogin-salt fallback uses normalized email; present-empty salt and unknown KDFs
-are rejected, and no alternate endpoint is tried automatically.
+are rejected, and no alternate endpoint is tried automatically. The password
+prelogin route also accepts the flat `kdf`/`kdfIterations`/`kdfMemory`/`kdfParallelism`
+fields when `kdfSettings` is absent or null, which the server model allows until its
+PM-28143 cleanup. On 2026-10-11 Bitwarden Cloud US (server 2026.9.2) answered
+`/accounts/prelogin/password` for a real account with only those flat fields
+(`{"kdf":0,"kdfIterations":600000,"kdfMemory":null,"kdfParallelism":null}`), and setup
+had stopped with `invalid-response` because `kdfSettings` was required.
 
 The transport supports explicit manual authenticator/email codes and new-device
 OTP submission as request shapes. Challenge, rejection and interactive/unsupported

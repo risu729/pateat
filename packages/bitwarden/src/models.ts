@@ -30,14 +30,25 @@ const legacyPreloginSchema = v.pipe(
   }),
   v.check((value) => value.kdf !== 1 || (value.kdfMemory != null && value.kdfParallelism != null)),
 );
-const passwordPreloginSchema = v.looseObject({
-  ...fields,
-  kdfSettings: kdfSettingsSchema,
-  kdf: v.optional(v.nullable(kdfType)),
-  kdfIterations: v.optional(v.nullable(positiveInteger)),
-  kdfMemory: optionalParameter,
-  kdfParallelism: optionalParameter,
-});
+// The server declares kdfSettings nullable until its PM-28143 cleanup, and Bitwarden Cloud US
+// (2026.9.2) answers this route with only the flat fields, so those stand in for it then.
+const passwordPreloginSchema = v.pipe(
+  v.looseObject({
+    ...fields,
+    kdfSettings: v.optional(v.nullable(kdfSettingsSchema)),
+    kdf: v.optional(v.nullable(kdfType)),
+    kdfIterations: v.optional(v.nullable(positiveInteger)),
+    kdfMemory: optionalParameter,
+    kdfParallelism: optionalParameter,
+  }),
+  v.check(
+    (value) =>
+      value.kdfSettings != null ||
+      (value.kdf != null &&
+        value.kdfIterations != null &&
+        (value.kdf !== 1 || (value.kdfMemory != null && value.kdfParallelism != null))),
+  ),
+);
 export type PreloginResponse =
   | v.InferOutput<typeof legacyPreloginSchema>
   | v.InferOutput<typeof passwordPreloginSchema>;
