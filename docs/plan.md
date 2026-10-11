@@ -383,7 +383,9 @@ Chrome yet.
   every vault was searched and it does not match `origin/`, the row says so; otherwise
   the row keeps the neutral note. Either way it shows no username. The background
   answers these lookups one at a time, since a vault's crypto Worker takes one job at a
-  time.
+  time. The owner confirmed both the picker and the saved row against a real vault in
+  the installed Chrome on 2026-10-11
+  ([evidence](research/2026-10-10-feasibility.md#default-account-picker-on-a-real-vault-2026-10-11)).
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
