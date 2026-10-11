@@ -2,19 +2,44 @@ amends "https://raw.githubusercontent.com/risu729/hk-config/v3.1.0/presets.pkl"
 
 import "https://raw.githubusercontent.com/risu729/hk-config/v3.1.0/helpers.pkl"
 
-steps = (helpers.pick(new Listing {
-  "oxlint"
-  "oxfmt"
-  "github-actions"
-  "tombi"
-  "rumdl"
-  "yaml"
-  "typos"
-  "hygiene"
-})) {
+steps = (
+  helpers.pick(new Listing {
+    "oxlint"
+    "oxfmt"
+    "github-actions"
+    "tombi"
+    "rumdl"
+    "yaml"
+    "typos"
+    "hygiene"
+    "mise"
+    "hk-validate"
+    "pkl-format"
+    "betterleaks"
+  })
+) {
   ["typos"] {
     // The builtin diff wrapper uses POSIX shell syntax; checks/fixes work on Windows.
     check_diff = null
+  }
+  ["betterleaks"] {
+    // Fixtures, tests and the synthetic corpus hold low-confidence generic matches
+    // (password: "password"); report only medium- and high-confidence secret formats.
+    check {
+      command {
+        argv =
+          List(
+            "betterleaks",
+            "dir",
+            "--redact",
+            "--verbose",
+            "--no-banner",
+            "--confidence",
+            "medium",
+            "{{files}}",
+          )
+      }
+    }
   }
   ["runtime"] {
     check = "mise run check:runtime"
