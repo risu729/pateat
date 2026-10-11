@@ -529,11 +529,9 @@ describe("extractLoginObservation", () => {
       .attachShadow({ mode: "open" }).innerHTML = `<input id="u"><input id="p" type="password">`;
     expect(observe().complete).toBe(false);
     page(`<form id="f"><input id="u"><button id="go">Go</button></form><div id="host"></div>`);
-    document
-      .querySelector("#host")!
-      .attachShadow({
-        mode: "open",
-      }).innerHTML = `<label>Analytics <input type="checkbox"></label>`;
+    document.querySelector("#host")!.attachShadow({
+      mode: "open",
+    }).innerHTML = `<label>Analytics <input type="checkbox"></label>`;
     expect(observe().complete).toBe(true);
   });
 
