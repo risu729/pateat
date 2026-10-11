@@ -108,9 +108,12 @@ Once the fixes have settled:
 
 ### Phase 4: issues and work as needed
 
-The remaining tasks become GitHub issues, and each is built when it is needed. Issues
-get their own priority and area labels, and GitHub's default labels may be removed. No
-issues are created before this phase.
+At the start of this phase, every task still open in this plan and in the ADRs becomes a
+GitHub issue: later work, deferred and not-handled items, open checks and proposals, not
+only the items listed below. Each is then built when it is needed. Issues get their own
+priority and area labels, and GitHub's default labels may be removed. No issues are
+created before this phase. The list below names items the owner mentioned and gates
+still open on 2026-10-11.
 
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
