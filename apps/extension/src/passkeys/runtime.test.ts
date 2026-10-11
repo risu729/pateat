@@ -6,6 +6,7 @@ import {
   type PasskeyChooser,
   type PasskeySource,
 } from "./runtime";
+import type { PasskeyCandidates } from "./select";
 import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS } from "./wire";
 import { snapshotGetOptions } from "./page";
 
@@ -421,9 +422,9 @@ describe("passkey chooser window", () => {
       ambiguous,
     );
     expect(await runtime.handle(get(undefined, true, false), sender())).toEqual(ambiguous);
-    expect(
-      await runtime.handle(get(), sender({ documentLifecycle: "prerender" })),
-    ).toEqual(ambiguous);
+    expect(await runtime.handle(get(), sender({ documentLifecycle: "prerender" }))).toEqual(
+      ambiguous,
+    );
     const counted = createPasskeyRuntime(
       source({
         candidates: vi.fn(async () => ({
@@ -490,42 +491,50 @@ describe("passkey chooser window", () => {
   });
 
   it("skips the window when little of the wait is left, and gives signing its own budget", async () => {
-    vi.useFakeTimers();
-    try {
-      const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-      const choose = chooser(async () => {
-        await delay(9_000);
-        return { kind: "chosen", index: 0, makeDefault: false };
-      });
-      const slowLookup = several({
-        candidates: vi.fn(async () => {
-          await delay(6_000);
-          return { candidates: pair, complete: true };
-        }),
-      });
-      const late = createPasskeyRuntime(slowLookup, { extensionId, chooser: choose });
-      const skipped = late.handle({ ...get(), request: { ...request, timeout: 10_000 } }, sender());
-      await vi.advanceTimersByTimeAsync(6_000);
-      expect(await skipped).toEqual({ kind: "delegate", reason: "ambiguous-credential" });
-      expect(choose.choose).not.toHaveBeenCalled();
-
-      // Chosen 1 s before the deadline; signing still has its own 10 s.
-      const slowSign = several({
-        sign: vi.fn(async () => {
-          await delay(3_000);
-          return Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01);
-        }),
-      });
-      const runtime = createPasskeyRuntime(slowSign, { extensionId, chooser: choose });
-      let signed: unknown;
-      void runtime
-        .handle({ ...get(), request: { ...request, timeout: 10_000 } }, sender())
-        .then((result) => (signed = result));
-      // Hashing settles outside fake time, so step the clock until the answer arrives.
-      for (let step = 0; step < 30 && signed === undefined; step++)
+    // Only the runtime's timers are fake; hashing and polling run on real time.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
+    const until = async (condition: () => boolean) => {
+      for (let step = 0; step < 1000 && !condition(); step++)
         // eslint-disable-next-line no-await-in-loop
-        await vi.advanceTimersByTimeAsync(1_000);
-      expect(signed).toMatchObject({ kind: "assertion" });
+        await tick();
+      expect(condition()).toBe(true);
+    };
+    try {
+      let lookedUp!: (value: PasskeyCandidates) => void;
+      const slowLookup = several({
+        candidates: vi.fn(() => new Promise<PasskeyCandidates>((resolve) => (lookedUp = resolve))),
+      });
+      const unused = chooser(async () => ({ kind: "closed" }));
+      const late = createPasskeyRuntime(slowLookup, { extensionId, chooser: unused });
+      const skipped = late.handle({ ...get(), request: { ...request, timeout: 10_000 } }, sender());
+      await until(() => lookedUp !== undefined);
+      await vi.advanceTimersByTimeAsync(6_000);
+      lookedUp({ candidates: pair, complete: true });
+      expect(await skipped).toEqual({ kind: "delegate", reason: "ambiguous-credential" });
+      expect(unused.choose).not.toHaveBeenCalled();
+
+      // Chosen 0.5 s before the chooser's deadline; signing still has its own 10 s.
+      let choose!: (choice: PasskeyChoice) => void;
+      let signed!: (signature: Uint8Array) => void;
+      const signing = several({
+        sign: vi.fn(() => new Promise<Uint8Array>((resolve) => (signed = resolve))),
+      });
+      const runtime = createPasskeyRuntime(signing, {
+        extensionId,
+        chooser: chooser(() => new Promise<PasskeyChoice>((resolve) => (choose = resolve))),
+      });
+      const answer = runtime.handle(
+        { ...get(), request: { ...request, timeout: 10_000 } },
+        sender(),
+      );
+      await until(() => choose !== undefined);
+      await vi.advanceTimersByTimeAsync(9_500);
+      choose({ kind: "chosen", index: 0, makeDefault: false });
+      await until(() => signed !== undefined);
+      await vi.advanceTimersByTimeAsync(1_000);
+      signed(Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01));
+      expect(await answer).toMatchObject({ kind: "assertion" });
     } finally {
       vi.useRealTimers();
     }

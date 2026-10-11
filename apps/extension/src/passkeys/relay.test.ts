@@ -141,17 +141,20 @@ describe("isolated passkey relay", () => {
     ["a focused, visible", "visible", true, true],
     ["a hidden", "hidden", true, false],
     ["an unfocused", "visible", false, false],
-  ])("reports %s document as focused only when it is both", async (_name, visibility, focus, expected) => {
-    const { scope } = fakeWindow();
-    vi.stubGlobal("document", {
-      featurePolicy: { allowsFeature: () => true },
-      visibilityState: visibility,
-      hasFocus: () => focus,
-    });
-    const send = vi.fn(async () => ({ kind: "delegate", reason: "no-credential" }));
-    installPasskeyRelay(send);
-    scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id, request: { challenge: "AA" } });
-    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ focused: expected }));
-  });
+  ])(
+    "reports %s document as focused only when it is both",
+    async (_name, visibility, focus, expected) => {
+      const { scope } = fakeWindow();
+      vi.stubGlobal("document", {
+        featurePolicy: { allowsFeature: () => true },
+        visibilityState: visibility,
+        hasFocus: () => focus,
+      });
+      const send = vi.fn(async () => ({ kind: "delegate", reason: "no-credential" }));
+      installPasskeyRelay(send);
+      scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id, request: { challenge: "AA" } });
+      await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ focused: expected }));
+    },
+  );
 });
