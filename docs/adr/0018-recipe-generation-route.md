@@ -57,7 +57,7 @@ The route follows from these and from ADRs 0013 to 0016:
   appended to the same recipe in a new revision.
 - The extension writes the slot-to-field bindings itself and uploads them with settings
   sync; the service never sees item IDs.
-- Limits per owner: $150 a month (the ADR 0014 default, estimated from returned usage
+- Limits per owner: $100 a month (the ADR 0014 default, estimated from returned usage
   and a versioned price table), $5 a day (UTC), one call at a time, and the ADR 0016
   24-hour rule per origin and path, enforced again on the service. The owner replaced
   the first limit of 50 calls a day with the daily amount on 2026-10-11.
