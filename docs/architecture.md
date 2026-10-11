@@ -440,12 +440,12 @@ installed Chrome on 2026-10-11 (main 863ad90 or later).
 
 ## Declarative recipes and AI
 
-Share Valibot contracts for observations, recipes, inference results, and sync.
-A recipe contains schema/version, allowed origin/path applicability, structural
-fingerprint, semantic slots, stable element candidates, bounded steps, an optional
-completion and a failure condition, and provenance. The vocabulary is packaged code such as
-fill, click, wait-for-state, and assert-state. There is no eval, remote JavaScript,
-arbitrary fetch, or model-selected secret destination.
+Share Valibot contracts for observations, recipes, inference results, and sync. A recipe
+contains schema/version, allowed origin/path applicability, structural fingerprint,
+semantic slots, stable element candidates, bounded steps, an optional completion and a
+failure condition, and provenance. The vocabulary is packaged code such as fill, click,
+wait-for-state, and assert-state. There is no eval, remote JavaScript, arbitrary fetch,
+or model-selected secret destination.
 
 A generated recipe has no completion target until the page after its first sign-in
 is judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
