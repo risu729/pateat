@@ -137,8 +137,8 @@ its single stored credential is eligible as below. Then:
    is one of them.
 3. Several matches and no such default: Pateat never picks one. It opens its chooser
    window ([ADR 0021](0021-account-choice-outside-settings.md)) and delegates when the
-   user closes it, picks the browser, or no window opens (incognito, a hidden or unfocused
-   page, or another request holds it).
+   user closes it, picks the browser, or no window opens (incognito, a hidden or
+   unfocused page, or another request holds it).
 
 Matches are counted after the request's allow list, or its discoverable-credential
 requirement, narrows them. A passkey-only item with no fields is eligible; an item whose

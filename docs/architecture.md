@@ -391,8 +391,8 @@ the flow. There is no page UI; use an icon badge, the toolbar popup and manually
 settings. The one extension window is the passkey chooser of
 [ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
 with several matches from a focused page, and never in incognito. Do not attach our own
-debugger in normal operation. Another installed extension can still inject a conflicting frame; coexistence
-requires an explicit compatibility test and documented settings.
+debugger in normal operation. Another installed extension can still inject a conflicting
+frame; coexistence requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->
 awaiting-result -> authenticated / retryable / blocked. One writer owns an
@@ -718,12 +718,13 @@ RP ID. The probe build adds `http://localhost/*` scripts and a synthetic test-ve
 for that origin.
 
 When several signable passkeys match and none is the site default, the background opens
-the chooser window `passkey-picker.html` ([ADR 0021](adr/0021-account-choice-outside-settings.md))
-with `chrome.windows.create`. It shows only item names, passkey user names and
-connection labels. The background answers its messages only from that page, for the
-request token in its URL and from the window it opened, and keeps the worker alive while
-the window waits. Choosing signs with that passkey; a ticked checkbox then saves it as
-the origin's site default. Any other ending delegates to the browser.
+the chooser window `passkey-picker.html`
+([ADR 0021](adr/0021-account-choice-outside-settings.md)) with `chrome.windows.create`.
+It shows only item names, passkey user names and connection labels. The background
+answers its messages only from that page, for the request token in its URL and from the
+window it opened, and keeps the worker alive while the window waits. Choosing signs with
+that passkey; a ticked checkbox then saves it as the origin's site default. Any other
+ending delegates to the browser.
 
 ## Minimal service
 
