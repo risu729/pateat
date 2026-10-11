@@ -529,6 +529,8 @@ the real settings store over in-memory storage; no running service has been trie
   optional `launchWebAuthFlow` variant.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
+- The owner web UI for settings, bindings and recipes is designed
+  ([architecture](architecture.md#owner-web-ui)) but not implemented.
 - Inference adapters, spending accounting and the release artifact's migration SQL
   remain separate slices.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
