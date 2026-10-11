@@ -37,14 +37,19 @@ fix them now; the SSO policy itself is recorded separately.
   `account-switched` exception of ADR 0016 stays.
 - **A tab still runs one attempt at a time.** When a new top-level page of another
   origin arrives while the tab's top-level attempt has not ended, that attempt ends
-  first (`NAVIGATED`) and keeps its record; then the new page is handled like a page in
-  a fresh tab. Frame attempts keep ADR 0017's rule: a whole-tab navigation ends them
-  `blocked` with outcome `cancelled`.
+  first (`NAVIGATED`) and keeps its record; then the new top-level page is handled like
+  one in a fresh tab. Frames are not: as before, a frame of a later page gets `tab-busy`
+  while the tab holds an earlier record. Frame attempts keep ADR 0017's rule: a
+  whole-tab navigation ends them `blocked` with outcome `cancelled`. A frame that itself
+  moves to another origin does not end its attempt; it ends with the next whole-tab
+  navigation or when the tab closes, as before.
 - **Leaving the origin after a possible submission ends the attempt.** A top-level
   attempt that may have submitted (any fill or a click that submitted) and sees the
   tab's page move to another origin ends `blocked` with the new outcome `left-origin`.
   Without a possible submission it ends `interrupted`. Neither is `authenticated`, so no
-  account choice is saved, and neither is retried.
+  account choice is saved, and neither is retried. For the logout detection of
+  [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
+  like unknown outcomes.
 - **The origin hold is unchanged.** A record of an origin in another tab, in any state,
   still refuses a new attempt there with `origin-busy` until that tab closes
   ([Background execution](../architecture.md#background-execution)).

@@ -464,7 +464,8 @@ target matches exactly one shown link or button that does not submit a form, the
 background first records the attempt as `account-switched` (blocked, no submission
 spent) and then has the content script click it. The click happens only within 10
 seconds, on the same path, while the target still matches exactly that element;
-otherwise the record becomes `wrong-account` and keeps holding the tab. After the click,
+otherwise the record becomes `wrong-account` and keeps holding that origin in the tab.
+After the click,
 the tab's next document of that origin that reports ready starts a new attempt instead
 of resuming, so
 a recipe that starts on the page the switch leads to logs in, such as an email page at
@@ -596,8 +597,9 @@ A generated recipe has no completion target until the page after its first sign-
 is judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
 never reports `authenticated` with it: a submission ends `credential-rejected`, moves
 to a later step, or stays unknown (`unknown-submit`), so no account choice is saved.
-An unknown attempt stays in `reconciling` until its tab closes or moves to another
-origin (`left-origin`, ADR 0022): meanwhile it holds the origin, blocks saving account
+An unknown attempt stays in `reconciling` until its tab closes or, for a top-level
+attempt, until the tab shows a page of another origin that Pateat may run on
+(`left-origin`, ADR 0022): meanwhile it holds the origin, blocks saving account
 choices from other tabs and defers settings sync for up to two minutes per run. The
 service can judge the page after the final submission, which settles such attempts, but
 the extension does not send it yet.

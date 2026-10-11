@@ -92,9 +92,10 @@ In incognito no window opens and the request is delegated as before.
 
 Once a Pateat login in a tab has finished, the next appearance of a recipe's first step
 for the same origin in that same tab counts as a logout. "Finished" includes
-`authenticated`, `credential-rejected`, `wrong-account` and unknown outcomes. On that
-appearance Pateat does not log in automatically. It asks for an account as in B, with
-the default listed first.
+`authenticated`, `credential-rejected`, `wrong-account` and unknown outcomes, and since
+[ADR 0022](0022-login-attempts-per-tab-and-origin.md) `left-origin` and `interrupted`.
+On that appearance Pateat does not log in automatically. It asks for an account as in B,
+with the default listed first.
 
 Only that tab's own finished attempt record is released. Another tab holding an attempt
 for the origin still blocks with `origin-busy`, because cookies are shared across tabs;

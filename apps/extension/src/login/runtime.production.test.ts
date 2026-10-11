@@ -1048,6 +1048,34 @@ describe("production login document admission", () => {
         fake.browser.tabs.query = query;
       }
     });
+    it("ends a running attempt left behind by a restart when the tab moves to another origin", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(at(origin)).toMatchObject({ state: "submit-intent", submissions: 1 });
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        fake.state.onExecute = undefined;
+        const restarted = twoSites();
+        // The restart only observes the attempt it found; it is still running.
+        expect(await restarted.login.active()).toBe(true);
+        expect(at(origin)).toMatchObject({ state: "reconciling", outcome: "unknown-submit" });
+        expect(await navigate(restarted, secondUrl, "second-document")).toEqual({ ok: true });
+        expect(at(origin)).toMatchObject({
+          state: "blocked",
+          outcome: "left-origin",
+          submissions: 1,
+        });
+        await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+        expect(stored()).toHaveLength(2);
+        expect(await restarted.login.active()).toBe(false);
+        expect(executes()).toHaveLength(4);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
     it("treats two stored records of one tab and origin as unavailable storage", async () => {
       const h = twoSites();
       expect(await h.hello()).toEqual({ ok: true });
