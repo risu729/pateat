@@ -203,7 +203,7 @@ export function ServiceConnection({
         {message}
       </output>
       {corrupt && (
-        <div>
+        <div className="mt-3">
           <Button
             id="sync-service-forget"
             type="button"
