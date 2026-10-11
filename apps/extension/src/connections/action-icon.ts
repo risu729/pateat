@@ -1,4 +1,7 @@
 // The toolbar icon shows whether Pateat can log in without asking for a password.
+import type { VaultEntry, VaultResult } from "../vault/record";
+import type { DurableVaultStore } from "../vault/storage";
+
 export type VaultRecordState = "active" | "disabled" | "absent" | "unreadable";
 export type ActionIconState = "unlocked" | "locked";
 
@@ -13,6 +16,20 @@ export const ACTION_ICON_PATHS: Record<ActionIconState, Record<16 | 32, string>>
  */
 export function actionIconState(states: readonly VaultRecordState[]): ActionIconState {
   return states.length > 0 && states.every((state) => state === "active") ? "unlocked" : "locked";
+}
+
+export function vaultRecordState(record: VaultResult<VaultEntry | null>): VaultRecordState {
+  if (!record.ok) return "unreadable";
+  return record.data?.state ?? "absent";
+}
+
+/** Notifies after every write attempt; one that reports failure may still have landed. */
+export function notifyingVaultStore<T extends DurableVaultStore>(store: T, notify: () => void): T {
+  return {
+    ...store,
+    compareAndSwap: (...args: Parameters<DurableVaultStore["compareAndSwap"]>) =>
+      store.compareAndSwap(...args).finally(notify),
+  };
 }
 
 export function createActionIcon(deps: {

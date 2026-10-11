@@ -51,7 +51,7 @@ export default defineBackground(() => {
           containsPermission: syntheticSetup.containsPermission,
         }
       : {}),
-    onSetupSettled: () => void actionIcon.refresh(),
+    onVaultStateMayChange: () => void actionIcon.refresh(),
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({

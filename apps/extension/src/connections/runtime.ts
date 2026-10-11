@@ -13,7 +13,7 @@ import { createLocalSettingsRuntime } from "../settings";
 import { createIndexedDbVaultStore } from "../vault/storage";
 import { createLocalVaultManager } from "../vault/manager";
 import { vaultFailure } from "../vault/record";
-import type { VaultRecordState } from "./action-icon";
+import { notifyingVaultStore, vaultRecordState, type VaultRecordState } from "./action-icon";
 import { createBrowserConnectionRegistry } from "./registry";
 import { createConnectionPolicy, quarantinedItems } from "./policy";
 import { providerPermissionOrigins } from "./permissions";
@@ -30,8 +30,11 @@ export function createConnectionRuntime(
     transportOptions?: BitwardenTransportOptions;
     containsPermission?: (profile: BitwardenProfile) => Promise<boolean>;
     baseCatalog?: VaultCatalog;
-    /** Called after each setup request settles; vault records may have changed. */
-    onSetupSettled?: () => void;
+    /**
+     * Called after each vault record write and each setup request settles, since
+     * either can change which connections unlock automatically.
+     */
+    onVaultStateMayChange?: () => void;
   } = {},
 ) {
   const registry = options.registry ?? createBrowserConnectionRegistry();
@@ -53,7 +56,9 @@ export function createConnectionRuntime(
   } {
     const prior = vaults.get(profile.connectionId);
     if (prior) return prior;
-    const store = createIndexedDbVaultStore({ profile });
+    const store = notifyingVaultStore(createIndexedDbVaultStore({ profile }), () =>
+      options.onVaultStateMayChange?.(),
+    );
     const manager = createLocalVaultManager({ profile, host, store });
     const value = { store, manager };
     vaults.set(profile.connectionId, value);
@@ -222,7 +227,7 @@ export function createConnectionRuntime(
         .catch(() => ({ ok: false as const, error: { code: "setup-unavailable" as const } }))
         .then((reply) => {
           pending -= 1;
-          options.onSetupSettled?.();
+          options.onVaultStateMayChange?.();
           if (connected) {
             try {
               port.postMessage({ requestId: request.requestId, result: reply });
@@ -239,11 +244,9 @@ export function createConnectionRuntime(
   async function vaultStates(): Promise<VaultRecordState[]> {
     const configurations = await registry.list();
     return Promise.all(
-      configurations.map(async (configuration) => {
-        const record = await vaultFor(configuration.profile).store.read();
-        if (!record.ok) return "unreadable";
-        return record.data?.state ?? "absent";
-      }),
+      configurations.map(async (configuration) =>
+        vaultRecordState(await vaultFor(configuration.profile).store.read()),
+      ),
     );
   }
   return {
