@@ -7,3 +7,16 @@ export { evaluationCorpus, type EvaluationCase, type ExpectedResult } from "./co
 export { slots as corpusSlots } from "./corpus/slots";
 export * from "./evaluate";
 export * from "./values";
+export {
+  completionInstructions,
+  createCompletionJudge,
+  judgedPageSchema,
+  type CompletionRequest,
+  type SignInJudgement,
+} from "./completion";
+export {
+  addCompletion,
+  appendPageSteps,
+  type AssemblyRejection,
+  type CompletionRejection,
+} from "./assemble";

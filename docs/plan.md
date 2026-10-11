@@ -755,6 +755,26 @@ carries synthetic values. The vault adapter and runtime do not supply these hint
 `valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
 resolve Linked fields and never pass Hidden, password or TOTP values.
 
+For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
+generated recipe one page at a time: the first page starts it at revision 1, and a later
+page is appended only after a step that advances, within the contract's bounds. The
+recipe's slots are the ones its steps fill. `createCompletionJudge` sends the page shown
+after the final submission, with the login paths, and returns `signed-in` with a button
+or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown marker,
+one that is not a button or link, or a page that still has a password input not marked
+`new-password` or a field marked `username`, `current-password` or `one-time-code` fails
+as `invalid-output`. `addCompletion` stores the marker as the recipe's `completion` in
+the next revision. It refuses a marker that is not on the judged page, a page on another
+origin, a marker one of the recipe's own steps uses on that path, and a page that still
+shows an element a step uses on that path or a field any step fills. A failed sign-in
+that shows the form again with the same locators, on its own path or where the form
+posted, is then not learned as signed in. A site that signs in on the login page's own
+path learns its completion only once that form is gone, and the completion then lists
+that path's fill fields as `absent` (at most four), which the executor requires to be
+missing. Both roles share
+`runStructuredRole` for metering, timeouts and disabled telemetry. The service route and
+the extension do not call these functions yet.
+
 A 16-page synthetic Japanese/English corpus covers bank branch/account/password
 (including an unlabeled page distinguishable only by length),
 identifier-first and password steps, one-time codes, decoy search/sign-up/SSO controls,

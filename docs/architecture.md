@@ -479,6 +479,17 @@ tabs and defers settings sync for up to two minutes per run. Sending the page af
 the final submission for judgment, which settles such attempts, is the next step of
 ADR 0018 and is not implemented yet.
 
+A completion may also list up to four `absent` elements. The executor reports
+`authenticated` only when the completion target is unique on its path and every
+`absent` element is missing. A learned completion on a page that signs in on its own
+path lists that path's sign-in fields there, because the executor checks the completion
+after every step and counts hidden elements: a login page that keeps a hidden
+"Sign out" link never counts as signed in. A site that keeps its sign-in inputs hidden
+in the page after signing in therefore never reports `authenticated` with such a
+completion; its attempts stay unknown. A recipe's completion and absent elements,
+its rejection and any one step's elements together stay within one 24-element
+observation.
+
 A step names its element with an allowlisted locator, never CSS: an `id` or `name`
 (any ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), or, for a click or a state check

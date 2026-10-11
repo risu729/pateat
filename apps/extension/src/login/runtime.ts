@@ -696,20 +696,22 @@ export function createLoginRuntime(
     const nextTargets =
       next?.kind === "fill" ? next.fields.map((field) => field.target) : next ? [next.target] : [];
     const { completion, rejection } = run.recipe;
-    const targets = [
-      ...(completion ? [completion.target] : []),
-      ...(rejection ? [rejection] : []),
-      ...nextTargets,
-    ];
+    const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
+    const targets = [...proof, ...(rejection ? [rejection] : []), ...nextTargets];
     const observed = await observe(run, targets);
     if (!observed) return;
     // Without a completion target nothing proves a sign-in, so the attempt can settle
     // only as rejected, continued or unknown.
-    if (completion && observed.path === completion.path && observed.targets[0] === "unique") {
+    if (
+      completion &&
+      observed.path === completion.path &&
+      observed.targets[0] === "unique" &&
+      observed.targets.slice(1, proof.length).every((state) => state === "missing")
+    ) {
       await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
       return;
     }
-    const rejectionIndex = completion ? 1 : 0;
+    const rejectionIndex = proof.length;
     if (rejection && observed.targets[rejectionIndex] === "unique") {
       await change(run, {
         type: "OBSERVED",

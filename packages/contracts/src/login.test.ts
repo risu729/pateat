@@ -74,6 +74,39 @@ describe("declarative login boundaries", () => {
     expect(parseLoginRecipe(recipe())).toEqual(recipe());
     expect(parseLoginAccountBinding(binding())).toEqual(binding());
   });
+  it("bounds the elements a completion requires to be absent", () => {
+    const base = recipe();
+    const absent = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({ by: "id" as const, value: `f${index}` }));
+    const withAbsent = (targets: unknown[]) => ({
+      ...base,
+      completion: { ...base.completion, absent: targets },
+    });
+    expect(parseLoginRecipe(withAbsent(absent(4))).completion?.absent).toHaveLength(4);
+    expect(() => parseLoginRecipe(withAbsent([]))).toThrow();
+    expect(() => parseLoginRecipe(withAbsent(absent(5)))).toThrow();
+    expect(() => parseLoginRecipe(withAbsent([...absent(1), ...absent(1)]))).toThrow();
+    // A step's elements and the result elements share one 24-element observation.
+    const wide = {
+      ...withAbsent(absent(4)),
+      rejection: { by: "id", value: "rejected" },
+      slots: Array.from({ length: 19 }, (_, index) => `s${index}`),
+      steps: [
+        {
+          kind: "fill",
+          path: "/identity",
+          fields: Array.from({ length: 19 }, (_, index) => ({
+            slot: `s${index}`,
+            target: { by: "id", value: `field${index}` },
+          })),
+        },
+        { kind: "click", path: "/identity", target: { by: "id", value: "go" }, purpose: "submit" },
+      ],
+    };
+    expect(() => parseLoginRecipe(wide)).toThrow();
+    expect(parseLoginRecipe({ ...wide, rejection: undefined }).steps).toHaveLength(2);
+  });
+
   it("accepts a generated recipe whose completion is not learned yet", () => {
     const { completion: _unlearned, ...generated } = recipe();
     expect(parseLoginRecipe(generated)).toEqual(generated);
