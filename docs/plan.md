@@ -83,9 +83,12 @@ Chrome, on a production build of main.
 - Browser agents that drive the owner's Chrome, such as Claude in Chrome and ChatGPT's
   agent in Chrome, must be logged in by Pateat and carry on with their task. This is the
   M1/M6 "Chrome use coexistence" gate, and it can only be checked by using them.
-- The owner also wants Pateat in the browser of ChatGPT's own computer, which is not
-  the installed Chrome. Whether an extension can be installed there is not known yet;
-  it is researched first.
+- Agents with their own cloud computer, such as ChatGPT Dots and Grok Bot, often decline
+  to log in even with the user's permission, and passwords must not be given to them.
+  Pateat installed in that computer's browser could log them in without the agent
+  seeing a password (owner, 2026-10-11 18:52 UTC). Whether an extension can be
+  installed there, and how these agents handle logins today (such as handing control
+  to the user to sign in by hand), is researched first.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
