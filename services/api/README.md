@@ -30,6 +30,9 @@ framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/devices` | The owner's devices, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
+| `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
+| `POST /manage/claude` | Save the owner's four WIF identifiers |
+| `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
 
 `/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only
 the SHA-256 digest of each 256-bit device credential and derives the owner from it;
@@ -85,7 +88,11 @@ own Claude credentials. `src/claude/` holds the only path from an owner to a cre
   settings both `/.well-known` routes answer 503 and nothing is signed.
 - The `inference_credentials` table holds one row per owner with kind `wif` and the
   identifiers of the owner's own federation rule: `fdrl_…`, the organization UUID,
-  `svac_…` and `wrkspc_…`. None is a secret. No route writes them yet.
+  `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on
+  `/manage/claude`, a temporary script-free page that the React web UI will replace.
+  It also applies its own Access, same-origin and body-size checks, so it stays
+  guarded if the app-wide `/manage/*` middleware changes. Its test button only
+  exchanges a token, which calls no model and costs nothing.
 - `resolveClaudeCredential(env, ownerId)` signs a fresh assertion
   `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`
   that lasts five minutes. It exchanges the assertion once at

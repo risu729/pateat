@@ -55,6 +55,26 @@ export async function saveWifCredential(db: D1Database, ownerId: string, ids: Wi
     .onConflictDoUpdate({ target: inferenceCredentials.ownerId, set: row });
 }
 
+/** Reads the owner's stored identifiers, or null when none are registered. */
+export async function readWifCredential(
+  db: D1Database,
+  ownerId: string,
+): Promise<WifIdentifiers | null> {
+  const [row] = await drizzle(db)
+    .select()
+    .from(inferenceCredentials)
+    .where(eq(inferenceCredentials.ownerId, ownerId))
+    .limit(1);
+  if (!row) return null;
+  // Stored rows are revalidated like every other stored document.
+  return v.parse(wifIdentifiersSchema, {
+    federationRuleId: row.federationRuleId,
+    organizationId: row.organizationId,
+    serviceAccountId: row.serviceAccountId,
+    workspaceId: row.workspaceId,
+  });
+}
+
 /**
  * Resolves the owner's Claude credential. `ownerId` must come from the authenticated
  * request scope, never from a body or path: the assertion is signed for that owner.
@@ -65,19 +85,8 @@ export async function resolveClaudeCredential(
   ownerId: string,
   options: { fetch?: typeof globalThis.fetch; now?: () => number } = {},
 ): Promise<ClaudeCredentialResult> {
-  const [row] = await drizzle(env.DB)
-    .select()
-    .from(inferenceCredentials)
-    .where(eq(inferenceCredentials.ownerId, ownerId))
-    .limit(1);
-  if (!row) return { status: "not_configured" };
-  // Stored rows are revalidated like every other stored document.
-  const ids = v.parse(wifIdentifiersSchema, {
-    federationRuleId: row.federationRuleId,
-    organizationId: row.organizationId,
-    serviceAccountId: row.serviceAccountId,
-    workspaceId: row.workspaceId,
-  });
+  const ids = await readWifCredential(env.DB, ownerId);
+  if (!ids) return { status: "not_configured" };
 
   const config = readIssuerConfig(env);
   if (!config) return { status: "issuer_unavailable" };

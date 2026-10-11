@@ -9,6 +9,7 @@ import { message } from "./pages";
 import { deviceRoutes } from "./routes/device";
 import { enrollRoutes } from "./routes/enroll";
 import { manageApiRoutes } from "./routes/manage-api";
+import { manageClaudeRoutes } from "./routes/manage-claude";
 import { oidcRoutes } from "./routes/oidc";
 import { recipeRoutes } from "./routes/recipes";
 import { redeemRoutes } from "./routes/redeem";
@@ -69,6 +70,10 @@ export const app = new Hono<ApiEnv>()
   .get("/manage/assets/*", requireAccess, appAsset)
   // Each page the app renders; any other path under /manage is not found.
   .get("/manage", requireAccess, appPage)
+  // The temporary WIF page guards itself (Access, same-origin forms, body limit).
+  .route("/manage/claude", manageClaudeRoutes)
+  .all("/manage/claude", methodNotAllowed("GET, POST"))
+  .all("/manage/claude/test", methodNotAllowed("POST"))
   .all("/manage", methodNotAllowed("GET"))
   // Redemption is the only anonymous write; it is rate limited and body-bounded.
   .use(

@@ -16,6 +16,8 @@ export interface DurableVaultStore {
     next: VaultEntry,
     signal?: AbortSignal,
   ): Promise<VaultResult<{ revision: string }>>;
+  /** Deletes this connection's record, including its retained unlock key, whatever its state. */
+  remove(signal?: AbortSignal): Promise<VaultResult<true>>;
   close(): void;
 }
 /** Background-owned native IndexedDB. No content/page message API exposes this store. */
@@ -108,6 +110,30 @@ export function createIndexedDbVaultStore(options: {
                 }
                 set({ ok: true, data: { revision: admitted.data.revision } });
               };
+            };
+          },
+          signal,
+        );
+      } catch {
+        return vaultFailure("storage-failed");
+      }
+    },
+    async remove(signal) {
+      if (!profile) return vaultFailure("invalid-profile");
+      try {
+        return await transaction<true>(
+          await open(),
+          "readwrite",
+          (store, set, abort) => {
+            // A corrupt record is deleted too; deletion never needs to admit it.
+            store.delete(profile.connectionId);
+            const readback = store.count(profile.connectionId);
+            readback.onsuccess = () => {
+              if (readback.result !== 0) {
+                abort("storage-uncertain");
+                return;
+              }
+              set({ ok: true, data: true });
             };
           },
           signal,

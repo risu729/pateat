@@ -3,8 +3,8 @@
 Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0014](0014-claude-generation-provider.md): the service no longer holds an operator
 Anthropic API key as a Worker secret. The issuer, the per-owner identifiers and the
-token exchange are implemented in `services/api/src/claude/`; the service inference
-route that uses them, and a way for owners to enter their identifiers, are still
+token exchange are implemented in `services/api/src/claude/`, and owners enter their
+identifiers on `/manage/claude`. The service inference route that uses them is still
 planned.
 
 Date: 2026-10-11
@@ -49,7 +49,10 @@ The first credential type is WIF, used by the owner's own deployment first:
   `workspace:inference` scope.
 - The service stores per owner only non-secret identifiers: `federationRuleId`
   (`fdrl_…`), `organizationId`, `serviceAccountId` (`svac_…`) and `workspaceId`
-  (`wrkspc_…`). Where they are entered belongs to the server web UI design.
+  (`wrkspc_…`). On 2026-10-11 the owner chose a temporary script-free
+  `/manage/claude` page for entering them, with a button that tests the token
+  exchange, so WIF can be tried before the React web UI exists. The web UI replaces
+  that page.
 - For each exchange the Worker signs a fresh JWT `{ iss: <origin>, sub:
   "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }` with a
   lifetime of five minutes. It posts the JWT

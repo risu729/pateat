@@ -27,7 +27,7 @@ describe("toolbar lock icon", () => {
     expect(vaultRecordState(vaultFailure("storage-uncertain"))).toBe("unreadable");
   });
 
-  it("notifies after every vault write, including one that reports failure", async () => {
+  it("notifies after every vault write or deletion, including one that reports failure", async () => {
     const notify = vi.fn();
     const results = [
       { ok: true as const, data: { revision: "r1" } },
@@ -36,6 +36,7 @@ describe("toolbar lock icon", () => {
     const base: DurableVaultStore = {
       read: vi.fn(async () => ({ ok: true as const, data: null })),
       compareAndSwap: vi.fn(async () => results.shift()!),
+      remove: vi.fn(async () => ({ ok: true as const, data: true as const })),
       close: vi.fn(),
     };
     const store = notifyingVaultStore(base, notify);
@@ -49,6 +50,8 @@ describe("toolbar lock icon", () => {
       ok: false,
     });
     expect(notify).toHaveBeenCalledTimes(2);
+    await expect(store.remove()).resolves.toEqual({ ok: true, data: true });
+    expect(notify).toHaveBeenCalledTimes(3);
   });
 
   it("sets the icon only when the state changes", async () => {
