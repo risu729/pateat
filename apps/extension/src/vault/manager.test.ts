@@ -415,6 +415,42 @@ describe("custom-field comparison with the replaced snapshot", () => {
     expect(result.ok && result.data.comparedSnapshotId).toBeUndefined();
     expect(h.events.indexOf("lock")).toBeLessThan(h.events.indexOf("commit"));
   });
+  it("leaves no live session when the write fails after the live digest ended it", async () => {
+    const h = harness();
+    const old = await accepted(h);
+    h.host.customFieldDigests.mockResolvedValueOnce({ ok: false, error: { code: "timeout" } });
+    h.store.compareAndSwap.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "cache-quota-exceeded" },
+    });
+    expect((await h.manager.accept(compare())).ok).toBe(false);
+    expect(h.manager.status().ready).toBe(false);
+    expect((await h.manager.listFields(old.handle, itemId)).ok).toBe(false);
+  });
+  it.each(["timeout", "crypto-locked", "thrown"] as const)(
+    "fails before the write and keeps the live snapshot when the candidate digest %s",
+    async (mode) => {
+      const h = harness();
+      const old = await accepted(h);
+      const durable = h.entry();
+      h.events.length = 0;
+      h.host.customFieldDigests.mockImplementation(async (session, ids) => {
+        if (session.snapshotId !== old.handle.snapshotId) {
+          if (mode === "thrown") throw new Error("synthetic");
+          return { ok: false, error: { code: mode } };
+        }
+        return {
+          ok: true,
+          data: { digests: Object.fromEntries(ids.map((id) => [id, "A".repeat(43)])) },
+        };
+      });
+      expect(await h.manager.accept(compare())).toEqual(vaultFailure("crypto-failed"));
+      expect(h.events).not.toContain("commit");
+      expect(h.entry()).toEqual(durable);
+      expect(h.manager.status().ready).toBe(true);
+      expect((await h.manager.listFields(old.handle, itemId)).ok).toBe(true);
+    },
+  );
   it("compares nothing without an open session for the record being replaced", async () => {
     const h = harness();
     await accepted(h);

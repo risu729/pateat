@@ -108,20 +108,21 @@ sessions, after verifying the new one and before writing it, for a digest of eac
 protected item's decrypted custom fields (name, value, type and linked source, in
 order). An item whose two digests are equal is treated as unchanged: its custom-field
 exclusions move to the new snapshot without review. An unknown or undecryptable item,
-a closed old session or any failed request counts as different and never fails the
-sync.
+a closed old session or any failed request counts as different. Only a failure that may
+have ended the new session (a timeout, a locked or failed crypto host) fails the sync,
+before the write, so the old snapshot stays in use and a later check retries.
 
 Each digest is HMAC-SHA-256 under a random 32-byte key that the offscreen document
 creates once and adds to every request it forwards to a Worker, replacing any key the
 background sent. The background compares the digests and keeps only the item IDs that
-matched. No value leaves the crypto host, and a digest seen in a log, memory dump or
-storage cannot be tested offline against guesses of a short value such as a PIN. This
-does not protect against a compromised background, which could open its own session
-with guessed values and compare digests; such a background already holds the unlock
-key ([ADR 0006](0006-atomic-local-vault-cache.md)). The comparison counts only when it
-was made against the snapshot being replaced, and a digest request that ended the old
-session also drops it from the manager. A device without the old snapshot open still
-relies on review.
+matched. No value leaves the crypto host, and a digest seen in a log, storage or a
+memory dump without the offscreen document cannot be tested offline against guesses of
+a short value such as a PIN. This does not protect against a compromised background,
+which could open its own session with guessed values and compare digests; such a
+background already holds the unlock key ([ADR 0006](0006-atomic-local-vault-cache.md)).
+The comparison counts only when it was made against the snapshot being replaced, and a
+digest request that may have ended the old session also drops it from the manager. A
+device without the old snapshot open still relies on review.
 
 ### Differences from the official extension
 
