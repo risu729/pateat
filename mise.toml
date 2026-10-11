@@ -117,7 +117,8 @@ run = "node node_modules/drizzle-kit/bin.cjs generate"
 [tasks."generate:oidc-key"]
 description = "Print a new ES256 key set for the OIDC_SIGNING_KEYS Worker secret."
 usage = 'arg "[kid]" help="Key ID; defaults to the current date."'
-run = "node scripts/server/oidc-key.mjs '{{ usage.kid }}'"
+# The argument arrives as `usage_kid`: quoting it in `run` breaks under the Windows shell.
+run = "node scripts/server/oidc-key.mjs"
 
 [tasks."check:server-migrations"]
 run = "node scripts/server/check-migrations.mjs"
