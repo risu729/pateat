@@ -1,4 +1,4 @@
-import type { SyncError } from "@pateat/contracts";
+import type { ManageError, SyncError } from "@pateat/contracts";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
@@ -11,7 +11,7 @@ export const API_HEADERS = {
 export function apiError(
   c: Context,
   status: ContentfulStatusCode,
-  error: SyncError,
+  error: SyncError | ManageError,
   headers?: Record<string, string>,
 ) {
   return c.json(error, status, headers);

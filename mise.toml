@@ -3,7 +3,7 @@
 min_version = "2026.10.7"
 
 [tools]
-bun = "1.4.2"
+bun = "1.4.3"
 node = "26.11.1"
 python = "3.13.16"
 hk = "2.5.0"
@@ -14,10 +14,10 @@ shellcheck = "0.11.0"
 ghalint = "1.5.6"
 pinact = "5.0.0"
 zizmor = "1.30.1"
-tombi = "1.7.3"
+tombi = "1.8.1"
 rumdl = "v0.2.79"
 yamlfmt = "0.21.0"
-uv = "0.12.24"
+uv = "0.13.0"
 yamllint = "1.38.0"
 typos = "1.51.1"
 
@@ -117,7 +117,8 @@ run = "node node_modules/drizzle-kit/bin.cjs generate"
 [tasks."generate:oidc-key"]
 description = "Print a new ES256 key set for the OIDC_SIGNING_KEYS Worker secret."
 usage = 'arg "[kid]" help="Key ID; defaults to the current date."'
-run = "node scripts/server/oidc-key.mjs '{{ usage.kid }}'"
+# The argument arrives as `usage_kid`: quoting it in `run` breaks under the Windows shell.
+run = "node scripts/server/oidc-key.mjs"
 
 [tasks."check:server-migrations"]
 run = "node scripts/server/check-migrations.mjs"
@@ -146,6 +147,12 @@ run = "node scripts/passkey-fixture.mjs"
 [tasks."test:options"]
 run = "node node_modules/vitest/vitest.mjs run --config tests/options/vitest.config.ts"
 
+[tasks."test:manage"]
+run = "node node_modules/vitest/vitest.mjs run --config tests/manage/vitest.config.ts"
+
+[tasks."typecheck:manage"]
+run = "node node_modules/typescript/bin/tsc --noEmit -p tests/manage/tsconfig.json"
+
 [tasks."typecheck:options"]
 run = "node node_modules/typescript/bin/tsc --noEmit -p tests/options/tsconfig.json"
 
@@ -155,7 +162,7 @@ run = "node scripts/render-icons.mjs"
 
 [tasks."check:runtime"]
 description = "Run implementation checks without recursing into hk."
-run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run typecheck:options", "mise run typecheck:bitwarden", "mise run typecheck:inference", "mise run test:contracts", "mise run test:bitwarden", "mise run test:inference", "mise run test:crypto-host", "mise run test:vault", "mise run test:connections", "mise run test:login", "mise run test:service", "mise run test:passkeys", "mise run test:tools", "mise run check:server-migrations", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:options", "mise run test:dom", "mise run test:browser"]
+run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run typecheck:options", "mise run typecheck:manage", "mise run typecheck:bitwarden", "mise run typecheck:inference", "mise run test:contracts", "mise run test:bitwarden", "mise run test:inference", "mise run test:crypto-host", "mise run test:vault", "mise run test:connections", "mise run test:login", "mise run test:service", "mise run test:passkeys", "mise run test:tools", "mise run check:server-migrations", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:options", "mise run test:dom", "mise run test:manage", "mise run test:browser"]
 
 [tasks."test:tools"]
 run = "node --test .github/scripts/*.test.mjs"
@@ -164,7 +171,10 @@ run = "node --test .github/scripts/*.test.mjs"
 run = "node node_modules/typescript/bin/tsc --noEmit -p tests/extension/tsconfig.json"
 
 [tasks."typecheck:server"]
-run = "node node_modules/typescript/bin/tsc -p services/api/tsconfig.json"
+run = [
+  "node node_modules/typescript/bin/tsc -p services/api/tsconfig.json",
+  "node node_modules/typescript/bin/tsc -p services/api/web/tsconfig.json",
+]
 
 [tasks."check:server-output"]
 dir = "services/api"

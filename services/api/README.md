@@ -27,8 +27,12 @@ framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
 | `GET /enroll?challenge=&label=` | Access page asking the owner to type the device's pairing code |
 | `POST /enroll` | Record the owner's approval and typed code for 10 minutes |
 | `POST /redeem` | Exchange an approved verifier for a device credential, once |
-| `GET /manage` | Access page listing the owner's devices |
-| `POST /manage/devices/:deviceId/revoke` | Revoke one of the owner's devices |
+| `GET /manage`, `/manage/sites`, `/manage/bindings` | Owner web UI (React app): devices, excluded sites and site defaults, account bindings |
+| `GET /manage/assets/*` | The web UI's built script, styles and notices |
+| `GET /manage/api/devices` | The owner's devices, newest first |
+| `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
+| `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
+| `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
@@ -57,6 +61,20 @@ hosted limiter is approximate and per location), so poll no more than every 6 se
 The [enrollment design](../../docs/architecture.md#device-enrollment) describes the
 flow.
 
+The web UI is built from `web/` (entry `manage/index.html`) into the Worker's static
+assets under `/manage`. Every request runs the Worker first, so no built file is served
+before the Access check; the Worker serves the app only at its page paths and its
+assets, all with a Content Security Policy that allows only this origin's scripts and no
+framing. `/manage/api` answers with JSON and its contracts are in
+`packages/contracts/src/manage.ts`; failures are `unauthorized` (no token), `forbidden`
+(a token that fails verification, or a state-changing request without this origin's
+`Origin`) and `access_unavailable` (no Access configuration). An identity that never
+approved a pairing has no owner and sees no data; its settings requests answer 404
+`not_paired`. Settings written here record no device as their writer. The bundle
+includes GPL-3.0-only `packages/contracts` code; each page links its source and the GPL
+text at the built commit, and the third-party notices served with it
+(`public/manage/assets/notices.md` and the build's `licenses.md`).
+
 Recipe revisions are immutable. A write claims the head with a conditional statement
 and writes the history row in the same D1 batch, guarded by a per-request write ID,
 so a losing writer changes nothing. Each head write takes the owner's next sequence
@@ -80,8 +98,8 @@ own Claude credentials. `src/claude/` holds the only path from an owner to a cre
   identifiers of the owner's own federation rule: `fdrl_…`, the organization UUID,
   `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on
   `/manage/claude`, a temporary script-free page that the React web UI will replace.
-  It also applies its own Access, same-origin and body-size checks, so it stays
-  guarded if the app-wide `/manage/*` middleware changes. Its test button only
+  It applies its own Access, same-origin and body-size checks; no app-wide `/manage`
+  middleware covers it. Its test button only
   exchanges a token, which calls no model and costs nothing.
 - `resolveClaudeCredential(env, ownerId)` signs a fresh assertion
   `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`

@@ -7,9 +7,10 @@ remains optional for the eventual local login core.
 ## Current foundation workflows
 
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
-and main push. `CI Check` requires successful verification, including when an upstream
-job failed, skipped or was cancelled. `codeql.yml` analyzes TypeScript/JavaScript and
-Actions separately. GitHub Code Quality is not used: since its
+and main push, and repeats the packaged-extension browser tests on Windows. `CI Check`
+requires both jobs to succeed, including when an upstream job failed, skipped or was
+cancelled. `codeql.yml` analyzes TypeScript/JavaScript and Actions separately. GitHub
+Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
@@ -46,6 +47,11 @@ The owner decided these on 2026-10-11, following the kogane repository:
   verifies the Access token itself on the owner pages.
 - Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
   `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
+  cf refuses to create a Worker without its declared secrets, so the first deploy
+  passes all four at once with `cf deploy --prebuilt --mode production --secrets-file
+  <file>` (JSON) and deletes the file afterwards; later changes use
+  `cf workers secrets update`. With several accounts visible to the login, cf also
+  needs `CLOUDFLARE_ACCOUNT_ID`. Versions created by routine releases keep the secrets.
 - Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
   as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
 - Preview: there is no preview deployment for now. Without the owner web UI there is
@@ -65,9 +71,12 @@ environment variables `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
 `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret. Put
 the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner chose
 on 2026-10-11 to use this one token for both the migrations and the deployment, as in
-kogane, because both run in the same job. It grants Editor on the `pateat-api` Worker
-only and the account-level `D1: Edit`, which covers every D1 database in the account;
-the release limits itself to the recorded database ID. This repository does not supply
+kogane, because both run in the same job. It is an Account API token, not a user API
+token, so it does not depend on one person's login, and its scope is as narrow as
+Cloudflare allows (owner decision, 2026-10-11): `Workers Scripts: Edit` on the
+`pateat-api` Worker only and `D1: Edit` on the `pateat` database only, falling back to
+the whole account only where the dashboard offers no resource-level choice. The release
+limits itself to the recorded database ID either way. This repository does not supply
 or provision them.
 
 The workflow takes the CI run that triggered it, or the `ci_run_id` of a manual

@@ -95,6 +95,8 @@ export async function verifyBuild(directory) {
   assert.equal(worker.env?.DB?.type, "d1");
   assert.equal(worker.env.DB.name, databaseName);
   assert.match(worker.env.DB.id ?? "", uuidPattern, "Record the bootstrapped D1 database ID");
+  // The owner web UI assets must pass the Worker's Access check.
+  assert.equal(worker.assets?.runWorkerFirst, true);
   return { database: worker.env.DB.id, domains: worker.domains ?? [] };
 }
 

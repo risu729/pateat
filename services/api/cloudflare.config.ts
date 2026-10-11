@@ -12,6 +12,8 @@ export default defineConfig({
       // Bootstrapped on 2026-10-11. The ID keeps cf deploy from provisioning another
       // database; the release applies committed migrations to exactly this one.
       DB: bindings.d1({ name: "pateat", id: "68342d29-6704-464c-bdb2-b749812c1f19" }),
+      // The owner web UI built from manage/index.html, read by the Worker after Access.
+      ASSETS: bindings.assets(),
       // The Access team domain (`<team>.cloudflareaccess.com`) and application
       // audience tag that guard /enroll and /manage. Unset values fail closed.
       ACCESS_TEAM_DOMAIN: bindings.secret(),
@@ -26,6 +28,8 @@ export default defineConfig({
         simple: { limit: 10, period: 60 },
       }),
     },
+    // Every request reaches the Worker first, so no built file skips the Access check.
+    assets: { runWorkerFirst: true, htmlHandling: "none", notFoundHandling: "none" },
     // The only public host. Routine releases leave triggers alone; the bootstrap
     // applies this Custom Domain once (docs/delivery.md).
     domains: ["pateat.takuk.me"],

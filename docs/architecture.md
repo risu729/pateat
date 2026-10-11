@@ -438,7 +438,10 @@ record, it is locked. The manifest's default action icon is the locked one; the 
 re-reads the records when it starts, at browser start, after each vault record write and
 after each settings-page connection request
 (`apps/extension/src/connections/action-icon.ts`). The owner confirmed the switch in
-installed Chrome on 2026-10-11 (main 863ad90 or later).
+installed Chrome on 2026-10-11 (main 863ad90 or later). After a full Chrome 154 restart
+with automatic unlock on main f7d3cf5, the icon showed the logo with no visible gray
+phase; this is expected, because the built manifest's `action.default_icon` is the
+locked icon and the worker replaces it as soon as it reads the active records.
 
 ## Declarative recipes and AI
 
@@ -681,8 +684,10 @@ the credential idle-expiry decision, and the optional `launchWebAuthFlow` varian
 
 ### Owner web UI
 
-Status: design approved by the owner on 2026-10-11; not implemented. It replaces the
-extension's settings page for the data the service holds
+Status: design approved by the owner on 2026-10-11. The app, its Access-checked
+assets and API, and the devices, sites and account bindings pages are implemented and
+tested locally; the recipes page and the nullable recipe writer column are not. It
+replaces the extension's settings page for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
@@ -709,18 +714,22 @@ extension's settings page for the data the service holds
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,
   but its page for Claude credentials is not designed yet.
 - Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
-  routes accept only device credentials. The API shares the owner-scoped read and
-  write code of `/v1/settings` and `/v1/recipes/:recipeId`. Writes carry the revision
-  the page last read; a stale write changes nothing and returns the current state. The
-  stored settings document keeps `connections` empty. Devices receive the change on
-  their next settings or recipe sync. The device ID columns recording who wrote a
-  settings or recipe revision become nullable; null means the web UI wrote it.
+  routes accept only device credentials. The API shares the owner-scoped read and write
+  code of `/v1/settings` and `/v1/recipes/:recipeId`. Writes carry the revision the page
+  last read; a stale write changes nothing and returns the current state. The service
+  copy of settings holds no `connections`: the extension uploads none, a web write must
+  have none, and the page drops any that another client stored. A web write also stays
+  within the 120 KiB document size devices upload. An identity with no paired device has
+  no settings to edit and is told to pair one. Devices receive the change on their next
+  settings or recipe sync. The device ID columns recording who wrote a settings or
+  recipe revision become nullable; null means the web UI wrote it.
 - Display names. A site default stores an optional `itemName` beside its item ID, as
   bindings already do, so the page can name the item; entries without it show the ID.
 - Authentication. The host-wide Access application also covers the app's assets and
   `/manage/api/*`. The Worker verifies the Access token
   on each API request as it does for the current pages, finds the owner by issuer and
-  subject without creating one, and accepts only same-origin requests. The page's
+  subject without creating one, and accepts a state-changing request only with an
+  `Origin` equal to its own. The page's
   Content Security Policy allows scripts from its own origin only, with no framing.
 
 ## Deferred interfaces and challenges

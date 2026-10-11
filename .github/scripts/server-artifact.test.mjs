@@ -95,7 +95,7 @@ test("release inventory detects changed bytes, extra files, and symlinks", async
   }
 });
 
-test("release output refuses preview mode and another Worker", async () => {
+test("release output refuses preview mode, another Worker and unguarded assets", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pateat-build-"));
   try {
     await mkdir(join(directory, "workers", "default"), { recursive: true });
@@ -106,13 +106,18 @@ test("release output refuses preview mode and another Worker", async () => {
       JSON.stringify({ buildContext: { mode: "production", isPreview: false } }),
     );
     const database = "00000000-0000-4000-8000-000000000001";
-    const worker = (env) => JSON.stringify({ name: "pateat-api", env });
+    const assets = { runWorkerFirst: true };
+    const worker = (env, workerAssets = assets) =>
+      JSON.stringify({ name: "pateat-api", env, assets: workerAssets });
     await writeFile(workerPath, worker({ DB: { type: "d1", name: "pateat", id: database } }));
     assert.deepEqual(await verifyBuild(directory), { database, domains: [] });
     // Without an ID, cf deploy would provision a new database.
     await writeFile(workerPath, worker({ DB: { type: "d1", name: "pateat" } }));
     await assert.rejects(verifyBuild(directory), /bootstrapped D1/u);
     await writeFile(workerPath, worker({ DB: { type: "d1", name: "other", id: database } }));
+    await assert.rejects(verifyBuild(directory));
+    // Assets served around the Worker would skip the Access check.
+    await writeFile(workerPath, worker({ DB: { type: "d1", name: "pateat", id: database } }, {}));
     await assert.rejects(verifyBuild(directory));
     await writeFile(workerPath, worker({ DB: { type: "d1", name: "pateat", id: database } }));
     await writeFile(
@@ -124,7 +129,7 @@ test("release output refuses preview mode and another Worker", async () => {
       configPath,
       JSON.stringify({ buildContext: { mode: "production", isPreview: false } }),
     );
-    await writeFile(workerPath, JSON.stringify({ name: "another-worker" }));
+    await writeFile(workerPath, JSON.stringify({ ...worker, name: "another-worker" }));
     await assert.rejects(verifyBuild(directory));
   } finally {
     await rm(directory, { recursive: true, force: true });

@@ -22,11 +22,16 @@ checks have passed. At head `c24d82a`,
 [Linux CI](https://github.com/risu729/pateat/actions/runs/37969704501) passed the
 complete check graph, including all three Playwright tests for the production package,
 installed shell status, and document-start/inactive-tab identity probe;
-[CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
-downloaded Windows Chromium still fails before launch with a missing SideBySide
-assembly. The later installed-Chrome synthetic probe passed the early login gate;
-broader coexistence remains a separate M1 gate. Code Quality is not used, and normal
-merges need no bypass; see [merging](delivery.md#merging).
+[CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. On
+2026-10-10 the downloaded Windows Chromium failed before launch with a missing
+SideBySide assembly on one local Windows host. On 2026-10-11 a clean `windows-2025`
+runner launched the Playwright-downloaded Chromium and
+[passed all 92 packaged-extension tests at that head](https://github.com/risu729/pateat/actions/runs/38118250919/job/114407461875),
+so the failure did not reproduce on a clean Windows host; CI now runs these tests on
+Windows on every PR, with browser profiles on the runner's work drive to avoid
+system-drive I/O stalls. The later installed-Chrome synthetic probe passed the early
+login gate; broader coexistence remains a separate M1 gate. Code Quality is not used,
+and normal merges need no bypass; see [merging](delivery.md#merging).
 
 ## Local settings progress
 
@@ -567,8 +572,10 @@ the real settings store over in-memory storage; no running service has been trie
   optional `launchWebAuthFlow` variant.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
-- The owner web UI for settings, bindings and recipes is designed
-  ([architecture](architecture.md#owner-web-ui)) but not implemented.
+- The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and
+  JSON API behind Access, with the devices, sites and account bindings pages. Settings
+  edits there use the same revision check as device sync, and a stale page changes
+  nothing. The recipes page is not implemented.
 - Inference adapters and spending accounting remain separate slices. The inference
   route authenticates to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
@@ -660,9 +667,11 @@ installed-Chrome acceptance procedure. Page script can detect the wrapper and re
 extension ID from stack traces; the relay posts only the outcome of a request to the
 page, never the delegate reason. On 2026-10-11 a real passkey sign-in on webauthn.io
 went through the wrapper unchanged and CreepJS did not flag it
-([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)). Open:
-a page or provider wrapper that rebuilds the options object, and especially one that
-replaces the challenge, loops back into Pateat on every delegated call.
+([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)). A
+page or provider wrapper that rebuilds the options before calling its saved `get` runs
+once when it calls synchronously and at most four times otherwise
+([ADR 0007](adr/0007-existing-passkey-assertions.md#bridge-topology)); before that
+change one that replaced the challenge looped without end.
 
 Evidence, 2026-10-10, synthetic relying party only:
 

@@ -104,10 +104,16 @@ runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runti
 
 ### Windows notes
 
-Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. The downloaded Windows Chromium
-does not launch packaged-extension tests (see the
-[foundation progress](plan.md#foundation-progress)); Linux CI is the runtime
-acceptance environment for them. The options component tests do run on Windows.
+Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs `mise run test:browser`
+on a GitHub-hosted Windows runner as well as on Linux, so the packaged-extension
+tests are expected to pass on Windows with the Playwright-downloaded Chromium. One
+local host on 2026-10-10 hit a missing SideBySide assembly ("side-by-side
+configuration is incorrect") before launch; it did not reproduce on the CI runner
+(see the [foundation progress](plan.md#foundation-progress)), so rely on CI for
+those runs. The
+Windows job points `TEMP` and `TMP` at the runner's work drive: browser profiles in
+the default temp directory on the system drive hit 5-25 s I/O stalls that timed out
+random tests. If browser tests time out on a slow local Windows disk, do the same.
 
 ### Installed Chrome synthetic login probe
 
@@ -286,7 +292,7 @@ use.
 | Area | Choice and integration status | Owning slice |
 | --- | --- | --- |
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
-| Service web UI | **Approved 2026-10-11, not implemented:** the extension's React, Tailwind/Base UI, shadcn/ui and TanStack Form/Query choices, built by Vite and served as Worker static assets | M4 owner web UI |
+| Service web UI | **Implemented for the devices page:** React, Tailwind through its Vite plugin, Base UI with the selected shadcn/ui Button and TanStack Query, built by Vite into Worker static assets; **approved:** TanStack Form | M4 owner web UI |
 | Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented in the local probe:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |

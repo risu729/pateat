@@ -1,6 +1,8 @@
 import {
   deviceIdSchema,
   localSettingsSchema,
+  MAX_SETTINGS_DOCUMENT_BYTES,
+  settingsDocumentBytes,
   serviceOriginSchema,
   type LocalSettings,
   type SettingsSnapshot,
@@ -12,15 +14,11 @@ import type { ServiceTransport, TransportFailure } from "./transport";
 
 /** Conflicting writes are retried this many times in one sync before giving up. */
 export const MAX_SETTINGS_SYNC_ATTEMPTS = 3;
-/** The service accepts request bodies up to 128 KiB; the document leaves room for the rest. */
-export const MAX_SETTINGS_DOCUMENT_BYTES = 120 * 1024;
 /**
  * A local write waits for a running login at most this long; a login left unfinished on
  * an open page must not hold synced settings back indefinitely.
  */
 export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
-
-const encoder = new TextEncoder();
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
 type ExcludedSite = LocalSettings["excludedSites"][number];
@@ -275,9 +273,7 @@ export function createSettingsSync(options: {
       const upload = !equalSynced(merged, serviceSynced);
       if (
         !v.safeParse(localSettingsSchema, applySynced(local.settings, merged)).success ||
-        (upload &&
-          encoder.encode(JSON.stringify(serviceDocument(merged))).byteLength >
-            MAX_SETTINGS_DOCUMENT_BYTES)
+        (upload && settingsDocumentBytes(serviceDocument(merged)) > MAX_SETTINGS_DOCUMENT_BYTES)
       )
         return "too-large";
       if (stale()) return "busy";
