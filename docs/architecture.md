@@ -521,13 +521,13 @@ that exact page URL and returns a value-free summary
   origins are only counted) and the toolbar icon state;
 - per Bitwarden connection, an HMAC pseudonym of its ID (`bitwarden:5c1e9a`, keyed by a
   non-extractable per-device key in IndexedDB `pateat.diagnostics.v1`), the environment
-  kind, the server from `GET {api}/config` (the release number of its `version`, without
-  any suffix, and, from `server`, whether
-  it is Bitwarden, Vaultwarden or another third-party server, whose version is the
-  Bitwarden version it is compatible with), setup state, automatic unlock, sync
-  sign-in, the vault record's accepted time and read failure code, item counts by type
-  (trash excluded) while the vault is unlocked, the unlock KDF family (`PBKDF2` or
-  `Argon2id`) and, on the page only, its parameters;
+  kind, the server from `GET {api}/config` (the release number of its `version`
+  without any suffix, and, from `server`, whether it is Bitwarden, Vaultwarden or
+  another third-party server, whose version is the Bitwarden version it is compatible
+  with), setup state, automatic unlock, sync sign-in, the vault record's accepted time
+  and read failure code, item counts by type (trash excluded) while the vault is
+  unlocked, the unlock KDF family (`PBKDF2` or `Argon2id`) and, on the page only, its
+  parameters;
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
