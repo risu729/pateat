@@ -1620,6 +1620,26 @@ describe("production login document admission", () => {
       expect(service.available).toHaveBeenCalledWith(origin, "/signin/id");
     });
 
+    it("offers no page of a tab whose attempt ended without a switch", async () => {
+      const service = generation();
+      const h = harness({}, { uris, username: true, generation: service });
+      h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+      );
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "wrong-account" }]),
+      );
+      fake.state.pageUrl = "https://login.example/signin/id";
+      expect(await h.hello({ documentId: "next-page" }, false)).not.toHaveProperty("generate");
+      // Another tab on the same page, without an attempt, is offered.
+      expect(await h.hello({ documentId: "other-tab", tab: { id: 2 } }, false)).toMatchObject({
+        generate: true,
+      });
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
     it("learns the completion from the page after the final submission", async () => {
       fake.state.extracted = { "signed-in": homePage };
       const service = generation({ judge: async () => "signed-in" });

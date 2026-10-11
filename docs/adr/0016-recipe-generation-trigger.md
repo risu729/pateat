@@ -23,8 +23,9 @@ needs a click on every new site.
 
 ## Decision
 
-A top-level HTTPS document without a cached recipe for its origin is observed and sent
-for recipe generation automatically when all of these hold:
+A top-level HTTPS document without a cached recipe for its origin (since the amendment
+below: on whose path no cached recipe starts) is observed and sent for recipe
+generation automatically when all of these hold:
 
 1. The site is not excluded.
 2. The vault has at least one item whose URI matches the origin under the existing
