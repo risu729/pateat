@@ -282,7 +282,9 @@ candidate. Values never go to inference; allowed field names and the coarse shap
 visible identifier values may ([ADR 0010](adr/0010-inference-field-hints.md)), and a
 plan is checked against the real values locally before filling. After filling and before
 the click, the executor stops when the page marks a filled element invalid or shows a
-new alert. Neither check is wired into the executor yet.
+new alert. The executor runs both checks
+([Background execution](#background-execution)); the vault adapter does not supply the
+hints yet.
 
 Local field snapshots detach supported decrypted items from caller mutation.
 References bind connection, user, item and snapshot identity; custom fields use
@@ -327,7 +329,11 @@ service's owner-authenticated web UI
 page handles vault connection, re-authentication, unlock and service pairing, and still
 edits local policy, exclusions and account defaults. The toolbar popup edits only the
 active tab's site default account and exclusion, through the same worker-owned store
-([ADR 0021](adr/0021-account-choice-outside-settings.md)). Chrome
+([ADR 0021](adr/0021-account-choice-outside-settings.md)). Item selection, field
+exclusions and custom-field review stay on the extension's settings page once synced
+([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
+per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
+settings profile that each device will choose later or to the owner. Chrome
 use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
@@ -351,8 +357,9 @@ a single eligible provider URI match is used and saved only after the login is
 log out the current session. No match or several matches require a choice rather than
 trying accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md)
 the choice is made in the toolbar popup for the refused document and may be one-time.
-Not implemented yet: after a finished login in a tab, the recipe's first step appearing
-again in that tab asks for a choice again instead of logging in. Automatic
+After a finished login in a tab, the recipe's first step appearing again in that tab's
+page asks for a choice again instead of logging in, with the saved default first; the
+passkey half of this is not implemented yet. Automatic
 logout/relogin when the user picks another account while logged in stays later. Cookies
 may be shared across
 tabs even during initial login. The first executor conservatively locks an origin
@@ -475,6 +482,23 @@ a page that still shows another account ends it `wrong-account`. Without the tar
 or when it is missing or ambiguous, the attempt ends `wrong-account` as above. A switch
 that changes the account in place, without loading a new document, does not continue
 the login.
+Before a fill step writes anything, the content script checks every value against its
+input ([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
+`maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number
+for those input types (`valueMismatch` in `packages/contracts/src/values.ts`). A
+22-character password and an input with `maxlength="8"` fills nothing and ends the
+attempt `value-mismatch` without a retry or a spent submission. After a preparing fill,
+the content script waits 500 ms for the page's own handlers and ends the attempt
+`fill-rejected`, without a retry or the click, when a filled input is
+invalid (`validity.valid`, which unlike `checkValidity()` fires no `invalid` event),
+became `aria-invalid="true"`, or a visible alert shows text that no such region showed
+before the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions
+anywhere, and `role="status"` and polite regions inside the filled form or named by a
+filled input's `aria-describedby` or `aria-errormessage`. A message the page already
+showed and renders again is not new, nor is a mark the input had before the fill. The
+text stays in the content script; only the outcome leaves it. A fill that submits
+through its own event is checked only before filling. When a filled input was replaced
+during the wait, nothing is clicked and the attempt observes the page instead.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.
@@ -536,23 +560,40 @@ that exact page URL and returns a value-free summary
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
+- the service's own record from `GET /v1/device` with the device credential: when the
+  device was paired, the owner's live recipe count and settings revision, and whether
+  recipe generation would run now, in the order a generation call checks it
+  (`monthly-limit` or `daily-limit`, then `credentials-not-configured`, then
+  `issuer-unavailable` when the issuer settings are missing or the signing key does
+  not import, otherwise `ok`), or the reason code when it could not be read;
 - setting counts, `storage.local` usage, the log's size and debug state, and checks
   for site access, the crypto host, each vault cache and sync sign-in
   (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
   the token, and info without it, since Sync needs the stored unlock key), the vault
   copy's age (info, since the vault syncs only from the settings page), each
   Bitwarden server's `/config` (warn when it fails or is not checked), service
-  reachability, clock skew over 30 s against the service `Date` header, a recipe sync
+  reachability, clock skew over 30 s against the service `Date` header, recipe
+  generation (info without Claude credentials, warn when the issuer is missing or a
+  spend limit is reached), whether the cached recipes and settings revision match the
+  service (info when they differ, since the next sync catches up), a recipe sync
   older than 24 hours and errors logged in the last 24 hours. Reworded states keep the
   raw code in parentheses.
 
 The worker fetches `/health` only for a paired service with site access, and
-`{api}/config` only for an enabled connection whose provider permission sync also
-requires, with a 5 s timeout and no credentials. It never reads the config's
+`/v1/device` only then and while the service has not rejected the credential, with a 5 s
+timeout; that route reads the database and imports the signing key, but signs nothing
+and never exchanges a Claude token. It
+fetches `{api}/config` only for an enabled connection whose provider permission sync
+also requires, with a 5 s timeout and no credentials. It never reads the config's
 `environment` (host URLs) or a third-party server's name other than Vaultwarden.
-**Copy for bug report** shows the exact text before copying it; that text leaves out
-the unlock KDF parameters. Labels, emails, item names and IDs, URLs and host names are
-never part of the summary.
+**Copy for bug report** shows the exact text before copying it; that text leaves out the
+unlock KDF parameters. It ends with the log's last update
+(`Updated <time> from <revision>`), its warnings and errors of the last 24 hours (newest
+10, one line each with the time, level, event and allowlisted field values) and the
+count of passkey requests left to the browser in those 24 hours by reason. The worker
+builds these lines from the log and numbers sites and recipes in them as in a download,
+but separately, so `site-1` there can be another site than in **Download logs**. Labels,
+emails, item names and IDs, URLs and host names are never part of the summary.
 
 ### Local log
 
@@ -567,6 +608,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `runtime.started` | debug | build revision |
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
+| `vault.sync` | info for a result and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
 | `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
@@ -636,10 +678,18 @@ whose rendered text (or, without any, its images' `alt`), the
 `<input type="submit|button">` whose value, or the `<input type="image">` whose `alt`
 equals the value after whitespace is collapsed (owner decision, 2026-10-11). Hidden
 buttons and hidden text inside a button do not count, and text over 120 characters gives
-no locator. The executor compares strings and acts only when exactly one element
-matches; more than one is a structural mismatch. It clicks buttons and image buttons,
-never links, except a recipe's `accountSwitch`, which may be an `<a href>` link named by
-its rendered text. The extractor gives a link a text locator only on a login page and
+no locator. A script button is a control only scripts make clickable: an `<a>` without
+`href` that has an `onclick` attribute, such as MyJCB's
+`<a id="loginButtonAD" onclick="document.loginForm.submit()">`, or another element with
+`role="button"`, but never a form control or anything inside an `<a href>`. Only its
+`id`, `name` or `data-testid` names it, so text locators keep matching native buttons
+alone, and the extractor leaves out a script button without one instead of marking the
+page incomplete. The executor compares strings and acts only when
+exactly one element matches; more than one is a structural mismatch. It clicks buttons,
+image buttons and script buttons (not a disabled button, nor a script button with
+`aria-disabled="true"`), never links, except a recipe's `accountSwitch`, which may be an
+`<a href>` link named by its rendered text; a script button is never clicked as a
+switch. The extractor gives a link a text locator only on a login page and
 only when no other link and no button shows that text. A click is not tied to the form
 the previous fill used: a page that shows a second, previously hidden button with the
 same text stops the attempt as ambiguous, but if the observed button is removed and
@@ -654,8 +704,9 @@ Site recipes contain meanings such as branch-number/account-number/password. Kee
 account-specific bindings separate from recipes. They are stored in the synced settings
 document as references, never credential values, and resolved to values locally. AI
 input may name the allowed vault fields but never carries bindings, item or account IDs
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Multi-origin SSO needs an
-explicit configured transition policy.
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Signing in to a site
+through Google or Microsoft follows the policy in
+[ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented).
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
@@ -764,7 +815,7 @@ vector search, or an agent framework without a demonstrated need. Use bound SQL
 parameters through the approved Drizzle integration, with Hono for API routing
 and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
-sync, enrollment and device management routes and the recipe generation routes of
+sync, pairing and device management routes and the recipe generation routes of
 [ADR 0018](adr/0018-recipe-generation-route.md), with their limits and the
 [ADR 0012](adr/0012-inference-request-log.md) request log, as described in
 [its README](../services/api/README.md).
@@ -774,15 +825,15 @@ supported integration or verified JWT, not an untrusted email header. Access-fre
 OIDC/passkey authentication is a later adapter. Self-hosting is the target, but
 owner-scoped data allows other operators to serve multiple users later.
 
-Enrollment pairs a device with a verified owner through setup. Store only hashed
-revocable high-entropy device credentials server-side; scope every query and write by
-verified owner/device. CORS is not authentication. No shared universal credential is
-shipped in the extension. Enrollment is implemented and deployed
-([device enrollment](#device-enrollment)), and credentials expire after 90 days unused.
-Separate Access-protected enrollment from device-authenticated API routes: a device
-token does not automatically pass an Access gate. Steady-state API access must not
-require an interactive Access cookie for each call. Service login does not authenticate
-or unlock a vault.
+Pairing uses the browser's login session to the service
+([ADR 0020](adr/0020-direct-device-pairing.md);
+[device enrollment](#device-enrollment)), and credentials expire after 90 days unused.
+Store only hashed revocable high-entropy device credentials server-side; scope every
+query and write by verified owner/device. CORS is not authentication. No shared
+universal credential is shipped in the extension. Separate Access-protected pairing from
+device-authenticated API routes: a device token does not automatically pass an Access
+gate. Steady-state API access must not require an interactive Access cookie for each
+call. Service login does not authenticate or unlock a vault.
 
 Initial synced settings are server-readable so service login can restore them
 without another recovery key. E2EE settings sync is a later option. Provider
@@ -828,8 +879,8 @@ quota, before the service is offered to other people.
   verified Access identity on `/manage/api`. The check runs right after authentication
   and before any body is read; a refused request gets 429 `rate_limited` with
   `Retry-After: 60`. The hosted limiter is approximate and counts per Cloudflare
-  location. `/redeem` keeps its own 10 a minute per client address. Recipe generation
-  is also bounded by spend and one call at a time
+  location. `/pair` keeps its own 10 a minute per verified Access identity. Recipe
+  generation is also bounded by spend and one call at a time
   ([ADR 0018](adr/0018-recipe-generation-route.md)).
 - Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
   republishing a tombstone beyond that answers 409 `recipe_limit`; updating or revoking
@@ -847,19 +898,19 @@ quota, before the service is offered to other people.
 
 ### Device enrollment
 
-Status: the typed-code flow below is implemented and deployed, and the owner paired a
-real Chrome through Access with it on 2026-10-11. Direct pairing
-([ADR 0020](adr/0020-direct-device-pairing.md)) is decided and replaces it; so far the
-fixed production extension ID and the service's `POST /pair` route are implemented, and
-the extension still uses the typed code. Both satisfy the separation above
-without a cookie on steady-state API calls.
+Status: direct pairing ([ADR 0020](adr/0020-direct-device-pairing.md)) is implemented
+and tested locally, including in bundled Chromium against the built Worker behind a
+synthetic Access stand-in. It has not yet paired installed Chrome with the deployed
+service. It replaced the typed-code flow, which the owner had used to pair a real
+Chrome through Access on 2026-10-11. Pairing uses the owner's login session once;
+steady-state API calls carry no cookie.
 
 - Route families. One Access application covers the whole service host, so a new route
   is protected by default (owner decision, 2026-10-11). A second, more specific Access
   application with a Bypass policy exempts the paths that cannot pass an interactive
-  login: the `/v1` sync routes, which accept only device credentials; `/redeem`, which
-  is anonymous; `/health`; and the two `/.well-known` issuer routes that Anthropic
-  fetches anonymously. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself:
+  login: the `/v1` sync routes, which accept only device credentials; `/health`; and the
+  two `/.well-known` issuer routes that Anthropic fetches anonymously. The Worker
+  verifies the `Cf-Access-Jwt-Assertion` JWT itself:
   signature against the team JWKS, configured audience tag and issuer, and expiry. It
   never trusts the plain identity headers. The owner key is the issuer plus the token
   subject, not the email address. Verification uses Hono's JWT utility with the team
@@ -867,25 +918,24 @@ without a cookie on steady-state API calls.
   dedicated JWT library would need its own owner decision. Tokens without an expiry or a
   user subject, such as service tokens, are refused. The public keys are edge-cached for
   five minutes, so a rotated key may be refused briefly.
-- Pairing. The extension background generates a 256-bit verifier and keeps it in trusted
-  extension storage. The settings page opens the enrollment page in an ordinary tab with
-  only its SHA-256 challenge and a device label. It also shows a short code: 40 bits of
-  a tagged SHA-256 of the verifier in Crockford base32, so anyone who sees the link
-  still cannot compute it. After Access login, the owner types that code and confirms.
-  The confirmation is a same-origin form POST (Origin or `Sec-Fetch-Site` checked) on a
-  page that cannot be framed, and records an approval with the typed code for that
-  owner, valid for 10 minutes; the same owner may retype the code until redemption
-  without extending that time. A redeemed challenge, or one with another owner's
-  unexpired approval, cannot be approved again, and the page says which.
-- Redemption. The extension polls an unauthenticated redemption route with the verifier,
-  rate limited per client address. A matching, approved, unexpired and unredeemed
-  enrollment whose typed code equals the verifier's code creates the device and returns
-  its credential once; only its hash is stored, as today. So a link carrying someone
-  else's challenge, or a challenge another account saw and approved, yields no device. A
-  wrong code is reported only to the verifier holder; unapproved, expired, redeemed and
-  unknown verifiers return the same response. The owner chose direct pairing over
-  `chrome.identity.launchWebAuthFlow`, which would add the `identity` permission
-  ([ADR 0020](adr/0020-direct-device-pairing.md)).
+- Pairing. **Pair this device** on the settings page asks for site access to the
+  service, then the extension's background service worker sends one `POST /pair` with
+  the device label, `credentials: "include"`, `redirect: "manual"` and
+  `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
+  The route sits behind Access; the Worker verifies the token and requires
+  `Origin: chrome-extension://<id>` for an ID in `PAIRING_EXTENSION_IDS`, which lists
+  Pateat's manifest-pinned production ID. It then limits pairing per identity, creates
+  the owner on first pairing and the device, and answers the credential once; only its
+  hash is stored. The background writes the credential straight into trusted extension
+  storage; it never reaches the settings page. The Worker sends no CORS headers, so no
+  web page can read the answer, and pages cannot set an extension `Origin`. An Access
+  redirect, a `401`, or a response that is not JSON, such as the Access login page,
+  means "sign in first"; a non-JSON `429` or `5xx`, such as a Cloudflare edge error
+  page, counts as rate limiting or an unexpected failure instead. On "sign in first" the
+  settings page opens `<service>/manage` in a new tab once per click, retries once when
+  it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
+  refused sign-in, an unlisted extension ID and a service without pairing settings each
+  have their own message.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day
@@ -896,16 +946,22 @@ without a cookie on steady-state API calls.
   `device_revoked`. The Access-protected management page lists the owner's devices
   with their last use, marks expired ones, and revokes devices; a device can revoke
   itself on sign-out. A lost device is
-  revoked from another Access login and a replacement re-enrolls. Revocation stops
+  revoked from another Access login and a replacement pairs again. Revocation stops
   later requests; a request already authenticated may still complete. It stops
   service access only and neither erases offline caches nor touches any vault.
 
-Local tests cover signature, issuer, audience, expiry and subject checks, approval
-CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
-cleanup of stale approvals, cross-owner management, self-revocation, and credential
-idle expiry with its daily renewal. JWT verification worked against the real Access
-application when the owner paired on 2026-10-11. Credential idle expiry has local
-tests only so far.
+Local tests cover the token's signature, issuer, audience, expiry and subject checks;
+the pairing route's Origin list, body validation, per-identity limit, missing CORS
+headers and concurrent first pairings; the extension transport's mapping of redirects,
+login pages and error codes; the background's storage of the credential; the settings
+page's sign-in tab, retry and messages; and, in bundled Chromium with the production
+build, a pairing whose request came from the background with the session cookie and
+the extension `Origin`, followed by cookie-free `/v1` sync. Cross-owner management,
+self-revocation and credential idle expiry with its daily renewal are covered as well.
+The browser test's Access stand-in does not model Access's own `401`, denial page or
+cookie validation; only the transport unit tests' synthetic responses cover those. JWT
+verification worked against the real Access application when the owner paired with
+the typed code on 2026-10-11. Credential idle expiry has local tests only so far.
 
 ### Owner web UI
 
@@ -913,13 +969,14 @@ Status: design approved by the owner on 2026-10-11. The app, its Access-checked 
 and API, and the devices, sites, account bindings and recipes pages are implemented,
 tested locally and deployed with the service. It replaces the extension's settings page
 for the data the service holds
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)), except item selection,
+field exclusions and custom-field review, which need the device's vault catalog
+([ADR 0023](adr/0023-synced-vault-policy.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
   Worker as static assets. The first version has these pages:
-  - Devices: the current list and revocation, moved into the app. `/enroll` stays a
-    script-free page.
+  - Devices: the current list and revocation, moved into the app.
   - Sites: add and delete `excludedSites` entries; list and delete `siteDefaults`
     entries. Deleting a default restores the automatic single-match choice.
   - Account bindings: list and delete `bindings` entries. Deleting one makes that item
@@ -931,9 +988,9 @@ for the data the service holds
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI
   generation. Creating or editing recipe JSON is not offered; development keeps using
-  `PUT /v1/recipes/:recipeId`. Settings that still use device-local IDs (connections,
-  item selection and field exclusions) are not shown until their device-independent
-  form is decided.
+  `PUT /v1/recipes/:recipeId`. Item selection and field exclusions are not shown yet;
+  once synced ([ADR 0023](adr/0023-synced-vault-policy.md)) the web UI first only lists
+  them, and they are edited on the extension's settings page.
 
   Claude credentials are entered on `/manage/claude`, a temporary script-free page
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,

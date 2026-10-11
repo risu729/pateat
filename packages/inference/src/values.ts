@@ -1,4 +1,11 @@
-import { valueCharacterClasses, type LoginObservation, type ValueShape } from "@pateat/contracts";
+import {
+  isValidEmail,
+  valueCharacterClasses,
+  valueMismatch,
+  type LoginObservation,
+  type ValueMismatch,
+  type ValueShape,
+} from "@pateat/contracts";
 import type { PagePlan } from "./plan";
 
 const classOf = (character: string): ValueShape["classes"][number] => {
@@ -9,14 +16,6 @@ const classOf = (character: string): ValueShape["classes"][number] => {
   if (/^[！-～]$/.test(character)) return "fullwidth";
   return "other";
 };
-
-// WHATWG "valid email address" and "valid floating-point number" productions, so the
-// local check agrees with what the browser would accept in that input type. Browsers
-// also trim email whitespace and accept IDN domains; those values fail here, which
-// stops the fill rather than risking a wrong one.
-const validEmail =
-  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-const validNumber = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 /**
  * A value the shape may describe (ADR 0010): the login username or a Bitwarden Text
@@ -36,11 +35,9 @@ export function valueShapeOf({ source, value }: ShapeableValue): ValueShape | un
   return {
     length: value.length,
     classes: valueCharacterClasses.filter((entry) => present.has(entry)),
-    email: validEmail.test(value),
+    email: isValidEmail(value),
   };
 }
-
-export type ValueMismatch = "missing-value" | "too-long" | "too-short" | "not-email" | "not-number";
 
 /**
  * Checks a validated plan against the real slot values before anything is filled.
@@ -57,16 +54,11 @@ export function checkPlanValues(
     const value = values.get(field.slot);
     const candidate = candidates.get(field.candidate);
     if (candidate === undefined) throw new Error("Check a validated plan for this observation");
-    const fail = (reason: ValueMismatch) => ({ ok: false as const, slot: field.slot, reason });
-    if (value === undefined || value.length === 0) return fail("missing-value");
-    // Browsers ignore maxlength and minlength on number inputs.
-    const bounded = candidate.role !== "number";
-    if (bounded && candidate.maxLength !== undefined && value.length > candidate.maxLength)
-      return fail("too-long");
-    if (bounded && candidate.minLength !== undefined && value.length < candidate.minLength)
-      return fail("too-short");
-    if (candidate.role === "email" && !validEmail.test(value)) return fail("not-email");
-    if (candidate.role === "number" && !validNumber.test(value)) return fail("not-number");
+    const reason = valueMismatch(
+      { type: candidate.role, maxLength: candidate.maxLength, minLength: candidate.minLength },
+      value,
+    );
+    if (reason) return { ok: false, slot: field.slot, reason };
   }
   return { ok: true };
 }

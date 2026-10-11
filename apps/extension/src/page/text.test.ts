@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { collapseText, renderedText } from "./text";
+import { collapseText, isScriptButton, renderedText } from "./text";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -30,5 +30,25 @@ describe("renderedText", () => {
     for (let index = 0; index < 200_000; index += 1) children.append("a");
     document.getElementById("wide")!.append(children);
     expect(renderedText(root, 10)).toHaveLength(11);
+  });
+});
+
+describe("isScriptButton", () => {
+  it("accepts onclick links without href and role=button, but not controls or links", () => {
+    document.body.innerHTML = `<a id="a" onclick="return false">Log in</a><div id="b" role=" Button ">Next</div>
+      <a id="c">Help</a><a id="d" href="/x" role="button">Docs</a><input id="e" role="button">
+      <button id="f" role="button">Go</button><a href="/card"><span id="g" role="button">Open</span></a>
+      <select id="h" role="button"></select>`;
+    const script = (id: string) => isScriptButton(document.getElementById(id)!);
+    expect(["a", "b", "c", "d", "e", "f", "g", "h"].map(script)).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 });

@@ -885,6 +885,47 @@ test("a password fills only a password input and one step stays inside one form"
   }
 });
 
+test("values the page would not accept are never submitted", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      // The synthetic password is longer than the input allows: nothing is filled.
+      const short = await context.newPage();
+      await short.goto(`${fixture.origin}/single?maxlength=8`);
+      await expect.poll(status).toContain("value-mismatch");
+      await expect(short.locator("#password")).toHaveValue("");
+      expect(await clicks(short)).toBe(0);
+      await short.close();
+      await expect.poll(status).not.toContain("value-mismatch");
+      // The page's own handlers reject the filled value: the login button is never clicked.
+      // One tab at a time, since the origin's attempt holds its tab until it closes.
+      /* eslint-disable no-await-in-loop */
+      for (const rejection of ["alert", "invalid", "custom"]) {
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/single?reject-fill=${rejection}`);
+        await expect.poll(status).toContain("fill-rejected");
+        // Cover the click the attempt would have made next.
+        await page.waitForTimeout(500);
+        expect(await clicks(page)).toBe(0);
+        await page.close();
+        await expect.poll(status).not.toContain("fill-rejected");
+      }
+      /* eslint-enable no-await-in-loop */
+      // A message the page already showed, rendered again on input, is not a rejection.
+      const shown = await context.newPage();
+      await shown.goto(`${fixture.origin}/single?reject-fill=shown`);
+      await expect(shown.locator("#authenticated")).toBeVisible();
+      expect(await clicks(shown)).toBe(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("credential rejection and unknown outcome each stop after one submission", async () => {
   const fixture = await startLoginFixture();
   try {

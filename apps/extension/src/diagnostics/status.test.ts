@@ -107,6 +107,16 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
     }),
     serviceOrigin: async () => SERVICE_ORIGIN,
     hasSiteAccess: async () => true,
+    serviceDevice: async () => ({
+      kind: "state",
+      state: {
+        version: 1,
+        pairedAt: NOW - 3 * 24 * 60 * 60_000,
+        recipes: 2,
+        settingsRevision: 57,
+        generation: "credentials-not-configured",
+      },
+    }),
     fetch: vi.fn<typeof fetch>(async () =>
       Response.json(
         { status: "ok", service: "pateat-api", revision: "1c42ad3" },
@@ -121,6 +131,16 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         bindings: [],
       }) as never,
     logs: async () => ({ entries: 120, bytes: 18_000, recentErrors: 2 }),
+    recentLog: async () => ({
+      problems: [
+        "2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch",
+      ],
+      updated: { time: NOW - 3 * 60 * 60_000, from: "9cf8356de6a0cf2c82dae5c4e70f15ea3dbc5d4b" },
+      passkeyDelegations: [
+        { reason: "no-credential", count: 3 },
+        { reason: "ambiguous-credential", count: 1 },
+      ],
+    }),
     storage: {
       localBytes: async () => 412 * 1024,
       recipeCache: async () => ({ version: 1, recipes: [{ id: "bank-signin" }] }),
@@ -158,6 +178,24 @@ describe("diagnostics status", () => {
       recipes: { count: 1 },
       nextSyncAt: NOW + 300_000,
       health: { ok: true, revision: "1c42ad3" },
+      device: {
+        ok: true,
+        pairedAt: NOW - 3 * 24 * 60 * 60_000,
+        recipes: 2,
+        settingsRevision: 57,
+        generation: "credentials-not-configured",
+      },
+    });
+    expect(status.checks).toContainEqual({
+      id: "service-copy",
+      level: "info",
+      detail: "service 2 recipes, cached 1",
+    });
+    expect(status.checks).toContainEqual({
+      id: "generation",
+      level: "info",
+      detail:
+        "recipe generation off, no Claude credentials on the service (credentials-not-configured)",
     });
     expect(status.settings).toEqual({ excludedSites: 1, siteDefaults: 0, bindings: 0 });
     expect(status.checks).toContainEqual({
@@ -225,6 +263,9 @@ describe("diagnostics status", () => {
     expect(report).toContain("· KDF PBKDF2 ·");
     expect(report).toContain("self-hosted · Bitwarden server 2026.9.2 · ready");
     expect(report).not.toContain("600000");
+    expect(report).toContain(
+      "Updated 2026-10-11T06:30Z from 9cf8356\nRecent problems (24 h, newest first):\n  2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch\nPasskey delegations (24 h): no-credential 3 · ambiguous-credential 1\n",
+    );
   });
 
   it("explains an expired sync token that the next Sync tries to renew", async () => {
@@ -285,6 +326,94 @@ describe("diagnostics status", () => {
       }),
     );
     expect(odd.service.health).toEqual({ ok: false, error: "invalid-response" });
+  });
+
+  it("reads the service record only with site access and an accepted credential", async () => {
+    const serviceDevice = vi.fn<DiagnosticsDependencies["serviceDevice"]>(async () => ({
+      kind: "state",
+      state: {
+        version: 1,
+        pairedAt: NOW - 60 * 60_000,
+        recipes: 1,
+        settingsRevision: 57,
+        generation: "daily-limit",
+      },
+    }));
+    const status = await collectDiagnostics(dependencies({ serviceDevice }));
+    expect(serviceDevice).toHaveBeenCalledWith(SERVICE_ORIGIN);
+    expect(status.checks).toContainEqual({
+      id: "service-copy",
+      level: "ok",
+      detail: "recipes and settings match the service",
+    });
+    expect(status.checks).toContainEqual({
+      id: "generation",
+      level: "warn",
+      detail: "recipe generation stopped for today (daily-limit)",
+    });
+    const report = formatReport(status, { name: "Chrome", version: "156", installType: "normal" });
+    expect(report).toContain(
+      "Service record: paired 2026-10-11T08:30Z · 1 recipes · settings revision 57 · recipe generation stopped for today (daily-limit)",
+    );
+    expect(report).toContain("  warn recipe generation stopped for today (daily-limit)");
+
+    serviceDevice.mockClear();
+    const withheld = await collectDiagnostics(
+      dependencies({ serviceDevice, hasSiteAccess: async () => false }),
+    );
+    expect(withheld.service.device).toBeUndefined();
+    // A credential the service already refused is not sent again.
+    const rejected = await collectDiagnostics(
+      dependencies({
+        serviceDevice,
+        serviceState: async () => ({
+          kind: "connected",
+          origin: SERVICE_ORIGIN,
+          label: "Owner laptop",
+          deviceId: "dev_secret",
+          rejected: true,
+        }),
+      }),
+    );
+    expect(rejected.service.device).toBeUndefined();
+    expect(serviceDevice).not.toHaveBeenCalled();
+
+    const behind = await collectDiagnostics(
+      dependencies({
+        storage: {
+          ...dependencies().storage,
+          settingsBase: async () => undefined,
+        },
+      }),
+    );
+    expect(behind.checks).toContainEqual({
+      id: "service-copy",
+      level: "info",
+      detail: "service 2 recipes, cached 1; settings revision service 57, here 0",
+    });
+
+    for (const [result, error] of [
+      [{ kind: "rejected" }, "rejected"],
+      [{ kind: "failed", error: "unreachable" }, "unreachable"],
+      [{ kind: "failed", error: "rate-limited" }, "rate-limited"],
+    ] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- one case at a time
+      const failed = await collectDiagnostics(dependencies({ serviceDevice: async () => result }));
+      expect(v.is(diagnosticsStatusSchema, failed)).toBe(true);
+      expect(failed.service.device).toEqual({ ok: false, error });
+      expect(failed.checks.find((check) => check.id === "service-record")?.level).toBe("warn");
+    }
+    const thrown = await collectDiagnostics(
+      dependencies({
+        serviceDevice: async () => {
+          throw new Error("storage");
+        },
+      }),
+    );
+    expect(thrown.service.device).toEqual({ ok: false, error: "unavailable" });
+    expect(
+      formatReport(thrown, { name: "Chrome", version: "156", installType: "normal" }),
+    ).toContain("Service record: service record not read (unavailable)");
   });
 
   it("names a vault storage failure and an expired sign-in", async () => {
@@ -497,6 +626,20 @@ describe("diagnostics status", () => {
       { ...valid, connections: [{ ...entry, label: SECRET_LABEL }] },
       { ...valid, connections: [{ ...entry, id: CONNECTION_ID }] },
       { ...valid, service: { kind: "connected", origin: SERVICE_ORIGIN } },
+      {
+        ...valid,
+        service: {
+          kind: "connected",
+          device: {
+            ok: true,
+            pairedAt: NOW,
+            recipes: 1,
+            settingsRevision: 1,
+            generation: "ok",
+            deviceId: "dev_secret",
+          },
+        },
+      },
       { ...valid, platform: { os: "linux", arch: "x86-64", nacl_arch: "x86-64" } },
     ])
       expect(() => parseDiagnosticsResponse(response(status))).toThrow();

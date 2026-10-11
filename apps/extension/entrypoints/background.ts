@@ -77,6 +77,7 @@ export default defineBackground(() => {
       void actionIcon.refresh();
       diagnosticsLog.vaultStateMayChange();
     },
+    onSync: diagnosticsLog.vaultSync,
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
@@ -252,9 +253,17 @@ export default defineBackground(() => {
     serviceOrigin: async () => (await service.connection())?.origin,
     hasSiteAccess: (origin) =>
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
+    async serviceDevice(origin) {
+      const connection = await service.connection();
+      // Paired again meanwhile, or rejected by a sync since the page's own read.
+      return connection?.origin === origin && !connection.rejected
+        ? serviceTransport.device(connection.origin, connection.credential)
+        : undefined;
+    },
     fetch: (input, init) => fetch(input, init),
     settings: async () => (await settings.read()).settings,
     logs: () => logger.summary(),
+    recentLog: () => logger.recent(),
     storage: {
       localBytes: () => browser.storage.local.getBytesInUse(null),
       recipeCache: () => recipeCacheStorage.read(),
@@ -357,7 +366,7 @@ export default defineBackground(() => {
         (response) => {
           // A completed pairing syncs at once; an open settings page keeps a stale cache moving.
           if (response.ok && response.state.kind === "connected") {
-            if (message.type === "service.pair.check") void recipeSync.sync();
+            if (message.type === "service.pair") void recipeSync.sync();
             else recipeSync.refreshIfStale();
           }
           // The previous owner's recipes are not kept once their device is gone.

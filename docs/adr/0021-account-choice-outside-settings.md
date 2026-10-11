@@ -4,8 +4,9 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
-Each part lands in its own PR. Parts A, B and C are implemented, and D for passkeys; D
-for password logins is not yet.
+Each part lands in its own PR. All four parts, A to D, are implemented.
+Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
+a binding that names a missing custom field (not implemented yet).
 
 Date: 2026-10-11
 
@@ -117,7 +118,10 @@ with the default listed first.
 
 Only that tab's own finished attempt record is released. Another tab holding an attempt
 for the origin still blocks with `origin-busy`, because cookies are shared across tabs;
-that tab's tooltip says why. The runtime and the content script must keep watching after
+that tab's tooltip says why. For the same reason, while the tab asks, other tabs of the
+origin are refused `origin-busy` too, so they cannot log in again behind the logout.
+A result Pateat could not observe stays `reconciling` and is resumed by the next page,
+not taken as a logout. The runtime and the content script must keep watching after
 a finished attempt, including after an in-document (SPA) logout.
 
 Known gaps:

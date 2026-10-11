@@ -97,7 +97,8 @@ async function acquireLock(db: Db, ownerId: string, now: number) {
   return result.meta.changes === 1 ? lockId : undefined;
 }
 
-async function limitReached(db: Db, ownerId: string, now: number) {
+/** Whether the owner reached the monthly or daily spend stop. */
+export async function limitReached(db: Db, ownerId: string, now: number) {
   const [month, day] = periods(now);
   const rows = await db
     .select()

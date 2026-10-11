@@ -186,3 +186,17 @@ export type LoginObservation = v.InferOutput<typeof loginObservationSchema>;
 export type ObservedCandidate = v.InferOutput<typeof observedCandidateSchema>;
 export type SemanticSlot = v.InferOutput<typeof semanticSlotSchema>;
 export type ValueShape = v.InferOutput<typeof valueShapeSchema>;
+
+/**
+ * Slot meanings the extension sends for generation, one per built-in vault login field.
+ * The real-page corpus sends the same ones, so its benchmark matches production.
+ */
+export const builtInLoginSlots = {
+  username: {
+    id: "username",
+    kind: "identifier",
+    description: "account username, email address or login ID",
+  },
+  password: { id: "password", kind: "secret", description: "account password" },
+  totp: { id: "totp", kind: "one-time-code", description: "one-time authentication code" },
+} as const satisfies Record<string, SemanticSlot>;

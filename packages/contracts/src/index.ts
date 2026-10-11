@@ -1,4 +1,3 @@
-export * from "./enrollment";
 export * from "./extension-id";
 export * from "./generation";
 export * from "./settings";
@@ -12,3 +11,4 @@ export * from "./pairing";
 export * from "./recipes";
 export * from "./service-connection";
 export * from "./sync";
+export * from "./values";

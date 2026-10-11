@@ -33,7 +33,7 @@ function trustedRecord<T>(key: string) {
   };
 }
 
-/** The service record holds a verifier or device credential: trusted contexts only. */
+/** The service record holds the device credential: trusted contexts only. */
 export function createBrowserServiceStorage(): ServiceStorage {
   return trustedRecord("pateat.sync-service.v1");
 }

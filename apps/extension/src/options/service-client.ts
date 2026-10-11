@@ -1,4 +1,5 @@
-import { parseServiceResponse, type ServiceResponse } from "@pateat/contracts";
+import { parseServiceResponse, serviceOriginSchema, type ServiceResponse } from "@pateat/contracts";
+import * as v from "valibot";
 
 export interface ServiceClient {
   get(): Promise<ServiceResponse>;
@@ -7,17 +8,16 @@ export interface ServiceClient {
    * Call it first in a click handler: Chrome prompts only during a user gesture.
    */
   requestSiteAccess(origin: string): Promise<boolean>;
-  start(origin: string, label: string): Promise<ServiceResponse>;
-  check(): Promise<ServiceResponse>;
-  cancel(): Promise<ServiceResponse>;
+  /** Pairs in one request from the background with the browser's login session (ADR 0020). */
+  pair(origin: string, label: string): Promise<ServiceResponse>;
   disconnect(): Promise<ServiceResponse>;
   /** Forgets an unreadable local connection without contacting the service. */
   forget(): Promise<ServiceResponse>;
-  /** Opens the service's approval page in an ordinary tab. */
-  openApproval(url: string): Promise<void>;
+  /** Opens the service's `/manage` page in an ordinary tab, where the user signs in. */
+  openSignIn(origin: string): Promise<void>;
 }
 
-/** Only connection state crosses here; the verifier and credential stay in the background. */
+/** Only connection state crosses here; the credential stays in the background. */
 export function createServiceClient(deps: {
   send: (message: unknown) => Promise<unknown>;
   openTab: (url: string) => Promise<unknown>;
@@ -28,13 +28,12 @@ export function createServiceClient(deps: {
   return {
     get: () => call({ type: "service.get" }),
     requestSiteAccess: (origin) => deps.requestSiteAccess(origin).catch(() => false),
-    start: (origin, label) => call({ type: "service.pair.start", origin, label }),
-    check: () => call({ type: "service.pair.check" }),
-    cancel: () => call({ type: "service.pair.cancel" }),
+    pair: (origin, label) => call({ type: "service.pair", origin, label }),
     disconnect: () => call({ type: "service.disconnect" }),
     forget: () => call({ type: "service.forget" }),
-    openApproval: async (url) => {
-      await deps.openTab(url);
+    openSignIn: async (origin) => {
+      // Built here from a validated origin, never from a URL another context supplied.
+      await deps.openTab(new URL("/manage", v.parse(serviceOriginSchema, origin)).href);
     },
   };
 }

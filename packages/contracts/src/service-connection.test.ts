@@ -38,35 +38,17 @@ describe("service origin", () => {
 
 describe("service messages", () => {
   it("never accepts secrets from the options page", () => {
-    const start = {
+    const pair = {
       version: 1,
-      type: "service.pair.start",
+      type: "service.pair",
       origin: "https://pateat.example.com",
       label: "Laptop",
     };
-    expect(v.safeParse(serviceRequestSchema, start).success).toBe(true);
+    expect(v.safeParse(serviceRequestSchema, pair).success).toBe(true);
     expect(
-      v.safeParse(serviceRequestSchema, { ...start, credential: `pateat_device_${"A".repeat(43)}` })
+      v.safeParse(serviceRequestSchema, { ...pair, credential: `pateat_device_${"A".repeat(43)}` })
         .success,
     ).toBe(false);
-  });
-
-  it("accepts only the service's own approval page", () => {
-    const pairing = {
-      kind: "pairing",
-      origin: "https://pateat.example.com",
-      label: "Laptop",
-      code: "ABCD-EFGH",
-      enrollUrl: "https://pateat.example.com/enroll?challenge=x",
-      expiresAt: 1,
-    };
-    expect(parseServiceResponse({ ok: true, state: pairing }).ok).toBe(true);
-    for (const enrollUrl of [
-      "https://evil.example.com/enroll?challenge=x",
-      "https://pateat.example.com.evil.example/enroll?challenge=x",
-      "https://pateat.example.com/manage",
-    ])
-      expect(() => parseServiceResponse({ ok: true, state: { ...pairing, enrollUrl } })).toThrow();
   });
 
   it("rejects responses carrying unknown fields", () => {

@@ -269,6 +269,26 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("observes script buttons, such as MyJCB's onclick link, by attribute only", () => {
+    page(
+      `<div role="button">ログイン</div>
+      <form name="loginForm"><input id="userId"><input id="password" type="password">
+        <a id="loginButtonAD" onclick="document.loginForm.submit()">ログイン</a>
+        <span role="button" aria-label="Show password"></span><a class="plain">ヘルプ</a>
+        <button>ログイン</button></form>`,
+    );
+    const observation = observe();
+    // A script button without a locator is left out without making the page incomplete,
+    // and never takes a native button's text locator.
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target, label }) => [role, target, label])).toEqual([
+      ["text", { by: "id", value: "userId" }, undefined],
+      ["password", { by: "id", value: "password" }, undefined],
+      ["button", { by: "id", value: "loginButtonAD" }, "ログイン"],
+      ["button", { by: "text", value: "ログイン" }, "ログイン"],
+    ]);
+  });
+
   it("names an image-only button by its image's alt, as the executor resolves it", () => {
     page(
       `<form><input id="user"><button><img src="data:," alt="ログイン" width="40" height="20"></button></form>`,
@@ -493,6 +513,76 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(true);
     page(
       `<form id="f"><input id="u"><input type="checkbox"><button id="go">Log in</button></form>`,
+    );
+    expect(observe().complete).toBe(false);
+  });
+
+  it("judges completeness by the login form and leaves out other flawed forms", () => {
+    const login = `<form id="f"><input id="u"><input id="p" type="password"><button id="go">Log in</button></form>`;
+    const targets = () => observe().candidates.map((candidate) => candidate.target.value);
+    // A search form with a category select and a submit button without a locator.
+    page(
+      `<form id="s"><select id="cat"><option>All</option></select><input id="q"><input type="submit"></form>${login}`,
+    );
+    expect(observe().complete).toBe(true);
+    expect(targets()).toEqual(["u", "p", "go"]);
+    // A form without a flaw stays as context.
+    page(`<form id="s"><input id="q"><button id="find">Search</button></form>${login}`);
+    expect(observe().complete).toBe(true);
+    expect(targets()).toEqual(["q", "find", "u", "p", "go"]);
+    // Sign-up forms: two password fields, or a new-password field.
+    page(
+      `<form id="r"><input id="ru"><input id="rp" type="password"><input id="rc" type="password"><select id="year"><option>2000</option></select></form>${login}`,
+    );
+    expect(observe().complete).toBe(true);
+    expect(targets()).toEqual(["u", "p", "go"]);
+    page(
+      `<form id="r"><input id="ru"><input id="rp" type="password" autocomplete="new-password"><input type="radio" id="g"></form>${login}`,
+    );
+    expect(observe().complete).toBe(true);
+    // An identifier-first login form counts as much as a one-password form.
+    const identifier = (extra: string) =>
+      `<form id="f"><input id="u" autocomplete="username">${extra}<button id="next">Next</button></form>`;
+    page(
+      `${identifier(`<input type="radio" id="kind">`)}<form id="r"><input id="re" type="email"><input id="rp" type="password"><button id="join">Join</button></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    page(
+      `${identifier(`<select id="kind"><option>A</option></select>`)}<form id="r"><input id="re"><input id="rp" type="password"><input id="rc" type="password"></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    page(
+      `<form id="s"><select id="cat"><option>All</option></select><input id="q"></form>${identifier("")}`,
+    );
+    expect(observe().complete).toBe(true);
+    expect(targets()).toEqual(["u", "next"]);
+    // Without a login-like form, a password form counts, then every form.
+    page(
+      `<form id="r"><input id="ru"><input id="rp" type="password"><input id="rc" type="password"><select id="year"><option>2000</option></select></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    page(
+      `<form id="s"><select id="cat"><option>All</option></select><input id="q"></form>
+      <form id="f"><input id="u"><button id="next">Next</button></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    // A read-only password field still marks its form as the login form.
+    page(
+      `<form id="s"><select id="cat"><option>All</option></select><input id="q"></form>
+      <form id="f"><input id="u"><input id="p" type="password" readonly><button id="go">Log in</button></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    // A shadow-root control leaves out a form other than the login form.
+    page(`<form id="s"><input id="q"><div id="host"></div></form>${login}`);
+    document
+      .querySelector("#host")!
+      .attachShadow({ mode: "open" }).innerHTML = `<button>Voice</button>`;
+    expect(observe().complete).toBe(true);
+    expect(targets()).toEqual(["u", "p", "go"]);
+    // Two login forms sharing field names leave both fields without a locator.
+    page(
+      `<form id="h"><input name="user"><input name="pass" type="password"><button id="hgo">Go</button></form>
+      <form id="m"><input name="user"><input name="pass" type="password"><button id="mgo">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
   });

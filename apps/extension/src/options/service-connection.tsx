@@ -1,17 +1,19 @@
 import {
+  deviceLabelSchema,
   normalizeServiceOrigin,
   type ServiceErrorCode,
   type ServiceResponse,
   type ServiceState,
 } from "@pateat/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import * as v from "valibot";
 import { Button } from "./button";
 import type { ServiceClient } from "./service-client";
 
-/** The service allows about 10 redemption attempts a minute per address; the background paces them too. */
-export const PAIRING_POLL_MS = 10_000;
+/** How often the page checks whether the first sync after pairing finished. */
+export const SYNC_POLL_MS = 10_000;
 
-function errorMessage(error: ServiceErrorCode): string {
+function errorMessage(error: ServiceErrorCode, origin = "the service"): string {
   switch (error) {
     case "storage-unavailable":
       return "Pateat could not read or save its service connection on this device.";
@@ -20,15 +22,19 @@ function errorMessage(error: ServiceErrorCode): string {
     case "site-access-needed":
       return "Chrome is not letting Pateat reach this service. Allow site access when Chrome asks, or in the extension's site access settings.";
     case "unreachable":
-      return "The service could not be reached. Pateat keeps trying while this page is open.";
+      return "The service could not be reached. Check the address, then try again.";
     case "rate-limited":
-      return "The service asked Pateat to slow down. Pateat keeps trying while this page is open.";
+      return "The service asked Pateat to slow down. Wait a minute, then try again.";
     case "unexpected-response":
-      return "The service gave an unexpected answer. Check the address, or cancel and pair again.";
-    case "code-mismatch":
-      return "The approval page has a different code. Retype the code shown here on that page. If it says another account approved this request, cancel and pair again.";
-    case "pairing-expired":
-      return "Pairing expired before this device received its credential. Start again. If you had approved it, check the service's management page for an unused device.";
+      return "The service gave an unexpected answer. Check the address, then try again.";
+    case "sign-in-needed":
+      return `Sign in to ${origin} first: open the sign-in page, then come back here. If the service refuses your account, ask its operator.`;
+    case "sign-in-rejected":
+      return "The service did not accept your sign-in.";
+    case "extension-not-allowed":
+      return "This service does not accept this build of Pateat. Its operator must add this extension's ID to PAIRING_EXTENSION_IDS.";
+    case "pairing-unavailable":
+      return "Pairing is not configured on this service.";
     case "wrong-state":
       return "The connection changed elsewhere. This page now shows its current state.";
     case "invalid-request":
@@ -36,9 +42,12 @@ function errorMessage(error: ServiceErrorCode): string {
   }
 }
 
+/** A pairing the user asked for that has not succeeded yet. */
+type Attempt = { origin: string; label: string; error: ServiceErrorCode };
+
 export function ServiceConnection({
   client,
-  pollMs = PAIRING_POLL_MS,
+  pollMs = SYNC_POLL_MS,
 }: {
   client: ServiceClient;
   pollMs?: number;
@@ -50,26 +59,19 @@ export function ServiceConnection({
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
   const [corrupt, setCorrupt] = useState(false);
-  const [siteAccessNeeded, setSiteAccessNeeded] = useState(false);
+  const [attempt, setAttempt] = useState<Attempt | undefined>();
   const mounted = useRef(true);
   const checking = useRef(false);
   // Acquire synchronously: React state alone cannot stop a double click.
   const acting = useRef(false);
-
-  /** The status line after a check: a failure keeps its own message. */
-  const checked = (response: ServiceResponse) =>
-    !response.ok
-      ? undefined
-      : response.state.kind === "connected"
-        ? "This device is paired."
-        : "Waiting for approval on the service.";
+  // A one-shot retry for when the user comes back from the sign-in tab.
+  const retryOnReturn = useRef<{ origin: string; label: string } | undefined>(undefined);
 
   function receive(response: ServiceResponse, success?: string) {
     if (!mounted.current) return;
     // Any response carrying a state proves the stored record is readable.
     if (response.ok || response.state) setCorrupt(false);
     else if (response.error === "storage-corrupt") setCorrupt(true);
-    setSiteAccessNeeded(!response.ok && response.error === "site-access-needed");
     if (response.ok) {
       setState(response.state);
       if (success !== undefined) setMessage(success);
@@ -92,6 +94,41 @@ export function ServiceConnection({
     }
   }
 
+  /** Opens the sign-in page and retries once when this page is shown again. */
+  async function openSignIn(origin: string, name: string) {
+    await client.openSignIn(origin);
+    retryOnReturn.current = { origin, label: name };
+  }
+
+  /**
+   * Sends one pairing request. Only the Pair click itself opens the sign-in page;
+   * a retry that still needs a sign-in leaves that to the "Open sign-in page" button.
+   */
+  async function pair(origin: string, name: string, signInTab: boolean) {
+    retryOnReturn.current = undefined;
+    const response = await client.pair(origin, name);
+    if (!mounted.current) return;
+    if (response.ok) {
+      setAttempt(undefined);
+      receive(response, "This device is paired.");
+      return;
+    }
+    receive(response);
+    if (response.state && response.state.kind !== "disconnected") {
+      setAttempt(undefined);
+      return;
+    }
+    setAttempt({ origin, label: name, error: response.error });
+    if (response.error !== "sign-in-needed") return;
+    if (signInTab) {
+      await openSignIn(origin, name);
+      if (mounted.current)
+        setMessage(
+          `Sign in to ${origin} in the new tab, then come back here. If the service refuses your account, ask its operator.`,
+        );
+    } else setMessage(errorMessage("sign-in-needed", origin));
+  }
+
   useEffect(() => {
     mounted.current = true;
     void client.get().then(
@@ -105,28 +142,24 @@ export function ServiceConnection({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [client]);
 
-  // Redemption is polled only while this page is open and a pairing is pending.
-  const pairing = state?.kind === "pairing";
+  // Coming back from the sign-in tab retries once. Focus and visibility often fire
+  // together, so the first one takes the retry; the tab opening only hides this page.
+  // The retry passes no sign-in tab, so only a click ever opens one.
+  const retryAfterSignIn = useEffectEvent(() => {
+    const pending = retryOnReturn.current;
+    if (!pending || document.visibilityState !== "visible" || acting.current) return;
+    retryOnReturn.current = undefined;
+    void act(() => pair(pending.origin, pending.label, false));
+  });
   useEffect(() => {
-    if (!pairing) return;
-    const timer = setInterval(() => {
-      // A tick during cancel would only report the state that cancel already changed.
-      if (checking.current || acting.current) return;
-      checking.current = true;
-      void client
-        .check()
-        .then(
-          (response) => receive(response, checked(response)),
-          () => undefined,
-        )
-        .finally(() => {
-          checking.current = false;
-        });
-    }, pollMs);
-    return () => clearInterval(timer);
-    // `receive` touches only state setters and refs; restart only when pairing toggles.
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [client, pairing, pollMs]);
+    const returned = () => retryAfterSignIn();
+    document.addEventListener("visibilitychange", returned);
+    window.addEventListener("focus", returned);
+    return () => {
+      document.removeEventListener("visibilitychange", returned);
+      window.removeEventListener("focus", returned);
+    };
+  }, []);
 
   // The first sync runs in the background after pairing; show when it finishes.
   const awaitingSync =
@@ -195,9 +228,13 @@ export function ServiceConnection({
               setAddressError("Enter an HTTPS address such as https://pateat.example.com.");
               return;
             }
-            const name = label.trim();
-            if (!name) {
-              setAddressError("Enter a device name.");
+            const name = v.safeParse(deviceLabelSchema, label);
+            if (!name.success) {
+              setAddressError(
+                label.trim()
+                  ? "Use a device name of up to 64 characters without control characters."
+                  : "Enter a device name.",
+              );
               return;
             }
             setAddressError("");
@@ -207,10 +244,7 @@ export function ServiceConnection({
                 if (mounted.current) setMessage(errorMessage("site-access-needed"));
                 return;
               }
-              receive(
-                await client.start(origin, name),
-                "Pairing started. Approve it with the code below.",
-              );
+              await pair(origin, name.output, true);
             });
           }}
         >
@@ -244,66 +278,43 @@ export function ServiceConnection({
               {addressError}
             </p>
           )}
-          <div>
+          <div className="flex flex-wrap gap-2">
             <Button id="sync-service-pair" type="submit" disabled={busy}>
               Pair this device
             </Button>
-          </div>
-        </form>
-      )}
-      {state?.kind === "pairing" && (
-        <div className="grid gap-3">
-          <p>
-            Pairing <strong>{state.label}</strong> with {state.origin}. Open the approval page, sign
-            in, and type this code:
-          </p>
-          <p id="sync-service-code" className="text-2xl font-semibold tracking-widest">
-            {state.code}
-          </p>
-          <p className="note">
-            Pateat checks for approval while this page stays open. The request expires at{" "}
-            {new Date(state.expiresAt).toLocaleTimeString()}.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              id="sync-service-open"
-              type="button"
-              disabled={busy}
-              onClick={() => void act(() => client.openApproval(state.enrollUrl))}
-            >
-              Open approval page
-            </Button>
-            {siteAccessNeeded && (
+            {attempt && (
               <Button
-                id="sync-service-access"
+                id="sync-service-retry"
                 type="button"
+                variant="outline"
                 disabled={busy}
                 onClick={() =>
                   void act(async () => {
                     // Requested before any other await so Chrome still sees the click.
-                    if (await client.requestSiteAccess(state.origin)) {
-                      const response = await client.check();
-                      receive(response, checked(response));
+                    if (!(await client.requestSiteAccess(attempt.origin))) {
+                      if (mounted.current) setMessage(errorMessage("site-access-needed"));
+                      return;
                     }
+                    await pair(attempt.origin, attempt.label, false);
                   })
                 }
               >
-                Allow site access
+                Try again
               </Button>
             )}
-            <Button
-              id="sync-service-cancel"
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void act(async () => receive(await client.cancel(), "Pairing cancelled."))
-              }
-            >
-              Cancel pairing
-            </Button>
+            {attempt?.error === "sign-in-needed" && (
+              <Button
+                id="sync-service-sign-in"
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void act(() => openSignIn(attempt.origin, attempt.label))}
+              >
+                Open sign-in page
+              </Button>
+            )}
           </div>
-        </div>
+        </form>
       )}
       {state?.kind === "connected" && (
         <div className="grid gap-3">

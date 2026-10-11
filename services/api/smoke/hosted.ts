@@ -28,7 +28,6 @@ export const OWNER_TABLES = [
   "recipe_revisions",
   "recipe_heads",
   "settings",
-  "enrollments",
   "generation_attempts",
   "inference_locks",
   "inference_spend",

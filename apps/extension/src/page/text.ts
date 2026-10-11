@@ -99,6 +99,30 @@ export function isButton(element: Element): element is HTMLButtonElement | HTMLI
   );
 }
 
+/**
+ * A control that only scripts make clickable: an `<a>` without `href` that has an
+ * `onclick` attribute (MyJCB's login button is
+ * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`), or another element
+ * with `role="button"`. Form controls, links and anything inside an `<a href>` (a click
+ * there would follow the link) are not script buttons. Only attribute locators name
+ * one, so text locators keep matching native buttons alone.
+ */
+export function isScriptButton(element: Element): boolean {
+  if (
+    !(element instanceof HTMLElement) ||
+    element instanceof HTMLButtonElement ||
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLTextAreaElement ||
+    element.closest("a[href]") !== null
+  )
+    return false;
+  return (
+    (element instanceof HTMLAnchorElement && element.hasAttribute("onclick")) ||
+    element.getAttribute("role")?.trim().toLowerCase() === "button"
+  );
+}
+
 /** The `alt` of the shown images in a `<button>` that has no rendered text. */
 function imageText(button: HTMLButtonElement): string {
   return [...button.querySelectorAll("img[alt]")]
