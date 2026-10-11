@@ -10,6 +10,7 @@ import {
   recipeStartSteps,
   routeFillTargets,
   routePaths,
+  routeSignInPaths,
   routeSignInTargets,
   routeSlots,
   routeSteps,
@@ -1147,8 +1148,21 @@ describe("the passkey route (ADR 0027)", () => {
     expect(routeSlots(parsed, { route: "passkey" })).toEqual([]);
     expect(routeFillTargets(parsed, "passkey")).toEqual([]);
     expect(routePaths(parsed, "passkey")).toEqual(["/identity"]);
-    expect(routeSignInTargets(parsed, "passkey")).toEqual([id("passkey-login")]);
+    // The passkey route's page is still the sign-in page while the button or the password
+    // form shows, on its own path or any of the password route's.
+    expect(routeSignInTargets(parsed, "passkey")).toEqual([
+      id("passkey-login"),
+      ...routeFillTargets(parsed, "password"),
+    ]);
     expect(routeSignInTargets(parsed, "password")).toEqual(routeFillTargets(parsed, "password"));
+    expect(routeSignInPaths(parsed, "passkey")).toEqual([
+      "/identity",
+      ...routePaths(parsed, "password").filter((path) => path !== "/identity"),
+    ]);
+    expect(routeSignInPaths(parsed, "passkey")).toEqual(
+      expect.arrayContaining(routePaths(parsed, "password")),
+    );
+    expect(routeSignInPaths(parsed, "password")).toEqual(routePaths(parsed, "password"));
     // The passkey click is watched first, beside the password route's first step.
     expect(recipeStartSteps(parsed)).toEqual([click, parsed.steps[0]]);
     // The password route is unchanged, and the recipe's slots are only its own.
@@ -1160,6 +1174,7 @@ describe("the passkey route (ADR 0027)", () => {
     expect(routeSteps(plain, { route: "passkey" })).toEqual([]);
     expect(routePaths(plain, "passkey")).toEqual([]);
     expect(routeSignInTargets(plain, "passkey")).toEqual([]);
+    expect(routeSignInPaths(plain, "passkey")).toEqual([]);
     expect(recipeStartSteps(plain)).toEqual([plain.steps[0]]);
   });
 

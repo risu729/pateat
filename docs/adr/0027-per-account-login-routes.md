@@ -358,10 +358,12 @@ new owner decision:
   after `authenticated` only the site default (for an automatic choice) is saved: no
   binding is stored or synced for the route.
 - **Held click.** The hold for a handler's click also covers the `passkey` route's
-  click: while the button still shows in the document that clicked it, the page is
-  neither judged nor settled for up to two minutes, then the login ends `challenge`. A
-  new document of the tab that shows the button again, as after a reload back to the
-  start page, ends `challenge` at once; the button is never clicked again or judged.
+  click: while the button still shows in the document that clicked it, whatever path a
+  same-document URL change (`pushState`) has moved that document to, the page is
+  neither judged nor settled for up to two minutes, then the login ends `challenge`.
+  This applies to a handler's click too. A new document of the tab that shows the
+  button again on its path, as after a reload back to the start page, ends `challenge`
+  at once; the button is never clicked again or judged.
   The hold lives in the service worker's memory, so a worker restart during the hold
   treats the same document as a new one and ends `challenge`; a click whose delivery
   failed while the button still shows also ends `challenge`. Both fail closed.
@@ -372,17 +374,34 @@ new owner decision:
   handler the recipe has (or the judge adds) runs as on the `password` route, and the
   route never changes during the login.
 - **Judging the passkey route.** The judge request names the `passkey` route. The
-  service answers `recipe-conflict` for a recipe without one and `not-judgeable` for a
-  page on the route's path that still shows its button; the login paths it receives
-  include that path. The extension likewise does not send such a page, and a judged
-  `completion` or handler may not reuse the route's button.
+  route starts beside the password form, so a page that still shows that form is the
+  sign-in page on this route too: the service answers `not-judgeable` for a page that
+  shows a fill field of any `password` variant, on any path, as on the `password` route,
+  and for a page on the route's path or any `password` route path that still shows the
+  passkey button. The login paths it receives are the route's path and every
+  `password` route path. The extension likewise sends no page that shows the button or
+  a fill field of any variant on those paths. A start page that renders its password
+  form again after the click is therefore never judged, so it cannot spend the start
+  path's one judgement for the revision or add a handler there. The service answers
+  `recipe-conflict` for a recipe without the route, and a judged `completion` or handler
+  may not reuse the route's button.
+- **What the route name tells.** Since only an item with a discoverable passkey takes
+  the `passkey` route, the route name in the judge request, the `login.attempt` report
+  and the attempt record implies that the login's item holds a discoverable passkey for
+  the site. This follows from the accepted rule that the judge request names the
+  login's route; the item's facts themselves are still never sent or logged.
 - **Generating the passkey route.** On a start page, the generation role may name a
-  `passkeyButton` beside its plan. It is kept only when it is a button candidate that
-  is not named like a registration (add, register, create, set up, new, enrol, or 登録,
-  追加, 作成, the words the `passkey` handler check refuses), and not any set's field or
-  action or the account switch, by candidate or by locator. A button that fails these
-  checks is dropped silently and does not fail the answer. On a continuation the
-  service ignores it. The service stores it as the recipe's `passkey` route on the
+  `passkeyButton` beside its plan. It is kept only when it is a candidate with the
+  button role (not a link or another role) whose label or `id`, `name`, test ID or text
+  locator names a passkey or security key, case-insensitively (passkey, pass key,
+  security key, WebAuthn, FIDO, パスキー, セキュリティキー, 生体認証), that is not named
+  like a registration (add, register, create, set up, new, enrol, or 登録, 追加, 作成,
+  the words the `passkey` handler check refuses), and not any set's field or action or
+  the account switch, by candidate or by locator. The wording check keeps a mislabelled
+  "Sign in with Google" or SSO button from becoming a passkey click outside ADR 0026; it
+  is a shared helper the judge's `passkey` handler check does not use yet. A button that
+  fails these checks is dropped silently and does not fail the answer. On a continuation
+  the service ignores it. The service stores it as the recipe's `passkey` route on the
   first page, and the request log records the kept button. The corpus case `ja-myjcb`
   expects its passkey sign-in button, and the evaluation reports passkey buttons as a
   separate count (expected, correct, missed, wrong) that does not change a case's
@@ -396,10 +415,18 @@ new owner decision:
   appears to be, is not observed and so not generated; such a site gets the variant the
   page shows first.
 - **Known limitation: the ready variant is not the chosen one.** The document reports
-  only that a first step on the start path is ready, not which variant's. When another
-  variant's first elements are ready but those of the variant chosen for the item never
-  appear, the login waits the usual step wait and ends `structural-mismatch` before any
-  fill; before variants, the document kept watching. This fails closed.
+  only that a first step on the start path is ready, not which variant's or route's.
+  When another variant's first elements are ready but those of the variant chosen for
+  the item never appear, the login waits the usual step wait and ends
+  `structural-mismatch` before any fill; before variants, the document kept watching.
+  The passkey button alone also starts a login, so an item without a discoverable
+  passkey on a page whose password form is behind a toggle takes the `password` route
+  and ends `structural-mismatch` the same way. This fails closed.
+- **Known limitation: a start page that keeps its button.** A site that signs in on
+  its start path and keeps the passkey button in the page, even hidden, never learns a
+  completion from this route: the button still shows, so the login holds for two
+  minutes and ends `challenge`, and the page is never judged. A completion learned on
+  the `password` route still applies to it.
 
 ## Consequences
 

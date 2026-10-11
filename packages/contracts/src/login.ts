@@ -565,13 +565,27 @@ export function routePaths(recipe: LoginRecipe, route: LoginRoute): string[] {
   ];
 }
 /**
- * Elements whose presence on one of the route's paths shows the page is still the route's
+ * Elements whose presence on one of {@link routeSignInPaths} shows the page is still a
  * sign-in page, so it is not judged (ADR 0027): every fill target of the `password` route,
- * and the `passkey` route's button, which stays while its passkey exchange runs.
+ * and on the `passkey` route also its button, which stays while its passkey exchange
+ * runs. The `passkey` route counts the password form too: a start page that shows it
+ * again after the click is still the sign-in page, not a page to learn from.
  */
 export function routeSignInTargets(recipe: LoginRecipe, route: LoginRoute): LoginTarget[] {
-  if (route === "passkey") return recipe.passkey ? [recipe.passkey.target] : [];
-  return routeFillTargets(recipe, route);
+  if (route === "passkey" && !recipe.passkey) return [];
+  const fills = routeFillTargets(recipe, "password");
+  if (route !== "passkey" || !recipe.passkey) return fills;
+  const button = recipe.passkey.target;
+  return [button, ...fills.filter((target) => !sameLoginTarget(target, button))];
+}
+/**
+ * The paths on which {@link routeSignInTargets} show a sign-in page and the judge is told
+ * are the login's (ADR 0027): the route's own paths, and on the `passkey` route also every
+ * path of the `password` route, whose form it starts beside.
+ */
+export function routeSignInPaths(recipe: LoginRecipe, route: LoginRoute): string[] {
+  if (route !== "passkey" || !recipe.passkey) return routePaths(recipe, route);
+  return [...new Set([recipe.passkey.path, ...routePaths(recipe, "password")])];
 }
 /**
  * The first step of every route and variant: a new login starts once any of them is

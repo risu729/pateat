@@ -197,6 +197,23 @@ export const registersPasskey = (button: Pick<ObservedCandidate, "label" | "targ
   );
 
 /**
+ * Words that name a passkey or a security key ("Sign in with a passkey", "Use security
+ * key", "パスキーでログイン", `#passkeyLoginButton`), matched case-insensitively.
+ */
+const passkeyWording =
+  /pass\s*key|security\s*key|webauthn|fido|パスキー|セキュリティ\s*キー|生体認証/iu;
+/**
+ * Whether a button's label, text or `id`, `name` or test ID locator names a passkey or a
+ * security key (ADR 0027). The generated passkey route keeps only such a button, so a
+ * mislabelled "Sign in with Google" never becomes a passkey click; the judge's `passkey`
+ * handler may use it later.
+ */
+export const namesPasskey = (button: Pick<ObservedCandidate, "label" | "target">) =>
+  [button.label, button.target.value].some(
+    (text) => text !== undefined && passkeyWording.test(words(text)),
+  );
+
+/**
  * One more identifier set the page shows for the same sign-in (ADR 0027), such as a
  * contract number beside a branch and account number: its own fields and action.
  */
@@ -240,8 +257,9 @@ export const MAX_PAGE_ALTERNATIVES = 3;
 
 /**
  * The passkey sign-in button a generated plan named (ADR 0027), kept only when it is a
- * button of the page that no set fills or submits with, is not the account switch, and
- * does not read as registering a passkey. Anything else is dropped without failing the
+ * button of the page whose label or locator names a passkey or security key, that no set
+ * fills or submits with, is not the account switch, and does not read as registering a
+ * passkey. Anything else is dropped without failing the
  * plan, as the judge adds no handler for a button it cannot use.
  */
 function passkeyButtonOf(
@@ -251,7 +269,8 @@ function passkeyButtonOf(
 ): { passkeyButton: string; passkeyTarget: LoginTarget } | undefined {
   if (candidateId === undefined) return undefined;
   const button = observation.candidates.find((candidate) => candidate.id === candidateId);
-  if (!button || button.role !== "button" || registersPasskey(button)) return undefined;
+  if (!button || button.role !== "button" || !namesPasskey(button) || registersPasskey(button))
+    return undefined;
   const used = plans.flatMap((plan) => [
     ...plan.fields.map((field) => field.candidate),
     plan.action.candidate,

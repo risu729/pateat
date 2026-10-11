@@ -1805,6 +1805,52 @@ describe("the passkey route (ADR 0027)", () => {
     expect(JSON.parse(String(logged!.result))).not.toHaveProperty("passkeyButton");
   });
 
+  it("tells the judge every path of the password form on the passkey route", async () => {
+    const device = await owner();
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "email", candidate: "email" }],
+          action: { candidate: "next", purpose: "advance" },
+          passkeyButton: "passkey",
+        },
+      }),
+    });
+    const first = await generate(
+      device,
+      observation("/login", [...emailPage.candidates, passkeyButton]),
+    );
+    if (first.status !== "recipe") throw new Error(first.status);
+    expect(first.change.recipe).toMatchObject({ passkey: { path: "/login" } });
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const second = await generate(device, passwordPage, {
+      recipeId: first.change.recipeId,
+      revision: first.change.revision,
+    });
+    if (second.status !== "recipe") throw new Error(second.status);
+    const { recipeId, revision } = second.change;
+    // The password page after the passkey click is the sign-in page, not a page to learn.
+    const calls = sent.length;
+    expect(await judge(device, recipeId, revision, passwordPage)).toMatchObject({
+      status: "unavailable",
+      reason: "not-judgeable",
+    });
+    expect(sent).toHaveLength(calls);
+    replies.push({ text: JSON.stringify({ result: { decision: "rejected" } }) });
+    expect(await judge(device, recipeId, revision, homePage)).toMatchObject({
+      status: "rejected",
+    });
+    const [logged] = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      device.ownerId,
+    );
+    expect(JSON.parse(String(logged!.request))).toMatchObject({
+      route: "passkey",
+      loginPaths: ["/login", "/password"],
+    });
+  });
+
   it("ignores a passkey button on a continued page", async () => {
     const device = await owner();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -1848,8 +1894,27 @@ describe("the passkey route (ADR 0027)", () => {
       reason: "not-judgeable",
     });
     expect(sent).toHaveLength(calls);
-    // Another path with the same text is another element; the start page without the
-    // button is judged too.
+    // The password form showing again without the button is still the sign-in page, on
+    // the start path or any other: judging it would spend the start path's one judgement
+    // and could add a handler there (ADR 0027).
+    for (const formAgain of [
+      observation("/login", [
+        element("email", "email", "Email"),
+        element("password", "password", "Password"),
+        element("sign-in", "button", "Sign in"),
+      ]),
+      observation("/login", [element("password", "password", "Password")]),
+      observation("/retry", [element("email", "email", "Email")]),
+    ])
+      // Sequential, so each refusal is seen before the next request.
+      // eslint-disable-next-line no-await-in-loop
+      expect(await judge(device, recipeId, 1, formAgain)).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "not-judgeable",
+      });
+    expect(sent).toHaveLength(calls);
+    // Another path with the same text is another element, so that page is judged.
     replies.push({ text: JSON.stringify({ result: { decision: "rejected" } }) });
     expect(await judge(device, recipeId, 1, observation("/help", [passkeyButton]))).toEqual({
       version: 1,

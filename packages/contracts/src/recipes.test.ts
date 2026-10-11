@@ -6,6 +6,7 @@ import {
   defaultLoginBinding,
   findLoginBinding,
   findLoginRecipe,
+  loginDisplayNames,
   loginRecipesForOrigin,
   resolveBindingFields,
   saveLoginChoice,
@@ -627,5 +628,19 @@ describe("bindings built from templates (ADR 0027)", () => {
     );
     expect(unnamed.ok && unnamed.binding.itemName).toBe(account.itemId);
     expect(unnamed.ok && "accountName" in unnamed.binding).toBe(false);
+  });
+});
+
+describe("loginDisplayNames", () => {
+  it("names an item by its label, else its ID, and its account by the connection's label", () => {
+    expect(loginDisplayNames("item-1", "Example Bank", "Personal")).toEqual({
+      itemName: "Example Bank",
+      accountName: "Personal",
+    });
+    expect(loginDisplayNames("item-1", "", undefined)).toEqual({ itemName: "item-1" });
+    expect(loginDisplayNames("item-1", "x".repeat(250), "y".repeat(250))).toEqual({
+      itemName: "x".repeat(200),
+      accountName: "y".repeat(200),
+    });
   });
 });

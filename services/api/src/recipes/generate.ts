@@ -3,7 +3,7 @@ import {
   recipeHasRoute,
   recipeSlots,
   routeFillTargets,
-  routePaths,
+  routeSignInPaths,
   routeSignInTargets,
   sameLoginTarget,
   type GenerationUnavailableReason,
@@ -302,12 +302,13 @@ export async function judgeCompletion(
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
   // The checks use the stored recipe, never the request: a page that still shows one of
-  // the route's fill fields, of any variant and on any path, or the completion marker is
-  // not judged. The request never names the variant the login ran. On the passkey route,
-  // a page that still shows its button on its path is not judged either: its passkey
-  // exchange may still be running, as the extension holds it.
+  // the password route's fill fields, of any variant and on any path, or the completion
+  // marker is not judged. The request never names the variant the login ran. The passkey
+  // route starts beside that form, so the form counts for it too; and a page on its
+  // sign-in paths that still shows its button is not judged either: its passkey exchange
+  // may still be running, as the extension holds it.
   const unexplained = [
-    ...routeFillTargets(recipe, route),
+    ...routeFillTargets(recipe, "password"),
     ...(recipe.completion ? [recipe.completion.target] : []),
   ];
   const shown = (targets: readonly LoginTarget[]) =>
@@ -316,8 +317,7 @@ export async function judgeCompletion(
     );
   if (
     shown(unexplained) ||
-    (route === "passkey" &&
-      routePaths(recipe, route).includes(observation.path) &&
+    (routeSignInPaths(recipe, route).includes(observation.path) &&
       shown(routeSignInTargets(recipe, route)))
   )
     return unavailable("not-judgeable");
@@ -325,7 +325,7 @@ export async function judgeCompletion(
   // The login paths come from the stored recipe, never from the request.
   const loginPaths = [
     ...new Set([
-      ...routePaths(recipe, route),
+      ...routeSignInPaths(recipe, route),
       ...(recipe.handlers ?? []).map((handler) => handler.path),
     ]),
   ];

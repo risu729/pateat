@@ -5237,6 +5237,26 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(fills()).toBe(0);
   });
 
+  it("holds the clicking document whatever path a same-document URL change gives it", async () => {
+    vi.useFakeTimers();
+    // The page moves to another path with pushState while its passkey prompt still shows.
+    onClick({ [button.value]: { path: "/signin/verify", present: [button.value] } });
+    const service = generation(async () => ({ verdict: "signed-in" }));
+    const { h } = start(routed, { generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => clicks(button.value) === 1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set(["logout"]);
+    fake.state.extracted = { "signed-in": homePage };
+    await until(settled("authenticated"));
+    expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+  });
+
   it("ends as a challenge when the button still shows after two minutes", async () => {
     vi.useFakeTimers();
     onClick({ [button.value]: { path: "/signin", present: [button.value] } });
@@ -5263,6 +5283,31 @@ describe("the start page's passkey route (ADR 0027)", () => {
     await h.hello({ documentId: "reloaded" }, false);
     await until(settled("blocked", "challenge"), 5_000);
     expect(service.judge).not.toHaveBeenCalled();
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("never sends the start page that shows the password form again without the button", async () => {
+    vi.useFakeTimers();
+    // The click re-renders the start page's password form in the same document.
+    onClick({
+      [button.value]: {
+        path: "/signin",
+        present: ["password", "login"],
+        extracted: observation("/signin", [
+          { id: "c1", role: "password", target: target("password"), label: "Password" },
+          { id: "c2", role: "button", target: target("login"), label: "Log in" },
+        ]),
+      },
+    });
+    const service = generation(async () => ({ verdict: "rejected" }));
+    const { h } = start(routed, { generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("blocked", "challenge"), 20_000);
+    // Judging it would spend the start path's one judgement and could add a handler there.
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(status()![0]).toMatchObject({ route: "passkey" });
     expect(clicks(button.value)).toBe(1);
     expect(fills()).toBe(0);
     expect(h.fields).not.toHaveBeenCalled();

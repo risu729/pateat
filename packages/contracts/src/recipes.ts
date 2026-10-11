@@ -189,12 +189,25 @@ export function defaultLoginBinding(
     recipeId: recipe.id,
     origin: recipe.origin,
     ...owner,
-    // The item and account names are for display only.
-    itemName: (account.itemName || account.itemId).slice(0, 200),
-    ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
+    ...loginDisplayNames(account.itemId, account.itemName, accountName),
     slots: slots.map((slot) => ({ slot, field: slot })),
   });
   return binding.success ? binding.output : undefined;
+}
+
+/**
+ * The item and account names a saved binding or site default carries, for display only:
+ * the item's label, else its ID, and the connection's label, each cut to 200 characters.
+ */
+export function loginDisplayNames(
+  itemId: string,
+  itemName: string | undefined,
+  accountName: string | undefined,
+): { itemName: string; accountName?: string } {
+  return {
+    itemName: (itemName || itemId).slice(0, 200),
+    ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
+  };
 }
 
 /** Slot references a binding can be built from: another item's binding, or a generated map. */
@@ -249,9 +262,7 @@ export function templateLoginBinding(
       recipeId: recipe.id,
       origin: recipe.origin,
       ...owner,
-      // The item and account names are for display only.
-      itemName: (account.itemName || account.itemId).slice(0, 200),
-      ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
+      ...loginDisplayNames(account.itemId, account.itemName, accountName),
       slots: bound,
     });
     if (binding.success) return { ok: true, binding: binding.output };

@@ -531,16 +531,16 @@ attempt also records its route. A recipe may have a start-page `passkey` route, 
 click on the start page's passkey sign-in button; it is taken first when the item has a
 discoverable passkey, needs no binding, and a login on it that reaches no signed-in page
 ends `challenge`: it never falls back to typing the password, and after `authenticated`
-it saves only the site default. A recipe's `password` route
-has one to four variants, one per identifier set its start page offers (such as branch
-and account numbers, or a contract number), and the attempt records the variant it took:
-the first, in recipe order, whose binding resolves on the item and whose every bound
-password or TOTP field, built in or Linked to one, has its fact; the item's own password
-must also be present. A saved binding is the only source for its item, so a variant
-whose slots it does not hold is skipped. When none fits, a recipe with one variant
-refuses the page with that variant's reason, and a recipe with several refuses it
-`no-route`, with the first variant's reason as the logged refusal's detail. A running or
-resumed login checks only its recorded variant and never reads the facts again
+it saves only the site default. A recipe's `password` route has one to four variants,
+one per identifier set its start page offers (such as branch and account numbers, or a
+contract number), and the attempt records the variant it took: the first, in recipe
+order, whose binding resolves on the item and whose every bound password or TOTP field,
+built in or Linked to one, has its fact; the item's own password must also be present. A
+saved binding is the only source for its item, so a variant whose slots it does not hold
+is skipped. When none fits, a recipe with one variant refuses the page with that
+variant's reason, and a recipe with several refuses it `no-route`, with the first
+variant's reason as the logged refusal's detail. A running or resumed login checks only
+its recorded variant and never reads the facts again
 ([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). After each
 effect step the executor checks the completion, the rejection and the plan's next step,
 then the recipe's handlers on the page's path: a handler whose first element is unique
@@ -552,13 +552,14 @@ passkey; otherwise, and when a handler's page shows again after it ran, the atte
 the document that clicked it, the page is neither judged nor settled for up to two
 minutes; then it ends `challenge`. A new document of the tab that shows the button of a
 handler that already ran, or the `passkey` route's button again, ends `challenge` at
-once. When the result settles, a page no check explains is sent
-to be judged unless it still shows a fill field of any of the route's variants on a
-route path or the completion marker; this applies to later documents of the tab too,
-while the attempt has not ended. At most 2 pages count per effect step: the attempt
-counts a page once its complete description is in hand, before the request, so a restart
-during the request cannot resend without bound. A page is given back only after a
-temporary refusal before any model call (a busy service, the service's own 429, an
+once. When the result settles, a page no check explains is sent to be judged unless it
+still shows a fill field of any of the route's variants on a route path or the
+completion marker (on the `passkey` route, its button or a fill field of any `password`
+variant on its path or a `password` route path); this applies to later documents of the
+tab too, while the attempt has not ended. At most 2 pages count per effect step: the
+attempt counts a page once its complete description is in hand, before the request, so a
+restart during the request cannot resend without bound. A page is given back only after
+a temporary refusal before any model call (a busy service, the service's own 429, an
 unreachable service, no paired service, a rejected device, or a request that failed
 before the model). Permanent refusals such as `already-judged`, `not-judgeable` or
 `recipe-conflict` count, and so do the provider's rate limit, a timeout and an
@@ -840,7 +841,8 @@ with its own fields and submit action; they become the further variants of the r
 fill the same slots or elements; an answer that hedges an ambiguous mapping that way
 fails as invalid output. The role may also name the start page's passkey sign-in button,
 never one that registers a passkey; the service stores it as the recipe's `passkey`
-route and drops a button that fails its checks without failing the answer. A `hidden`
+route only when its label or locator names a passkey or security key, and drops a
+button that fails its checks without failing the answer. A `hidden`
 slot is filled only into an input the Hidden rule of ADR 0013 accepts; the decision role
 and the heuristic name no custom slot, so they abstain on pages that need one. Signing
 in to a site through Google or Microsoft follows the policy in

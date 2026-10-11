@@ -198,8 +198,9 @@ a code, or `unavailable` with a reason when no model was called.
   continuation's answer has its alternatives dropped before assembly. `customSlots`
   covers the custom slots of every variant, and the request log records the alternatives
   with the plan. The answer may also name the start page's passkey sign-in button
-  (`passkeyButton`); a button candidate not named like a registration and not used by
-  any set or the account switch is stored as the recipe's `passkey` route, any other is
+  (`passkeyButton`); a candidate with the button role whose label or locator names a
+  passkey or security key, not named like a registration and not used by any set or
+  the account switch is stored as the recipe's `passkey` route, any other is
   dropped without failing the call, and a continuation's is ignored. The request log
   records the kept button.
 - `POST /v1/recipes/:recipeId/completion` takes
@@ -207,8 +208,10 @@ a code, or `unavailable` with a reason when no model was called.
   revision led to, on the recipe's origin
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Another revision, or a
   route the stored recipe lacks, answers `recipe-conflict`. The request never names a
-  `password` variant. On the `passkey` route, a page on its path that still shows its
-  button answers `not-judgeable`, and its path is a login path. A page that shows one of
+  `password` variant. On the `passkey` route, a page that shows a fill field of any
+  `password` variant on any path, or its button on its path or a `password` route path,
+  answers `not-judgeable`, and its path and every `password` route path are login
+  paths. A page that shows one of
   the route's fill fields, of any variant (on any path), or the completion marker
   answers `not-judgeable` before any model call. The login paths are the step paths of
   every variant of the route and the recipe's handler paths, from the stored recipe. A

@@ -6,6 +6,7 @@ import {
 } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  namesPasskey,
   registersPasskey,
   slotAccepts,
   validateGeneratedPage,
@@ -416,7 +417,15 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
       input("contract"),
       input("switch", { role: "link" }),
       // Another candidate with the login button's own locator.
-      { id: "login-copy", role: "button", target: { by: "id", value: "login" } },
+      {
+        id: "login-copy",
+        role: "button",
+        target: { by: "id", value: "login" },
+        label: "Sign in with a passkey",
+      },
+      input("google", { role: "button", label: "Sign in with Google" }),
+      input("sso", { role: "button", label: "Sign in with SSO" }),
+      input("plain", { role: "button", label: "Log in" }),
     ],
   };
   const fields = [
@@ -445,7 +454,6 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
     ["an unknown candidate", "missing"],
     ["a button whose locator reads as adding a passkey", "add-passkey"],
     ["a registration button", "register"],
-    ["the plan's action", "login"],
     ["a filled field", "password"],
     ["a button with the action's locator", "login-copy"],
   ])("drops %s and keeps the plan", (_label, candidate) => {
@@ -458,7 +466,13 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
 
   it("drops the account switch and any element of an alternative set", () => {
     const withSwitch = validateGeneratedPage(
-      { ...page, candidates: [...page.candidates, input("other", { role: "button" })] },
+      {
+        ...page,
+        candidates: [
+          ...page.candidates,
+          input("other", { role: "button", label: "Sign in with a passkey" }),
+        ],
+      },
       slots,
       { fields, action, accountSwitch: "other", passkeyButton: "other" },
     );
@@ -482,6 +496,55 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
     if (!varied.ok) throw new Error(varied.reason);
     expect(varied.plan.alternatives).toHaveLength(1);
     expect(varied.plan).not.toHaveProperty("passkeyButton");
+  });
+
+  it("drops the plan's own action even when it names a passkey", () => {
+    const result = generate("passkey-login", {
+      action: { candidate: "passkey-login", purpose: "submit" },
+    });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan).not.toHaveProperty("passkeyButton");
+  });
+
+  it.each([
+    ["a Google sign-in button", "google"],
+    ["an SSO button", "sso"],
+    ["a button that names no passkey", "plain"],
+  ])("drops %s, which names no passkey or security key", (_label, candidate) => {
+    const result = generate(candidate);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan).not.toHaveProperty("passkeyButton");
+    expect(result.plan).not.toHaveProperty("passkeyTarget");
+  });
+
+  it("reads passkey words in the label, text and locator alike", () => {
+    const button = (label: string | undefined, value: string) => ({
+      label,
+      target: { by: "id" as const, value },
+    });
+    for (const [label, value] of [
+      [undefined, "passkeyLoginButtonAD"],
+      ["Sign in with a passkey", "login"],
+      ["Sign in with a Pass Key", "login"],
+      ["Use security key", "login"],
+      ["Use a SecurityKey", "login"],
+      ["パスキーでログイン", "login"],
+      ["セキュリティキーでログイン", "login"],
+      ["生体認証でログイン", "login"],
+      ["Sign in", "webauthn-login"],
+      ["FIDO2", "login"],
+      [undefined, "signInWithPassKey"],
+    ] as const)
+      expect(namesPasskey(button(label, value)), `${label} ${value}`).toBe(true);
+    for (const [label, value] of [
+      ["Sign in with Google", "google"],
+      ["Sign in with SSO", "sso"],
+      ["Log in", "login"],
+      ["Forgot your password?", "password-reset"],
+      ["パスワードでログイン", "password"],
+      [undefined, "submit"],
+    ] as const)
+      expect(namesPasskey(button(label, value)), `${label} ${value}`).toBe(false);
   });
 
   it("never rescues a plan that fails its own checks", () => {

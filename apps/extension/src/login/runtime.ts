@@ -17,6 +17,7 @@ import {
   judgedPages,
   MAX_JUDGED_PAGES,
   loginDocumentSchema,
+  loginDisplayNames,
   loginObservationSchema,
   nextLoginOperation,
   loginStepEffect,
@@ -27,7 +28,7 @@ import {
   recoverLoginAttempt,
   resolveBindingFields,
   resolveLoginPlan,
-  routePaths,
+  routeSignInPaths,
   routeSignInTargets,
   routeSlots,
   sameLoginDocument,
@@ -1350,9 +1351,8 @@ export function createLoginRuntime(
       provider: connection.provider,
       userId: connection.userId,
       itemId: item.id,
-      // The item and account names are for display only, as in a saved binding.
-      itemName: (item.label || item.id).slice(0, 200),
-      ...(connection.label ? { accountName: connection.label.slice(0, 200) } : {}),
+      // Named as a binding built for the item is.
+      ...loginDisplayNames(item.id, item.label, connection.label),
     };
   }
   /**
@@ -1681,11 +1681,12 @@ export function createLoginRuntime(
     }
     if (effectful(run.metadata)) {
       // A held click, a handler's or the passkey route's, is not judged while its button
-      // still shows in the document that clicked it: a WebAuthn exchange or a chooser the
-      // person answers can take a while (ADR 0027). A new document that shows a handler's
-      // button again goes to the person through the handler's own check below; one that
-      // shows the passkey route's button again, as after a reload back to the start page,
-      // goes to the person at once: it is never clicked again or judged.
+      // still shows in the document that clicked it, whatever path a same-document URL
+      // change has moved it to: a WebAuthn exchange or a chooser the person answers can
+      // take a while (ADR 0027). A new document that shows a handler's button again goes
+      // to the person through the handler's own check below; one that shows the passkey
+      // route's button again on its path, as after a reload back to the start page, goes
+      // to the person at once: it is never clicked again or judged.
       const inFlight = plan[run.metadata.stepIndex];
       const routeClick =
         inFlight !== undefined &&
@@ -1694,13 +1695,16 @@ export function createLoginRuntime(
       if (inFlight && (run.heldClick === run.metadata.stepIndex || routeClick)) {
         const clicked = await observe(run, stepTargets(inFlight.step));
         if (!clicked) return undefined;
-        if (
-          clicked.path === inFlight.step.path &&
-          clicked.targets.some((state) => state !== "missing")
-        ) {
+        if (clicked.targets.some((state) => state !== "missing")) {
           if (run.heldClick === run.metadata.stepIndex) return "held";
-          await change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
-          return undefined;
+          if (clicked.path === inFlight.step.path) {
+            await change(run, {
+              type: "OBSERVED",
+              result: "challenge",
+              document: run.live.document,
+            });
+            return undefined;
+          }
         }
       }
       if (await enterHandler(run, observed.path)) return undefined;
@@ -1806,8 +1810,9 @@ export function createLoginRuntime(
     )
       return false;
     // Every variant's fill fields and paths count, as on the service, which is never told
-    // the variant; on the passkey route, its button on its path (ADR 0027).
-    const paths = routePaths(recipe, metadata.route);
+    // the variant; on the passkey route, its button and the password form, on its path and
+    // the password route's (ADR 0027).
+    const paths = routeSignInPaths(recipe, metadata.route);
     const marker = recipe.completion ? [recipe.completion.target] : [];
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
     const remaining = await observe(run, [...fills, ...marker]);
