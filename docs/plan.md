@@ -358,6 +358,19 @@ Chrome yet.
   `vault-unavailable`; the settings page refuses to save a default it could not use. A
   default saved earlier with a `connectionId` is still read and used as before and is
   never rewritten.
+- The settings page lists, as the default account for an origin, only the items its
+  unsaved draft allows that could serve it: a provider URI match for `origin/`, a static
+  `allowedOrigins` entry, or a stored passkey whose RP ID is the origin's host or a
+  registrable parent domain. The draft decides which connections and items are searched;
+  it grants nothing, and usernames are read only under the saved settings. The
+  background answers `settings.site-accounts` with item IDs, the reasons and, for those
+  matched items only, the login username (owner decision, 2026-10-11: usernames are
+  shown only while matching, never kept in the catalog or sent to the server). It says
+  when a vault or an item could not be searched. Items whose names are still equal get
+  an item ID prefix. A deeper-path Exact or StartsWith rule is not evaluated there, so
+  the page can also list, after the matches, every other item the draft allows, marked
+  as not matching. A saved default for a live vault item is not shown as an origin
+  mismatch, since its URI rules are checked on each page.
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
@@ -552,8 +565,9 @@ the real settings store over in-memory storage; no running service has been trie
   optional `launchWebAuthFlow` variant.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
-- The owner web UI for settings, bindings and recipes is designed
-  ([architecture](architecture.md#owner-web-ui)) but not implemented.
+- The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and
+  JSON API behind Access, with the devices page. The sites, bindings and recipes pages
+  are not implemented.
 - Inference adapters and spending accounting remain separate slices. The inference
   route authenticates to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
@@ -645,9 +659,11 @@ installed-Chrome acceptance procedure. Page script can detect the wrapper and re
 extension ID from stack traces; the relay posts only the outcome of a request to the
 page, never the delegate reason. On 2026-10-11 a real passkey sign-in on webauthn.io
 went through the wrapper unchanged and CreepJS did not flag it
-([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)). Open:
-a page or provider wrapper that rebuilds the options object, and especially one that
-replaces the challenge, loops back into Pateat on every delegated call.
+([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)). A
+page or provider wrapper that rebuilds the options before calling its saved `get` runs
+once when it calls synchronously and at most four times otherwise
+([ADR 0007](adr/0007-existing-passkey-assertions.md#bridge-topology)); before that
+change one that replaced the challenge looped without end.
 
 Evidence, 2026-10-10, synthetic relying party only:
 

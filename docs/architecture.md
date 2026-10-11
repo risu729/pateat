@@ -108,7 +108,10 @@ the metadata query cache. Closing that Port cancels its flow and withholds late
 results. Every setup failure crosses that Port as an error code only; provider
 HTTP statuses and other failure details stay in the background. Only
 value-free connection, group, item and field metadata returns to
-the settings catalog; vault field resolution remains an internal background API.
+the settings catalog; vault field resolution remains an internal background API. The
+one exception is the default account picker: for the items that match the entered
+origin, the background returns each item's login username so same-named items can be
+told apart. It is not cached, persisted or synced.
 Password requests accept explicit manual authenticator/email codes and new-device
 OTP values. Return bounded challenge categories and provider IDs, never raw
 challenge parameters, server descriptions or URLs. Code delivery and interactive
@@ -453,16 +456,29 @@ record, it is locked. The manifest's default action icon is the locked one; the 
 re-reads the records when it starts, at browser start, after each vault record write and
 after each settings-page connection request
 (`apps/extension/src/connections/action-icon.ts`). The owner confirmed the switch in
-installed Chrome on 2026-10-11 (main 863ad90 or later).
+installed Chrome on 2026-10-11 (main 863ad90 or later). After a full Chrome 154 restart
+with automatic unlock on main f7d3cf5, the icon showed the logo with no visible gray
+phase; this is expected, because the built manifest's `action.default_icon` is the
+locked icon and the worker replaces it as soon as it reads the active records.
 
 ## Declarative recipes and AI
 
-Share Valibot contracts for observations, recipes, inference results, and sync.
-A recipe contains schema/version, allowed origin/path applicability, structural
-fingerprint, semantic slots, stable element candidates, bounded steps, completion
-and failure conditions, and provenance. The vocabulary is packaged code such as
-fill, click, wait-for-state, and assert-state. There is no eval, remote JavaScript,
-arbitrary fetch, or model-selected secret destination.
+Share Valibot contracts for observations, recipes, inference results, and sync. A recipe
+contains schema/version, allowed origin/path applicability, structural fingerprint,
+semantic slots, stable element candidates, bounded steps, an optional completion and a
+failure condition, and provenance. The vocabulary is packaged code such as fill, click,
+wait-for-state, and assert-state. There is no eval, remote JavaScript, arbitrary fetch,
+or model-selected secret destination.
+
+A generated recipe has no completion target until the page after its first sign-in
+is judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
+never reports `authenticated` with it: a submission ends `credential-rejected`, moves
+to a later step, or stays unknown (`unknown-submit`), so no account choice is saved.
+An unknown attempt stays in `reconciling` until its tab closes, as any unknown outcome
+does today: meanwhile it holds the origin, blocks saving account choices from other
+tabs and defers settings sync for up to two minutes per run. Sending the page after
+the final submission for judgment, which settles such attempts, is the next step of
+ADR 0018 and is not implemented yet.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name`
 (any ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
@@ -686,7 +702,9 @@ the credential idle-expiry decision, and the optional `launchWebAuthFlow` varian
 
 ### Owner web UI
 
-Status: design approved by the owner on 2026-10-11; not implemented. It replaces the
+Status: design approved by the owner on 2026-10-11. The app, its Access-checked
+assets and API, and the devices page are implemented and tested locally; the other
+pages, display names and nullable writer columns are not. It replaces the
 extension's settings page for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
@@ -700,7 +718,8 @@ extension's settings page for the data the service holds
   - Account bindings: list and delete `bindings` entries. Deleting one makes that item
     fall back to the built-in-slot binding.
   - Recipes: list active and revoked recipes, show one recipe's steps, completion and
-    rejection targets and its JSON, and revoke it with a tombstone.
+    rejection targets and its JSON, and revoke it with a tombstone. A generated recipe
+    may have no completion yet (ADR 0018).
 
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI
@@ -724,7 +743,8 @@ extension's settings page for the data the service holds
 - Authentication. The host-wide Access application also covers the app's assets and
   `/manage/api/*`. The Worker verifies the Access token
   on each API request as it does for the current pages, finds the owner by issuer and
-  subject without creating one, and accepts only same-origin requests. The page's
+  subject without creating one, and accepts a state-changing request only with an
+  `Origin` equal to its own. The page's
   Content Security Policy allows scripts from its own origin only, with no framing.
 
 ## Deferred interfaces and challenges

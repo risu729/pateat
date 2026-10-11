@@ -177,10 +177,11 @@ test("probe options support keyboard policy validation and pass accessibility ch
       .getByLabel("Demo personal vault: Item access", { exact: true })
       .selectOption("selected");
     await page.getByLabel("Demo personal vault: Include group Everyday", { exact: true }).check();
-    await page.locator("#default-origin").fill("https://bank.example/path");
+    await page.locator("#default-origin").fill("https://bank.example");
     await page
       .locator("#default-account")
       .selectOption(JSON.stringify(["demo-personal", "primary"]));
+    await page.locator("#default-origin").fill("https://bank.example/path");
     await page.locator("#default-origin").press("Enter");
     await expect(page.locator("#default-origin")).toHaveAttribute("aria-invalid", "true");
     await expect(page.locator("#default-origin")).toBeFocused();
@@ -189,6 +190,8 @@ test("probe options support keyboard policy validation and pass accessibility ch
       .analyze();
     expect(invalid.violations).toEqual([]);
     await page.locator("#default-origin").fill("https://bank.example");
+    // The matching accounts are listed again for the corrected origin before it is added.
+    await expect(page.locator("#default-account-note")).toContainText("matching item");
     await page.locator("#default-origin").press("Enter");
     await expect(page.locator("#site-defaults")).toContainText("https://bank.example");
     await expect(page.locator("#default-origin")).toBeFocused();

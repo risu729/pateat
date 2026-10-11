@@ -220,6 +220,32 @@ saving those stale edits. Custom-field review must confirm the current field
 selection before releasing an item whose earlier exclusions cannot be rebound.
 Automatic website login is not activated by this setup slice.
 
+## Compatibility before release
+
+Pateat has not been released. Until the first public release, the owner decided on
+2026-10-11 that no change keeps backward compatibility with anything an earlier build
+wrote or served:
+
+- extension storage: `chrome.storage` keys and record shapes, IndexedDB versions and
+  cached vault, session, recipe and settings records;
+- the service: older Worker versions, older `/v1/*` request and response shapes, and
+  extensions built against them;
+- D1 data and schema written by an earlier migration.
+
+The rule covers only what Pateat itself writes and serves. Vault providers are external:
+keep every branch for Bitwarden server, account, KDF, key and vault-format versions and
+response shapes, such as V1/V2 keys, PascalCase or `null` fields and older ciphers.
+
+Change a format in place and delete the old one; do not add a version branch, a
+fallback read, a migration of stored records or an optional field whose only purpose
+is older data. Code that exists only for such compatibility is removed. An extension
+and a service built from different revisions need not work together, and stored data
+from an older build may be discarded, so a reinstall, a new vault connection or a new
+pairing is acceptable after an update. Committed D1 migration files are still never
+edited after they could have been applied, because cf tracks them by name
+([delivery](delivery.md#current-foundation-workflows)). The first public release ends
+this rule; compatibility from then on needs its own decision.
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other
@@ -260,7 +286,7 @@ use.
 | Area | Choice and integration status | Owning slice |
 | --- | --- | --- |
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
-| Service web UI | **Approved 2026-10-11, not implemented:** the extension's React, Tailwind/Base UI, shadcn/ui and TanStack Form/Query choices, built by Vite and served as Worker static assets | M4 owner web UI |
+| Service web UI | **Implemented for the devices page:** React, Tailwind through its Vite plugin, Base UI with the selected shadcn/ui Button and TanStack Query, built by Vite into Worker static assets; **approved:** TanStack Form | M4 owner web UI |
 | Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented in the local probe:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |

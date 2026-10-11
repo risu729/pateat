@@ -69,6 +69,11 @@ describe("declarative login boundaries", () => {
     expect(parseLoginRecipe(recipe())).toEqual(recipe());
     expect(parseLoginAccountBinding(binding())).toEqual(binding());
   });
+  it("accepts a generated recipe whose completion is not learned yet", () => {
+    const { completion: _unlearned, ...generated } = recipe();
+    expect(parseLoginRecipe(generated)).toEqual(generated);
+    expect(() => parseLoginRecipe({ ...generated, completion: null })).toThrow();
+  });
 
   it("requires one explicit event and one field for an input-triggered submission", () => {
     const valid = {

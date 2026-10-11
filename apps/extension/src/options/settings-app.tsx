@@ -342,7 +342,13 @@ export function SettingsApp({
           </p>
         </section>
         {accepted ? (
-          <SitePolicy key={generation} draft={draft} catalog={accepted.catalog} edit={edit} />
+          <SitePolicy
+            key={generation}
+            draft={draft}
+            catalog={accepted.catalog}
+            edit={edit}
+            findSiteAccounts={client.findSiteAccounts}
+          />
         ) : (
           <>
             <section className="panel" aria-labelledby="sites-heading">

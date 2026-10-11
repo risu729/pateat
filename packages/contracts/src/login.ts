@@ -132,7 +132,9 @@ export const loginRecipeSchema = v.pipe(
       v.check(unique, "Duplicate recipe slots"),
     ),
     steps: v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32)),
-    completion: v.strictObject({ path, target: loginTargetSchema }),
+    // A generated recipe has no completion until the page after its first sign-in is
+    // judged (ADR 0018); until then no attempt with it can end authenticated.
+    completion: v.optional(v.strictObject({ path, target: loginTargetSchema })),
     rejection: v.optional(loginTargetSchema),
     maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
   }),

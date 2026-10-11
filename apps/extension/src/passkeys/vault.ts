@@ -125,6 +125,28 @@ export async function findVaultPasskeys(input: {
   return { candidates, complete };
 }
 
+/** The unlocked vault of one registered connection, if it has a live handle. */
+function vaultManagerFor(connections: Pick<ConnectionRuntime, "registry" | "vaultFor">) {
+  return async (connectionId: string) => {
+    const configuration = await connections.registry.get(connectionId);
+    if (!configuration) return undefined;
+    const { manager } = connections.vaultFor(configuration.profile);
+    const handle = manager.status().handle;
+    return handle ? { manager, handle } : undefined;
+  };
+}
+
+/** Stored passkeys for one RP ID in one connection's unlocked vault; never unlocks it. */
+export function createVaultPasskeyFinder(
+  connections: Pick<ConnectionRuntime, "registry" | "vaultFor">,
+): PasskeyFinder {
+  const managerFor = vaultManagerFor(connections);
+  return async (connectionId, rpId) => {
+    const vault = await managerFor(connectionId);
+    return vault?.manager.findPasskeys(vault.handle, rpId);
+  };
+}
+
 /**
  * Vault-backed passkey source. Signing happens in the crypto Worker and only while the settings
  * revision, snapshot and item eligibility that produced the candidate still hold.
@@ -136,13 +158,8 @@ export function createVaultPasskeySource(
     const saved = await connections.settings.handle({ version: 1, type: "settings.get" });
     return saved.ok ? saved : undefined;
   };
-  const managerFor = async (connectionId: string) => {
-    const configuration = await connections.registry.get(connectionId);
-    if (!configuration) return undefined;
-    const { manager } = connections.vaultFor(configuration.profile);
-    const handle = manager.status().handle;
-    return handle ? { manager, handle } : undefined;
-  };
+  const managerFor = vaultManagerFor(connections);
+  const find = createVaultPasskeyFinder(connections);
   const current = (saved: Settings | undefined, candidate: VaultPasskeyCandidate) => {
     const connection = saved?.catalog.connections.find(
       (entry) => entry.id === candidate.connectionId,
@@ -174,10 +191,7 @@ export function createVaultPasskeySource(
         saved,
         origin,
         rpId,
-        async find(connectionId, query) {
-          const vault = await managerFor(connectionId);
-          return vault?.manager.findPasskeys(vault.handle, query);
-        },
+        find,
       });
     },
     async sign(candidate, authenticatorData, clientDataHash) {

@@ -27,8 +27,31 @@ function saved(revision = 0, hostname?: string): Extract<SettingsResponse, { ok:
   };
 }
 
+/** The demo catalog's static origins stand in for the background's vault matching. */
+async function demoSiteAccounts(origin: string) {
+  return {
+    version: 1 as const,
+    ok: true as const,
+    origin,
+    accounts: DUMMY_VAULT_CATALOG.connections.flatMap((connection) =>
+      connection.items
+        .filter((item) => item.allowedOrigins.includes(origin))
+        .map((item) => ({
+          connectionId: connection.id,
+          itemId: item.id,
+          uri: true,
+          passkey: false,
+        })),
+    ),
+    complete: true,
+  };
+}
+
 function mockClient() {
   return {
+    findSiteAccounts: vi
+      .fn<SettingsClient["findSiteAccounts"]>()
+      .mockImplementation(demoSiteAccounts),
     getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(saved()),
     saveSettings: vi.fn<SettingsClient["saveSettings"]>().mockImplementation(async (request) => ({
       ...saved(request.expectedRevision + 1),
@@ -231,8 +254,28 @@ test("keyboard add forms validate locally and recover input focus after add and 
   await expect.element(control("site-hostname")).toHaveFocus();
   await expect.element(control("excluded-sites")).not.toMatchTextContent("keyboard.example");
 
-  await control("default-origin").fill("https://bank.example/path");
+  // Only items matching the entered origin are offered.
+  await expect.element(control("default-account")).toBeDisabled();
+  await control("default-origin").fill("https://mail.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
+  await expect
+    .poll(() =>
+      [...(control("default-account").element() as HTMLSelectElement).options].map(
+        (option) => option.value,
+      ),
+    )
+    .toEqual([JSON.stringify(["demo-personal", "secondary"])]);
+  await control("default-origin").fill("https://none.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
+  await expect.element(control("default-account")).toBeDisabled();
+  // A rule on a longer path does not match the origin, so every item can still be listed.
+  await control("default-account-all").click();
+  await expect.element(control("default-account")).toBeEnabled();
+  await expect.element(control("default-account")).toMatchTextContent("no match for this origin");
+  await control("default-account-all").click();
+  await control("default-origin").fill("https://bank.example");
   await control("default-account").selectOptions(JSON.stringify(["demo-personal", "primary"]));
+  await control("default-origin").fill("https://bank.example/path");
   await control("default-origin").click();
   await userEvent.keyboard("{Enter}");
   await expect.element(control("default-origin")).toHaveAttribute("aria-invalid", "true");
@@ -270,6 +313,8 @@ test("malformed save responses are rejected at the runtime boundary and keep the
       const type = (message as { type: string }).type;
       if (type === "runtime.status.get") return getFoundationStatus();
       if (type === "settings.get") return saved();
+      if (type === "settings.site-accounts")
+        return demoSiteAccounts((message as { origin: string }).origin);
       // A successful-looking object carrying an unexpected property must not replace the draft.
       return { ...saved(1, "malformed.example"), unexpected: true };
     });

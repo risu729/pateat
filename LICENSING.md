@@ -19,7 +19,12 @@ shadcn/ui component retains its MIT notice. See the extension's
 
 This scoped grant does not assert that the separate `services/api` program is
 covered merely by residing in this repository. Any future combination with
-GPL-covered code must be assessed before conveying that combination.
+GPL-covered code must be assessed before conveying that combination. The owner web UI
+that the service sends to browsers bundles `packages/contracts`, so that bundle is
+conveyed under GPL-3.0-only, as the owner decided on 2026-10-11 rather than keeping
+separate API schemas outside `packages/contracts`. Each page names its source
+commit and links the repository and the GPL text at that commit; the third-party
+notices that must accompany the bundled libraries are served with it.
 
 When distributing an extension binary, provide the matching Corresponding Source
 and build/install instructions with equivalent access next to the binary. A
