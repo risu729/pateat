@@ -506,25 +506,27 @@ reconciliation before any resubmission.
 
 A new login reads its item's facts once and records them in its attempt
 ([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
-and TOTP field from the catalog's value-free `empty` flags, and any usable or
-discoverable passkey from one item-scoped vault search per RP ID the origin may use. The
-facts never leave the extension. The attempt also records its route; only `password`
-exists yet, and it fits when every bound password or TOTP field has its fact, else the
-page is refused `no-route`. After each effect step the executor checks the completion,
-the rejection and the plan's next step, then the recipe's handlers on the page's path:
-a handler whose first element is unique is entered once per login, its steps follow the
+and TOTP field from the catalog's value-free `empty` flags (an allowed Linked field that
+reads one counts like it), and any usable or discoverable passkey from one item-scoped
+vault search per RP ID the origin may use. The facts never leave the extension. The
+attempt also records its route; only `password` exists yet, and it fits when every bound
+password or TOTP field, built in or Linked to one, has its fact, else the page is
+refused `no-route`. After each effect step the executor checks the completion, the
+rejection and the plan's next step, then the recipe's handlers on the page's path: a
+handler whose first element is unique is entered once per login, its steps follow the
 effect step and grow the attempt's step and submission budget (at most 4 handlers, 40
 steps and 12 submissions). The `passkey` handler clicks a button such as "Use security
 key" only for an item with a usable passkey; otherwise, and when a handler's page shows
 again after it ran, the attempt ends `challenge`. While a handler's clicked button still
-shows, the page is neither judged nor settled for up to two minutes; then it ends
-`challenge`. A page no check explains is judged once per attempt, revision and path,
-unless it still shows the route's fill fields on a route path or the completion marker.
-A `challenge` verdict that added a handler hands back the newer revision: the attempt
-takes it over (`REVISED`) when it only adds handlers or a completion, and runs the
-handler on the page it is on. A resumed attempt accepts a newer cached revision on the
-same terms only while the worker still holds its recorded revision; after a worker
-restart only the recorded revision resumes.
+shows in the document that clicked it, the page is neither judged nor settled for up to
+two minutes; then it ends `challenge`. A new document of the tab that shows the button
+of a handler that already ran ends `challenge` at once. A page no check explains is
+judged once per attempt, revision and path, unless it still shows the route's fill
+fields on a route path or the completion marker. A `challenge` verdict that added a
+handler hands back the newer revision: the attempt takes it over (`REVISED`) when it
+only adds handlers or a completion, and runs the handler on the page it is on. A resumed
+attempt accepts a newer cached revision on the same terms only while the worker still
+holds its recorded revision; after a worker restart only the recorded revision resumes.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already
@@ -831,9 +833,14 @@ window it opened, and keeps the worker alive while the window waits. Choosing si
 that passkey; a ticked checkbox then saves it as the origin's site default. Any other
 ending delegates to the browser.
 
-During a login that has not ended, a request from its tab and top-level origin is
-answered with that login's own vault item only, never the site default or the chooser
-([ADR 0027](adr/0027-per-account-login-routes.md)). When that item holds no single
+While a login is running, a request from its tab and top-level origin is answered with
+that login's own vault item only, never the site default or the chooser
+([ADR 0027](adr/0027-per-account-login-routes.md)). A login counts as running while the
+worker holds the tab's attempt for that origin in memory, the attempt is neither
+`authenticated` nor `blocked`, and its result has not settled as unknown since it last
+moved on. A record the worker only read back from storage after a restart does not count
+until a document of the tab resumes it; requests outside a running login get the usual
+handling. When that item holds no single
 signable match, or its search is incomplete, the request is delegated, so Pateat never
 signs in as another account.
 

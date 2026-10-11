@@ -2,6 +2,7 @@ import {
   extendsRecipe,
   loginRecipeSchema,
   loginStepEffect,
+  sameLoginTarget as sameTarget,
   type LoginObservation,
   type LoginRecipe,
   type LoginStep,
@@ -36,8 +37,6 @@ export type CompletionRejection =
   /** The completion would break the recipe contract, such as its observation bound. */
   | "invalid-recipe";
 
-const sameTarget = (left: LoginTarget, right: LoginTarget) =>
-  left.by === right.by && left.value === right.value;
 const effects = (steps: readonly LoginStep[]) =>
   steps.filter((step) => {
     const effect = loginStepEffect(step);
@@ -163,6 +162,12 @@ export type HandlerRejection =
  * refuses it, and can refuse a sign-in button whose text happens to match.
  */
 const registration = /\b(?:add|register|create|set\s*up|new|enrol?l)\b|登録|追加|作成/iu;
+/**
+ * A locator value as words: `addPasskey`, `register_key` and `#set-up-key` read as
+ * "add Passkey", "register key" and "set up key".
+ */
+const words = (value: string) =>
+  value.replaceAll(/([a-z])([A-Z])/gu, "$1 $2").replaceAll(/[^\p{L}\p{N}]+/gu, " ");
 
 /**
  * Adds a `passkey` handler for the judged page's security-key or passkey button to a
@@ -180,9 +185,10 @@ export function addHandler(
     (candidate) => candidate.role === "button" && sameTarget(candidate.target, handler.target),
   );
   if (!button) return { ok: false, reason: "not-on-page" };
+  // The label, the text and an id, name or test ID locator all count.
   if (
-    [button.label, button.target.by === "text" ? button.target.value : undefined].some(
-      (text) => text !== undefined && registration.test(text),
+    [button.label, button.target.value].some(
+      (text) => text !== undefined && registration.test(words(text)),
     )
   )
     return { ok: false, reason: "registration" };

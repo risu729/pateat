@@ -318,6 +318,9 @@ export const loginOutcomeSchema = v.picklist([
 ]);
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;
+/** Whether two locators name the same element. */
+export const sameLoginTarget = (left: LoginTarget, right: LoginTarget) =>
+  left.by === right.by && left.value === right.value;
 export type LoginAttributeTarget = v.InferOutput<typeof loginAttributeTargetSchema>;
 export type LoginStep = v.InferOutput<typeof loginStepSchema>;
 export type LoginEffect = "prepare" | "advance" | "submit";
@@ -361,16 +364,23 @@ export const handlerFact = { passkey: "passkey" } as const satisfies Record<
   LoginHandler["kind"],
   keyof LoginItemFacts
 >;
+/** The field a fill of `fieldId` reads: a Linked field's built-in source, or the field itself. */
+export function loginFieldSource(item: Pick<VaultItemMetadata, "fields">, fieldId: string): string {
+  const field = item.fields.find((entry) => entry.id === fieldId);
+  return (field?.kind === "linked" ? field.linkedFieldId : undefined) ?? fieldId;
+}
+
 /**
  * The password and TOTP facts from the catalog's value-free `empty` flags and the
- * account's allowed (not excluded) field IDs.
+ * account's allowed (not excluded) field IDs. An allowed Linked field that reads the
+ * built-in field counts like the built-in field.
  */
 export function loginFieldFacts(
   item: Pick<VaultItemMetadata, "fields">,
   allowedFieldIds: readonly string[],
 ): Pick<LoginItemFacts, "password" | "totp"> {
   const has = (fieldId: string) =>
-    allowedFieldIds.includes(fieldId) &&
+    allowedFieldIds.some((allowed) => loginFieldSource(item, allowed) === fieldId) &&
     item.fields.some((field) => field.id === fieldId && field.empty !== true);
   return { password: has("login.password"), totp: has("login.totp-code") };
 }

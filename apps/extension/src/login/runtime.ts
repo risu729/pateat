@@ -10,6 +10,7 @@ import {
   handlerSteps,
   isSiteExcluded,
   loginFieldFacts,
+  loginFieldSource,
   loginDocumentSchema,
   loginObservationSchema,
   nextLoginOperation,
@@ -89,7 +90,9 @@ import {
   type LoginFieldSource,
 } from "./vault";
 
-const STORAGE_KEY = "pateat.login-attempts.v1";
+const STORAGE_KEY = "pateat.login-attempts.v2";
+/** The previous attempt store, removed on load; its records are not read. */
+const RETIRED_STORAGE_KEY = "pateat.login-attempts.v1";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
 const PICKS_KEY = "pateat.login-picks.v1";
 const CHOICES_KEY = "pateat.login-choices.v1";
@@ -197,6 +200,8 @@ type Execution = {
   operation?: LoginOperation;
   /** Saved only once this attempt reaches `authenticated`. */
   choice?: UnsavedChoice;
+  /** The step index of a handler click this document performed (ADR 0027). */
+  clickedHandler?: number;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -358,6 +363,8 @@ export function createLoginRuntime(
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  /** Attempts whose result settled as unknown and that have not moved on since. */
+  const settledUnknown = new Set<string>();
   /** By `recordKey`, in the order they were last written. */
   const persisted = new Map<string, LoginAttemptMetadata>();
   const picked = new Map<number, PickedAccount>();
@@ -449,6 +456,7 @@ export function createLoginRuntime(
     try {
       await browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
       const storage = await browser.storage.local.get([STORAGE_KEY, CONFIG_KEY]);
+      await browser.storage.local.remove(RETIRED_STORAGE_KEY).catch(() => undefined);
       const config: unknown = storage[CONFIG_KEY];
       if (probeMode && config !== undefined) {
         const parsed = v.parse(configureSchema, {
@@ -709,6 +717,10 @@ export function createLoginRuntime(
     const previous = run.metadata.state;
     run.metadata = transitionLoginAttempt(run.metadata, event);
     if (run.metadata.state !== previous) reportAttempt(run.metadata);
+    // A result settled as unknown stays settled until the attempt moves on.
+    if (event.type === "OBSERVED" && event.result === "unknown")
+      settledUnknown.add(run.metadata.id);
+    else if (run.metadata.state !== "reconciling") settledUnknown.delete(run.metadata.id);
     if (
       import.meta.env.MODE === "probe" &&
       armed === "intent-write-failure" &&
@@ -1246,10 +1258,11 @@ export function createLoginRuntime(
       }
     }
     if (effectful(run.metadata)) {
-      // A handler's click is not judged while its button still shows: a WebAuthn exchange
-      // or a chooser the person answers can take a while (ADR 0027).
+      // A handler's click is not judged while its button still shows in the document that
+      // clicked it: a WebAuthn exchange or a chooser the person answers can take a while.
+      // A new document that shows the button again goes to the person (ADR 0027).
       const inFlight = plan[run.metadata.stepIndex];
-      if (inFlight?.handler !== undefined) {
+      if (inFlight?.handler !== undefined && run.clickedHandler === run.metadata.stepIndex) {
         const clicked = await observe(run, stepTargets(inFlight.step));
         if (!clicked) return undefined;
         if (
@@ -1675,6 +1688,8 @@ export function createLoginRuntime(
           continue;
         }
         await change(run, { type: "SUBMITTED", operationId: operation.operationId });
+        if (attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler !== undefined)
+          run.clickedHandler = operation.stepIndex;
         // DOM navigation can replace this document. A same-page result is observed with a finite budget.
         await reconcileBounded(run);
         if (run.metadata.state !== "ready") return;
@@ -2118,16 +2133,17 @@ export function createLoginRuntime(
         passkey: held?.passkey === true,
         discoverablePasskey: held?.passkey === true && held.discoverable,
       };
-      // The password route needs every bound password or TOTP field to hold a value the
-      // account may fill.
+      // The password route needs every bound password or TOTP field, built in or Linked to
+      // one, to hold a value the account may fill.
       if (
-        !plan.binding.slots.every(({ fieldId }) =>
-          fieldId === "login.password"
+        !plan.binding.slots.every(({ fieldId }) => {
+          const source = item ? loginFieldSource(item, fieldId) : fieldId;
+          return source === "login.password"
             ? read.password
-            : fieldId === "login.totp-code"
+            : source === "login.totp-code"
               ? read.totp
-              : true,
-        )
+              : true;
+        })
       )
         return refuse("no-route");
       facts = read;
@@ -2373,16 +2389,22 @@ export function createLoginRuntime(
     );
   }
   /**
-   * The vault item of the login a tab runs on an origin, while it has not ended. The
-   * passkey bridge answers that login's requests with this item only (ADR 0027).
+   * The vault item of the login a tab is running on an origin. The passkey bridge answers
+   * that login's requests with this item only (ADR 0027). A login runs while this worker
+   * holds it in memory, it is neither authenticated nor blocked, and its result has not
+   * settled as unknown since it last moved on; a record read back from storage after a
+   * worker restart does not run until a document of the tab resumes it.
    */
   async function loginAccount(
     tabId: number,
     siteOrigin: string,
   ): Promise<{ connectionId: string; itemId: string } | undefined> {
     await loaded;
-    const metadata = recordFor(tabId, siteOrigin);
-    return metadata && !terminal(metadata)
+    const metadata = attempts.get(tabId)?.metadata;
+    return metadata &&
+      metadata.account.origin === siteOrigin &&
+      !terminal(metadata) &&
+      !settledUnknown.has(metadata.id)
       ? { connectionId: metadata.account.connectionId, itemId: metadata.account.itemId }
       : undefined;
   }

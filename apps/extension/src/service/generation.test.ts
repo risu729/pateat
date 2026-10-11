@@ -229,25 +229,18 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
   };
   const webauthn = { ...observation, path: "/login/webauthn" };
 
-  it("waits for the cache before handing a judged handler's recipe to the login", async () => {
+  it("hands a judged handler's recipe to the login without waiting for the cache", async () => {
     const h = setup();
-    let synced!: () => void;
-    h.sync.mockImplementationOnce(
-      () => new Promise<string>((resolve) => (synced = () => resolve("synced"))),
-    );
+    h.sync.mockImplementationOnce(() => new Promise<string>(() => {}));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge", change: handled },
     });
-    let settled = false;
-    const judged = h.generation
-      .judge(recipeChange.recipeId, 1, "password", webauthn)
-      .finally(() => (settled = true));
-    await vi.waitFor(() => expect(h.sync).toHaveBeenCalledTimes(1));
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    synced();
-    expect(await judged).toEqual({ verdict: "challenge", recipe: handled.recipe });
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).toEqual({
+      verdict: "challenge",
+      recipe: handled.recipe,
+    });
+    expect(h.sync).toHaveBeenCalledTimes(1);
     expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,

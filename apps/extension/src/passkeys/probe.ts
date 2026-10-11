@@ -116,6 +116,8 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
         return found;
       }
       if (!enabled) return undefined;
+      // The synthetic key belongs to no vault item, so a search scoped to one finds nothing.
+      if (only) return { candidates: [], complete: true };
       // Further passkeys share the test-vector key under their own credential IDs.
       const candidates = Array.from({ length: count }, (_, index): PasskeyCandidate => ({
         credentialId: toBase64Url(

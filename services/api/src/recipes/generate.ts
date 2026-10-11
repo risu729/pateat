@@ -2,6 +2,7 @@ import {
   loginStepEffect,
   recipeHasRoute,
   routeSteps,
+  sameLoginTarget,
   type GenerationUnavailableReason,
   type LoginRecipe,
   type RecipeCompletionRequest,
@@ -232,6 +233,18 @@ export async function generateRecipe(
 }
 
 /**
+ * Why a recipe head read again under the owner's lock can no longer be judged at the
+ * revision that ran: revoked, gone or replaced meanwhile.
+ */
+export function staleHead(
+  latest: SyncRecipeChange | null,
+  revision: number,
+): "recipe-revoked" | "recipe-conflict" | undefined {
+  if (latest?.state === "revoked") return "recipe-revoked";
+  return latest?.state === "active" && latest.revision === revision ? undefined : "recipe-conflict";
+}
+
+/**
  * `POST /v1/recipes/:recipeId/completion`: judges a page after an effect step of the
  * login's route (ADR 0027). Returns `undefined` for a missing recipe and `null` for a page
  * on another origin, which the route answers as 404 and 400.
@@ -260,10 +273,10 @@ export async function judgeCompletion(
       step.kind === "fill" ? step.fields.map(({ target }) => target) : [],
     ),
     ...(recipe.completion ? [recipe.completion.target] : []),
-  ].map((target) => JSON.stringify(target));
+  ];
   if (
     observation.candidates.some((candidate) =>
-      unexplained.includes(JSON.stringify(candidate.target)),
+      unexplained.some((target) => sameLoginTarget(target, candidate.target)),
     )
   )
     return unavailable("not-judgeable");
@@ -286,8 +299,8 @@ export async function judgeCompletion(
     request: { instructions: completionInstructions, recipeId, route, loginPaths, observation },
     // Each revision and path is judged once, and a recipe 20 times a UTC day (ADR 0027).
     gate: async (db, now) => {
-      const latest = await readHead(env.DB, scope.ownerId, recipeId);
-      if (latest?.state !== "active" || latest.revision !== head.revision) return "recipe-conflict";
+      const stale = staleHead(await readHead(env.DB, scope.ownerId, recipeId), head.revision);
+      if (stale) return stale;
       const [judged] = await db
         .select()
         .from(pageJudgements)

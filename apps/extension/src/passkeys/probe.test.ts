@@ -64,6 +64,27 @@ describe("probe passkey source", () => {
     expect(candidates).toHaveBeenCalledWith("https://localhost:8443", "localhost", signal);
   });
 
+  it("finds no test-vector key in a search scoped to one vault item", async () => {
+    const { probe, candidates } = setup();
+    const only = { connectionId: "synthetic-connection", itemId: "synthetic-item" };
+    expect(
+      await probe.source.candidates("http://localhost:3848", "localhost", signal, only),
+    ).toEqual({ candidates: [], complete: true });
+    expect(candidates).not.toHaveBeenCalled();
+    await probe.source.candidates(
+      "https://synthetic.example.test",
+      "synthetic.example.test",
+      signal,
+      only,
+    );
+    expect(candidates).toHaveBeenCalledWith(
+      "https://synthetic.example.test",
+      "synthetic.example.test",
+      signal,
+      only,
+    );
+  });
+
   it("turns off only the localhost key", async () => {
     const { probe } = setup();
     probe.control({ version: 1, type: "passkey.probe.configure", enabled: false });

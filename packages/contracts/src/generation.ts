@@ -102,7 +102,7 @@ export const recipeCompletionRequestSchema = v.strictObject({
   version: v.literal(1),
   revision: writtenRevision,
   /** The login's route; the service checks the stored recipe has it. */
-  route: v.optional(loginRouteSchema, "password"),
+  route: loginRouteSchema,
   observation: loginObservationSchema,
 });
 

@@ -91,10 +91,10 @@ describe("recipe generation contracts", () => {
 describe("page judgement contracts (ADR 0027)", () => {
   const change = { recipeId: "gen-1", revision: 2, state: "active", recipe };
 
-  it("names the login's route, defaulting to the password route", () => {
-    expect(
-      v.parse(recipeCompletionRequestSchema, { version: 1, revision: 2, observation }),
-    ).toEqual({ version: 1, revision: 2, route: "password", observation });
+  it("names the login's route, which is required", () => {
+    expect(v.is(recipeCompletionRequestSchema, { version: 1, revision: 2, observation })).toBe(
+      false,
+    );
     expect(
       v.parse(recipeCompletionRequestSchema, {
         version: 1,

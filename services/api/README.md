@@ -181,9 +181,9 @@ a code, or `unavailable` with a reason when no model was called.
   call, or after it if the last place was taken meanwhile), and a `base` that is not a
   generated recipe ID is 400. The model maps the slots, the plan is checked with
   `validatePagePlan`, and the steps are stored with a conditional write.
-- `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, route?,
-  observation }` (`route` defaults to `password`) for a page an effect step of that
-  revision led to, on the recipe's origin
+- `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, route,
+  observation }` for a page an effect step of that revision led to, on the recipe's
+  origin
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Another revision, or a
   route the stored recipe lacks, answers `recipe-conflict`. A page that shows one of the
   route's fill fields (on any path) or the completion marker answers `not-judgeable`

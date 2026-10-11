@@ -132,7 +132,7 @@ describe("code fields on a generated page (ADR 0027)", () => {
     ["a tel input of 6", { role: "tel", maxLength: 6 }],
     ["a numeric text input of 6", { inputMode: "numeric", maxLength: 6 }],
     ["a numeric text input of 10", { inputMode: "numeric", maxLength: 10 }],
-    ["a number input", { role: "number" }],
+    ["a number input marked one-time-code", { role: "number", autocomplete: "one-time-code" }],
   ])("offers totp for a page with %s", (_label, extra) => {
     const page = field(extra);
     expect(parse({ ...base, ...page })).toBe(true);
@@ -147,6 +147,8 @@ describe("code fields on a generated page (ADR 0027)", () => {
     ["a tel input of 20", { role: "tel", maxLength: 20 }],
     ["a tel input without a length", { role: "tel" }],
     ["a numeric text input of 11", { inputMode: "numeric", maxLength: 11 }],
+    // The executor needs a length of 1 to 10, which observations omit on number inputs.
+    ["a number input without the hint", { role: "number" }],
   ])("drops totp for a page with %s", (_label, extra) => {
     const page = field(extra);
     expect(parse({ ...base, ...page })).toBe(true);

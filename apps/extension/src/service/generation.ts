@@ -142,9 +142,9 @@ export function createLoginGeneration(options: {
         answer.kind === "result" ? answer.result : undefined;
       // Later runs use the learned completion; this attempt settles without waiting.
       if (result?.status === "signed-in") void sync().catch(() => undefined);
-      // A handler continues this attempt, so it waits for the cache as well (ADR 0027).
+      // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
       if (result?.status === "challenge" && result.change) {
-        await sync().catch(() => undefined);
+        void sync().catch(() => undefined);
         return { verdict: "challenge", recipe: result.change.recipe };
       }
       return {

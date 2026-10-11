@@ -4,6 +4,7 @@ import {
   extendsRecipe,
   handlerSteps,
   loginFieldFacts,
+  loginFieldSource,
   loginTargetSchema,
   parseLoginAccountBinding,
   parseLoginOperation,
@@ -670,6 +671,30 @@ describe("second-factor page handlers (ADR 0027)", () => {
       });
       // A missing field holds nothing.
       expect(loginFieldFacts(item([]), allowed)).toEqual({ password: false, totp: false });
+    });
+
+    it("counts an allowed Linked field like the built-in field it reads", () => {
+      const linked = item([
+        ...builtIn({ totp: true }).fields,
+        {
+          id: "custom.s.0",
+          label: "Linked password",
+          name: "pw",
+          kind: "linked",
+          linkedFieldId: "login.password",
+        },
+      ]);
+      expect(loginFieldFacts(linked, ["login.username", "custom.s.0"])).toEqual({
+        password: true,
+        totp: false,
+      });
+      expect(loginFieldSource(linked, "custom.s.0")).toBe("login.password");
+      expect(loginFieldSource(linked, "login.username")).toBe("login.username");
+      expect(
+        loginFieldFacts(item([...builtIn({ password: true }).fields, ...linked.fields.slice(3)]), [
+          "custom.s.0",
+        ]),
+      ).toEqual({ password: false, totp: false });
     });
 
     it("counts an excluded field as missing", () => {

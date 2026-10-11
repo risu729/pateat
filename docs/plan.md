@@ -990,12 +990,14 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   ([ADR 0027](adr/0027-per-account-login-routes.md)), approved by the owner on
   2026-10-11: custom-field names and Text shapes in generation, page handlers for a
   security key and TOTP learned by the judge, start-page routes (password variants,
-  passkey, SSO), in the PR order the ADR lists. Delivery 2 is implemented and tested
-  locally: item facts and the catalog `empty` flags, the `password` route and
-  `no-route`, `passkey` handlers learned by the judge and run in the same login, the
-  judging rules and limits (`page_judgements`), the bridge using the login's item, and
-  no `totp` slot for start pages without a code field. Its real-Chrome check on
-  npmjs.com's security-key page is still open.
+  passkey, SSO), in the PR order the ADR lists. Delivery 2 is implemented: item facts
+  and the catalog `empty` flags, the `password` route and `no-route`, `passkey` handlers
+  learned by the judge and run in the same login, the judging rules and limits
+  (`page_judgements`), the bridge using the login's item, and no `totp` slot for start
+  pages without a code field. Unit, service and extension runtime tests cover these
+  with synthetic pages and fakes, and the 118 existing extension E2E specs pass; no E2E
+  spec drives a security-key page, and nothing has run in real Chrome yet. Its
+  real-Chrome check on npmjs.com's security-key page is still open.
 - Continuing a generated recipe on the page after an `advance` step, through the
   generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
   extension already sends a recipe's first page under the automatic send rule of

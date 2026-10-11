@@ -202,18 +202,20 @@ export const builtInLoginSlots = {
 } as const satisfies Record<string, SemanticSlot>;
 
 /**
- * Whether the page shows a code-like input, as the TOTP fill rule of ADR 0013 reads one:
- * `autocomplete="one-time-code"`, a number input, or a tel or numeric input of at most 10
- * characters.
+ * Whether the page shows an input the executor would fill a TOTP code into (ADR 0013, the
+ * extension's `acceptsSecret`): `autocomplete="one-time-code"`, or a numeric, tel or number
+ * input whose `maxlength` is 1 to 10. Observations omit lengths on number inputs, so a
+ * number input counts only with the autocomplete hint.
  */
 export function showsCodeField(observation: Pick<LoginObservation, "candidates">): boolean {
   return observation.candidates.some(
     (candidate) =>
       candidate.autocomplete === "one-time-code" ||
-      candidate.role === "number" ||
-      // Lengths are omitted on number inputs, so any number input counts.
-      ((candidate.role === "tel" || candidate.inputMode === "numeric") &&
+      ((candidate.inputMode === "numeric" ||
+        candidate.role === "tel" ||
+        candidate.role === "number") &&
         candidate.maxLength !== undefined &&
+        candidate.maxLength >= 1 &&
         candidate.maxLength <= 10),
   );
 }

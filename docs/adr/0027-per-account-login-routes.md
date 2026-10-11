@@ -215,6 +215,10 @@ Not handled:
   route needs regeneration, which today means revoking the recipe, and that stops
   generation for its path (ADR 0018).
 - A passkey stored in another vault item than the login item.
+- A 2FA page path shared by several methods. A page is judged once per recipe revision
+  and path, so the first account judged there decides what is learned: if a TOTP account
+  is judged first, the security-key handler on that path is not learned until a new
+  revision.
 - Start pages without a password input (passkey-only or SSO-only) are never generated
   (ADR 0016 condition 3); that is left to the SSO work.
 - Passkey requests the bridge already passes on: `conditional`, `required` or `silent`

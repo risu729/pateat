@@ -339,6 +339,9 @@ describe("judged passkey handler (ADR 0027)", () => {
     ["Register a security key", { by: "text", value: "Register a security key" }, undefined],
     ["パスキーを登録", { by: "text", value: "パスキーを登録" }, undefined],
     ["a labelled registration button", target("passkey"), "Create a passkey"],
+    ["an id that adds a passkey", { by: "id", value: "add-passkey" }, undefined],
+    ["a name that registers a key", { by: "name", value: "register_key" }, undefined],
+    ["a test ID that sets up a key", { by: "test-id", value: "setUpSecurityKey" }, undefined],
   ])("refuses a button that registers a passkey: %s", (_label, locator, label) => {
     const button = {
       ...candidate("register", locator as LoginTarget),

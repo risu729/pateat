@@ -24,6 +24,9 @@ const fake = vi.hoisted(() => {
         set: async (values: Record<string, unknown>) => {
           Object.assign(state.storage, structuredClone(values));
         },
+        remove: async (keys: string | string[]) => {
+          for (const key of [keys].flat()) delete state.storage[key];
+        },
       },
     },
     tabs: {

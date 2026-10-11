@@ -11,7 +11,7 @@ import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
-import { generatedRecipeId } from "../src/recipes/generate";
+import { generatedRecipeId, staleHead } from "../src/recipes/generate";
 
 // Synthetic owners, devices, federation identifiers and pages only. Anthropic's token
 // endpoint and the Messages API are answered locally; no request leaves the test.
@@ -172,6 +172,7 @@ async function complete(device: Device, recipeId: string, revision: number, page
   const response = await post(device, `/v1/recipes/${recipeId}/completion`, {
     version: 1,
     revision,
+    route: "password",
     observation: page,
   });
   return {
@@ -1188,6 +1189,16 @@ describe("page judgement (ADR 0027)", () => {
       status: "challenge",
     });
     expect(await head(device, change.recipeId)).toBe(3);
+  });
+
+  it("checks the head again under the lock and names a revocation meanwhile", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    expect(staleHead(change, 2)).toBeUndefined();
+    const revoked = { recipeId: change.recipeId, revision: 3, state: "revoked" } as const;
+    expect(staleHead(revoked, 2)).toBe("recipe-revoked");
+    expect(staleHead(change, 1)).toBe("recipe-conflict");
+    expect(staleHead(null, 2)).toBe("recipe-conflict");
   });
 
   it("makes one model call for a page sent twice at once", async () => {
