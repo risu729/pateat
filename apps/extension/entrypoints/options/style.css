@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Chrome gives every extension page an unlayered body rule with its own font family and
+   `font-size: 75%`, which the layered base below cannot override: text without a size of
+   its own would be 12px while rem-sized text stays at the 16px root. */
+body {
+  font-family: inherit;
+  font-size: 1rem;
+}
+
 @layer base {
   :root {
     font-family: ui-sans-serif, system-ui, sans-serif;

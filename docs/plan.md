@@ -13,8 +13,9 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
 - M2: the synthetic engine and settings gates have passed
   ([local settings progress](#local-settings-progress)). One-time account choices and
   choosing again after a logout
-  ([ADR 0021](adr/0021-account-choice-outside-settings.md)) are implemented and tested
-  in Playwright Chromium only.
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)) are implemented; the toolbar
+  popup opened and rendered in installed Chrome, and changing a site's exclusion or
+  default there and the rest are tested in Playwright Chromium only.
 - M3: a password login on a real site, individual MFA methods, other KDFs, V2 keys and
   organization items on a real account, and the site-access warning and prompt in
   installed Chrome
@@ -1298,7 +1299,13 @@ the same tab. They land as separate PRs in that order. The toolbar popup is impl
 clicking the icon opens `popup.html` for the active HTTPS tab, which shows whether the
 site is excluded and lists the vault items that match its origin as the default account.
 A rule that includes subdomains is shown but changed only in settings, because it also
-covers other sites.
+covers other sites. On 2026-10-11 the popup opened in installed Chrome on the production
+build of `8581f1d` and, on `https://example.com`, showed the site, its exclusion button
+and the default account section. Text without a size of its own was 12px there, smaller
+than the notes, because Chrome gives extension pages a body rule with
+`font-size: 75%` and its own font family. The shared stylesheet now sets the body to
+`1rem` and the stylesheet's font family on every extension page; that fix is tested in
+Playwright Chromium only.
 
 When several items match a page and no default is saved, the refused document is
 recorded and the tab's icon shows the count as a badge. The popup then lists only those
