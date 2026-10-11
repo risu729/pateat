@@ -121,6 +121,36 @@ describe("judged completion", () => {
     });
   });
 
+  it("refuses a marker that is not on the judged page", () => {
+    expect(addCompletion(recipe, home, target("account"))).toEqual({
+      ok: false,
+      reason: "not-on-page",
+    });
+  });
+
+  it("refuses a page elsewhere that still shows a field a step fills", () => {
+    // The form at /login posts to /session, which shows it again after a failure.
+    const reposted = {
+      origin,
+      path: "/session",
+      candidates: [
+        candidate("help", target("help")),
+        candidate("user", target("username"), "text"),
+      ],
+    };
+    expect(addCompletion(recipe, reposted, target("help"))).toEqual({
+      ok: false,
+      reason: "login-page",
+    });
+    // A step's button elsewhere does not make a page a login page.
+    const next = {
+      origin,
+      path: "/home",
+      candidates: [candidate("out", target("logout")), candidate("n", target("username-next"))],
+    };
+    expect(addCompletion(recipe, next, target("logout")).ok).toBe(true);
+  });
+
   it("refuses another origin", () => {
     expect(
       addCompletion(recipe, { ...home, origin: "https://www.bank.example" }, target("logout")),
@@ -136,7 +166,7 @@ describe("judged completion", () => {
       ok: false,
       reason: "step-target",
     });
-    expect(at("/home", target("username")).ok).toBe(true);
+    expect(at("/home", target("username-next")).ok).toBe(true);
   });
 
   it("refuses a step path that still shows the login form, allows it once the form is gone", () => {

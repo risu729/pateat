@@ -25,7 +25,12 @@ export type CompletionRejection =
   | "origin-mismatch"
   /** The marker is an element one of the recipe's own steps uses on that path. */
   | "step-target"
-  /** The page still shows an element a step uses on that path: it is the login page again. */
+  /** The marker is not an element of the judged page. */
+  | "not-on-page"
+  /**
+   * The page still shows an element a step uses on that path, or a field any step
+   * fills: it is a login page again.
+   */
   | "login-page";
 
 const sameTarget = (left: LoginTarget, right: LoginTarget) =>
@@ -74,9 +79,11 @@ export function appendPageSteps(
 
 /**
  * Adds the judged completion target to a generated recipe in its next revision. The
- * marker must be on the recipe's origin, must not be one of the recipe's own targets on
- * that path, and the page must not still show any element a step uses on that path: a
- * failed sign-in that returns to a login page then never counts as signed in.
+ * marker must be an element of the judged page on the recipe's origin and not one of
+ * the recipe's own targets on that path. The page must not still show any element a
+ * step uses on that path, nor a field any step fills on any path: a failed sign-in that
+ * shows the login form again, on its own path or where the form posted, is not learned
+ * as signed in.
  */
 export function addCompletion(
   base: LoginRecipe,
@@ -85,9 +92,20 @@ export function addCompletion(
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: CompletionRejection } {
   if (base.completion) return { ok: false, reason: "already-complete" };
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
+  if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
+    return { ok: false, reason: "not-on-page" };
   const used = base.steps.filter((step) => step.path === page.path).flatMap(stepTargets);
   if (used.some((step) => sameTarget(step, target))) return { ok: false, reason: "step-target" };
-  if (page.candidates.some((candidate) => used.some((step) => sameTarget(step, candidate.target))))
+  // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not.
+  const fields = base.steps.flatMap((step) =>
+    step.kind === "fill" ? step.fields.map((field) => field.target) : [],
+  );
+  const loginElements = [...used, ...fields];
+  if (
+    page.candidates.some((candidate) =>
+      loginElements.some((element) => sameTarget(element, candidate.target)),
+    )
+  )
     return { ok: false, reason: "login-page" };
   return {
     ok: true,
