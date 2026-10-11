@@ -80,7 +80,8 @@ account"), which leads to `/signin/id`, an email page. No recipe starts there, s
 page is observed and sent, and the recipe generated for it logs in to `my2@example.com`
 ([Background execution](../architecture.md#background-execution)).
 
-Not implemented yet: the service keeps one generated recipe per origin.
+The extension offers such pages, and the service keeps one generated recipe per origin
+and start path ([API README](../../services/api/README.md#recipe-generation)).
 
 ## Consequences
 

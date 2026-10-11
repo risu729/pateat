@@ -587,9 +587,10 @@ the real settings store over in-memory storage; no running service has been trie
 
 ### Remaining M4 service gaps
 
-- Device enrollment has not been tried against a real Access application; that probe
-  needs the owner's approval, as do the credential idle-expiry decision and the
-  optional `launchWebAuthFlow` variant.
+- Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md))
+  is decided and not implemented: a manifest `key`, the Access-protected `POST /pair`,
+  then the extension switch with the typed-code flow removed. The credential
+  idle-expiry decision stays open.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - The [owner web UI](architecture.md#owner-web-ui) serves its React app, assets and
@@ -899,9 +900,9 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   recipe that starts on the page the switch leads to, generated there if none exists
   ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The comparison, the stop, the
   switch click and the new attempt on the next page are implemented
-  ([Background execution](architecture.md#background-execution)), and the extension
-  offers a page for generation when no recipe starts on its path. Still to do: one
-  generated recipe per start path on the service, and naming `accountSwitch`
+  ([Background execution](architecture.md#background-execution)), and a page where no
+  recipe starts is offered for generation (the service keeps one generated recipe per
+  start path). Still to do: naming `accountSwitch`
   (including link text) in the extractor and the generator.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.

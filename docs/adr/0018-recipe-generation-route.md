@@ -7,8 +7,8 @@ routes are implemented ([API README](../../services/api/README.md#recipe-generat
 The extension sends a recipe's first page and the page after its final submission;
 continuing a recipe on the page after an `advance` step is not implemented yet.
 Its one generated recipe per origin is amended to one per start path by
-[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts) (not
-implemented yet).
+[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts), which the
+service and the extension implement.
 
 Date: 2026-10-11
 
@@ -46,7 +46,8 @@ The route follows from these and from ADRs 0013 to 0016:
   `{ version: 1, observation: LoginObservation, slots: SemanticSlot[] }`. The service
   validates it with the package schemas. It resolves the owner's credential through
   `resolveClaudeCredential` (ADR 0015) and calls `createRecipeGenerator` once. It
-  checks the plan with `validatePagePlan` and saves the steps as one recipe per origin.
+  checks the plan with `validatePagePlan` and saves the steps as one recipe per origin
+  (per origin and start path since the ADR 0016 amendment).
   It answers synchronously with the saved recipe, an abstention reason, a failure code
   or an unavailable reason (no credentials, a limit reached, busy, or tried in the
   previous 24 hours).
@@ -74,8 +75,8 @@ new owner decision:
 - A page that continues a recipe after an `advance` step counts toward the 24-hour rule
   under that recipe revision, not under its path alone, so the password form of a login
   that stays on `/login` is not refused as a retry of the email form.
-- Revoking a generated recipe stops generation for its origin, because each origin has
-  one generated recipe ID; a later design can let the owner reset it.
+- Revoking a generated recipe stops generation on its start path, because each origin
+  and start path has one generated recipe ID; a later design can let the owner reset it.
 - Log rows older than 90 days are deleted whenever a call is logged and whenever a
   device reads the recipe change feed, since routine releases do not apply scheduled
   triggers. Requests refused locally before any model call are not logged.
