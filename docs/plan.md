@@ -304,8 +304,10 @@ combined commit. Catalog bounds are validated before unlock-key export and cache
 The settings page can delete a connection locally, as
 [Development](development.md#manual-bitwarden-setup-preview) describes. Unit, options
 component and isolated Chromium tests cover deletion with synthetic providers, including
-removed native records after a full profile reopen; it has not been exercised in the
-owner's Chrome.
+removed native records after a full profile reopen. The owner also deleted leftover
+connections in the installed Chrome on 2026-10-11, then completed first setup against
+a real Bitwarden Cloud account
+([evidence](research/2026-10-10-feasibility.md#first-real-account-sign-in-2026-10-11)).
 
 [PR #20](https://github.com/risu729/pateat/pull/20) passed
 [full Linux CI](https://github.com/risu729/pateat/actions/runs/38047201686) with 766

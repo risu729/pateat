@@ -419,5 +419,15 @@ would reject ordinary items next: stored cipher `data` is PascalCase with nulls
 omitted while the response model carries explicit nulls, identity `data` spells
 `SSN` in capitals, and attachments carry `"object": "attachment"`. Shared
 collections use `type` 0. The fix, with a modern V1 fixture of this shape, is in
-the `fix/real-account-mismatch` change. Signing in to the real account again is
-the remaining confirmation.
+[PR #80](https://github.com/risu729/pateat/pull/80).
+
+After #80 and the local delete of [PR #85](https://github.com/risu729/pateat/pull/85)
+reached `main`, the owner deleted the four leftover connections from the failed
+attempts and added a new connection to the same account in the installed Chrome.
+Setup completed with "Local vault ready", automatic unlock enabled and the sync
+sign-in saved. The request log, read for paths and statuses only, again showed
+prelogin 200, token 400 with `device_error` (the expected new-device verification
+challenge), token 200 after the code, and sync 200. Deleted connections stayed
+gone, and the action icon switched state as expected. This confirms first setup
+against one real Cloud US account with V1 keys and PBKDF2; other KDFs, V2 keys,
+organization items, MFA methods and refresh are not covered by it.
