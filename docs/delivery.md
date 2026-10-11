@@ -64,23 +64,23 @@ The owner decided these on 2026-10-11, following the kogane repository:
   does for its docs, when the owner web UI exists.
 
 `deploy-server.yml` has no enable switch: the owner decided on 2026-10-11 that every
-successful main-push CI run deploys. Until the production credentials exist, each run
-fails at its first step without changing anything. Set the release credentials last:
-first bootstrap the Worker and its Custom Domain, the two Access applications and the
-Worker secrets, and verify enrollment through Access; otherwise a release would apply
-migrations and then fail to activate a missing Worker. Then set the `production`
-environment variables `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
-`SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret. Put
-the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner chose
-on 2026-10-11 to use this one token for both the migrations and the deployment, as in
-kogane, because both run in the same job. It is an Account API token, not a user API
-token, so it does not depend on one person's login, and its scope is as narrow as
-Cloudflare allows (owner decision, 2026-10-11). The token created on 2026-10-11 is
-"pateat-github-actions-production" with Individual Workers Editor on `pateat-api` only
-and D1 Write for the whole account, because the dashboard offers no per-database D1
-scope. The release limits itself to the recorded database ID, and routine releases do
-not touch the Custom Domain, so the token needs no zone permission. This repository
-does not supply or provision them.
+successful main-push CI run starts a release of the current main. Until the production
+credentials exist, each run fails at its first step without changing anything. Set the
+release credentials last: first bootstrap the Worker and its Custom Domain, the two
+Access applications and the Worker secrets, and verify enrollment through Access;
+otherwise a release would apply migrations and then fail to activate a missing Worker.
+Then set the `production` environment variables `CLOUDFLARE_ACCOUNT_ID`,
+`SERVER_WORKER=pateat-api` and `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the
+account ID is not a secret. Put the `CLOUDFLARE_API_TOKEN` secret in the `production`
+environment only. The owner chose on 2026-10-11 to use this one token for both the
+migrations and the deployment, as in kogane, because both run in the same job. It is an
+Account API token, not a user API token, so it does not depend on one person's login,
+and its scope is as narrow as Cloudflare allows (owner decision, 2026-10-11). The token
+created on 2026-10-11 is "pateat-github-actions-production" with Individual Workers
+Editor on `pateat-api` only and D1 Write for the whole account, because the dashboard
+offers no per-database D1 scope. The release limits itself to the recorded database ID,
+and routine releases do not touch the Custom Domain, so the token needs no zone
+permission. This repository does not supply or provision them.
 
 An automatic run releases the current main revision, not necessarily the one whose CI
 run started it: main CI runs can finish out of order, and the release lock keeps only
@@ -99,9 +99,9 @@ not be additive and the previously serving Worker need not keep running on the n
 schema ([compatibility before release](development.md#compatibility-before-release)); cf
 compares applied migrations by name only, so an applied migration file is never edited.
 `cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
-is updated. A failed release is not retried on purpose: retry with an explicit dispatch,
-or let the next merge start a new release (a late CI run for an older revision can also
-retry it, because it releases main). Routine releases never change the Custom Domain or
+is updated. A failed release is not retried automatically, except that a late CI run for
+an older revision releases main again; otherwise retry with an explicit dispatch, or let
+the next merge start a new release. Routine releases never change the Custom Domain or
 other triggers; the bootstrap applies them once. The complete service release gates
 below remain planned, including automatic promotion/failure acknowledgement.
 

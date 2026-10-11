@@ -62,6 +62,8 @@ jobs:
           DISPATCH_RUN_ID: ${{ inputs.ci_run_id }}
           # A dispatch releases the main revision it was started on.
           DISPATCH_REVISION: ${{ github.sha }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_REVISION: ${{ github.event.workflow_run.head_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "${EVENT_NAME}" = workflow_dispatch ]]; then
@@ -79,7 +81,12 @@ jobs:
               echo "Main revision ${expected} is already live." >> "${GITHUB_STEP_SUMMARY}"
               exit 0
             fi
-            ci_run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=${expected}&per_page=1" --jq '.workflow_runs[0].id // empty')"
+            if [[ "${expected}" = "${TRIGGER_REVISION}" ]]; then
+              # Main's own CI run is the last automatic chance; don't depend on a list query.
+              ci_run_id="${TRIGGER_RUN_ID}"
+            else
+              ci_run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=${expected}&per_page=1" --jq '.workflow_runs[0].id // empty')"
+            fi
             if [[ -z "${ci_run_id}" ]]; then
               echo "release=false" >> "${GITHUB_OUTPUT}"
               echo "Main revision ${expected} has no successful CI run yet; its own CI run releases it." >> "${GITHUB_STEP_SUMMARY}"
