@@ -275,17 +275,17 @@ type Found =
   | { kind: "candidate"; form: HTMLFormElement | null; draft: Draft }
   /**
    * A visible control the executor cannot act on, such as a select or a radio button.
-   * `field` marks a text or password field that cannot be filled: read-only (as with
+   * `field` holds a text or password field that cannot be filled: read-only (as with
    * software keyboards), disabled until another step, or transparent or tiny.
    */
-  | { kind: "unsupported"; form: HTMLFormElement | null; field: boolean };
+  | { kind: "unsupported"; form: HTMLFormElement | null; field: HTMLInputElement | undefined };
 
 function describe(element: Element): Found | undefined {
   if (!(element instanceof HTMLElement)) return undefined;
   const present = presence(element);
   if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
     if (present === "faint" || element.readOnly || element.disabled)
-      return { kind: "unsupported", form: element.form, field: true };
+      return { kind: "unsupported", form: element.form, field: element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
     const type = element.type;
@@ -323,10 +323,12 @@ function describe(element: Element): Found | undefined {
       };
     }
     // Radio groups and other input types have no executor support yet.
-    return { kind: "unsupported", form: element.form, field: false };
+    return { kind: "unsupported", form: element.form, field: undefined };
   }
   if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)
-    return element.disabled ? undefined : { kind: "unsupported", form: element.form, field: false };
+    return element.disabled
+      ? undefined
+      : { kind: "unsupported", form: element.form, field: undefined };
   if (element instanceof HTMLButtonElement) {
     if (element.type === "reset") return undefined;
     const label = actionLabel(element);
@@ -379,6 +381,45 @@ function language(texts: readonly string[]): LoginObservation["language"] {
 }
 
 /**
+ * The forms, among those holding a field (`null` for fields outside any form), whose
+ * controls a login needs: those with one password field that is not `new-password` or
+ * with a `username` or `one-time-code` field, as ADR 0016 detects a login; failing that,
+ * any with a password field; otherwise all of them.
+ */
+function loginFormsOf(
+  found: readonly Found[],
+  fieldForms: ReadonlySet<HTMLFormElement | null>,
+): ReadonlySet<HTMLFormElement | null> {
+  const inputs = new Map<HTMLFormElement | null, HTMLInputElement[]>();
+  for (const entry of found) {
+    const input =
+      entry.kind === "candidate"
+        ? entry.draft.element instanceof HTMLInputElement && fillTypes[entry.draft.element.type]
+          ? entry.draft.element
+          : undefined
+        : entry.field;
+    if (input) inputs.set(entry.form, [...(inputs.get(entry.form) ?? []), input]);
+  }
+  const hints = (form: HTMLFormElement | null) =>
+    (inputs.get(form) ?? []).map((input) => autocomplete(input));
+  const passwords = (form: HTMLFormElement | null) =>
+    (inputs.get(form) ?? []).filter((input) => input.type === "password");
+  const tiers: ((form: HTMLFormElement | null) => boolean)[] = [
+    (form) =>
+      !hints(form).includes("new-password") &&
+      (passwords(form).length === 1 ||
+        (passwords(form).length === 0 &&
+          hints(form).some((hint) => hint === "username" || hint === "one-time-code"))),
+    (form) => passwords(form).length > 0,
+  ];
+  for (const tier of tiers) {
+    const forms = new Set([...fieldForms].filter(tier));
+    if (forms.size > 0) return forms;
+  }
+  return fieldForms;
+}
+
+/**
  * Builds the value-free observation of a top-level page that recipe generation
  * receives. It reads element types, locators, labels, placeholders and declared input
  * constraints, plus the title and visible headings; never input values, hidden inputs,
@@ -387,10 +428,11 @@ function language(texts: readonly string[]): LoginObservation["language"] {
  *
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
  * links (or, for fields outside any form, every control outside a form). A field or
- * button there that cannot be located, a control the executor cannot act on, a
- * control in a shadow root inside the login form or a field in any shadow root, or more
- * than 48 candidates marks the observation
- * incomplete, and inference rejects it. A page without a field is refused.
+ * button that cannot be located, a control the executor cannot act on or a control in a
+ * shadow root marks the observation incomplete when it is in a login form
+ * (`loginFormsOf`); any other form with one is left out entirely. A field in any shadow
+ * root, or more than 48 candidates, marks it incomplete too, and inference rejects an
+ * incomplete observation. A page without a field is refused.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
@@ -413,15 +455,21 @@ export function extractLoginObservation(
     ),
   );
   if (fieldForms.size === 0) return { ok: false, reason: "no-candidates" };
+  const loginForms = loginFormsOf(found, fieldForms);
+  // Forms with a control the executor cannot act on or locate. In a login form that
+  // makes the observation incomplete; any other such form is left out entirely, so
+  // every form the observation describes is fully described.
+  const flawed = new Set<HTMLFormElement | null>();
 
   // A shadow-root field anywhere may be the real login; other shadow controls such as
-  // chat widgets matter only inside the login form.
-  let complete = ![...document.querySelectorAll("*")].some(
-    (host) =>
-      host.shadowRoot !== null &&
-      (inShadow(host.shadowRoot, shadowFields) ||
-        (fieldForms.has(host.closest("form")) && inShadow(host.shadowRoot, controls))),
-  );
+  // chat widgets matter only inside the forms that are kept.
+  let complete = true;
+  for (const host of document.querySelectorAll("*")) {
+    if (host.shadowRoot === null) continue;
+    if (inShadow(host.shadowRoot, shadowFields)) complete = false;
+    else if (fieldForms.has(host.closest("form")) && inShadow(host.shadowRoot, controls))
+      flawed.add(host.closest("form"));
+  }
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
   // Script buttons are often widgets (menus, toggles) and only attribute locators name
   // them, so one without a locator is left out rather than marking the page incomplete.
@@ -429,7 +477,7 @@ export function extractLoginObservation(
   const links: typeof required = [];
   for (const entry of found) {
     if (!fieldForms.has(entry.form)) continue;
-    if (entry.kind === "unsupported") complete = false;
+    if (entry.kind === "unsupported") flawed.add(entry.form);
     else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
     } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
@@ -437,17 +485,24 @@ export function extractLoginObservation(
   }
 
   const index = locatorIndex(document);
-  const located = (entries: typeof required) =>
+  // Links and script buttons without a locator are left out without flawing their form.
+  const located = (entries: typeof required, { optional = false } = {}) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { links: true });
+      if (!target && !optional) flawed.add(entry.form);
       return target ? [{ ...entry, target }] : [];
     });
-  const kept = located(required);
-  if (kept.length < required.length || kept.length > maxCandidates) complete = false;
-  const buttons = [...kept, ...located(scripted)].slice(0, maxCandidates);
+  const kept = (entries: typeof required, options?: { optional: boolean }) =>
+    located(entries, options).filter(
+      (entry) => !flawed.has(entry.form) || loginForms.has(entry.form),
+    );
+  const described = kept(required);
+  if ([...flawed].some((form) => loginForms.has(form)) || described.length > maxCandidates)
+    complete = false;
+  const buttons = [...described, ...kept(scripted, { optional: true })].slice(0, maxCandidates);
   const chosen = [
     ...buttons,
-    ...located(links).slice(0, Math.max(0, maxCandidates - buttons.length)),
+    ...kept(links, { optional: true }).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
   return observe(document, chosen, complete);
 }
