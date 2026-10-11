@@ -469,8 +469,10 @@ describe("passkey chooser window", () => {
     let choose!: (choice: PasskeyChoice) => void;
     const signals: AbortSignal[] = [];
     const backing = several();
+    const remember = vi.fn(async () => {});
     const runtime = createPasskeyRuntime(backing, {
       extensionId,
+      remember,
       chooser: chooser((input) => {
         signals.push(input.signal);
         return new Promise<PasskeyChoice>((resolve) => (choose = resolve));
@@ -480,14 +482,48 @@ describe("passkey chooser window", () => {
     await vi.waitFor(() => expect(signals).toHaveLength(1));
     runtime.settingsChanged();
     expect(signals[0]!.aborted).toBe(false);
-    // The new settings make the other passkey the site default; the choice still stands.
-    vi.mocked(backing.candidates).mockResolvedValueOnce({
-      candidates: [{ ...pair[0]!, preferred: true }, pair[1]!],
-      complete: true,
-    });
-    choose({ kind: "chosen", index: 1, makeDefault: false });
+    // The new settings already make the chosen passkey the site default.
+    const current = { ...pair[1]!, preferred: true, display: { item: "Looked up again" } };
+    let lookedUp!: () => void;
+    vi.mocked(backing.candidates).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          lookedUp = () => resolve({ candidates: [pair[0]!, current], complete: true });
+        }),
+    );
+    choose({ kind: "chosen", index: 1, makeDefault: true });
+    await vi.waitFor(() => expect(lookedUp).toBeDefined());
+    // Another change while the choice is looked up does not cancel it either.
+    runtime.settingsChanged();
+    lookedUp();
     expect(await pending).toMatchObject({ kind: "assertion", assertion: { credentialId: "BAUG" } });
-    expect(backing.candidates).toHaveBeenCalledTimes(2);
+    expect(backing.sign).toHaveBeenCalledWith(
+      current,
+      expect.anything(),
+      expect.anything(),
+      expect.any(AbortSignal),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).not.toHaveBeenCalled();
+  });
+
+  it("tries a failed signing after a choice once more", async () => {
+    const backing = several();
+    vi.mocked(backing.sign).mockRejectedValueOnce(new Error("passkey-stale"));
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: chooser(async () => ({ kind: "chosen", index: 0, makeDefault: false })),
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(backing.candidates).toHaveBeenCalledTimes(3);
+    expect(backing.sign).toHaveBeenCalledTimes(2);
+
+    vi.mocked(backing.sign).mockRejectedValue(new Error("passkey-unavailable"));
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "assertion-failed",
+    });
+    expect(backing.sign).toHaveBeenCalledTimes(4);
   });
 
   it("delegates a choice the changed settings no longer offer", async () => {
@@ -507,9 +543,10 @@ describe("passkey chooser window", () => {
     answers[0]!({ kind: "chosen", index: 0, makeDefault: true });
     expect(await excluded).toEqual({ kind: "delegate", reason: "settings-changed" });
 
+    // Settings can also change without a sync, for example when another tab's login saves
+    // a choice; the lookup after the choice catches that too.
     const removed = runtime.handle(get(), sender());
     await vi.waitFor(() => expect(answers).toHaveLength(2));
-    runtime.settingsChanged();
     // The chosen passkey's item was removed from the vault or the settings.
     vi.mocked(backing.candidates).mockResolvedValueOnce({ candidates: [pair[0]!], complete: true });
     answers[1]!({ kind: "chosen", index: 1, makeDefault: false });

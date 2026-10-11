@@ -182,19 +182,16 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   type Operation = {
     documentId: string;
     controller: AbortController;
-    /** The chooser window is open for it, waiting for a person. */
+    /** The chooser window opened for it, so a person decides or has decided. */
+    asked: boolean;
+    /** The window is open, waiting for that person. */
     choosing: boolean;
-    /** Settings changed while the window was open; a choice is checked against them. */
-    stale: boolean;
   };
   const operations = new Map<string, Operation>();
   const settingsChanged = () => {
     for (const [id, operation] of operations) {
       // A person deciding is not interrupted; their choice is checked against the new settings.
-      if (operation.choosing) {
-        operation.stale = true;
-        continue;
-      }
+      if (operation.asked) continue;
       operation.controller.abort();
       operations.delete(id);
     }
@@ -227,7 +224,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const controller = new AbortController();
-    const operation: Operation = { documentId, controller, choosing: false, stale: false };
+    const operation: Operation = { documentId, controller, asked: false, choosing: false };
     operations.set(message.operationId, operation);
     const received = Date.now();
     const expire = () =>
@@ -264,7 +261,37 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           signal,
         ));
       if (again) detail.signedBefore = true;
+      const signWith = (candidate: TCandidate) =>
+        abortable(
+          createPasskeyAssertion(admission.request, candidate, (data, hash) =>
+            source.sign(candidate, data, hash, signal),
+          ),
+          signal,
+        );
+      type Signed = { credential: TCandidate; assertion: Awaited<ReturnType<typeof signWith>> };
+      // A failure in the lookup or the signing, as when settings change meanwhile, gets one
+      // more try.
+      const signCurrent = async (credentialId: string, retry: boolean): Promise<Signed | undefined> => {
+        const current = await abortable(
+          source.candidates(origin, admission.request.rpId, signal),
+          signal,
+        );
+        const same = current
+          ? matchingPasskeys(admission.request, current.candidates).filter(
+              (entry) => entry.credentialId === credentialId && entry.counter === 0,
+            )
+          : [];
+        if (same.length !== 1) return undefined;
+        const candidate = same[0]!;
+        try {
+          return { credential: candidate, assertion: await signWith(candidate) };
+        } catch (error) {
+          if (signal.aborted || !retry) throw error;
+          return signCurrent(credentialId, false);
+        }
+      };
       let credential: TCandidate;
+      let assertion: Signed["assertion"] | undefined;
       let makeDefault = false;
       if (selection.kind === "credential" && !again) credential = selection.credential;
       // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
@@ -304,6 +331,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         // The window waits for a person, so the lookup budget no longer applies.
         clearTimeout(timer);
         timer = setTimeout(expire, remaining);
+        operation.asked = true;
         operation.choosing = true;
         const choice = await abortable(
           options.chooser.choose({
@@ -324,37 +352,21 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         operation.choosing = false;
         detail.chooser = choice.kind;
         if (choice.kind !== "chosen") return { kind: "delegate", reason: `chooser-${choice.kind}` };
-        let chosen = offered[choice.index];
+        const chosen = offered[choice.index];
         if (!chosen) return { kind: "delegate", reason: "chooser-invalid" };
         // Signing gets its own budget, so a choice made near the deadline still answers.
         clearTimeout(timer);
         timer = setTimeout(expire, options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
-        if (operation.stale) {
-          // The settings that produced the list changed, for example by a sync: the chosen
-          // passkey is signed with only if the new settings still offer it.
-          const credentialId = chosen.credentialId;
-          const current = await abortable(
-            source.candidates(origin, admission.request.rpId, signal),
-            signal,
-          );
-          const same = current
-            ? matchingPasskeys(admission.request, current.candidates).filter(
-                (entry) => entry.credentialId === credentialId && entry.counter === 0,
-              )
-            : [];
-          if (same.length !== 1) return { kind: "delegate", reason: "settings-changed" };
-          chosen = same[0]!;
-        }
-        credential = chosen;
+        // Settings may have changed while the person decided, by a sync, a save or another
+        // tab's login, and signing refuses a candidate from older settings. So the chosen
+        // passkey is looked up again and used only if the current settings still offer it.
+        const signed = await signCurrent(chosen.credentialId, true);
+        if (!signed) return { kind: "delegate", reason: "settings-changed" };
+        ({ credential, assertion } = signed);
         // The site default is saved already.
-        makeDefault = choice.makeDefault && chosen.preferred !== true;
+        makeDefault = choice.makeDefault && credential.preferred !== true;
       }
-      const assertion = await abortable(
-        createPasskeyAssertion(admission.request, credential, (data, hash) =>
-          source.sign(credential, data, hash, signal),
-        ),
-        signal,
-      );
+      assertion ??= await signWith(credential);
       if (signal.aborted) return { kind: "cancelled" };
       if (makeDefault) after.remember = credential;
       return { kind: "assertion", assertion };
@@ -380,7 +392,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   return {
     /**
      * Settings changed, so in-flight operations no longer follow them and are cancelled. One
-     * waiting in the chooser window stays open, and the passkey chosen there is looked up again.
+     * that opened the chooser window is left to its person; the passkey chosen there is looked
+     * up again under the settings current then.
      */
     settingsChanged,
     async handle(message: unknown, sender: Sender): Promise<RuntimeResult | { ok: boolean }> {

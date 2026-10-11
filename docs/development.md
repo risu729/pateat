@@ -357,9 +357,9 @@ holds:
   "Use the browser or another extension"), `closed` (the window or its tab was closed),
   `unavailable` (the window could not open, or another request held it), `timeout` (the
   wait ran out; the outcome is `not-allowed`) or `cancelled` (the page cancelled the
-  request). A delegation after the window has the reason `chooser-` plus that value,
-  or `settings-changed` when settings changed while the window was open and no longer
-  offer the chosen passkey;
+  request). A `browser`, `closed` or `unavailable` ending delegates with the reason
+  `chooser-` plus that value; a choice that the settings no longer offer when it is
+  looked up again delegates with `settings-changed`;
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
   again. Such a request that cannot open the window is delegated with
   `chooser-unavailable`.

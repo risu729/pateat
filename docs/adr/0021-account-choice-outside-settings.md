@@ -116,11 +116,13 @@ when the wait ends with the window still open, Pateat closes it and the request 
 with `NotAllowedError`, as Chrome's own prompt does when it times out. The browser and
 Bitwarden are not asked instead, so no second prompt appears by itself.
 
-Changed on 2026-10-11 after the same check, which found a settings sync from the
-service closing the window: a settings change no longer closes an open window. It still
-cancels requests that are not waiting in the window. A passkey chosen after the change
-is looked up again under the new settings and is used only if they still offer it;
-otherwise the request is delegated with `settings-changed`.
+Changed on 2026-10-11 by Claude as a fix, after the same check found a settings sync
+from the service closing the window: a settings change no longer cancels a request
+once its window has opened. It still cancels requests that never opened one. After a
+choice, the chosen passkey is looked up again under the settings current then, since
+they may have changed meanwhile, and is used only if they still offer it; otherwise the
+request is delegated with `settings-changed`. A failed lookup or signing after a choice
+is tried once more.
 
 ### D. After a logout, choose again (detection L1)
 

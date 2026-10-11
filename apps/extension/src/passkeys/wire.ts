@@ -54,7 +54,12 @@ export const runtimeResultSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("assertion"), assertion: assertionSchema }),
   v.strictObject({ kind: v.literal("delegate"), reason: v.pipe(v.string(), v.maxLength(64)) }),
   v.strictObject({ kind: v.literal("cancelled") }),
-  /** The chooser window's wait ran out; the request fails as the browser's prompt would. */
+  /**
+   * The chooser window's wait ran out; the request fails as the browser's prompt would. The
+   * page sees the same NotAllowedError as for a dismissed or timed-out browser prompt, but its
+   * timing, at the site's `timeout` capped at 2 minutes, hints that Pateat's window was shown
+   * (ADR 0021; the owner chose this over handing the request to the browser).
+   */
   v.strictObject({ kind: v.literal("not-allowed") }),
 ]);
 export type RuntimeResult = v.InferOutput<typeof runtimeResultSchema>;
