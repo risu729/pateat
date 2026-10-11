@@ -649,9 +649,15 @@ tests cover it.
   to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the `inference_credentials`
-  table and `resolveClaudeCredential` exist and are tested against a fake token endpoint
-  only. Owners enter identifiers on the temporary `/manage/claude` page until the React
-  web UI replaces it; no exchange with Anthropic's real token endpoint has been made.
+  table and `resolveClaudeCredential` exist. Owners enter identifiers on the temporary
+  `/manage/claude` page until the React web UI replaces it. On 2026-10-11 at 12:26 UTC
+  the deployed service at `pateat.takuk.me` exchanged a real assertion with Anthropic.
+  The owner's federation rule is scoped to `workspace:developer`, because the Console
+  offered no `workspace:inference`, and the token was valid for 10 minutes. The first
+  real generation call followed at 12:27 UTC for `https://my.jcb.co.jp/Login`. The model
+  abstained (`insufficient-evidence`, $0.008), because the installed build's extractor
+  skipped the page's login control: an `<a>` without `href` that submits the form
+  from `onclick`.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first approval. Per-owner [service limits](architecture.md#service-limits)
   cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
