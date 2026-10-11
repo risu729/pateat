@@ -494,6 +494,25 @@ export function createLocalVaultManager(options: {
     async lock() {
       await fence();
     },
+    /** Locks any open native session, then deletes this connection's durable record and
+     * the unlock key retained in it. The manager stays usable for a later accept. */
+    async remove(): Promise<VaultResult<true>> {
+      if (!profile) return vaultFailure("invalid-profile");
+      if (disposed) return vaultFailure("crypto-locked");
+      if (disabling) return vaultFailure("resource-limit");
+      disabling = true;
+      try {
+        await fence();
+        const removed = await options.store.remove();
+        uncertain = !removed.ok && removed.error.code === "storage-uncertain";
+        return removed;
+      } catch {
+        uncertain = true;
+        return vaultFailure("storage-uncertain");
+      } finally {
+        disabling = false;
+      }
+    },
     async listFields(handle: LocalVaultHandle, itemId: string, signal?: AbortSignal) {
       try {
         handle = structuredClone(handle);

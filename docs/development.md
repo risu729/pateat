@@ -195,6 +195,16 @@ when needed, and Forget sync sign-in removes it locally without a server logout.
 Forget cancels a running Sync but is refused while a password sign-in is in progress.
 Offline local-vault restoration is independent of that provider session.
 
+Delete connection, confirmed by a second click, removes one connection from this
+device: its sync sign-in, its local vault record with the retained unlock key (after
+locking any open vault session), and finally its saved configuration. Like forget, it
+is local only: no provider revocation is called, so other sessions stay signed in. It
+cancels a running Sync and is refused while a password sign-in for that connection is
+in progress. A failed step leaves the connection listed so deletion can be retried.
+Saved settings, recipes and their field-policy entries are not modified; anything that
+referred to the deleted connection resolves as an unavailable connection. This is how
+a connection left over by a failed first sign-in is removed.
+
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable
 it. A cancellation or timeout during the durable write can leave an accepted

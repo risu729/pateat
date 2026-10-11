@@ -59,6 +59,9 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
     put: vi.fn(async (config: BitwardenConnectionConfiguration) => {
       configurations.set(config.profile.connectionId, structuredClone(config));
     }),
+    remove: vi.fn(async (id: string) => {
+      configurations.delete(id);
+    }),
   };
   const permissions = {
     contains: vi.fn(async (_profile: BitwardenProfile) => {
@@ -184,6 +187,13 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
       },
     })),
     disableAutoUnlock: vi.fn(),
+    remove: vi.fn<ReturnType<ConnectionSetupDependencies["vaultFor"]>["manager"]["remove"]>(
+      async () => {
+        events.push("remove");
+        durable = null;
+        return { ok: true as const, data: true as const };
+      },
+    ),
     dispose: vi.fn(),
     restore: vi.fn(),
     listFields: vi.fn(),
@@ -1009,6 +1019,140 @@ describe("durable provider sessions", () => {
       error: { code: "storage-uncertain" },
     });
   });
+  it("delete removes the session, vault record and registry entry locally without provider HTTP", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const calls = h.fetch.mock.calls.length;
+    expect(h.sessionMemory.raw()).toMatchObject({ state: "active" });
+    const reply = await h.caller.remove(accountProfile.connectionId);
+    expect(reply).toEqual({
+      ok: true,
+      kind: "deleted",
+      connectionId: accountProfile.connectionId,
+    });
+    expect(parseSetupReply(reply)).toEqual(reply);
+    expect(h.fetch).toHaveBeenCalledTimes(calls);
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.manager.remove).toHaveBeenCalledTimes(1);
+    expect(h.durable()).toBeNull();
+    expect(h.registry.remove).toHaveBeenCalledWith(accountProfile.connectionId);
+    expect(h.configurations.size).toBe(0);
+    expect(h.manager.disableAutoUnlock).not.toHaveBeenCalled();
+    expect(await h.caller.status()).toEqual({ ok: true, kind: "status", connections: [] });
+    expect(await h.caller.sync(accountProfile.connectionId)).toEqual({
+      ok: false,
+      error: { code: "setup-reauthentication-required" },
+    });
+    expect(await h.caller.remove(accountProfile.connectionId)).toEqual({
+      ok: false,
+      error: { code: "invalid-request" },
+    });
+  });
+  it("delete removes a leftover connection whose first sign-in never completed", async () => {
+    const h = harness();
+    h.tokenResponses.push({ status: 503, body: {} });
+    expect(await h.caller.begin(newInput())).toEqual({ ok: false, error: { code: "http-error" } });
+    const [connectionId] = [...h.configurations.keys()];
+    if (!connectionId) throw new Error("Synthetic setup did not register");
+    expect(await h.caller.status()).toMatchObject({
+      connections: [{ connectionId, autoUnlock: "unknown", providerSession: "none" }],
+    });
+    expect(await h.caller.remove(connectionId)).toEqual({
+      ok: true,
+      kind: "deleted",
+      connectionId,
+    });
+    expect(await h.caller.status()).toEqual({ ok: true, kind: "status", connections: [] });
+  });
+  it("delete during an in-progress password setup is refused and keeps every record", async () => {
+    const h = harness();
+    const held = gate();
+    const catalog = h.manager.catalog.getMockImplementation()!;
+    h.manager.catalog.mockImplementationOnce(async (handle) => {
+      await held.promise;
+      return catalog(handle);
+    });
+    const pending = h.caller.begin(newInput());
+    await vi.waitFor(() => expect(h.manager.catalog).toHaveBeenCalled());
+    const [connectionId] = [...h.configurations.keys()];
+    if (!connectionId) throw new Error("Synthetic setup did not register");
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    expect(await other.remove(connectionId)).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    held.release();
+    expect(await pending).toMatchObject({ ok: true, kind: "ready" });
+    expect(h.manager.remove).not.toHaveBeenCalled();
+    expect(h.registry.remove).not.toHaveBeenCalled();
+    expect(h.durable()?.state).toBe("active");
+  });
+  it("delete aborts an in-flight sync flow before removing its records", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const held = gate();
+    const fetch = h.fetch.getMockImplementation()!;
+    h.fetch.mockImplementationOnce(async (url, init) => {
+      await held.promise;
+      return fetch(url, init);
+    });
+    const pending = h.caller.sync(accountProfile.connectionId);
+    await vi.waitFor(() => expect(h.fetch).toHaveBeenCalledTimes(4));
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    expect(await other.remove(accountProfile.connectionId)).toEqual({
+      ok: true,
+      kind: "deleted",
+      connectionId: accountProfile.connectionId,
+    });
+    held.release();
+    expect((await pending).ok).toBe(false);
+    expect(h.manager.accept).toHaveBeenCalledTimes(1);
+    expect(h.durable()).toBeNull();
+    expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(h.configurations.size).toBe(0);
+  });
+  it("a sign-in begun before delete cannot target the deleted connection", async () => {
+    const h = harness({ existing: true });
+    const held = gate();
+    const get = h.registry.get.getMockImplementation()!;
+    h.registry.get.mockImplementationOnce(async (id) => {
+      await held.promise;
+      return get(id);
+    });
+    const pending = h.caller.begin({
+      kind: "existing",
+      connectionId: accountProfile.connectionId,
+      password: v1Password,
+      autoUnlock: "preserve",
+    });
+    await vi.waitFor(() => expect(h.registry.get).toHaveBeenCalledTimes(1));
+    const other = h.service.createCaller();
+    closers.push(() => other.dispose());
+    const removed = other.remove(accountProfile.connectionId);
+    held.release();
+    expect(await removed).toMatchObject({ ok: true, kind: "deleted" });
+    expect(await pending).toEqual({ ok: false, error: { code: "cancelled" } });
+    expect(h.fetch).not.toHaveBeenCalled();
+    expect(h.durable()).toBeNull();
+  });
+  it("a failed vault deletion keeps the connection listed for another attempt", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.manager.remove.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "storage-uncertain" },
+    });
+    expect(await h.caller.remove(accountProfile.connectionId)).toEqual({
+      ok: false,
+      error: { code: "storage-uncertain" },
+    });
+    expect(h.registry.remove).not.toHaveBeenCalled();
+    expect(h.configurations.size).toBe(1);
+    expect((await h.caller.remove(accountProfile.connectionId)).ok).toBe(true);
+    expect(h.configurations.size).toBe(0);
+  });
   it("permission removal never rejects when the registry or permission check fails", async () => {
     const h = harness({ existing: true });
     await connected(h);
@@ -1080,6 +1224,7 @@ describe("permission removal across connections", () => {
         get: async (id) =>
           structuredClone(configurations.find((entry) => entry.profile.connectionId === id)),
         put: vi.fn(),
+        remove: vi.fn(),
       },
       policy: { adopt: vi.fn() },
       vaultFor: vi.fn(),

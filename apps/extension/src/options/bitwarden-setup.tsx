@@ -143,6 +143,7 @@ export function BitwardenSetup({
   const [enabled, setEnabled] = useState(true);
   const [enableUnlock, setEnableUnlock] = useState(false);
   const [challenge, setChallenge] = useState<Challenge>();
+  const [confirmingDelete, setConfirmingDelete] = useState<string>();
   const [provider, setProvider] = useState<0 | 1>(0);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
@@ -235,6 +236,14 @@ export function BitwardenSetup({
         "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.",
       );
       await readConnections(epoch);
+    } else if (result.kind === "deleted") {
+      setMessage(
+        "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+      );
+      const deleted = result.connectionId;
+      setExisting((previous) => (previous?.connectionId === deleted ? undefined : previous));
+      catalogChanged.current();
+      await readConnections(epoch);
     } else if (result.kind === "disabled") {
       setMessage(
         "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.",
@@ -248,6 +257,7 @@ export function BitwardenSetup({
     operation.current = true;
     const epoch = ++generation.current;
     setBusy(true);
+    setConfirmingDelete(undefined);
     // Invoke synchronously: provider permission must keep the original click gesture.
     void action(epoch)
       .catch(() => {
@@ -430,6 +440,51 @@ export function BitwardenSetup({
               >
                 Forget sync sign-in
               </Button>
+              {confirmingDelete === connection.connectionId ? (
+                <>
+                  <Button
+                    type="button"
+                    disabled={busy || !!challenge}
+                    aria-label={`${connection.label}: Confirm delete connection`}
+                    onClick={() =>
+                      start(async (epoch) => {
+                        await receive(
+                          await client.deleteConnection(connection.connectionId),
+                          epoch,
+                        );
+                      })
+                    }
+                  >
+                    Confirm delete
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    aria-label={`${connection.label}: Keep connection`}
+                    onClick={() => {
+                      setConfirmingDelete(undefined);
+                      setMessage("Connection kept.");
+                    }}
+                  >
+                    Keep connection
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || !!challenge}
+                  aria-label={`${connection.label}: Delete connection`}
+                  onClick={() => {
+                    setConfirmingDelete(connection.connectionId);
+                    setMessage(
+                      `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
+                    );
+                  }}
+                >
+                  Delete connection
+                </Button>
+              )}
             </div>
           </li>
         ))}

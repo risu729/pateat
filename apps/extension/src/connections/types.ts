@@ -23,6 +23,8 @@ export interface ConnectionRegistry {
   get(connectionId: string): Promise<BitwardenConnectionConfiguration | undefined>;
   /** Profiles are immutable for an existing ID. A different account needs a new connection. */
   put(configuration: BitwardenConnectionConfiguration): Promise<void>;
+  /** Removes one configuration; an absent ID is already removed. */
+  remove(connectionId: string): Promise<void>;
 }
 export type SetupBegin =
   | {
@@ -47,6 +49,7 @@ export type SetupContinuation = {
 export type SetupReply =
   | { ok: true; kind: "disabled"; connectionId: string }
   | { ok: true; kind: "forgotten"; connectionId: string }
+  | { ok: true; kind: "deleted"; connectionId: string }
   | {
       ok: true;
       kind: "status";
@@ -119,7 +122,7 @@ export type ConnectionSetupDependencies = {
   vaultFor(profile: BitwardenProfile): {
     manager: Pick<
       LocalVaultManager,
-      "accept" | "restore" | "disableAutoUnlock" | "status" | "dispose"
+      "accept" | "restore" | "disableAutoUnlock" | "status" | "dispose" | "remove"
     > & {
       lock?(): Promise<void>;
       catalog(

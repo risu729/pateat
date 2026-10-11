@@ -60,7 +60,12 @@ export const setupRequestSchema = v.variant("type", [
   v.strictObject({ requestId: v.pipe(v.string(), v.uuid()), type: v.literal("connection.status") }),
   v.strictObject({
     requestId: v.pipe(v.string(), v.uuid()),
-    type: v.picklist(["connection.sync", "connection.disable", "connection.forget"]),
+    type: v.picklist([
+      "connection.sync",
+      "connection.disable",
+      "connection.forget",
+      "connection.delete",
+    ]),
     connectionId: id,
   }),
   v.strictObject({
@@ -105,6 +110,7 @@ const replySchema = v.union([
   v.strictObject({ ok: v.literal(true), kind: v.literal("cancelled") }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("disabled"), connectionId: id }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("forgotten"), connectionId: id }),
+  v.strictObject({ ok: v.literal(true), kind: v.literal("deleted"), connectionId: id }),
   v.strictObject({
     ok: v.literal(true),
     kind: v.literal("status"),

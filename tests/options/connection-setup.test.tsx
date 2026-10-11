@@ -50,6 +50,9 @@ function mockClient() {
     forgetProviderSession: vi
       .fn<ConnectionClient["forgetProviderSession"]>()
       .mockImplementation(async (connectionId) => ({ ok: true, kind: "forgotten", connectionId })),
+    deleteConnection: vi
+      .fn<ConnectionClient["deleteConnection"]>()
+      .mockImplementation(async (connectionId) => ({ ok: true, kind: "deleted", connectionId })),
     review: vi.fn<ConnectionClient["review"]>().mockImplementation(async () => ready()),
     close: vi.fn<ConnectionClient["close"]>(),
   };
@@ -464,6 +467,76 @@ test("sync sign-in is shown separately from automatic unlock and forgetting it i
     .element(page.getByRole("button", { name: "Saved vault: Forget sync sign-in", exact: true }))
     .toBeDisabled();
   await expect.element(page.getByText("Automatic unlock: enabled.")).toBeVisible();
+});
+
+test("deleting a connection needs an explicit confirmation and then removes it from the list", async () => {
+  const client = mockClient();
+  const saved = (connectionId: string, label: string) => ({
+    connectionId,
+    label,
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "configured" as const,
+    autoUnlock: "unknown" as const,
+    providerSession: "none" as const,
+  });
+  const leftover = saved("leftover", "Leftover vault");
+  const kept = saved("kept", "Kept vault");
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [leftover, kept] })
+    .mockResolvedValue({ ...status(), connections: [kept] });
+  const { changed } = await mount(client);
+  const remove = page.getByRole("button", {
+    name: "Leftover vault: Delete connection",
+    exact: true,
+  });
+  await remove.click();
+  expect(client.deleteConnection).not.toHaveBeenCalled();
+  await expect.element(page.getByText(/^Delete Leftover vault\? This removes/)).toBeVisible();
+  await page.getByRole("button", { name: "Leftover vault: Keep connection", exact: true }).click();
+  await expect.element(page.getByText("Connection kept.")).toBeVisible();
+  expect(client.deleteConnection).not.toHaveBeenCalled();
+  await remove.click();
+  await page
+    .getByRole("button", { name: "Leftover vault: Confirm delete connection", exact: true })
+    .click();
+  await vi.waitFor(() => expect(client.deleteConnection).toHaveBeenCalledWith("leftover"));
+  expect(client.deleteConnection).toHaveBeenCalledTimes(1);
+  expect(client.requestProviderPermission).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByText(/^Connection deleted from this device.*does not sign out/))
+    .toBeVisible();
+  await expect.element(page.getByText("Leftover vault", { exact: true })).not.toBeInTheDocument();
+  await expect.element(page.getByText("Kept vault", { exact: true })).toBeVisible();
+  expect(client.list).toHaveBeenCalledTimes(2);
+  expect(changed).toHaveBeenCalled();
+});
+
+test("a failed delete keeps the connection listed and shows the error", async () => {
+  const client = mockClient();
+  const leftover = {
+    connectionId: "leftover",
+    label: "Leftover vault",
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "configured" as const,
+    autoUnlock: "unknown" as const,
+    providerSession: "none" as const,
+  };
+  client.list.mockResolvedValue({ ...status(), connections: [leftover] });
+  client.deleteConnection.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  await page
+    .getByRole("button", { name: "Leftover vault: Delete connection", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Leftover vault: Confirm delete connection", exact: true })
+    .click();
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await expect.element(page.getByText("Leftover vault", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Leftover vault: Delete connection", exact: true }))
+    .toBeEnabled();
 });
 
 test("sync after automatic unlock was disabled explains how to restore it", async () => {

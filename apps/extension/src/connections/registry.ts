@@ -59,6 +59,16 @@ export function createConnectionRegistry(storage: {
       queue = pending.catch(() => undefined);
       return pending;
     },
+    remove(id) {
+      const pending = queue.then(async () => {
+        const entries = await list();
+        const remaining = entries.filter((entry) => entry.profile.connectionId !== id);
+        if (remaining.length !== entries.length) await storage.write(remaining);
+        return undefined;
+      });
+      queue = pending.catch(() => undefined);
+      return pending;
+    },
   };
 }
 export function createBrowserConnectionRegistry(): ConnectionRegistry {
