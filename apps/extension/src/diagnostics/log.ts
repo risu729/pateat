@@ -109,6 +109,7 @@ export const LOG_EVENTS = {
       siteDefaultItem: "code",
       complete: "flag",
       chooser: "code",
+      signedBefore: "flag",
     },
   },
   "error.unhandled": {

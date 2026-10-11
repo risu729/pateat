@@ -22,12 +22,16 @@ export const chooserViewSchema = v.strictObject({
         item: name,
         userName: v.optional(name),
         account: v.optional(name),
+        /** The site default; listed first. */
+        preferred: v.optional(v.literal(true)),
       }),
     ),
-    v.minLength(2),
+    v.minLength(1),
     v.maxLength(MAX_CHOOSER_ENTRIES),
   ),
   replacesDefault: v.boolean(),
+  /** Pateat signed in from this tab before; the person may have signed out to switch. */
+  again: v.boolean(),
 });
 export type ChooserView = v.InferOutput<typeof chooserViewSchema>;
 
@@ -142,8 +146,10 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
           item: entry.item.slice(0, 1024) || "Unnamed item",
           ...(entry.userName ? { userName: entry.userName.slice(0, 1024) } : {}),
           ...(entry.account ? { account: entry.account.slice(0, 1024) } : {}),
+          ...(entry.preferred === true ? { preferred: true as const } : {}),
         })) satisfies PasskeyDisplay[],
         replacesDefault: input.replacesDefault,
+        again: input.again,
       });
       if (!view.success) return { kind: "unavailable" };
       const token = crypto.randomUUID();

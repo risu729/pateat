@@ -50,6 +50,7 @@ async function open(
     rpId: "example.com",
     entries,
     replacesDefault: false,
+    again: false,
     signal,
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -96,6 +97,7 @@ describe("passkey chooser window", () => {
         rpId: "example.com",
         entries,
         replacesDefault: false,
+        again: false,
       },
     });
 
@@ -115,6 +117,38 @@ describe("passkey chooser window", () => {
     // An answered request is gone.
     expect(await chooser.handle(load, { url: url.href, tab: { windowId: 41 } })).toEqual({
       ok: false,
+    });
+  });
+
+  it("shows one passkey with its default mark when asking again", async () => {
+    const { browser } = fakeBrowser();
+    const chooser = createPasskeyChooser(browser);
+    void chooser.choose({
+      tabId: 7,
+      origin: "https://login.example.com",
+      rpId: "example.com",
+      entries: [{ item: "Work", preferred: true }],
+      replacesDefault: true,
+      again: true,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
+    const url = openedUrl(browser);
+    const request = new URL(url).searchParams.get("request");
+    expect(
+      await chooser.handle(
+        { version: 1, type: "passkey-chooser.load", request },
+        { url, tab: { windowId: 41 } },
+      ),
+    ).toEqual({
+      ok: true,
+      view: {
+        origin: "https://login.example.com",
+        rpId: "example.com",
+        entries: [{ item: "Work", preferred: true }],
+        replacesDefault: true,
+        again: true,
+      },
     });
   });
 
@@ -237,6 +271,7 @@ describe("passkey chooser window", () => {
         rpId: "example.com",
         entries,
         replacesDefault: false,
+        again: false,
         signal: new AbortController().signal,
       });
       await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());

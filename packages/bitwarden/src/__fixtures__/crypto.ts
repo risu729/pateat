@@ -131,6 +131,20 @@ export const customFieldCiphertexts = {
   linkedName:
     "2.AAECAwQFBgcICQoLDA0ODw==|31kNKoRDCPn9T6lu67Zfeg==|SK22l57aJzIjIUcvBoRvqga4V+BxAp+kCkQAbp6w4t0=",
 } as const;
+// The same plaintexts under the same user key with the fixed IV
+// 0f0e0d0c0b0a09080706050403020100, as a Bitwarden save re-encrypts unchanged fields.
+export const reencryptedCustomFieldCiphertexts = {
+  duplicateName:
+    "2.Dw4NDAsKCQgHBgUEAwIBAA==|WNwZyKYAkeZ/J0VPcZOwgg==|cSDzr5TecNxkUySV3HSzSucwllzj78RXBx/r6OHkmEU=",
+  branch:
+    "2.Dw4NDAsKCQgHBgUEAwIBAA==|jwkLPMKoKLLgBPMRztbziw==|8N8uquY1OLjq7UtFZ6jITZYkDuG/lpeglHwPTarHazg=",
+  account:
+    "2.Dw4NDAsKCQgHBgUEAwIBAA==|R7RJlJsK/8Ad6fvWc2J2Ww==|Cy62dVwh6H2HNNJRIzqa+YWyzTRFhmSbYNBfO13CBig=",
+  boolean:
+    "2.Dw4NDAsKCQgHBgUEAwIBAA==|fU8UAdR3ecnwPmOh0hsG1A==|FI1r5x8iBT9Qipik63ojxzW5NBnB/fEl7aaTTD5lVUE=",
+  linkedName:
+    "2.Dw4NDAsKCQgHBgUEAwIBAA==|/5wGKMNtLH7gAEjYYy6CFg==|bWOpzyxMWmBZbFi3mmKXxw3/2BOymf6yei/cGrWYY0k=",
+} as const;
 export const uriCiphertexts = {
   uri: "2.AAECAwQFBgcICQoLDA0ODw==|aCQDefY0N11l41vTeEbfKc2tYcLlaQ+oz+jaEuJc+dA1qhyIzqm3E2TiLp58JyXi|ZFHIsl/NBRbVqqNWczQn4fzNUoGu+N2A/upOBkiZ76Q=",
   checksum:

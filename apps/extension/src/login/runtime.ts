@@ -28,6 +28,7 @@ import {
   transitionLoginAttempt,
   withdrawAccountSwitch,
   validateLoginOperation,
+  valueShapeOf,
   type LoginAttemptEvent,
   type LoginAccount,
   type LoginAccountBinding,
@@ -46,6 +47,7 @@ import {
   type SemanticSlot,
   type SettingsResponse,
   type SettingsSnapshot,
+  type ValueShape,
   type VaultCatalog,
   type VaultConnectionMetadata,
   type VaultItemMetadata,
@@ -305,6 +307,18 @@ const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
 const probeMode = import.meta.env.MODE === "probe";
 
+/** What a page without a recipe is sent with: its slots and the items that matched it. */
+type GenerationScope = {
+  slots: SemanticSlot[];
+  items: {
+    connection: VaultConnectionMetadata;
+    item: VaultCatalog["connections"][number]["items"][number];
+  }[];
+  settings: SettingsSnapshot["settings"];
+  /** Every enabled connection answered and every item's URI rules were evaluated. */
+  complete: boolean;
+};
+
 /**
  * Coordinator is packaged production code. Production admits only `sites` documents and
  * uses `recipes`; the loopback probe adapter and its controls exist only in the probe build.
@@ -345,6 +359,21 @@ export function createLoginRuntime(
     passkeys?: (account: LoginAccount) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
+    /**
+     * Automatic vault sync (ADR 0025). Each page announcement starts a due check and
+     * holds vault replacement off while it is handled; a page that may start a login
+     * first waits briefly for a running check.
+     */
+    vault?: {
+      refreshIfStale(): void;
+      enter(waitForCheck: boolean): Promise<() => void>;
+      /**
+       * Asked when a page with a recipe found no matching vault item: a check limited to
+       * once every ten seconds. Answers true when a check applied a new snapshot within
+       * ten seconds, after which the refused document is asked to announce again.
+       */
+      checkAfterMiss?(): Promise<boolean>;
+    };
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
@@ -830,7 +859,14 @@ export function createLoginRuntime(
     };
   }
   type Choice = { connectionId: string; itemId: string; saved: boolean; pick?: PickedAccount };
-  type Refusal = { reason: string; candidates?: PendingChoice["candidates"]; logout?: true };
+  /** `noUriMatch` marks a refusal because no vault item matches the page, which a vault
+   * sync may change; it is never reported. */
+  type Refusal = {
+    reason: string;
+    candidates?: PendingChoice["candidates"];
+    logout?: true;
+    noUriMatch?: true;
+  };
   /**
    * The account for this document. A saved site default wins. Without one, a single
    * eligible provider URI match across all enabled connections is used for this attempt
@@ -905,7 +941,7 @@ export function createLoginRuntime(
         })),
       };
     const [only] = candidates;
-    if (!only) return { reason: "default-not-set" };
+    if (!only) return { reason: "default-not-set", noUriMatch: true };
     // The same answer covers the item origin check below; no second query is needed.
     live.uriMatch = {
       connectionId: only.connectionId,
@@ -1079,6 +1115,7 @@ export function createLoginRuntime(
     let policy = snapshot.snapshot;
     let binding: LoginAccountBinding | undefined;
     let choice: UnsavedChoice | undefined;
+    let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
       binding = probeBinding(recipe, account);
@@ -1092,7 +1129,9 @@ export function createLoginRuntime(
           reason: chosen.reason,
           ...(chosen.candidates ? { candidates: chosen.candidates } : {}),
           ...(chosen.logout ? { logout: true as const } : {}),
+          ...(chosen.noUriMatch ? { noUriMatch: true as const } : {}),
         };
+      savedDefault = chosen.saved;
       const scope = await liveScope(snapshot, live, chosen);
       if ("reason" in scope) return { ok: false as const, reason: scope.reason };
       const top = await topScope(snapshot, live, chosen, snapshot.catalog);
@@ -1135,6 +1174,10 @@ export function createLoginRuntime(
         };
     }
     const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding);
+    // A saved default's item that no longer matches the page, as after its URI was edited
+    // on another device, is also no matching item.
+    if (!plan.ok && plan.reason === "item-origin-mismatch" && savedDefault)
+      return { ...plan, noUriMatch: true as const };
     if (!plan.ok) return plan;
     const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
     if (
@@ -1752,10 +1795,10 @@ export function createLoginRuntime(
     return generation.available(live.document.origin, live.path).catch(() => false);
   }
   /**
-   * The slots to generate for when a vault item's URI matches the page, the only vault
-   * access a page without a recipe gets; no field value is read.
+   * The slots to generate for when a vault item's URI matches the page, with the
+   * matching items. No field value is read here.
    */
-  async function generationSlotsFor(live: LiveDocument): Promise<SemanticSlot[] | undefined> {
+  async function generationSlotsFor(live: LiveDocument): Promise<GenerationScope | undefined> {
     if (!uris) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return undefined;
@@ -1767,23 +1810,80 @@ export function createLoginRuntime(
     });
     if (!scope.ok) return undefined;
     const items = scope.candidates.flatMap((candidate) => {
-      const item = snapshot.catalog.connections
-        .find((entry) => entry.id === candidate.connectionId)
-        ?.items.find((entry) => entry.id === candidate.itemId);
-      return item ? [{ connectionId: candidate.connectionId, item }] : [];
+      const connection = snapshot.catalog.connections.find(
+        (entry) => entry.id === candidate.connectionId,
+      );
+      const item = connection?.items.find((entry) => entry.id === candidate.itemId);
+      return connection && item ? [{ connection, item }] : [];
     });
     // Only slots a matching item can fill; built-in fields keep these IDs on every device.
     const slots = generationSlots.filter(({ fieldId }) =>
-      items.some((entry) => offersGenerationField(snapshot.snapshot.settings, entry, fieldId)),
+      items.some(({ connection, item }) =>
+        offersGenerationField(
+          snapshot.snapshot.settings,
+          { connectionId: connection.id, item },
+          fieldId,
+        ),
+      ),
     );
-    return slots.length ? slots.map(({ slot }) => slot) : undefined;
+    if (!slots.length) return undefined;
+    return {
+      slots: slots.map(({ slot }) => slot),
+      items,
+      settings: snapshot.snapshot.settings,
+      // An item that could not be checked might have another username.
+      complete: !scope.unavailableConnections.length && !scope.incompleteItems.length,
+    };
+  }
+  /**
+   * The shape of the matching items' username (ADR 0010), read locally just before the
+   * page is sent (owner decision, 2026-10-11): only when every matching item with a
+   * username gives the same length, character classes and email form. An item without
+   * a username, or whose username the user excluded, does not count; an item that
+   * could not be checked or read, or a username too long to shape, sends no shape.
+   */
+  async function usernameShape(
+    pageOrigin: string,
+    scope: GenerationScope,
+  ): Promise<ValueShape | undefined> {
+    if (!scope.complete) return undefined;
+    let shape: ValueShape | undefined;
+    for (const { connection, item } of scope.items) {
+      const excluded = scope.settings.connections
+        .find((entry) => entry.connectionId === connection.id)
+        ?.excludedFields.some(
+          (field) => field.itemId === item.id && field.fieldId === "login.username",
+        );
+      if (excluded || !item.fields.some((field) => field.id === "login.username")) continue;
+      let value: string | undefined;
+      try {
+        // Serial reads through the shared vault host, as for a fill.
+        // eslint-disable-next-line no-await-in-loop
+        value = await fields({
+          account: { origin: pageOrigin, connectionId: connection.id, itemId: item.id },
+          connection,
+          fieldId: "login.username",
+        });
+      } catch {
+        value = undefined;
+      }
+      if (value === undefined) return undefined;
+      if (!value) continue;
+      const itemShape = valueShapeOf({ source: "username", value });
+      value = "";
+      // A username too long to shape cannot be compared.
+      if (!itemShape) return undefined;
+      if (shape && JSON.stringify(shape) !== JSON.stringify(itemShape)) return undefined;
+      shape = itemShape;
+    }
+    return shape;
   }
   /**
    * Sends this page's observation for generation. A returned recipe is in the recipe
    * cache by then; the document announces again and starts it once its first step is
    * ready (ADR 0018).
    */
-  async function generateFor(live: LiveDocument, slots: SemanticSlot[]): Promise<void> {
+  async function generateFor(live: LiveDocument, scope: GenerationScope): Promise<void> {
     if (!generation) return;
     const key = frameKey(live.document);
     try {
@@ -1801,10 +1901,14 @@ export function createLoginRuntime(
         parsed.output.path !== live.path
       )
         return;
+      const shape = await usernameShape(live.document.origin, scope);
+      if (documents.get(key) !== live) return;
       const outcome = await generation.generate({
         version: 1,
         observation: parsed.output,
-        slots,
+        slots: scope.slots.map((slot) =>
+          slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+        ),
       });
       report({
         type: "generation",
@@ -1822,16 +1926,66 @@ export function createLoginRuntime(
       // The document went away or the service could not answer; nothing was started.
     }
   }
+  /**
+   * After a refusal because no vault item matches, a vault check may bring the item from
+   * another device. Once a check applied a new snapshot in time, only the refused document
+   * is asked to announce again, and only while it is still that refused document.
+   */
+  function retryAfterSync(live: LiveDocument, reason: string): void {
+    // A document replaced while the refusal was published could never be reconnected.
+    if (documents.get(frameKey(live.document)) !== live) return;
+    let synced: Promise<boolean> | undefined;
+    try {
+      synced = options.vault?.checkAfterMiss?.();
+    } catch {
+      return;
+    }
+    void synced
+      ?.then(async (applied) => {
+        if (
+          !applied ||
+          documents.get(frameKey(live.document)) !== live ||
+          live.state !== "denied" ||
+          live.reason !== reason
+        )
+          return undefined;
+        await browser.tabs.sendMessage(
+          live.document.tabId,
+          { version: 1, type: "login.reconnect" },
+          { frameId: live.document.frameId, documentId: live.document.documentId },
+        );
+        return undefined;
+      })
+      .catch(() => undefined);
+  }
+  type Readiness = { ok: boolean; reason?: string; starts?: LoginReadiness[]; generate?: true };
   async function ready(
     sender: Sender,
     token: string,
     start?: { path: string },
     signIn?: { path: string },
-  ): Promise<{ ok: boolean; reason?: string; starts?: LoginReadiness[]; generate?: true }> {
+  ): Promise<Readiness> {
     // Admission is async; a later hello from the same frame must not be overtaken by an older one.
     const helloKey = `${sender.tab?.id}:${sender.frameId}`;
     const sequence = (hellos.get(helloKey) ?? 0) + 1;
     hellos.set(helloKey, sequence);
+    // Entered after the sequence is taken, so a hello waiting on the vault check is stale
+    // once a later one from the same frame arrives (ADR 0025).
+    const leave = await options.vault?.enter(start !== undefined);
+    try {
+      return await admit(sender, token, helloKey, sequence, start, signIn);
+    } finally {
+      leave?.();
+    }
+  }
+  async function admit(
+    sender: Sender,
+    token: string,
+    helloKey: string,
+    sequence: number,
+    start?: { path: string },
+    signIn?: { path: string },
+  ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
     const document = await identify(sender);
@@ -2038,13 +2192,13 @@ export function createLoginRuntime(
       let offer = !recipe && (await offersGeneration(live));
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (offer && signIn?.path === live.path) {
-        const slots = await generationSlotsFor(live).catch(() => undefined);
+        const scope = await generationSlotsFor(live).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        if (slots) {
+        if (scope) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateFor(live, slots);
+          void generateFor(live, scope);
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, so it is not sent.
@@ -2124,7 +2278,12 @@ export function createLoginRuntime(
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates)
         offerChoice(document, plan.candidates, "logout" in plan && plan.logout === true);
-      return refuse(plan.reason);
+      const refused = await refuse(plan.reason);
+      // Asked while the page still holds vault replacement off, so a check started by
+      // this page's announcement cannot apply before the miss is registered.
+      if (!previous && !switched && "noUriMatch" in plan && plan.noUriMatch)
+        retryAfterSync(live, plan.reason);
+      return refused;
     }
     // A new login reads its item's facts once and chooses its route from them (ADR 0027);
     // a resumed one keeps those in its record, so a sync cannot change its route.
@@ -2303,8 +2462,10 @@ export function createLoginRuntime(
       return undefined;
     }
     const hello = v.safeParse(helloSchema, message);
-    if (hello.success)
+    if (hello.success) {
+      options.vault?.refreshIfStale();
       return ready(sender, hello.output.token, hello.output.start, hello.output.signIn);
+    }
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
     const document = await identify(sender);

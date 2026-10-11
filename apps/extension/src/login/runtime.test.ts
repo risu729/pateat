@@ -139,8 +139,13 @@ async function start(
   fields: LoginFieldSource,
   catalog: Catalog = {},
   report?: (report: LoginReport) => void,
+  vault?: Parameters<typeof createLoginRuntime>[1]["vault"],
 ) {
-  const login = createLoginRuntime(settingsFor(catalog), { fields, ...(report ? { report } : {}) });
+  const login = createLoginRuntime(settingsFor(catalog), {
+    fields,
+    ...(report ? { report } : {}),
+    ...(vault ? { vault } : {}),
+  });
   expect(
     await login.handle(
       {
@@ -232,6 +237,59 @@ describe("login runtime with a live vault field source", () => {
     expect(run.ready).toEqual({ ok: false, reason: "vault-unavailable" });
     expect(await run.attempt()).toBeUndefined();
     expect(fields).not.toHaveBeenCalled();
+  });
+  it("checks the vault and holds its replacement off until the login is recorded", async () => {
+    const events: string[] = [];
+    const vault = {
+      refreshIfStale: () => events.push("refresh"),
+      enter: vi.fn(async (_wait: boolean) => {
+        events.push("enter");
+        return () => events.push("leave");
+      }),
+    };
+    let release!: (value: string) => void;
+    const pending = new Promise<string>((resolve) => (release = resolve));
+    const run = await start(() => pending, {}, undefined, vault);
+    expect(run.ready).toEqual({ ok: true });
+    expect(events).toEqual(["refresh", "enter", "leave"]);
+    expect(vault.enter).toHaveBeenCalledWith(true);
+    // Once the page is released, the login itself keeps a replacement waiting.
+    expect(await run.login.active()).toBe(true);
+    release("synthetic-secret");
+    await vi.waitFor(async () =>
+      expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
+    );
+  });
+  it("a hello waiting on a vault check is stale once a later hello from the frame arrives", async () => {
+    let open!: () => void;
+    const blocked = new Promise<void>((resolve) => (open = resolve));
+    let waits = 0;
+    const vault = {
+      refreshIfStale: () => undefined,
+      enter: async (wait: boolean) => {
+        if (wait && (waits += 1) === 2) await blocked;
+        return () => undefined;
+      },
+    };
+    const run = await start(async () => "synthetic-secret", {}, undefined, vault);
+    await vi.waitFor(async () =>
+      expect(await run.attempt()).toMatchObject({ state: "authenticated" }),
+    );
+    const hello = (startPath?: string) =>
+      run.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          ...(startPath ? { start: { path: startPath } } : {}),
+        },
+        page,
+      );
+    const older = hello(new URL(fake.pageUrl).pathname);
+    const later = await hello();
+    expect(later).not.toEqual({ ok: false, reason: "stale-document" });
+    open();
+    expect(await older).toEqual({ ok: false, reason: "stale-document" });
   });
   it("reports a running login, also from its saved state after a restart", async () => {
     let release!: (value: string) => void;

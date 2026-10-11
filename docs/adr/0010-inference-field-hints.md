@@ -1,9 +1,10 @@
 # ADR 0010: Inference field hints and local fill checks
 
-Status: accepted by the owner on 2026-10-10. The hint contract and shape derivation
-are implemented offline in `packages/inference`, and the local value check in
-`packages/contracts`. The executor runs both checks; the vault adapter does not supply
-hints yet.
+Status: accepted by the owner on 2026-10-10. The hint contract, the shape derivation
+and the local value check are implemented in `packages/contracts`. The executor runs
+both checks. Automatic generation sends the username's shape when every matching item
+agrees ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)); `fieldName` is
+not sent until custom-field slots are generated.
 
 Date: 2026-10-10
 

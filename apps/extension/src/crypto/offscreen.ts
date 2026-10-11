@@ -1,5 +1,7 @@
 import * as v from "valibot";
 import { browser } from "wxt/browser";
+import { toBase64Url } from "../passkeys/encoding";
+import { withDigestKey } from "./custom-digest";
 import {
   boundedMessage,
   commandSchema,
@@ -15,6 +17,9 @@ export function startCryptoOffscreen() {
   const port = browser.runtime.connect({ name: CRYPTO_PORT });
   let connected = true;
   let generation: string | undefined;
+  // One custom-field digest key for this document's lifetime: digests from two sessions
+  // here are comparable, but the background never sees the key to test guesses with.
+  const digestKey = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   const sessions = new Map<string, { worker: Worker; ref: HostSessionRef; openedBy: string }>();
   const jobs = new Map<
     string,
@@ -167,7 +172,8 @@ export function startCryptoOffscreen() {
       ephemeral,
       deadline: Date.now() + 30_000,
     });
-    worker.postMessage(command);
+    // Any key the background sent is replaced.
+    worker.postMessage(withDigestKey(command, digestKey));
     send({
       version: 1,
       type: "crypto.dispatched",

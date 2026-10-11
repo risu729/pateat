@@ -13,8 +13,8 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
 - M2: the synthetic engine and settings gates have passed
   ([local settings progress](#local-settings-progress)). One-time account choices and
   choosing again after a logout
-  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), with tests over several
-  tabs on one origin, are not implemented.
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)) are implemented and tested
+  in Playwright Chromium only.
 - M3: a password login on a real site, individual MFA methods, other KDFs, V2 keys and
   organization items on a real account, and the site-access warning and prompt in
   installed Chrome
@@ -24,8 +24,8 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   selection and field exclusions ([ADR 0023](adr/0023-synced-vault-policy.md)), a WIF
   token exchange against Anthropic) and the remaining M4 AI work under
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
-  `advance` step, naming `accountSwitch`, ADR 0010 hints, `checkPlanValues` and the
-  post-fill check in the executor, the real-page corpus) and the finite-choice role.
+  `advance` step, a Claude baseline on the real-page corpus) and the finite-choice
+  role.
 - M5: the passkey chooser window
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
   implemented and tested in Playwright Chromium only), real sites that wrap `get`
@@ -338,7 +338,8 @@ execution remains a separate integration gate. Provider authentication was trans
 in this slice; [durable provider sessions](#provider-session-progress) followed.
 
 Catalog replacement preserves custom-field denies: exact unchanged encrypted field
-sequences can rebind snapshot-scoped references, while changed or ambiguous sequences
+sequences, or decrypted fields the crypto host finds equal while the old snapshot is
+still open, can rebind snapshot-scoped references, while changed or ambiguous sequences
 with custom-policy history block the affected item's secret release until reviewed.
 Protected snapshot bindings survive even a review choosing no exclusions. Generic saves
 cannot clear unresolved exclusions or that binding history. Separate cache/settings
@@ -373,7 +374,9 @@ real Bitwarden Cloud US account in their Chrome
 - The executor chooses the account for each admitted document. A saved site default
   wins. Without one, it asks every enabled connection for provider URI candidates for
   the document's own URL and uses the item only when exactly one eligible item matches
-  (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`;
+  (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`
+  (which asks for a vault check,
+  [ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches));
   an unevaluated item (including Regex rules) as `item-uri-unevaluated`; and a
   connection that cannot answer, or a locked vault, as `vault-unavailable`. Each
   document asks once and reuses the answer while every connection's snapshot is
@@ -425,15 +428,15 @@ real Bitwarden Cloud US account in their Chrome
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
   matched again, so an Exact rule refuses a later page at another path. No match refuses
-  as `item-origin-mismatch`. Page URLs over 8192 characters and answers from another
-  snapshot refuse as `vault-unavailable`. Static `allowedOrigins` remain empty for live
-  items; Domain-mode subdomains and raw StartsWith rules cannot be expressed as exact
-  origins, so do not derive them. Synthetic unit tests cover these paths, and
-  `tests/extension/login-service.spec.ts` runs the chain in Chromium: the built API
-  Worker, served locally over HTTPS with a local D1 database, holds a recipe and a
-  binding; the extension syncs both, chooses the synthetic Bitwarden item by its single
-  URI match, logs in on a routed HTTPS site, uploads the saved account and logs in again
-  after a full browser restart.
+  as `item-origin-mismatch` and asks for the same vault check. Page URLs over 8192
+  characters and answers from another snapshot refuse as `vault-unavailable`. Static
+  `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
+  StartsWith rules cannot be expressed as exact origins, so do not derive them.
+  Synthetic unit tests cover these paths, and `tests/extension/login-service.spec.ts`
+  runs the chain in Chromium: the built API Worker, served locally over HTTPS with a
+  local D1 database, holds a recipe and a binding; the extension syncs both, chooses the
+  synthetic Bitwarden item by its single URI match, logs in on a routed HTTPS site,
+  uploads the saved account and logs in again after a full browser restart.
 - The declarative executor reads account metadata from the live settings catalog on
   every policy check and resolves each bound field through the connection runtime
   immediately before a fill. An unavailable connection or an item awaiting field review
@@ -491,6 +494,20 @@ and an absent refresh token keeps the captured one. Local forget, permission los
 that provider, a rejected refresh or access token, and a mismatched account context
 clear only the sync session. Startup only reads state; the settings page shows sync
 sign-in and automatic unlock separately and labels forget as local.
+
+Automatic sync is implemented as [ADR 0025](adr/0025-automatic-vault-sync.md) describes:
+page and passkey events and a five-minute alarm check the revision date at most once a
+minute, and a full sync runs only when it moved and no login is in progress. Unit tests
+cover the schedule, the replacement hold, the revision outcomes and manual Sync; an
+isolated Chromium test fires the alarm against the synthetic probe. The comparison of
+protected items' decrypted custom fields is covered by unit tests and an isolated
+Chromium sync of a synthetic item whose password changed and whose custom fields were
+re-encrypted. After a page with a recipe finds no matching item, a check runs at most
+every ten seconds and reconnects only the refused document once it applied a new
+snapshot; unit tests cover the gate, the window and the reconnect target, and
+`tests/extension/login-service.spec.ts` logs in on a routed site once the item's URI
+arrives through that check. Automatic sync is not yet verified in installed Chrome or
+against a real account.
 
 Unit tests cover claims, rotation, concurrent writers, forget and permission races,
 expiry from the token's own claims, and per-provider permission loss. Isolated Chromium
@@ -671,10 +688,19 @@ tests cover it.
 ### Remaining M4 service gaps
 
 - Pairing in installed Chrome against the deployed service
-  ([ADR 0020](adr/0020-direct-device-pairing.md)): after release, the owner removes
-  `redeem` from the "pateat bypass" Access application, notes its cookie settings, and
-  runs the
+  ([ADR 0020](adr/0020-direct-device-pairing.md)): note the Access application's cookie
+  settings and run the
   [installed Chrome pairing check](development.md#installed-chrome-service-pairing).
+  After `79a1424` was released, `redeem` was removed from the "pateat bypass" Access
+  application on 2026-10-11 at about 14:00 UTC; it now lists only `/v1/*`, `/health`
+  and the two `/.well-known` issuer paths. An anonymous `GET` or `POST /redeem` then
+  got Access's `403` instead of the Worker's `404`, while `/health`, `/v1/settings`
+  (`401`) and both `/.well-known` paths still reached the Worker.
+  On 2026-10-11 the production build of `e7c7014` was installed in the owner's Chrome
+  156.0.8078.16 with ID `ekcnbbomcllhpomkeofikjagmjoibffk`. Pairing from the settings
+  page while signed in to Access finished in one click with "This device is paired.",
+  and `/manage` listed the new device "risu-thinkpad Chrome" as paired at 14:00 UTC
+  (check step 2). Step 3 (signed out) and the cookie settings are not recorded yet.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, are not synced yet.
   [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
@@ -890,9 +916,11 @@ username or Text field value, and observations carry page `maxLength`, `minLengt
 `inputMode`. `checkPlanValues` checks a plan against the real values before filling and
 turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
 carries synthetic values. The executor applies the same check to the real inputs before
-filling. The vault adapter and runtime do not supply these hints yet.
-`valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
-resolve Linked fields and never pass Hidden, password or TOTP values.
+filling. Automatic generation sends the username's shape when every matching item
+agrees ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)); `fieldName`
+waits for custom-field slots. `valueShapeOf` (`packages/contracts/src/values.ts`) takes
+`{ source: "username" | "text", value }`, so a caller must resolve Linked fields and
+never pass Hidden, password or TOTP values.
 
 For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a later
@@ -995,7 +1023,7 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   learned by the judge and run in the same login, the judging rules and limits
   (`page_judgements`), the bridge using the login's item, and no `totp` slot for start
   pages without a code field. Unit, service and extension runtime tests cover these
-  with synthetic pages and fakes, and the 118 existing extension E2E specs pass; no E2E
+  with synthetic pages and fakes, and the 122 existing extension E2E specs pass; no E2E
   spec drives a security-key page, and nothing has run in real Chrome yet. Its
   real-Chrome check on npmjs.com's security-key page is still open.
 - Continuing a generated recipe on the page after an `advance` step, through the
@@ -1021,14 +1049,10 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
-- Supplying ADR 0010 hints from the vault adapter. The executor runs the local value
-  check before filling and the post-fill check before the click
-  ([Background execution](architecture.md#background-execution)).
-- A Claude baseline on the real-page corpus, then Japanese pages for it. The
-  finite-choice provider is chosen only after that baseline exists. The owner chose on
-  2026-10-11 to run the baseline after the MyJCB generation fix, about five cases at a
-  time with fixes between batches, and to take Japanese pages from both public login
-  pages opened in the owner's Chrome and the request log.
+- Japanese pages for the real-page corpus. The owner chose on 2026-10-11 to take them
+  from both public login pages opened in the owner's Chrome and the request log. The
+  finite-choice provider waited for a Claude baseline, which now exists for the
+  Formasaurus pages (below).
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -1089,6 +1113,31 @@ takes for a login, and two login forms where a "create account" button follows t
 password. The real-page corpus is mostly plain username and password forms, which form
 heuristics already handle; the synthetic corpus holds the bank, decoy and multi-step
 pages where they fail.
+
+The owner approved the Claude baseline on this corpus on 2026-10-11, to run about five
+cases at a time with fixes between batches, once the MyJCB generation fix (#206) was in.
+It ran on main `c409d0a` in 19 batches of five (`--from 0 --count 5` through
+`--from 90`, cap $0.50 each). No batch had a wrong case, so nothing was changed between
+batches:
+
+| Measure | Result |
+| --- | --- |
+| Served models | `claude-opus-5-5` only (effort `low`) |
+| Verdicts (95 cases) | 78 correct, 17 correct abstentions, 0 missed, 0 false submits, 0 failed |
+| Semantic accuracy | 1.0 (95/95) |
+| Abstentions | `no-login-form` 17 |
+| Errors | none |
+| Latency | p50 2,017 ms, p95 3,543 ms (one call per case, no retries) |
+| Usage | 169,256 input and 6,560 output tokens over 95 calls |
+| Estimated cost | $0.808 at $4/$20 per million (about $0.0085 per call) |
+
+Claude gets right the four pages where the heuristic submits wrongly: it abstains on
+the two single-password sign-up pages (formasaurus-62 and -140) and picks the sign-in
+button over "create account" (formasaurus-216 and -739). On this corpus the model's
+margin over the heuristic is those four pages (accuracy 1.0 against 0.958); on the
+synthetic corpus it is 16 against 9 of 16. A page set like this one, mostly plain
+forms, cannot tell a finite-choice model apart from Claude; the synthetic and Japanese
+pages carry that comparison.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
@@ -1211,13 +1260,15 @@ the refused document to announce again and offers the same choice, or clears the
 when the document is gone. A default saved for the site meanwhile ends the choice. The
 background sends `login.reconnect` to the refused document only and answers the popup
 once that document's announce is handled. A pick applies to that document and then to
-the attempt it started, wins over a saved default there, and still has to match the
-page and pass every policy check; a pick that starts nothing is dropped, so the form's
-next appearance asks again. "Make it the default for this site" (on by default,
-off in a private window) saves the pick through the existing choice save after
-`authenticated`; it replaces another saved default only when the user picked it. The
-passkey chooser window is implemented: a request matching several passkeys, none of them
-the site default, opens `passkey-picker.html` to choose one once or as the default.
+the attempt it started, wins over a saved default there, and still has to match the page
+and pass every policy check; a pick that starts nothing is dropped, so the form's next
+appearance asks again. "Make it the default for this site" (on by default, off in a
+private window) saves the pick through the existing choice save after `authenticated`;
+it replaces another saved default only when the user picked it. The passkey chooser
+window is implemented: a request matching several passkeys, none of them the site
+default, opens `passkey-picker.html` to choose one once or as the default. After Pateat
+signed for an RP ID in a tab, a username-less request for it there opens the window even
+for one match or a default (part D, passkeys).
 
 Choosing again after a logout (part D, passwords) is built. After a login in a tab ended
 as `authenticated`, or `blocked` with `credential-rejected`, `wrong-account`,
@@ -1233,7 +1284,7 @@ blocks the site with `origin-busy`, and the tab's tooltip says so; while the tab
 other tabs of the site are refused `origin-busy` as well. If the URI matches cannot be
 listed, the saved default alone is offered. A login whose result is still `reconciling`
 is resumed, not taken as a logout. Frame logins and sites whose logout page shows only a
-password step are not detected. The passkey half of part D belongs to part C.
+password step are not detected.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

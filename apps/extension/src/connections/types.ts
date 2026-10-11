@@ -1,3 +1,4 @@
+import type { VaultSyncRecords } from "./auto-sync";
 import type {
   BitwardenMismatchCheck,
   BitwardenProfile,
@@ -103,6 +104,8 @@ export type SetupReply =
     };
 export interface ConnectionPolicy {
   quarantined?(connectionId: string, snapshotId: string): Promise<string[]>;
+  /** Items with custom-field exclusions or review history, whose fields a sync compares. */
+  protectedItems?(connectionId: string): Promise<string[]>;
   review?(input: {
     connectionId: string;
     itemId: string;
@@ -116,6 +119,8 @@ export interface ConnectionPolicy {
     next: VaultEntry;
     catalog: VaultCatalog["connections"][number];
     enabled?: boolean;
+    /** Items whose decrypted custom fields the crypto host found equal in both snapshots. */
+    sameCustomFields?: string[];
   }): Promise<{ policyReviewItemIds: string[] }>;
 }
 export type ConnectionSetupDependencies = {
@@ -138,6 +143,8 @@ export type ConnectionSetupDependencies = {
   registry: ConnectionRegistry;
   policy: ConnectionPolicy;
   sessions: Pick<ProviderSessions, "status" | "retain" | "acquire" | "forget" | "discard">;
+  /** Revision dates of applied syncs, so an automatic check can skip an unchanged vault. */
+  revisions?: Pick<VaultSyncRecords, "revision" | "setRevision" | "clear">;
   nowMs?: () => number;
   randomId?: () => string;
 };

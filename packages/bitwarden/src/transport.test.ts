@@ -181,8 +181,51 @@ describe("read-only provider requests", () => {
       "prelogin",
       "profile",
       "refreshToken",
+      "revisionDate",
       "sync",
     ]);
+  });
+
+  it.each([
+    [jsonResponse(1792152000000), 1792152000000],
+    [jsonResponse(null), null],
+    [new Response(null, { status: 204 }), null],
+    [jsonResponse(-1), -1],
+  ])("reads the account revision date %#", async (response, expected) => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(response);
+    const result = await transport(fetch).revisionDate({
+      connectionId: cloudProfile.connectionId,
+      accessToken: "synthetic-access-token",
+    });
+    expect(result).toEqual({ ok: true, data: expected });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://api.bitwarden.com/accounts/revision-date");
+    expect(new Request(url, init).headers.get("authorization")).toBe(
+      "Bearer synthetic-access-token",
+    );
+  });
+
+  it.each([jsonResponse("1792152000000"), jsonResponse(1.5), jsonResponse({ date: 1 })])(
+    "rejects a revision date that is not an integer %#",
+    async (response) => {
+      const fetch = vi.fn<Fetch>().mockResolvedValue(response);
+      expect(
+        await transport(fetch).revisionDate({
+          connectionId: cloudProfile.connectionId,
+          accessToken: "synthetic-access-token",
+        }),
+      ).toEqual({ ok: false, error: { code: "invalid-response" } });
+    },
+  );
+
+  it("does not accept an empty 204 where a body is required", async () => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    expect(
+      await transport(fetch).sync({
+        connectionId: cloudProfile.connectionId,
+        accessToken: "synthetic-access-token",
+      }),
+    ).toEqual({ ok: false, error: { code: "http-error", status: 204 } });
   });
 
   it("rejects a different connection and malformed credentials without sending anything", async () => {

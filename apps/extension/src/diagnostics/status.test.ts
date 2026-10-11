@@ -95,7 +95,12 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
     }),
     declaredOrigins: ["https://*/*"],
     hasAllSiteAccess: async () => true,
-    connections: { status: async () => setupStatus(), read: async () => record(), server },
+    connections: {
+      status: async () => setupStatus(),
+      read: async () => record(),
+      server,
+      check: async () => ({ checkedAt: NOW - 120_000, outcome: "unchanged" as const }),
+    },
     cryptoHost: () => ({ ready: true, sessions: 1 }),
     actionIcon: async () => "unlocked",
     serviceState: async () => ({
@@ -207,7 +212,7 @@ describe("diagnostics status", () => {
     expect(status.checks).toContainEqual({
       id: `vault-age:${connection!.id}`,
       level: "info",
-      detail: `${connection!.id} vault synced 25 min ago (Sync from settings only)`,
+      detail: `${connection!.id} vault synced 25 min ago; checked 2 min ago: unchanged`,
     });
     expect(status.checks).toContainEqual({
       id: "logs",
@@ -276,6 +281,7 @@ describe("diagnostics status", () => {
             status: async () => setupStatus({ providerSession: "refresh-required", autoUnlock }),
             read: async () => record(),
             server,
+            check: async () => undefined,
           },
         }),
       );
@@ -424,6 +430,7 @@ describe("diagnostics status", () => {
             setupStatus({ state: "unavailable", providerSession: "reauthentication-required" }),
           read: async () => ({ ok: false, error: { code: "invalid-cache-record" } }),
           server,
+          check: async () => undefined,
         },
       }),
     );
@@ -500,6 +507,7 @@ describe("diagnostics status", () => {
           status: async () => setupStatus({ state: "configured" }),
           read: async () => argon,
           server,
+          check: async () => undefined,
         },
       }),
     );
@@ -516,6 +524,7 @@ describe("diagnostics status", () => {
           status: async () => setupStatus(),
           read: async () => record(),
           server: reads,
+          check: async () => undefined,
         },
       }),
     );
@@ -538,6 +547,7 @@ describe("diagnostics status", () => {
           status: async () => setupStatus({ state: "disabled" }),
           read: async () => record(),
           server: reads,
+          check: async () => undefined,
         },
       }),
     );
@@ -555,6 +565,7 @@ describe("diagnostics status", () => {
             status: async () => setupStatus(),
             read: async () => record(),
             server: async () => result,
+            check: async () => undefined,
           },
         }),
       );

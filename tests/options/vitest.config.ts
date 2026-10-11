@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
@@ -8,6 +9,8 @@ export default defineConfig({
   // dependencies from making the next suite re-optimize and reload its page.
   cacheDir: "node_modules/.vite/options",
   oxc: { jsx: { runtime: "automatic" } },
+  // The layout tests import the options stylesheet, which is built on Tailwind.
+  plugins: [tailwindcss()],
   test: {
     include: ["tests/options/*.test.tsx"],
     fileParallelism: false,

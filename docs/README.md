@@ -68,6 +68,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0022: Login attempt records per tab and origin](adr/0022-login-attempts-per-tab-and-origin.md)
 - [0023: Synced item selection, field exclusions and custom-field review](adr/0023-synced-vault-policy.md)
 - [0024: Settings profiles](adr/0024-settings-profiles.md)
+- [0025: Automatic Bitwarden vault sync](adr/0025-automatic-vault-sync.md)
 - [0026: Signing in to a site through an identity provider](adr/0026-sign-in-through-identity-providers.md)
 - [0027: Login routes and second-factor pages chosen per account](adr/0027-per-account-login-routes.md)
 

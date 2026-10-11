@@ -4,8 +4,7 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
-Each part lands in its own PR. Parts A, B and C and the password half of D are
-implemented; the passkey half of D is not yet.
+Each part lands in its own PR. All four parts, A to D, are implemented.
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet).
 Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a passkey request
@@ -141,6 +140,17 @@ tab, a later username-less request (no allow list) for that RP ID in the same ta
 the chooser window of C. This happens even with a single match or a default. A request
 that names credentials, such as a re-authentication while signed in, still signs
 silently.
+
+As implemented for passkeys: the RP IDs Pateat returned an assertion for are kept per
+tab in `chrome.storage.session` (`pateat.passkey-signed.v1`, at most 8 per tab and 256
+tabs), so they survive a worker restart, and a tab's entry goes when the tab closes. A
+navigation in the tab keeps it, since a logout often navigates. The window lists the
+site default first, marked as such, and says that Pateat signed in from this tab before.
+The checkbox starts unticked, because switching accounts may be a one-off, and it is
+hidden when every listed passkey is the site default, since choosing the default saves
+nothing. When the window cannot open (the
+same cases as C) or a connection or item could not be searched, the request goes to
+the browser instead of being signed unasked.
 
 ## Considered alternatives
 

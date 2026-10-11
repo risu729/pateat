@@ -23,7 +23,7 @@ import { createConnectionSetupService } from "./setup";
 import { createIndexedDbProviderSessionStore } from "./session-store";
 import { createProviderSessions } from "./sessions";
 import { SETUP_PORT, setupRequestSchema } from "./wire";
-import type { ConnectionRegistry, SetupReply } from "./types";
+import type { ConnectionRegistry, ConnectionSetupDependencies, SetupReply } from "./types";
 
 /** A diagnostics read must not hold the page as long as a sync may take. */
 const SERVER_CONFIG_TIMEOUT_MS = 5_000;
@@ -35,6 +35,8 @@ export function createConnectionRuntime(
     transportOptions?: BitwardenTransportOptions;
     containsPermission?: (profile: BitwardenProfile) => Promise<boolean>;
     baseCatalog?: VaultCatalog;
+    /** Revision dates of applied syncs, read by automatic checks (ADR 0025). */
+    revisions?: ConnectionSetupDependencies["revisions"];
     /**
      * Called after each vault record write and each setup request settles, since
      * either can change which connections unlock automatically.
@@ -160,6 +162,7 @@ export function createConnectionRuntime(
     policy,
     sessions,
     transportFor: (profile) => createBitwardenTransport(profile, options.transportOptions),
+    ...(options.revisions ? { revisions: options.revisions } : {}),
     permissions: { contains: containsPermission },
   });
   function attach(port: Browser.runtime.Port) {

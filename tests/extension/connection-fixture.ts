@@ -101,6 +101,7 @@ export type ProbeStatus = {
   tokenCalls: number;
   syncCalls: number;
   configCalls: number;
+  revisionCalls: number;
   configuredIds: string[];
   metadataOnly: boolean;
   revision: number;

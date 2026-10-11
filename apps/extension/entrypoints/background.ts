@@ -21,6 +21,7 @@ import { createConnectionProbeTransport } from "../src/connections/probe";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
+import { createSignedTabs } from "../src/passkeys/signed-tabs";
 import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
@@ -39,11 +40,18 @@ import {
   createBrowserServiceStorage,
   createBrowserSettingsBaseStorage,
   createBrowserSettingsHoldStorage,
+  createBrowserVaultSyncStorage,
 } from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
 import { createDiagnosticsHandler } from "../src/diagnostics/status";
 import { diagnosticsRequestSchema } from "../src/diagnostics/wire";
 import { createDiagnosticsLog } from "../src/diagnostics/background";
+import {
+  VAULT_SYNC_ALARM,
+  VAULT_SYNC_ALARM_MINUTES,
+  createVaultAutoSync,
+  createVaultSyncRecords,
+} from "../src/connections/auto-sync";
 
 export default defineBackground(() => {
   // First, so the logger sees errors from everything set up below.
@@ -65,7 +73,9 @@ export default defineBackground(() => {
   const vaultProbe = import.meta.env.MODE === "probe" ? createVaultProbe(cryptoHost) : undefined;
   const syntheticSetup =
     import.meta.env.MODE === "probe" ? createConnectionProbeTransport() : undefined;
+  const vaultSyncRecords = createVaultSyncRecords(createBrowserVaultSyncStorage());
   const connections = createConnectionRuntime(cryptoHost, {
+    revisions: vaultSyncRecords,
     ...(catalog ? { baseCatalog: catalog } : {}),
     ...(syntheticSetup
       ? {
@@ -144,7 +154,26 @@ export default defineBackground(() => {
   const vaultUris = createVaultUriMatcher(connections);
   const vaultFields = createVaultFieldSource(connections);
   const vaultPasskeys = createVaultPasskeySource(connections);
+  // Automatic vault sync (ADR 0025): a revision check on page events and every five
+  // minutes; the full sync and its replacement wait for logins and passkey requests.
+  const vaultSync = createVaultAutoSync({
+    records: vaultSyncRecords,
+    async connections() {
+      const [configurations, snapshot] = await Promise.all([
+        connections.registry.list(),
+        settings.read(),
+      ]);
+      return configurations
+        .map((configuration) => configuration.profile.connectionId)
+        .filter(
+          (id) => snapshot.settings.connections.find((entry) => entry.connectionId === id)?.enabled,
+        );
+    },
+    run: (connectionId, hold) => connections.service.autoSync(connectionId, hold),
+    loginActive: () => login.active(),
+  });
   const login = createLoginRuntime(loginSettings, {
+    vault: vaultSync,
     fields: combineFieldSources({
       bitwarden: vaultFields,
       ...(catalog ? { dummy: dummyFieldSource } : {}),
@@ -189,6 +218,10 @@ export default defineBackground(() => {
     onTabRemoved: (listener) => browser.tabs.onRemoved.addListener(listener),
     keepAlive,
   });
+  // ADR 0021 D: after Pateat signed in a tab, a username-less request there asks again.
+  const signedTabs = createSignedTabs(browser.storage.session, (listener) =>
+    browser.tabs.onRemoved.addListener(listener),
+  );
   // Saving bumps the revision every login attempt checks; never stop a running login with it.
   const rememberPasskey = async (origin: string, candidate: VaultPasskeyCandidate) => {
     if (await login.active()) return;
@@ -206,6 +239,7 @@ export default defineBackground(() => {
         chooser: passkeyChooser,
         remember: passkeyProbe.remember,
         loginAccount: login.loginAccount,
+        signedTabs,
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
@@ -215,6 +249,7 @@ export default defineBackground(() => {
         remember: rememberPasskey,
         // ADR 0027: a running login's passkey request is answered with its own item.
         loginAccount: login.loginAccount,
+        signedTabs,
       });
 
   // Value-free per-device state for bug reports (ADR 0019).
@@ -236,6 +271,7 @@ export default defineBackground(() => {
     hasAllSiteAccess: () => browser.permissions.contains({ origins: ["https://*/*"] }),
     connections: {
       status: () => connections.service.status(),
+      check: async (connectionId) => (await vaultSyncRecords.read()).connections[connectionId],
       async read(connectionId) {
         const configuration = await connections.registry.get(connectionId);
         return configuration ? connections.vaultFor(configuration.profile).store.read() : undefined;
@@ -277,6 +313,18 @@ export default defineBackground(() => {
   });
   browser.permissions.onRemoved.addListener(() => {
     void connections.service.permissionsRemoved().catch(() => undefined);
+  });
+  // Chrome may drop alarms on restart or update, so each worker start re-creates it.
+  void browser.alarms
+    .get(VAULT_SYNC_ALARM)
+    .then((alarm) =>
+      alarm
+        ? undefined
+        : browser.alarms.create(VAULT_SYNC_ALARM, { periodInMinutes: VAULT_SYNC_ALARM_MINUTES }),
+    )
+    .catch(() => undefined);
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === VAULT_SYNC_ALARM) vaultSync.refreshIfStale();
   });
   // Wakes the worker at browser start so automatic unlock shows the unlocked icon.
   browser.runtime.onStartup.addListener(() => {
@@ -427,8 +475,12 @@ export default defineBackground(() => {
       typeof message.type === "string" &&
       message.type.startsWith("passkey.")
     ) {
-      void passkeys
-        .handle(message, sender)
+      // The open vault is not replaced while a passkey request is answered; a cancel
+      // never waits for a replacement.
+      const request = message.type === "passkey.get";
+      if (request) vaultSync.refreshIfStale();
+      void (request ? vaultSync.enter(false) : Promise.resolve(() => undefined))
+        .then((leave) => passkeys.handle(message, sender).finally(leave))
         .then(sendResponse, () =>
           sendResponse({ kind: "delegate", reason: "runtime-unavailable" }),
         );

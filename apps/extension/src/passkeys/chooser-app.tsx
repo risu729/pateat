@@ -22,7 +22,8 @@ async function call(client: ChooserClient, message: unknown): Promise<ChooserRes
 }
 
 /**
- * Pateat's passkey chooser (ADR 0021). Choosing signs in with that passkey; "Use the browser"
+ * Pateat's passkey chooser (ADR 0021): for several matches, or for any match after Pateat
+ * signed in from the same tab. Choosing signs in with that passkey; "Use the browser"
  * or closing the window hands the request to the browser or another extension.
  */
 export function ChooserApp({ client }: { client: ChooserClient }) {
@@ -47,7 +48,8 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
       }
       setView(response.view);
       // Replacing an existing default is opt-in: it also changes the password login account.
-      setMakeDefault(!response.view.replacesDefault);
+      // So is saving a passkey chosen after a sign-in in this tab, which may be a one-off switch.
+      setMakeDefault(!response.view.replacesDefault && !response.view.again);
     };
     void load();
   }, [client]);
@@ -85,18 +87,29 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
     );
   const host = new URL(view.origin).host;
   const rows = view.entries.map((entry, index) => ({ entry, index }));
+  // Choosing the site default saves nothing, so a list of only that has no checkbox.
+  const canSave = view.entries.some((entry) => !entry.preferred);
   return (
     <main className={MAIN}>
       <h1>Choose a passkey</h1>
       <p>
-        <strong>{host}</strong> asks for a passkey. {view.entries.length} in your vault match.
+        <strong>{host}</strong> asks for a passkey.{" "}
+        {view.entries.length === 1
+          ? "1 in your vault matches."
+          : `${view.entries.length} in your vault match.`}
       </p>
+      {view.again && (
+        <p>
+          Pateat signed in to this site from this tab before. If you signed out to switch accounts,
+          choose the one to use now.
+        </p>
+      )}
       {/* Above the list, so it is seen before a choice is made. */}
-      <p className="my-4 flex items-start gap-2">
+      <p className="my-4 flex items-start gap-2" hidden={!canSave}>
         <input
           id={checkboxId}
           type="checkbox"
-          checked={makeDefault}
+          checked={makeDefault && canSave}
           disabled={sending}
           onChange={(event) => setMakeDefault(event.target.checked)}
         />
@@ -120,6 +133,9 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
               {entry.userName && <span className="text-sm break-all">{entry.userName}</span>}
               {entry.account && (
                 <span className="text-sm break-all text-slate-600">{entry.account}</span>
+              )}
+              {entry.preferred && (
+                <span className="text-sm font-semibold text-teal-800">Site default</span>
               )}
             </button>
           </li>

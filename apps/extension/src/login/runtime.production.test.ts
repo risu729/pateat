@@ -224,10 +224,14 @@ function harness(
     duplicateAccount?: boolean;
     /** Adds a login username field to the item. */
     username?: boolean;
+    /** Adds a login username field to the other item. */
+    otherUsername?: boolean;
     /** Recipe generation for pages without a recipe. */
     generation?: LoginGeneration;
     /** The item's passkey facts, read when a login starts (ADR 0027). */
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
+    /** Automatic vault sync (ADR 0025). */
+    vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
     /** Replaces the item's custom fields. */
     custom?: {
       name: string | null;
@@ -315,6 +319,16 @@ function harness(
                 allowedOrigins: [],
                 groupIds: [],
                 fields: [
+                  ...(live.otherUsername
+                    ? [
+                        {
+                          id: "login.username",
+                          label: "Username",
+                          name: null,
+                          kind: "text" as const,
+                        },
+                      ]
+                    : []),
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
                 ],
               },
@@ -352,6 +366,7 @@ function harness(
     ...(live.uris ? { uris: live.uris } : {}),
     ...(live.generation ? { generation: live.generation } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
+    ...(live.vault ? { vault: live.vault } : {}),
   });
   // By default the document reports its first step ready, as the content script does
   // once the form appears; `start: false` sends the initial announcement instead.
@@ -1626,6 +1641,199 @@ describe("production login document admission", () => {
       expect(executes()).toEqual([]);
       expect(h.store.update).not.toHaveBeenCalled();
     });
+    describe("when no item matches, after a vault check (ADR 0025)", () => {
+      const none: Awaited<ReturnType<LiveUriMatcher>> = {
+        ok: true,
+        data: uriMatch({ candidates: [] }),
+      };
+      /** A vault sync whose miss checks each wait until the test answers them. */
+      function vault() {
+        let held = 0;
+        const answers: ((synced: boolean) => void)[] = [];
+        const insideHold: boolean[] = [];
+        const value = {
+          refreshIfStale: vi.fn(),
+          enter: vi.fn(async () => {
+            held += 1;
+            let left = false;
+            return () => {
+              if (left) return;
+              left = true;
+              held -= 1;
+            };
+          }),
+          checkAfterMiss: vi.fn(() => {
+            insideHold.push(held > 0);
+            return new Promise<boolean>((resolve) => {
+              answers.push(resolve);
+            });
+          }),
+        };
+        return { value, answers, insideHold };
+      }
+      const flush = async () => {
+        for (let index = 0; index < 5; index += 1)
+          // oxlint-disable-next-line no-await-in-loop -- lets each pending step run
+          await new Promise((resolve) => setTimeout(resolve, 0));
+      };
+      it("asks for a check within the page's hold and reconnects only the refused document", async () => {
+        const sync = vault();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => none,
+          vault: sync.value,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "default-not-set" });
+        expect(sync.value.checkAfterMiss).toHaveBeenCalledTimes(1);
+        expect(sync.insideHold).toEqual([true]);
+        await flush();
+        expect(fake.state.reconnects).toEqual([]);
+        sync.answers[0]!(true);
+        await vi.waitFor(() =>
+          expect(fake.state.reconnects).toEqual([
+            { tabId: 1, frameId: 0, documentId: "synthetic-document" },
+          ]),
+        );
+        await flush();
+        expect(fake.state.reconnects).toHaveLength(1);
+        expect(h.fields).not.toHaveBeenCalled();
+      });
+      it("reconnects a refused frame by its own frame and document", async () => {
+        const sync = vault();
+        // The tab shows the page around the frame; the frame's own URL is the login page.
+        fake.state.tabUrls[1] = "https://login.example/home";
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => none,
+          vault: sync.value,
+        });
+        expect(
+          await h.hello({
+            frameId: 3,
+            documentId: "synthetic-frame-document",
+            tab: { id: 1, url: "https://login.example/home" },
+          }),
+        ).toEqual({ ok: false, reason: "default-not-set" });
+        sync.answers[0]!(true);
+        await vi.waitFor(() =>
+          expect(fake.state.reconnects).toEqual([
+            { tabId: 1, frameId: 3, documentId: "synthetic-frame-document" },
+          ]),
+        );
+      });
+      it("reconnects nothing when no check applied a new snapshot in time", async () => {
+        const sync = vault();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => none,
+          vault: sync.value,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "default-not-set" });
+        sync.answers[0]!(false);
+        await flush();
+        expect(fake.state.reconnects).toEqual([]);
+      });
+      it.each<[string, (h: ReturnType<typeof harness>) => Promise<unknown>]>([
+        ["announced again", (h) => h.hello()],
+        ["was replaced by another document", (h) => h.hello({ documentId: "synthetic-next" })],
+        [
+          "went away with its tab",
+          async () => {
+            for (const listener of fake.state.removed) listener(1);
+          },
+        ],
+      ])("reconnects nothing once the refused document %s", async (_name, change) => {
+        const sync = vault();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => none,
+          vault: sync.value,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "default-not-set" });
+        await change(h);
+        sync.answers[0]!(true);
+        await flush();
+        expect(fake.state.reconnects).toEqual([]);
+      });
+      it("asks for a check when the saved default's item no longer matches the page", async () => {
+        const sync = vault();
+        const h = harness({}, { allowedOrigins: [], uris: async () => none, vault: sync.value });
+        expect(await h.hello()).toEqual({ ok: false, reason: "item-origin-mismatch" });
+        expect(sync.value.checkAfterMiss).toHaveBeenCalledTimes(1);
+        sync.answers[0]!(true);
+        await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+      });
+      it("asks for no check when a one-time pick's item no longer matches the page", async () => {
+        const sync = vault();
+        let calls = 0;
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          // Both items match when the choice is offered; the picked one no longer does.
+          uris: async () => (calls++ === 0 ? { ok: true, data: both } : none),
+          vault: sync.value,
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        let again: unknown;
+        fake.state.onReconnect = async () => {
+          again = await h.hello();
+          return again;
+        };
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.choice.pick",
+            tabId: 1,
+            documentId: "synthetic-document",
+            connectionId,
+            itemId: otherItemId,
+            makeDefault: false,
+          },
+          {
+            id: "synthetic-extension",
+            url: "chrome-extension://synthetic-extension/popup.html",
+          } as never,
+        );
+        await vi.waitFor(() =>
+          expect(again).toEqual({ ok: false, reason: "item-origin-mismatch" }),
+        );
+        expect(sync.value.checkAfterMiss).not.toHaveBeenCalled();
+      });
+      it.each<[string, Partial<LocalSettings>, Parameters<typeof harness>[1], string]>([
+        [
+          "two items match",
+          unsaved,
+          { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+          "account-ambiguous",
+        ],
+        [
+          "another item's rules could not be evaluated",
+          unsaved,
+          {
+            allowedOrigins: [],
+            uris: async () => ({ ok: true, data: uriMatch({ unavailableItemIds: [otherItemId] }) }),
+          },
+          "item-uri-unevaluated",
+        ],
+        [
+          "the vault is locked",
+          unsaved,
+          { allowedOrigins: [], uris: async () => vaultFailure("crypto-locked") },
+          "vault-unavailable",
+        ],
+        ["no live URI matching is available", unsaved, { allowedOrigins: [] }, "default-not-set"],
+        [
+          "the saved default's account is not connected here",
+          { siteDefaults: [{ origin, provider: "bitwarden", userId: "other-account", itemId }] },
+          { allowedOrigins: [origin] },
+          "connection-missing",
+        ],
+      ])("asks for no check when %s", async (_name, overrides, live, reason) => {
+        const sync = vault();
+        const h = harness(overrides, { ...live, vault: sync.value });
+        expect(await h.hello()).toEqual({ ok: false, reason });
+        expect(sync.value.checkAfterMiss).not.toHaveBeenCalled();
+      });
+    });
     describe("when the popup picks one of several matches (ADR 0021)", () => {
       const popup = {
         id: "synthetic-extension",
@@ -2217,15 +2425,21 @@ describe("production login document admission", () => {
       );
       expect(service.available).toHaveBeenCalledWith(origin, "/signin");
       // Only slots the matching item can fill are offered.
+      // The username's shape goes with its slot; the value itself never does.
       expect(service.generate).toHaveBeenCalledWith({
         version: 1,
         observation: loginPage.observation,
         slots: [
-          expect.objectContaining({ id: "username", kind: "identifier" }),
-          expect.objectContaining({ id: "password", kind: "secret" }),
+          expect.objectContaining({
+            id: "username",
+            kind: "identifier",
+            valueShape: { length: 16, classes: ["ascii-letter", "ascii-symbol"], email: false },
+          }),
+          expect.not.objectContaining({ valueShape: expect.anything() }),
         ],
       });
-      expect(h.fields).not.toHaveBeenCalled();
+      expect(JSON.stringify(service.generate.mock.calls)).not.toContain("synthetic-secret");
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.username"]);
       // The document announces again and starts the generated recipe at once.
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
@@ -2237,6 +2451,99 @@ describe("production login document admission", () => {
         { slot: "username", value: "synthetic-secret" },
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
+    });
+
+    it("sends the username's shape only when every matching item agrees", async () => {
+      fake.state.extracted = { login: loginPage };
+      const both = async () => ({
+        ok: true as const,
+        data: uriMatch({
+          candidates: [itemId, otherItemId].map((id) => ({
+            itemId: id,
+            matches: [{ uriIndex: 0, match: 0 }],
+          })),
+        }),
+      });
+      const read: string[] = [];
+      const sentShape = async (
+        usernames: Record<string, string | Error | undefined>,
+        options: { overrides?: Partial<LocalSettings>; uris?: LiveUriMatcher } = {},
+      ) => {
+        const service = generation();
+        const h = harness(
+          { ...unsaved, ...options.overrides },
+          {
+            allowedOrigins: [],
+            uris: options.uris ?? both,
+            username: true,
+            otherUsername: true,
+            generation: service,
+          },
+        );
+        read.length = 0;
+        h.fields.mockImplementation(async ({ account }) => {
+          read.push(account.itemId);
+          const value = usernames[account.itemId];
+          if (value instanceof Error) throw value;
+          return value;
+        });
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.firstSteps.mockResolvedValue([]);
+        expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
+        return service.generate.mock.calls[0]![0].slots.find((slot) => slot.id === "username")!
+          .valueShape;
+      };
+      const digits = (length: number) => ({ length, classes: ["ascii-digit"], email: false });
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "00005678" })).toEqual(
+        digits(8),
+      );
+      // Different lengths, an unreadable username or an unchecked item send no shape.
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "0000123456" })).toBe(
+        undefined,
+      );
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: undefined })).toBe(undefined);
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: new Error("locked") })).toBe(
+        undefined,
+      );
+      // Same length but other characters, or an email, is a different shape.
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "abcd1234" })).toBe(undefined);
+      expect(await sentShape({ [itemId]: "a@b.test", [otherItemId]: "ab.cdefg" })).toBe(undefined);
+      // A username too long to shape cannot be compared, so nothing is sent.
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "1".repeat(1025) })).toBe(
+        undefined,
+      );
+      expect(
+        await sentShape(
+          { [itemId]: "00001234", [otherItemId]: "00005678" },
+          {
+            uris: async () => ({
+              ok: true as const,
+              data: uriMatch({ unavailableItemIds: [otherItemId] }),
+            }),
+          },
+        ),
+      ).toBe(undefined);
+      // An empty or excluded username does not count, and an excluded one is never read.
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "" })).toEqual(digits(8));
+      const excluded = {
+        connections: [
+          {
+            connectionId,
+            enabled: true,
+            selection: { mode: "all" as const, groupIds: [], itemIds: [] },
+            excludedItemIds: [],
+            excludedFields: [{ itemId: otherItemId, fieldId: "login.username" }],
+          },
+        ],
+      };
+      expect(
+        await sentShape(
+          { [itemId]: "00001234", [otherItemId]: "0000123456" },
+          { overrides: excluded },
+        ),
+      ).toEqual(digits(8));
+      expect(read).toEqual([itemId]);
     });
 
     it("sends nothing when no vault item matches the page", async () => {

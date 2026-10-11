@@ -51,7 +51,7 @@ compatibility claim or an alternative cloud-browser implementation.
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
 | Settings page           | Vault connection, re-authentication, unlock and service pairing                            | Deliberate user setup only; no auto-opening during login        |
 | Toolbar popup           | Current site's default account and exclusion; choosing among several matches (ADR 0021) | Item names and login usernames only; opened only by the user    |
-| Passkey chooser window  | Choosing among several passkeys for one pending request (ADR 0021)                       | Item names and passkey user names only                           |
+| Passkey chooser window  | Choosing a passkey for one pending request: several match, or Pateat signed in the tab   | Item names and passkey user names only                           |
 | Worker API + D1         | Settings, recipes and account bindings, owner web UI, device authorization, inference, request log | Service credentials only; no vault values or keys               |
 | AI provider             | Match observed elements and propose declarative steps                                      | No vault values, account bindings, cookies, or assertions       |
 
@@ -283,8 +283,9 @@ visible identifier values may ([ADR 0010](adr/0010-inference-field-hints.md)), a
 plan is checked against the real values locally before filling. After filling and before
 the click, the executor stops when the page marks a filled element invalid or shows a
 new alert. The executor runs both checks
-([Background execution](#background-execution)); the vault adapter does not supply the
-hints yet.
+([Background execution](#background-execution)). Automatic generation sends the
+username's shape when every matching item agrees
+([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)).
 
 Local field snapshots detach supported decrypted items from caller mutation.
 References bind connection, user, item and snapshot identity; custom fields use
@@ -303,6 +304,14 @@ and types cannot establish identity when names repeat. For a sealed item, requir
 the whole captured encrypted blob to match. A changed or ambiguous sequence with
 an existing custom exclusion blocks that item's secret release until explicit
 review; unrelated items and stable built-in exclusions retain their policies.
+Bitwarden re-encrypts the whole item on every save, so when a sync replaces a
+snapshot that is still open, the crypto host also compares the decrypted custom
+fields (name, value, type and linked source, in order) of each protected item;
+equal fields rebind as an unchanged sequence would. Each Worker
+returns HMAC-SHA-256 digests under a key the offscreen document creates and keeps,
+so no value leaves the crypto host and a digest cannot be tested offline against
+guesses of a short value; it is no defense against a compromised background
+([ADR 0025](adr/0025-automatic-vault-sync.md#protected-items-after-a-sync)).
 
 Review must identify the current snapshot and settings revision. Start every
 current custom field excluded, and require a deliberate save of that item's
@@ -383,7 +392,10 @@ Never select the target by whichever tab happens to be active. Use declarative c
 scripts/host permissions and browser events, not a popup or focus event as the execution
 trigger. The one exception is a choice the user makes in the toolbar popup: it restarts
 only the one recorded document that was refused for several matches, through
-`login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A static
+`login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A vault
+check after a page with a recipe found no matching item likewise reconnects only that
+refused document, once the check applied a new snapshot within ten seconds
+([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static
 content script runs on every HTTPS page and frame; the background admits non-excluded
 sites with host access and needs a cached recipe for the exact origin before any policy
 or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also
@@ -393,9 +405,10 @@ generation: a tab's own page on whose path no recipe starts that shows a login f
 within 10 seconds and has a vault URI match is observed and sent at most once a day per
 origin and path, unless the tab holds an attempt record other than an account switch on
 that origin
-([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
-recipe cache and starts at once. A page that an effect step leads to and no check
-explains is sent to be judged, which can learn the completion or a second-factor
+([ADR 0016](adr/0016-recipe-generation-trigger.md)). Just before sending, it reads the
+matching items' usernames for their shape, sent only when all agree. The returned recipe
+enters the recipe cache and starts at once. A page that an effect step leads to and no
+check explains is sent to be judged, which can learn the completion or a second-factor
 handler ([ADR 0018](adr/0018-recipe-generation-route.md),
 [ADR 0027](adr/0027-per-account-login-routes.md); see below).
 Inactive, frozen, discarded, and navigated documents are different states; only live
@@ -405,7 +418,8 @@ Do not inject `chrome-extension://` iframes, automatic overlays or unlock window
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
 settings. The one extension window is the passkey chooser of
 [ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
-with several matches from a focused page, and never in incognito. Do not attach our own
+from a focused page, with several matches or after Pateat signed in from the same tab,
+and never in incognito. Do not attach our own
 debugger in normal operation. Another installed extension can still inject a conflicting
 frame; coexistence requires an explicit compatibility test and documented settings.
 
@@ -604,7 +618,8 @@ that exact page URL and returns a value-free summary
   for site access, the crypto host, each vault cache and sync sign-in
   (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
   the token, and info without it, since Sync needs the stored unlock key), the vault
-  copy's age (info, since the vault syncs only from the settings page), each
+  copy's age with the last automatic check and its outcome (info; warn when that check
+  failed, was rate limited, needs sign-in again or found the account deleted), each
   Bitwarden server's `/config` (warn when it fails or is not checked), service
   reachability, clock skew over 30 s against the service `Date` header, recipe
   generation (info without Claude credentials, warn when the issuer is missing or a
@@ -840,7 +855,10 @@ It shows only item names, passkey user names and connection labels. The backgrou
 answers its messages only from that page, for the request token in its URL and from the
 window it opened, and keeps the worker alive while the window waits. Choosing signs with
 that passkey; a ticked checkbox then saves it as the origin's site default. Any other
-ending delegates to the browser.
+ending delegates to the browser. The background also keeps, per tab in session storage,
+the RP IDs it signed for; a later request with no allow list for one of them in that tab
+opens the window even for one match or a site default, because it may follow a logout.
+A running login's own requests never open it (below).
 
 While a login is running, a request from its tab and top-level origin is answered with
 that login's own vault item only, never the site default or the chooser

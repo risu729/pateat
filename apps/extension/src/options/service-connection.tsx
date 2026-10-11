@@ -203,7 +203,7 @@ export function ServiceConnection({
         {message}
       </output>
       {corrupt && (
-        <div>
+        <div className="mt-3">
           <Button
             id="sync-service-forget"
             type="button"
@@ -219,7 +219,6 @@ export function ServiceConnection({
       )}
       {state?.kind === "disconnected" && (
         <form
-          className="grid gap-3"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -267,6 +266,7 @@ export function ServiceConnection({
             Device name
             <input
               id="sync-service-label"
+              type="text"
               maxLength={64}
               autoComplete="off"
               value={label}
@@ -317,7 +317,7 @@ export function ServiceConnection({
         </form>
       )}
       {state?.kind === "connected" && (
-        <div className="grid gap-3">
+        <div>
           <p>
             <strong>{state.label}</strong> is paired with {state.origin}.
           </p>

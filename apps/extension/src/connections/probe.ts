@@ -27,6 +27,7 @@ const schema = v.variant("action", [
       "changed",
       "removed",
       "builtin-changed",
+      "reencrypted",
       "passkey",
       "uri",
     ]),
@@ -133,6 +134,8 @@ export function createConnectionProbeTransport() {
   let tokenCalls = 0;
   let syncCalls = 0;
   let configCalls = 0;
+  let revisionCalls = 0;
+  const variants: (string | undefined)[] = [];
   const transportOptions: BitwardenTransportOptions = {
     async fetch(url, init) {
       // Diagnostics read the public server config; it is not a setup or sync call.
@@ -142,6 +145,15 @@ export function createConnectionProbeTransport() {
           JSON.stringify({ object: "config", version: "2026.9.2", server: null }),
           { headers: { "content-type": "application/json" } },
         );
+      }
+      // Counted apart from `calls`: each variant is one account revision, so changing the
+      // configured variant is a vault change an automatic check notices.
+      if (url === "https://api.bitwarden.com/accounts/revision-date" && init.method === "GET") {
+        revisionCalls += 1;
+        if (!variants.includes(variant)) variants.push(variant);
+        return new Response(JSON.stringify(1_792_152_000_000 + variants.indexOf(variant)), {
+          headers: { "content-type": "application/json" },
+        });
       }
       calls += 1;
       const raw = rawCustomAccount(variant, Math.floor(Date.now() / 1000));
@@ -233,6 +245,7 @@ export function createConnectionProbeTransport() {
             tokenCalls,
             syncCalls,
             configCalls,
+            revisionCalls,
             configuredIds: configurations.map((entry) => entry.profile.connectionId),
             metadataOnly: !JSON.stringify(configurations).includes("asdfasdfasdf"),
             ...(saved.ok
@@ -285,7 +298,7 @@ export function createConnectionProbeTransport() {
               ? variant === "reordered"
                 ? "007"
                 : "00001234"
-              : variant === "builtin-changed"
+              : variant === "builtin-changed" || variant === "reencrypted"
                 ? "test_username"
                 : "test_password";
         return {

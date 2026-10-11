@@ -1,4 +1,5 @@
 import { browser } from "wxt/browser";
+import type { VaultSyncRecord } from "../connections/auto-sync";
 import type { ServiceStorage } from "./runtime";
 import type { GenerationAttemptStorage } from "./generation";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
@@ -56,6 +57,11 @@ export function createBrowserSettingsBaseStorage(): SettingsBaseStorage {
 /** When synced settings first waited for a login, so the limit holds across restarts. */
 export function createBrowserSettingsHoldStorage(): SettingsHoldStorage {
   return trustedRecord("pateat.sync-settings-hold.v1");
+}
+
+/** When each vault connection was last checked and which revision date it applied. */
+export function createBrowserVaultSyncStorage() {
+  return trustedRecord<VaultSyncRecord>("pateat.vault-sync-schedule.v1");
 }
 
 /** Which pages were sent for recipe generation in the last day (ADR 0016). */

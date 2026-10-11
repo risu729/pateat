@@ -2,7 +2,13 @@
 // independent Node AES-CBC/HMAC vectors already exercised against the real SDK.
 // Variants change valid ciphertext DTOs, not decryption mocks or real accounts.
 import { accountNow, rawV1Account, syntheticJwt } from "./account";
-import { customFieldCiphertexts, fidoCredential, legacyUsername, uriCiphertexts } from "./crypto";
+import {
+  customFieldCiphertexts,
+  fidoCredential,
+  legacyUsername,
+  reencryptedCustomFieldCiphertexts,
+  uriCiphertexts,
+} from "./crypto";
 
 export type CustomAccountVariant =
   | "unchanged"
@@ -10,6 +16,8 @@ export type CustomAccountVariant =
   | "changed"
   | "removed"
   | "builtin-changed"
+  /** The password changed and every unchanged custom field was re-encrypted, as on a save. */
+  | "reencrypted"
   /** The login also stores the synthetic FIDO2 credential for `synthetic.example.test`. */
   | "passkey"
   /** The login also stores the URI `https://synthetic.example.test/login` (default match). */
@@ -19,33 +27,20 @@ export function rawCustomAccount(
   nowSeconds = accountNow,
 ) {
   const raw = rawV1Account();
+  const text =
+    variant === "reencrypted" ? reencryptedCustomFieldCiphertexts : customFieldCiphertexts;
   const fields = [
-    {
-      name: customFieldCiphertexts.duplicateName,
-      value: customFieldCiphertexts.branch,
-      type: 0,
-      linkedId: null,
-    },
-    {
-      name: customFieldCiphertexts.duplicateName,
-      value: customFieldCiphertexts.account,
-      type: 1,
-      linkedId: null,
-    },
-    {
-      name: customFieldCiphertexts.duplicateName,
-      value: customFieldCiphertexts.boolean,
-      type: 2,
-      linkedId: null,
-    },
-    { name: customFieldCiphertexts.linkedName, value: null, type: 3, linkedId: 101 },
+    { name: text.duplicateName, value: text.branch, type: 0, linkedId: null },
+    { name: text.duplicateName, value: text.account, type: 1, linkedId: null },
+    { name: text.duplicateName, value: text.boolean, type: 2, linkedId: null },
+    { name: text.linkedName, value: null, type: 3, linkedId: 101 },
   ];
   if (variant === "reordered") [fields[0], fields[1]] = [fields[1]!, fields[0]!];
   if (variant === "changed") fields[0]!.value = customFieldCiphertexts.account;
   if (variant === "removed") fields.splice(0, 1);
   const cipher = raw.sync.ciphers[0]!;
   const login =
-    variant === "builtin-changed"
+    variant === "builtin-changed" || variant === "reencrypted"
       ? { ...cipher.login, password: legacyUsername }
       : variant === "passkey"
         ? { ...cipher.login, fido2Credentials: [fidoCredential] }
