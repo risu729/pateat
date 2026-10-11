@@ -393,15 +393,25 @@ export async function judgeCompletion(
   const judgement = outcome.value;
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
   if (judgement.decision === "challenge") {
-    const added = judgement.next
-      ? addHandler(recipe, observation, { kind: "passkey", target: judgement.next })
-      : undefined;
-    if (!added?.ok) return { version: 1, status: "challenge" };
+    // A page may offer both a security key and an authenticator app code; each handler
+    // that passes its checks is kept, in one revision (ADR 0027).
+    let changed: LoginRecipe | undefined;
+    if (judgement.passkey) {
+      const added = addHandler(recipe, observation, { kind: "passkey", target: judgement.passkey });
+      if (added.ok) changed = added.recipe;
+    }
+    if (judgement.totp) {
+      const base = changed ?? recipe;
+      const added = addHandler(base, observation, { kind: "totp", ...judgement.totp });
+      // Both handlers land in the revision after the judged one.
+      if (added.ok) changed = changed ? { ...added.recipe, revision: base.revision } : added.recipe;
+    }
+    if (!changed) return { version: 1, status: "challenge" };
     const written = await writeRecipe(
       env.DB,
       scope.ownerId,
       recipeId,
-      { version: 1, state: "active", expectedRevision: head.revision, recipe: added.recipe },
+      { version: 1, state: "active", expectedRevision: head.revision, recipe: changed },
       scope.deviceId,
     );
     const change = written.ok ? active(written.change) : undefined;

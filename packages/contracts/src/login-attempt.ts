@@ -11,8 +11,10 @@ import {
   loginStepEffect,
   MAX_PASSWORD_ALTERNATIVES,
   parseLoginRecipe,
+  routeSlots,
   routeSteps,
   sameLoginDocument,
+  TOTP_HANDLER_SLOT,
   type LoginAccount,
   type LoginDocument,
   type LoginItemFacts,
@@ -251,6 +253,14 @@ export const loginAttemptEventSchema = v.variant("type", [
     effects: v.pipe(integer(4), v.minValue(1)),
     document: loginDocumentSchema,
   }),
+  /**
+   * The page submitted a `totp` handler's code by itself (ADR 0027), as a code input that
+   * submits on its last digit does: after the handler's fill, before its click found the
+   * button. The click step counts as done by the page under `operationId`, a new effect
+   * step, so the page is settled and judged as after a click; the code is never filled
+   * again. The runtime checks that the steps are a `totp` handler's fill and click.
+   */
+  v.strictObject({ type: v.literal("AUTO_SUBMITTED"), operationId: identifier }),
   v.strictObject({ type: v.literal("RETRY") }),
   v.strictObject({ type: v.literal("POLICY_CHANGED") }),
   v.strictObject({ type: v.literal("CANCEL") }),
@@ -418,6 +428,20 @@ function record(
         retryRequired: undefined,
         settled: undefined,
       };
+    case "AUTO_SUBMITTED":
+      return {
+        // A fill still in flight is done, so the step is its handler's click.
+        stepIndex: context.operationKind === "fill" ? context.stepIndex + 1 : context.stepIndex,
+        operationId: event.operationId,
+        operationKind: "click",
+        operationEffect: "submit",
+        mutationIntent: true,
+        submissions: context.submissions + 1,
+        usedOperationIds: [...context.usedOperationIds, event.operationId],
+        outcome: undefined,
+        retryRequired: undefined,
+        settled: undefined,
+      };
     case "RETRY":
       return {
         retries: context.retries + 1,
@@ -577,6 +601,19 @@ function createLoginAttemptMachine() {
         context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
         context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
         sameScope(context.document, event.document),
+      // Between a handler's fill and its click, or with the fill still unanswered; the
+      // page's own submission takes the click's place in the budget.
+      canAutoSubmit: ({ context, event }) =>
+        event.type === "AUTO_SUBMITTED" &&
+        !context.usedOperationIds.includes(event.operationId) &&
+        context.usedOperationIds.length < 96 &&
+        context.submissions < context.maxSubmissions &&
+        (context.operationId === undefined
+          ? context.stepIndex < context.stepCount && context.retryRequired !== true
+          : context.operationKind === "fill" &&
+            context.operationEffect === "prepare" &&
+            context.mutationIntent === true &&
+            context.stepIndex + 1 < context.stepCount),
     },
   }).createMachine({
     id: "login-attempt",
@@ -599,6 +636,7 @@ function createLoginAttemptMachine() {
       ready: {
         on: {
           PREPARE: { guard: "canPrepare", target: "executing", actions: "record" },
+          AUTO_SUBMITTED: { guard: "canAutoSubmit", target: "reconciling", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "retryable", actions: "record" }],
           OBSERVED: [
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
@@ -625,6 +663,7 @@ function createLoginAttemptMachine() {
           ],
           WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
           VALUE_REJECTED: { guard: "valueRejected", target: "blocked", actions: "record" },
+          AUTO_SUBMITTED: { guard: "canAutoSubmit", target: "reconciling", actions: "record" },
         },
       },
       "submit-intent": {
@@ -655,6 +694,7 @@ function createLoginAttemptMachine() {
       },
       reconciling: {
         on: {
+          AUTO_SUBMITTED: { guard: "canAutoSubmit", target: "reconciling", actions: "record" },
           OBSERVED: observedTransitions,
           JUDGING: { guard: "canJudge", actions: "record" },
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
@@ -762,6 +802,33 @@ export function attemptRouteChoice(
   if (metadata.route === "passkey") return { route: "passkey" };
   // The schema requires a variant for the password route.
   return { route: metadata.route, variant: metadata.variant ?? 0 };
+}
+
+/**
+ * The slots the attempt's entered handlers fill beside its route's (ADR 0027): `totp` once
+ * it entered a `totp` handler. A login's binding covers them too; they are never saved.
+ */
+export function handlerSlots(
+  recipe: LoginRecipe,
+  metadata: Pick<LoginAttemptMetadata, "handlers">,
+): string[] {
+  return metadata.handlers.some((entry) => recipe.handlers?.[entry.index]?.kind === "totp")
+    ? [TOTP_HANDLER_SLOT]
+    : [];
+}
+/**
+ * Whether the login types a TOTP code already: its route fills the `totp` slot, or it
+ * entered a `totp` handler. A login types one code at most, so a wrong code is never
+ * retried into a lockout (ADR 0027).
+ */
+export function attemptUsesCode(
+  recipe: LoginRecipe,
+  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers">,
+): boolean {
+  return (
+    routeSlots(recipe, attemptRouteChoice(metadata)).includes(TOTP_HANDLER_SLOT) ||
+    handlerSlots(recipe, metadata).length > 0
+  );
 }
 
 /**

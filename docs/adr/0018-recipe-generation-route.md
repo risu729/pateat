@@ -13,7 +13,7 @@ service and the extension implement.
 Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a page is judged
 after any effect step that leads nowhere known, a judgement can add a second-factor
 handler, and judgements are limited per revision and path and to 20 per recipe a day
-(implemented with the `passkey` handler; the `totp` handler is not yet).
+(implemented with the `passkey` and `totp` handlers).
 
 Date: 2026-10-11
 

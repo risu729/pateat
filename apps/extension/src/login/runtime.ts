@@ -2,6 +2,7 @@ import * as v from "valibot";
 import {
   attemptPlan,
   attemptRouteChoice,
+  attemptUsesCode,
   builtInLoginSlots,
   chooseLoginRoute,
   createAttemptMetadata,
@@ -10,7 +11,9 @@ import {
   findLoginBinding,
   getItemEligibility,
   handlerFact,
+  handlerSlots,
   handlerSteps,
+  handlerTargets,
   isSiteExcluded,
   loginFieldFacts,
   loginFieldSource,
@@ -35,6 +38,7 @@ import {
   saveLoginChoice,
   siteDefaultConnection,
   templateLoginBinding,
+  TOTP_HANDLER_SLOT,
   transitionLoginAttempt,
   withdrawAccountSwitch,
   validateLoginOperation,
@@ -46,6 +50,7 @@ import {
   type LoginChoiceAccount,
   type LoginAttemptMetadata,
   type LoginDocument,
+  type LoginHandler,
   type LoginItemFacts,
   type LoginObservation,
   type LoginOperation,
@@ -338,6 +343,65 @@ function offersGenerationField(
     )
   );
 }
+/**
+ * The field a `totp` handler fills for the login's item (ADR 0027): its built-in TOTP
+ * field, or the synthetic probe item's `totp` field. Undefined when the item has none, or
+ * when the item's saved binding for the recipe names another field for `totp`: Pateat
+ * cannot make a code from a custom field yet, so it never types such a field's raw value,
+ * which could be a TOTP seed.
+ */
+function codeFieldOf(
+  connection: VaultConnectionMetadata,
+  itemId: string,
+  bindings: readonly SavedLoginBinding[],
+  recipe: LoginRecipe,
+): string | undefined {
+  const item = connection.items.find((entry) => entry.id === itemId);
+  if (!item) return undefined;
+  if (connection.provider === "dummy")
+    return item.fields.some((field) => field.id === "totp") ? "totp" : undefined;
+  if (connection.provider !== "bitwarden" || !connection.userId) return undefined;
+  const saved = findLoginBinding(bindings, recipe, {
+    provider: connection.provider,
+    userId: connection.userId,
+    itemId,
+  });
+  if (saved?.slots.some((entry) => entry.slot === TOTP_HANDLER_SLOT && entry.field !== "totp"))
+    return undefined;
+  return item.fields.some((field) => field.id === "login.totp-code") ? "login.totp-code" : undefined;
+}
+/**
+ * Where the plan step at `index` stands in an entered `totp` handler (ADR 0027): its code
+ * fill, or the click on its button that follows the fill.
+ */
+function codeStep(
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+  index: number,
+): "fill" | "click" | undefined {
+  const plan = attemptPlan(recipe, metadata);
+  const entry = plan?.[index];
+  if (entry?.handler === undefined || recipe.handlers?.[entry.handler]?.kind !== "totp")
+    return undefined;
+  if (entry.step.kind === "fill") return "fill";
+  const before = plan![index - 1];
+  return entry.step.kind === "click" &&
+    before?.handler === entry.handler &&
+    before.step.kind === "fill"
+    ? "click"
+    : undefined;
+}
+/**
+ * Whether a `totp` handler's fill went in, or may have, and its click has not run (ADR
+ * 0027): a page that moved on meanwhile submitted the code by itself.
+ */
+const codeAwaitsClick = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) =>
+  metadata.operationId === undefined
+    ? codeStep(recipe, metadata, metadata.stepIndex) === "click"
+    : metadata.operationKind === "fill" &&
+      metadata.operationEffect === "prepare" &&
+      metadata.mutationIntent === true &&
+      codeStep(recipe, metadata, metadata.stepIndex) === "fill";
 /** The step may have submitted or moved the page, so its result can show a handler. */
 const effectful = (metadata: LoginAttemptMetadata) =>
   metadata.operationKind === "click" ||
@@ -346,6 +410,8 @@ const effectful = (metadata: LoginAttemptMetadata) =>
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
 const probeMode = import.meta.env.MODE === "probe";
+/** The order in which handlers shown together are tried: a passkey types nothing. */
+const handlerOrder = { passkey: 0, totp: 1 } as const satisfies Record<LoginHandler["kind"], number>;
 
 /** Custom-field values read for their shapes per generation request (ADR 0027). */
 const MAX_CUSTOM_SHAPE_READS = 32;
@@ -429,9 +495,11 @@ export type LoginReport =
       kind: string;
       /**
        * `entered`; `shown-again` after this login already ran it; `missing-fact` when the
-       * item lacks what the handler needs; `no-room` when the attempt's budget is spent.
+       * item lacks what the handler needs, including a `totp` handler's built-in field;
+       * `code-used` when the login already types a TOTP code; `no-room` when the attempt's
+       * budget is spent.
        */
-      outcome: "entered" | "shown-again" | "missing-fact" | "no-room";
+      outcome: "entered" | "shown-again" | "missing-fact" | "code-used" | "no-room";
       steps: number;
     };
 /**
@@ -523,6 +591,7 @@ export function createLoginRuntime(
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   let probePasskey: "discoverable" | "second-factor" | undefined;
+  let probeTotp = false;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
   /** By `recordKey`, in the order they were last written. */
@@ -633,6 +702,7 @@ export function createLoginRuntime(
         origin = parsed.origin;
         account = parsed.account ?? DEMO_PROBE_ACCOUNT;
         probePasskey = parsed.passkey;
+        probeTotp = parsed.totp === true;
       }
       const stored = storage[STORAGE_KEY];
       if (stored === undefined) return;
@@ -1304,6 +1374,9 @@ export function createLoginRuntime(
     // The synthetic probe item names its password field `password`; it holds a value.
     if (probeMode && owner.origin === origin && owner.fieldIds.includes("password"))
       fieldFacts.password = true;
+    // Its synthetic `totp` field counts as a TOTP secret only when the probe says so.
+    if (probeMode && owner.origin === origin && probeTotp && owner.fieldIds.includes("totp"))
+      fieldFacts.totp = true;
     // The synthetic item's configured passkey stands in for the vault search.
     if (probeMode && owner.origin === origin && probePasskey)
       return {
@@ -1370,7 +1443,12 @@ export function createLoginRuntime(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     recipe: LoginRecipe,
-    request: { asking?: boolean; route?: LoginRouteChoice } = {},
+    request: {
+      asking?: boolean;
+      route?: LoginRouteChoice;
+      /** Slots of the handlers a running login entered; `totp` reads the built-in field. */
+      handlerSlots?: readonly string[];
+    } = {},
   ) {
     let catalog: VaultCatalog;
     let chosen: Choice | undefined;
@@ -1465,7 +1543,22 @@ export function createLoginRuntime(
             ...(chosen.pick?.makeDefault ? { replace: true } : {}),
           };
       }
-      const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding, slots);
+      // An entered `totp` handler reads the item's built-in TOTP field (ADR 0027), for this
+      // login only: the binding saved after it authenticates covers the route's slots.
+      let planSlots = slots;
+      if (request.handlerSlots?.includes(TOTP_HANDLER_SLOT)) {
+        const owner = catalog.connections.find((entry) => entry.id === binding.connectionId);
+        const code =
+          owner &&
+          codeFieldOf(owner, binding.itemId, snapshot.snapshot.settings.bindings, recipe);
+        if (!code) return { ok: false as const, reason: "code-field-missing" as const };
+        binding = {
+          ...binding,
+          slots: [...binding.slots, { slot: TOTP_HANDLER_SLOT, fieldId: code }],
+        };
+        planSlots = [...slots, TOTP_HANDLER_SLOT];
+      }
+      const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding, planSlots);
       // A saved default's item that no longer matches the page, as after its URI was edited
       // on another device, is also no matching item.
       if (!plan.ok && plan.reason === "item-origin-mismatch" && savedDefault)
@@ -1549,7 +1642,13 @@ export function createLoginRuntime(
       ? { ok: false as const, reason: first }
       : { ok: false as const, reason: "no-route" as const, detail: first };
   }
-  type Authorized = { connection: VaultConnectionMetadata; binding: LoginAccountBinding };
+  type Authorized = {
+    connection: VaultConnectionMetadata;
+    binding: LoginAccountBinding;
+    /** The account's allowed field IDs and the synced bindings it was authorized with. */
+    fieldIds: string[];
+    bindings: SavedLoginBinding[];
+  };
   /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
   async function allowed(run: Execution): Promise<Authorized | undefined> {
     if (!current(run) || !storageHealthy) return undefined;
@@ -1564,9 +1663,10 @@ export function createLoginRuntime(
       return undefined;
     }
     // The recorded route alone is checked, so an excluded field of another variant never
-    // stops this login (ADR 0027).
+    // stops this login, with the fields of the handlers it entered (ADR 0027).
     const plan = await planFor(snapshot, run.live, run.recipe, {
       route: attemptRouteChoice(run.metadata),
+      handlerSlots: handlerSlots(run.recipe, run.metadata),
     });
     if (
       !plan.ok ||
@@ -1580,7 +1680,12 @@ export function createLoginRuntime(
       );
       return undefined;
     }
-    return { connection: plan.connection, binding: plan.binding };
+    return {
+      connection: plan.connection,
+      binding: plan.binding,
+      fieldIds: plan.account.fieldIds,
+      bindings: snapshot.snapshot.settings.bindings,
+    };
   }
   async function observe(run: Execution, targets: LoginTarget[]) {
     // Exclusion/default/policy checks precede even metadata observation.
@@ -1719,16 +1824,17 @@ export function createLoginRuntime(
     return undefined;
   }
   /**
-   * Enters a handler of the recipe on this path whose first elements show (ADR 0027).
-   * Returns whether the attempt moved on: to the handler's steps, or to `challenge` when
-   * the item lacks the handler's fact, the handler already ran, or the attempt's budget
-   * has no room for it.
+   * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).
+   * Several shown: the first not yet entered whose fact the item has, a `passkey` handler
+   * before a `totp` handler, as the routes put the passkey first and it types nothing. A
+   * `totp` handler is never entered by a login that already types a code, and needs the
+   * item's built-in TOTP field. Returns whether the attempt moved on: to the handler's
+   * steps, or to `challenge` when no shown handler qualifies or the attempt's budget has
+   * no room for it.
    */
   async function enterHandler(run: Execution, path: string): Promise<boolean> {
     const entries = (run.recipe.handlers ?? []).flatMap((handler, index) =>
-      handler.path === path
-        ? [{ handler, index, targets: stepTargets(handlerSteps(handler)[0]!) }]
-        : [],
+      handler.path === path ? [{ handler, index, targets: handlerTargets(handler) }] : [],
     );
     if (!entries.length) return false;
     // A separate observation, so the recipe's own bound of 24 elements still holds.
@@ -1738,11 +1844,15 @@ export function createLoginRuntime(
     );
     if (!observed || observed.path !== path) return false;
     let offset = 0;
-    const shown = entries.filter((entry) => {
-      const states = observed.targets.slice(offset, offset + entry.targets.length);
-      offset += entry.targets.length;
-      return states.length === entry.targets.length && states.every((state) => state === "unique");
-    });
+    const shown = entries
+      .filter((entry) => {
+        const states = observed.targets.slice(offset, offset + entry.targets.length);
+        offset += entry.targets.length;
+        return (
+          states.length === entry.targets.length && states.every((state) => state === "unique")
+        );
+      })
+      .sort((left, right) => handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind]);
     if (!shown.length) return false;
     const reportHandler = (
       entry: (typeof entries)[number],
@@ -1760,15 +1870,37 @@ export function createLoginRuntime(
       });
     const challenge = () =>
       change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
-    // A handler page shown again after its handler ran is left to the person, so a wrong
-    // code or key is never retried into a lockout.
-    const fresh = shown.find(
-      (entry) => !run.metadata.handlers.some((entered) => entered.index === entry.index),
-    );
-    if (!fresh || !run.metadata.facts[handlerFact[fresh.handler.kind]]) {
-      reportHandler(fresh ?? shown[0]!, fresh ? "missing-fact" : "shown-again");
+    // A handler page shown again after its handler ran is left to the person, and so is a
+    // second code in one login, so a wrong code or key is never retried into a lockout.
+    const refusal = (entry: (typeof entries)[number]) =>
+      run.metadata.handlers.some((entered) => entered.index === entry.index)
+        ? ("shown-again" as const)
+        : !run.metadata.facts[handlerFact[entry.handler.kind]]
+          ? ("missing-fact" as const)
+          : entry.handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
+            ? ("code-used" as const)
+            : undefined;
+    const fresh = shown.find((entry) => refusal(entry) === undefined);
+    if (!fresh) {
+      reportHandler(shown[0]!, refusal(shown[0]!)!);
       await challenge();
       return true;
+    }
+    if (fresh.handler.kind === "totp") {
+      // The code comes from the item's built-in TOTP field, which the account must allow.
+      const authorized = await allowed(run);
+      if (!authorized) return true;
+      const code = codeFieldOf(
+        authorized.connection,
+        run.metadata.account.itemId,
+        authorized.bindings,
+        run.recipe,
+      );
+      if (!code || !authorized.fieldIds.includes(code)) {
+        reportHandler(fresh, "missing-fact");
+        await challenge();
+        return true;
+      }
     }
     const steps = handlerSteps(fresh.handler);
     const event: LoginAttemptEvent = {
@@ -1788,6 +1920,48 @@ export function createLoginRuntime(
     }
     reportHandler(fresh, "entered");
     await change(run, event);
+    return true;
+  }
+  /**
+   * After a `totp` handler's fill, whether the page moved on by itself before the click
+   * found its button (ADR 0027): to another path, or to the completion or the rejection
+   * without the button. A button still shown is clicked once as planned.
+   */
+  async function submittedByPage(
+    run: Execution,
+    click: Extract<LoginStep, { kind: "click" }>,
+  ): Promise<boolean> {
+    const { completion, rejection } = run.recipe;
+    const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
+    const observed = await observe(run, [
+      click.target,
+      ...proof,
+      ...(rejection ? [rejection] : []),
+    ]);
+    if (!observed || !current(run)) return false;
+    if (observed.path !== click.path) return true;
+    if (observed.targets[0] === "unique") return false;
+    const proven =
+      completion !== undefined &&
+      observed.path === completion.path &&
+      observed.targets[1] === "unique" &&
+      observed.targets.slice(2, 1 + proof.length).every((state) => state === "missing");
+    return proven || (rejection !== undefined && observed.targets[1 + proof.length] === "unique");
+  }
+  /**
+   * The page submitted a `totp` handler's code by itself: the handler's click counts as
+   * done, and the page is settled as after a click. The code is never filled again.
+   * Returns whether the attempt took it.
+   */
+  async function codeSubmitted(run: Execution): Promise<boolean> {
+    await change(run, { type: "AUTO_SUBMITTED", operationId: crypto.randomUUID() });
+    if (
+      !current(run) ||
+      run.metadata.state !== "reconciling" ||
+      run.metadata.operationKind !== "click"
+    )
+      return false;
+    await reconcileBounded(run);
     return true;
   }
   /**
@@ -1977,9 +2151,30 @@ export function createLoginRuntime(
         // delivery; a slow render is not a failure until the owner-approved limit passes.
         const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
         if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
+          // A code input may submit by itself once the code is in, as one that submits on
+          // its last digit does; its click then has nothing left to do (ADR 0027).
+          const afterCode =
+            upcoming.kind === "click" &&
+            codeStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
+          if (afterCode && (await submittedByPage(run, upcoming))) {
+            if (!current(run) || run.metadata.state !== "ready") return;
+            if (await codeSubmitted(run)) continue;
+            await change(run, { type: "FAILED", reason: "structural-mismatch" });
+            return;
+          }
+          if (!current(run) || run.metadata.state !== "ready") return;
           const waited = await waitFor(run, loginReadiness(upcoming));
           if (!current(run) || run.metadata.state !== "ready") return;
           if (waited === "timeout") {
+            if (
+              afterCode &&
+              (await submittedByPage(run, upcoming)) &&
+              current(run) &&
+              run.metadata.state === "ready" &&
+              (await codeSubmitted(run))
+            )
+              continue;
+            if (!current(run) || run.metadata.state !== "ready") return;
             await change(run, { type: "FAILED", reason: "structural-mismatch" });
             return;
           }
@@ -2048,11 +2243,15 @@ export function createLoginRuntime(
                 await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
                 return;
               }
-              const secret = loginSecretKind(
-                authorized.connection,
-                run.metadata.account.itemId,
-                reference.fieldId,
-              );
+              // A `totp` handler's code fills only a code input, whatever field it reads.
+              const secret: LoginSecretKind | undefined =
+                codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+                  ? "otp"
+                  : loginSecretKind(
+                      authorized.connection,
+                      run.metadata.account.itemId,
+                      reference.fieldId,
+                    );
               values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
             }
             // A step that fills a secret but no username, such as a password page for a
@@ -2174,6 +2373,16 @@ export function createLoginRuntime(
           });
           return;
         }
+        // The code page replaced its form once the code was in: it submitted by itself.
+        if (
+          matchedResult &&
+          !result.output.ok &&
+          result.output.reason === "structural-mismatch" &&
+          result.output.mutation === "possible" &&
+          codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+          (await codeSubmitted(run))
+        )
+          continue;
         if (!matchedResult || !result.output.ok) {
           await change(
             run,
@@ -2885,7 +3094,19 @@ export function createLoginRuntime(
     let metadata: LoginAttemptMetadata;
     let resumedPolicy: PolicyChange | undefined;
     if (previous) {
-      metadata = transitionLoginAttempt(recoverLoginAttempt(previous), {
+      let resumed = recoverLoginAttempt(previous);
+      // The page left the document a `totp` handler filled its code into before the click,
+      // as a code input that submits on its last digit does: the page submitted the code
+      // itself, and it is never filled again (ADR 0027).
+      if (
+        previous.document.documentId !== document.documentId &&
+        codeAwaitsClick(recipe, resumed)
+      )
+        resumed = transitionLoginAttempt(resumed, {
+          type: "AUTO_SUBMITTED",
+          operationId: crypto.randomUUID(),
+        });
+      metadata = transitionLoginAttempt(resumed, {
         type: "NAVIGATED",
         document,
       });
@@ -2981,11 +3202,13 @@ export function createLoginRuntime(
         origin = config.output.origin;
         account = config.output.account ?? DEMO_PROBE_ACCOUNT;
         probePasskey = config.output.passkey;
+        probeTotp = config.output.totp === true;
         await browser.storage.local.set({
           [CONFIG_KEY]: {
             origin,
             ...(config.output.account ? { account } : {}),
             ...(probePasskey ? { passkey: probePasskey } : {}),
+            ...(probeTotp ? { totp: true } : {}),
           },
         });
         return { ok: true };

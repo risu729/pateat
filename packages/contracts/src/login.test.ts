@@ -4,6 +4,7 @@ import {
   chooseLoginRoute,
   extendsRecipe,
   handlerSteps,
+  handlerTargets,
   passwordVariants,
   recipeHasRoute,
   recipeSlots,
@@ -519,6 +520,88 @@ describe("second-factor page handlers (ADR 0027)", () => {
     expect(handlerSteps(passkeyHandler())).toEqual([
       { kind: "click", path: "/webauthn", target: securityKey, purpose: "submit" },
     ]);
+  });
+
+  describe("the totp handler", () => {
+    const code = (change: Record<string, unknown> = {}) => ({
+      kind: "totp" as const,
+      path: "/two-factor",
+      field: { by: "id" as const, value: "otp" },
+      target: { by: "text" as const, value: "Verify" },
+      ...change,
+    });
+
+    it("accepts a code field and its button beside a passkey handler on one path", () => {
+      const handlers = [code(), passkeyHandler("/two-factor")];
+      expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+      // On a route path, its button may be the route's own submit button.
+      expect(
+        parseLoginRecipe(
+          withHandlers([code({ path: "/password", target: { by: "id", value: "login" } })]),
+        ).handlers,
+      ).toHaveLength(1);
+    });
+
+    it("refuses a text-located field, a field that is its button and a second one per path", () => {
+      for (const handler of [
+        code({ field: { by: "text", value: "Code" } }),
+        code({ field: { by: "id", value: "verify" }, target: { by: "id", value: "verify" } }),
+        { kind: "totp", path: "/two-factor", target: { by: "id", value: "verify" } },
+      ])
+        expect(() => parseLoginRecipe(withHandlers([handler]))).toThrow();
+      expect(() =>
+        parseLoginRecipe(withHandlers([code(), code({ field: { by: "id", value: "other" } })])),
+      ).toThrow();
+    });
+
+    it("refuses an account switch, marker or passkey button that is one of its elements", () => {
+      const marker = { by: "id", value: "authenticated" } as const;
+      expect(() =>
+        parseLoginRecipe({ ...withHandlers([code()]), accountSwitch: { by: "text", value: "Verify" } }),
+      ).toThrow();
+      expect(() =>
+        parseLoginRecipe(withHandlers([code({ path: "/authenticated", field: marker })])),
+      ).toThrow();
+      expect(() =>
+        parseLoginRecipe({
+          ...withHandlers([code({ path: "/identity", field: { by: "id", value: "passkey-login" } })]),
+          passkey: { path: "/identity", target: { by: "id", value: "passkey-login" } },
+        }),
+      ).toThrow();
+    });
+
+    it("fills the code into its field, then clicks its button", () => {
+      expect(handlerTargets(code())).toEqual([code().field, code().target]);
+      expect(handlerTargets(passkeyHandler())).toEqual([securityKey]);
+      expect(handlerSteps(code())).toEqual([
+        {
+          kind: "fill",
+          path: "/two-factor",
+          fields: [{ slot: "totp", target: { by: "id", value: "otp" } }],
+          effect: "prepare",
+        },
+        { kind: "click", path: "/two-factor", target: code().target, purpose: "submit" },
+      ]);
+      // Both are valid recipe steps.
+      for (const step of handlerSteps(code()))
+        expect(
+          parseLoginOperation({
+            version: 1,
+            attemptId: "attempt-one",
+            operationId: "operation-one",
+            policyRevision: 4,
+            document: {
+              origin: "https://bank.example",
+              tabId: 11,
+              frameId: 0,
+              documentId: "document-one",
+            },
+            stepIndex: 2,
+            step,
+            expiresAt: 15_000,
+          }).step,
+        ).toEqual(step);
+    });
   });
 
   it("allows handler steps beyond the route's step indices in an operation", () => {

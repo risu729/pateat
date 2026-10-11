@@ -217,6 +217,11 @@ export const configureSchema = v.strictObject({
    * passkey, so this stands in for the vault search; no key is created or used.
    */
   passkey: v.optional(v.picklist(["discoverable", "second-factor"])),
+  /**
+   * Probe-only TOTP fact for the synthetic item (ADR 0027): its synthetic `totp` field then
+   * counts as holding a TOTP secret. The field's value is a fixed synthetic code.
+   */
+  totp: v.optional(v.literal(true)),
 });
 export const statusSchema = v.strictObject({
   version: v.literal(1),

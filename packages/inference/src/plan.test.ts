@@ -169,7 +169,16 @@ describe("the Hidden fill rule in plan validation (ADR 0027)", () => {
   it("leaves the other kinds' roles unchanged", () => {
     expect(slotAccepts("identifier", input("x", { role: "number" }))).toBe(true);
     expect(slotAccepts("secret", input("x", { role: "tel", maxLength: 4 }))).toBe(false);
-    expect(slotAccepts("one-time-code", input("x", { role: "number" }))).toBe(true);
+    // A one-time code takes the executor's TOTP rule: an unlimited number input needs the
+    // autocomplete hint.
+    expect(slotAccepts("one-time-code", input("x", { role: "number" }))).toBe(false);
+    expect(
+      slotAccepts("one-time-code", input("x", { role: "number", autocomplete: "one-time-code" })),
+    ).toBe(true);
+    expect(
+      slotAccepts("one-time-code", input("x", { role: "text", inputMode: "numeric", maxLength: 6 })),
+    ).toBe(true);
+    expect(slotAccepts("one-time-code", input("x", { role: "text" }))).toBe(false);
   });
 });
 

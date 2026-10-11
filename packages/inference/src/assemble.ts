@@ -1,10 +1,14 @@
 import {
   extendsRecipe,
+  fillRoles,
+  handlerTargets,
+  isCodeField,
   loginRecipeSchema,
   loginStepEffect,
   passwordVariants,
   routeFillTargets,
   sameLoginTarget as sameTarget,
+  type LoginAttributeTarget,
   type LoginObservation,
   type LoginRecipe,
   type LoginStep,
@@ -47,8 +51,12 @@ const effects = (steps: readonly LoginStep[]) =>
   }).length;
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
-const handlerTargets = (recipe: LoginRecipe, path: string) =>
-  (recipe.handlers ?? []).filter((handler) => handler.path === path).map(({ target }) => target);
+/** Every element a handler of the recipe uses on `path`: buttons and code fields. */
+const handlerElements = (recipe: LoginRecipe, path: string) =>
+  (recipe.handlers ?? []).filter((handler) => handler.path === path).flatMap(handlerTargets);
+/** The code fields of the recipe's `totp` handlers, on any path. */
+const codeFields = (recipe: LoginRecipe) =>
+  (recipe.handlers ?? []).flatMap((handler) => (handler.kind === "totp" ? [handler.field] : []));
 /**
  * Every element a route's step uses on `path`: each password variant's, and the passkey
  * route's button (ADR 0027).
@@ -155,10 +163,11 @@ export function addCompletion(
   // route's button (ADR 0027).
   const steps = passwordVariants(base).flatMap((variant) => variant.steps);
   const used = routeTargets(base, page.path);
-  if ([...used, ...handlerTargets(base, page.path)].some((element) => sameTarget(element, target)))
+  if ([...used, ...handlerElements(base, page.path)].some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
-  // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not.
-  const loginElements = [...used, ...routeFillTargets(base, "password")];
+  // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not, and
+  // neither does a `totp` handler's code field (ADR 0027).
+  const loginElements = [...used, ...routeFillTargets(base, "password"), ...codeFields(base)];
   if (
     page.candidates.some((candidate) =>
       loginElements.some((element) => sameTarget(element, candidate.target)),
@@ -188,9 +197,12 @@ export type HandlerRejection =
   | "not-on-page"
   /** The button registers, adds or sets up a passkey rather than signing in with one. */
   | "registration"
+  /** A `totp` handler's field is not an input the executor fills a TOTP code into. */
+  | "not-code-field"
   /**
    * The button is one of the recipe's step targets on that path, its account switch,
-   * rejection or completion marker.
+   * rejection or completion marker, or another handler's element there; or a `totp`
+   * handler's field is a field the route fills.
    */
   | "step-target"
   /** The recipe already has a handler of this kind on that path. */
@@ -199,38 +211,71 @@ export type HandlerRejection =
   | "invalid-recipe";
 
 /**
- * Adds a `passkey` handler for the judged page's security-key or passkey button to a
- * generated recipe in its next revision (ADR 0027). The route's steps are kept as they
- * are, so a running login can take the result over (`extendsRecipe`). The page may be
- * on a route path: a second-factor form on the sign-in path still gets a handler.
+ * Adds a handler for the judged page to a generated recipe in its next revision (ADR
+ * 0027): a `passkey` handler for its security-key or passkey button, or a `totp` handler
+ * for its authenticator app code field and the button that submits it. The route's steps
+ * are kept as they are, so a running login can take the result over (`extendsRecipe`).
+ * The page may be on a route path: a second-factor form on the sign-in path still gets a
+ * handler. A `totp` handler's button may even be the route's own submit button on that
+ * path, as on a page that asks for the code in the sign-in form after the password, but
+ * its field is never a field the route fills.
  */
 export function addHandler(
   base: LoginRecipe,
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
-  handler: { kind: "passkey"; target: LoginTarget },
+  handler:
+    | { kind: "passkey"; target: LoginTarget }
+    | { kind: "totp"; field: LoginAttributeTarget; target: LoginTarget },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
   const button = page.candidates.find(
     (candidate) => candidate.role === "button" && sameTarget(candidate.target, handler.target),
   );
   if (!button) return { ok: false, reason: "not-on-page" };
-  // The label, the text and an id, name or test ID locator all count.
-  if (registersPasskey(button)) return { ok: false, reason: "registration" };
-  const used = [
-    ...routeTargets(base, page.path),
-    ...(base.accountSwitch ? [base.accountSwitch] : []),
-    ...(base.rejection ? [base.rejection] : []),
-    ...(base.completion ? [base.completion.target] : []),
-  ];
-  if (used.some((element) => sameTarget(element, handler.target)))
-    return { ok: false, reason: "step-target" };
   const handlers = base.handlers ?? [];
   if (handlers.some((entry) => entry.kind === handler.kind && entry.path === page.path))
     return { ok: false, reason: "duplicate" };
+  const others = [
+    ...(base.accountSwitch ? [base.accountSwitch] : []),
+    ...(base.rejection ? [base.rejection] : []),
+    ...(base.completion ? [base.completion.target] : []),
+    ...handlerElements(base, page.path),
+  ];
+  if (handler.kind === "passkey") {
+    // The label, the text and an id, name or test ID locator all count.
+    if (registersPasskey(button)) return { ok: false, reason: "registration" };
+    if (
+      [...routeTargets(base, page.path), ...others].some((element) =>
+        sameTarget(element, handler.target),
+      )
+    )
+      return { ok: false, reason: "step-target" };
+  } else {
+    const field = page.candidates.find(
+      (candidate) =>
+        (fillRoles as readonly string[]).includes(candidate.role) &&
+        sameTarget(candidate.target, handler.field),
+    );
+    // The executor fills a TOTP code only into such a field (ADR 0013).
+    if (!field) return { ok: false, reason: "not-on-page" };
+    if (!isCodeField(field)) return { ok: false, reason: "not-code-field" };
+    const fills = routeFillTargets(base, "password");
+    if (
+      [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
+        sameTarget(element, handler.field),
+      ) ||
+      [
+        ...fills,
+        ...(base.passkey?.path === page.path ? [base.passkey.target] : []),
+        ...others,
+      ].some((element) => sameTarget(element, handler.target))
+    )
+      return { ok: false, reason: "step-target" };
+  }
   const recipe = v.safeParse(loginRecipeSchema, {
     ...base,
     revision: base.revision + 1,
-    handlers: [...handlers, { kind: handler.kind, path: page.path, target: handler.target }],
+    handlers: [...handlers, { ...handler, path: page.path }],
   });
   return recipe.success && extendsRecipe(base, recipe.output)
     ? { ok: true, recipe: recipe.output }

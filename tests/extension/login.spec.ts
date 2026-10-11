@@ -27,6 +27,7 @@ async function configure(
   origin: string,
   selectAccount = true,
   passkey?: "discoverable" | "second-factor",
+  totp = false,
 ) {
   await options.goto(`chrome-extension://${extensionId}/options.html`);
   await expect(options.locator("#settings-status")).toContainText("Saved settings loaded");
@@ -36,6 +37,7 @@ async function configure(
       type: "login.probe.configure",
       origin,
       ...(passkey ? { passkey } : {}),
+      ...(totp ? { totp: true } : {}),
     }),
   ).toMatchObject({ ok: true });
   const response = (await send(options, { version: 1, type: "settings.get" })) as SettingsResponse;
@@ -768,6 +770,119 @@ test("a passkey that is only a second factor signs in with the password (ADR 002
         await send(options, { version: 1, type: "login.probe.status" }),
       );
       expect(status).toContain('"route":"password"');
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+/** What the synthetic code page recorded: counts and whether the code matched, never the code. */
+async function codeEvidence(page: Page) {
+  return page.evaluate(() => ({
+    codeInputs: Number(sessionStorage.getItem("codeInputs") || 0),
+    verifyClicks: Number(sessionStorage.getItem("verifyClicks") || 0),
+    autoSubmits: Number(sessionStorage.getItem("autoSubmits") || 0),
+    codeMatched: sessionStorage.getItem("codeMatched"),
+  }));
+}
+
+test("fills the TOTP code on the code page and clicks Verify once (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, undefined, true);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      await expect.poll(status).toContain('"authenticated"');
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 1,
+        verifyClicks: 1,
+        autoSubmits: 0,
+        codeMatched: "true",
+      });
+      expect(await clicks(page)).toBe(1);
+      const text = await status();
+      expect(text).toContain('"recipeId":"demo-totp"');
+      expect(text).toContain('"handlers":[{"index":0,"start":2}]');
+      expect(text).not.toContain("012345");
+      expect(text).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a code page shown again after Verify ends as a challenge without a second code (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, undefined, true);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp?wrong`);
+      await expect.poll(status).toContain('"challenge"');
+      await expect(page.locator("#code")).toHaveValue("");
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 1,
+        verifyClicks: 1,
+        autoSubmits: 0,
+        codeMatched: "true",
+      });
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("an item without a TOTP secret leaves the code page to the person (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp`);
+      await expect.poll(status).toContain('"challenge"');
+      await expect(page.locator("#code")).toHaveValue("");
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 0,
+        verifyClicks: 0,
+        autoSubmits: 0,
+        codeMatched: null,
+      });
+      expect(await status()).toContain('"handlers":[]');
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a code page that submits on its last digit signs in without a click (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, undefined, true);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp?auto`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      await expect.poll(status).toContain('"authenticated"');
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 1,
+        verifyClicks: 0,
+        autoSubmits: 1,
+        codeMatched: "true",
+      });
     });
   } finally {
     await fixture.close();

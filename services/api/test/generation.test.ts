@@ -1441,6 +1441,91 @@ describe("page judgement (ADR 0027)", () => {
     expect(await head(device, change.recipeId)).toBe(3);
   });
 
+  it("adds a totp handler for an authenticator app code, beside a passkey handler in one revision", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const code = {
+      ...element("app-code", "text", "Authentication code"),
+      autocomplete: "one-time-code" as const,
+      inputMode: "numeric" as const,
+      maxLength: 6,
+    };
+    const verify = element("verify", "button", "Verify");
+    const mfa = observation("/login/mfa", [code, verify, element("key", "button", "Use security key")]);
+    const answer = (source: string, passkeyButton?: string) =>
+      judgeReply({
+        decision: "challenge",
+        ...(passkeyButton ? { passkeyButton } : {}),
+        code: { field: "app-code", submit: "verify", source },
+      });
+    replies.push(answer("authenticator-app", "key"));
+    expect((await complete(device, change.recipeId, 2, mfa)).body).toMatchObject({
+      status: "challenge",
+      change: {
+        revision: 3,
+        recipe: {
+          revision: 3,
+          steps: change.recipe.steps,
+          handlers: [
+            { kind: "passkey", path: "/login/mfa", target: { by: "id", value: "key" } },
+            {
+              kind: "totp",
+              path: "/login/mfa",
+              field: { by: "id", value: "app-code" },
+              target: { by: "id", value: "verify" },
+            },
+          ],
+        },
+      },
+    });
+    expect(await head(device, change.recipeId)).toBe(3);
+    // A code sent by SMS, or one whose source the page does not say, adds nothing.
+    for (const [path, source] of [
+      ["/login/sms", "sms"],
+      ["/login/code", "unknown"],
+    ] as const) {
+      replies.push(answer(source));
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- Each page is judged on its own.
+        (await complete(device, change.recipeId, 3, observation(path, [code, verify]))).body,
+      ).toEqual({ version: 1, status: "challenge" });
+    }
+    expect(await head(device, change.recipeId)).toBe(3);
+  });
+
+  it("does not learn a completion on a page that shows a totp handler's code field", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const code = {
+      ...element("app-code", "text", "Authentication code"),
+      inputMode: "numeric" as const,
+      maxLength: 6,
+    };
+    replies.push(
+      judgeReply({
+        decision: "challenge",
+        code: { field: "app-code", submit: "verify", source: "authenticator-app" },
+      }),
+    );
+    const mfa = observation("/login/mfa", [code, element("verify", "button", "Verify")]);
+    expect((await complete(device, change.recipeId, 2, mfa)).body).toMatchObject({
+      change: { revision: 3 },
+    });
+    // The code page again, with a link the model takes for a signed-in marker.
+    replies.push(judgeReply({ decision: "signed-in", marker: "help" }));
+    expect(
+      (
+        await complete(
+          device,
+          change.recipeId,
+          3,
+          observation("/account", [code, element("help", "link", "Help")]),
+        )
+      ).body,
+    ).toEqual({ version: 1, status: "failed", error: "invalid-output" });
+    expect(await head(device, change.recipeId)).toBe(3);
+  });
+
   it("checks the head again under the lock and names a revocation meanwhile", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

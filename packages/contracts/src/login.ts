@@ -137,11 +137,26 @@ const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
 export const loginRouteSchema = v.picklist(["password", "passkey"]);
 /**
  * A branch on the page that appears after an effect step (ADR 0027), entered when its
- * path matches and its element shows, and run only for an item with the handler's fact.
- * Its steps follow from its kind. `passkey` clicks a button such as "Use security key".
+ * path matches and all its elements show, and run only for an item with the handler's
+ * fact. Its steps follow from its kind. `passkey` clicks a button such as "Use security
+ * key"; `totp` fills the item's TOTP code into `field` and clicks `target`, its submit
+ * button.
  */
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("totp"),
+      path,
+      field: loginAttributeTargetSchema,
+      target: loginTargetSchema,
+    }),
+    v.check(
+      (handler) =>
+        handler.field.by !== handler.target.by || handler.field.value !== handler.target.value,
+      "The code field cannot be its submit button",
+    ),
+  ),
 ]);
 const handlerKey = (handler: v.InferOutput<typeof loginHandlerSchema>) =>
   `${handler.kind} ${handler.path}`;
@@ -170,6 +185,15 @@ const variantsOf = (recipe: {
   alternatives?: { slots: string[]; steps: v.InferOutput<typeof loginStepSchema>[] }[] | undefined;
 }) => [{ slots: recipe.slots, steps: recipe.steps }, ...(recipe.alternatives ?? [])];
 const targetKey = (target: v.InferOutput<typeof loginTargetSchema>) => JSON.stringify(target);
+/**
+ * Every element a handler uses, in the order its steps use them: a `totp` handler's code
+ * field, then its button. The handler is entered only when all of them show (ADR 0027).
+ */
+export function handlerTargets(
+  handler: v.InferOutput<typeof loginHandlerSchema>,
+): v.InferOutput<typeof loginTargetSchema>[] {
+  return handler.kind === "totp" ? [handler.field, handler.target] : [handler.target];
+}
 /** The `passkey` route's one step: a click on its button that submits. */
 const passkeyStep = (passkey: {
   path: string;
@@ -370,7 +394,7 @@ export const loginRecipeSchema = v.pipe(
       ...variantsOf(recipe).flatMap((variant) =>
         variant.steps.flatMap((step) => (step.kind === "click" ? [step.target] : [])),
       ),
-      ...(recipe.handlers ?? []).map((handler) => handler.target),
+      ...(recipe.handlers ?? []).flatMap(handlerTargets),
       ...(recipe.rejection ? [recipe.rejection] : []),
     ].some((target) => targetKey(target) === key);
   }, "Account switch target is a step or rejection target"),
@@ -394,14 +418,16 @@ export const loginRecipeSchema = v.pipe(
       ) && !used.some((entry) => recipe.rejection && entry.key === targetKey(recipe.rejection))
     );
   }, "Completion or rejection target is a variant's step target"),
-  // A handler's button showing would otherwise prove the sign-in on its own page.
+  // A handler's element showing would otherwise prove the sign-in on its own page.
   v.check(
     (recipe) =>
       !recipe.completion ||
       !(recipe.handlers ?? []).some(
         (handler) =>
           handler.path === recipe.completion!.path &&
-          JSON.stringify(handler.target) === JSON.stringify(recipe.completion!.target),
+          handlerTargets(handler).some(
+            (target) => targetKey(target) === targetKey(recipe.completion!.target),
+          ),
       ),
     "Completion target is a handler target",
   ),
@@ -429,7 +455,11 @@ export const loginRecipeSchema = v.pipe(
           ),
         ),
       ) &&
-      !onPath(recipe.handlers ?? []) &&
+      !onPath(
+        (recipe.handlers ?? []).flatMap((handler) =>
+          handlerTargets(handler).map((target) => ({ path: handler.path, target })),
+        ),
+      ) &&
       !onPath(recipe.completion ? [recipe.completion] : []) &&
       ![recipe.accountSwitch, recipe.rejection].some(
         (target) => target !== undefined && targetKey(target) === key,
@@ -624,9 +654,29 @@ export function chooseLoginRoute(
   const variant = passwordVariants(recipe).findIndex((_, index) => fits[index] === true);
   return variant === -1 ? undefined : { route: "password", variant };
 }
-/** The steps a handler runs. */
+/** The slot a `totp` handler's fill uses; a binding for it reads the item's TOTP field. */
+export const TOTP_HANDLER_SLOT = "totp";
+/**
+ * The steps a handler runs: a `passkey` handler's click, or a `totp` handler's fill of the
+ * code into its field followed by the click on its submit button.
+ */
 export function handlerSteps(handler: LoginHandler): LoginStep[] {
-  return [{ kind: "click", path: handler.path, target: handler.target, purpose: "submit" }];
+  const click: LoginStep = {
+    kind: "click",
+    path: handler.path,
+    target: handler.target,
+    purpose: "submit",
+  };
+  if (handler.kind === "passkey") return [click];
+  return [
+    {
+      kind: "fill",
+      path: handler.path,
+      fields: [{ slot: TOTP_HANDLER_SLOT, target: handler.field }],
+      effect: "prepare",
+    },
+    click,
+  ];
 }
 
 /**
@@ -645,7 +695,7 @@ export const loginItemFactsSchema = v.strictObject({
 });
 export type LoginItemFacts = v.InferOutput<typeof loginItemFactsSchema>;
 /** The fact each handler kind requires. */
-export const handlerFact = { passkey: "passkey" } as const satisfies Record<
+export const handlerFact = { passkey: "passkey", totp: "totp" } as const satisfies Record<
   LoginHandler["kind"],
   keyof LoginItemFacts
 >;

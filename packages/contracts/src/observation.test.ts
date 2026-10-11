@@ -5,6 +5,7 @@ import {
   genericSlotIdSchema,
   loginObservationSchema,
   semanticSlotsSchema,
+  isCodeField,
   showsCodeField,
   slotsForPage,
 } from "./observation";
@@ -138,6 +139,7 @@ describe("code fields on a generated page (ADR 0027)", () => {
     const page = field(extra);
     expect(parse({ ...base, ...page })).toBe(true);
     expect(showsCodeField(page as never)).toBe(true);
+    expect(isCodeField(page.candidates.at(-1) as never)).toBe(true);
     expect(slotsForPage(page as never, slots)).toEqual(slots);
   });
 
@@ -154,6 +156,7 @@ describe("code fields on a generated page (ADR 0027)", () => {
     const page = field(extra);
     expect(parse({ ...base, ...page })).toBe(true);
     expect(showsCodeField(page as never)).toBe(false);
+    expect(isCodeField(page.candidates.at(-1) as never)).toBe(false);
     expect(slotsForPage(page as never, slots)).toEqual([
       builtInLoginSlots.username,
       builtInLoginSlots.password,

@@ -168,12 +168,12 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
   };
   const challenge = { ...request, observation: webauthn };
 
-  it("names the page's passkey button as the challenge's next element", async () => {
+  it("names the page's passkey button as the challenge's passkey element", async () => {
     expect(
       await judgeReturning({ decision: "challenge", passkeyButton: "key" }).judge(challenge),
     ).toMatchObject({
       status: "ok",
-      value: { decision: "challenge", next: { by: "text", value: "Use security key" } },
+      value: { decision: "challenge", passkey: { by: "text", value: "Use security key" } },
     });
   });
 
@@ -184,7 +184,7 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
         challenge,
       );
       expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
-      expect(outcome.status === "ok" && "next" in outcome.value).toBe(false);
+      expect(outcome.status === "ok" && "passkey" in outcome.value).toBe(false);
     },
   );
 
@@ -214,5 +214,81 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
         loginPaths: [...paths, "/p48"],
       }),
     ).toMatchObject({ status: "failed", error: "invalid-request" });
+  });
+});
+
+describe("authenticator app code on a challenge page (ADR 0027)", () => {
+  const codeField = {
+    id: "code",
+    role: "text",
+    target: { by: "id", value: "app_totp" },
+    label: "Authentication code",
+    autocomplete: "one-time-code",
+    inputMode: "numeric",
+    maxLength: 6,
+    group: "form-1",
+  };
+  const verify = {
+    id: "verify",
+    role: "button",
+    target: { by: "text", value: "Verify" },
+    label: "Verify",
+    group: "form-1",
+  };
+  const page = (candidates: Record<string, unknown>[]) => ({
+    ...request,
+    observation: {
+      ...signedIn,
+      path: "/sessions/two-factor/app",
+      title: "Two-factor authentication",
+      headings: ["Open your authenticator app"],
+      candidates,
+    },
+  });
+  const answer = (code: Record<string, unknown>) =>
+    judgeReturning({ decision: "challenge", code: { field: "code", submit: "verify", ...code } });
+  const totp = { field: { by: "id", value: "app_totp" }, target: { by: "text", value: "Verify" } };
+
+  it("names the code field and its submit button for an authenticator app", async () => {
+    expect(await answer({ source: "authenticator-app" }).judge(page([codeField, verify]))).toEqual(
+      expect.objectContaining({ status: "ok", value: { decision: "challenge", totp } }),
+    );
+  });
+
+  it.each(["sms", "email", "unknown"])("adds no handler for a code from %s", async (source) => {
+    expect(await answer({ source }).judge(page([codeField, verify]))).toMatchObject({
+      status: "ok",
+      value: { decision: "challenge" },
+    });
+    const outcome = await answer({ source }).judge(page([codeField, verify]));
+    expect(outcome.status === "ok" && "totp" in outcome.value).toBe(false);
+  });
+
+  it.each([
+    ["a field that is not a code field", [{ ...codeField, autocomplete: undefined, inputMode: undefined }, verify]],
+    ["a field shorter than six characters", [{ ...codeField, maxLength: 1 }, verify]],
+    [
+      "one of several code fields in its form",
+      [codeField, { ...codeField, id: "code-2", target: { by: "id", value: "digit-2" } }, verify],
+    ],
+    ["a submit element that is a link", [codeField, { ...verify, role: "link" }]],
+    ["a submit button in another form", [codeField, { ...verify, group: "form-2" }]],
+    ["a field that is a button", [{ ...verify, id: "code" }, { ...verify, target: { by: "id", value: "go" } }]],
+  ])("drops the code for %s", async (_label, candidates) => {
+    const outcome = await answer({ source: "authenticator-app" }).judge(page(candidates));
+    expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
+    expect(outcome.status === "ok" && "totp" in outcome.value).toBe(false);
+  });
+
+  it("keeps a code field without a length limit and with the hint only", async () => {
+    const { maxLength: _length, inputMode: _mode, ...hinted } = codeField;
+    expect(
+      await answer({ source: "authenticator-app" }).judge(page([hinted, verify])),
+    ).toMatchObject({ status: "ok", value: { decision: "challenge", totp } });
+  });
+
+  it("tells the model to say where the code comes from", () => {
+    expect(completionInstructions).toMatch(/code\.source/u);
+    expect(completionInstructions).toMatch(/authenticator-app' only when the page says/u);
   });
 });

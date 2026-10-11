@@ -220,7 +220,16 @@ a code, or `unavailable` with a reason when no model was called.
   passkey button passes `addHandler` (a button of the page, not one that registers,
   adds, sets up, turns on or manages a passkey, not a step, switch, rejection or
   completion target, one handler per kind and path) and is stored as a `passkey` handler
-  in the next revision; the answer carries it as `change`.
+  in the next revision. A `challenge` verdict that names a code the page says comes from
+  an authenticator app, in the only input of its form the TOTP fill rule accepts (not
+  limited below 6 characters) with a button of that form, passes `addHandler` too (a
+  field and button of the page, the field not one a route fills or another handler's,
+  the button not a field the route fills, the `passkey` route's button, a switch,
+  rejection, completion or other handler target) and is stored as a `totp` handler; an
+  SMS, email or unknown code stores nothing. Both handlers of one page land in the same
+  next revision, and the answer carries it as `change`. A `signed-in` marker on a page
+  that shows a `totp` handler's code field fails `addCompletion` like one on the sign-in
+  page, and the call answers `invalid-output`.
 
 Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision and page path, so a repeat answers

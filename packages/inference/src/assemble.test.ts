@@ -416,6 +416,130 @@ describe("judged passkey handler (ADR 0027)", () => {
   });
 });
 
+describe("judged totp handler (ADR 0027)", () => {
+  const signIn = { by: "text", value: "Sign in" } as const;
+  const recipe = built([
+    ...page("/login", "username", "advance"),
+    {
+      kind: "fill",
+      path: "/pw",
+      effect: "prepare",
+      fields: [{ slot: "pw", target: target("pw") }],
+    },
+    { kind: "click", path: "/pw", target: signIn, purpose: "submit" },
+  ]);
+  const verify = { by: "text", value: "Verify" } as const;
+  const codeInput = (id = "otp", extra: Partial<ObservedCandidate> = {}) => ({
+    ...candidate(id, target(id), "text"),
+    autocomplete: "one-time-code" as const,
+    ...extra,
+  });
+  const codePage = (path = "/two-factor", ...candidates: ReturnType<typeof candidate>[]) => ({
+    origin,
+    path,
+    candidates: [codeInput(), candidate("verify", verify), ...candidates],
+  });
+  const totp = (field: LoginAttributeTarget = target("otp"), button: LoginTarget = verify) => ({
+    kind: "totp" as const,
+    field,
+    target: button,
+  });
+
+  it("adds a handler for the code field and its button, which extends the recipe", () => {
+    const added = addHandler(recipe, codePage(), totp());
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      { kind: "totp", path: "/two-factor", field: target("otp"), target: verify },
+    ]);
+    expect(added.recipe.revision).toBe(recipe.revision + 1);
+    expect(extendsRecipe(recipe, added.recipe)).toBe(true);
+    // A passkey handler on the same path is a handler of another kind.
+    const key = { by: "text", value: "Use security key" } as const;
+    const both = addHandler(added.recipe, codePage("/two-factor", candidate("key", key)), {
+      kind: "passkey",
+      target: key,
+    });
+    expect(both.ok && both.recipe.handlers?.map((handler) => handler.kind)).toEqual([
+      "totp",
+      "passkey",
+    ]);
+    expect(addHandler(added.recipe, codePage(), totp())).toEqual({
+      ok: false,
+      reason: "duplicate",
+    });
+  });
+
+  it("refuses a field that is not a code field or not an input of the page", () => {
+    const plain = { origin, path: "/two-factor", candidates: [candidate("otp", target("otp"), "text"), candidate("verify", verify)] };
+    expect(addHandler(recipe, plain, totp())).toEqual({ ok: false, reason: "not-code-field" });
+    expect(addHandler(recipe, codePage(), totp(target("missing")))).toEqual({
+      ok: false,
+      reason: "not-on-page",
+    });
+    expect(addHandler(recipe, codePage(), totp(target("otp"), target("missing")))).toEqual({
+      ok: false,
+      reason: "not-on-page",
+    });
+  });
+
+  it("accepts the route's submit button on that path when the code field is new", () => {
+    // A sign-in form that asks for the code after the password, with the same button.
+    const sameForm = {
+      origin,
+      path: "/pw",
+      candidates: [codeInput(), candidate("in", signIn)],
+    };
+    const added = addHandler(recipe, sameForm, totp(target("otp"), signIn));
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      { kind: "totp", path: "/pw", field: target("otp"), target: signIn },
+    ]);
+    // A field the route fills is never the code field.
+    const pw = { origin, path: "/pw", candidates: [codeInput("pw"), candidate("in", signIn)] };
+    expect(addHandler(recipe, pw, totp(target("pw"), signIn))).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+  });
+
+  it("refuses the account switch, rejection or marker as either element", () => {
+    const extended: LoginRecipe = {
+      ...recipe,
+      accountSwitch: { by: "text", value: "Use another account" },
+      rejection: target("error"),
+      completion: { path: "/home", target: target("account") },
+    };
+    expect(
+      addHandler(extended, codePage("/two-factor", candidate("error", target("error"))), totp(target("otp"), target("error"))),
+    ).toEqual({ ok: false, reason: "step-target" });
+    expect(
+      addHandler(
+        extended,
+        { origin, path: "/two-factor", candidates: [codeInput("account"), candidate("verify", verify)] },
+        totp(target("account")),
+      ),
+    ).toEqual({ ok: false, reason: "step-target" });
+  });
+
+  it("learns no completion on a page that still shows the code field", () => {
+    const added = addHandler(recipe, codePage(), totp());
+    if (!added.ok) throw new Error(added.reason);
+    const shown = {
+      origin,
+      path: "/home",
+      candidates: [codeInput(), candidate("logout", target("logout"))],
+    };
+    expect(addCompletion(added.recipe, shown, target("logout"))).toEqual({
+      ok: false,
+      reason: "login-page",
+    });
+    expect(addCompletion(added.recipe, codePage(), verify)).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+  });
+});
+
 describe("password route variants in generated recipes (ADR 0027)", () => {
   const set = (slots: string[], button = "login"): LoginStep[] => [
     {
