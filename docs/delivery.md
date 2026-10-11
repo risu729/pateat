@@ -32,9 +32,10 @@ Before enabling it, provision the Worker/routing and set repository variables
 `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api`, and `SERVER_HEALTH_URL` to its
 HTTPS `/health` URL. Put the `CLOUDFLARE_API_TOKEN` secret in the `production`
 environment only. The owner chose on 2026-10-11 to use this one token for both the
-migrations and the deployment, as in kogane, because both run in the same job; it is
-limited to editing the `pateat-api` Worker and `D1: Edit`. This repository does not
-supply or provision them.
+migrations and the deployment, as in kogane, because both run in the same job. It
+grants Editor on the `pateat-api` Worker only and the account-level `D1: Edit`, which
+covers every D1 database in the account; the release limits itself to the recorded
+database ID. This repository does not supply or provision them.
 
 Dispatch on main with `ci_run_id` identifying successful main-push CI for the
 current revision. The workflow verifies the run's identity, event and conclusion,
