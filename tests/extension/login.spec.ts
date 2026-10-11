@@ -23,7 +23,46 @@ async function send(page: Page, message: unknown): Promise<unknown> {
 
 async function configure(options: Page, extensionId: string, origin: string, selectAccount = true) {
   await options.goto(`chrome-extension://${extensionId}/options.html`);
-  await expect(options.locator("#settings-status")).toContainText("Saved settings loaded");
+  try {
+    await expect(options.locator("#settings-status")).toContainText("Saved settings loaded");
+  } catch (error) {
+    // TEMPORARY diagnostic: tell a stalled worker from a stalled settings queue.
+    const timed = async (label: string, run: () => Promise<unknown>) => {
+      const started = Date.now();
+      const result = await Promise.race([
+        run().then(
+          (value) => ({ label, ms: Date.now() - started, value }),
+          (reason: unknown) => ({ label, ms: Date.now() - started, error: String(reason) }),
+        ),
+        new Promise((finish) => setTimeout(() => finish({ label, timeout: 20_000 }), 20_000)),
+      ]);
+      return result;
+    };
+    const diagnostics = [
+      await timed("runtime.status.get", () =>
+        send(options, { version: 1, type: "runtime.status.get" }),
+      ),
+      await timed("storage.local.get", () =>
+        options.evaluate(async () => {
+          const chrome = (globalThis as unknown as { chrome: ProbeChrome }).chrome;
+          return Object.keys(await chrome.storage.local.get(null as unknown as string));
+        }),
+      ),
+      await timed("settings.get", async () => {
+        const response = (await send(options, { version: 1, type: "settings.get" })) as {
+          ok: boolean;
+        };
+        return response.ok;
+      }),
+      await timed("status text", () => options.locator("#settings-status").textContent()),
+    ];
+    await test.info().attach("settings-load-diagnostics", {
+      body: JSON.stringify(diagnostics, null, 2),
+      contentType: "application/json",
+    });
+    console.log("settings-load-diagnostics", JSON.stringify(diagnostics));
+    throw error;
+  }
   expect(await send(options, { version: 1, type: "login.probe.configure", origin })).toMatchObject({
     ok: true,
   });

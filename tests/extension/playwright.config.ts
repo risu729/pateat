@@ -10,4 +10,6 @@ export default defineConfig({
   reporter: "list",
   outputDir: "../../test-results/extension",
   timeout: 30_000,
+  // TEMPORARY diagnostic.
+  use: { trace: { mode: "retain-on-failure", screenshots: false, snapshots: true } },
 });
