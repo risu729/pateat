@@ -151,6 +151,23 @@ describe("judged completion", () => {
     expect(addCompletion(recipe, next, target("logout")).ok).toBe(true);
   });
 
+  it("refuses a completion with more absent fields than the contract allows", () => {
+    const wide = built([
+      {
+        kind: "fill",
+        path: "/login",
+        effect: "prepare",
+        fields: ["a", "b", "c", "d", "e"].map((slot) => ({ slot, target: target(slot) })),
+      },
+      { kind: "click", path: "/login", target: target("go"), purpose: "submit" },
+    ]);
+    const signedIn = { origin, path: "/login", candidates: [candidate("out", target("logout"))] };
+    expect(addCompletion(wide, signedIn, target("logout"))).toEqual({
+      ok: false,
+      reason: "invalid-recipe",
+    });
+  });
+
   it("refuses another origin", () => {
     expect(
       addCompletion(recipe, { ...home, origin: "https://www.bank.example" }, target("logout")),
@@ -183,8 +200,25 @@ describe("judged completion", () => {
       ok: false,
       reason: "login-page",
     });
-    // A site that signs in in place keeps the path but no longer shows the form.
+    // A site that signs in in place keeps the path but no longer shows the form. The
+    // executor must then also find that path's field missing.
     const inPlace = { origin, path: "/login", candidates: [candidate("out", target("logout"))] };
-    expect(addCompletion(recipe, inPlace, target("logout")).ok).toBe(true);
+    const learned = addCompletion(recipe, inPlace, target("logout"));
+    if (!learned.ok) throw new Error(learned.reason);
+    expect(learned.recipe.completion).toEqual({
+      path: "/login",
+      target: target("logout"),
+      absent: [target("username")],
+    });
+    // A completion on a path without steps needs nothing else.
+    const elsewhere = addCompletion(
+      recipe,
+      { origin, path: "/home", candidates: inPlace.candidates },
+      target("logout"),
+    );
+    expect(elsewhere.ok && elsewhere.recipe.completion).toEqual({
+      path: "/home",
+      target: target("logout"),
+    });
   });
 });

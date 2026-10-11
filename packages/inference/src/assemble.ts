@@ -31,7 +31,9 @@ export type CompletionRejection =
    * The page still shows an element a step uses on that path, or a field any step
    * fills: it is a login page again.
    */
-  | "login-page";
+  | "login-page"
+  /** The completion would break the recipe contract, such as its observation bound. */
+  | "invalid-recipe";
 
 const sameTarget = (left: LoginTarget, right: LoginTarget) =>
   left.by === right.by && left.value === right.value;
@@ -83,7 +85,8 @@ export function appendPageSteps(
  * the recipe's own targets on that path. The page must not still show any element a
  * step uses on that path, nor a field any step fills on any path: a failed sign-in that
  * shows the login form again, on its own path or where the form posted, is not learned
- * as signed in.
+ * as signed in. On a step's own path the completion also lists that path's fill fields
+ * as `absent`, since the executor checks it after every step and counts hidden elements.
  */
 export function addCompletion(
   base: LoginRecipe,
@@ -107,12 +110,16 @@ export function addCompletion(
     )
   )
     return { ok: false, reason: "login-page" };
-  return {
-    ok: true,
-    recipe: v.parse(loginRecipeSchema, {
-      ...base,
-      revision: base.revision + 1,
-      completion: { path: page.path, target },
-    }),
-  };
+  const absent = base.steps
+    .filter((step) => step.path === page.path && step.kind === "fill")
+    .flatMap(stepTargets)
+    .filter((field, index, all) => all.findIndex((other) => sameTarget(other, field)) === index);
+  const recipe = v.safeParse(loginRecipeSchema, {
+    ...base,
+    revision: base.revision + 1,
+    completion: { path: page.path, target, ...(absent.length ? { absent } : {}) },
+  });
+  return recipe.success
+    ? { ok: true, recipe: recipe.output }
+    : { ok: false, reason: "invalid-recipe" };
 }

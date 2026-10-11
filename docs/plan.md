@@ -761,9 +761,9 @@ origin, a marker one of the recipe's own steps uses on that path, and a page tha
 shows an element a step uses on that path or a field any step fills. A failed sign-in
 that shows the form again with the same locators, on its own path or where the form
 posted, is then not learned as signed in. A site that signs in on the login page's own
-path learns its completion only once that form is gone. Before the extension uses such a
-completion, the executor must also require that path's step fields to be absent, because
-it checks the completion after every step and counts hidden elements. Both roles share
+path learns its completion only once that form is gone, and the completion then lists
+that path's fill fields as `absent` (at most four), which the executor requires to be
+missing. Both roles share
 `runStructuredRole` for metering, timeouts and disabled telemetry. The service route and
 the extension do not call these functions yet.
 
