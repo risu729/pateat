@@ -127,6 +127,7 @@ describe("recipe generation requests", () => {
 
   it.each([
     ["an unreachable service", { kind: "failed", error: "unreachable" }],
+    ["the service's request limit", { kind: "failed", error: "rate-limited" }],
     [
       "a busy owner",
       { kind: "result", result: { version: 1, status: "unavailable", reason: "busy" } },

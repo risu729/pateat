@@ -142,9 +142,10 @@ a code, or `unavailable` with a reason when no model was called.
   are appended after the recipe's last `advance` step. A stale `base` gets the current
   recipe back, a revoked recipe answers `recipe-revoked`, a `base` whose recipe was not
   generated for this origin and its start path answers `recipe-conflict`, a first page
-  that would exceed the active recipe limit answers `recipe-limit`, and a `base`
-  that is not a generated recipe ID is 400. The model maps the slots, the plan is
-  checked with `validatePagePlan`, and the steps are stored with a conditional write.
+  that would exceed the active recipe limit answers `recipe-limit` (before the model
+  call, or after it if the last place was taken meanwhile), and a `base` that is not a
+  generated recipe ID is 400. The model maps the slots, the plan is checked with
+  `validatePagePlan`, and the steps are stored with a conditional write.
 - `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, observation }`
   for the page after the final `submit` step of that revision, on the recipe's origin.
   The login paths come from the stored recipe. A `signed-in` marker passes

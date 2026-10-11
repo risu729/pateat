@@ -115,6 +115,15 @@ function request(path: string, init: RequestInit & { access?: string | undefined
   return exports.default.fetch(`${ORIGIN}${path}`, { ...init, headers });
 }
 
+/**
+ * The local limiter counts in wall-clock minutes, so a loop that crosses a minute
+ * boundary would start a fresh count; start the loop at least 10 s before one.
+ */
+async function awaitRoomInMinute() {
+  const left = 60_000 - (Date.now() % 60_000);
+  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
+}
+
 function postForm(path: string, access: string | undefined, fields: Record<string, string>) {
   return request(path, {
     method: "POST",
@@ -640,6 +649,7 @@ describe("owner web UI", () => {
 
   it("rate limits the API per Access identity before the origin check", async () => {
     const { token } = await owner();
+    await awaitRoomInMinute();
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 120; attempt += 1)
       // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
@@ -657,7 +667,7 @@ describe("owner web UI", () => {
     expect((await request("/manage/api/devices", { access: (await owner()).token })).status).toBe(
       200,
     );
-  });
+  }, 20_000);
 
   it("lists only the signed-in owner's devices, newest first", async () => {
     const first = await owner();

@@ -178,12 +178,14 @@ export async function writeRecipe(
     throw new Error("Recipe head was claimed without its history row");
   if (claimed.meta.changes !== 1) {
     const current = await readHead(db, ownerId, recipeId);
-    // The head is still the expected one, so only the active recipe limit refused it.
+    // The head is still the expected one, so only the active recipe limit refused it,
+    // unless a concurrent revocation just moved the head there; owners are never deleted.
     const limited =
       write.state === "active" &&
       (current
         ? current.revision === write.expectedRevision && current.state === "revoked"
-        : write.expectedRevision === 0);
+        : write.expectedRevision === 0) &&
+      !(await hasRecipeRoom(db, ownerId));
     return limited ? { ok: false, limited } : { ok: false, limited, current };
   }
   return { ok: true, change: toChange({ recipeId, revision, state: write.state, document }) };

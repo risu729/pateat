@@ -120,7 +120,10 @@ export const recipeHeads = sqliteTable(
   ],
 );
 
-/** Immutable history; a revoked revision is a tombstone without a document. */
+/**
+ * Immutable rows; each recipe keeps its newest revisions (`KEPT_RECIPE_REVISIONS`), and a
+ * revoked revision is a tombstone without a document.
+ */
 export const recipeRevisions = sqliteTable(
   "recipe_revisions",
   {

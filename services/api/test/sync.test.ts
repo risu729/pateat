@@ -98,6 +98,15 @@ async function seedActiveRecipes(ownerId: string, count: number) {
     .run();
 }
 
+/**
+ * The local limiter counts in wall-clock minutes, so a loop that crosses a minute
+ * boundary would start a fresh count; start the loop at least 10 s before one.
+ */
+async function awaitRoomInMinute() {
+  const left = 60_000 - (Date.now() % 60_000);
+  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
+}
+
 async function revisions(ownerId: string, recipeId: string) {
   const { results } = await env.DB.prepare(
     "SELECT revision, state FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ? ORDER BY revision",
@@ -620,6 +629,7 @@ describe("per-owner limits", () => {
   it("rate limits requests per owner across its devices, before reading bodies", async () => {
     const first = await enrollOwner();
     const second = await addDevice(first.ownerId);
+    await awaitRoomInMinute();
     const statuses: number[] = [];
     for (let request = 0; request < 120; request += 1)
       // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
@@ -637,5 +647,5 @@ describe("per-owner limits", () => {
     expect((await api(first, "/v1/recipes")).status).toBe(429);
     // Another owner is not counted against this one.
     expect((await api(await enrollOwner(), "/v1/settings")).status).toBe(200);
-  });
+  }, 20_000);
 });

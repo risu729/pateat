@@ -100,10 +100,12 @@ export function createLoginGeneration(options: {
         connection.credential,
         request,
       );
-      // Nothing reached the model: the page may be sent again on a later visit. A timeout
-      // or an unexpected answer may follow a model call, so the page stays claimed.
+      // Nothing reached the model: the page may be sent again on a later visit. The
+      // service's request limit refuses before any model call. A timeout or an
+      // unexpected answer may follow a model call, so the page stays claimed.
       if (
-        (answer.kind === "failed" && answer.error === "unreachable") ||
+        (answer.kind === "failed" &&
+          (answer.error === "unreachable" || answer.error === "rate-limited")) ||
         (answer.kind === "result" &&
           answer.result.status === "unavailable" &&
           answer.result.reason === "busy")

@@ -791,11 +791,12 @@ quota, before the service is offered to other people.
   republishing a tombstone beyond that answers 409 `recipe_limit`; updating or revoking
   an active recipe always works, and a revocation frees its place. Generation answers
   `unavailable` with `recipe-limit` before any model call when a first page would add a
-  recipe.
+  recipe, or after the call if the last place was taken meanwhile.
 - Recipe history. Each recipe keeps its newest 10 revisions; a winning write deletes
   older ones in the same D1 batch, and a revocation keeps only the tombstone. Nothing
-  reads older revisions. At the 128 KiB body limit this bounds an owner's recipes to
-  about 1.2 GiB; generated recipes are a few KiB each.
+  reads older revisions. At the 128 KiB body limit this bounds an owner's active recipes
+  to about 1.2 GiB; generated recipes are a few KiB each. Tombstones are not counted:
+  each is two small rows and one change-feed entry, left for the later byte quota.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
   request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
   counted: each pairing needs an interactive Access login.
