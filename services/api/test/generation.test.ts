@@ -9,6 +9,7 @@ import { env, exports } from "cloudflare:workers";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
+import { writeRecipe } from "../src/recipe-store";
 import { generatedRecipeId } from "../src/recipes/generate";
 
 // Synthetic owners, devices, federation identifiers and pages only. Anthropic's token
@@ -125,16 +126,17 @@ beforeEach(() => {
   tokenStatus = 200;
 });
 
-type Device = { ownerId: string; token: string };
+type Device = { ownerId: string; deviceId: string; token: string };
 
 async function owner({ claude = true } = {}): Promise<Device> {
   const ownerId = `owner-${crypto.randomUUID()}`;
+  const deviceId = `device-${crypto.randomUUID()}`;
   const token = createDeviceToken();
   await env.DB.batch([
     env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)").bind(ownerId, Date.now()),
     env.DB.prepare(
       "INSERT INTO devices (id, owner_id, token_hash, created_at) VALUES (?, ?, ?, ?)",
-    ).bind(`device-${crypto.randomUUID()}`, ownerId, await hashDeviceToken(token), Date.now()),
+    ).bind(deviceId, ownerId, await hashDeviceToken(token), Date.now()),
   ]);
   if (claude)
     await saveWifCredential(env.DB, ownerId, {
@@ -143,7 +145,7 @@ async function owner({ claude = true } = {}): Promise<Device> {
       serviceAccountId: "svac_01SyntheticAccount",
       workspaceId: "wrkspc_01SyntheticWorkspace",
     });
-  return { ownerId, token };
+  return { ownerId, deviceId, token };
 }
 
 function post(device: Device, path: string, body: unknown, method = "POST") {
@@ -255,6 +257,14 @@ describe("recipe generation", () => {
       headers: { Authorization: `Bearer ${device.token}` },
     });
     expect(await feed.json()).toMatchObject({ changes: [{ recipeId, revision: 3 }] });
+    // Every generated and learned revision records the device that asked for it.
+    expect(
+      await rows(
+        "SELECT revision, created_by_device_id FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ? ORDER BY revision",
+        device.ownerId,
+        recipeId,
+      ),
+    ).toEqual([1, 2, 3].map((revision) => ({ revision, created_by_device_id: device.deviceId })));
 
     const log = await rows(
       "SELECT role, origin, path, outcome, input_tokens, output_tokens, cost_micro_usd, request, result FROM inference_log WHERE owner_id = ? ORDER BY created_at",
@@ -645,6 +655,30 @@ describe("recipe generation", () => {
     );
     expect(revoke.status).toBe(200);
     expect(await generate(device, emailPage)).toMatchObject({ reason: "recipe-revoked" });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("stops generating once the owner revokes the recipe in the web UI", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    // The web UI's revoke route writes this, with no writing device.
+    const revoked = await writeRecipe(
+      env.DB,
+      device.ownerId,
+      first.change.recipeId,
+      { version: 1, expectedRevision: 1, state: "revoked" },
+      null,
+    );
+    expect(revoked.ok).toBe(true);
+    expect(await generate(device, emailPage)).toMatchObject({ reason: "recipe-revoked" });
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toMatchObject({ reason: "recipe-revoked" });
+    expect((await complete(device, first.change.recipeId, 1)).body).toMatchObject({
+      reason: "recipe-revoked",
+    });
     expect(sent).toHaveLength(1);
   });
 });
