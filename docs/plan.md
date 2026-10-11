@@ -675,6 +675,11 @@ tests cover it.
   and the two `/.well-known` issuer paths. An anonymous `GET` or `POST /redeem` then
   got Access's `403` instead of the Worker's `404`, while `/health`, `/v1/settings`
   (`401`) and both `/.well-known` paths still reached the Worker.
+  On 2026-10-11 the production build of `e7c7014` was installed in the owner's Chrome
+  156.0.8078.16 with ID `ekcnbbomcllhpomkeofikjagmjoibffk`. Pairing from the settings
+  page while signed in to Access finished in one click with "This device is paired.",
+  and `/manage` listed the new device "risu-thinkpad Chrome" as paired at 14:00 UTC
+  (check step 2). Step 3 (signed out) and the cookie settings are not recorded yet.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, are not synced yet.
   [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
