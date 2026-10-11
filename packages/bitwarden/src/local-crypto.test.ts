@@ -722,6 +722,34 @@ describe("strict cipher isolation and disposal", () => {
     });
   });
 
+  it("withholds decrypted attachment keys from cipher views", async () => {
+    const created = await createLocalCryptoSession(
+      v1Input(),
+      viewOverrideSdk((view) => ({
+        ...view,
+        attachments: [
+          {
+            id: "synthetic-attachment",
+            url: undefined,
+            size: undefined,
+            sizeName: undefined,
+            fileName: "a.txt",
+            key: "synthetic-key" as sdk.SymmetricKey,
+          },
+        ],
+      })),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    sessions.push(created.data);
+    const view = await created.data.decryptCipher({ connectionId, cipher: legacyCipher() });
+    expect(view).toMatchObject({
+      ok: true,
+      data: { attachments: [{ id: "synthetic-attachment", fileName: "a.txt" }] },
+    });
+    if (view.ok) expect(view.data.attachments?.[0]).not.toHaveProperty("key");
+  });
+
   it("refuses an empty passkey private key from the SDK", async () => {
     const created = await createLocalCryptoSession(
       v1Input(),
