@@ -53,6 +53,11 @@ const textless = new Set([
 ]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
+/** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
+const shadowFields = Object.keys(fillTypes)
+  .map((type) => `input[type='${type}' i]`)
+  .concat("input:not([type])")
+  .join(", ");
 const locators = [
   ["id", "id"],
   ["name", "name"],
@@ -410,7 +415,7 @@ export function extractLoginObservation(
   let complete = ![...document.querySelectorAll("*")].some(
     (host) =>
       host.shadowRoot !== null &&
-      (inShadow(host.shadowRoot, fields) ||
+      (inShadow(host.shadowRoot, shadowFields) ||
         (fieldForms.has(host.closest("form")) && inShadow(host.shadowRoot, controls))),
   );
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
