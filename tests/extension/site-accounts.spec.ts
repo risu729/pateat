@@ -61,9 +61,22 @@ for (const [variant, matched] of [
       ]);
       await options.locator("#add-default").click();
       await expect(options.locator("#site-defaults")).toContainText(site);
-      // The saved line no longer reports a live item as an origin mismatch.
+      // The saved line shows how the item matches, and as whom, instead of a mismatch.
       await expect(options.locator("#site-defaults")).toContainText(
-        "checked against the vault's URI rules or passkeys on each login",
+        `My test login · test_username`,
+      );
+      await expect(options.locator("#site-defaults")).toContainText(
+        `Matches this origin by ${matched}; checked again on each login`,
+      );
+      // The match is looked up again from the vault, never saved with the default.
+      await options.locator("#save-settings").click();
+      await expect(options.locator("#settings-status")).toContainText("Settings saved");
+      const stored = await settingsRequest(options);
+      expect(stored.snapshot.settings.siteDefaults).toMatchObject([{ origin: site }]);
+      expect(JSON.stringify(stored.snapshot.settings)).not.toContain("test_username");
+      await options.reload();
+      await expect(options.locator("#site-defaults")).toContainText(
+        `My test login · test_username`,
       );
     });
   });

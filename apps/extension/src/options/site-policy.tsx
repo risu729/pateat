@@ -9,7 +9,7 @@ import {
   type VaultCatalog,
 } from "@pateat/contracts";
 import { useForm, useStore } from "@tanstack/react-form";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Button } from "./button";
@@ -129,7 +129,7 @@ export function siteAccountOptions(
   );
 }
 
-function matchedBy(option: SiteAccountOption): string {
+function matchedBy(option: Pick<SiteAccountOption, "uri" | "passkey">): string {
   if (option.uri && option.passkey) return "URI and passkey";
   if (option.uri) return "URI";
   return option.passkey ? "passkey" : "no match for this origin";
@@ -246,6 +246,28 @@ export function SitePolicy({
     staleTime: 0,
     gcTime: 0,
   });
+  // Saved defaults on live vaults are matched the same way, to show how and as whom.
+  const savedLiveOrigins = draft.siteDefaults
+    .filter((selected) => {
+      const mapped = siteDefaultConnection(selected, catalog);
+      return (
+        mapped.ok &&
+        Boolean(catalog.connections.find((entry) => entry.id === mapped.connectionId)?.snapshotId)
+      );
+    })
+    .map((selected) => selected.origin);
+  const savedMatches = useQueries({
+    queries: savedLiveOrigins.map((origin) => ({
+      queryKey: ["settings", "site-accounts", origin, scope],
+      queryFn: () => findSiteAccounts(origin, draft),
+      staleTime: 0,
+      gcTime: 0,
+    })),
+  });
+  const savedMatch = (origin: string) => {
+    const answer = savedMatches[savedLiveOrigins.indexOf(origin)]?.data;
+    return answer?.ok && answer.origin === origin ? answer : undefined;
+  };
   const accountsPending =
     accountOrigin !== undefined && (queriedOrigin !== accountOrigin || accounts.isPending);
   // The wait message no longer applies once the accounts are listed.
@@ -386,11 +408,22 @@ export function SitePolicy({
             // A live vault item has no static origins; its URI rules (or a passkey) are
             // checked against each page, so the draft policy cannot call it a mismatch.
             const liveItem = Boolean(item && connection?.snapshotId);
-            const status = resolved.ok
-              ? "Available under this draft policy"
-              : liveItem && resolved.reason === "item-origin-mismatch"
-                ? "Allowed by this draft policy; whether it matches the page is checked against the vault's URI rules or passkeys on each login"
-                : `Unavailable under this draft policy: ${unavailableReason(resolved.reason)}`;
+            const matches = liveItem ? savedMatch(selected.origin) : undefined;
+            const match = matches?.accounts.find(
+              (entry) => entry.connectionId === connection?.id && entry.itemId === item?.id,
+            );
+            let status: string;
+            if (resolved.ok) status = "Available under this draft policy";
+            else if (!liveItem || resolved.reason !== "item-origin-mismatch")
+              status = `Unavailable under this draft policy: ${unavailableReason(resolved.reason)}`;
+            else if (match)
+              status = `Matches this origin by ${matchedBy({ uri: match.uri, passkey: match.passkey })}; checked again on each login`;
+            else if (matches?.complete)
+              status =
+                "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login";
+            else
+              status =
+                "Allowed by this draft policy; whether it matches the page is checked against the vault's URI rules or passkeys on each login";
             return (
               <li key={selected.origin}>
                 <span>
@@ -403,6 +436,7 @@ export function SitePolicy({
                   {item?.label ??
                     ("itemName" in selected ? selected.itemName : undefined) ??
                     selected.itemId}
+                  {match?.username ? ` · ${match.username}` : ""}
                   <small>{status}</small>
                 </span>
                 <Button
