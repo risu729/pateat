@@ -114,6 +114,11 @@ type LiveDocument = {
 /** Documents are tracked per frame; a tab still runs at most one attempt. */
 const frameKey = (document: { tabId: number; frameId: number }) =>
   `${document.tabId}:${document.frameId}`;
+/**
+ * Attempt records are kept per tab and origin: each origin a tab shows keeps its own
+ * record until the tab closes, while the tab still runs one attempt at a time.
+ */
+const recordKey = (tabId: number, origin: string) => `${tabId} ${origin}`;
 type Execution = {
   metadata: LoginAttemptMetadata;
   recipe: LoginRecipe;
@@ -252,7 +257,8 @@ export function createLoginRuntime(
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
-  const persisted = new Map<number, LoginAttemptMetadata>();
+  /** By `recordKey`, in the order they were last written. */
+  const persisted = new Map<string, LoginAttemptMetadata>();
   let storageQueue: Promise<void> = Promise.resolve();
   let storageHealthy = true;
   let checkpoint: "before-delivery" | "before-ack" | undefined;
@@ -297,14 +303,16 @@ export function createLoginRuntime(
       if (!Array.isArray(stored) || stored.length > 100) throw new Error("Invalid attempt store");
       for (const entry of stored) {
         const metadata = recoverLoginAttempt(parseAttemptMetadata(entry));
-        if (persisted.has(metadata.document.tabId)) throw new Error("Duplicate attempt scope");
-        persisted.set(metadata.document.tabId, metadata);
+        const key = recordKey(metadata.document.tabId, metadata.account.origin);
+        if (persisted.has(key)) throw new Error("Duplicate attempt scope");
+        persisted.set(key, metadata);
       }
       // Complete startup reconciliation before accepting any hello or checking
       // ownership. Closing a tab can wake a worker whose in-memory map is empty.
       const openTabs = await browser.tabs.query({});
       const liveIds = new Set(openTabs.map((tab) => tab.id));
-      for (const tabId of persisted.keys()) if (!liveIds.has(tabId)) persisted.delete(tabId);
+      for (const [key, metadata] of persisted)
+        if (!liveIds.has(metadata.document.tabId)) persisted.delete(key);
       await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
     } catch {
       storageHealthy = false;
@@ -354,6 +362,23 @@ export function createLoginRuntime(
     sender.id === browser.runtime.id &&
     sender.url === browser.runtime.getURL("/options.html") &&
     !sender.tab?.url?.startsWith("http:");
+  /**
+   * The record of a tab for one origin, also once it ended. A document resumes only its
+   * own origin's record; a logout may release exactly this one.
+   */
+  function recordFor(tabId: number, documentOrigin: string): LoginAttemptMetadata | undefined {
+    const run = attempts.get(tabId);
+    return run?.metadata.account.origin === documentOrigin
+      ? run.metadata
+      : persisted.get(recordKey(tabId, documentOrigin));
+  }
+  /** The attempt a tab runs, else the one it last recorded. */
+  function tabAttempt(tabId: number): LoginAttemptMetadata | undefined {
+    const run = attempts.get(tabId);
+    if (run) return run.metadata;
+    const records = [...persisted.values()].filter((entry) => entry.document.tabId === tabId);
+    return records.find((entry) => !terminal(entry)) ?? records.at(-1);
+  }
   function current(run: Execution): boolean {
     return (
       attempts.get(run.live.document.tabId) === run &&
@@ -364,7 +389,10 @@ export function createLoginRuntime(
     await keep(run.metadata);
   }
   async function keep(metadata: LoginAttemptMetadata): Promise<void> {
-    persisted.set(metadata.document.tabId, parseAttemptMetadata(metadata));
+    const key = recordKey(metadata.document.tabId, metadata.account.origin);
+    // Re-inserted, so the last record of a tab is the one it wrote last.
+    persisted.delete(key);
+    persisted.set(key, parseAttemptMetadata(metadata));
     const snapshot = [...persisted.values()];
     storageQueue = storageQueue.then(async () => {
       if (!storageHealthy) throw new Error("Attempt storage unavailable");
@@ -399,7 +427,11 @@ export function createLoginRuntime(
   }
   async function withdrawSwitch(run: Execution): Promise<void> {
     const tabId = run.live.document.tabId;
-    if (attempts.get(tabId) !== run || persisted.get(tabId)?.id !== run.metadata.id) return;
+    if (
+      attempts.get(tabId) !== run ||
+      persisted.get(recordKey(tabId, run.metadata.account.origin))?.id !== run.metadata.id
+    )
+      return;
     run.metadata = withdrawAccountSwitch(run.metadata);
     await save(run);
     await publish(run.live, run.metadata);
@@ -1303,7 +1335,7 @@ export function createLoginRuntime(
     // A tab runs one attempt. Another frame of the tab, such as an embedded widget or the
     // page around a framed login, never takes it over or disturbs it. Only a new page in
     // the tab (another top document) ends an attempt held by a frame of the old page.
-    let owner = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    let owner = tabAttempt(document.tabId);
     const page = documents.get(frameKey({ tabId: document.tabId, frameId: 0 }));
     let newPage =
       document.frameId === 0 &&
@@ -1329,7 +1361,7 @@ export function createLoginRuntime(
       );
       for (const [index, [other]] of frames.entries()) if (!answers[index]) documents.delete(other);
       if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
-      owner = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+      owner = tabAttempt(document.tabId);
       const holder = owner && documents.get(frameKey(owner.document));
       if (owner && owner.document.frameId !== 0) {
         if (holder && sameLoginDocument(holder.document, owner.document)) {
@@ -1381,14 +1413,39 @@ export function createLoginRuntime(
     };
     if (busy) return refuse("tab-busy");
     if (!storageHealthy) return refuse("storage-unavailable");
-    const recorded = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    const holder = tabAttempt(document.tabId);
+    if (
+      holder &&
+      !terminal(holder) &&
+      holder.document.frameId === 0 &&
+      document.frameId === 0 &&
+      holder.account.origin !== document.origin
+    ) {
+      // The tab's page moved to another origin: the attempt there ends without
+      // resubmitting and keeps its record, and this page may start its own.
+      const run = attempts.get(document.tabId);
+      const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(holder), {
+        type: "NAVIGATED",
+        document,
+      });
+      if (run) run.metadata = ended;
+      reportAttempt(ended);
+      try {
+        await keep(ended);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    }
+    // A document resumes only its own origin's record in the tab, even an ended one.
+    const recorded = recordFor(document.tabId, document.origin);
+    // A tab runs one attempt at a time; another one still running holds it.
+    const running = tabAttempt(document.tabId);
+    if (running && !terminal(running) && running.id !== recorded?.id) return refuse("tab-busy");
     // After an account switch, the tab's next document of that origin starts a new
     // attempt, which may use another recipe. It carries the switch, so it never clicks
     // another one.
-    const switched =
-      recorded?.state === "blocked" &&
-      recorded.outcome === "account-switched" &&
-      recorded.account.origin === document.origin;
+    const switched = recorded?.state === "blocked" && recorded.outcome === "account-switched";
     const previous = switched ? undefined : recorded;
     // Look up the recipe first: a page without one never opens the policy catalog or vault.
     const recipe =
@@ -1470,9 +1527,12 @@ export function createLoginRuntime(
       return refuse("origin-busy");
     if (!previous && persisted.size >= 100) return refuse("attempt-limit");
     // Another document of the tab, such as a frame, may have started an attempt while this
-    // one was checked. Nothing below awaits until the attempt is registered.
+    // one was checked, and the tab runs one attempt at a time. Nothing below awaits until
+    // the attempt is registered.
+    const latest = tabAttempt(document.tabId);
     if (
-      (attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId))?.id !== recorded?.id
+      recordFor(document.tabId, document.origin)?.id !== recorded?.id ||
+      (latest && !terminal(latest) && latest.id !== recorded?.id)
     )
       return refuse("tab-busy");
     let metadata: LoginAttemptMetadata;
@@ -1616,7 +1676,8 @@ export function createLoginRuntime(
     storageQueue = storageQueue
       .then(async () => {
         await loaded;
-        persisted.delete(tabId);
+        for (const [key, metadata] of persisted)
+          if (metadata.document.tabId === tabId) persisted.delete(key);
         await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
         return undefined;
       })
@@ -1639,7 +1700,7 @@ export function createLoginRuntime(
       // A frame's attempt lives in a tab whose own URL may be on another origin.
       const tabIds = new Set([
         ...tabs.flatMap((tab) => (tab.id === undefined ? [] : [tab.id])),
-        ...persisted.keys(),
+        ...[...persisted.values()].map((entry) => entry.document.tabId),
       ]);
       for (const tabId of tabIds)
         void browser.tabs
