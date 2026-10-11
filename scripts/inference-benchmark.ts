@@ -37,10 +37,7 @@ if (
   process.exit(2);
 }
 // A batch is a slice of the corpus in its fixed order, so batches can be run in turn.
-const cases = corpus.slice(
-  from,
-  count === undefined ? undefined : from + count,
-);
+const cases = corpus.slice(from, count === undefined ? undefined : from + count);
 
 if (values.provider === "heuristic") {
   console.log(JSON.stringify(await runHeuristicBenchmark(cases), null, 2));
