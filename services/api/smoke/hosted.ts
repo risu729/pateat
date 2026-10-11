@@ -114,8 +114,8 @@ async function seedOwner(query: Query): Promise<Device> {
   const now = String(Date.now());
   await query("INSERT INTO owners (id, created_at) VALUES (?, ?)", [ownerId, now]);
   await query(
-    "INSERT INTO devices (id, owner_id, token_hash, label, created_at) VALUES (?, ?, ?, ?, ?)",
-    [deviceId, ownerId, tokenHash, "Pateat smoke test", now],
+    "INSERT INTO devices (id, owner_id, token_hash, label, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+    [deviceId, ownerId, tokenHash, "Pateat smoke test", now, now],
   );
   return { ownerId, deviceId, credential };
 }
