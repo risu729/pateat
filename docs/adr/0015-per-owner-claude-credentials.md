@@ -4,8 +4,8 @@ Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0014](0014-claude-generation-provider.md): the service no longer holds an operator
 Anthropic API key as a Worker secret. The issuer, the per-owner identifiers and the
 token exchange are implemented in `services/api/src/claude/`, and owners enter their
-identifiers on `/manage/claude`. The service inference route that uses them is still
-planned.
+identifiers on `/manage/claude`. The recipe generation routes of
+[ADR 0018](0018-recipe-generation-route.md) use them.
 
 Date: 2026-10-11
 

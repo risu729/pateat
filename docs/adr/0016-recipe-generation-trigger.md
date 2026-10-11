@@ -2,8 +2,9 @@
 
 Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0009](0009-install-time-https-site-access.md); amended by
-[ADR 0018](0018-recipe-generation-route.md). Not implemented yet: the extractor exists
-but nothing calls it, and the service inference route is still planned.
+[ADR 0018](0018-recipe-generation-route.md). Not implemented yet in the extension: the
+extractor exists but nothing calls it. The service route enforces the 24-hour rule
+([API README](../../services/api/README.md#recipe-generation)).
 
 Date: 2026-10-11
 

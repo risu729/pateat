@@ -36,6 +36,13 @@
       "when": 1791704059338,
       "tag": "0004_web_ui_recipe_writer",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791711057396,
+      "tag": "0005_inference_generation",
+      "breakpoints": true
     }
   ]
 }

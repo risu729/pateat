@@ -771,9 +771,10 @@ that shows the form again with the same locators, on its own path or where the f
 posted, is then not learned as signed in. A site that signs in on the login page's own
 path learns its completion only once that form is gone, and the completion then lists
 that path's fill fields as `absent` (at most four), which the executor requires to be
-missing. Both roles share
-`runStructuredRole` for metering, timeouts and disabled telemetry. The service route and
-the extension do not call these functions yet.
+missing. Both roles share `runStructuredRole` for metering, timeouts and disabled
+telemetry. The service routes call them
+([API README](../services/api/README.md#recipe-generation)); the extension does not
+call the routes yet.
 
 A 16-page synthetic Japanese/English corpus covers bank branch/account/password
 (including an unlabeled page distinguishable only by length),
@@ -843,11 +844,10 @@ The second owner-approved run (2026-10-10, main `d105f76`, cap $2) gave:
 must abstain still do. With one sample per case this cannot show that the refusal will
 not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
-- The service route, monthly spend stop and the
-  [request log](adr/0012-inference-request-log.md), as decided in
-  [ADR 0018](adr/0018-recipe-generation-route.md): `POST /v1/recipes/generate`, use of
-  the returned recipe at once, the post-login page sent once to learn `completion`,
-  and 90-day log retention.
+- The extension side of [ADR 0018](adr/0018-recipe-generation-route.md): calling
+  `POST /v1/recipes/generate`, using the returned recipe at once, writing the
+  bindings, and sending the post-login page once to learn `completion`. The service
+  routes, limits and request log are implemented.
 - Calling the extension observation extractor (below) under the automatic send rule
   of [ADR 0016](adr/0016-recipe-generation-trigger.md).
 - A different remembered account, approved by the owner on 2026-10-11: on a step that
