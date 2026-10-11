@@ -63,7 +63,7 @@ const connectionSchema = v.strictObject({
       v.strictObject({
         ok: v.literal(true),
         /** Third-party servers report the Bitwarden version they are compatible with. */
-        version: v.pipe(v.string(), v.regex(/^[0-9A-Za-z.+-]{1,64}$/u)),
+        version: v.pipe(v.string(), v.regex(/^\d{1,4}\.\d{1,2}\.\d{1,4}$/u)),
         kind: v.picklist(["bitwarden", "vaultwarden", "third-party"]),
       }),
       v.strictObject({ ok: v.literal(false), error: code, status: v.optional(count) }),

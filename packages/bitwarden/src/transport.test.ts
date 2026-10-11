@@ -259,6 +259,15 @@ describe("server config", () => {
     expect(JSON.stringify(result)).not.toContain("private");
   });
 
+  it.each(["2025.1.0-vault.corp.example", "2025.1.0+fork", "2025.1.0"])(
+    "keeps only the release number of %s",
+    async (version) => {
+      const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse({ ...config(null), version }));
+      const result = await transport(fetch).config({ connectionId: cloudProfile.connectionId });
+      expect(result).toEqual({ ok: true, data: { version: "2025.1.0", kind: "bitwarden" } });
+    },
+  );
+
   it("refuses a version that is not a release number, and another connection", async () => {
     const fetch = vi
       .fn<Fetch>()

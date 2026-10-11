@@ -404,7 +404,8 @@ export async function collectDiagnostics(
     deps.logs().catch(() => undefined),
   ]);
   const listed = setup?.ok && setup.kind === "status" ? setup.connections : [];
-  // Network reads run together; each has its own timeout.
+  // Network reads run together; each has its own timeout. Neither promise may reject,
+  // since a failing store read below would leave them unawaited.
   const servers = listed.map((entry) => serverConfig(deps, entry));
   const pendingService = service(deps, now);
   const connections: DiagnosticsConnection[] = [];

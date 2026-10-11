@@ -113,6 +113,17 @@ test("a connection appears under a stable pseudonym with its server, and only it
       `${pseudonym}: cloud-us · Bitwarden server 2026.9.2 · ready · auto-unlock enabled`,
     );
     expect(report).toMatch(/ · KDF (PBKDF2|Argon2id) · /u);
+    // Without the provider permission sync needs, the server is not asked.
+    await setupProbe(first.page, { action: "configure", variant: "unchanged", permission: false });
+    const before = await setupProbe(first.page, { action: "status" });
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect(page.locator("#diagnostics-checks")).toContainText(
+      `${pseudonym} server not checked (no-site-access)`,
+    );
+    expect((await setupProbe(first.page, { action: "status" })).configCalls).toBe(
+      before.configCalls,
+    );
+    await setupProbe(first.page, { action: "configure", variant: "unchanged" });
     expect(report).toMatch(/1 items \(login 1, TOTP \d, passkey \d\) \+ \d unsupported/u);
     for (const absent of [
       v1Email,

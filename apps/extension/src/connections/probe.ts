@@ -132,14 +132,17 @@ export function createConnectionProbeTransport() {
   let preloginCalls = 0;
   let tokenCalls = 0;
   let syncCalls = 0;
+  let configCalls = 0;
   const transportOptions: BitwardenTransportOptions = {
     async fetch(url, init) {
       // Diagnostics read the public server config; it is not a setup or sync call.
-      if (url === "https://api.bitwarden.com/config" && init.method === "GET")
+      if (url === "https://api.bitwarden.com/config" && init.method === "GET") {
+        configCalls += 1;
         return new Response(
           JSON.stringify({ object: "config", version: "2026.9.2", server: null }),
           { headers: { "content-type": "application/json" } },
         );
+      }
       calls += 1;
       const raw = rawCustomAccount(variant, Math.floor(Date.now() / 1000));
       if (overflow)
@@ -229,6 +232,7 @@ export function createConnectionProbeTransport() {
             preloginCalls,
             tokenCalls,
             syncCalls,
+            configCalls,
             configuredIds: configurations.map((entry) => entry.profile.connectionId),
             metadataOnly: !JSON.stringify(configurations).includes("asdfasdfasdf"),
             ...(saved.ok
