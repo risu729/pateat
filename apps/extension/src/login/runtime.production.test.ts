@@ -391,6 +391,20 @@ describe("production login document admission", () => {
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).toEqual(["login.status"]);
   });
+  it("leaves a path where several recipes start out of the watch list", async () => {
+    fake.state.pageUrl = "https://login.example/elsewhere";
+    const h = harness();
+    h.recipes.firstSteps.mockResolvedValue([
+      recipe.steps[0]!,
+      { ...recipe.steps[0]!, fields: [{ slot: "password", target: target("other") }] },
+      { ...recipe.steps[0]!, path: "/other" },
+    ] as never);
+    expect(await h.hello()).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [{ ...signinStart, path: "/other" }],
+    });
+  });
   it("starts only after the document reports the first step ready", async () => {
     const h = harness();
     expect(await h.hello({}, false)).toEqual({

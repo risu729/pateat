@@ -794,12 +794,18 @@ export function createLoginRuntime(
     }
   }
   /* eslint-enable no-await-in-loop */
-  /** First steps a document watches for; deduplicated and bounded for the wire. */
+  /**
+   * First steps a document watches for; deduplicated and bounded for the wire. A path
+   * where several recipes start is left out, because such a page cannot start (ADR 0013).
+   */
   async function startsFor(documentOrigin: string): Promise<LoginReadiness[]> {
-    const steps =
+    const all =
       probeMode && documentOrigin === origin
         ? probeFirstSteps(origin)
         : await recipes.firstSteps(documentOrigin).catch(() => []);
+    const steps = all.filter(
+      (step) => all.filter((other) => other.path === step.path).length === 1,
+    );
     const unique = new Map(
       steps.map((step) => {
         const readiness = loginReadiness(step);

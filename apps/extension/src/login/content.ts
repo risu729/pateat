@@ -109,9 +109,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       navigation?.addEventListener("currententrychange", schedule);
     }
   }
-  /** Checks again shortly; used when a start could not be confirmed for a passing reason. */
+  /**
+   * Checks again shortly when a start could not be confirmed for a passing reason. Each
+   * appearance of the form gets a few retries; after that it waits until the form goes.
+   */
+  let retries = 0;
   function retry(): void {
     if (!observer) return;
+    retries += 1;
+    if (retries > 3) return;
     announced = false;
     clearTimeout(timer);
     timer = setTimeout(check, 500);
@@ -123,7 +129,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (!observer) return;
     const startable = starts.some(ready);
     if (startable && !announced) void announce(true).catch(retry);
-    else if (!startable) announced = false;
+    else if (!startable) {
+      announced = false;
+      retries = 0;
+    }
   }
   async function announce(start: boolean): Promise<unknown> {
     announced = start;
@@ -142,7 +151,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // example while the tab still shows the previous URL.
       if (start) retry();
       else check();
-    } else if (["stale-document", "closed-tab"].includes(parsed.output.reason ?? "")) {
+    } else if (
+      ["stale-document", "closed-tab", "runtime-unavailable"].includes(parsed.output.reason ?? "")
+    ) {
       retry();
     } else {
       // A policy refusal (no account, another tab owns the site, ...) holds until the page
