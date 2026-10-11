@@ -8,6 +8,7 @@ node = "26.11.1"
 python = "3.13.16"
 hk = "2.5.0"
 "npm:oxlint" = "1.87.0"
+"npm:typescript" = "6.0.3"
 oxfmt = "0.72.0"
 jactionlint = "2.0.2"
 shellcheck = "0.11.0"
@@ -62,7 +63,7 @@ run = "node ../../node_modules/cf/bin/cf build --mode production"
 
 [tasks."typecheck:extension"]
 depends = ["prepare:extension"]
-run = "node node_modules/typescript/bin/tsc --noEmit -p apps/extension/tsconfig.json"
+run = "tsc --noEmit -p apps/extension/tsconfig.json"
 
 [tasks."test:contracts"]
 run = "node node_modules/vitest/vitest.mjs run packages/contracts"
@@ -96,7 +97,7 @@ run = "node node_modules/vitest/vitest.mjs run --config apps/extension/src/vites
 run = "node node_modules/vitest/vitest.mjs run packages/inference"
 
 [tasks."typecheck:inference"]
-run = "node node_modules/typescript/bin/tsc --noEmit -p packages/inference/tsconfig.json"
+run = "tsc --noEmit -p packages/inference/tsconfig.json"
 
 [tasks."bench:inference"]
 description = "Run the paid Claude generation benchmark on the synthetic corpus (owner approval per run)."
@@ -107,7 +108,7 @@ flag "--max-cost-usd <usd>" default="2" help="Stop before a call that could exce
 run = "bun scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }}"
 
 [tasks."typecheck:bitwarden"]
-run = "node node_modules/typescript/bin/tsc --noEmit -p packages/bitwarden/tsconfig.json"
+run = "tsc --noEmit -p packages/bitwarden/tsconfig.json"
 
 [tasks."generate:server-migrations"]
 description = "Generate D1 migrations from the Drizzle schema without contacting a database."
@@ -151,10 +152,10 @@ run = "node node_modules/vitest/vitest.mjs run --config tests/options/vitest.con
 run = "node node_modules/vitest/vitest.mjs run --config tests/manage/vitest.config.ts"
 
 [tasks."typecheck:manage"]
-run = "node node_modules/typescript/bin/tsc --noEmit -p tests/manage/tsconfig.json"
+run = "tsc --noEmit -p tests/manage/tsconfig.json"
 
 [tasks."typecheck:options"]
-run = "node node_modules/typescript/bin/tsc --noEmit -p tests/options/tsconfig.json"
+run = "tsc --noEmit -p tests/options/tsconfig.json"
 
 [tasks."render:icons"]
 description = "Render the extension icon SVG sources into the committed PNG sizes."
@@ -168,12 +169,12 @@ run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run t
 run = "node --test .github/scripts/*.test.mjs"
 
 [tasks."typecheck:browser"]
-run = "node node_modules/typescript/bin/tsc --noEmit -p tests/extension/tsconfig.json"
+run = "tsc --noEmit -p tests/extension/tsconfig.json"
 
 [tasks."typecheck:server"]
 run = [
-  "node node_modules/typescript/bin/tsc -p services/api/tsconfig.json",
-  "node node_modules/typescript/bin/tsc -p services/api/web/tsconfig.json",
+  "tsc -p services/api/tsconfig.json",
+  "tsc -p services/api/web/tsconfig.json",
 ]
 
 [tasks."check:server-output"]
