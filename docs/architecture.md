@@ -687,23 +687,22 @@ becomes `origin:7d2b91aa` or `rp:7d2b91aa`. The rule applies when the entry is
 written, so a site set up later keeps its earlier pseudonymous entries, also in a
 download with site addresses included.
 
-The causes of `policy-changed` are `settings-synced` and `settings-saved` (the
-settings changed while the login ran), `settings-revision` (a check found a settings
-revision other than the login's, also when a page resumes the login),
-`settings-unavailable`, `plan` (the settings or vault no longer allow the login's account
-on this page, with the plan's refusal reason such as `connection-disabled`, or
-`account-changed`), `vault-replaced` (a vault sync replaced the snapshot that authorized
-a value before it was delivered) and `field-unavailable` (a vault field could not be
-read).
+The causes of `policy-changed` are `settings-synced` and `settings-saved` (the settings
+changed while the login ran), `settings-revision` (a check found a settings revision
+other than the login's, also when a page resumes the login), `settings-unavailable`,
+`plan` (the settings or vault no longer allow the login's account on this page, with the
+plan's refusal reason such as `connection-disabled`, or `account-changed`),
+`vault-replaced` (a vault sync replaced the snapshot that authorized a value before it
+was delivered) and `field-unavailable` (a vault field could not be read).
 
 Login, judgement, handler, recipe generation and passkey events are limited to 20 per
-minute per tab and origin, and unhandled errors to 20 per minute in all. The first event dropped in a window is logged at once as `log.dropped`
-with `count: 1`; the rest are counted when the window ends and the next event or prune
-runs, so a worker that stops first loses only that remainder. `debug` entries are
-written only for 24 hours after **Enable debug logging**. Retention: 14 days; `debug`
-entries for 24 hours; at most 5,000 `debug` and `info` entries (oldest `debug` first,
-then `info`) and 1,000 `warn` and `error` entries, pruned at worker start and every 500
-writes.
+minute per tab and origin, and unhandled errors to 20 per minute in all. The first event
+dropped in a window is logged at once as `log.dropped` with `count: 1`; the rest are
+counted when the window ends and the next event or prune runs, so a worker that stops
+first loses only that remainder. `debug` entries are written only for 24 hours after
+**Enable debug logging**. Retention: 14 days; `debug` entries for 24 hours; at most
+5,000 `debug` and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn`
+and `error` entries, pruned at worker start and every 500 writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug`, accepted from the same page URL
