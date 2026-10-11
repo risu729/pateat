@@ -154,6 +154,26 @@ export function isScriptLink(element: Element): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && isScriptButton(element);
 }
 
+/**
+ * True when a native button, shown or not, carries `text`: its collapsed text content,
+ * its images' `alt`, or an input button's `value` or `alt`. A hidden native button with
+ * a script link's text, such as one revealed after an animation, keeps a text locator
+ * from falling back to the script link meanwhile.
+ */
+export function hasNativeButton(document: Document, text: string): boolean {
+  return [...document.querySelectorAll("button, input")].some((element) => {
+    if (!isButton(element)) return false;
+    const raw =
+      element instanceof HTMLButtonElement
+        ? [
+            element.textContent ?? "",
+            ...[...element.querySelectorAll("img[alt]")].map((image) => image.getAttribute("alt")!),
+          ]
+        : [element.type === "image" ? element.alt : element.value];
+    return raw.some((part) => collapseText(part) === text);
+  });
+}
+
 /** The `alt` of the shown images in a `<button>` that has no rendered text. */
 function imageText(button: HTMLButtonElement): string {
   return [...button.querySelectorAll("img[alt]")]

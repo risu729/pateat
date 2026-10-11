@@ -700,24 +700,26 @@ as SMBC Direct's `<a href="javascript:;" onclick="...">ログイン</a>`, or an 
 fragment-only `href` on a link with an `onclick` attribute or `role="button"`, such as
 MyJCB's `<a id="loginButtonAD" href="#" onclick="document.loginForm.submit()">` (its
 script adds `href="#"` after load). A text locator names a script link by its rendered
-text, but only when no native button shows that text: native buttons are matched first,
-so a login tab such as `<a href="#" onclick="...">Login</a>` never makes the
-`<input type="submit" value="Login">` below it ambiguous, and a recipe that names a
-script link by text clicks a native button instead if the page later adds one with the
-same text. Other script buttons are often widgets such as menus and toggles, so only
-their `id`, `name` or `data-testid` names them, and the extractor leaves out a script
-button without a locator instead of marking the page incomplete. The executor compares
-strings and acts only when exactly one element matches; more than one is a structural
-mismatch. It clicks buttons, image buttons and script buttons (not a disabled button,
-nor a script button with `aria-disabled="true"`), never links, except a recipe's
-`accountSwitch`, which may be an `<a href>` link (a script link with `href` included)
-named by its rendered text; no other script button is clicked as a switch. A switch's
-text locator names another link only when no button or script link shows that text. The
-extractor gives a link a text locator only on a login page and only when no other link
-and no button shows that text. A click is not tied to the form the previous fill used: a
-page that shows a second, previously hidden button with the same text stops the attempt
-as ambiguous, but if the observed button is removed and another button with the same
-text remains, that one is clicked.
+text, but only when no native button carries that text, shown or hidden: native buttons
+are matched first, so a login tab such as `<a href="#" onclick="...">Login</a>` never
+makes the `<input type="submit" value="Login">` below it ambiguous, and a text locator
+waits for a hidden native button rather than clicking a script link with its text. A
+recipe that names a script link by text clicks a native button instead if the page later
+adds one with the same text. Other script buttons are often widgets such as menus and
+toggles, so only their `id`, `name` or `data-testid` names them, and the extractor
+leaves out a script button without a locator instead of marking the page incomplete. The
+executor compares strings and acts only when exactly one element matches; more than one
+is a structural mismatch. It clicks buttons, image buttons and script buttons (not a
+disabled button, nor a script button with `aria-disabled="true"`), never links, except a
+recipe's `accountSwitch`, which may be an `<a href>` link (a script link with `href`
+included) named by its rendered text; no other script button is clicked as a switch. A
+switch's text locator names another link only when no button or script link shows that
+text, so a switch recipe that names a link clicks a button instead if the page later
+shows one with the same text. The extractor gives a link a text locator only on a login
+page and only when no other link and no button shows that text. A click is not tied to
+the form the previous fill used: a page that shows a second, previously hidden button
+with the same text stops the attempt as ambiguous, but if the observed button is removed
+and another button with the same text remains, that one is clicked.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button

@@ -57,6 +57,13 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, { by: "text", value: "Switch" }, { links: true }))).toEqual([
       "h",
     ]);
+    // A hidden native button with the text hides script links too, so a click waits for it.
+    page(
+      `<a id="j" href="#" role="button">次へ</a><button id="k" style="display:none">次へ</button>`,
+    );
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual([]);
+    document.getElementById("k")!.style.display = "";
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual(["k"]);
     page(`<a id="f" href="#" onclick="tab()">Login</a><input id="g" type="submit" value="Login">`);
     // A native button with the text hides script links, also from an account switch.
     expect(ids(findTargets(document, { by: "text", value: "Login" }))).toEqual(["g"]);

@@ -9,6 +9,7 @@ import * as v from "valibot";
 import {
   buttonText,
   collapseText,
+  hasNativeButton,
   isScriptButton,
   isScriptLink,
   linkText,
@@ -140,7 +141,7 @@ function locatorIndex(document: Document): LocatorIndex {
 /**
  * Mirrors the executor's lookup: an attribute value, or else a button's text, that
  * matches exactly one element. A script link's text must also name no native button,
- * which the executor would take first. Button text is used only when redaction leaves
+ * shown or not, which the executor would take first. Button text is used only when redaction leaves
  * it unchanged, so a locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account. With `links`, a link is located by its text too,
@@ -176,10 +177,11 @@ function locate(
     return v.is(loginTargetSchema, target) ? target : undefined;
   }
   const text = buttonText(element);
+  if (text === undefined || observedText(text) !== text) return undefined;
   const unique = isScriptLink(element)
-    ? !index.get("text")!.has(text ?? "") && index.get("script-text")!.get(text ?? "") === 1
-    : index.get("text")!.get(text ?? "") === 1;
-  if (text === undefined || !unique || observedText(text) !== text) return undefined;
+    ? !hasNativeButton(element.ownerDocument, text) && index.get("script-text")!.get(text) === 1
+    : index.get("text")!.get(text) === 1;
+  if (!unique) return undefined;
   const target = { by: "text" as const, value: text };
   return v.is(loginTargetSchema, target) ? target : undefined;
 }

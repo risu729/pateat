@@ -331,6 +331,15 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("gives a script link no text locator while a hidden native button carries its text", () => {
+    page(
+      `<form><input id="user"><input id="pass" type="password">
+        <a href="javascript:;" onclick="login()">ログイン</a><button hidden>ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(summary(observation).map(({ role }) => role)).toEqual(["text", "password"]);
+  });
+
   it("names an image-only button by its image's alt, as the executor resolves it", () => {
     page(
       `<form><input id="user"><button><img src="data:," alt="ログイン" width="40" height="20"></button></form>`,
