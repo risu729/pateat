@@ -2,13 +2,22 @@
 // ANTHROPIC_API_KEY and prints the report as JSON; the report carries no page text.
 import { parseArgs } from "node:util";
 import { runClaudeBenchmark } from "../packages/inference/src/bench";
+import { evaluationCorpus } from "../packages/inference/src/corpus/cases";
+import { realPageCorpus } from "../packages/inference/src/corpus/real";
+
+const corpora = { synthetic: evaluationCorpus, real: realPageCorpus };
 
 const { values } = parseArgs({
   options: {
     paid: { type: "boolean", default: false },
     "max-cost-usd": { type: "string", default: "2" },
+    corpus: { type: "string", default: "synthetic" },
   },
 });
+if (!Object.hasOwn(corpora, values.corpus)) {
+  console.error(`Choose a corpus: ${Object.keys(corpora).join(", ")}.`);
+  process.exit(2);
+}
 if (!values.paid) {
   console.error("This run calls the paid Claude API. Pass --paid once the owner has approved it.");
   process.exit(2);
@@ -19,7 +28,11 @@ if (apiKey === undefined || apiKey.trim() === "") {
   process.exit(2);
 }
 
-const result = await runClaudeBenchmark({ apiKey, maxCostUsd: Number(values["max-cost-usd"]) });
+const result = await runClaudeBenchmark({
+  apiKey,
+  maxCostUsd: Number(values["max-cost-usd"]),
+  cases: corpora[values.corpus as keyof typeof corpora],
+});
 console.log(JSON.stringify(result, null, 2));
 if (result.report.stoppedBefore !== undefined) {
   console.error(`Stopped at the cost cap before ${result.report.stoppedBefore}.`);

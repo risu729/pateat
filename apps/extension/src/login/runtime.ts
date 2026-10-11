@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  builtInLoginSlots,
   createAttemptMetadata,
   defaultLoginBinding,
   findLoginBinding,
@@ -173,22 +174,9 @@ export interface LoginGeneration {
  * the same name by `defaultLoginBinding`.
  */
 const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
-  {
-    slot: {
-      id: "username",
-      kind: "identifier",
-      description: "account username, email address or login ID",
-    },
-    fieldId: "login.username",
-  },
-  {
-    slot: { id: "password", kind: "secret", description: "account password" },
-    fieldId: "login.password",
-  },
-  {
-    slot: { id: "totp", kind: "one-time-code", description: "one-time authentication code" },
-    fieldId: "login.totp-code",
-  },
+  { slot: builtInLoginSlots.username, fieldId: "login.username" },
+  { slot: builtInLoginSlots.password, fieldId: "login.password" },
+  { slot: builtInLoginSlots.totp, fieldId: "login.totp-code" },
 ];
 const probeMode = import.meta.env.MODE === "probe";
 

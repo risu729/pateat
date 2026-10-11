@@ -48,6 +48,14 @@ steps = (
       }
     }
   }
+  ["hygiene"] {
+    steps {
+      ["fix-smart-quotes"] {
+        // Page text copied from real sites is evaluation data; rewriting it changes the data.
+        exclude = List("packages/inference/src/corpus/formasaurus.json")
+      }
+    }
+  }
   ["runtime"] {
     check = "mise run check:runtime"
   }
