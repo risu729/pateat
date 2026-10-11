@@ -5,7 +5,7 @@ min_version = "2026.10.7"
 [tools]
 bun = "1.4.3"
 node = "26.11.1"
-python = "3.13.16"
+python = "3.14.8"
 hk = "2.5.0"
 "npm:oxlint" = "1.87.0"
 "npm:typescript" = "6.0.3"
