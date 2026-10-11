@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { age, installLabel, serverLabel, syncSignIn } from "./labels";
+import { age, installLabel, plural, serverLabel, syncSignIn } from "./labels";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 describe("diagnostics labels", () => {
+  it("uses the singular noun only for one", () => {
+    expect(plural(0, "recipe")).toBe("0 recipes");
+    expect(plural(1, "recipe")).toBe("1 recipe");
+    expect(plural(2, "granted site")).toBe("2 granted sites");
+    expect(plural(1, "entry", "entries")).toBe("1 entry");
+    expect(plural(5, "entry", "entries")).toBe("5 entries");
+  });
+
   it("rounds an age down at the unit boundaries", () => {
     expect(age(-5 * MINUTE)).toBe("0 min");
     expect(age(59 * MINUTE + 59_999)).toBe("59 min");

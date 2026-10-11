@@ -9,7 +9,14 @@ import type { DeviceStateResult } from "../service/transport";
 import type { VaultEntry, VaultResult } from "../vault/record";
 import type { LogSummary, RecentLog } from "./log";
 import type { Pseudonyms } from "./pseudonym";
-import { age, deviceFailureLabel, generationLabel, serverLabel, syncSignIn } from "./labels";
+import {
+  age,
+  plural,
+  deviceFailureLabel,
+  generationLabel,
+  serverLabel,
+  syncSignIn,
+} from "./labels";
 import type {
   DiagnosticsCheck,
   DiagnosticsConnection,
@@ -393,7 +400,7 @@ function deviceChecks(value: DiagnosticsStatus["service"]): DiagnosticsCheck[] {
   const differences: string[] = [];
   // A full cache holds only part of the recipes by design; its own check reports it.
   if (value.recipes && !value.cacheFull && value.recipes.count !== record.recipes)
-    differences.push(`service ${record.recipes} recipes, cached ${value.recipes.count}`);
+    differences.push(`service ${plural(record.recipes, "recipe")}, cached ${value.recipes.count}`);
   // No stored base means settings never synced, which matches revision 0.
   const local = value.settingsRevision ?? 0;
   if (local !== record.settingsRevision)
@@ -514,7 +521,7 @@ export async function collectDiagnostics(
         ? {
             id: "logs",
             level: "warn",
-            detail: `${logs.recentErrors} errors logged in the last 24 h`,
+            detail: `${plural(logs.recentErrors, "error")} logged in the last 24 h`,
           }
         : { id: "logs", level: "ok", detail: "no errors logged in the last 24 h" },
   ];

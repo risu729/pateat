@@ -37,6 +37,11 @@ export function syncSignIn(state: DiagnosticsConnection["providerSession"]): str
   }
 }
 
+/** `1 recipe`, `2 recipes`: a count with its English noun. */
+export function plural(value: number, noun: string, nouns = `${noun}s`): string {
+  return `${value} ${value === 1 ? noun : nouns}`;
+}
+
 /** `25 min`, `4 h` or `3 d`; a time in the future counts as `0 min`. */
 export function age(ms: number): string {
   if (ms < HOUR_MS) return `${Math.max(0, Math.floor(ms / MINUTE_MS))} min`;

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "../options/button";
 import {
+  plural,
   deviceFailureLabel,
   generationLabel,
   installLabel,
@@ -74,7 +75,7 @@ function Version({ status, browser }: { status: DiagnosticsStatus; browser: Brow
         <Row term="Permissions">
           {[...status.permissions.permissions, ...status.permissions.origins].join(", ")}
           {status.permissions.otherOrigins > 0 &&
-            ` + ${status.permissions.otherOrigins} granted sites`}
+            ` + ${plural(status.permissions.otherOrigins, "granted site")}`}
         </Row>
         <Row term="Toolbar icon">{status.actionIcon}</Row>
       </dl>
@@ -253,8 +254,8 @@ function Logs({
     <section aria-labelledby="logs-heading" className="panel">
       <h2 id="logs-heading">Logs</h2>
       <p className="note">
-        Kept on this device for 14 days. Sites you have not set up appear as{" "}
-        <code>origin:7d2b91aa</code>.
+        Kept on this device for 14 days. A site you had not set up when an entry was written appears
+        as <code>origin:7d2b91aa</code>, even with site addresses included.
       </p>
       <dl>
         <Row term="Entries" id="diagnostics-logs">

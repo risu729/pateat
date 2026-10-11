@@ -57,7 +57,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     );
     expect(report).toContain("Permissions: alarms, storage, offscreen, https://*/*");
     expect(report).toContain("Pateat service: not-configured");
-    expect(report).toMatch(/\nLogs: \d+ entries \(\d+ KB\), 0 errors in 24 h\n/u);
+    expect(report).toMatch(/\nLogs: \d+ entr(?:y|ies) \(\d+ KB\), 0 errors in 24 h\n/u);
 
     // Debug logging, the exact saved text, and clearing.
     await page.getByRole("button", { name: "Enable debug logging for 24 hours" }).click();
@@ -139,7 +139,7 @@ test("a connection appears under a stable pseudonym with its server, and only it
         ),
       );
     await setupProbe(first.page, { action: "configure", variant: "unchanged" });
-    expect(report).toMatch(/1 items \(login 1, TOTP \d, passkey \d\) \+ \d unsupported/u);
+    expect(report).toMatch(/1 item \(login 1, TOTP \d, passkey \d\) \+ \d unsupported/u);
     for (const absent of [
       v1Email,
       "Synthetic vault",
