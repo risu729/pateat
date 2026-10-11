@@ -47,7 +47,7 @@ The owner decided these on 2026-10-11, following the kogane repository:
 - Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
   as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
 - Preview: there is no preview deployment for now. Without the owner web UI there is
-  nothing to review in a browser: the anonymous routes are `/health`, the OIDC
+  nothing to review in a browser: the routes outside Access are `/health`, the OIDC
   discovery documents, `/redeem` and the device-authenticated `/v1/*`, which the
   Worker tests cover, and a useful preview would need its own D1 database and Access
   setup. Add a `worker-preview` deployment with a separate preview D1 binding, as biwa
