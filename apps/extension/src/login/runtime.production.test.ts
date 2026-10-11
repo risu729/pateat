@@ -24,6 +24,10 @@ const fake = vi.hoisted(() => {
     tabUrls: {} as Record<number, string>,
     /** Completion, then rejection target states reported by observation. */
     observed: ["unique", "missing"],
+    /** The document's answer while it waits for a step's elements. */
+    awaited: { ok: true } as { ok: boolean; reason?: string },
+    /** Runs while the document waits for a step's elements. */
+    onAwait: undefined as undefined | (() => void),
   };
   const browser = {
     runtime: {
@@ -48,6 +52,10 @@ const fake = vi.hoisted(() => {
       get: async (id: number) => ({ id, url: state.tabUrls[id] ?? state.pageUrl }),
       sendMessage: async (_tabId: number, message: Record<string, unknown>) => {
         state.messages.push(structuredClone(message) as (typeof state.messages)[number]);
+        if (message["type"] === "login.await") {
+          state.onAwait?.();
+          return state.awaited;
+        }
         if (message["type"] === "login.observe")
           return { path: "/signin", targets: [...state.observed] };
         if (message["type"] === "login.execute") {
@@ -226,6 +234,7 @@ function harness(
     recipe: vi.fn(async (at: string, path: string): Promise<typeof recipe | undefined> =>
       at === origin && path === "/signin" ? recipe : undefined,
     ),
+    firstSteps: vi.fn(async (at: string) => (at === origin ? [recipe.steps[0]!] : [])),
   };
   const login = createLoginRuntime(store, {
     fields,
@@ -233,9 +242,18 @@ function harness(
     recipes,
     ...(live.uris ? { uris: live.uris } : {}),
   });
-  const hello = (from: Record<string, unknown> = {}) =>
+  // By default the document reports its first step ready, as the content script does
+  // once the form appears; `start: false` sends the initial announcement instead.
+  const hello = (from: Record<string, unknown> = {}, start = true) =>
     login.handle(
-      { version: 1, type: "login.document.ready", token: "synthetic-token" },
+      {
+        version: 1,
+        type: "login.document.ready",
+        token: "synthetic-token",
+        ...(start
+          ? { start: { path: new URL(String(from["url"] ?? fake.state.pageUrl)).pathname } }
+          : {}),
+      },
       sender(from),
     );
   return { login, store, fields, recipes, hello, snapshot: current, settings: snapshot };
@@ -250,6 +268,8 @@ describe("production login document admission", () => {
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
     fake.state.observed = ["unique", "missing"];
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -352,14 +372,113 @@ describe("production login document admission", () => {
     expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
     expect(h.store.handle).not.toHaveBeenCalled();
   });
+  const signinStart = {
+    path: "/signin",
+    require: "writable",
+    targets: [{ by: "id", value: "password" }],
+  };
   it("refuses an admitted page without a saved recipe and never reads the vault", async () => {
     fake.state.pageUrl = "https://login.example/elsewhere";
     const h = harness();
-    expect(await h.hello()).toEqual({ ok: false, reason: "recipe-not-found" });
+    // The origin has a recipe elsewhere, so the document watches for its first step.
+    expect(await h.hello()).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [signinStart],
+    });
     // The policy catalog (and with it every configured vault) is never opened.
     expect(h.store.handle).not.toHaveBeenCalled();
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).toEqual(["login.status"]);
+  });
+  it("leaves a path where several recipes start out of the watch list", async () => {
+    fake.state.pageUrl = "https://login.example/elsewhere";
+    const h = harness();
+    h.recipes.firstSteps.mockResolvedValue([
+      recipe.steps[0]!,
+      { ...recipe.steps[0]!, fields: [{ slot: "password", target: target("other") }] },
+      { ...recipe.steps[0]!, path: "/other" },
+    ] as never);
+    expect(await h.hello()).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [{ ...signinStart, path: "/other" }],
+    });
+  });
+  it("starts only after the document reports the first step ready", async () => {
+    const h = harness();
+    expect(await h.hello({}, false)).toEqual({
+      ok: false,
+      reason: "form-not-ready",
+      starts: [signinStart],
+    });
+    // A start reported for another path does not count for this one.
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          start: { path: "/elsewhere" },
+        },
+        sender(),
+      ),
+    ).toEqual({ ok: false, reason: "form-not-ready", starts: [signinStart] });
+    expect(h.store.handle).not.toHaveBeenCalled();
+    expect(h.fields).not.toHaveBeenCalled();
+    // The same document announces again once its form appears.
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
+    );
+    // A document that already carries an attempt cannot start another one.
+    expect(await h.hello()).toEqual({ ok: false, reason: "duplicate-document" });
+  });
+  it("refuses a different content script instance in an already announced document", async () => {
+    const h = harness();
+    expect(await h.hello({}, false)).toMatchObject({ reason: "form-not-ready" });
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "other-token",
+          start: { path: "/signin" },
+        },
+        sender(),
+      ),
+    ).toEqual({ ok: false, reason: "duplicate-document" });
+  });
+  it("a policy change while waiting for elements stops before any intent or vault read", async () => {
+    const h = harness();
+    fake.state.onAwait = () => {
+      h.settings.revision += 1;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        { state: "blocked", outcome: "policy-changed", usedOperationIds: [] },
+      ]),
+    );
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
+  });
+  it("stops before any vault read or page change when a step's elements never appear", async () => {
+    fake.state.awaited = { ok: false, reason: "timeout" };
+    const h = harness();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        {
+          state: "retryable",
+          outcome: "structural-mismatch",
+          submissions: 0,
+          usedOperationIds: [],
+        },
+      ]),
+    );
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
   });
   describe("live provider URI matches", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");

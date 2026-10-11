@@ -142,7 +142,12 @@ async function start(fields: LoginFieldSource, catalog: Catalog = {}) {
     ),
   ).toEqual({ ok: true });
   const ready = await login.handle(
-    { version: 1, type: "login.document.ready", token: "synthetic-token" },
+    {
+      version: 1,
+      type: "login.document.ready",
+      token: "synthetic-token",
+      start: { path: new URL(fake.pageUrl).pathname },
+    },
     page,
   );
   const attempt = async () =>
