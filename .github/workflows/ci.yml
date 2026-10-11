@@ -57,11 +57,6 @@ jobs:
     name: Windows browser
     runs-on: windows-2025
     timeout-minutes: 30
-    # TEMPORARY diagnostic: repeat the job to catch the intermittent Windows failure.
-    strategy:
-      fail-fast: false
-      matrix:
-        repeat: [1, 2, 3, 4, 5]
     permissions:
       contents: read
     steps:
@@ -77,8 +72,8 @@ jobs:
       - name: Install isolated browser runtime
         run: mise run browser:install
       - name: Run the packaged-extension browser tests
-        # Browser profiles go on the runner's work drive. The system drive that holds the
-        # default temp directory stalls I/O long enough to time out browser tests.
+        # Keep browser profiles on the runner's work drive. Profiles in the default temp
+        # directory on the system drive hit 5-25 s I/O stalls that timed out random tests.
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
@@ -87,7 +82,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: windows-browser-results-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.repeat }}
+          name: windows-browser-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/extension/
           if-no-files-found: ignore
           retention-days: 7
