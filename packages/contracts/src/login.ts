@@ -36,13 +36,44 @@ const path = v.pipe(
 );
 const unique = (values: string[]) => new Set(values).size === values.length;
 
-/** An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. */
-export const loginTargetSchema = v.strictObject({
-  by: v.picklist(["id", "name", "test-id"]),
-  value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
+/**
+ * An attribute locator: the element whose `id`, `name` or `data-testid` equals the
+ * value. `id` and `name` take any ASCII except whitespace and control characters, as
+ * ASP.NET (`ctl00$Main$txtUserId`) and Rails (`user[login]`) names need; the executor
+ * compares attribute strings, so the value never becomes a selector.
+ */
+export const loginAttributeTargetSchema = v.variant("by", [
+  v.strictObject({
+    by: v.picklist(["id", "name"]),
+    value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[\x21-\x7e]+$/u)),
+  }),
+  v.strictObject({
+    by: v.literal("test-id"),
+    value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
+  }),
+]);
+/**
+ * A button locator: the one button whose text equals the value. The text is a
+ * `<button>`'s rendered text, an `<input type="submit|button">`'s value or an
+ * `<input type="image">`'s alt, with whitespace collapsed to single spaces and
+ * format characters removed. It matches buttons only, so fills never use it.
+ */
+export const loginTextTargetSchema = v.strictObject({
+  by: v.literal("text"),
+  value: v.pipe(
+    v.string(),
+    v.minLength(1),
+    v.maxLength(120),
+    v.regex(/^[^\s\p{Cc}\p{Cf}]+(?: [^\s\p{Cc}\p{Cf}]+)*$/u),
+  ),
 });
+/** An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. */
+export const loginTargetSchema = v.variant("by", [
+  ...loginAttributeTargetSchema.options,
+  loginTextTargetSchema,
+]);
 const fields = v.pipe(
-  v.array(v.strictObject({ slot: identifier, target: loginTargetSchema })),
+  v.array(v.strictObject({ slot: identifier, target: loginAttributeTargetSchema })),
   v.minLength(1),
   v.maxLength(20),
   v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate fill slots"),
@@ -178,6 +209,7 @@ export const loginOutcomeSchema = v.picklist([
 ]);
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;
+export type LoginAttributeTarget = v.InferOutput<typeof loginAttributeTargetSchema>;
 export type LoginStep = v.InferOutput<typeof loginStepSchema>;
 export type LoginEffect = "prepare" | "advance" | "submit";
 export function loginStepEffect(step: LoginStep): LoginEffect | undefined {

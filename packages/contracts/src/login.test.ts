@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import * as v from "valibot";
 import {
+  loginTargetSchema,
   parseLoginAccountBinding,
   parseLoginOperation,
   parseLoginRecipe,
@@ -181,6 +183,51 @@ describe("declarative login boundaries", () => {
       },
     ])
       expect(() => parseLoginRecipe(malformed)).toThrow();
+  });
+
+  it("accepts ASCII attribute values and exact button text, and fills by attribute only", () => {
+    const target = (value: unknown) => v.safeParse(loginTargetSchema, value).success;
+    for (const accepted of [
+      { by: "name", value: "ctl00$Main$txtUserId" },
+      { by: "name", value: "user[login]" },
+      { by: "id", value: "a'b\"c" },
+      { by: "test-id", value: "sign-in" },
+      { by: "text", value: "ログイン" },
+      { by: "text", value: "Sign in" },
+    ])
+      expect(target(accepted)).toBe(true);
+    for (const rejected of [
+      { by: "id", value: "user id" },
+      { by: "id", value: "会員" },
+      { by: "id", value: "a\u0000" },
+      { by: "test-id", value: "a$b" },
+      { by: "text", value: "" },
+      { by: "text", value: " Sign in" },
+      { by: "text", value: "Sign  in" },
+      { by: "text", value: "Sign\u00a0in" },
+      { by: "text", value: "Sign\nin" },
+      { by: "text", value: "Sign\u200bin" },
+      { by: "text", value: "x".repeat(121) },
+      { by: "text", value: "Sign in", extra: true },
+    ])
+      expect(target(rejected)).toBe(false);
+    const valid = recipe();
+    const click = { kind: "click", path: "/identity", target: { by: "text", value: "次へ" } };
+    expect(() =>
+      parseLoginRecipe({ ...valid, steps: [valid.steps[0], { ...click, purpose: "advance" }] }),
+    ).not.toThrow();
+    expect(() =>
+      parseLoginRecipe({
+        ...valid,
+        steps: [
+          {
+            kind: "fill",
+            path: "/identity",
+            fields: [{ slot: "account", target: { by: "text", value: "Account" } }],
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("rejects duplicate bindings and secret-shaped extras", () => {

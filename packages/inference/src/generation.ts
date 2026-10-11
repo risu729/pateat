@@ -64,7 +64,7 @@ export const generationInstructions = [
   "extension fills the values locally after checking your plan.",
   "You map semantic login slots to elements of one sanitized login page observation.",
   "Return a plan that fills each requested slot present on this page into one candidate",
-  "and names exactly one button or link candidate as the page action. Use 'advance' when",
+  "and names exactly one button candidate as the page action. Use 'advance' when",
   "the page continues to another step and 'submit' when it sends the credentials.",
   "Use only candidate IDs and slot IDs from the input. Leave out slots that this page does",
   "not ask for. A slot may name the user's vault field and give its value's shape",

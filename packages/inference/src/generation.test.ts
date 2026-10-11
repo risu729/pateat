@@ -117,6 +117,7 @@ describe("recipe generation role", () => {
     ["secret into a visible text field", plan([["password", "email"]]), "incompatible-role"],
     ["identifier into a password field", plan([["email", "password"]]), "incompatible-role"],
     ["link as a fill target", plan([["email", "forgot"]]), "incompatible-role"],
+    ["link as the page action", plan([["email", "email"]], "forgot"), "incompatible-role"],
     ["field reused as the action", plan([["email", "email"]], "email"), "duplicate-candidate"],
     [
       "one element for two slots",
