@@ -53,9 +53,29 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+  windows-browser:
+    name: Windows browser
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          version: 2026.10.7
+          install_args: --locked
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+      - name: Install isolated browser runtime
+        run: mise run browser:install
+      - name: Run the packaged-extension browser tests
+        run: mise run test:browser
   ci-check:
     name: CI Check
-    needs: [verify]
+    needs: [verify, windows-browser]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -64,4 +84,5 @@ jobs:
       - name: Require all verification to succeed
         env:
           VERIFY_RESULT: ${{ needs.verify.result }}
-        run: test "${VERIFY_RESULT}" = success
+          WINDOWS_BROWSER_RESULT: ${{ needs.windows-browser.result }}
+        run: test "${VERIFY_RESULT}" = success && test "${WINDOWS_BROWSER_RESULT}" = success
