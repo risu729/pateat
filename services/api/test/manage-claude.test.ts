@@ -177,6 +177,7 @@ describe("Claude settings page", () => {
     const body = await response.text();
     expect(body).toContain(`<code>owner:${ownerId}</code>`);
     expect(body).toContain("<code>https://pateat.invalid</code>");
+    expect(body).toContain("<p>None yet.</p>");
     expect(body).not.toContain("<script");
   });
 
@@ -193,9 +194,10 @@ describe("Claude settings page", () => {
       federation_rule_id: ids.federationRuleId,
       workspace_id: ids.workspaceId,
     });
-    expect(await (await request("/manage/claude", access)).text()).toContain(
-      `value="${ids.serviceAccountId}"`,
-    );
+    const shown = await (await request("/manage/claude", access)).text();
+    expect(shown).toContain(`value="${ids.serviceAccountId}"`);
+    expect(shown).toContain(`<td><code>${ids.federationRuleId}</code></td>`);
+    expect(shown).not.toContain("None yet.");
   });
 
   it("keeps the form reachable when the stored row is no longer valid", async () => {
@@ -209,7 +211,33 @@ describe("Claude settings page", () => {
     expect(response.status).toBe(200);
     const body = await response.text();
     expect(body).toContain("The stored identifiers are no longer valid.");
+    expect(body).toContain("<p>None yet.</p>");
     expect(body).not.toContain('value="bad"');
+
+    // A rejected form and a test exchange answer the same way instead of failing.
+    const rejected = await postForm("/manage/claude", access, { ...ids, workspaceId: "bad" });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.text()).toContain("<p>None yet.</p>");
+    const exchangesBefore = tokenRequests.length;
+    const tested = await postForm("/manage/claude/test", access, {});
+    expect(tested.status).toBe(200);
+    const testedBody = await tested.text();
+    expect(testedBody).toContain("The stored identifiers are no longer valid.");
+    expect(testedBody).toContain("<p>None yet.</p>");
+    expect(tokenRequests).toHaveLength(exchangesBefore);
+  });
+
+  it("keeps showing the saved identifiers beside a rejected form", async () => {
+    const { access } = await signedInOwner();
+    expect((await postForm("/manage/claude", access, ids)).status).toBe(303);
+    const response = await postForm("/manage/claude", access, {
+      ...ids,
+      serviceAccountId: "svac_bad!",
+    });
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(body).toContain(`<td><code>${ids.serviceAccountId}</code></td>`);
+    expect(body).toContain('value="svac_bad!"');
   });
 
   it("rejects malformed identifiers, escapes them and stores nothing", async () => {
@@ -260,6 +288,9 @@ describe("Claude settings page", () => {
     const body = await granted.text();
     expect(body).toContain("Anthropic issued a token valid for 10 minutes.");
     expect(body).not.toContain("sk-ant-oat01");
+    // The page after a test still shows what is saved.
+    expect(body).toContain(`value="${ids.workspaceId}"`);
+    expect(body).toContain(`<td><code>${ids.workspaceId}</code></td>`);
     const assertion = tokenRequests.at(-1)!["assertion"]!;
     expect(Jwt.decode(assertion).payload["sub"]).toBe(`owner:${ownerId}`);
 

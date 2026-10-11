@@ -163,7 +163,13 @@ own Claude credentials. `src/claude/` holds the only path from an owner to a cre
 In the owner's Claude Console (Settings → Workload identity → Connect workload →
 Custom OIDC), the issuer URL is `OIDC_ISSUER`, with discovery. The federation rule
 matches `subject_prefix` `owner:<ownerId>` exactly, may also match audience
-`https://api.anthropic.com`, and should use the `workspace:inference` scope.
+`https://api.anthropic.com`, and should use the `workspace:inference` scope where the
+Console offers it. On 2026-10-11 the Connect workload wizard offered only
+`workspace:developer` and `org:admin`, so the owner's rule uses `workspace:developer`
+with the wizard's 600-second token lifetime. That scope also allows Files, Skills and
+Managed Agents in the rule's workspace; Pateat calls only the Messages API, and each
+exchanged token serves one call and is then discarded. `/manage/claude` shows the saved
+identifiers.
 
 ## Recipe generation
 

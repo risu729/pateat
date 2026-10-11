@@ -27,7 +27,8 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   `advance` step, naming `accountSwitch`, ADR 0010 hints, `checkPlanValues` and the
   post-fill check in the executor, the real-page corpus) and the finite-choice role.
 - M5: the passkey chooser window
-  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), real sites that wrap `get`
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
+  implemented and tested in Playwright Chromium only), real sites that wrap `get`
   themselves, and a navigation during signing.
 - M6: Chrome use coexistence, operational docs, hosted smoke checks beyond `/health`,
   installed-Chrome dummy-account tests and measured limits.
@@ -483,8 +484,9 @@ IndexedDB database at version 2 holds a `records` store and a `providerSessions`
 vault records still never contain tokens. A version 1 database from an earlier build
 fails to open until the extension is reinstalled
 ([compatibility before release](development.md#compatibility-before-release)). A
-token-free refresh claim commits by compare-and-swap before HTTP, a restart or unknown
-outcome requires password sign-in instead of replaying it, rotation commits before sync,
+token-free refresh claim commits by compare-and-swap before HTTP, a network failure,
+timeout, 429 or 5xx restores the previous session so a later sync retries it, a restart
+or other failure requires password sign-in, rotation commits before sync,
 and an absent refresh token keeps the captured one. Local forget, permission loss for
 that provider, a rejected refresh or access token, and a mismatched account context
 clear only the sync session. Startup only reads state; the settings page shows sync
@@ -1056,11 +1058,14 @@ the attempt it started, wins over a saved default there, and still has to match 
 page and pass every policy check; a pick that starts nothing is dropped, so the form's
 next appearance asks again. "Make it the default for this site" (on by default,
 off in a private window) saves the pick through the existing choice save after
-`authenticated`. Choosing again after a logout (part D) is not built yet.
+`authenticated`. The passkey chooser window is implemented: a request matching several
+passkeys, none of them the site default, opens `passkey-picker.html` to choose one once
+or as the default. Choosing again after a logout (part D) is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
-API keys, SSO or device approval; external email/SMS OTP and magic links; and separately
+API keys, SSO or device approval; signing in to sites through an identity provider
+(policy in ADR 0026); external email/SMS OTP and magic links; and separately
 authorized post-login actions, including transactions and approvals. UI extensions,
 automatic account switching (logging out and in again when another account is picked
 while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe

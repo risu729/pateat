@@ -113,8 +113,8 @@ The owner approved the following on 2026-10-11.
 
 After testing the page in Chrome on 2026-10-11, the owner found the bug report too thin
 to act on and asked for Bitwarden and Pateat server details. On 2026-10-11 the owner
-approved all of the following; this section records the Bitwarden part, and the other
-parts are recorded with their implementations.
+approved all of the following; this section records each part with its
+implementation.
 
 - Per enabled connection with the provider permission, the worker reads
   `GET {api}/config` without credentials. It keeps only `version` and the server kind
@@ -125,6 +125,14 @@ parts are recorded with their implementations.
 - A check reports whether `/config` was reachable, by reason code.
 - The bug report now carries the unlock KDF family (`PBKDF2` or `Argon2id`), because
   unlock failures differ by family. Its parameters stay on the page only.
-- Also approved and recorded with their own changes: recent warnings and errors in the
-  bug report, with a new `vault.sync` log event, and an authenticated Pateat service
+- The bug report ends with recent log lines built by the service worker: the last
+  update (`runtime.updated`), the newest 10 warnings and errors of 24 hours, and passkey
+  delegations of 24 hours counted by reason (passkey requests are `info`, so only their
+  counts are copied). Sites and recipes in these lines are numbered as `site-N` and
+  `recipe-N` separately from a log download, and the page says so.
+- A new `vault.sync` event records each settings-page Sync: `info` for a result,
+  `warn` for a failure, with the outcome code and, for an account mismatch, the check.
+  The HTTP status the proposal mentioned is not recorded, because the Sync reply
+  carries only a code.
+- Also approved and recorded with its own change: an authenticated Pateat service
   endpoint for this device's server-side state.

@@ -305,7 +305,11 @@ holds:
   (those the request accepts), `siteDefault` and `siteDefaultAccepted` (the same counts
   for the origin's site default item), `siteDefaultItem` (`unset`, `unresolved` when
   the saved account matches no connection, `not-searched` when the item is ineligible
-  or its connection was not searched, or `searched`) and `complete`.
+  or its connection was not searched, or `searched`) and `complete`;
+- when the chooser window opened, `chooser`: `chosen`, `browser` (the user picked the
+  browser), `closed` (the window, its tab or the request ended) or `unavailable` (the
+  window could not open, or another request held it). A delegation after the window
+  has the reason `chooser-` plus that value, or `timeout`.
 
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached

@@ -21,7 +21,7 @@ window.wrappedAtStart = navigator.credentials.get !== CredentialsContainer.proto
 window.request = (spec) => {
   window.controller = new AbortController();
   document.getElementById('result').textContent = 'pending';
-  const publicKey = { challenge: fromHex(spec.challenge), timeout: 5000 };
+  const publicKey = { challenge: fromHex(spec.challenge), timeout: spec.timeout ?? 5000 };
   if (spec.rpId) publicKey.rpId = spec.rpId;
   if (spec.userVerification) publicKey.userVerification = spec.userVerification;
   if (spec.allow) publicKey.allowCredentials = spec.allow.map((id) => ({ type: 'public-key', id: fromHex(id) }));

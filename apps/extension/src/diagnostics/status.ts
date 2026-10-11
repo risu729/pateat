@@ -5,7 +5,7 @@ import type { LocalSettings, ServiceState } from "@pateat/contracts";
 import * as v from "valibot";
 import type { SetupReply } from "../connections/types";
 import type { VaultEntry, VaultResult } from "../vault/record";
-import type { LogSummary } from "./log";
+import type { LogSummary, RecentLog } from "./log";
 import type { Pseudonyms } from "./pseudonym";
 import { age, serverLabel, syncSignIn } from "./labels";
 import type {
@@ -57,6 +57,7 @@ export type DiagnosticsDependencies = {
   fetch: typeof fetch;
   settings(): Promise<LocalSettings>;
   logs(): Promise<LogSummary>;
+  recentLog(): Promise<RecentLog>;
   storage: {
     localBytes(): Promise<number>;
     recipeCache(): Promise<unknown>;
@@ -394,15 +395,17 @@ export async function collectDiagnostics(
   deps: DiagnosticsDependencies,
 ): Promise<DiagnosticsStatus> {
   const now = deps.now ?? Date.now;
-  const [platform, permissions, siteAccess, setup, settings, localBytes, logs] = await Promise.all([
-    deps.platform().catch(() => ({ os: "unknown", arch: "unknown" })),
-    deps.permissions().catch((): { permissions?: string[]; origins?: string[] } => ({})),
-    deps.hasAllSiteAccess().catch(() => false),
-    deps.connections.status().catch(() => undefined),
-    deps.settings().catch(() => undefined),
-    deps.storage.localBytes().catch(() => undefined),
-    deps.logs().catch(() => undefined),
-  ]);
+  const [platform, permissions, siteAccess, setup, settings, localBytes, logs, recent] =
+    await Promise.all([
+      deps.platform().catch(() => ({ os: "unknown", arch: "unknown" })),
+      deps.permissions().catch((): { permissions?: string[]; origins?: string[] } => ({})),
+      deps.hasAllSiteAccess().catch(() => false),
+      deps.connections.status().catch(() => undefined),
+      deps.settings().catch(() => undefined),
+      deps.storage.localBytes().catch(() => undefined),
+      deps.logs().catch(() => undefined),
+      deps.recentLog().catch(() => undefined),
+    ]);
   const listed = setup?.ok && setup.kind === "status" ? setup.connections : [];
   // Network reads run together; each has its own timeout. Neither promise may reject,
   // since a failing store read below would leave them unawaited.
@@ -468,6 +471,7 @@ export async function collectDiagnostics(
       : {}),
     storage: localBytes === undefined ? {} : { localBytes },
     ...(logs ? { logs } : {}),
+    ...(recent ? { recent } : {}),
     checks,
   };
 }

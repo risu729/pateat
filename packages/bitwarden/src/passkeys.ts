@@ -15,6 +15,8 @@ export interface LocalPasskeyCredential {
   readonly userHandle: string | null;
   readonly discoverable: boolean;
   readonly counter: number;
+  /** The account name the site stored with the passkey, for display only; cut to 256 characters. */
+  readonly userName: string | null;
 }
 
 const identifier = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
@@ -35,6 +37,7 @@ const viewSchema = v.object({
   userHandle: optionalText,
   counter: text,
   discoverable: text,
+  userName: optionalText,
 });
 const inputSchema = v.strictObject({
   connectionId: identifier,
@@ -52,6 +55,7 @@ const MAX_COUNTER = 0xff_ff_ff_ff;
 // WebAuthn limits: credential IDs to 1023 bytes, user handles to 64 bytes.
 const MAX_CREDENTIAL_ID_BYTES = 1023;
 const MAX_USER_HANDLE_BYTES = 64;
+const MAX_USER_NAME_CHARACTERS = 256;
 
 /**
  * Decode Bitwarden's base64 storage in either the URL-safe or standard alphabet, with optional
@@ -148,6 +152,9 @@ export function mapLocalPasskeyCredentials(
           userHandle,
           discoverable,
           counter,
+          userName: credential.userName
+            ? [...credential.userName].slice(0, MAX_USER_NAME_CHARACTERS).join("")
+            : null,
         }),
       ]),
     };

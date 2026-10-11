@@ -398,9 +398,9 @@ Do not inject `chrome-extension://` iframes, automatic overlays or unlock window
 the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
 settings. The one extension window is the passkey chooser of
 [ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
-with several matches and none in incognito. Do not attach our own debugger in normal
-operation. Another installed extension can still inject a conflicting frame; coexistence
-requires an explicit compatibility test and documented settings.
+with several matches from a focused page, and never in incognito. Do not attach our own
+debugger in normal operation. Another installed extension can still inject a conflicting
+frame; coexistence requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->
 awaiting-result -> authenticated / retryable / blocked. One writer owns an
@@ -552,8 +552,13 @@ The worker fetches `/health` only for a paired service with site access, and
 requires, with a 5 s timeout and no credentials. It never reads the config's
 `environment` (host URLs) or a third-party server's name other than Vaultwarden.
 **Copy for bug report** shows the exact text before copying it; that text leaves out
-the unlock KDF parameters. Labels, emails, item names and IDs, URLs and host names are
-never part of the summary.
+the unlock KDF parameters. It ends with the log's last update (`Updated <time> from
+<revision>`), its warnings and errors of the last 24 hours (newest 10, one line each
+with the time, level, event and allowlisted field values) and the count of passkey
+requests left to the browser in those 24 hours by reason. The worker builds these lines
+from the log and numbers sites and recipes in them as in a download, but separately,
+so `site-1` there can be another site than in **Download logs**. Labels, emails, item
+names and IDs, URLs and host names are never part of the summary.
 
 ### Local log
 
@@ -568,6 +573,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `runtime.started` | debug | build revision |
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
+| `vault.sync` | info for a result and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
 | `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
@@ -655,8 +661,9 @@ Site recipes contain meanings such as branch-number/account-number/password. Kee
 account-specific bindings separate from recipes. They are stored in the synced settings
 document as references, never credential values, and resolved to values locally. AI
 input may name the allowed vault fields but never carries bindings, item or account IDs
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Multi-origin SSO needs an
-explicit configured transition policy.
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Signing in to a site
+through Google or Microsoft follows the policy in
+[ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented).
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
@@ -745,6 +752,15 @@ selection. The crypto Worker signs with the stored vault passkey, keeping the pr
 key inside the Worker and signing only zero-counter assertion data for that credential's
 RP ID. The probe build adds `http://localhost/*` scripts and a synthetic test-vector key
 for that origin.
+
+When several signable passkeys match and none is the site default, the background opens
+the chooser window `passkey-picker.html`
+([ADR 0021](adr/0021-account-choice-outside-settings.md)) with `chrome.windows.create`.
+It shows only item names, passkey user names and connection labels. The background
+answers its messages only from that page, for the request token in its URL and from the
+window it opened, and keeps the worker alive while the window waits. Choosing signs with
+that passkey; a ticked checkbox then saves it as the origin's site default. Any other
+ending delegates to the browser.
 
 ## Minimal service
 
