@@ -564,6 +564,19 @@ describe("production login document admission", () => {
       expect(h.recipes.recipe).not.toHaveBeenCalled();
       expect(fake.state.messages).toEqual([]);
     });
+    it("starts one attempt when the page and its frame announce at the same time", async () => {
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const h = harness();
+      const top = "https://login.example/signin";
+      const answers = await Promise.all([
+        h.hello({ documentId: "page-document", url: top }),
+        h.hello(framed(top)),
+      ]);
+      expect(answers).toContainEqual({ ok: true });
+      expect(answers).toContainEqual({ ok: false, reason: "tab-busy" });
+      await vi.waitFor(() => expect(executes()).toHaveLength(1));
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toHaveLength(1);
+    });
     it("keeps one attempt per tab and lets only a new page end a frame's attempt", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
       const h = harness();

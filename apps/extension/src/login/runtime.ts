@@ -962,18 +962,22 @@ export function createLoginRuntime(
     if (newPage) {
       // Frames of this page may have announced before it did. Only documents that no
       // longer answer went away with the old page.
-      for (const [other, entry] of [...documents])
-        if (
-          entry.document.tabId === document.tabId &&
-          entry.document.frameId !== 0 &&
-          // A tab has few frames; each is asked in turn.
-          // eslint-disable-next-line no-await-in-loop
-          !(await send(entry, { type: "login.observe", path: entry.path, targets: [] }).then(
-            () => true,
-            () => false,
-          ))
-        )
-          documents.delete(other);
+      // A frame that does not answer in time counts as still there.
+      const frames = [...documents].filter(
+        ([, entry]) => entry.document.tabId === document.tabId && entry.document.frameId !== 0,
+      );
+      const answers = await Promise.all(
+        frames.map(([, entry]) =>
+          Promise.race([
+            send(entry, { type: "login.observe", path: entry.path, targets: [] }).then(
+              () => true,
+              () => false,
+            ),
+            new Promise<boolean>((resolve) => setTimeout(resolve, 1000, true)),
+          ]),
+        ),
+      );
+      for (const [index, [other]] of frames.entries()) if (!answers[index]) documents.delete(other);
       if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
       owner = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
       const holder = owner && documents.get(frameKey(owner.document));
@@ -995,6 +999,7 @@ export function createLoginRuntime(
           } catch {
             return { ok: false, reason: "storage-unavailable" };
           }
+          if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
           owner = ended;
         }
       }
@@ -1085,6 +1090,12 @@ export function createLoginRuntime(
     )
       return refuse("origin-busy");
     if (!previous && persisted.size >= 100) return refuse("attempt-limit");
+    // Another document of the tab, such as a frame, may have started an attempt while this
+    // one was checked. Nothing below awaits until the attempt is registered.
+    if (
+      (attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId))?.id !== previous?.id
+    )
+      return refuse("tab-busy");
     let metadata: LoginAttemptMetadata;
     if (previous) {
       metadata = transitionLoginAttempt(recoverLoginAttempt(previous), {
