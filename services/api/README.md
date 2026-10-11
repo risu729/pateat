@@ -1,7 +1,8 @@
 # API
 
-This Worker is the optional private settings/recipe sync service with device enrollment.
-It has no vault implementation, and it is not deployed. It generates recipes with the
+This Worker is the private settings/recipe sync service with device enrollment, deployed
+at `pateat.takuk.me` ([delivery](../../docs/delivery.md)). It has no vault
+implementation. It generates recipes with the
 owner's own Claude credentials ([recipe generation](#recipe-generation)). The
 `pateat` D1 database was bootstrapped on 2026-10-11, and `cloudflare.config.ts` records
 its ID. cf deploy provisions declared bindings that lack an ID, so the release artifact
@@ -199,4 +200,4 @@ requires before distributing a built Worker.
 The configuration records the bootstrapped D1 database and the Custom Domain
 `pateat.takuk.me`; the account, credentials and Access applications are owner settings
 outside the repository. The server delivery workflow runs after every successful main
-CI and fails before any change until those deployment inputs exist.
+CI and releases the newest tested main revision ([delivery](../../docs/delivery.md)).
