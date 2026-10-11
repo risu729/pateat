@@ -763,6 +763,14 @@ Evidence, 2026-10-11, after the move to `@bitwarden/sdk-internal` `0.2.0-main.10
 Sync succeeded ("Local vault ready"). On main `59a2d12`, the `https://www.npmjs.com`
 security-key step again succeeded unattended.
 
+Evidence, 2026-10-11, a passkey-only site in the owner's Chrome with the same real
+account, production build at main `6c2eda9`: on `https://accounts.pixiv.net`, "Log in
+with passkey" with no ID entered (a username-less request). Two pixiv passkey items
+matched and no site default was set, so Pateat delegated as designed and Bitwarden
+showed its window. After the owner set and saved a site default for
+`https://accounts.pixiv.net`, the retry logged in with no Bitwarden or Windows window
+(11:48 UTC).
+
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
