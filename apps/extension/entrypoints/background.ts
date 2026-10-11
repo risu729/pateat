@@ -34,11 +34,19 @@ import {
   createBrowserSettingsHoldStorage,
 } from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
-import { createPseudonyms } from "../src/diagnostics/pseudonym";
 import { createDiagnosticsHandler } from "../src/diagnostics/status";
 import { diagnosticsRequestSchema } from "../src/diagnostics/wire";
+import { createDiagnosticsLog } from "../src/diagnostics/background";
 
 export default defineBackground(() => {
+  // First, so the logger sees errors from everything set up below.
+  const diagnosticsLog = createDiagnosticsLog({
+    build: { version: browser.runtime.getManifest().version, revision: PATEAT_BUILD_REVISION },
+    settings: async () => (await settings.read()).settings,
+    recipeCache: () => recipeCacheStorage.read(),
+    connections: () => connections.service.status(),
+  });
+  const { logger } = diagnosticsLog;
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
   const cryptoControls = import.meta.env.MODE === "probe" ? createCryptoProbeControls() : undefined;
   const cryptoHost = createBrowserCryptoHost(
@@ -58,7 +66,10 @@ export default defineBackground(() => {
           containsPermission: syntheticSetup.containsPermission,
         }
       : {}),
-    onVaultStateMayChange: () => void actionIcon.refresh(),
+    onVaultStateMayChange: () => {
+      void actionIcon.refresh();
+      diagnosticsLog.vaultStateMayChange();
+    },
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
@@ -101,6 +112,7 @@ export default defineBackground(() => {
     storage: recipeCacheStorage,
     schedule: recipeScheduleStorage,
     settings: settingsSync,
+    report: diagnosticsLog.recipeSync,
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
   recipeSync.refreshIfStale();
@@ -138,6 +150,7 @@ export default defineBackground(() => {
       storage: createBrowserGenerationAttemptStorage(),
       sync: () => recipeSync.sync(),
     }),
+    report: diagnosticsLog.login,
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const vaultPasskeys = createVaultPasskeySource(connections);
@@ -157,8 +170,8 @@ export default defineBackground(() => {
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
-        // Only this extension's service worker console shows it; the page never learns why.
-        report: (report) => console.info("Pateat passkey request", report),
+        // Only the local log keeps it; the page never learns why.
+        report: diagnosticsLog.passkey,
       });
 
   // Value-free per-device state for bug reports (ADR 0019).
@@ -170,7 +183,7 @@ export default defineBackground(() => {
       bitwardenSdk: PATEAT_BITWARDEN_SDK_VERSION,
       bitwardenProtocol: `client ${BITWARDEN_READ_PROTOCOL.clientVersion}, Device-Type ${BITWARDEN_READ_PROTOCOL.deviceType}`,
     },
-    pseudonym: createPseudonyms(),
+    pseudonym: diagnosticsLog.pseudonyms,
     platform: async () => {
       const { os, arch } = await browser.runtime.getPlatformInfo();
       return { os, arch };
@@ -197,6 +210,7 @@ export default defineBackground(() => {
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
     fetch: (input, init) => fetch(input, init),
     settings: async () => (await settings.read()).settings,
+    logs: () => logger.summary(),
     storage: {
       localBytes: () => browser.storage.local.getBytesInUse(null),
       recipeCache: () => recipeCacheStorage.read(),
@@ -317,7 +331,9 @@ export default defineBackground(() => {
       sender.url === browser.runtime.getURL("/diagnostics.html") &&
       v.is(diagnosticsRequestSchema, message)
     ) {
-      void diagnostics().then(sendResponse);
+      void (
+        message.type === "diagnostics.status" ? diagnostics() : diagnosticsLog.handle(message)
+      ).then(sendResponse);
       return true;
     }
 

@@ -101,16 +101,19 @@ function setup(
     run: vi.fn(async () => options.settings ?? "synced"),
     clear: vi.fn(async () => undefined),
   };
+  const report = vi.fn();
   const sync = createRecipeSync({
     service,
     transport,
     storage,
     schedule,
+    report,
     now: options.now ?? (() => 5_000),
     ...(options.settings ? { settings: settingsSync } : {}),
   });
   return {
     sync,
+    report,
     settingsSync,
     service,
     transport,
@@ -122,9 +125,10 @@ function setup(
 
 describe("recipe sync", () => {
   it("does nothing without a paired device", async () => {
-    const { sync, transport } = setup({ connection: undefined });
+    const { sync, transport, report } = setup({ connection: undefined });
     expect(await sync.sync()).toBe("not-connected");
     expect(transport.recipeChanges).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledExactlyOnceWith("not-connected");
   });
 
   it("applies pages of changes and records a complete sync", async () => {

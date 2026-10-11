@@ -73,6 +73,10 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
   );
   if (status.storage.localBytes !== undefined)
     lines.push(`Storage: storage.local ${Math.ceil(status.storage.localBytes / 1024)} KB`);
+  if (status.logs)
+    lines.push(
+      `Logs: ${status.logs.entries} entries (${Math.ceil(status.logs.bytes / 1024)} KB), ${status.logs.recentErrors} errors in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${utcMinute(status.logs.debugUntil)}`}`,
+    );
   lines.push(`Collected ${utcMinute(status.collectedAt)}`);
   return lines.join("\n");
 }

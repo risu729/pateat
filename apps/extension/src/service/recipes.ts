@@ -88,6 +88,8 @@ export function createRecipeSync(options: {
     run(connection: ServiceConnection, stale: () => boolean): Promise<SettingsSyncOutcome>;
     clear(): Promise<void>;
   };
+  /** Receives the outcome of each sync run, for the local log. */
+  report?: (outcome: RecipeSyncOutcome) => void;
   now?: () => number;
 }) {
   const { service, transport, storage, schedule } = options;
@@ -243,6 +245,11 @@ export function createRecipeSync(options: {
           plan(startedAt, RECIPE_SYNC_STALE_MS);
           // oxlint-disable-next-line no-await-in-loop -- a rerun follows the previous run
           outcome = await run().catch((): RecipeSyncOutcome => "storage-unavailable");
+          try {
+            options.report?.(outcome);
+          } catch {
+            // A report must never change the sync.
+          }
           if (outcome === "rate-limited") plan(startedAt, RECIPE_SYNC_RATE_LIMIT_MS);
         } while (rerun);
         return outcome;

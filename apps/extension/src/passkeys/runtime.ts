@@ -41,6 +41,8 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
  * site default named. Credential IDs, user handles and item IDs are never included.
  */
 export interface PasskeyRequestReport {
+  /** The requesting tab, which paces how many reports one page can cause. */
+  readonly tabId: number;
   readonly origin: string;
   readonly outcome: RuntimeResult["kind"];
   readonly reason?: string;
@@ -55,7 +57,7 @@ export interface PasskeyRequestReport {
 }
 type ReportDetail = {
   -readonly [
-    K in Exclude<keyof PasskeyRequestReport, "origin" | "outcome" | "reason">
+    K in Exclude<keyof PasskeyRequestReport, "tabId" | "origin" | "outcome" | "reason">
   ]?: PasskeyRequestReport[K];
 };
 
@@ -192,6 +194,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       try {
         options.report?.({
           ...detail,
+          // senderOrigin() accepted only a sender with a tab.
+          tabId: sender.tab!.id!,
           origin,
           outcome: result.kind,
           ...(result.kind === "delegate" ? { reason: result.reason } : {}),

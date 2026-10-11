@@ -5,6 +5,9 @@ Status: accepted by the owner on 2026-10-10. Amends the local-first statements i
 [ADR 0009](0009-install-time-https-site-access.md). The binding format below is the
 current contract in `packages/contracts`. `/v1/settings` stores it as part of the
 settings document, but the executor does not use it yet (see the [plan](../plan.md)).
+Amended on 2026-10-11 by [ADR 0021](0021-account-choice-outside-settings.md): the
+extension's toolbar popup also edits the current site's default account and exclusion,
+and manual and one-time account choices are made there (not implemented yet).
 
 Date: 2026-10-10
 
@@ -85,7 +88,10 @@ only after the outcome is `authenticated`. Nothing is saved on `credential-rejec
 an unknown outcome. A saved choice wins even if more items match later; deleting it
 restores automatic choice. Two or more matches still need a manual choice, and so
 does a single match whose account is connected more than once (`account-ambiguous`,
-as for a saved choice of that account; 2026-10-11). Until AI
+as for a saved choice of that account; 2026-10-11). The manual choice is made in the
+toolbar popup and is saved like an automatic one, only after `authenticated`, unless
+the user marks it as one-time ([ADR 0021](0021-account-choice-outside-settings.md)).
+Until AI
 generation maps slots, an automatic choice binds only the slots named `username`,
 `password` and `totp` to the item's login username, password and TOTP; a recipe with
 any other slot needs a manual binding. Until AI

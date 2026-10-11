@@ -11,6 +11,13 @@ import { withVaultProfile } from "./vault-fixture";
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const extensionDirectory = resolve(repository, "apps/extension/.output/chrome-mv3");
 
+async function logs(page: Page): Promise<string> {
+  await page.getByRole("button", { name: "Download logs" }).click();
+  const text = page.locator("#logs-preview");
+  await expect(text).toBeVisible();
+  return (await text.textContent()) ?? "";
+}
+
 async function preview(page: Page): Promise<string> {
   await page.getByRole("button", { name: "Copy for bug report" }).click();
   const text = page.locator("#report-preview");
@@ -50,6 +57,24 @@ test("production diagnostics show the build, checks and a value-free bug report"
     );
     expect(report).toContain("Permissions: storage, offscreen, https://*/*");
     expect(report).toContain("Pateat service: not-configured");
+    expect(report).toMatch(/\nLogs: \d+ entries \(\d+ KB\), 0 errors in 24 h\n/u);
+
+    // Debug logging, the exact saved text, and clearing.
+    await page.getByRole("button", { name: "Enable debug logging for 24 hours" }).click();
+    await expect(page.locator("#logs-status")).toHaveText("Debug logging is on for 24 hours.");
+    const saved = await logs(page);
+    const [header, ...lines] = saved.trimEnd().split("\n");
+    expect(JSON.parse(header ?? "")).toMatchObject({ pateat: "0.1.0", sites: "replaced" });
+    expect(lines.map((line) => (JSON.parse(line) as { event: string }).event)).toContain(
+      "log.debug",
+    );
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Save file" }).click();
+    expect((await download).suggestedFilename()).toMatch(/^pateat-logs-\d{8}-\d{4}\.jsonl$/u);
+    await page.getByRole("button", { name: "Clear logs" }).click();
+    await page.getByRole("button", { name: "Delete all log entries" }).click();
+    await expect(page.locator("#logs-status")).toHaveText("Logs cleared.");
+    await expect(page.locator("#diagnostics-logs")).toHaveText(/^0 \(0 KB\)$/u);
     expect(
       await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze(),
     ).toMatchObject({ violations: [] });
@@ -63,13 +88,16 @@ test("a connection appears under a stable pseudonym and its KDF stays out of the
   await withVaultProfile(async (open) => {
     const first = await open();
     await setupProbe(first.page, { action: "configure", variant: "unchanged" });
+    const page = await first.context.newPage();
+    await page.goto(`chrome-extension://${first.extensionId}/diagnostics.html`);
+    // Debug logging records the connection as the worker first sees it.
+    await page.getByRole("button", { name: "Enable debug logging for 24 hours" }).click();
+    await expect(page.locator("#logs-status")).toHaveText("Debug logging is on for 24 hours.");
     const options = await first.context.newPage();
     await options.goto(`chrome-extension://${first.extensionId}/options.html`);
     const accepted = await setupRequest(options, { type: "connection.begin", input: beginInput() });
     if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
-
-    const page = await first.context.newPage();
-    await page.goto(`chrome-extension://${first.extensionId}/diagnostics.html`);
+    await page.getByRole("button", { name: "Refresh" }).click();
     const connection = page.getByRole("definition").filter({ hasText: /^bitwarden:[0-9a-f]{6}$/u });
     await expect(connection).toHaveCount(1);
     const pseudonym = (await connection.textContent()) ?? "";
@@ -92,27 +120,38 @@ test("a connection appears under a stable pseudonym and its KDF stays out of the
     const shown = await page.content();
     for (const absent of [v1Email, "Synthetic vault", accepted.connectionId, accepted.snapshotId])
       expect(shown).not.toContain(absent);
+    // The log names the connection by the same pseudonym and holds no account data.
+    await expect
+      .poll(async () => {
+        await page.getByRole("button", { name: "Refresh" }).click();
+        return logs(page);
+      })
+      .toContain(`"connection":"${pseudonym}"`);
+    const saved = await logs(page);
+    for (const absent of [v1Email, "Synthetic vault", accepted.connectionId, accepted.snapshotId])
+      expect(saved).not.toContain(absent);
 
-    // Only the exact diagnostics page may ask for the summary.
-    expect(
-      await options
-        .evaluate(async () => {
-          const scope = globalThis as unknown as {
-            chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
-          };
-          try {
-            return (
-              (await scope.chrome.runtime.sendMessage({
-                version: 1,
-                type: "diagnostics.status",
-              })) !== undefined
-            );
-          } catch {
-            return false;
-          }
-        })
-        .catch(() => false),
-    ).toBe(false);
+    // Only the exact diagnostics page may ask for the summary or touch the logs.
+    for (const request of [
+      { version: 1, type: "diagnostics.status" },
+      { version: 1, type: "diagnostics.logs.export", includeSites: true },
+      { version: 1, type: "diagnostics.logs.clear" },
+    ])
+      expect(
+        // oxlint-disable-next-line no-await-in-loop -- one request at a time, each must fail
+        await options
+          .evaluate(async (message) => {
+            const scope = globalThis as unknown as {
+              chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
+            };
+            try {
+              return (await scope.chrome.runtime.sendMessage(message)) !== undefined;
+            } catch {
+              return false;
+            }
+          }, request)
+          .catch(() => false),
+      ).toBe(false);
 
     // The pseudonym key persists, so the same connection keeps its name after a restart.
     const reopened = await open();

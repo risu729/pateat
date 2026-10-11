@@ -117,6 +117,7 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         siteDefaults: [],
         bindings: [],
       }) as never,
+    logs: async () => ({ entries: 120, bytes: 18_000, recentErrors: 2 }),
     storage: {
       localBytes: async () => 412 * 1024,
       recipeCache: async () => ({ version: 1, recipes: [{ id: "bank-signin" }] }),
@@ -160,6 +161,12 @@ describe("diagnostics status", () => {
       id: "clock",
       level: "warn",
       detail: "clock 95 s behind the service",
+    });
+    expect(status.logs).toEqual({ entries: 120, bytes: 18_000, recentErrors: 2 });
+    expect(status.checks).toContainEqual({
+      id: "logs",
+      level: "warn",
+      detail: "2 errors logged in the last 24 h",
     });
     const [url, init] = vi.mocked(deps.fetch).mock.calls[0] ?? [];
     expect(String(url)).toBe(`${SERVICE_ORIGIN}/health`);
@@ -283,6 +290,19 @@ describe("diagnostics status", () => {
       dependencies({ serviceState: async () => ({ kind: "disconnected" }) }),
     );
     expect(unpaired.service).toEqual({ kind: "not-configured" });
+    const unreadable = await collectDiagnostics(
+      dependencies({
+        logs: async () => {
+          throw new Error("storage-failed");
+        },
+      }),
+    );
+    expect(unreadable.logs).toBeUndefined();
+    expect(unreadable.checks).toContainEqual({
+      id: "logs",
+      level: "error",
+      detail: "logs unreadable",
+    });
     expect(unpaired.checks).toContainEqual({
       id: "service",
       level: "info",

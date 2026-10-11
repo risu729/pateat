@@ -71,6 +71,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0018: Service recipe generation route](adr/0018-recipe-generation-route.md)
 - [0019: Local diagnostics page and logs](adr/0019-local-diagnostics-and-logs.md)
 - [0020: Direct device pairing from the extension](adr/0020-direct-device-pairing.md)
+- [0021: Choosing an account outside the settings page](adr/0021-account-choice-outside-settings.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

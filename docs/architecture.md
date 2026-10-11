@@ -51,6 +51,8 @@ compatibility claim or an alternative cloud-browser implementation.
 | Isolated content script | Extract sanitized form structure, validate document identity, execute fixed DOM operations | Only the specific values being filled, briefly                  |
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
 | Settings page           | Vault connection, re-authentication, unlock and service pairing                            | Deliberate user setup only; no auto-opening during login        |
+| Toolbar popup           | Current site's default account and exclusion; choosing among several matches (ADR 0021) | Item names and login usernames only; opened only by the user    |
+| Passkey chooser window  | Choosing among several passkeys for one pending request (ADR 0021)                       | Item names and passkey user names only                           |
 | Worker API + D1         | Settings, recipes and account bindings, owner web UI, device authorization, inference, request log | Service credentials only; no vault values or keys               |
 | AI provider             | Match observed elements and propose declarative steps                                      | No vault values, account bindings, cookies, or assertions       |
 
@@ -323,9 +325,11 @@ codes are distinct from future automatic email/SMS challenge retrieval.
 Settings, exclusions, account defaults and inference settings are edited on the
 service's owner-authenticated web UI
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's own page
-covers only vault connection, re-authentication, unlock and service pairing. Chrome use
-access to these pages is not assumed. Keep settings and execution operations independent
-of their UI.
+covers only vault connection, re-authentication, unlock and service pairing. The toolbar
+popup is a third place that edits the current site's default account and exclusion
+([ADR 0021](adr/0021-account-choice-outside-settings.md), not implemented yet). Chrome
+use access to these pages is not assumed. Keep settings and execution operations
+independent of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
@@ -344,9 +348,13 @@ the provider account and item, not this device's connection. Without one,
 a single eligible provider URI match is used and saved only after the login is
 `authenticated`; a saved choice keeps winning when more items match later
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not
-log out the current session. No match or several matches require configuration
-rather than trying accounts in turn. One-time overrides
-and automatic logout/relogin are later operations. Cookies may be shared across
+log out the current session. No match or several matches require a choice rather than
+trying accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md)
+(not implemented yet) the choice is made in the toolbar popup for the refused document
+and may be one-time; after a finished login in a tab, the recipe's first step appearing
+again in that tab asks for a choice again instead of logging in. Automatic
+logout/relogin when the user picks another account while logged in stays later. Cookies
+may be shared across
 tabs even during initial login. The first executor conservatively locks an origin
 to one owner tab until closure; wider shared-session domains need explicit
 coordination before broader support, not a guessed relationship between origins.
@@ -362,25 +370,30 @@ vocabulary contains login operations only.
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution
-trigger. A static content script runs on every HTTPS page and frame; the background
-admits non-excluded sites with host access and needs a cached recipe for the exact
-origin before any policy or vault access
-([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the tab's
-page admitted, and its account must match the tab's URL as well as the frame's
-([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
-tab's own page on whose path no recipe starts that shows a login field within 10 seconds
-and has a vault URI match is observed and sent at most once a day per origin and path,
-unless the tab holds an attempt record other than an account switch on that origin
+trigger. The one exception is a choice the user makes in the toolbar popup: it restarts
+only the one recorded document that was refused for several matches, through
+`login.reconnect` ([ADR 0021](adr/0021-account-choice-outside-settings.md)). A static
+content script runs on every HTTPS page and frame; the background admits non-excluded
+sites with host access and needs a cached recipe for the exact origin before any policy
+or vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also
+needs the tab's page admitted, and its account must match the tab's URL as well as the
+frame's ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe
+generation: a tab's own page on whose path no recipe starts that shows a login field
+within 10 seconds and has a vault URI match is observed and sent at most once a day per
+origin and path, unless the tab holds an attempt record other than an account switch on
+that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
 recipe cache and starts at once; after its final submission the resulting page is sent
 once to learn its completion ([ADR 0018](adr/0018-recipe-generation-route.md)).
 Inactive, frozen, discarded, and navigated documents are different states; only live
 documents can execute.
 
-Do not inject `chrome-extension://` iframes, automatic overlays, unlock windows,
-or passkey choosers into the flow. Start with no page UI; use an icon badge and
-manually opened settings. Do not attach our own debugger in normal operation.
-Another installed extension can still inject a conflicting frame; coexistence
+Do not inject `chrome-extension://` iframes, automatic overlays or unlock windows into
+the flow. There is no page UI; use an icon badge, the toolbar popup and manually opened
+settings. The one extension window is the passkey chooser of
+[ADR 0021](adr/0021-account-choice-outside-settings.md), opened for a pending request
+with several matches and none in incognito. Do not attach our own debugger in normal
+operation. Another installed extension can still inject a conflicting frame; coexistence
 requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->
@@ -512,15 +525,58 @@ that exact page URL and returns a value-free summary
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
-- setting counts, `storage.local` usage and checks for site access, the crypto host,
-  each vault cache and sync sign-in, service reachability, clock skew over 30 s against
-  the service `Date` header and a recipe sync older than 24 hours.
+- setting counts, `storage.local` usage, the log's size and debug state, and checks
+  for site access, the crypto host, each vault cache and sync sign-in, service
+  reachability, clock skew over 30 s against the service `Date` header, a recipe sync
+  older than 24 hours and errors logged in the last 24 hours.
 
 The worker fetches `/health` only for a paired service with site access. **Copy for bug
 report** shows the exact text before copying it; that text leaves out the unlock KDF.
 Labels, emails, item names and IDs, URLs and host names are never part of the summary.
-Persistent local logs and the Bitwarden server version are accepted in ADR 0019 but not
-implemented yet.
+The Bitwarden server version is accepted in ADR 0019 but not implemented yet.
+
+### Local log
+
+The service worker keeps a log in the `entries` store of the same IndexedDB database
+(`apps/extension/src/diagnostics/log.ts`). Only the worker writes it, one transaction
+per entry, and mirrors each entry to its console as `Pateat <event> {fields}`. Each
+event allowlists its fields by kind; other fields are dropped, a field failing its
+kind's check is left out and a string over 512 characters becomes `"[truncated]"`.
+
+| Event | Level | Fields |
+| --- | --- | --- |
+| `runtime.started` | debug | build revision |
+| `runtime.updated` | info | previous and new build revision, version |
+| `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
+| `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy`; info for `unreachable`; else warn | recipe and settings sync outcome |
+| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, state, step, step count, outcome |
+| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason |
+| `recipe.generate` | info | origin, `recipe` or `none` |
+| `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
+| `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
+| `log.dropped` | warn | origin, events dropped over the page limit |
+| `log.debug` | info | when debug logging ends |
+
+Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
+when a site default, binding, excluded site or cached recipe names it; any other
+becomes `origin:7d2b91aa` or `rp:7d2b91aa`. Login, recipe generation and passkey
+events are limited to 20 per minute per tab and origin, and unhandled errors to 20 per
+minute in all. The first event dropped in a window is logged at once as `log.dropped`
+with `count: 1`; the rest are counted when the window ends and the next event or prune
+runs, so a worker that stops first loses only that remainder. `debug` entries are
+written only for 24 hours after **Enable debug logging**. Retention: 14 days; `debug`
+entries for 24 hours; at most 5,000 `debug` and `info` entries (oldest `debug` first,
+then `info`) and 1,000 `warn` and `error` entries, pruned at worker start and every 500
+writes.
+
+The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
+`diagnostics.logs.clear` and `diagnostics.logs.debug`, accepted from the same page URL
+only. **Download logs** previews the exact JSON Lines text and saves it through a
+`Blob` link (no `downloads` permission): a header line with the version, revision and
+export time, then one line per entry. Unless **Include site addresses and recipe IDs**
+is checked, every origin, pseudonymized origin and RP ID becomes `site-N` and every
+recipe ID `recipe-N`, numbered within that export. **Clear logs** deletes every entry
+and replaces the pseudonym key.
 
 ## Declarative recipes and AI
 
