@@ -18,9 +18,9 @@ Compared with the same browser without Pateat, on a top-level HTTPS page:
 | `Function.prototype.toString.call(navigator.credentials.get)` | `function get() { [native code] }` | about 1 KB of minified source               |
 | `get.name`, `get.length`, constructor                   | `"get"`, `0`, `Function`             | `"p"`, `1`, `AsyncFunction`                 |
 | Assigning a function to `get`, then reading it back     | the assigned function                | Pateat's wrapper                            |
-| Reads of `options.publicKey` per call                   | 1                                    | 3                                           |
+| Reads of `options.publicKey` per call                   | 1                                    | 3 when delegated; 2 when claimed (from the code) |
 | Stack of an error thrown in a page getter on the options, or of a delegated rejection | page frames only | also `chrome-extension://<id>/content-scripts/passkey-main.js` |
-| `message` events on `window` per request                | none                                 | `get` with the request snapshot, `ack`, `result` |
+| `message` events on `window` per request                | none                                 | `get` with the request snapshot, `ack`, `result`; `cancel` on abort or timeout |
 | Discoverable `get` answered by the browser              | 1 to 4 ms                            | 5 to 19 ms                                  |
 
 Error names and messages of delegated requests (bad `rpId`, missing challenge,
@@ -36,9 +36,10 @@ official Bitwarden extension's page script is served from
 `chrome-extension://nngceckbapebfimnlniiiahkandclblb/`.
 
 At `a62ada1`, the `result` message also carried the background's delegate
-reason. `no-credential` told the page that a vault was connected and unlocked,
-`not-configured` that none was, and `ambiguous-credential` that the vault held several
-passkeys for the site. The relay now posts only `{ kind: "delegate" }`.
+reason. `not-configured` told the page that the owner had excluded the site (or that
+settings or the vault catalog could not be read), `ambiguous-credential` that the vault
+held several passkeys for the site, `vault-incomplete` that a connection or item could
+not be searched, and `no-credential` that none of these held. The relay now posts only `{ kind: "delegate" }`.
 
 Claimed assertions are plain objects whose prototypes are set to
 `PublicKeyCredential.prototype` and `AuthenticatorAssertionResponse.prototype`, which
