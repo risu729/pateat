@@ -2,7 +2,12 @@ import * as v from "valibot";
 import { createPasskeyAssertion } from "./assertion";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest } from "./request";
-import { selectPasskey, type PasskeyCandidate, type PasskeyCandidates } from "./select";
+import {
+  matchingPasskeys,
+  selectPasskey,
+  type PasskeyCandidate,
+  type PasskeyCandidates,
+} from "./select";
 import { RUNTIME_TIMEOUT_MS, runtimeMessageSchema, type RuntimeResult } from "./wire";
 
 type Sender = {
@@ -28,6 +33,23 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
     clientDataHash: Uint8Array<ArrayBuffer>,
     signal: AbortSignal,
   ): Promise<Uint8Array>;
+}
+
+/**
+ * Value-free account of one bridged request, for the extension's own console only: the outcome or
+ * delegate reason, and how many stored passkeys the vault returned, the request accepted and the
+ * site default named. Credential IDs, user handles and item IDs are never included.
+ */
+export interface PasskeyRequestReport {
+  readonly origin: string;
+  readonly outcome: RuntimeResult["kind"];
+  readonly reason?: string;
+  readonly rpId?: string;
+  readonly allowCredentials?: number;
+  readonly stored?: number;
+  readonly accepted?: number;
+  readonly siteDefault?: number;
+  readonly complete?: boolean;
 }
 
 const MAX_OPERATIONS = 32;
@@ -68,6 +90,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     timeoutMs?: () => number;
     /** Per-origin presence and verification policy; the initial policy when absent. */
     policy?: (origin: string) => PasskeyPolicy;
+    /** Receives a value-free report of each finished request. */
+    report?: (report: PasskeyRequestReport) => void;
   },
 ) {
   const operations = new Map<string, { documentId: string; controller: AbortController }>();
@@ -80,6 +104,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     message: { operationId: string; request: unknown; userActivation: boolean },
     origin: string,
     documentId: string,
+    detail: { -readonly [K in keyof PasskeyRequestReport]?: PasskeyRequestReport[K] },
   ): Promise<RuntimeResult> {
     const documentOperations = [...operations.values()].filter(
       (operation) => operation.documentId === documentId,
@@ -97,6 +122,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       policy: options.policy?.(origin) ?? INITIAL_PASSKEY_POLICY,
     });
     if (admission.kind === "delegate") return admission;
+    detail.rpId = admission.request.rpId;
+    detail.allowCredentials = admission.request.allowCredentialIds.length;
     const controller = new AbortController();
     operations.set(message.operationId, { documentId, controller });
     const timer = setTimeout(
@@ -110,6 +137,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         signal,
       );
       if (!candidates) return { kind: "delegate", reason: "not-configured" };
+      const accepted = matchingPasskeys(admission.request, candidates.candidates);
+      detail.stored = candidates.candidates.length;
+      detail.accepted = accepted.length;
+      detail.siteDefault = candidates.candidates.filter((entry) => entry.preferred === true).length;
+      detail.complete = candidates.complete;
       const selection = selectPasskey(admission.request, candidates);
       if (selection.kind === "delegate") return selection;
       const assertion = await abortable(
@@ -146,7 +178,19 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         operation.controller.abort();
         return { ok: true };
       }
-      return get(command, origin, sender.documentId!);
+      const detail = {};
+      const result = await get(command, origin, sender.documentId!, detail);
+      try {
+        options.report?.({
+          origin,
+          outcome: result.kind,
+          ...(result.kind === "delegate" ? { reason: result.reason } : {}),
+          ...detail,
+        });
+      } catch {
+        // A report must never change the answer.
+      }
+      return result;
     },
   };
 }

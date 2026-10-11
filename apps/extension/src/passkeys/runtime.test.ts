@@ -219,3 +219,67 @@ describe("passkey runtime policy", () => {
     expect(backing.sign).not.toHaveBeenCalled();
   });
 });
+
+describe("passkey runtime reports", () => {
+  it("reports the delegate reason and value-free counts without credential data", async () => {
+    const report = vi.fn();
+    const stored = [
+      { ...candidate, credentialId: "BAUG", preferred: true, discoverable: false },
+      candidate,
+      { ...candidate, credentialId: "BwgJ" },
+    ];
+    const runtime = createPasskeyRuntime(
+      source({ candidates: vi.fn(async () => ({ candidates: stored, complete: true })) }),
+      { extensionId, report },
+    );
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "ambiguous-credential",
+    });
+    // The site default's passkey is not discoverable, so a request without an allow list
+    // cannot use it and the two other passkeys stay ambiguous.
+    expect(report).toHaveBeenCalledWith({
+      origin,
+      outcome: "delegate",
+      reason: "ambiguous-credential",
+      rpId: "example.com",
+      allowCredentials: 0,
+      stored: 3,
+      accepted: 2,
+      siteDefault: 1,
+      complete: true,
+    });
+    const serialized = JSON.stringify(report.mock.calls);
+    for (const secret of ["AQID", "BAUG", "BwgJ", "dXNlcg"])
+      expect(serialized).not.toContain(secret);
+  });
+
+  it("reports admission delegations and assertions, and a failing report changes nothing", async () => {
+    const report = vi.fn(() => {
+      throw new Error("console unavailable");
+    });
+    const runtime = createPasskeyRuntime(source(), { extensionId, report });
+    expect(
+      await runtime.handle(
+        { ...get(), request: { ...request, mediation: "conditional" } },
+        sender(),
+      ),
+    ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
+    expect(report).toHaveBeenLastCalledWith({
+      origin,
+      outcome: "delegate",
+      reason: "unsupported-mediation",
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(report).toHaveBeenLastCalledWith({
+      origin,
+      outcome: "assertion",
+      rpId: "example.com",
+      allowCredentials: 0,
+      stored: 1,
+      accepted: 1,
+      siteDefault: 0,
+      complete: true,
+    });
+  });
+});

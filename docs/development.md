@@ -197,6 +197,19 @@ passkey or provider is involved.
    and **Another provider is locked** add a synthetic provider wrapper to the page for
    runs without one.
 
+### Why a passkey request was delegated
+
+The production build writes one `Pateat passkey request` line per bridged request to its
+own service worker console: open `chrome://extensions`, find Pateat and click **service
+worker**. The line holds the page origin, the outcome (`assertion`, `delegate` or
+`cancelled`), the delegate `reason`, the RP ID, and counts: `allowCredentials` (IDs the
+site listed), `stored` (vault passkeys with that RP ID), `accepted` (those the request
+accepts), `siteDefault` (stored passkeys in the origin's site default item) and
+`complete` (every enabled connection and item was searched). It never holds credential
+IDs, user handles or item IDs, and the page is never told the reason. For example,
+`siteDefault: 1` with `accepted: 0` means the site default's passkey is not one the
+request accepts.
+
 ### Manual Bitwarden setup preview
 
 The connection setup slice is implemented and tested with synthetic responses. Its

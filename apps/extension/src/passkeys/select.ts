@@ -27,6 +27,26 @@ export type Selection<TCandidate extends PasskeyCandidate> =
         | "unsupported-counter";
     };
 
+export interface PasskeyRequestScope {
+  readonly rpId: string;
+  readonly allowCredentialIds: readonly string[];
+}
+
+/** Candidates the request accepts: listed IDs, or discoverable credentials when none are listed. */
+export function matchingPasskeys<TCandidate extends PasskeyCandidate>(
+  request: PasskeyRequestScope,
+  candidates: readonly TCandidate[],
+): TCandidate[] {
+  const allowed = new Set(request.allowCredentialIds);
+  return candidates.filter(
+    (candidate) =>
+      candidate.rpId === request.rpId &&
+      (allowed.size > 0
+        ? allowed.has(candidate.credentialId)
+        : candidate.discoverable && candidate.userHandle !== null),
+  );
+}
+
 /**
  * ADR 0007 item selection. Of the credentials the request accepts, use the site default's if
  * it is one of them; otherwise use the only one. Never choose among several, and never choose
@@ -34,17 +54,10 @@ export type Selection<TCandidate extends PasskeyCandidate> =
  * a vault write and is refused.
  */
 export function selectPasskey<TCandidate extends PasskeyCandidate>(
-  request: { readonly rpId: string; readonly allowCredentialIds: readonly string[] },
+  request: PasskeyRequestScope,
   { candidates, complete }: PasskeyCandidates<TCandidate>,
 ): Selection<TCandidate> {
-  const allowed = new Set(request.allowCredentialIds);
-  const matching = candidates.filter(
-    (candidate) =>
-      candidate.rpId === request.rpId &&
-      (allowed.size > 0
-        ? allowed.has(candidate.credentialId)
-        : candidate.discoverable && candidate.userHandle !== null),
-  );
+  const matching = matchingPasskeys(request, candidates);
   const preferred = matching.filter((candidate) => candidate.preferred === true);
   let credential: TCandidate;
   if (preferred.length === 1) credential = preferred[0]!;
