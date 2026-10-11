@@ -7,7 +7,9 @@ the synced service cache, and admission no longer requires a saved site default.
 same HTTPS access also carries the passkey bridge of
 [ADR 0007](0007-existing-passkey-assertions.md): a MAIN-world and an isolated-world
 document-start script on every top-level HTTPS document, in addition to the login
-script below.
+script below. Amended by [ADR 0016](0016-recipe-generation-trigger.md): a document
+without a cached recipe may check for a vault URI match and be observed for automatic
+recipe generation.
 
 Date: 2026-10-10
 
