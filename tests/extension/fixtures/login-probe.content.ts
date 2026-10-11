@@ -3,6 +3,7 @@ import { installLoginContent } from "../../../apps/extension/src/login/content";
 
 export default defineContentScript({
   matches: ["http://127.0.0.1/*"],
+  allFrames: true,
   runAt: "document_idle",
   main(ctx) {
     ctx.onInvalidated(installLoginContent({ probeStatus: true }));

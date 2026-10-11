@@ -12,7 +12,8 @@ gates rather than maintaining a second roadmap.
 Implemented: WXT production shell with no site permissions, human-operated status
 page, strict Valibot status contracts, isolated localhost-only probe build,
 health-only Worker with typed cf configuration, shared mise/hk checks, CI/CodeQL,
-and disabled-by-default manual delivery of a verified main-build artifact.
+and delivery of a verified main-build artifact after main CI (it fails until the
+production credentials and deployment variables exist).
 Mise and Bun dependencies are locked; no native helper or production secrets are
 required to build or test.
 
@@ -28,8 +29,8 @@ runner launched the Playwright-downloaded Chromium and
 [passed all 92 packaged-extension tests](https://github.com/risu729/pateat/actions/runs/38118250919/job/114407461875),
 so the failure did not reproduce on a clean Windows host; CI now runs these tests on
 Windows on every PR. The later installed-Chrome synthetic probe passed the early login
-gate; broader coexistence remains a separate M1 gate. Code Quality setup remains
-unavailable after language detection; see [merging](delivery.md#merging).
+gate; broader coexistence remains a separate M1 gate. Code Quality is not used, and
+normal merges need no bypass; see [merging](delivery.md#merging).
 
 ## Local settings progress
 
@@ -69,12 +70,17 @@ POST counts independently of the executor. Interruption fixtures distinguish
 intent persistence, delivery, effect and acknowledgement; a missing acknowledgement
 never authorizes another fill or a fallback click.
 [Development](development.md#installed-chrome-synthetic-login-probe)
-describes the early installed-Chrome acceptance procedure. Production activation,
-arbitrary saved recipe configuration, real provider compatibility and broader frame
-and dynamic-page support remain outstanding. The early installed-Chrome run passed
-multi-page, background-tab, single-page, rejection, ambiguity, concurrency and
-input/change-triggered advance cases using synthetic values. It does not establish
-current SDK/setup compatibility or official Bitwarden extension coexistence. See the
+describes the early installed-Chrome acceptance procedure. Attempts start when a
+recipe's first step appears, also after a same-document URL change or in a dialog opened
+later, and later steps wait up to 10 seconds for their elements
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Login forms
+inside frames fill only when the frame's URL and the tab's URL both match the item
+([ADR 0017](adr/0017-login-forms-in-frames.md)). Production activation, arbitrary saved
+recipe configuration and real provider compatibility remain outstanding. The early
+installed-Chrome run passed multi-page, background-tab, single-page, rejection,
+ambiguity, concurrency and input/change-triggered advance cases using synthetic values.
+It does not establish current SDK/setup compatibility or official Bitwarden extension
+coexistence. See the
 [dated acceptance evidence](research/2026-10-10-feasibility.md#early-installed-chrome-acceptance-2026-10-10).
 Neither M1 nor M2 is complete.
 
@@ -143,8 +149,9 @@ fields when `kdfSettings` is absent or null, which the server model allows until
 PM-28143 cleanup. On 2026-10-11 Bitwarden Cloud US (server 2026.9.2) answered
 `/accounts/prelogin/password` for a real account with only those flat fields
 (`{"kdf":0,"kdfIterations":600000,"kdfMemory":null,"kdfParallelism":null}`), and setup
-had stopped with `invalid-response` because `kdfSettings` was required. Real-account
-setup after this change is not yet re-verified.
+had stopped with `invalid-response` because `kdfSettings` was required. With this
+change, real-account setup on Cloud US succeeded at main `f7d3cf5` on 2026-10-11
+([passkey evidence](#passkey-progress)).
 
 The transport supports explicit manual authenticator/email codes and new-device
 OTP submission as request shapes. Challenge, rejection and interactive/unsupported
@@ -308,8 +315,10 @@ combined commit. Catalog bounds are validated before unlock-key export and cache
 The settings page can delete a connection locally, as
 [Development](development.md#manual-bitwarden-setup-preview) describes. Unit, options
 component and isolated Chromium tests cover deletion with synthetic providers, including
-removed native records after a full profile reopen; it has not been exercised in the
-owner's Chrome.
+removed native records after a full profile reopen. The owner also deleted leftover
+connections in the installed Chrome on 2026-10-11, then completed first setup against
+a real Bitwarden Cloud account
+([evidence](research/2026-10-10-feasibility.md#first-real-account-sign-in-2026-10-11)).
 
 [PR #20](https://github.com/risu729/pateat/pull/20) passed
 [full Linux CI](https://github.com/risu729/pateat/actions/runs/38047201686) with 766
@@ -371,8 +380,9 @@ Chrome yet.
   immediately before a fill. An unavailable connection or an item awaiting field review
   is refused before an attempt starts. A denied, locked or failed field read, or a
   replacement snapshot before delivery, blocks the attempt as `policy-changed` without
-  filling. Production admits top-level HTTPS documents on a non-excluded site with
-  granted host access, with or without a saved default
+  filling. Production admits HTTPS documents on a non-excluded site with
+  granted host access (a frame also needs its tab's page admitted;
+  [ADR 0017](adr/0017-login-forms-in-frames.md)), with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
   stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
   probe build grants its loopback origin to the probe item and supplies recipes and
@@ -441,8 +451,8 @@ Local Miniflare tests cover unknown, malformed and revoked credentials, owner an
 device isolation, stale and concurrent writes, tombstones, cursor paging, strict
 schema rejection, media type and body limits, and fail-closed handling of corrupt
 stored documents. Concurrent cases interleave within one local runtime, not hosted
-D1. A migration check regenerates SQL from the Drizzle schema. The D1 database is
-not provisioned, and nothing is deployed.
+D1. A migration check regenerates SQL from the Drizzle schema. The D1 database was
+created on 2026-10-11 (see [delivery](delivery.md)); nothing is deployed yet.
 
 The second slice adds the service side of
 [device enrollment](architecture.md#device-enrollment). The Worker verifies Cloudflare
@@ -548,9 +558,8 @@ the real settings store over in-memory storage; no running service has been trie
   exclusions, have no device-independent form yet and are not synced (ADR 0013).
 - The owner web UI for settings, bindings and recipes is designed
   ([architecture](architecture.md#owner-web-ui)) but not implemented.
-- Inference adapters, spending accounting and the release artifact's migration SQL
-  remain separate slices. The inference route authenticates to Claude per owner
-  through Workload Identity Federation
+- Inference adapters and spending accounting remain separate slices. The inference
+  route authenticates to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the
   `inference_credentials` table and `resolveClaudeCredential` exist and are tested
@@ -631,13 +640,18 @@ public key, and gets the browser's own credential once the item is excluded. A
 production-build test checks that the bridge is installed at document start there, that
 no content script posts a message to the page, and that with no vault connected the
 request goes to the browser. A claimed assertion from a vault passkey is tested only
-through the probe build, which wraps the same vault source. Real-site interoperability
-and real-account use remain open; a navigation during signing relies on Chrome dropping
-the response to the replaced document.
+through the probe build, which wraps the same vault source. The first real-site and
+real-account results are listed below; a primary sign-in with a discoverable passkey is
+still untested, and a navigation during signing relies on Chrome dropping the response
+to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
-installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
-accessor property returning a function with a different `length` and source text), which
-real-site testing must evaluate.
+installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
+extension ID from stack traces; the relay posts only the outcome of a request to the
+page, never the delegate reason. On 2026-10-11 a real passkey sign-in on webauthn.io
+went through the wrapper unchanged and CreepJS did not flag it
+([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)). Open:
+a page or provider wrapper that rebuilds the options object, and especially one that
+replaces the challenge, loops back into Pateat on every delegated call.
 
 Evidence, 2026-10-10, synthetic relying party only:
 
@@ -668,6 +682,23 @@ Evidence, 2026-10-10, synthetic relying party only:
   2026.6.1. Both buttons and the page-load request reported `Pateat, flags 0x1d,
   signature verified`, with Bitwarden unlocked and again with it locked after a reload.
   No Bitwarden window appeared, and no request errored or stayed pending.
+
+Evidence, 2026-10-11, real sites with the owner's real Bitwarden account: production
+build at main `f7d3cf5`, the owner's Chrome 154.0.8037.98, the official Bitwarden
+extension 2026.9.3, Bitwarden Cloud US.
+
+- Setup connected the real account after a new-device verification code, and Sync
+  succeeded ("Vault verified and local cache accepted.").
+- `https://www.npmjs.com`: the site asks for the passkey as a second-factor security
+  key. Bitwarden's autofill entered the username and password, and the security-key
+  step then succeeded with no Chrome or Bitwarden window, which indicates Pateat signed
+  it unattended.
+- `https://my.jcb.co.jp`: about six passkeys for this RP ID are stored in separate login
+  items and no site default was set, so Pateat delegated as designed and Bitwarden
+  showed its own window. The options page's site-default account list did not filter by
+  site, did not show usernames, and could not tell apart items with the same name, so
+  the owner could not pick the right item; that is tracked as executor work.
+- Not tested: a primary sign-in with a discoverable (username-less) passkey.
 
 ## AI evaluation harness progress
 
@@ -766,12 +797,48 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
 
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
-- The extension observation extractor with privacy fixtures. Expect Japanese pages to
-  put labels in adjacent table cells, use image buttons labeled only by `alt`, and
-  offer software keyboards.
+- Calling the extension observation extractor (below) under the automatic send rule
+  of [ADR 0016](adr/0016-recipe-generation-trigger.md).
+- A different remembered account, approved by the owner on 2026-10-11: on a step that
+  fills a secret but no username, the executor compares the account shown in that
+  form and the page headings with the selected account's username, locally only. If
+  they differ (`myaccount@example.com` shown while `my2@example.com` is selected), it
+  fills nothing, clicks the recipe's optional `accountSwitch` target and restarts from
+  the first step; without one it stops with `wrong-account`. A masked value consistent
+  with the username (`m***@example.com`) cannot be told apart and proceeds.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
 - A real-page corpus per ADR 0012.
+
+`extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
+`LoginObservation` from a page's DOM; nothing calls it yet. It reads element types,
+locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
+title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
+strings, and refuses a path that carries a session ID (matrix parameters such as
+`;jsessionid=`, or ASP.NET segments such as `/(S(...))/`). Label text
+is rendered text only: scripts, styles, `<noscript>`, SVG, hidden elements and
+select or text area contents never contribute. Only forms that hold a field count,
+or every control outside a form when a field is outside one. There the candidates
+are visible text, email, tel, number and password inputs, checkboxes, buttons
+(disabled ones too, since many enable after typing) and, as context only, links.
+Hidden, collapsed, `aria-hidden` and before-the-page-start inputs are skipped as likely
+traps. Labels come from `aria-labelledby`,
+`aria-label`, `<label>`, the text next to a field (the preceding table cell, `<dt>` or
+sibling, at most three levels up, never across another control or its label), then
+`title`; image `alt` names buttons, including `<input type="image">`. Text is redacted
+as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is
+the first of `id`, `name` and `data-testid` that matches exactly one element, as the
+executor resolves it; a button without one gets a text locator when its text matches
+exactly one button and redaction leaves it unchanged. A field, button or checkbox
+without a target, a control the executor cannot act on (a select, radio, text area,
+another input type, or a read-only, disabled, transparent or tiny field), a control in
+a shadow root, or more than 48 candidates makes the observation incomplete, so
+inference rejects it; a page without a field is refused. A field in any open shadow
+root marks it incomplete too, as it may be the real login. Links are context only: the
+plan check accepts only a button as the page action. Known limits: a read-only
+username shown again on a password step makes that step incomplete, and honeypot
+inputs moved to the right or clipped by `overflow: hidden` stay candidates.
+`mise run test:dom` covers these cases in Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):

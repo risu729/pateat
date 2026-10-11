@@ -161,7 +161,7 @@ export async function startLoginFixture(
           sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));
           sessionStorage.setItem('identityMatched', String(document.getElementById('branch').value === '007' && document.getElementById('account').value === '00001234'));
           ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', stage:'identity', branch:document.getElementById('branch').value, account:document.getElementById('account').value})});` : ""}
-          location.href = '/password';
+          location.href = '/password${fixtureUrl.searchParams.has("slow-password") ? "?slow=1" : ""}';
         });
         ${
           fixtureUrl.searchParams.has("replace-on-fill")
@@ -186,15 +186,23 @@ export async function startLoginFixture(
         ),
       );
     } else if (path === "/password") {
+      // `?slow=1` renders the form four seconds after load, past the old three-second budget.
+      const slow = fixtureUrl.searchParams.has("slow");
+      const form =
+        '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
       response.end(
         html(
-          '<h1>Synthetic password step</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
-          `document.getElementById('login').addEventListener('click', () => {
+          slow
+            ? `<h1>Synthetic password step</h1><main id="app"></main><template id="login-form">${form}</template>`
+            : `<h1>Synthetic password step</h1><main id="app">${form}</main>`,
+          `${slow ? "setTimeout(() => { document.getElementById('app').append(document.getElementById('login-form').content.cloneNode(true)); bindLogin(); }, 4000);" : ""}
+          function bindLogin() { document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});` : ""}
           location.href = '/authenticated';
-        });`,
+        }); }
+          ${slow ? "" : "bindLogin();"}`,
         ),
       );
     } else if (
@@ -210,7 +218,12 @@ export async function startLoginFixture(
               text: 'type="text"',
               "text-current-password": 'type="text" autocomplete="current-password"',
             }[fixtureUrl.searchParams.get("password-input") ?? ""] ?? 'type="password"'
-          }></label><button id="login" type="button">Log in</button>`,
+          }></label><button id="login" type="button">Log in</button>${
+            // `?ad` embeds an unrelated frame beside the form, like an advertisement.
+            fixtureUrl.searchParams.has("ad")
+              ? '<iframe id="ad" title="Synthetic advertisement" src="/ad"></iframe>'
+              : ""
+          }`,
           `document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
@@ -219,6 +232,25 @@ export async function startLoginFixture(
           ${path === "/delayed-result" ? `setTimeout(() => { document.body.insertAdjacentHTML('beforeend', ${fixtureUrl.searchParams.has("reject") ? "'<p id=\"rejected\">Credentials rejected</p>'" : "sessionStorage.getItem('passwordMatched') === 'true' ? '<p id=\"authenticated\">Authenticated</p>' : '<p id=\"rejected\">Credentials rejected</p>'"}); updateFixtureStatus(); }, 250);` : ""}
           updateFixtureStatus();
         });`,
+        ),
+      );
+    } else if (path === "/text-submit") {
+      // The submit button has no id or name; the recipe names it by its text.
+      const variant = fixtureUrl.searchParams.get("button");
+      const button =
+        variant === "image"
+          ? '<input class="login" type="image" src="data:," alt="Log in" width="40" height="20">'
+          : '<button class="login" type="button"> Log <span>in</span> </button>';
+      response.end(
+        html(
+          `<h1>Synthetic text-located login</h1><label>Password<input id="password" type="password"></label>${button}${variant === "duplicate" ? '<button class="login" type="button">Log in</button>' : ""}`,
+          `document.querySelectorAll('.login').forEach((button) => button.addEventListener('click', (event) => {
+          event.preventDefault();
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
+          updateFixtureStatus();
+        }));`,
         ),
       );
     } else if (path === "/delayed") {
@@ -236,6 +268,80 @@ export async function startLoginFixture(
           });
         };
       `,
+        ),
+      );
+    } else if (
+      path === "/spa" ||
+      path === "/spa-login" ||
+      path === "/dialog" ||
+      path === "/slow-button"
+    ) {
+      // Forms that appear after load: a same-document URL change, an opened dialog and a
+      // submit button that renders late (`?never` keeps it absent).
+      const form =
+        '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
+      const body = {
+        // `?static` renders the form at load, so only the URL change can start the login.
+        "/spa": fixtureUrl.searchParams.has("static")
+          ? `<h1>Synthetic app home</h1><button id="open-login" type="button">Go to sign-in</button><main id="app">${form}</main>`
+          : `<h1>Synthetic app home</h1><button id="open-login" type="button">Go to sign-in</button><main id="app"></main><template id="login-form">${form}</template>`,
+        "/spa-login": `<h1>Synthetic app sign-in</h1><main id="app">${form}</main>`,
+        "/dialog": `<h1>Synthetic dialog login</h1><button id="open-login" type="button">Sign in</button><div id="app" hidden>${form}</div>`,
+        "/slow-button":
+          '<h1>Synthetic slow button</h1><main id="app"><label>Password<input id="password" type="password"></label></main>',
+      }[path];
+      response.end(
+        html(
+          body,
+          `
+        function bindLogin() {
+          document.getElementById('login').addEventListener('click', () => {
+            sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+            sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+            document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
+            updateFixtureStatus();
+          });
+        }
+        ${
+          path === "/spa"
+            ? fixtureUrl.searchParams.has("static")
+              ? `bindLogin();
+        document.getElementById('open-login').addEventListener('click', () => {
+          history.pushState({}, '', '/spa-login');
+        });`
+              : `document.getElementById('open-login').addEventListener('click', () => {
+          history.pushState({}, '', '/spa-login');
+          setTimeout(() => {
+            document.getElementById('app').append(document.getElementById('login-form').content.cloneNode(true));
+            bindLogin();
+          }, 300);
+        });`
+            : path === "/dialog"
+              ? `bindLogin();
+        document.getElementById('open-login').addEventListener('click', () => {
+          document.getElementById('app').hidden = false;
+        });`
+              : path === "/slow-button"
+                ? fixtureUrl.searchParams.has("never")
+                  ? ""
+                  : `setTimeout(() => {
+          document.getElementById('app').insertAdjacentHTML('beforeend', '<button id="login" type="button">Log in</button>');
+          bindLogin();
+        }, ${Number(fixtureUrl.searchParams.get("delay") ?? 2000)});`
+                : "bindLogin();"
+        }`,
+        ),
+      );
+    } else if (path === "/frame-host") {
+      // The single-page login inside a frame. `?port` embeds another fixture server's page,
+      // so the frame is on another origin than the tab's page.
+      const address = server.address();
+      const framePort =
+        Number(fixtureUrl.searchParams.get("port")) ||
+        (address && typeof address !== "string" ? address.port : 0);
+      response.end(
+        html(
+          `<h1>Synthetic frame host</h1><iframe id="login-frame" title="Synthetic sign-in" src="http://127.0.0.1:${framePort}/single" width="600" height="300"></iframe>`,
         ),
       );
     } else if (path === "/ambiguous") {

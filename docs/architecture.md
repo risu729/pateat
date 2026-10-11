@@ -351,10 +351,12 @@ vocabulary contains login operations only.
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution
-trigger. A static content script runs on every top-level HTTPS page; the background
+trigger. A static content script runs on every HTTPS page and frame; the background
 admits non-excluded sites with host access and needs a cached recipe for the exact
 origin before any policy or vault access
-([ADR 0009](adr/0009-install-time-https-site-access.md)). The planned exception is
+([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the tab's
+page admitted, and its account must match the tab's URL as well as the frame's
+([ADR 0017](adr/0017-login-forms-in-frames.md)). The planned exception is
 recipe generation: a page without a recipe that shows a login field and has a vault URI
 match is observed and sent at most once a day per origin and path
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). Inactive, frozen, discarded,
@@ -368,10 +370,16 @@ requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->
 awaiting-result -> authenticated / retryable / blocked. One writer owns an
-attempt for a tab/document; other tabs can progress independently. Revalidate
+attempt for a tab/document, and a tab runs one attempt across all of its frames; other
+tabs can progress independently. Revalidate
 origin, account binding, target elements, and document immediately before each
 fill or click. Expire late AI results after navigation and cancel outstanding
 work. Synthetic events and lack of trusted user activation may limit some sites.
+An attempt starts when a recipe's first step is ready on the page, including after a
+same-document URL change, and each later fill or click waits a bounded time for its
+elements ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)).
+The browser-provided `sender.url` keeps a document's load URL, so the executor takes a
+top-level document's current path from the tab's committed URL.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to
 blindly replay a submit. Input and change handlers can submit without a click.
@@ -427,7 +435,8 @@ record, so automatic unlock needs no password; otherwise, including an unreadabl
 record, it is locked. The manifest's default action icon is the locked one; the worker
 re-reads the records when it starts, at browser start, after each vault record write and
 after each settings-page connection request
-(`apps/extension/src/connections/action-icon.ts`).
+(`apps/extension/src/connections/action-icon.ts`). The owner confirmed the switch in
+installed Chrome on 2026-10-11 (main 863ad90 or later).
 
 ## Declarative recipes and AI
 
@@ -437,6 +446,26 @@ fingerprint, semantic slots, stable element candidates, bounded steps, completio
 and failure conditions, and provenance. The vocabulary is packaged code such as
 fill, click, wait-for-state, and assert-state. There is no eval, remote JavaScript,
 arbitrary fetch, or model-selected secret destination.
+
+A step names its element with an allowlisted locator, never CSS: an `id` or `name`
+(any ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
+`user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), or, for a click or a state check
+only, a button's text: `{ "by": "text", "value": "ログイン" }` names the `<button>`
+whose rendered text (or, without any, its images' `alt`), the
+`<input type="submit|button">` whose value, or the `<input type="image">` whose `alt`
+equals the value after whitespace is collapsed (owner decision, 2026-10-11). Hidden
+buttons and hidden text inside a button do not count, and text over 120 characters
+gives no locator. The executor compares strings and acts only when exactly one element
+matches; more than one is a structural mismatch. It clicks buttons and image buttons,
+never links. A click is not tied to the form the previous fill used: a page that
+shows a second, previously hidden button with the same text stops the attempt as
+ambiguous, but if the observed button is removed and another button with the same
+text remains, that one is clicked.
+
+A text locator is stored in the recipe, unlike observation labels, which only reach
+inference. Redaction keeps email addresses and long numbers out of it, but a button
+such as "Continue as taro_y" still carries an account name. Recipes are per owner
+today; before recipes are shared between users, such locators need a review.
 
 Site recipes contain meanings such as branch-number/account-number/password. Keep
 account-specific bindings separate from recipes. They are stored in the synced settings
@@ -464,7 +493,12 @@ see [AI evaluation harness progress](plan.md#ai-evaluation-harness-progress).
 Exclude values, hidden inputs,
 raw HTML, screenshots, query strings, and unrelated page text by default. Labels
 can contain private data too: sanitize and bound them, with privacy fixtures and
-an abstention path when a useful safe observation cannot be constructed. Model
+an abstention path when a useful safe observation cannot be constructed. The owner
+chose on 2026-10-11 to redact observed text before it is sent: email-like strings,
+including masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊`
+become `[masked]`; and runs of four or more ASCII or fullwidth digits become
+`[number]` (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be
+detected and stay. Model
 output must pass structural and semantic checks on the server and again locally.
 Screenshot, audio and video collection are deferred. A provider's multimodal
 support does not enable these inputs without a separate privacy/evaluation gate.
@@ -586,16 +620,19 @@ locally with synthetic Access keys and responses; a real Access probe and the op
 decisions below remain. Nothing is configured or deployed. It satisfies the separation
 above without a cookie on steady-state API calls.
 
-- Route families. One Access application covers only the `/enroll` and `/manage` paths.
-  The `/v1` sync routes are outside it and accept only device credentials, and `/redeem`
-  is anonymous. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself: signature
-  against the team JWKS, configured audience tag and issuer, and expiry. It never trusts
-  the plain identity headers. The owner key is the issuer plus the token subject, not
-  the email address. Verification uses Hono's JWT utility with the team JWKS, allowing
-  only RS256; Hono's JWK middleware reads only `Bearer` values, and a dedicated JWT
-  library would need its own owner decision. Tokens without an expiry or a user subject,
-  such as service tokens, are refused. The public keys are edge-cached for five
-  minutes, so a rotated key may be refused briefly.
+- Route families. One Access application covers the whole service host, so a new route
+  is protected by default (owner decision, 2026-10-11). A second, more specific Access
+  application with a Bypass policy exempts the paths that cannot pass an interactive
+  login: the `/v1` sync routes, which accept only device credentials; `/redeem`, which
+  is anonymous; `/health`; and the two `/.well-known` issuer routes that Anthropic
+  fetches anonymously. The Worker verifies the `Cf-Access-Jwt-Assertion` JWT itself:
+  signature against the team JWKS, configured audience tag and issuer, and expiry. It
+  never trusts the plain identity headers. The owner key is the issuer plus the token
+  subject, not the email address. Verification uses Hono's JWT utility with the team
+  JWKS, allowing only RS256; Hono's JWK middleware reads only `Bearer` values, and a
+  dedicated JWT library would need its own owner decision. Tokens without an expiry or a
+  user subject, such as service tokens, are refused. The public keys are edge-cached for
+  five minutes, so a rotated key may be refused briefly.
 - Pairing. The extension background generates a 256-bit verifier and keeps it in trusted
   extension storage. The settings page opens the enrollment page in an ordinary tab with
   only its SHA-256 challenge and a device label. It also shows a short code: 40 bits of
@@ -665,8 +702,8 @@ extension's settings page for the data the service holds
   settings or recipe revision become nullable; null means the web UI wrote it.
 - Display names. A site default stores an optional `itemName` beside its item ID, as
   bindings already do, so the page can name the item; entries without it show the ID.
-- Authentication. The Access application that covers `/enroll` and `/manage` also
-  covers the app's assets and `/manage/api/*`. The Worker verifies the Access token
+- Authentication. The host-wide Access application also covers the app's assets and
+  `/manage/api/*`. The Worker verifies the Access token
   on each API request as it does for the current pages, finds the owner by issuer and
   subject without creating one, and accepts only same-origin requests. The page's
   Content Security Policy allows scripts from its own origin only, with no framing.

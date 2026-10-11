@@ -1,43 +1,91 @@
 # CI and server delivery
 
-Status: foundation CI and guarded manual server delivery are implemented.
-Deployment has not been enabled or executed. Extension store publishing and CD
-are excluded. The server remains optional for the eventual local login core.
+Status: foundation CI and guarded server delivery after main CI are implemented.
+Deployment has not been executed. Extension store publishing is excluded. The server
+remains optional for the eventual local login core.
 
 ## Current foundation workflows
 
-`ci.yml` runs the complete mise/hk graph, including isolated browser tests, on
-every PR and main push, and repeats the packaged-extension browser tests on
-Windows. `CI Check` requires both jobs to succeed, including when an upstream job
-failed, skipped or was cancelled. `codeql.yml` analyzes
-TypeScript/JavaScript and Actions separately. GitHub now detects the repository
-languages, but native Code Quality setup still reports the feature as unavailable;
-preserve its required rule rather than treating that as permanent ineligibility.
-See [merging](#merging).
+`ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
+and main push, and repeats the packaged-extension browser tests on Windows. `CI Check`
+requires both jobs to succeed, including when an upstream job failed, skipped or was
+cancelled. `codeql.yml` analyzes TypeScript/JavaScript and Actions separately. GitHub
+Code Quality is not used: since its
+[2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
+it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
+repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
+the other active risu729 repositories. See [merging](#merging).
 
 Successful main-push CI packages the exact tested production Worker output with
-repository, revision, run/attempt, tool versions and per-file hashes. The artifact does
-not yet carry the committed D1 migrations, and enrollment has not been verified against
-a real Access application, so the sync API cannot be released yet. The `DB` binding has
-no database ID; cf deploy would provision one, so set the bootstrapped ID before
-enabling delivery. A deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`
-Worker secrets and an Access application covering only `/enroll` and `/manage`; the
-owner pages answer 503 without them. Artifact tests reject tampering and mismatched
-provenance.
+repository, revision, run/attempt, tool versions and per-file hashes, plus the
+committed top-level D1 migration files (`services/api/migrations/*.sql`) and the D1
+database ID recorded in the build. The `pateat` database was bootstrapped on
+2026-10-11 in the owner's account with an APAC location hint, and its ID is in
+`cloudflare.config.ts`; packing and restore refuse a build whose `DB` binding has no ID,
+because cf deploy would provision a new database. Restore also checks that the
+migrations match both the manifest and the checked-out revision. Enrollment has not
+been verified against a real Access application yet; the setup order below therefore
+sets the release credentials last. A deployment also needs the `ACCESS_TEAM_DOMAIN`
+and `ACCESS_AUD` Worker secrets; the owner pages answer 503 without them. Artifact
+tests reject tampering and mismatched provenance.
 
-`deploy-server.yml` is manual and disabled until `SERVER_DEPLOY_ENABLED=true`.
-Before enabling it, provision the Worker/routing and set repository variables
-`CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api`, and `SERVER_HEALTH_URL` to its
-HTTPS `/health` URL. Put the scoped `CLOUDFLARE_API_TOKEN` secret in the
-`production` environment. This repository does not supply or provision them.
+### Production settings
 
-Dispatch on main with `ci_run_id` identifying successful main-push CI for the
-current revision. The workflow verifies the run's identity, event and conclusion,
-restores only its hashed artifact, rechecks main within a non-cancelling release
-lock, deploys through the pinned action without rebuilding, and verifies returned
-deployment IDs and the hosted revision. Failed delivery stays failed; each retry
-or later release requires an explicit dispatch. The complete service release
-gates below remain planned, including automatic promotion/failure acknowledgement.
+The owner decided these on 2026-10-11, following the kogane repository:
+
+- Host: the Worker serves only the Custom Domain `pateat.takuk.me`
+  (`cloudflare.config.ts`); `workers.dev` and version preview URLs stay off.
+- Access: one Access application covers the whole host, so a new route is protected
+  by default, and only the owner's identity is allowed. A more specific Access
+  application with a Bypass policy exempts the paths clients call without an Access
+  login: `/v1/*` (device credentials from the extension's background), `/redeem`
+  (anonymous pairing), `/health` (release check), and
+  `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
+  anonymously by Anthropic for Workload Identity Federation). The Worker still
+  verifies the Access token itself on the owner pages.
+- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
+  `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
+- Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
+  as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
+- Preview: there is no preview deployment for now. Without the owner web UI there is
+  nothing to review in a browser: the routes outside Access are `/health`, the OIDC
+  discovery documents, `/redeem` and the device-authenticated `/v1/*`, which the
+  Worker tests cover, and a useful preview would need its own D1 database and Access
+  setup. Add a `worker-preview` deployment with a separate preview D1 binding, as biwa
+  does for its docs, when the owner web UI exists.
+
+`deploy-server.yml` has no enable switch: the owner decided on 2026-10-11 that every
+successful main-push CI run deploys. Until the production credentials exist, each run
+fails at its first step without changing anything. Set the release credentials last:
+first bootstrap the Worker and its Custom Domain, the two Access applications and the
+Worker secrets, and verify enrollment through Access; otherwise a release would apply
+migrations and then fail to activate a missing Worker. Then set the `production`
+environment variables `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
+`SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret. Put
+the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner chose
+on 2026-10-11 to use this one token for both the migrations and the deployment, as in
+kogane, because both run in the same job. It grants Editor on the `pateat-api` Worker
+only and the account-level `D1: Edit`, which covers every D1 database in the account;
+the release limits itself to the recorded database ID. This repository does not supply
+or provision them.
+
+The workflow takes the CI run that triggered it, or the `ci_run_id` of a manual
+dispatch, and fails before any change when the token is empty or the account ID is
+not a 32-character hex ID. It verifies
+the run's identity, event and conclusion, restores only its hashed artifact, rechecks
+main within a non-cancelling release lock, applies the released migrations, deploys
+through the pinned action without rebuilding, and verifies returned deployment IDs and
+the hosted revision. Before `cf d1 migrations apply`, it reads the database by the
+recorded ID and requires the name `pateat`; afterwards no migration may remain
+unapplied. A failed migration stops the release before activation. Migrations must be
+additive so the serving Worker keeps running on the new schema; nothing checks this
+automatically, and cf compares applied migrations by name only, so an applied migration
+file is never edited. `cf d1 migrations` is a preview command of the pinned beta cf;
+recheck this step when cf is updated. Failed delivery stays failed; a retry requires an
+explicit dispatch, and the next merge starts a new release. Routine releases never
+change the Custom Domain or other triggers; the bootstrap applies them once. The
+complete service release gates below remain planned, including automatic
+promotion/failure acknowledgement.
 
 ## Repository configuration
 
@@ -47,7 +95,7 @@ signoff required, issues enabled, discussions/wiki/projects/downloads disabled.
 Apply their default-
 branch rules: prohibit deletion/force-push/creation, require linear history,
 signatures and PRs, zero required approvals, required `CI Check` from GitHub
-Actions, CodeQL errors/high security alerts, and Code Quality errors. Preserve
+Actions, and CodeQL errors/high security alerts (no Code Quality rule). Preserve
 administrator bypass; do not weaken rules just because the first PR has no CI.
 
 The initial main commit has an empty tree. The owner authorized the documentation
@@ -67,12 +115,9 @@ are created for this PR.
 
 ### Merging
 
-Try an ordinary squash merge first. While the required Code Quality rule blocks it
-because the repository's Code Quality setup still reports the feature as
-unavailable, an authorized PR may use the administrator squash bypass only after
-CI, CodeQL and the required independent review pass. Recheck the live setup state
-before each bypass. This is a temporary exception, not a resolution of the M1
-gate above: do not delete or weaken the rule.
+Merge an authorized PR with an ordinary squash merge once CI, CodeQL and the
+required independent review pass. Normal merges do not use the administrator
+bypass.
 
 ## Complete-service CI requirements
 
@@ -82,7 +127,7 @@ gate above: do not delete or weaken the rule.
 - Install immutable-pinned Actions, exact mise tools and frozen dependencies.
   Run the hk/mise verification graph, documentation links, lint, formatting,
   type checks, unit/runtime tests, extension packaging and relevant browser
-  acceptance tests. CodeQL/Code Quality requirements are configured explicitly.
+  acceptance tests. CodeQL requirements are configured explicitly.
 - Test Worker contracts, Access identity validation, device enrollment/revocation,
   owner-scoped settings/recipe access and D1 locally. Verify that service login
   cannot authenticate or unlock a vault. Mock providers and use dummy accounts;
@@ -121,13 +166,14 @@ for the typed-config/test-harness compatibility gate.
    starts, finish/reconcile the release instead of cancelling it for a newer run.
    Provision the Worker/D1/routing and scoped credentials in a distinct initial
    bootstrap operation. Keep bootstrap permissions separate from routine code
-   releases; resource names, account/database IDs and enrollment are M6 inputs.
+   releases; resource names, account IDs and enrollment are M6 inputs. The D1
+   database was bootstrapped early, on 2026-10-11, and its ID is in the config.
    The initial service bootstrap includes Access identity configuration and a
    verified device enrollment/revocation flow. Do not distribute a universal
    service credential with the extension. D1 initially stores private settings
    in server-readable form; vault credentials and decryption keys remain local.
 3. Apply additive, backward-compatible D1 migrations using the caller's task and
-   a separately scoped credential. cf migrations take a database ID and default
+   the production token above. cf migrations take a database ID and default
    to remote execution; use explicit local mode in tests. Verify target identity
    before execution. The previous Worker must still run against the new schema.
 4. Use the owner's deployment action, pinned to a reviewed full commit SHA, with

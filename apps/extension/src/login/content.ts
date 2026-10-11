@@ -1,15 +1,14 @@
 import * as v from "valibot";
 import type { LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
+import { isButton } from "../page/text";
+import { findTargets } from "../page/targets";
 import { acceptsSecret } from "./inputs";
-import { commandSchema, reconnectSchema } from "./wire";
+import { commandSchema, readySchema, reconnectSchema, type LoginReadiness } from "./wire";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget): Element[] {
-  const attribute = target.by === "test-id" ? "data-testid" : target.by;
-  return [...document.querySelectorAll(`[${attribute}]`)].filter(
-    (element) => element.getAttribute(attribute) === target.value,
-  );
+  return findTargets(document, target);
 }
 function visible(element: HTMLElement): boolean {
   const style = getComputedStyle(element);
@@ -27,9 +26,26 @@ function writable(element: Element | undefined): element is HTMLInputElement {
     visible(element) &&
     !element.disabled &&
     !element.readOnly &&
-    !["hidden", "file", "submit", "button", "checkbox", "radio"].includes(element.type)
+    !["hidden", "file", "submit", "button", "image", "reset", "checkbox", "radio"].includes(
+      element.type,
+    )
   );
 }
+function clickable(element: Element | undefined): element is HTMLElement {
+  return element !== undefined && isButton(element) && visible(element) && !element.disabled;
+}
+/** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
+function ready(readiness: LoginReadiness): boolean {
+  if (location.pathname !== readiness.path) return false;
+  return readiness.targets.every((target) => {
+    const found = matches(target);
+    if (found.length !== 1) return false;
+    if (readiness.require === "writable") return writable(found[0]);
+    if (readiness.require === "clickable") return clickable(found[0]);
+    return true;
+  });
+}
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
@@ -40,6 +56,113 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const token = crypto.randomUUID();
   let cancelled = false;
   const used = new Set<string>();
+  // First steps of the origin's recipes. A new attempt starts only once one is ready on
+  // the current path, including after a same-document URL change or a dialog opening.
+  let starts: LoginReadiness[] = [];
+  let announced = false;
+  let observer: MutationObserver | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
+  const schedule = () => {
+    timer ??= setTimeout(check, 100);
+  };
+  function unwatch(): void {
+    observer?.disconnect();
+    observer = undefined;
+    clearTimeout(timer);
+    timer = undefined;
+    removeEventListener("popstate", schedule);
+    navigation?.removeEventListener("currententrychange", schedule);
+  }
+  function watch(list: LoginReadiness[]): void {
+    starts = list;
+    if (!starts.length || cancelled) {
+      unwatch();
+      return;
+    }
+    if (!observer) {
+      observer = new MutationObserver(schedule);
+      // Only attributes that can change whether a target matches, shows or accepts input.
+      observer.observe(document, {
+        subtree: true,
+        childList: true,
+        // Button text locators also depend on text, `value`, `alt` and hidden subtrees.
+        characterData: true,
+        attributes: true,
+        attributeFilter: [
+          "id",
+          "name",
+          "data-testid",
+          "type",
+          "hidden",
+          "style",
+          "class",
+          "open",
+          "disabled",
+          "readonly",
+          "value",
+          "alt",
+          "aria-hidden",
+          "inert",
+        ],
+      });
+      addEventListener("popstate", schedule);
+      navigation?.addEventListener("currententrychange", schedule);
+    }
+  }
+  /**
+   * Checks again shortly when a start could not be confirmed for a passing reason. Each
+   * appearance of the form gets a few retries; after that it waits until the form goes.
+   */
+  let retries = 0;
+  function retry(): void {
+    if (!observer) return;
+    retries += 1;
+    if (retries > 3) return;
+    announced = false;
+    clearTimeout(timer);
+    timer = setTimeout(check, 500);
+  }
+  // Announce once per appearance; a form that disappears and reappears announces again.
+  function check(): void {
+    clearTimeout(timer);
+    timer = undefined;
+    if (!observer) return;
+    const startable = starts.some(ready);
+    if (startable && !announced) void announce(true).catch(retry);
+    else if (!startable) {
+      announced = false;
+      retries = 0;
+    }
+  }
+  async function announce(start: boolean): Promise<unknown> {
+    announced = start;
+    const result: unknown = await browser.runtime.sendMessage({
+      version: 1,
+      type: "login.document.ready",
+      token,
+      ...(start ? { start: { path: location.pathname } } : {}),
+    });
+    const parsed = v.safeParse(readySchema, result);
+    if (!parsed.success || parsed.output.ok) {
+      unwatch();
+    } else if (parsed.output.starts) {
+      watch(parsed.output.starts);
+      // A refused start means the background did not see the form on this path yet, for
+      // example while the tab still shows the previous URL.
+      if (start) retry();
+      else check();
+    } else if (
+      ["stale-document", "closed-tab", "runtime-unavailable"].includes(parsed.output.reason ?? "")
+    ) {
+      retry();
+    } else {
+      // A policy refusal (no account, another tab owns the site, ...) holds until the page
+      // is loaded again; re-announcing on every re-render would only repeat it.
+      unwatch();
+    }
+    return result;
+  }
   const listener: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
     message,
     sender,
@@ -47,9 +170,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   ) => {
     if (sender.id !== browser.runtime.id || sender.tab) return false;
     if (v.safeParse(reconnectSchema, message).success) {
-      void browser.runtime
-        .sendMessage({ version: 1, type: "login.document.ready", token })
-        .then(respond, () => respond({ ok: false }));
+      // A restarted worker forgot earlier refusals; a ready form may start again.
+      void announce(starts.some(ready)).then(respond, () => respond({ ok: false }));
       return true;
     }
     const parsed = v.safeParse(commandSchema, message);
@@ -57,8 +179,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const command = parsed.output;
     if (command.type === "login.cancel") {
       cancelled = true;
+      unwatch();
       respond({ ok: true });
       return false;
+    }
+    if (command.type === "login.await") {
+      // Polls the current DOM serially until the step's elements are ready; never mutates.
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        // Cancellation is set by the independent background message listener.
+        // eslint-disable-next-line no-unmodified-loop-condition
+        while (!cancelled && !ready(command.readiness)) {
+          if (Date.now() >= until) return { ok: false, reason: "timeout" };
+          // eslint-disable-next-line no-await-in-loop
+          await pause(50);
+        }
+        return cancelled ? { ok: false, reason: "cancelled" } : { ok: true };
+      })().then(respond, () => respond({ ok: false, reason: "cancelled" }));
+      return true;
     }
     if (command.type === "login.status") {
       // Pages are untrusted; only the synthetic probe fixture observes attempt status.
@@ -179,15 +317,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (step.kind === "click") {
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
-        if (
-          !(
-            element instanceof HTMLButtonElement ||
-            (element instanceof HTMLInputElement && ["submit", "button"].includes(element.type))
-          ) ||
-          !visible(element) ||
-          element.disabled
-        )
-          return fail("structural-mismatch");
+        if (!clickable(element)) return fail("structural-mismatch");
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };
@@ -205,7 +335,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (satisfied()) return { ok: true, mutation: "none" };
         // Poll the current DOM serially; parallel polls cannot observe later render states.
         // eslint-disable-next-line no-await-in-loop
-        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+        await pause(50);
       }
       return fail(cancelled ? "cancelled" : "timeout");
     })()
@@ -232,11 +362,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     return true;
   };
   browser.runtime.onMessage.addListener(listener);
-  void browser.runtime
-    .sendMessage({ version: 1, type: "login.document.ready", token })
-    .catch(() => undefined);
+  void announce(false).catch(() => undefined);
   return () => {
     cancelled = true;
+    unwatch();
     browser.runtime.onMessage.removeListener(listener);
   };
 }

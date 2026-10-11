@@ -9,7 +9,9 @@ same HTTPS access also carries the passkey bridge of
 document-start script on every top-level HTTPS document, in addition to the login
 script below. Amended by [ADR 0016](0016-recipe-generation-trigger.md): a document
 without a cached recipe may check for a vault URI match and be observed for automatic
-recipe generation.
+recipe generation. Amended by [ADR 0017](0017-login-forms-in-frames.md): the login
+script runs in every HTTPS frame, and a frame is admitted only when the tab's page is
+admitted too.
 
 Date: 2026-10-10
 

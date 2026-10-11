@@ -24,6 +24,12 @@ const fake = vi.hoisted(() => {
     tabUrls: {} as Record<number, string>,
     /** Completion, then rejection target states reported by observation. */
     observed: ["unique", "missing"],
+    /** The document's answer while it waits for a step's elements. */
+    awaited: { ok: true } as { ok: boolean; reason?: string },
+    /** Runs while the document waits for a step's elements. */
+    onAwait: undefined as undefined | (() => void),
+    /** Documents that went away with their page; messages to them fail. */
+    gone: new Set<string>(),
   };
   const browser = {
     runtime: {
@@ -46,8 +52,18 @@ const fake = vi.hoisted(() => {
     tabs: {
       query: async () => [],
       get: async (id: number) => ({ id, url: state.tabUrls[id] ?? state.pageUrl }),
-      sendMessage: async (_tabId: number, message: Record<string, unknown>) => {
+      sendMessage: async (
+        _tabId: number,
+        message: Record<string, unknown>,
+        options?: { documentId?: string },
+      ) => {
+        if (options?.documentId && state.gone.has(options.documentId))
+          throw new Error("Could not establish connection. Receiving end does not exist.");
         state.messages.push(structuredClone(message) as (typeof state.messages)[number]);
+        if (message["type"] === "login.await") {
+          state.onAwait?.();
+          return state.awaited;
+        }
         if (message["type"] === "login.observe")
           return { path: "/signin", targets: [...state.observed] };
         if (message["type"] === "login.execute") {
@@ -226,6 +242,7 @@ function harness(
     recipe: vi.fn(async (at: string, path: string): Promise<typeof recipe | undefined> =>
       at === origin && path === "/signin" ? recipe : undefined,
     ),
+    firstSteps: vi.fn(async (at: string) => (at === origin ? [recipe.steps[0]!] : [])),
   };
   const login = createLoginRuntime(store, {
     fields,
@@ -233,9 +250,18 @@ function harness(
     recipes,
     ...(live.uris ? { uris: live.uris } : {}),
   });
-  const hello = (from: Record<string, unknown> = {}) =>
+  // By default the document reports its first step ready, as the content script does
+  // once the form appears; `start: false` sends the initial announcement instead.
+  const hello = (from: Record<string, unknown> = {}, start = true) =>
     login.handle(
-      { version: 1, type: "login.document.ready", token: "synthetic-token" },
+      {
+        version: 1,
+        type: "login.document.ready",
+        token: "synthetic-token",
+        ...(start
+          ? { start: { path: new URL(String(from["url"] ?? fake.state.pageUrl)).pathname } }
+          : {}),
+      },
       sender(from),
     );
   return { login, store, fields, recipes, hello, snapshot: current, settings: snapshot };
@@ -250,6 +276,9 @@ describe("production login document admission", () => {
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
     fake.state.observed = ["unique", "missing"];
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.gone = new Set();
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -305,7 +334,8 @@ describe("production login document admission", () => {
     expect(fake.state.messages).toEqual([]);
   });
   it.each([
-    ["a subframe", { frameId: 1 }],
+    // Chrome withholds the tab's URL without host access to the tab's page.
+    ["a frame whose tab URL is withheld", { frameId: 1 }],
     ["a sender without a document id", { documentId: undefined }],
   ])("ignores %s on a saved-default origin", async (_name, overrides) => {
     const h = harness();
@@ -352,14 +382,305 @@ describe("production login document admission", () => {
     expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
     expect(h.store.handle).not.toHaveBeenCalled();
   });
+  const signinStart = {
+    path: "/signin",
+    require: "writable",
+    targets: [{ by: "id", value: "password" }],
+  };
   it("refuses an admitted page without a saved recipe and never reads the vault", async () => {
     fake.state.pageUrl = "https://login.example/elsewhere";
     const h = harness();
-    expect(await h.hello()).toEqual({ ok: false, reason: "recipe-not-found" });
+    // The origin has a recipe elsewhere, so the document watches for its first step.
+    expect(await h.hello()).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [signinStart],
+    });
     // The policy catalog (and with it every configured vault) is never opened.
     expect(h.store.handle).not.toHaveBeenCalled();
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).toEqual(["login.status"]);
+  });
+  it("leaves a path where several recipes start out of the watch list", async () => {
+    fake.state.pageUrl = "https://login.example/elsewhere";
+    const h = harness();
+    h.recipes.firstSteps.mockResolvedValue([
+      recipe.steps[0]!,
+      { ...recipe.steps[0]!, fields: [{ slot: "password", target: target("other") }] },
+      { ...recipe.steps[0]!, path: "/other" },
+    ] as never);
+    expect(await h.hello()).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [{ ...signinStart, path: "/other" }],
+    });
+  });
+  it("starts only after the document reports the first step ready", async () => {
+    const h = harness();
+    expect(await h.hello({}, false)).toEqual({
+      ok: false,
+      reason: "form-not-ready",
+      starts: [signinStart],
+    });
+    // A start reported for another path does not count for this one.
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          start: { path: "/elsewhere" },
+        },
+        sender(),
+      ),
+    ).toEqual({ ok: false, reason: "form-not-ready", starts: [signinStart] });
+    expect(h.store.handle).not.toHaveBeenCalled();
+    expect(h.fields).not.toHaveBeenCalled();
+    // The same document announces again once its form appears.
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
+    );
+    // A document that already carries an attempt cannot start another one.
+    expect(await h.hello()).toEqual({ ok: false, reason: "duplicate-document" });
+  });
+  it("refuses a different content script instance in an already announced document", async () => {
+    const h = harness();
+    expect(await h.hello({}, false)).toMatchObject({ reason: "form-not-ready" });
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "other-token",
+          start: { path: "/signin" },
+        },
+        sender(),
+      ),
+    ).toEqual({ ok: false, reason: "duplicate-document" });
+  });
+  it("a policy change while waiting for elements stops before any intent or vault read", async () => {
+    const h = harness();
+    fake.state.onAwait = () => {
+      h.settings.revision += 1;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        { state: "blocked", outcome: "policy-changed", usedOperationIds: [] },
+      ]),
+    );
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
+  });
+  it("stops before any vault read or page change when a step's elements never appear", async () => {
+    fake.state.awaited = { ok: false, reason: "timeout" };
+    const h = harness();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        {
+          state: "retryable",
+          outcome: "structural-mismatch",
+          submissions: 0,
+          usedOperationIds: [],
+        },
+      ]),
+    );
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
+  });
+  describe("a login form inside a frame", () => {
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    // The tab shows the page around the frame; the frame's own URL is the login page.
+    const framed = (top: string, overrides: Record<string, unknown> = {}) => {
+      fake.state.tabUrls[1] = top;
+      return { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top }, ...overrides };
+    };
+    it("logs in when the item also allows the tab's page", async () => {
+      const h = harness();
+      expect(await h.hello(framed("https://login.example/home"))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(h.fields).toHaveBeenCalledTimes(1);
+    });
+    it("logs in on another site's page only when both URLs match the item's URIs", async () => {
+      const uris = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+        ok: true,
+        data: uriMatch({ targetOrigin: new URL(url).origin }),
+      }));
+      const h = harness({}, { allowedOrigins: [], uris });
+      expect(await h.hello(framed("https://portal.example/account"))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(uris.mock.calls.map((call) => call[1])).toEqual([
+        "https://login.example/signin",
+        "https://portal.example/account",
+      ]);
+    });
+    it("refuses before any field read when only the frame's URL matches", async () => {
+      const uris = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+        ok: true,
+        data: uriMatch({
+          targetOrigin: new URL(url).origin,
+          ...(new URL(url).origin === origin ? {} : { candidates: [] }),
+        }),
+      }));
+      const h = harness({}, { allowedOrigins: [], uris });
+      expect(await h.hello(framed("https://evil.example/"))).toEqual({
+        ok: false,
+        reason: "frame-top-mismatch",
+      });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("chooses an account only among items matching both URLs", async () => {
+      // Without a saved default, the frame's URL matches two items but the tab's only one.
+      const uris = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+        ok: true,
+        data: uriMatch({
+          targetOrigin: new URL(url).origin,
+          candidates:
+            new URL(url).origin === origin
+              ? [
+                  { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+                  { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+                ]
+              : [{ itemId, matches: [{ uriIndex: 0, match: 0 }] }],
+        }),
+      }));
+      const h = harness({ siteDefaults: [] }, { allowedOrigins: [], uris });
+      expect(await h.hello(framed("https://portal.example/"))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(h.fields.mock.calls[0]![0]).toMatchObject({ account: { itemId } });
+    });
+    it("ignores a frame on an excluded page before any policy or vault access", async () => {
+      const h = harness({
+        excludedSites: [{ hostname: "evil.example", includeSubdomains: false }],
+      });
+      expect(await h.hello(framed("https://evil.example/"))).toEqual({
+        ok: false,
+        reason: "unauthorized-document",
+      });
+      expect(h.store.handle).not.toHaveBeenCalled();
+      expect(h.recipes.recipe).not.toHaveBeenCalled();
+      expect(fake.state.messages).toEqual([]);
+    });
+    it("starts one attempt when the page and its frame announce at the same time", async () => {
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const h = harness();
+      const top = "https://login.example/signin";
+      const answers = await Promise.all([
+        h.hello({ documentId: "page-document", url: top }),
+        h.hello(framed(top)),
+      ]);
+      expect(answers).toContainEqual({ ok: true });
+      expect(answers).toContainEqual({ ok: false, reason: "tab-busy" });
+      await vi.waitFor(() => expect(executes()).toHaveLength(1));
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toHaveLength(1);
+    });
+    it("keeps one attempt per tab and lets only a new page end a frame's attempt", async () => {
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const h = harness();
+      const top = "https://login.example/home";
+      expect(await h.hello(framed(top))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(1));
+      // The page around the frame and another frame of it never take the attempt over.
+      expect(await h.hello({ documentId: "page-document", url: top })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
+      expect(await h.hello(framed(top, { frameId: 5, documentId: "widget-document" }))).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
+      expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).toEqual([]);
+      // While the frame is still there, a new top document is its own page announcing.
+      fake.state.gone = new Set(["page-document"]);
+      expect(await h.hello({ documentId: "late-page-document", url: top })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
+      expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).toEqual([]);
+      // A new page in the tab ends the frame's attempt without a fill on the new page.
+      fake.state.gone = new Set(["frame-document", "widget-document"]);
+      fake.state.tabUrls[1] = "https://login.example/signin";
+      await h.hello({ documentId: "next-page" });
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+          { state: "blocked", outcome: "cancelled" },
+        ]),
+      );
+      expect(executes()).toHaveLength(1);
+    });
+  });
+  describe("a frame's attempt when the tab changes page", () => {
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    const framed = (top: string, overrides: Record<string, unknown> = {}) => {
+      fake.state.tabUrls[1] = top;
+      return { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top }, ...overrides };
+    };
+    const stored = () =>
+      fake.state.storage["pateat.login-attempts.v1"] as { state: string; outcome?: string }[];
+    it("lets a new page's frame that announced first keep its document", async () => {
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const h = harness();
+      // The previous page of the tab, without a login form.
+      fake.state.tabUrls[1] = "https://login.example/home";
+      expect(
+        await h.hello({ documentId: "home-document", url: "https://login.example/home" }),
+      ).toMatchObject({ ok: false });
+      // The next page's login frame announces and starts before its own page does.
+      const top = "https://login.example/account";
+      expect(await h.hello(framed(top))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(1));
+      fake.state.gone = new Set(["home-document"]);
+      expect(await h.hello({ documentId: "account-document", url: top })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
+      expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).toEqual([]);
+      expect(stored()).toMatchObject([{ state: "executing" }]);
+    });
+    it("ends the attempt when the tab moves to a page on another origin", async () => {
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const uris = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+        ok: true,
+        data: uriMatch({ targetOrigin: new URL(url).origin }),
+      }));
+      const h = harness({}, { allowedOrigins: [], uris });
+      const top = "https://portal.example/account";
+      fake.state.tabUrls[1] = top;
+      expect(await h.hello({ documentId: "portal-document", url: top })).toMatchObject({
+        ok: false,
+      });
+      expect(await h.hello(framed(top))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(1));
+      // The login navigates the whole tab; the frame goes with the old page.
+      fake.state.gone = new Set(["frame-document", "portal-document"]);
+      fake.state.tabUrls[1] = "https://portal.example/dashboard";
+      await h.hello({ documentId: "dashboard-document", url: "https://portal.example/dashboard" });
+      expect(stored()).toMatchObject([{ state: "blocked", outcome: "cancelled" }]);
+      expect(executes()).toHaveLength(1);
+    });
+    it("refuses an operation once the tab shows another site", async () => {
+      let authorized: unknown;
+      const h = harness();
+      fake.state.onExecute = async (message) => {
+        fake.state.tabUrls[1] = "https://elsewhere.example/";
+        const operation = message["operation"] as { attemptId: string; operationId: string };
+        authorized = await h.login.handle(
+          {
+            version: 1,
+            type: "login.operation.authorize",
+            token: "synthetic-token",
+            attemptId: operation.attemptId,
+            operationId: operation.operationId,
+          },
+          sender(framed("https://elsewhere.example/")),
+        );
+      };
+      expect(await h.hello(framed("https://login.example/home"))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(authorized).toBe(false));
+    });
   });
   describe("live provider URI matches", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");

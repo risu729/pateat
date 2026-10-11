@@ -43,6 +43,10 @@ describe("observation contract", () => {
       }),
     ).toBe(false);
     expect(parse({ ...base, candidates: [candidate, { ...candidate, id: "other" }] })).toBe(false);
+    const button = base.candidates[2]!;
+    const text = { by: "text", value: "Sign in" };
+    expect(parse({ ...base, candidates: [candidate, { ...button, target: text }] })).toBe(true);
+    expect(parse({ ...base, candidates: [{ ...candidate, target: text }] })).toBe(false);
     expect(parse({ ...base, path: "/login?next=/" })).toBe(false);
     expect(parse({ ...base, origin: "https://shop.example.test/login" })).toBe(false);
     expect(parse({ ...base, html: "<form></form>" })).toBe(false);

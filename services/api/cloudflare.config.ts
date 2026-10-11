@@ -9,8 +9,9 @@ export default defineConfig({
     compatibilityDate,
     compatibilityFlags,
     env: {
-      // Declared for typed bindings only; the database is not provisioned yet.
-      DB: bindings.d1({ name: "pateat" }),
+      // Bootstrapped on 2026-10-11. The ID keeps cf deploy from provisioning another
+      // database; the release applies committed migrations to exactly this one.
+      DB: bindings.d1({ name: "pateat", id: "68342d29-6704-464c-bdb2-b749812c1f19" }),
       // The Access team domain (`<team>.cloudflareaccess.com`) and application
       // audience tag that guard /enroll and /manage. Unset values fail closed.
       ACCESS_TEAM_DOMAIN: bindings.secret(),
@@ -25,6 +26,9 @@ export default defineConfig({
         simple: { limit: 10, period: 60 },
       }),
     },
+    // The only public host. Routine releases leave triggers alone; the bootstrap
+    // applies this Custom Domain once (docs/delivery.md).
+    domains: ["pateat.takuk.me"],
     workersDev: false,
     previewUrls: false,
     observability: { enabled: true, headSamplingRate: 1, redactQueryString: true },

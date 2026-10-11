@@ -4,7 +4,7 @@ The repository contains local policy settings, manual Bitwarden connection setup
 contracts, isolated transport/local-crypto libraries, a packaged offscreen crypto host,
 a local vault cache with offline restoration, a localhost-only synthetic login executor
 probe, a device-authenticated settings/recipe sync Worker skeleton and
-CI/manual-delivery foundations. Connection setup and its live metadata integration
+CI/delivery foundations. Connection setup and its live metadata integration
 passed synthetic native-browser tests; real-account compatibility is unproven. An
 offline AI evaluation harness scores role adapters on a synthetic Japanese/English
 corpus with fake providers only. The settings page can pair a device with the
@@ -67,6 +67,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0014: Claude Opus 5.5 for recipe generation](adr/0014-claude-generation-provider.md)
 - [0015: Per-owner Claude credentials through Workload Identity Federation](adr/0015-per-owner-claude-credentials.md)
 - [0016: Automatic recipe generation on pages with a vault match](adr/0016-recipe-generation-trigger.md)
+- [0017: Login forms inside frames](adr/0017-login-forms-in-frames.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

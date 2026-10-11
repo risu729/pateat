@@ -3,6 +3,7 @@ import {
   createAttemptMetadata,
   defaultLoginBinding,
   findLoginBinding,
+  isSiteExcluded,
   nextLoginOperation,
   loginStepEffect,
   parseAttemptMetadata,
@@ -20,6 +21,7 @@ import {
   type LoginDocument,
   type LoginOperation,
   type LoginRecipe,
+  type LoginStep,
   type LoginTarget,
   type SavedLoginBinding,
   type SettingsResponse,
@@ -30,6 +32,7 @@ import {
 import { browser, type Browser } from "wxt/browser";
 import {
   authorizeSchema,
+  awaitResultSchema,
   cancelSchema,
   configureSchema,
   executionResultSchema,
@@ -37,6 +40,9 @@ import {
   observationSchema,
   statusSchema,
   probeControlSchema,
+  loginReadiness,
+  LOGIN_STEP_WAIT_MS,
+  type LoginReadiness,
   type LoginSecretKind,
 } from "./wire";
 import {
@@ -44,6 +50,7 @@ import {
   DEMO_PROBE_ACCOUNT,
   grantProbeOrigin,
   probeBinding,
+  probeFirstSteps,
   probeRecipe,
   type ProbeAccount,
 } from "./dummy";
@@ -70,16 +77,29 @@ const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) 
 type LiveDocument = {
   document: LoginDocument;
   token: string;
-  /** The browser-provided URL this document announced; provider URI rules match against it. */
+  /**
+   * The document's browser-provided URL: the tab's committed URL for a same-origin top
+   * document (it follows history.pushState), else `sender.url`. Provider URI rules match it.
+   */
   url: string;
   path: string;
+  /**
+   * For a document in a frame inside the page: the tab's URL. The account must match it
+   * as well as the frame's own URL (ADR 0017).
+   */
+  topUrl?: string;
   state?: string;
   reason?: string;
   /** A provider URI match for this document only, valid while its snapshot is unchanged. */
   uriMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** A single-match account choice, valid while every connection's snapshot is unchanged. */
   autoChoice?: { snapshots: string; connectionId: string; itemId: string };
+  /** A provider URI match for `topUrl`, valid while its snapshot is unchanged. */
+  topMatch?: { connectionId: string; itemId: string; snapshotId: string };
 };
+/** Documents are tracked per frame; a tab still runs at most one attempt. */
+const frameKey = (document: { tabId: number; frameId: number }) =>
+  `${document.tabId}:${document.frameId}`;
 type Execution = {
   metadata: LoginAttemptMetadata;
   recipe: LoginRecipe;
@@ -112,8 +132,13 @@ const terminal = (metadata: LoginAttemptMetadata) =>
 export interface LoginRecipes {
   /** The recipe for a document, or an attempt's own recipe by ID after navigation. */
   recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
+  /** The first step of every recipe for the origin; a document watches for them to appear. */
+  firstSteps(origin: string): Promise<LoginStep[]>;
 }
-export const noLoginRecipes: LoginRecipes = { recipe: async () => undefined };
+export const noLoginRecipes: LoginRecipes = {
+  recipe: async () => undefined,
+  firstSteps: async () => [],
+};
 const probeMode = import.meta.env.MODE === "probe";
 
 /**
@@ -134,7 +159,7 @@ export function createLoginRuntime(
   const { fields, sites, recipes = noLoginRecipes, uris } = options;
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
-  const documents = new Map<number, LiveDocument>();
+  const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
   const persisted = new Map<number, LoginAttemptMetadata>();
   let storageQueue: Promise<void> = Promise.resolve();
@@ -194,21 +219,36 @@ export function createLoginRuntime(
       storageHealthy = false;
     }
   })();
-  const hellos = new Map<number | undefined, number>();
+  const hellos = new Map<string, number>();
   const probeDocument = (url: URL) =>
     probeMode && url.origin === origin && url.protocol === "http:" && url.hostname === "127.0.0.1";
+  // The synthetic fixture embeds its frames in a page on another loopback port to test refusal.
+  const probeTop = (url: URL) =>
+    probeMode && url.protocol === "http:" && url.hostname === "127.0.0.1";
+  const admitted = async (url: URL) =>
+    probeDocument(url) || Boolean(sites && (await sites.admits(url)));
+  /**
+   * The browser-identified document. A frame inside the page is admitted only when the
+   * tab's page is admitted too; excluded sites stop it on either side (ADR 0017).
+   */
   async function identify(sender: Sender): Promise<LoginDocument | undefined> {
     if (
       sender.id !== browser.runtime.id ||
       sender.tab?.id === undefined ||
-      sender.frameId !== 0 ||
+      sender.frameId === undefined ||
       !sender.documentId ||
+      // A prerendered page also has a nonzero frame ID; it is not a frame of the tab.
+      (sender as { documentLifecycle?: string }).documentLifecycle === "prerender" ||
       !sender.url
     )
       return undefined;
     try {
       const url = new URL(sender.url);
-      if (!probeDocument(url) && !(sites && (await sites.admits(url)))) return undefined;
+      if (!(await admitted(url))) return undefined;
+      if (sender.frameId !== 0) {
+        const top = sender.tab.url ? new URL(sender.tab.url) : undefined;
+        if (!top || !(probeTop(top) || (await admitted(top)))) return undefined;
+      }
       return {
         origin: url.origin,
         tabId: sender.tab.id,
@@ -226,11 +266,14 @@ export function createLoginRuntime(
   function current(run: Execution): boolean {
     return (
       attempts.get(run.live.document.tabId) === run &&
-      documents.get(run.live.document.tabId) === run.live
+      documents.get(frameKey(run.live.document)) === run.live
     );
   }
   async function save(run: Execution): Promise<void> {
-    persisted.set(run.metadata.document.tabId, parseAttemptMetadata(run.metadata));
+    await keep(run.metadata);
+  }
+  async function keep(metadata: LoginAttemptMetadata): Promise<void> {
+    persisted.set(metadata.document.tabId, parseAttemptMetadata(metadata));
     const snapshot = [...persisted.values()];
     storageQueue = storageQueue.then(async () => {
       if (!storageHealthy) throw new Error("Attempt storage unavailable");
@@ -302,7 +345,7 @@ export function createLoginRuntime(
     );
   }
   async function publish(live: LiveDocument, metadata?: LoginAttemptMetadata): Promise<void> {
-    if (documents.get(live.document.tabId) !== live) return;
+    if (documents.get(frameKey(live.document)) !== live) return;
     await send(live, {
       type: "login.status",
       state: metadata?.state ?? live.state ?? "denied",
@@ -349,8 +392,26 @@ export function createLoginRuntime(
     if (!scope.ok) return { reason: scope.reason };
     if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
     if (scope.incompleteItems.length > 0) return { reason: "item-uri-unevaluated" };
-    if (scope.candidates.length > 1) return { reason: "account-ambiguous" };
-    const [only] = scope.candidates;
+    let candidates = scope.candidates;
+    if (live.topUrl) {
+      // In a frame, only items that also match the tab's URL are eligible (ADR 0017).
+      const top = await findLiveSiteCandidates({
+        settings: snapshot.snapshot.settings,
+        catalog: snapshot.catalog,
+        url: live.topUrl,
+        match: uris,
+      });
+      if (!top.ok) return { reason: top.reason };
+      if (top.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
+      if (top.incompleteItems.length > 0) return { reason: "item-uri-unevaluated" };
+      candidates = candidates.filter((entry) =>
+        top.candidates.some(
+          (other) => other.connectionId === entry.connectionId && other.itemId === entry.itemId,
+        ),
+      );
+    }
+    if (candidates.length > 1) return { reason: "account-ambiguous" };
+    const [only] = candidates;
     if (!only) return { reason: "default-not-set" };
     // The same answer covers the item origin check below; no second query is needed.
     live.uriMatch = {
@@ -413,6 +474,62 @@ export function createLoginRuntime(
     return { catalog: withItemOrigin(catalog, selected, live.document.origin) };
   }
   /**
+   * For a document in a frame inside the page, the chosen item must also match the tab's
+   * URL, as the official Bitwarden client requires before it fills a frame (ADR 0017).
+   * `granted` is the catalog whose static `allowedOrigins` count; a live provider URI
+   * match is reused while that connection's snapshot is unchanged.
+   */
+  async function topScope(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+    selected: { connectionId: string; itemId: string },
+    granted: VaultCatalog,
+  ): Promise<{ reason: string } | undefined> {
+    if (!live.topUrl) return undefined;
+    const top = new URL(live.topUrl).origin;
+    if (isSiteExcluded(snapshot.snapshot.settings, top)) return { reason: "site-excluded" };
+    const item = granted.connections
+      .find((entry) => entry.id === selected.connectionId)
+      ?.items.find((entry) => entry.id === selected.itemId);
+    if (item?.allowedOrigins.includes(top)) return undefined;
+    const connection = snapshot.catalog.connections.find(
+      (entry) => entry.id === selected.connectionId,
+    );
+    if (!uris || !connection?.snapshotId || connection.provider !== "bitwarden")
+      return { reason: "frame-top-mismatch" };
+    const cached = live.topMatch;
+    if (
+      cached?.connectionId === selected.connectionId &&
+      cached.itemId === selected.itemId &&
+      cached.snapshotId === connection.snapshotId
+    )
+      return undefined;
+    delete live.topMatch;
+    const scope = await findLiveSiteCandidates({
+      settings: snapshot.snapshot.settings,
+      catalog: { connections: [connection] },
+      url: live.topUrl,
+      match: uris,
+    });
+    if (!scope.ok) return { reason: scope.reason };
+    if (
+      scope.candidates.some(
+        (entry) => entry.itemId === selected.itemId && entry.snapshotId === connection.snapshotId,
+      )
+    ) {
+      live.topMatch = {
+        connectionId: selected.connectionId,
+        itemId: selected.itemId,
+        snapshotId: connection.snapshotId,
+      };
+      return undefined;
+    }
+    if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
+    if (scope.incompleteItems.some((entry) => entry.itemId === selected.itemId))
+      return { reason: "item-uri-unevaluated" };
+    return { reason: "frame-top-mismatch" };
+  }
+  /**
    * The synced binding of the chosen item, or the automatic one for built-in slots, mapped
    * to this device's field IDs by the catalog's raw field names.
    */
@@ -463,11 +580,15 @@ export function createLoginRuntime(
     if (probeMode && recipe.origin === origin) {
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
       binding = probeBinding(recipe, account);
+      const top = await topScope(snapshot, live, account, catalog);
+      if (top) return { ok: false as const, reason: top.reason };
     } else {
       const chosen = await choose(snapshot, live);
       if ("reason" in chosen) return { ok: false as const, reason: chosen.reason };
       const scope = await liveScope(snapshot, live, chosen);
       if ("reason" in scope) return { ok: false as const, reason: scope.reason };
+      const top = await topScope(snapshot, live, chosen, snapshot.catalog);
+      if (top) return { ok: false as const, reason: top.reason };
       catalog = scope.catalog;
       if (!chosen.saved) {
         // The automatic choice acts as this document's default in memory only; the
@@ -534,6 +655,27 @@ export function createLoginRuntime(
     const parsed = v.safeParse(observationSchema, response);
     return parsed.success ? parsed.output : undefined;
   }
+  /**
+   * Asks the document to wait for a step's elements. A document that went away or was
+   * cancelled leaves the attempt as it is; its replacement document resumes it.
+   */
+  async function waitFor(
+    run: Execution,
+    readiness: LoginReadiness,
+  ): Promise<"ready" | "timeout" | "gone"> {
+    try {
+      const response = await send(run.live, {
+        type: "login.await",
+        readiness,
+        timeoutMs: LOGIN_STEP_WAIT_MS,
+      });
+      const parsed = v.safeParse(awaitResultSchema, response);
+      if (!parsed.success) return "gone";
+      return parsed.output.ok ? "ready" : parsed.output.reason === "timeout" ? "timeout" : "gone";
+    } catch {
+      return "gone";
+    }
+  }
   async function reconcile(run: Execution, settleUnknown = false): Promise<void> {
     const nextIndex =
       run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance"
@@ -590,12 +732,17 @@ export function createLoginRuntime(
   // Parallel execution would race policy checks or repeat submission side effects.
   /* eslint-disable no-await-in-loop */
   async function reconcileBounded(run: Execution): Promise<void> {
-    const until = Date.now() + 3000;
+    // An advance is confirmed by the next step's elements, which get the same wait as any
+    // fill or click; other results keep the shorter observation budget.
+    const until =
+      Date.now() + (run.metadata.operationEffect === "advance" ? LOGIN_STEP_WAIT_MS : 3000);
     const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
+    // Each round re-authorizes against settings, so the longer advance budget polls slower.
+    const interval = run.metadata.operationEffect === "advance" ? 200 : 50;
     while (current(run) && observing() && Date.now() < until) {
       await reconcile(run);
       if (!observing()) return;
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      await new Promise<void>((resolve) => setTimeout(resolve, interval));
     }
     if (current(run) && observing()) await reconcile(run, true);
   }
@@ -607,6 +754,18 @@ export function createLoginRuntime(
         await reconcileBounded(run);
       while (current(run) && run.metadata.state === "ready") {
         if (!(await allowed(run))) return;
+        // A fill or click waits for its elements before any intent, vault read or value
+        // delivery; a slow render is not a failure until the owner-approved limit passes.
+        const upcoming = run.recipe.steps[run.metadata.stepIndex];
+        if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
+          const waited = await waitFor(run, loginReadiness(upcoming));
+          if (!current(run) || run.metadata.state !== "ready") return;
+          if (waited === "timeout") {
+            await change(run, { type: "FAILED", reason: "structural-mismatch" });
+            return;
+          }
+          if (waited !== "ready" || !(await allowed(run))) return;
+        }
         const operation = nextLoginOperation(
           run.metadata,
           run.recipe,
@@ -742,32 +901,134 @@ export function createLoginRuntime(
     }
   }
   /* eslint-enable no-await-in-loop */
-  async function ready(sender: Sender, token: string): Promise<{ ok: boolean; reason?: string }> {
-    // Admission is async; a later hello from the same tab must not be overtaken by an older one.
-    const tabId = sender.tab?.id;
-    const sequence = (hellos.get(tabId) ?? 0) + 1;
-    hellos.set(tabId, sequence);
+  /**
+   * First steps a document watches for; deduplicated and bounded for the wire. A path
+   * where several recipes start is left out, because such a page cannot start (ADR 0013).
+   */
+  async function startsFor(documentOrigin: string): Promise<LoginReadiness[]> {
+    const all =
+      probeMode && documentOrigin === origin
+        ? probeFirstSteps(origin)
+        : await recipes.firstSteps(documentOrigin).catch(() => []);
+    const steps = all.filter(
+      (step) => all.filter((other) => other.path === step.path).length === 1,
+    );
+    const unique = new Map(
+      steps.map((step) => {
+        const readiness = loginReadiness(step);
+        return [JSON.stringify(readiness), readiness];
+      }),
+    );
+    return [...unique.values()].slice(0, 32);
+  }
+  async function ready(
+    sender: Sender,
+    token: string,
+    start?: { path: string },
+  ): Promise<{ ok: boolean; reason?: string; starts?: LoginReadiness[] }> {
+    // Admission is async; a later hello from the same frame must not be overtaken by an older one.
+    const helloKey = `${sender.tab?.id}:${sender.frameId}`;
+    const sequence = (hellos.get(helloKey) ?? 0) + 1;
+    hellos.set(helloKey, sequence);
     await loaded;
     const document = await identify(sender);
     if (!document || !sender.url) return { ok: false, reason: "unauthorized-document" };
-    if (hellos.get(tabId) !== sequence) return { ok: false, reason: "stale-document" };
-    const oldLive = documents.get(document.tabId);
-    if (oldLive && sameLoginDocument(oldLive.document, document))
+    if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+    const key = frameKey(document);
+    // `sender.url` keeps the URL the document loaded with; a same-document URL change
+    // (history.pushState) of the tab's page shows only in the tab's committed URL. A frame
+    // inside the page keeps its load URL and records the tab's URL to match as well.
+    let url = sender.url;
+    let topUrl: string | undefined;
+    try {
+      const tab = await browser.tabs.get(document.tabId);
+      if (document.frameId !== 0) {
+        if (!tab.url) return { ok: false, reason: "stale-document" };
+        topUrl = tab.url;
+      } else if (tab.url && new URL(tab.url).origin === document.origin) url = tab.url;
+    } catch {
+      return { ok: false, reason: "closed-tab" };
+    }
+    if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+    // A tab runs one attempt. Another frame of the tab, such as an embedded widget or the
+    // page around a framed login, never takes it over or disturbs it. Only a new page in
+    // the tab (another top document) ends an attempt held by a frame of the old page.
+    let owner = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    const page = documents.get(frameKey({ tabId: document.tabId, frameId: 0 }));
+    let newPage =
+      document.frameId === 0 &&
+      page !== undefined &&
+      page.document.documentId !== document.documentId;
+    if (newPage) {
+      // Frames of this page may have announced before it did. Only documents that no
+      // longer answer went away with the old page.
+      // A frame that does not answer in time counts as still there.
+      const frames = [...documents].filter(
+        ([, entry]) => entry.document.tabId === document.tabId && entry.document.frameId !== 0,
+      );
+      const answers = await Promise.all(
+        frames.map(([, entry]) =>
+          Promise.race([
+            send(entry, { type: "login.observe", path: entry.path, targets: [] }).then(
+              () => true,
+              () => false,
+            ),
+            new Promise<boolean>((resolve) => setTimeout(resolve, 1000, true)),
+          ]),
+        ),
+      );
+      for (const [index, [other]] of frames.entries()) if (!answers[index]) documents.delete(other);
+      if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+      owner = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+      const holder = owner && documents.get(frameKey(owner.document));
+      if (owner && owner.document.frameId !== 0) {
+        if (holder && sameLoginDocument(holder.document, owner.document)) {
+          // The frame holding the attempt is still there, so this page is its parent.
+          newPage = false;
+        } else if (!terminal(owner)) {
+          // The frame's page is gone: its attempt ends without resubmitting, whatever
+          // origin the new page has.
+          const run = attempts.get(document.tabId);
+          const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(owner), {
+            type: "NAVIGATED",
+            document,
+          });
+          if (run) run.metadata = ended;
+          try {
+            await keep(ended);
+          } catch {
+            return { ok: false, reason: "storage-unavailable" };
+          }
+          if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+          owner = ended;
+        }
+      }
+    }
+    // A busy document is still recorded, so a later new page in the tab is recognized.
+    const busy = owner !== undefined && owner.document.frameId !== document.frameId && !newPage;
+    const oldLive = documents.get(key);
+    const sameDocument = oldLive !== undefined && sameLoginDocument(oldLive.document, document);
+    // A document may announce again when its form appears or its URL changes in place,
+    // but never while it already carries an attempt, terminal or not.
+    if (sameDocument && (oldLive.token !== token || attempts.get(document.tabId)?.live === oldLive))
       return { ok: false, reason: "duplicate-document" };
-    if (oldLive) await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
+    if (oldLive && !sameDocument)
+      await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
     const live: LiveDocument = {
       document,
       token,
-      url: sender.url,
-      path: new URL(sender.url).pathname,
+      url,
+      path: new URL(url).pathname,
+      ...(topUrl ? { topUrl } : {}),
     };
-    documents.set(document.tabId, live);
+    documents.set(key, live);
     const refuse = async (reason: string) => {
       live.state = "denied";
       live.reason = reason;
       await publish(live);
       return { ok: false, reason };
     };
+    if (busy) return refuse("tab-busy");
     if (!storageHealthy) return refuse("storage-unavailable");
     const previous = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
     // Look up the recipe first: a page without one never opens the policy catalog or vault.
@@ -777,7 +1038,22 @@ export function createLoginRuntime(
           ? probeRecipe(origin, `/${previous.recipeId.replace(/^demo-/, "")}`)
           : probeRecipe(origin, live.path)
         : await recipes.recipe(document.origin, live.path, previous?.recipeId);
-    if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
+    if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    // A new attempt starts only once the document reports its recipe's first step ready.
+    // Until then it watches the first steps of every recipe for its origin; this reads
+    // no settings, policy catalog or vault.
+    if (
+      !previous &&
+      (!recipe || (loginReadiness(recipe.steps[0]!).targets.length && start?.path !== live.path))
+    ) {
+      const starts = await startsFor(document.origin);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (!recipe && !starts.length) return refuse("recipe-not-found");
+      live.state = "watching";
+      delete live.reason;
+      await publish(live);
+      return { ok: false, reason: recipe ? "form-not-ready" : "recipe-not-found", starts };
+    }
     // A resumed attempt keeps its own recipe revision; a replaced or different recipe never takes it over.
     if (
       !recipe ||
@@ -787,22 +1063,23 @@ export function createLoginRuntime(
       return refuse("recipe-not-found");
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return refuse(snapshot.error.code);
-    if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
+    if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     // A close/navigation can happen while settings storage was awaited.
     try {
       const tab = await browser.tabs.get(document.tabId);
       if (
         !tab.url ||
-        new URL(tab.url).origin !== document.origin ||
-        new URL(tab.url).pathname !== live.path ||
-        documents.get(document.tabId) !== live
+        documents.get(key) !== live ||
+        (live.topUrl
+          ? new URL(tab.url).origin !== new URL(live.topUrl).origin
+          : new URL(tab.url).origin !== document.origin || new URL(tab.url).pathname !== live.path)
       )
         return refuse("stale-document");
     } catch {
       return refuse("closed-tab");
     }
     const plan = await planFor(snapshot, live, recipe);
-    if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
+    if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     if (!plan.ok) return refuse(plan.reason);
     // Cookies can be shared across tabs. Preserve this conservative origin owner even at terminal state until tab closure.
     if (
@@ -813,6 +1090,12 @@ export function createLoginRuntime(
     )
       return refuse("origin-busy");
     if (!previous && persisted.size >= 100) return refuse("attempt-limit");
+    // Another document of the tab, such as a frame, may have started an attempt while this
+    // one was checked. Nothing below awaits until the attempt is registered.
+    if (
+      (attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId))?.id !== previous?.id
+    )
+      return refuse("tab-busy");
     let metadata: LoginAttemptMetadata;
     if (previous) {
       metadata = transitionLoginAttempt(recoverLoginAttempt(previous), {
@@ -909,7 +1192,7 @@ export function createLoginRuntime(
       return undefined;
     }
     const hello = v.safeParse(helloSchema, message);
-    if (hello.success) return ready(sender, hello.output.token);
+    if (hello.success) return ready(sender, hello.output.token, hello.output.start);
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
     const document = await identify(sender);
@@ -921,7 +1204,10 @@ export function createLoginRuntime(
       run.live.token !== authorization.output.token ||
       run.metadata.id !== authorization.output.attemptId ||
       run.operation?.operationId !== authorization.output.operationId ||
-      !sameLoginDocument(run.live.document, document)
+      !sameLoginDocument(run.live.document, document) ||
+      // A frame's attempt holds only while the tab still shows the page it matched.
+      (run.live.topUrl !== undefined &&
+        (!sender.tab?.url || new URL(sender.tab.url).origin !== new URL(run.live.topUrl).origin))
     )
       return false;
     if (!(await allowed(run))) return false;
@@ -942,8 +1228,8 @@ export function createLoginRuntime(
     }
   }
   browser.tabs.onRemoved.addListener((tabId) => {
-    hellos.delete(tabId);
-    documents.delete(tabId);
+    for (const key of hellos.keys()) if (key.startsWith(`${tabId}:`)) hellos.delete(key);
+    for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
     attempts.delete(tabId);
     storageQueue = storageQueue
       .then(async () => {
@@ -967,14 +1253,17 @@ export function createLoginRuntime(
         // An automatically chosen account has no saved default until it authenticates.
         ...[...persisted.values()].map((entry) => `${entry.account.origin}/*`),
       ];
-      if (!patterns.length) return undefined;
-      const tabs = await browser.tabs.query({ url: patterns });
-      for (const tab of tabs) {
-        if (tab.id !== undefined)
-          void browser.tabs
-            .sendMessage(tab.id, { version: 1, type: "login.reconnect" }, { frameId: 0 })
-            .catch(() => undefined);
-      }
+      const tabs = patterns.length ? await browser.tabs.query({ url: patterns }) : [];
+      // A frame's attempt lives in a tab whose own URL may be on another origin.
+      const tabIds = new Set([
+        ...tabs.flatMap((tab) => (tab.id === undefined ? [] : [tab.id])),
+        ...persisted.keys(),
+      ]);
+      for (const tabId of tabIds)
+        void browser.tabs
+          // Every frame announces again; a frame inside the page may hold the attempt.
+          .sendMessage(tabId, { version: 1, type: "login.reconnect" })
+          .catch(() => undefined);
       return undefined;
     })
     .catch(() => undefined);
