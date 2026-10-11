@@ -168,8 +168,8 @@ export function mergeSyncedSettings(
  * label as its item name, each only when the entry has none. Another device may label the
  * same account differently, or still hold an older item label until its vault syncs, so a
  * name already set is kept; overwriting it would make two devices rewrite each other on
- * every sync. Entries of an account that is not connected here, connected twice, or
- * unavailable keep their names. Login usernames are never copied. Unchanged entries keep
+ * every sync. Entries of an account that is not connected here, connected twice, locked
+ * or unavailable keep their names. Login usernames are never copied. Unchanged entries keep
  * their identity, so an unchanged sync writes nothing.
  */
 export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalog): SyncedSettings {

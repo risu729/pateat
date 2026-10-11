@@ -569,18 +569,17 @@ provider account is connected exactly once here: the item's label and the connec
 label. A name already set is never overwritten, since another device may label the
 account differently or hold an older item label until its vault syncs; an account that
 is not connected here, connected twice or unavailable, or a catalog that cannot be read,
-leaves the names as they are. The catalog is built only when an entry lacks a name, so a
-settled sync neither restores the vaults nor writes anything. While a login is running,
-including one between pages, the upload still happens but the local write waits for a
-later sync, for at most two minutes after the first wait. The time of the first wait is
-stored under `pateat.sync-settings-hold.v1`, so the limit holds across service worker
-restarts, and it is cleared when a sync finds no login running. A later sync starts when
-the recipe schedule is due again. Saving settings on the extension's page or saving an
-automatic account choice starts a sync at once. A recipe sync that cannot reach the
-service skips settings, a 401 from either request marks the device rejected, and the
-settings page shows a complete sync only when both finished. Unit tests use a synthetic
-service and the real settings store over in-memory storage; no running service has been
-tried.
+leaves the names as they are. The catalog is built only while an entry still lacks a
+name, and a settled sync writes nothing. While a login is running, including one between
+pages, the upload still happens but the local write waits for a later sync, for at most
+two minutes after the first wait. The time of the first wait is stored under
+`pateat.sync-settings-hold.v1`, so the limit holds across service worker restarts, and
+it is cleared when a sync finds no login running. A later sync starts when the recipe
+schedule is due again. Saving settings on the extension's page or saving an automatic
+account choice starts a sync at once. A recipe sync that cannot reach the service skips
+settings, a 401 from either request marks the device rejected, and the settings page
+shows a complete sync only when both finished. Unit tests use a synthetic service and
+the real settings store over in-memory storage; no running service has been tried.
 
 ### Remaining M4 service gaps
 
