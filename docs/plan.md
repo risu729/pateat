@@ -762,12 +762,53 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
 
 - The service route, monthly spend stop and the
   [request log](adr/0012-inference-request-log.md).
-- The extension observation extractor with privacy fixtures. Expect Japanese pages to
-  put labels in adjacent table cells, use image buttons labeled only by `alt`, and
-  offer software keyboards.
+- Calling the extension observation extractor (below) under the automatic send rule
+  of [ADR 0016](adr/0016-recipe-generation-trigger.md).
+- Locators for elements without a usable `id`, `name` or `data-testid`, approved by the
+  owner on 2026-10-11: `{ "by": "text", "value": "ログイン" }` clicks the one button
+  whose text, `value` or image `alt` equals the value (more than one match is a
+  structural mismatch); `id` and `name` values may use any printable ASCII
+  (`ctl00$Main$txtUserId`, `user[login]`); and the executor clicks
+  `<input type="image">`. The plan check must also stop accepting a link as the page
+  action, which the executor cannot click.
+- A different remembered account, approved by the owner on 2026-10-11: on a step that
+  fills a secret but no username, the executor compares the account shown in that
+  form and the page headings with the selected account's username, locally only. If
+  they differ (`myaccount@example.com` shown while `my2@example.com` is selected), it
+  fills nothing, clicks the recipe's optional `accountSwitch` target and restarts from
+  the first step; without one it stops with `wrong-account`. A masked value consistent
+  with the username (`m***@example.com`) cannot be told apart and proceeds.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
 - A real-page corpus per ADR 0012.
+
+`extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
+`LoginObservation` from a page's DOM; nothing calls it yet. It reads element types,
+locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
+title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
+strings, and refuses a path that carries a session ID (matrix parameters such as
+`;jsessionid=`, or ASP.NET segments such as `/(S(...))/`). Label text
+is rendered text only: scripts, styles, `<noscript>`, SVG, hidden elements and
+select or text area contents never contribute. Only forms that hold a field count,
+or every control outside a form when a field is outside one. There the candidates
+are visible text, email, tel, number and password inputs, checkboxes, buttons
+(disabled ones too, since many enable after typing) and, as context only, links.
+Hidden, collapsed, `aria-hidden` and before-the-page-start inputs are skipped as likely
+traps. Labels come from `aria-labelledby`,
+`aria-label`, `<label>`, the text next to a field (the preceding table cell, `<dt>` or
+sibling, at most three levels up, never across another control or its label), then
+`title`; image `alt` names buttons. Text is redacted as
+[architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is
+the first of `id`, `name` and `data-testid` that matches exactly one element, as the
+executor resolves it. A field, button or checkbox without such a target, a control the
+executor cannot act on (an image button, select, radio, text area, another input type,
+or a read-only, disabled, transparent or tiny field), a control in a shadow root, or
+more than 48 candidates makes the observation incomplete, so inference rejects it; a
+page without a field is refused. A field in any open shadow root marks it incomplete
+too, as it may be the real login. Known limits: a read-only username shown again on a
+password step makes that step incomplete, and honeypot inputs moved to the right or
+clipped by `overflow: hidden` stay candidates. `mise run test:observation` covers these
+cases in Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
