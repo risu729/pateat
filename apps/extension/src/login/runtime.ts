@@ -925,11 +925,13 @@ export function createLoginRuntime(
     let finish!: () => void;
     const saving = new Promise<void>((resolve) => (finish = resolve));
     savingChoices.add(saving);
+    let writing = false;
     try {
       // Writing bumps the policy revision for every attempt, so skip a choice already saved.
       const latest = await settings.handle({ version: 1, type: "settings.get" });
       if (!latest.ok || withChoice(latest.snapshot.settings, choice) === latest.snapshot.settings)
         return;
+      writing = true;
       await settings
         .update(run.metadata.policyRevision, (snapshot) => ({
           ...snapshot,
@@ -937,7 +939,7 @@ export function createLoginRuntime(
         }))
         .catch(() => undefined);
     } finally {
-      remembered += 1;
+      if (writing) remembered += 1;
       savingChoices.delete(saving);
       finish();
     }
@@ -2629,7 +2631,8 @@ export function createLoginRuntime(
       // bumps the revision this new login would be checked against: it is admitted again.
       await choicesSaved();
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      if (remembered !== savedBefore) return { ok: false, reason: CHOICE_SAVED };
+      if (savingChoices.size || remembered !== savedBefore)
+        return { ok: false, reason: CHOICE_SAVED };
       if (heldElsewhere(document.tabId, document.origin)) {
         showHeld(document.tabId);
         return refuse("origin-busy");
