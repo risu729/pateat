@@ -16,6 +16,7 @@ const sender = (overrides: Record<string, unknown> = {}) => ({
   tab: { id: 7 },
   frameId: 0,
   documentId: "document-a",
+  documentLifecycle: "active",
   origin,
   url: `${origin}/sign-in?next=%2F`,
   ...overrides,
@@ -28,12 +29,13 @@ const candidate = {
   counter: 0,
 };
 const request = { challenge: "AAECAwQFBgcICQoLDA0ODw", rpId: "example.com", allowCredentials: [] };
-const get = (operationId = crypto.randomUUID(), userActivation = true) => ({
+const get = (operationId = crypto.randomUUID(), userActivation = true, focused = true) => ({
   version: 1,
   type: "passkey.get",
   operationId,
   request,
   userActivation,
+  focused,
 });
 
 function source(overrides: Partial<PasskeySource> = {}): PasskeySource {
@@ -411,13 +413,17 @@ describe("passkey chooser window", () => {
     });
   });
 
-  it("opens no window in incognito, or with fewer than two signable passkeys", async () => {
+  it("opens no window in incognito, unfocused or prerendered, or with fewer than two signable passkeys", async () => {
     const choose = chooser(async () => ({ kind: "closed" }));
     const runtime = createPasskeyRuntime(several(), { extensionId, chooser: choose });
-    expect(await runtime.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toEqual({
-      kind: "delegate",
-      reason: "ambiguous-credential",
-    });
+    const ambiguous = { kind: "delegate", reason: "ambiguous-credential" };
+    expect(await runtime.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toEqual(
+      ambiguous,
+    );
+    expect(await runtime.handle(get(undefined, true, false), sender())).toEqual(ambiguous);
+    expect(
+      await runtime.handle(get(), sender({ documentLifecycle: "prerender" })),
+    ).toEqual(ambiguous);
     const counted = createPasskeyRuntime(
       source({
         candidates: vi.fn(async () => ({
@@ -478,6 +484,48 @@ describe("passkey chooser window", () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(settled).toEqual({ kind: "delegate", reason: "timeout" });
       expect(signals[0]!.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips the window when little of the wait is left, and gives signing its own budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const choose = chooser(async () => {
+        await delay(9_000);
+        return { kind: "chosen", index: 0, makeDefault: false };
+      });
+      const slowLookup = several({
+        candidates: vi.fn(async () => {
+          await delay(6_000);
+          return { candidates: pair, complete: true };
+        }),
+      });
+      const late = createPasskeyRuntime(slowLookup, { extensionId, chooser: choose });
+      const skipped = late.handle({ ...get(), request: { ...request, timeout: 10_000 } }, sender());
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(await skipped).toEqual({ kind: "delegate", reason: "ambiguous-credential" });
+      expect(choose.choose).not.toHaveBeenCalled();
+
+      // Chosen 1 s before the deadline; signing still has its own 10 s.
+      const slowSign = several({
+        sign: vi.fn(async () => {
+          await delay(3_000);
+          return Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01);
+        }),
+      });
+      const runtime = createPasskeyRuntime(slowSign, { extensionId, chooser: choose });
+      let signed: unknown;
+      void runtime
+        .handle({ ...get(), request: { ...request, timeout: 10_000 } }, sender())
+        .then((result) => (signed = result));
+      // Hashing settles outside fake time, so step the clock until the answer arrives.
+      for (let step = 0; step < 30 && signed === undefined; step++)
+        // eslint-disable-next-line no-await-in-loop
+        await vi.advanceTimersByTimeAsync(1_000);
+      expect(signed).toMatchObject({ kind: "assertion" });
     } finally {
       vi.useRealTimers();
     }

@@ -16,9 +16,14 @@ export const RELAY_ACK_TIMEOUT_MS = 1_000;
 export const RUNTIME_TIMEOUT_MS = 10_000;
 /** Longest a chooser window keeps a request open (ADR 0021). */
 export const CHOOSER_MAX_WAIT_MS = 120_000;
+/** The chooser opens only with at least this much of its wait left. */
+export const CHOOSER_MIN_REMAINING_MS = 5_000;
 /** A caller's shorter `timeout` is raised to this, as Chrome raises it for its own UI. */
 export const CHOOSER_MIN_WAIT_MS = 10_000;
-/** The wrapper's absolute limit, past the longest chooser wait, even while the relay answers. */
+/**
+ * The wrapper's absolute limit, past the longest chooser wait plus a signing budget, even while
+ * the relay answers.
+ */
 export const PAGE_MAX_WAIT_MS = CHOOSER_MAX_WAIT_MS + PAGE_TIMEOUT_MS;
 /** Upper bound on a serialized snapshot; a maximal valid snapshot is about 100,000 characters. */
 export const MAX_REQUEST_CHARACTERS = 131_072;
@@ -82,6 +87,8 @@ export const runtimeMessageSchema = v.variant("type", [
     operationId,
     request: v.unknown(),
     userActivation: v.boolean(),
+    /** The document was visible and focused, so a chooser window may open for it. */
+    focused: v.boolean(),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("passkey.cancel"), operationId }),
 ]);

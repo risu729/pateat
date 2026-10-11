@@ -457,6 +457,7 @@ test("several matching passkeys open Pateat's chooser window", async () => {
 });
 
 test("the chooser keeps the request open past the page's 15-second backstop", async () => {
+  test.setTimeout(60_000);
   const { server, origin } = await startRelyingParty();
   try {
     await withLoginExtension(async (context, _worker, extensionId) => {

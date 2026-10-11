@@ -116,8 +116,11 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
   ): Promise<ChooserResponse> | undefined;
 } {
   let open: Open | undefined;
+  // A window closed before `createWindow` answered is recognised once its ID is known.
+  let lastRemoved: number | undefined;
   browser.onWindowRemoved((windowId) => {
     if (open?.windowId === windowId) open.settle({ kind: "closed" }, true);
+    else lastRemoved = windowId;
   });
   browser.onTabRemoved((tabId) => {
     if (open?.tabId === tabId) open.settle({ kind: "closed" });
@@ -152,9 +155,12 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
             if (open !== entry) return;
             open = undefined;
             input.signal.removeEventListener("abort", onAbort);
-            if (!windowGone && entry.windowId !== undefined)
-              void browser.removeWindow(entry.windowId).catch(() => undefined);
-            resolve(choice);
+            if (windowGone || entry.windowId === undefined) return resolve(choice);
+            // The browser's own prompt needs focus back, so delegate only once the window is gone.
+            void browser
+              .removeWindow(entry.windowId)
+              .catch(() => undefined)
+              .then(() => resolve(choice));
           },
         };
         // The request ended elsewhere; the window goes with it.
@@ -185,6 +191,7 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
           entry.windowId = windowId;
           // Settled while the window was being created: it is not wanted any more.
           if (open !== entry) void browser.removeWindow(windowId).catch(() => undefined);
+          else if (lastRemoved === windowId) entry.settle({ kind: "closed" }, true);
         })();
       });
       return browser.keepAlive(answer);

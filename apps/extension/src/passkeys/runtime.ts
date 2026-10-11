@@ -11,6 +11,7 @@ import {
 } from "./select";
 import {
   CHOOSER_MAX_WAIT_MS,
+  CHOOSER_MIN_REMAINING_MS,
   CHOOSER_MIN_WAIT_MS,
   RUNTIME_TIMEOUT_MS,
   runtimeMessageSchema,
@@ -22,6 +23,7 @@ type Sender = {
   tab?: { id?: number | undefined; incognito?: boolean | undefined } | undefined;
   frameId?: number | undefined;
   documentId?: string | undefined;
+  documentLifecycle?: string | undefined;
   origin?: string | undefined;
   url?: string | undefined;
 };
@@ -155,9 +157,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   };
 
   async function get(
-    message: { operationId: string; request: unknown; userActivation: boolean },
+    message: { operationId: string; request: unknown; userActivation: boolean; focused: boolean },
     origin: string,
-    context: { documentId: string; tabId: number; incognito: boolean },
+    context: { documentId: string; tabId: number; incognito: boolean; active: boolean },
     detail: ReportDetail,
     after: { remember?: TCandidate },
   ): Promise<RuntimeResult> {
@@ -207,20 +209,22 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       else {
         // Only passkeys Pateat can sign with are offered; fewer than two is not a choice.
         const offered = accepted.filter((entry) => entry.counter === 0);
+        const remaining = received + chooserWaitMs(admission.request.timeoutMs) - Date.now();
         if (
           selection.reason !== "ambiguous-credential" ||
           !options.chooser ||
           // An extension window would open outside the incognito window (ADR 0021).
           context.incognito ||
-          offered.length < 2
+          // A background tab or a prerendered page never pulls a window to the front.
+          !message.focused ||
+          !context.active ||
+          offered.length < 2 ||
+          remaining < CHOOSER_MIN_REMAINING_MS
         )
           return selection;
         // The window waits for a person, so the lookup budget no longer applies.
         clearTimeout(timer);
-        timer = setTimeout(
-          expire,
-          Math.max(0, received + chooserWaitMs(admission.request.timeoutMs) - Date.now()),
-        );
+        timer = setTimeout(expire, remaining);
         const choice = await abortable(
           options.chooser.choose({
             tabId: context.tabId,
@@ -241,6 +245,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         if (!chosen) return { kind: "delegate", reason: "chooser-invalid" };
         credential = chosen;
         makeDefault = choice.makeDefault;
+        // Signing gets its own budget, so a choice made near the deadline still answers.
+        clearTimeout(timer);
+        timer = setTimeout(expire, options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
       }
       const assertion = await abortable(
         createPasskeyAssertion(admission.request, credential, (data, hash) =>
@@ -287,6 +294,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           documentId: sender.documentId!,
           tabId: sender.tab!.id!,
           incognito: sender.tab?.incognito === true,
+          // A prerendered or cached document never gets a window.
+          active: sender.documentLifecycle === "active",
         },
         detail,
         after,

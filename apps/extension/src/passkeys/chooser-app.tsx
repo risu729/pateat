@@ -84,16 +84,32 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
       </main>
     );
   const host = new URL(view.origin).host;
+  const rows = view.entries.map((entry, index) => ({ entry, index }));
   return (
     <main className={MAIN}>
       <h1>Choose a passkey</h1>
       <p>
         <strong>{host}</strong> asks for a passkey. {view.entries.length} in your vault match.
       </p>
+      {/* Above the list, so it is seen before a choice is made. */}
+      <p className="my-4 flex items-start gap-2">
+        <input
+          id={checkboxId}
+          type="checkbox"
+          checked={makeDefault}
+          disabled={sending}
+          onChange={(event) => setMakeDefault(event.target.checked)}
+        />
+        <label htmlFor={checkboxId}>
+          {view.replacesDefault
+            ? `Replace the default account for ${host} with this one`
+            : `Use this account for ${host} from now on`}
+        </label>
+      </p>
       <ul aria-label="Matching passkeys" className="my-4 flex list-none flex-col gap-2 p-0">
-        {view.entries.map((entry, index) => (
-          // The list never changes while the window is open, so its contents are a stable key.
-          <li key={JSON.stringify(entry)}>
+        {rows.map(({ entry, index }) => (
+          // The list never changes while the window is open, so its position is a stable key.
+          <li key={index}>
             <button
               type="button"
               disabled={sending}
@@ -109,20 +125,6 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
           </li>
         ))}
       </ul>
-      <p className="my-4 flex items-start gap-2">
-        <input
-          id={checkboxId}
-          type="checkbox"
-          checked={makeDefault}
-          disabled={sending}
-          onChange={(event) => setMakeDefault(event.target.checked)}
-        />
-        <label htmlFor={checkboxId}>
-          {view.replacesDefault
-            ? `Replace the default account for ${host} with this one`
-            : `Use this account for ${host} from now on`}
-        </label>
-      </p>
       <Button variant="outline" disabled={sending} onClick={() => void answer({ kind: "browser" })}>
         Use the browser or another extension
       </Button>

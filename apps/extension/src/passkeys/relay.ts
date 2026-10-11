@@ -80,6 +80,8 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
       return;
     }
     const userActivation = navigator.userActivation?.isActive === true;
+    // A hidden or background document never gets a window, as Chrome's own UI needs focus.
+    const focused = document.visibilityState === "visible" && document.hasFocus();
     if (!heartbeats.has(message.id))
       heartbeats.set(
         message.id,
@@ -95,6 +97,7 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
       operationId: message.id,
       request: message.request,
       userActivation,
+      focused,
     }).then(
       (response) => {
         const result = v.safeParse(runtimeResultSchema, response);

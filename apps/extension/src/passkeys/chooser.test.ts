@@ -187,4 +187,36 @@ describe("passkey chooser window", () => {
     created({ id: 52 });
     await vi.waitFor(() => expect(browser.removeWindow).toHaveBeenCalledWith(52));
   });
+
+  it("notices a window the user closed before the browser reported its ID", async () => {
+    const { browser, closeWindow } = fakeBrowser();
+    let created!: (value: { id: number }) => void;
+    browser.createWindow.mockReturnValueOnce(new Promise((resolve) => (created = resolve)));
+    const answer = open(createPasskeyChooser(browser));
+    closeWindow(63);
+    created({ id: 63 });
+    expect(await answer).toEqual({ kind: "closed" });
+    expect(browser.removeWindow).not.toHaveBeenCalled();
+  });
+
+  it("hands the answer back only once the window is gone", async () => {
+    const { browser } = fakeBrowser();
+    let removed!: () => void;
+    browser.removeWindow.mockReturnValueOnce(new Promise<void>((resolve) => (removed = resolve)));
+    const chooser = createPasskeyChooser(browser);
+    let settled = false;
+    void open(chooser).then(() => (settled = true));
+    await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const url = openedUrl(browser);
+    const request = new URL(url).searchParams.get("request");
+    await chooser.handle(
+      { version: 1, type: "passkey-chooser.answer", request, answer: { kind: "browser" } },
+      { url, tab: { windowId: 41 } },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    removed();
+    await vi.waitFor(() => expect(settled).toBe(true));
+  });
 });

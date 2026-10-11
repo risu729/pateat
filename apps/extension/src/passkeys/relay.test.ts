@@ -32,7 +32,11 @@ function fakeWindow() {
   vi.stubGlobal("window", scope);
   vi.stubGlobal("location", { origin });
   vi.stubGlobal("navigator", { userActivation: { isActive: false } });
-  vi.stubGlobal("document", { featurePolicy: { allowsFeature: () => true } });
+  vi.stubGlobal("document", {
+    featurePolicy: { allowsFeature: () => true },
+    visibilityState: "visible",
+    hasFocus: () => true,
+  });
   return { scope, posted };
 }
 
@@ -131,5 +135,23 @@ describe("isolated passkey relay", () => {
     scope.dispatch("pagehide", {});
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["a focused, visible", "visible", true, true],
+    ["a hidden", "hidden", true, false],
+    ["an unfocused", "visible", false, false],
+  ])("reports %s document as focused only when it is both", async (_name, visibility, focus, expected) => {
+    const { scope } = fakeWindow();
+    vi.stubGlobal("document", {
+      featurePolicy: { allowsFeature: () => true },
+      visibilityState: visibility,
+      hasFocus: () => focus,
+    });
+    const send = vi.fn(async () => ({ kind: "delegate", reason: "no-credential" }));
+    installPasskeyRelay(send);
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id, request: { challenge: "AA" } });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ focused: expected }));
   });
 });
