@@ -68,9 +68,10 @@ never authorizes another fill or a fallback click.
 describes the early installed-Chrome acceptance procedure. Attempts start when a
 recipe's first step appears, also after a same-document URL change or in a dialog
 opened later, and later steps wait up to 10 seconds for their elements
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Production
-activation, arbitrary saved recipe configuration, real provider compatibility and
-login forms inside frames remain outstanding. The early installed-Chrome run passed
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Login forms
+inside frames fill only when the frame's URL and the tab's URL both match the item
+([ADR 0017](adr/0017-login-forms-in-frames.md)). Production activation, arbitrary saved
+recipe configuration and real provider compatibility remain outstanding. The early installed-Chrome run passed
 multi-page, background-tab, single-page, rejection, ambiguity, concurrency and
 input/change-triggered advance cases using synthetic values. It does not establish
 current SDK/setup compatibility or official Bitwarden extension coexistence. See the
@@ -372,8 +373,9 @@ Chrome yet.
   immediately before a fill. An unavailable connection or an item awaiting field review
   is refused before an attempt starts. A denied, locked or failed field read, or a
   replacement snapshot before delivery, blocks the attempt as `policy-changed` without
-  filling. Production admits top-level HTTPS documents on a non-excluded site with
-  granted host access, with or without a saved default
+  filling. Production admits HTTPS documents on a non-excluded site with
+  granted host access (a frame also needs its tab's page admitted;
+  [ADR 0017](adr/0017-login-forms-in-frames.md)), with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
   stop with `recipe-not-found` before the policy catalog or vault is opened. Only the
   probe build grants its loopback origin to the probe item and supplies recipes and

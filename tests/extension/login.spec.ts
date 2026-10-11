@@ -1026,3 +1026,88 @@ test("a step whose element never appears stops after ten seconds without a click
     await fixture.close();
   }
 });
+
+test("a login form inside a same-site frame logs in within the frame", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/frame-host`);
+      await expect(page.frameLocator("#login-frame").locator("#authenticated")).toBeVisible();
+      const frame = page.frame({ url: `${fixture.origin}/single` });
+      expect(await frame?.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0))).toBe(
+        1,
+      );
+      const status = (await send(options, { version: 1, type: "login.probe.status" })) as {
+        attempts: { state: string; submissions: number; document: { frameId: number } }[];
+      };
+      expect(status.attempts).toHaveLength(1);
+      expect(status.attempts[0]).toMatchObject({ state: "authenticated", submissions: 1 });
+      expect(status.attempts[0]!.document.frameId).toBeGreaterThan(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a frame whose tab shows another site is never filled", async () => {
+  const fixture = await startLoginFixture();
+  // The same login page, embedded by a page on another origin (another loopback port).
+  const other = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${other.origin}/frame-host?port=${new URL(fixture.origin).port}`);
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+        .toMatchObject({
+          attempts: [],
+          documents: expect.arrayContaining([
+            expect.objectContaining({ reason: "frame-top-mismatch" }),
+          ]),
+        });
+      await page.waitForTimeout(1000);
+      const frame = page.frameLocator("#login-frame");
+      await expect(frame.locator("#password")).toHaveValue("");
+      await expect(frame.locator("#authenticated")).toHaveCount(0);
+      expect(
+        await page
+          .frame({ url: `${fixture.origin}/single` })
+          ?.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0)),
+      ).toBe(0);
+      expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+        attempts: [],
+      });
+    });
+  } finally {
+    await other.close();
+    await fixture.close();
+  }
+});
+
+test("an unrelated frame beside the form does not disturb the page's login", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/single?ad`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      expect(await clicks(page)).toBe(1);
+      const status = (await send(options, { version: 1, type: "login.probe.status" })) as {
+        attempts: { state: string; document: { frameId: number } }[];
+        documents: { frameId: number }[];
+      };
+      expect(status.attempts).toMatchObject([{ state: "authenticated", document: { frameId: 0 } }]);
+      // The advertisement frame announced itself too, without an attempt of its own.
+      expect(status.documents.some((entry) => entry.frameId > 0)).toBe(true);
+    });
+  } finally {
+    await fixture.close();
+  }
+});

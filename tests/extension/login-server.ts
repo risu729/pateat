@@ -218,7 +218,12 @@ export async function startLoginFixture(
               text: 'type="text"',
               "text-current-password": 'type="text" autocomplete="current-password"',
             }[fixtureUrl.searchParams.get("password-input") ?? ""] ?? 'type="password"'
-          }></label><button id="login" type="button">Log in</button>`,
+          }></label><button id="login" type="button">Log in</button>${
+            // `?ad` embeds an unrelated frame beside the form, like an advertisement.
+            fixtureUrl.searchParams.has("ad")
+              ? '<iframe id="ad" title="Synthetic advertisement" src="/ad"></iframe>'
+              : ""
+          }`,
           `document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
@@ -306,6 +311,18 @@ export async function startLoginFixture(
         }, ${Number(fixtureUrl.searchParams.get("delay") ?? 2000)});`
                 : "bindLogin();"
         }`,
+        ),
+      );
+    } else if (path === "/frame-host") {
+      // The single-page login inside a frame. `?port` embeds another fixture server's page,
+      // so the frame is on another origin than the tab's page.
+      const address = server.address();
+      const port =
+        Number(fixtureUrl.searchParams.get("port")) ||
+        (address && typeof address !== "string" ? address.port : 0);
+      response.end(
+        html(
+          `<h1>Synthetic frame host</h1><iframe id="login-frame" title="Synthetic sign-in" src="http://127.0.0.1:${port}/single" width="600" height="300"></iframe>`,
         ),
       );
     } else if (path === "/ambiguous") {
