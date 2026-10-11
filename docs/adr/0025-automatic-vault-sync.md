@@ -114,12 +114,13 @@ with live URI matching), and a saved default's item no longer matches the page
   deleted account, offline and the deferral for a login in progress apply unchanged.
   The request is asked for while the page still holds replacements off, and is kept in
   the worker's memory only; a request made during a check runs one more pass after it.
-- When any check applies a new snapshot within ten seconds of the refusal, the
-  background sends `login.reconnect` only to the refused tab, frame and document, and
-  only while that document is still the refused one; one that announced again, was
-  replaced or went away gets nothing. The document announces again, and its login
-  starts if an item now matches. Otherwise nothing more happens until the page
-  announces again.
+- When an automatic check of any connection applies a new snapshot within ten seconds of
+  the refusal, with the replacement begun after it (so not one the page may already have
+  seen), the background sends `login.reconnect` only to the refused tab, frame and
+  document, and only while that document is still the refused one; one that announced
+  again, was replaced or went away gets nothing. The document announces again, and its
+  login starts if an item now matches. Otherwise, and after a manual **Sync**, nothing
+  more happens until the page announces again.
 - A worker restart loses the request. Its startup reconnect asks tabs on sites with a
   saved default or an attempt record to announce again; a page refused without a saved
   default asks again the next time it announces.

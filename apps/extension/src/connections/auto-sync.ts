@@ -136,7 +136,10 @@ export function createVaultAutoSync(deps: {
   let idle: (() => void)[] = [];
   /** A check asked for by a page that found no matching item; kept in memory only. */
   let missWanted = false;
-  const missWaiters = new Set<(synced: boolean) => void>();
+  /** Each waiter with the number of replacements begun before it asked. */
+  const missWaiters = new Map<(synced: boolean) => void, number>();
+  /** Replacements begun; only one begun after a miss can hold the item it lacked. */
+  let applies = 0;
   /** Resolves true once no page or passkey request is being handled, false after a while. */
   function settled(): Promise<boolean> {
     if (starting === 0) return Promise.resolve(true);
@@ -191,6 +194,7 @@ export function createVaultAutoSync(deps: {
           release = resolve;
         });
         applying = current;
+        applies += 1;
         return () => {
           release();
           if (applying === current) applying = undefined;
@@ -239,10 +243,13 @@ export function createVaultAutoSync(deps: {
         };
       });
       if (outcome === "synced") {
-        // Any applied snapshot answers the pages waiting after a miss; they announce again.
-        const waiting = [...missWaiters];
-        missWaiters.clear();
-        for (const done of waiting) done(true);
+        // A snapshot applied after a page's miss answers it, whichever connection it came
+        // from; one the page may already have seen does not.
+        for (const [done, before] of [...missWaiters])
+          if (before < applies) {
+            missWaiters.delete(done);
+            done(true);
+          }
       }
       try {
         deps.report?.({ connectionId, outcome });
@@ -284,7 +291,7 @@ export function createVaultAutoSync(deps: {
           clearTimeout(timer);
           resolve(synced);
         };
-        missWaiters.add(done);
+        missWaiters.set(done, applies);
       });
       missWanted = true;
       start();

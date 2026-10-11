@@ -1046,6 +1046,7 @@ export function createLoginRuntime(
     let policy = snapshot.snapshot;
     let binding: LoginAccountBinding | undefined;
     let choice: UnsavedChoice | undefined;
+    let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
       binding = probeBinding(recipe, account);
@@ -1061,6 +1062,7 @@ export function createLoginRuntime(
           ...(chosen.logout ? { logout: true as const } : {}),
           ...(chosen.noUriMatch ? { noUriMatch: true as const } : {}),
         };
+      savedDefault = chosen.saved;
       const scope = await liveScope(snapshot, live, chosen);
       if ("reason" in scope) return { ok: false as const, reason: scope.reason };
       const top = await topScope(snapshot, live, chosen, snapshot.catalog);
@@ -1105,7 +1107,7 @@ export function createLoginRuntime(
     const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding);
     // A saved default's item that no longer matches the page, as after its URI was edited
     // on another device, is also no matching item.
-    if (!plan.ok && plan.reason === "item-origin-mismatch")
+    if (!plan.ok && plan.reason === "item-origin-mismatch" && savedDefault)
       return { ...plan, noUriMatch: true as const };
     if (!plan.ok) return plan;
     const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
@@ -1729,6 +1731,8 @@ export function createLoginRuntime(
    * is asked to announce again, and only while it is still that refused document.
    */
   function retryAfterSync(live: LiveDocument, reason: string): void {
+    // A document replaced while the refusal was published could never be reconnected.
+    if (documents.get(frameKey(live.document)) !== live) return;
     let synced: Promise<boolean> | undefined;
     try {
       synced = options.vault?.checkAfterMiss?.();

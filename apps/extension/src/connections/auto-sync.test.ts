@@ -58,6 +58,13 @@ function harness(options: { ids?: string[]; online?: boolean } = {}) {
 
 afterEach(() => vi.useRealTimers());
 
+/** A run that takes the replacement hold and applies a new snapshot, as a sync does. */
+async function applied(_id: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
+  const release = await hold.take();
+  release?.();
+  return release ? "synced" : "deferred";
+}
+
 describe("vault check schedule", () => {
   it("checks each connection at most once per interval and records the outcome", async () => {
     const h = harness({ ids: ["a", "b"] });
@@ -293,7 +300,7 @@ describe("vault check after a page finds no matching item", () => {
     h.auto.refreshIfStale();
     await vi.waitFor(() => expect(h.run).toHaveBeenCalledTimes(1));
     h.advance(VAULT_MISS_RETRY_MS);
-    h.run.mockResolvedValueOnce("synced");
+    h.run.mockImplementationOnce(applied);
     const synced = h.auto.checkAfterMiss();
     void h.auto.checkAfterMiss();
     expect(h.run).toHaveBeenCalledTimes(1);
@@ -306,7 +313,7 @@ describe("vault check after a page finds no matching item", () => {
   it("answers true only when a check applies a new snapshot within ten seconds", async () => {
     vi.useFakeTimers();
     const h = harness();
-    h.run.mockResolvedValueOnce("synced");
+    h.run.mockImplementationOnce(applied);
     expect(await h.auto.checkAfterMiss()).toBe(true);
     for (const outcome of [
       "unchanged",
@@ -349,20 +356,46 @@ describe("vault check after a page finds no matching item", () => {
     await settleAll(h);
     expect(h.stored()?.connections["a"]?.["outcome"]).toBe("synced");
   });
-  it("is answered by a regular check that applies a new snapshot", async () => {
+  it("is answered by a regular check that applies a new snapshot after the miss", async () => {
     vi.useFakeTimers();
     const h = harness();
+    let proceed!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      proceed = resolve;
+    });
+    h.run.mockImplementationOnce(async (id, hold) => {
+      await gate;
+      return applied(id, hold);
+    });
     h.auto.refreshIfStale();
-    await settleAll(h);
-    // Not due for the miss yet, so it waits for a later check.
+    await vi.waitFor(() => expect(h.run).toHaveBeenCalledTimes(1));
+    // Asked while the regular check is still fetching; its replacement comes after.
     const synced = h.auto.checkAfterMiss();
-    await settleAll(h);
-    expect(h.run).toHaveBeenCalledTimes(1);
-    h.advance(VAULT_CHECK_INTERVAL_MS);
-    h.run.mockResolvedValueOnce("synced");
-    h.auto.refreshIfStale();
+    proceed();
     await settleAll(h);
     expect(await synced).toBe(true);
+  });
+  it("is not answered by a snapshot applied before the miss was asked", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    let finish!: () => void;
+    const recorded = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let missed: Promise<boolean> | undefined;
+    h.run.mockImplementationOnce(async (_id, hold) => {
+      const release = await hold.take();
+      release?.();
+      // A page plans with the new snapshot, still finds nothing and asks.
+      missed = h.auto.checkAfterMiss();
+      finish();
+      return "synced";
+    });
+    h.auto.refreshIfStale();
+    await recorded;
+    await settleAll(h);
+    await vi.advanceTimersByTimeAsync(VAULT_MISS_WINDOW_MS);
+    expect(await missed).toBe(false);
   });
   it.each<[string, (h: ReturnType<typeof harness>) => void]>([
     [
@@ -406,9 +439,9 @@ describe("vault check after a page finds no matching item", () => {
     vi.useFakeTimers();
     const ids = ["a"];
     const h = harness({ ids });
-    h.run.mockImplementationOnce(async () => {
+    h.run.mockImplementationOnce(async (id, hold) => {
       ids.length = 0;
-      return "synced";
+      return applied(id, hold);
     });
     const synced = h.auto.checkAfterMiss();
     await settleAll(h);
