@@ -21,6 +21,7 @@ import { createConnectionProbeTransport } from "../src/connections/probe";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
+import { createSignedTabs } from "../src/passkeys/signed-tabs";
 import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
@@ -185,6 +186,10 @@ export default defineBackground(() => {
     onTabRemoved: (listener) => browser.tabs.onRemoved.addListener(listener),
     keepAlive,
   });
+  // ADR 0021 D: after Pateat signed in a tab, a username-less request there asks again.
+  const signedTabs = createSignedTabs(browser.storage.session, (listener) =>
+    browser.tabs.onRemoved.addListener(listener),
+  );
   // Saving bumps the revision every login attempt checks; never stop a running login with it.
   const rememberPasskey = async (origin: string, candidate: VaultPasskeyCandidate) => {
     if (await login.active()) return;
@@ -201,6 +206,7 @@ export default defineBackground(() => {
         policy: passkeyProbe.policy,
         chooser: passkeyChooser,
         remember: passkeyProbe.remember,
+        signedTabs,
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
@@ -208,6 +214,7 @@ export default defineBackground(() => {
         report: diagnosticsLog.passkey,
         chooser: passkeyChooser,
         remember: rememberPasskey,
+        signedTabs,
       });
 
   // Value-free per-device state for bug reports (ADR 0019).
