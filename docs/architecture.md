@@ -1,11 +1,8 @@
 # Proposed architecture
 
-Status: accepted reference design. The foundation implements local metadata-only policy
-settings, status contracts, a localhost-only synthetic executor probe and a
-device-authenticated settings/recipe sync Worker with Access-verified device enrollment
-that has not been tried against a real Access application. The
-capabilities below remain planned unless [the plan](plan.md) records their
-implementation and evidence.
+Status: accepted reference design. Sections with their own status line say what is
+implemented; otherwise the capabilities below remain planned unless
+[the plan](plan.md) records their implementation and evidence.
 
 ## Product boundary
 
@@ -739,14 +736,14 @@ OIDC/passkey authentication is a later adapter. Self-hosting is the target, but
 owner-scoped data allows other operators to serve multiple users later.
 
 Enrollment pairs a device with a verified owner through setup. Store only hashed
-revocable high-entropy device credentials server-side; scope every query and
-write by verified owner/device. CORS is not authentication. No shared universal
-credential is shipped in the extension. Enrollment transport, expiry, and recovery
-are a pre-service acceptance gate, not an invented finished authentication flow.
-Separate Access-protected enrollment from device-authenticated API routes: a
-device token does not automatically pass an Access gate. Steady-state API access
-must not require an interactive Access cookie for each call. Service login does
-not authenticate or unlock a vault.
+revocable high-entropy device credentials server-side; scope every query and write by
+verified owner/device. CORS is not authentication. No shared universal credential is
+shipped in the extension. Enrollment is implemented and deployed
+([device enrollment](#device-enrollment)), and credentials expire after 90 days unused.
+Separate Access-protected enrollment from device-authenticated API routes: a device
+token does not automatically pass an Access gate. Steady-state API access must not
+require an interactive Access cookie for each call. Service login does not authenticate
+or unlock a vault.
 
 Initial synced settings are server-readable so service login can restore them
 without another recovery key. E2EE settings sync is a later option. Provider
@@ -872,10 +869,10 @@ tests only so far.
 
 ### Owner web UI
 
-Status: design approved by the owner on 2026-10-11. The app, its Access-checked
-assets and API, and the devices, sites, account bindings and recipes pages are
-implemented and tested locally. It replaces the extension's settings page for the data
-the service holds
+Status: design approved by the owner on 2026-10-11. The app, its Access-checked assets
+and API, and the devices, sites, account bindings and recipes pages are implemented,
+tested locally and deployed with the service. It replaces the extension's settings page
+for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
