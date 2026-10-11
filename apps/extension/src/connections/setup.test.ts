@@ -163,6 +163,7 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
               revision: durable.revision,
               autoUnlock: "enabled" as const,
             },
+            sameCustomFields: [],
           },
         };
       },
@@ -203,6 +204,9 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
     generation: crypto.randomUUID(),
   };
   const policy = {
+    protectedItems: vi.fn<NonNullable<ConnectionSetupDependencies["policy"]["protectedItems"]>>(
+      async () => [],
+    ),
     adopt: vi.fn<ConnectionSetupDependencies["policy"]["adopt"]>(async () => {
       events.push("policy");
       return { policyReviewItemIds: [] };
@@ -335,6 +339,52 @@ describe("options setup composition using the fixed real transport", () => {
     noSecrets(result);
     noSecrets([...h.configurations.values()]);
     expect(h.policy.adopt.mock.calls[0]?.[0].catalog.items[0]?.allowedOrigins).toEqual([]);
+  });
+  it.each([
+    { label: "the replaced snapshot", replaced: true, adopted: true },
+    { label: "another snapshot", replaced: false, adopted: false },
+  ])(
+    "adopts with the items found unchanged against $label only when it is the one replaced",
+    async ({ replaced, adopted }) => {
+      const h = harness({ existing: true });
+      const begun = await h.caller.begin({
+        kind: "existing",
+        connectionId: accountProfile.connectionId,
+        password: v1Password,
+        autoUnlock: "preserve",
+      });
+      expect(begun.ok).toBe(true);
+      h.manager.accept.mockClear();
+      h.policy.adopt.mockClear();
+      const itemId = rawCustomAccount().sync.ciphers[0]!.id;
+      const previous = h.durable()!.accepted!.snapshotId;
+      h.policy.protectedItems.mockResolvedValue([itemId]);
+      const commit = h.manager.accept.getMockImplementation()!;
+      h.manager.accept.mockImplementationOnce(async (input, signal) => {
+        const result = await commit(input, signal);
+        return result.ok
+          ? {
+              ...result,
+              data: {
+                ...result.data,
+                sameCustomFields: [itemId],
+                comparedSnapshotId: replaced ? previous : crypto.randomUUID(),
+              },
+            }
+          : result;
+      });
+      expect((await h.caller.sync(accountProfile.connectionId)).ok).toBe(true);
+      expect(h.policy.protectedItems).toHaveBeenCalledWith(accountProfile.connectionId);
+      expect(h.manager.accept.mock.calls[0]?.[0].compareCustomFields).toEqual([itemId]);
+      expect(h.policy.adopt.mock.calls[0]?.[0].sameCustomFields).toEqual(adopted ? [itemId] : []);
+    },
+  );
+  it("still syncs, comparing nothing, when the protected items cannot be read", async () => {
+    const h = harness();
+    h.policy.protectedItems.mockRejectedValue(new Error("Synthetic settings unavailable"));
+    expect(await h.caller.begin(newInput())).toMatchObject({ ok: true, kind: "ready" });
+    expect(h.manager.accept.mock.calls[0]?.[0].compareCustomFields).toEqual([]);
+    expect(h.policy.adopt.mock.calls[0]?.[0].sameCustomFields).toEqual([]);
   });
   it("completes setup when password prelogin answers only the flat KDF fields", async () => {
     // Bitwarden Cloud US (2026.9.2) answered /accounts/prelogin/password in this shape.

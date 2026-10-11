@@ -37,6 +37,7 @@ export type HostOperation =
       nowMs?: number;
     }
   | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
+  | { kind: "custom-digest"; session: HostSessionRef; itemIds: readonly string[] }
   | { kind: "passkey-find"; session: HostSessionRef; rpId: string }
   | {
       kind: "passkey-sign";
@@ -97,6 +98,13 @@ export const commandSchema = v.strictObject({
       session: sessionSchema,
       targetUrl: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
     }),
+    v.strictObject({
+      kind: v.literal("custom-digest"),
+      session: sessionSchema,
+      itemIds: v.pipe(v.array(uuid), v.maxLength(2_000)),
+      // 32 bytes. Only the offscreen document sets it; the background never holds the key.
+      key: v.optional(base64Url(43, 43)),
+    }),
     v.strictObject({ kind: v.literal("passkey-find"), session: sessionSchema, rpId }),
     v.strictObject({
       kind: v.literal("passkey-sign"),
@@ -141,6 +149,13 @@ export const passkeyMatchesSchema = v.strictObject({
   ),
   unavailableItemIds: v.pipe(v.array(uuid), v.maxLength(10_000)),
 });
+/** Per requested item, HMAC-SHA-256 of its decrypted custom fields under the offscreen
+ * document's key, or `null` when the item is unknown or cannot be decrypted. Digests are
+ * comparable only within one offscreen document and reveal only equality. */
+export const customDigestsSchema = v.strictObject({
+  digests: v.record(uuid, v.nullable(base64Url(43, 43))),
+});
+export type CustomDigests = v.InferOutput<typeof customDigestsSchema>;
 /** One DER ECDSA P-256 signature (8 to 72 bytes) bound to the credential that made it. */
 export const passkeySignatureSchema = v.strictObject({
   ...passkeyBinding,

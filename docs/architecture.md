@@ -304,6 +304,14 @@ and types cannot establish identity when names repeat. For a sealed item, requir
 the whole captured encrypted blob to match. A changed or ambiguous sequence with
 an existing custom exclusion blocks that item's secret release until explicit
 review; unrelated items and stable built-in exclusions retain their policies.
+Bitwarden re-encrypts the whole item on every save, so when a sync replaces a
+snapshot that is still open, the crypto host also compares the decrypted custom
+fields (name, value, type and linked source, in order) of each protected item;
+equal fields rebind as an unchanged sequence would. Each Worker
+returns HMAC-SHA-256 digests under a key the offscreen document creates and keeps,
+so no value leaves the crypto host and a digest cannot be tested offline against
+guesses of a short value; it is no defense against a compromised background
+([ADR 0025](adr/0025-automatic-vault-sync.md#protected-items-after-a-sync)).
 
 Review must identify the current snapshot and settings revision. Start every
 current custom field excluded, and require a deliberate save of that item's

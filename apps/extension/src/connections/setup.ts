@@ -207,6 +207,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       }
       return mapped;
     }
+    // Protected items whose decrypted custom fields are compared with the open snapshot.
+    const protectedItems = deps.policy.protectedItems
+      ? await deps.policy.protectedItems(profile.connectionId).catch((): string[] => [])
+      : [];
+    if (!alive(flow)) return error("cancelled");
     // Replacing the snapshot and adopting it stops logins, so none may start meanwhile.
     let release: (() => void) | undefined;
     if (auto) {
@@ -215,7 +220,12 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     }
     try {
       const accepted = await vault.manager.accept(
-        { prepared: mapped.data, unlock, autoUnlock: flow.intent },
+        {
+          prepared: mapped.data,
+          unlock,
+          autoUnlock: flow.intent,
+          compareCustomFields: protectedItems,
+        },
         flow.controller.signal,
       );
       if (!accepted.ok) return accepted;
@@ -270,6 +280,12 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         next: current.data,
         catalog,
         ...(flow.enabled === undefined ? {} : { enabled: flow.enabled }),
+        // Only a comparison with the very snapshot this adoption replaces counts.
+        sameCustomFields:
+          accepted.data.comparedSnapshotId !== undefined &&
+          accepted.data.comparedSnapshotId === prior.data?.accepted?.snapshotId
+            ? accepted.data.sameCustomFields
+            : [],
       });
       if (!alive(flow)) {
         clear(flow);

@@ -15,8 +15,15 @@ import {
   localVaultMetadataSchema,
 } from "@pateat/bitwarden";
 import { loadBrowserCryptoSdk } from "@pateat/bitwarden/browser-sdk";
+import { customFieldsDigest, importDigestKey } from "./custom-digest";
 import { findStoredPasskeys, selectPasskeyItem, signStoredPasskey } from "./passkey";
-import { commandSchema, type HostCommand, type HostSessionRef, type UriCandidates } from "./wire";
+import {
+  commandSchema,
+  type CustomDigests,
+  type HostCommand,
+  type HostSessionRef,
+  type UriCandidates,
+} from "./wire";
 
 // Native SDK panic/log output can contain decrypted input. The host emits only typed results.
 for (const method of ["log", "info", "warn", "error", "debug", "trace"] as const)
@@ -256,6 +263,31 @@ async function execute(command: HostCommand) {
       if (result.unavailableUris.length > 100_000) return fail("resource-limit");
     }
     return { ok: true as const, data: result };
+  }
+  if (op.kind === "custom-digest") {
+    if (!owned.verified) return fail("invalid-request");
+    const key = await importDigestKey(op.key);
+    // Not crypto-failed: a comparison that cannot run must not lock the session.
+    if (!key) return fail("invalid-request");
+    const digests: CustomDigests["digests"] = {};
+    for (const itemId of op.itemIds) {
+      const cipher = owned.ciphers.get(itemId.toLowerCase());
+      digests[itemId] = null;
+      if (!cipher) continue;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const decrypted = await owned.session.decryptCipher({
+          connectionId: command.connectionId,
+          cipher,
+        });
+        if (!decrypted.ok) continue;
+        // eslint-disable-next-line no-await-in-loop
+        digests[itemId] = await customFieldsDigest(decrypted.data.fields, key);
+      } catch {
+        // An item that cannot be digested compares as different; the session stays open.
+      }
+    }
+    return { ok: true as const, data: { digests } };
   }
   if (op.kind === "passkey-find" || op.kind === "passkey-sign") {
     const binding = {

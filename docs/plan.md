@@ -338,7 +338,8 @@ execution remains a separate integration gate. Provider authentication was trans
 in this slice; [durable provider sessions](#provider-session-progress) followed.
 
 Catalog replacement preserves custom-field denies: exact unchanged encrypted field
-sequences can rebind snapshot-scoped references, while changed or ambiguous sequences
+sequences, or decrypted fields the crypto host finds equal while the old snapshot is
+still open, can rebind snapshot-scoped references, while changed or ambiguous sequences
 with custom-policy history block the affected item's secret release until reviewed.
 Protected snapshot bindings survive even a review choosing no exclusions. Generic saves
 cannot clear unresolved exclusions or that binding history. Separate cache/settings
@@ -496,8 +497,10 @@ Automatic sync is implemented as [ADR 0025](adr/0025-automatic-vault-sync.md) de
 page and passkey events and a five-minute alarm check the revision date at most once a
 minute, and a full sync runs only when it moved and no login is in progress. Unit tests
 cover the schedule, the replacement hold, the revision outcomes and manual Sync; an
-isolated Chromium test fires the alarm against the synthetic probe. The trigger after a
-missing item and the custom-field comparison are not implemented, and automatic sync is
+isolated Chromium test fires the alarm against the synthetic probe. The comparison of
+protected items' decrypted custom fields is covered by unit tests and an isolated
+Chromium sync of a synthetic item whose password changed and whose custom fields were
+re-encrypted. The trigger after a missing item is not implemented, and automatic sync is
 not yet verified in installed Chrome or against a real account.
 
 Unit tests cover claims, rotation, concurrent writers, forget and permission races,

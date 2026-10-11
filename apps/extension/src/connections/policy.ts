@@ -8,24 +8,28 @@ import type { VaultEntry } from "../vault/record";
 import { sameVaultEntry } from "../vault/record";
 import type { ConnectionPolicy } from "./types";
 
+function protectedItemIds(snapshot: SettingsSnapshot, connectionId: string): string[] {
+  const policy = snapshot.fieldPolicies?.find((entry) => entry.connectionId === connectionId);
+  const connection = snapshot.settings.connections.find(
+    (entry) => entry.connectionId === connectionId,
+  );
+  return [
+    ...new Set([
+      ...(policy?.protectedItemIds ?? []),
+      ...(connection?.excludedFields
+        .filter((ref) => ref.fieldId.startsWith("custom."))
+        .map((ref) => ref.itemId) ?? []),
+    ]),
+  ];
+}
 export function quarantinedItems(
   snapshot: SettingsSnapshot,
   connectionId: string,
   snapshotId: string,
 ): string[] {
   const policy = snapshot.fieldPolicies?.find((entry) => entry.connectionId === connectionId);
-  const connection = snapshot.settings.connections.find(
-    (entry) => entry.connectionId === connectionId,
-  );
   const unresolved =
-    !policy || policy.snapshotId !== snapshotId
-      ? [
-          ...(policy?.protectedItemIds ?? []),
-          ...(connection?.excludedFields
-            .filter((ref) => ref.fieldId.startsWith("custom."))
-            .map((ref) => ref.itemId) ?? []),
-        ]
-      : [];
+    !policy || policy.snapshotId !== snapshotId ? protectedItemIds(snapshot, connectionId) : [];
   return [...new Set([...(policy?.quarantinedItemIds ?? []), ...unresolved])];
 }
 function customEvidence(entry: VaultEntry | null, id: string): unknown {
@@ -59,6 +63,9 @@ export function createConnectionPolicy(options: {
     async quarantined(connectionId, snapshotId) {
       return quarantinedItems(await options.settings.read(), connectionId, snapshotId);
     },
+    async protectedItems(connectionId) {
+      return protectedItemIds(await options.settings.read(), connectionId);
+    },
     async adopt(input) {
       const captured = structuredClone(input);
       const accepted = captured.next.accepted;
@@ -74,22 +81,23 @@ export function createConnectionPolicy(options: {
         if (captured.enabled !== undefined) connection.enabled = captured.enabled;
         const priorBinding = snapshot.fieldPolicies?.find((entry) => entry.connectionId === id);
         review = [...(priorBinding?.quarantinedItemIds ?? [])];
-        const protectedItems = [
-          ...new Set([
-            ...(priorBinding?.protectedItemIds ?? []),
-            ...connection.excludedFields
-              .filter((ref) => ref.fieldId.startsWith("custom."))
-              .map((ref) => ref.itemId),
-          ]),
-        ];
+        const protectedItems = protectedItemIds(snapshot, id);
+        // Equal decrypted custom fields count as unchanged evidence: Bitwarden re-encrypts
+        // the whole item on every save, so other edits change the ciphertext too.
+        const sameFields = new Set(captured.sameCustomFields ?? []);
+        const unchangedFields = (itemId: string) => {
+          const before = customEvidence(captured.previous, itemId);
+          const after = customEvidence(captured.next, itemId);
+          return (
+            before !== undefined &&
+            after !== undefined &&
+            (sameFields.has(itemId) || sameVaultEntry(before, after))
+          );
+        };
         for (const itemId of protectedItems) {
           if (
             priorBinding?.snapshotId !== captured.previous?.accepted?.snapshotId ||
-            !sameVaultEntry(
-              customEvidence(captured.previous, itemId),
-              customEvidence(captured.next, itemId),
-            ) ||
-            customEvidence(captured.next, itemId) === undefined
+            !unchangedFields(itemId)
           )
             review.push(itemId);
         }
@@ -102,12 +110,7 @@ export function createConnectionPolicy(options: {
             parts?.[1] === old.snapshotId &&
             (!priorBinding || priorBinding.snapshotId === old.snapshotId) &&
             !review.includes(ref.itemId) &&
-            customEvidence(captured.previous, ref.itemId) !== undefined &&
-            customEvidence(captured.next, ref.itemId) !== undefined &&
-            sameVaultEntry(
-              customEvidence(captured.previous, ref.itemId),
-              customEvidence(captured.next, ref.itemId),
-            );
+            unchangedFields(ref.itemId);
           const nextId = parts ? `custom.${accepted.snapshotId}.${parts[2]}` : undefined;
           if (
             unchanged &&

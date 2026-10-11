@@ -2,9 +2,10 @@
 
 Status: accepted by the owner on 2026-10-11 (12:10 UTC, option B with a five-minute
 alarm). Amends [ADR 0008](0008-durable-provider-sessions.md), which synced only on an
-explicit Sync action. The trigger after a site with a recipe finds no matching item and
-the custom-field comparison that keeps unchanged protected items usable are not
-implemented yet.
+explicit Sync action. The trigger after a site with a recipe finds no matching item is
+not implemented yet. The custom-field comparison that keeps unchanged protected items
+usable, listed as later work at acceptance, is implemented as
+[Protected items after a sync](#protected-items-after-a-sync) describes.
 
 Date: 2026-10-11
 
@@ -97,6 +98,34 @@ next check may be sent.
   passkey request until it finishes, without a time limit. The hold is taken with no
   await after the last check that nothing is starting.
 
+### Protected items after a sync
+
+Bitwarden re-encrypts the whole item on every save, so editing only the password or a
+URI on another device changes the encrypted custom-field evidence that
+[ADR 0023](0023-synced-vault-policy.md) compares, and the item would wait for review.
+When a sync replaces a snapshot that is still open, `accept()` therefore also asks both
+sessions, after verifying the new one and before writing it, for a digest of each
+protected item's decrypted custom fields (name, value, type and linked source, in
+order). An item whose two digests are equal is treated as unchanged: its custom-field
+exclusions move to the new snapshot without review. An unknown or undecryptable item,
+a closed old session or any failed request counts as different. Only a failure that may
+have ended the new session (a timeout, a locked or failed crypto host) fails the sync,
+before the write, so the stored old snapshot stays. Later automatic checks and **Sync**
+then skip the comparison, counting every item as different, until a sync commits, so a
+failure that repeats cannot block every sync.
+
+Each digest is HMAC-SHA-256 under a random 32-byte key that the offscreen document
+creates once and adds to every request it forwards to a Worker, replacing any key the
+background sent. The background compares the digests and keeps only the item IDs that
+matched. No value leaves the crypto host, and a digest seen in a log, storage or a
+memory dump without the offscreen document cannot be tested offline against guesses of
+a short value such as a PIN. This does not protect against a compromised background,
+which could open its own session with guessed values and compare digests; such a
+background already holds the unlock key ([ADR 0006](0006-atomic-local-vault-cache.md)).
+The comparison counts only when it was made against the snapshot being replaced, and a
+digest request that may have ended the old session also drops it from the manager. A
+device without the old snapshot open still relies on review.
+
 ### Differences from the official extension
 
 | Topic | Official extension | Pateat |
@@ -124,11 +153,8 @@ on the installation.
 
 - After a site with a recipe finds no matching item, check at most every ten seconds and
   send `login.reconnect` only to the refused document within ten seconds.
-- Compare the decrypted custom fields of protected items between the old and new
-  snapshot inside the crypto host. When they are equal, the item stays usable without
-  a new review, and the new evidence is recorded as reviewed in the synced record of
-  [ADR 0023](0023-synced-vault-policy.md); only "equal" or "different" leaves the crypto
-  host.
+- Record the evidence of items found equal as reviewed in the synced record of
+  [ADR 0023](0023-synced-vault-policy.md), once that record is implemented.
 - Show items awaiting review on the toolbar icon, and tell the settings page why its
   save met a revision conflict after an automatic sync.
 

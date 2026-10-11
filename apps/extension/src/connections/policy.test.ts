@@ -209,7 +209,7 @@ describe("snapshot-bound custom field policy", () => {
       ]);
     },
   );
-  it.each(["changed", "reordered", "removed"] satisfies CustomAccountVariant[])(
+  it.each(["changed", "reordered", "removed", "reencrypted"] satisfies CustomAccountVariant[])(
     "quarantines only the affected item for %s custom ciphertext rather than guessing duplicate labels",
     async (variant) => {
       const h = harness(variant);
@@ -223,6 +223,50 @@ describe("snapshot-bound custom field policy", () => {
       ]);
     },
   );
+  it("rebinds re-encrypted custom fields without review when the crypto host found them equal", async () => {
+    const h = harness("reencrypted");
+    expect(
+      await h.policy.adopt({
+        previous: h.previous,
+        next: h.next,
+        catalog: h.metadata,
+        sameCustomFields: [h.itemId],
+      }),
+    ).toEqual({ policyReviewItemIds: [] });
+    expect(h.read().settings.connections[0]!.excludedFields).toEqual([
+      { itemId: h.itemId, fieldId: `custom.${nextSnapshot}.1` },
+      { itemId: "unaffected", fieldId: "login.password" },
+    ]);
+    expect(h.read().fieldPolicies?.[0]).toMatchObject({
+      snapshotId: nextSnapshot,
+      quarantinedItemIds: [],
+      protectedItemIds: [h.itemId],
+    });
+  });
+  it("equal decrypted fields never resolve an item whose prior binding is another snapshot", async () => {
+    const h = harness("changed");
+    const stale = h.read();
+    stale.fieldPolicies![0]!.snapshotId = crypto.randomUUID();
+    h.setSnapshot(stale);
+    expect(
+      await h.policy.adopt({
+        previous: h.previous,
+        next: h.next,
+        catalog: h.metadata,
+        sameCustomFields: [h.itemId],
+      }),
+    ).toEqual({ policyReviewItemIds: [h.itemId] });
+  });
+  it("lists protected items from exclusions and review history", async () => {
+    const h = harness("changed");
+    expect(await h.policy.protectedItems!(accountProfile.connectionId)).toEqual([h.itemId]);
+    const reviewed = h.read();
+    reviewed.settings.connections[0]!.excludedFields = [];
+    reviewed.fieldPolicies![0]!.protectedItemIds = ["reviewed-item"];
+    h.setSnapshot(reviewed);
+    expect(await h.policy.protectedItems!(accountProfile.connectionId)).toEqual(["reviewed-item"]);
+    expect(await h.policy.protectedItems!("other-connection")).toEqual([]);
+  });
   it("a restart with a new cache but old settings quarantines old custom refs before any adoption retry", () => {
     const h = harness();
     expect(quarantinedItems(h.read(), accountProfile.connectionId, nextSnapshot)).toEqual([

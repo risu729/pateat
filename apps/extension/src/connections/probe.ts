@@ -27,6 +27,7 @@ const schema = v.variant("action", [
       "changed",
       "removed",
       "builtin-changed",
+      "reencrypted",
       "passkey",
       "uri",
     ]),
@@ -297,7 +298,7 @@ export function createConnectionProbeTransport() {
               ? variant === "reordered"
                 ? "007"
                 : "00001234"
-              : variant === "builtin-changed"
+              : variant === "builtin-changed" || variant === "reencrypted"
                 ? "test_username"
                 : "test_password";
         return {

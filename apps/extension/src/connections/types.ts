@@ -104,6 +104,8 @@ export type SetupReply =
     };
 export interface ConnectionPolicy {
   quarantined?(connectionId: string, snapshotId: string): Promise<string[]>;
+  /** Items with custom-field exclusions or review history, whose fields a sync compares. */
+  protectedItems?(connectionId: string): Promise<string[]>;
   review?(input: {
     connectionId: string;
     itemId: string;
@@ -117,6 +119,8 @@ export interface ConnectionPolicy {
     next: VaultEntry;
     catalog: VaultCatalog["connections"][number];
     enabled?: boolean;
+    /** Items whose decrypted custom fields the crypto host found equal in both snapshots. */
+    sameCustomFields?: string[];
   }): Promise<{ policyReviewItemIds: string[] }>;
 }
 export type ConnectionSetupDependencies = {
