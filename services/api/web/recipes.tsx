@@ -1,0 +1,232 @@
+import type { LoginRecipe, ManageRecipe } from "@pateat/contracts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { describeError, ManageApiError, type ManageClient } from "./api";
+import { Button } from "./button";
+
+export const RECIPES_QUERY_KEY = ["recipes"] as const;
+
+type Step = LoginRecipe["steps"][number];
+type Target = Extract<Step, { kind: "click" }>["target"];
+
+function formatTime(milliseconds: number) {
+  return `${new Date(milliseconds).toISOString().replace("T", " ").slice(0, 16)} UTC`;
+}
+
+const describeTarget = (target: Target) => `${target.by} "${target.value}"`;
+
+function describeStep(step: Step): string {
+  switch (step.kind) {
+    case "fill": {
+      const fields = step.fields
+        .map((field) => `${field.slot} into ${describeTarget(field.target)}`)
+        .join(", ");
+      const trigger = step.event ? ` on ${step.event}` : "";
+      return `Fill ${fields} (${step.effect}${trigger})`;
+    }
+    case "click":
+      return `Click ${describeTarget(step.target)} to ${step.purpose}`;
+    case "wait":
+      return `Wait up to ${step.timeoutMs} ms for ${describeTarget(step.target)} to be ${step.present ? "present" : "absent"}`;
+    case "assert":
+      return `Check that ${describeTarget(step.target)} is ${step.present ? "present" : "absent"}`;
+  }
+}
+
+function RecipeDetails({ recipe }: { recipe: LoginRecipe }) {
+  return (
+    <details className="space-y-2">
+      <summary className="cursor-pointer text-teal-800">
+        Steps and JSON<span className="sr-only"> for {recipe.id}</span>
+      </summary>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+        <dt className="font-medium">Slots</dt>
+        <dd>{recipe.slots.join(", ")}</dd>
+        <dt className="font-medium">Completion</dt>
+        <dd>
+          {recipe.completion
+            ? `${describeTarget(recipe.completion.target)} on ${recipe.completion.path}`
+            : "Not learned yet; set from the page after the first sign-in"}
+        </dd>
+        <dt className="font-medium">Rejection</dt>
+        <dd>{recipe.rejection ? describeTarget(recipe.rejection) : "None"}</dd>
+        <dt className="font-medium">Submissions</dt>
+        <dd>At most {recipe.maxSubmissions}</dd>
+      </dl>
+      <ol className="list-decimal space-y-1 pl-6">
+        {recipe.steps.map((step, index) => (
+          // Steps have no identity of their own; their order is the recipe.
+          // oxlint-disable-next-line no-array-index-key
+          <li key={index}>
+            <span className="text-slate-600">{step.path}</span> {describeStep(step)}
+          </li>
+        ))}
+      </ol>
+      <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-sm">
+        {JSON.stringify(recipe, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
+export function RecipesPage({ client }: { client: ManageClient }) {
+  const queryClient = useQueryClient();
+  const recipes = useQuery({ queryKey: RECIPES_QUERY_KEY, queryFn: () => client.recipes() });
+  // Revocation cannot be undone here, so it takes a second, explicit confirmation of the
+  // revision the owner saw when they asked to revoke.
+  const [confirming, setConfirming] = useState<{ recipeId: string; revision: number } | null>(null);
+  // The element to focus once the control the owner used has gone away.
+  // A write's target waits for the refresh it starts, which may remove the row.
+  const focusTarget = useRef<{ id: string; afterRefresh: boolean } | null>(null);
+  const revoke = useMutation({
+    mutationFn: (entry: { recipeId: string; revision: number }) =>
+      client.revokeRecipe(entry.recipeId, entry.revision),
+    onSuccess: () => {
+      focusTarget.current = { id: "recipes-heading", afterRefresh: true };
+    },
+    onError: (_error, entry) => {
+      focusTarget.current = { id: `revoke-${entry.recipeId}`, afterRefresh: true };
+    },
+    onSettled: () => {
+      setConfirming(null);
+      // Not awaited: the controls come back as soon as the write is answered.
+      void queryClient.invalidateQueries({ queryKey: RECIPES_QUERY_KEY });
+    },
+  });
+  // Runs after every render: a control appears, or stops being disabled, only then. The heading
+  // stands in for a control the refresh removed.
+  useEffect(() => {
+    const target = focusTarget.current;
+    if (!target || revoke.isPending || (target.afterRefresh && recipes.isFetching)) return;
+    (document.getElementById(target.id) ?? document.getElementById("recipes-heading"))?.focus();
+    focusTarget.current = null;
+  });
+  const entries = recipes.data?.recipes ?? [];
+  const active = entries.filter(
+    (entry): entry is ManageRecipe & { change: { state: "active" } } =>
+      entry.change.state === "active",
+  );
+  const revoked = entries.filter((entry) => entry.change.state === "revoked");
+
+  return (
+    <div className="space-y-8">
+      <output id="recipes-saved" className="block text-slate-700">
+        {revoke.isSuccess && `${revoke.variables.recipeId} was revoked.`}
+      </output>
+      {revoke.isError && (
+        <p role="alert" id="recipes-error" className="text-red-800">
+          {revoke.error instanceof ManageApiError && revoke.error.code === "not_found"
+            ? "That recipe no longer exists. The page now shows the current recipes."
+            : describeError(revoke.error)}
+        </p>
+      )}
+      <section aria-labelledby="recipes-heading" className="space-y-4">
+        <h2 id="recipes-heading" tabIndex={-1} className="text-xl font-semibold outline-none">
+          Recipes
+        </h2>
+        <p className="text-slate-700">
+          The steps devices follow to log in on each site. Devices write recipes; this page does not
+          edit them. Revoking one stops devices from using it after their next sync, and logins on
+          that site then wait for a new recipe. This page cannot restore a revoked recipe.
+        </p>
+        {recipes.isPending ? (
+          <output id="recipes-status" className="block">
+            Loading recipes…
+          </output>
+        ) : recipes.isError && !recipes.data ? (
+          <p role="alert" id="recipes-status" className="text-red-800">
+            {describeError(recipes.error)}
+          </p>
+        ) : null}
+        {recipes.isError && recipes.data && (
+          <p role="alert" id="recipes-status" className="text-red-800">
+            The list below could not be refreshed and may be out of date.{" "}
+            {describeError(recipes.error)}
+          </p>
+        )}
+        {!recipes.data ? null : active.length === 0 ? (
+          <p>No active recipes.</p>
+        ) : (
+          <ul id="recipes" className="divide-y divide-slate-200">
+            {active.map(({ change, updatedAt }) => (
+              <li key={change.recipeId} className="space-y-2 py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="font-semibold">{change.recipeId}</h3>
+                    <p className="text-slate-600">
+                      {change.recipe.origin} · revision {change.revision} · updated{" "}
+                      {formatTime(updatedAt)}
+                    </p>
+                  </div>
+                  {confirming?.recipeId === change.recipeId ? (
+                    <div className="flex items-center gap-2">
+                      <span>Revoke {change.recipeId}?</span>
+                      <Button
+                        id={`confirm-${change.recipeId}`}
+                        disabled={revoke.isPending}
+                        onClick={() => revoke.mutate(confirming)}
+                      >
+                        Confirm
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={revoke.isPending}
+                        onClick={() => {
+                          setConfirming(null);
+                          focusTarget.current = {
+                            id: `revoke-${change.recipeId}`,
+                            afterRefresh: false,
+                          };
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      aria-label={`Revoke recipe ${change.recipeId}`}
+                      id={`revoke-${change.recipeId}`}
+                      disabled={revoke.isPending}
+                      onClick={() => {
+                        setConfirming({ recipeId: change.recipeId, revision: change.revision });
+                        focusTarget.current = {
+                          id: `confirm-${change.recipeId}`,
+                          afterRefresh: false,
+                        };
+                      }}
+                    >
+                      Revoke
+                    </Button>
+                  )}
+                </div>
+                <RecipeDetails recipe={change.recipe} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {recipes.data && (
+        <section aria-labelledby="revoked-heading" className="space-y-4">
+          <h2 id="revoked-heading" className="text-xl font-semibold">
+            Revoked recipes
+          </h2>
+          {revoked.length === 0 ? (
+            <p>No revoked recipes.</p>
+          ) : (
+            <ul id="revoked-recipes" className="divide-y divide-slate-200">
+              {revoked.map(({ change, updatedAt }) => (
+                <li key={change.recipeId} className="py-2">
+                  {change.recipeId}{" "}
+                  <span className="text-slate-600">
+                    (revision {change.revision}, revoked {formatTime(updatedAt)})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}

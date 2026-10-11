@@ -9,7 +9,8 @@ concurrency:
   group: codeql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 permissions: {}
-# CodeQL restores no dependency cache; keep this workflow out of the cache entirely.
+# Advanced setup turns dependency caching off and the init step turns TRAP caching off,
+# so CodeQL needs no Actions cache.
 cache-mode: none
 jobs:
   analyze:
@@ -32,6 +33,7 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: none
           queries: security-extended
+          trap-caching: false
       - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           category: /language:${{ matrix.language }}

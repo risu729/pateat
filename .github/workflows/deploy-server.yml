@@ -58,15 +58,45 @@ jobs:
       - name: Require successful CI for this exact main revision
         id: source
         env:
-          CI_RUN_ID: ${{ github.event.workflow_run.id || inputs.ci_run_id }}
-          # A dispatch releases the current main; a CI run releases its own revision.
-          EXPECTED_REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_RUN_ID: ${{ inputs.ci_run_id }}
+          # A dispatch releases the main revision it was started on.
+          DISPATCH_REVISION: ${{ github.sha }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_REVISION: ${{ github.event.workflow_run.head_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          [[ "${CI_RUN_ID}" =~ ^[0-9]+$ ]]
-          run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CI_RUN_ID}")"
+          if [[ "${EVENT_NAME}" = workflow_dispatch ]]; then
+            expected="${DISPATCH_REVISION}"
+            ci_run_id="${DISPATCH_RUN_ID}"
+          else
+            # Main CI runs can finish out of order, and the release lock keeps only the
+            # newest pending run, so every automatic run releases the current main
+            # rather than the revision that triggered it.
+            expected="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+            [[ "${expected}" =~ ^[0-9a-f]{40}$ ]]
+            live="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "${SERVER_HEALTH_URL}" | jq -r '.revision // empty' || true)"
+            if [[ "${live}" = "${expected}" ]]; then
+              echo "release=false" >> "${GITHUB_OUTPUT}"
+              echo "Main revision ${expected} is already live." >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+            if [[ "${expected}" = "${TRIGGER_REVISION}" ]]; then
+              # Main's own CI run is the last automatic chance; don't depend on a list query.
+              ci_run_id="${TRIGGER_RUN_ID}"
+            else
+              ci_run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=${expected}&per_page=1" --jq '.workflow_runs[0].id // empty')"
+            fi
+            if [[ -z "${ci_run_id}" ]]; then
+              echo "release=false" >> "${GITHUB_OUTPUT}"
+              echo "Main revision ${expected} has no successful CI run yet; its own CI run releases it." >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+          fi
+          [[ "${ci_run_id}" =~ ^[0-9]+$ ]]
+          run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ci_run_id}")"
           workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
-          jq -e --arg repository "${GITHUB_REPOSITORY}" --arg revision "${EXPECTED_REVISION}" \
+          jq -e --arg repository "${GITHUB_REPOSITORY}" --arg revision "${expected}" \
             --argjson workflow "${workflow_id}" '
             .event == "push" and .head_branch == "main" and
             .head_repository.full_name == $repository and .head_sha == $revision and
@@ -76,27 +106,33 @@ jobs:
           attempt="$(jq -r .run_attempt <<< "${run}")"
           [[ "${revision}" =~ ^[0-9a-f]{40}$ && "${attempt}" =~ ^[0-9]+$ ]]
           {
+            echo "release=true"
             echo "revision=${revision}"
-            echo "run-id=${CI_RUN_ID}"
+            echo "run-id=${ci_run_id}"
             echo "attempt=${attempt}"
           } >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.source.outputs.release == 'true' }}
         with:
           ref: ${{ steps.source.outputs.revision }}
           persist-credentials: false
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        if: ${{ steps.source.outputs.release == 'true' }}
         with:
           version: 2026.10.7
           install_args: --locked
       - name: Install deployment tools from the tested lockfile
+        if: ${{ steps.source.outputs.release == 'true' }}
         run: bun install --frozen-lockfile
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ steps.source.outputs.release == 'true' }}
         with:
           name: server-${{ steps.source.outputs.revision }}-${{ steps.source.outputs.run-id }}-${{ steps.source.outputs.attempt }}
           path: work/server-release/
           github-token: ${{ github.token }}
           run-id: ${{ steps.source.outputs.run-id }}
       - name: Verify artifact provenance, digests and deployment configuration
+        if: ${{ steps.source.outputs.release == 'true' }}
         id: restore
         env:
           RELEASE_REVISION: ${{ steps.source.outputs.revision }}
@@ -104,6 +140,7 @@ jobs:
           RELEASE_RUN_ATTEMPT: ${{ steps.source.outputs.attempt }}
         run: mise exec -- node .github/scripts/server-artifact.mjs restore
       - name: Skip superseded revisions before the first mutation
+        if: ${{ steps.source.outputs.release == 'true' }}
         id: current
         env:
           RELEASE_REVISION: ${{ steps.source.outputs.revision }}
@@ -114,7 +151,7 @@ jobs:
             echo "deploy=true" >> "${GITHUB_OUTPUT}"
           else
             echo "deploy=false" >> "${GITHUB_OUTPUT}"
-            echo "Superseded by main revision ${current}; its own CI run releases it, or dispatch with that run." >> "${GITHUB_STEP_SUMMARY}"
+            echo "Superseded by main revision ${current} during the release; the next automatic run releases it." >> "${GITHUB_STEP_SUMMARY}"
           fi
       # Migrations must be additive so the serving Worker keeps working on the new
       # schema. A failed migration stops the release before activation.

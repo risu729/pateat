@@ -39,6 +39,8 @@ function mockClient(initial: SyncSettingsState) {
       state = { version: 1, revision: state.revision + 1, settings: structuredClone(settings) };
       return structuredClone(state);
     }),
+    recipes: vi.fn<ManageClient["recipes"]>(),
+    revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
     replace(next: SyncSettingsState) {
       state = next;
     },

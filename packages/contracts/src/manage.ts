@@ -3,6 +3,7 @@ import { deviceIdSchema } from "./enrollment";
 import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
+  syncRecipeChangeSchema,
   syncSettingsStateSchema,
   syncSettingsWriteSchema,
 } from "./sync";
@@ -45,6 +46,32 @@ export const manageSettingsConflictSchema = v.strictObject({
   current: syncSettingsStateSchema,
 });
 
+/** One recipe's current head: the active recipe, or a tombstone once revoked. */
+export const manageRecipeSchema = v.strictObject({
+  change: syncRecipeChangeSchema,
+  updatedAt: timestamp,
+});
+/** Most recently changed first. */
+export const manageRecipesSchema = v.strictObject({
+  version: v.literal(1),
+  recipes: v.array(manageRecipeSchema),
+});
+/** Revokes the recipe if `expectedRevision` is still its head; devices drop it on sync. */
+export const manageRecipeRevokeSchema = v.strictObject({
+  version: v.literal(1),
+  expectedRevision: v.pipe(
+    v.number(),
+    v.integer(),
+    v.minValue(1),
+    v.maxValue(Number.MAX_SAFE_INTEGER - 1),
+  ),
+});
+/** The revocation lost to another write, or the recipe is already revoked. */
+export const manageRecipeConflictSchema = v.strictObject({
+  error: v.literal("recipe_conflict"),
+  current: v.nullable(syncRecipeChangeSchema),
+});
+
 export const manageErrorCodeSchema = v.picklist([
   "bad_request",
   /** No Access token: the page must be reloaded through Access. */
@@ -66,5 +93,7 @@ export const manageErrorSchema = v.strictObject({ error: manageErrorCodeSchema }
 export type ManageDevice = v.InferOutput<typeof manageDeviceSchema>;
 export type ManageDevices = v.InferOutput<typeof manageDevicesSchema>;
 export type ManageSettingsWrite = v.InferOutput<typeof manageSettingsWriteSchema>;
+export type ManageRecipe = v.InferOutput<typeof manageRecipeSchema>;
+export type ManageRecipes = v.InferOutput<typeof manageRecipesSchema>;
 export type ManageErrorCode = v.InferOutput<typeof manageErrorCodeSchema>;
 export type ManageError = v.InferOutput<typeof manageErrorSchema>;

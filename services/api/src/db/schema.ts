@@ -130,9 +130,8 @@ export const recipeRevisions = sqliteTable(
     state: text("state", { enum: ["active", "revoked"] }).notNull(),
     document: text("document", { mode: "json" }),
     createdAt: integer("created_at").notNull(),
-    createdByDeviceId: text("created_by_device_id")
-      .notNull()
-      .references(() => devices.id),
+    /** Null when the owner web UI wrote the revision. */
+    createdByDeviceId: text("created_by_device_id").references(() => devices.id),
   },
   (table) => [
     primaryKey({ columns: [table.ownerId, table.recipeId, table.revision] }),

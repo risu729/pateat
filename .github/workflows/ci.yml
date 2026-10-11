@@ -6,9 +6,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+# A newer PR push cancels the older run. Every main push finishes its own run, because a
+# cancelled main run produces no release artifact and never starts the server deploy.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions: {}
 defaults:
   run:
