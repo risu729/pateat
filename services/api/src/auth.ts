@@ -61,12 +61,14 @@ export const requireDevice = createMiddleware<ApiEnv>(async (c, next) => {
   if (now - device.lastUsedAt > DEVICE_IDLE_LIMIT_MS)
     return apiError(c, 401, { error: "device_expired" }, challenge);
   if (now - device.lastUsedAt > LAST_USED_GRANULARITY_MS) {
-    // Conditional, so concurrent requests write at most once and never move it back.
+    // Conditional, so concurrent requests write at most once and never move it back. A
+    // failed write does not fail the request; a later request renews the device.
     const stale = now - LAST_USED_GRANULARITY_MS;
     await db
       .update(devices)
       .set({ lastUsedAt: now })
-      .where(and(eq(devices.id, device.id), lte(devices.lastUsedAt, stale)));
+      .where(and(eq(devices.id, device.id), lte(devices.lastUsedAt, stale)))
+      .catch(() => undefined);
   }
   c.set("scope", { ownerId: device.ownerId, deviceId: device.id });
   return next();

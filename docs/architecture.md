@@ -761,7 +761,8 @@ API calls.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
   decision, 2026-10-11). The service records a device's last use at most once a day
-  with a conditional update, so the recorded time can lag by up to a day. An expired
+  with a conditional update, so the recorded time can lag by up to a day and a device
+  can expire up to a day before 90 days of real non-use. An expired
   credential gets 401 `device_expired`, which the extension handles like a revoked
   device: it stops syncing and asks for a new pairing. A revoked device keeps getting
   `device_revoked`. The Access-protected management page lists the owner's devices

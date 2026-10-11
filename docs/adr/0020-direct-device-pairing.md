@@ -152,9 +152,9 @@ Access Bypass application ("pateat bypass").
   `site-access-needed`.
 - **A stolen session.** Non-browser clients can send any `Origin`. Someone holding a
   stolen `CF_Authorization` cookie can therefore pair, and the credential they get stays
-  valid until revoked, beyond the session that minted it. The old flow had the same
-  property. The owner sees and revokes such a device on `/manage`. Access's optional
-  binding cookie makes a stolen cookie unusable.
+  valid until revoked or unused for 90 days, beyond the session that minted it. The old
+  flow had the same property. The owner sees and revokes such a device on `/manage`.
+  Access's optional binding cookie makes a stolen cookie unusable.
 - **Other extensions in the same browser.** This risk remains. Any extension with host
   access to the service host can already read `/manage/api/*` with the owner's cookie,
   as the probe showed (`requireSameOrigin` guards only state-changing methods), and
