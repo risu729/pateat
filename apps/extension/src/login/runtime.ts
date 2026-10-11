@@ -1610,7 +1610,7 @@ export function createLoginRuntime(
    * page is sent (owner decision, 2026-10-11): only when every matching item with a
    * username gives the same length, character classes and email form. An item without
    * a username, or whose username the user excluded, does not count; an item that
-   * could not be checked or read sends no shape.
+   * could not be checked or read, or a username too long to shape, sends no shape.
    */
   async function usernameShape(
     pageOrigin: string,

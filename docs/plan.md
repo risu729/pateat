@@ -24,7 +24,7 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   selection and field exclusions ([ADR 0023](adr/0023-synced-vault-policy.md)), a WIF
   token exchange against Anthropic) and the remaining M4 AI work under
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
-  `advance` step, naming `accountSwitch`, the real-page corpus) and the finite-choice
+  `advance` step, a Claude baseline on the real-page corpus) and the finite-choice
   role.
 - M5: the passkey chooser window
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
