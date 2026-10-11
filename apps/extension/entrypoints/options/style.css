@@ -50,6 +50,7 @@
     box-sizing: border-box;
   }
   input[type="text"],
+  input[type="url"],
   select {
     width: 100%;
     min-height: 2.75rem;
@@ -146,6 +147,11 @@
     border-radius: 0.6rem;
     background: #f0fdfa;
     color: #134e4a;
+  }
+  /* Kept in the page for screen readers, without a box while there is no message. */
+  .settings-status:empty {
+    padding: 0;
+    border: 0;
   }
   #settings-controls {
     padding: 0;
