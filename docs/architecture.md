@@ -720,8 +720,9 @@ attempt, until the tab shows a page of another origin that Pateat may run on
 no check explains to be judged, which settles such attempts
 ([Background execution](#background-execution)).
 
-A login in progress keeps off the writes that would stop it. An account choice from
-another tab's login and a passkey chosen in the chooser as a site default are not saved.
+A login in progress keeps off the writes that would stop it. A passkey chosen in the
+chooser as a site default is not saved, nor is an account choice from another tab's
+login while this worker runs a login.
 The vault replacement waits ([ADR 0025](adr/0025-automatic-vault-sync.md)), and so does
 the settings sync's local write, for at most two minutes, counted from the first
 deferred write until a sync runs with no login in progress. An attempt counts until it

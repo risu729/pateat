@@ -213,7 +213,7 @@ new owner decision:
   even if no document of the tab resumes it.
 - **Settled logins and policy writes.** A similar rule decides which logins keep off the
   writes that would stop them: the settings sync's local write, the vault replacement
-  (ADR 0025), and saving an account choice or a passkey site default from another tab.
+  (ADR 0025), and saving another tab's account choice or a passkey site default.
   Unlike the bridge, a login whose result settled as unknown counts again while the
   extension checks or judges one of its pages, so a judgement that adds a handler is not
   cut off. Its record stays until the tab closes; if it counted, the settings sync's
