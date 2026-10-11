@@ -686,9 +686,9 @@ the credential idle-expiry decision, and the optional `launchWebAuthFlow` varian
 ### Owner web UI
 
 Status: design approved by the owner on 2026-10-11. The app, its Access-checked
-assets and API, and the devices, sites and account bindings pages are implemented and
-tested locally; the recipes page and the nullable recipe writer column are not. It
-replaces the extension's settings page for the data the service holds
+assets and API, and the devices, sites, account bindings and recipes pages are
+implemented and tested locally. It replaces the extension's settings page for the data
+the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
@@ -723,7 +723,7 @@ replaces the extension's settings page for the data the service holds
   within the 120 KiB document size devices upload. An identity with no paired device has
   no settings to edit and is told to pair one. Devices receive the change on their next
   settings or recipe sync. The device ID columns recording who wrote a settings or
-  recipe revision become nullable; null means the web UI wrote it.
+  recipe revision are nullable; null means the web UI wrote it.
 - Display names. A site default stores an optional `itemName` beside its item ID, as
   bindings already do, so the page can name the item; entries without it show the ID.
 - Authentication. The host-wide Access application also covers the app's assets and

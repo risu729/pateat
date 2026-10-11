@@ -4,7 +4,9 @@ import {
   enrollmentCode,
   enrollmentRedeemResultSchema,
   manageDevicesSchema,
+  manageRecipesSchema,
   type EnrollmentRedeemResult,
+  type LoginRecipe,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
 import { Jwt } from "hono/utils/jwt";
@@ -891,6 +893,170 @@ describe("owner web UI settings", () => {
     expect(signedIn.map((response) => response.status)).toEqual([200, 200]);
     expect(await signedIn[0]!.text()).toContain("Pateat test app");
     expect(anonymous.map((response) => response.status)).toEqual([401, 401]);
+  });
+});
+
+describe("owner web UI recipes", () => {
+  function recipe(id: string, revision: number, origin = "https://bank.example"): LoginRecipe {
+    return {
+      version: 1,
+      id,
+      revision,
+      origin,
+      slots: ["username", "password"],
+      steps: [
+        {
+          kind: "fill",
+          effect: "prepare",
+          path: "/login",
+          fields: [
+            { slot: "username", target: { by: "id", value: "username" } },
+            { slot: "password", target: { by: "id", value: "password" } },
+          ],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
+      ],
+      completion: { path: "/home", target: { by: "id", value: "welcome" } },
+      maxSubmissions: 1,
+    };
+  }
+  const publish = (credential: string, id: string, expectedRevision: number) =>
+    deviceApi(credential, `/v1/recipes/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        expectedRevision,
+        state: "active",
+        recipe: recipe(id, expectedRevision + 1),
+      }),
+    });
+  const revoke = (
+    by: Owner,
+    id: string,
+    expectedRevision: number,
+    origin: string | null = ORIGIN,
+  ) =>
+    request(`/manage/api/recipes/${id}/revoke`, {
+      method: "POST",
+      access: by.token,
+      headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
+      body: JSON.stringify({ version: 1, expectedRevision }),
+    });
+  const list = async (by: Owner) =>
+    v.parse(
+      manageRecipesSchema,
+      await (await request("/manage/api/recipes", { access: by.token })).json(),
+    );
+
+  it("lists only the owner's recipes, most recently changed first, with their documents", async () => {
+    const first = await owner();
+    const second = await owner();
+    const [device, other] = await Promise.all([enroll(first), enroll(second)]);
+    expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
+    expect((await publish(device.credential, "shop-signin", 0)).status).toBe(200);
+    expect((await publish(other.credential, "other-signin", 0)).status).toBe(200);
+    // Writes in the same millisecond are common; the order comes from the write sequence.
+    const sameTime = () => env.DB.prepare("UPDATE recipe_heads SET updated_at = 0").run();
+    await sameTime();
+    const { recipes } = await list(first);
+    expect(recipes.map((entry) => entry.change.recipeId)).toEqual(["shop-signin", "bank-signin"]);
+    // A revocation is the latest change, so that recipe moves to the top.
+    expect((await revoke(first, "bank-signin", 1)).status).toBe(200);
+    await sameTime();
+    expect((await list(first)).recipes.map((entry) => entry.change.recipeId)).toEqual([
+      "bank-signin",
+      "shop-signin",
+    ]);
+    expect(recipes.find((entry) => entry.change.recipeId === "bank-signin")!.change).toEqual({
+      recipeId: "bank-signin",
+      revision: 1,
+      state: "active",
+      recipe: recipe("bank-signin", 1),
+    });
+  });
+
+  it("shows an identity without a paired device no recipes and creates no owner", async () => {
+    const by = await owner();
+    expect(await list(by)).toEqual({ version: 1, recipes: [] });
+    expect((await revoke(by, "bank-signin", 1)).status).toBe(404);
+    expect(await ownerIdFor(by.subject)).toBeNull();
+  });
+
+  it("revokes a recipe as a tombstone devices receive, recorded as written by the web UI", async () => {
+    const by = await owner();
+    const device = await enroll(by);
+    expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
+    const response = await revoke(by, "bank-signin", 1);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      version: 1,
+      change: { recipeId: "bank-signin", revision: 2, state: "revoked" },
+    });
+    const feed = await (await deviceApi(device.credential, "/v1/recipes")).json();
+    expect(feed).toMatchObject({
+      changes: [{ recipeId: "bank-signin", revision: 2, state: "revoked" }],
+    });
+    const rows = await env.DB.prepare(
+      "SELECT revision, state, created_by_device_id FROM recipe_revisions WHERE owner_id = ? ORDER BY revision",
+    )
+      .bind(await ownerIdFor(by.subject))
+      .all();
+    expect(rows.results).toEqual([
+      { revision: 1, state: "active", created_by_device_id: device.deviceId },
+      { revision: 2, state: "revoked", created_by_device_id: null },
+    ]);
+    // A device may still publish an explicit replacement after the tombstone.
+    expect((await publish(device.credential, "bank-signin", 2)).status).toBe(200);
+  });
+
+  it("refuses a stale or repeated revocation and returns the current head", async () => {
+    const by = await owner();
+    const device = await enroll(by);
+    expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
+    expect((await publish(device.credential, "bank-signin", 1)).status).toBe(200);
+    const stale = await revoke(by, "bank-signin", 1);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({
+      error: "recipe_conflict",
+      current: {
+        recipeId: "bank-signin",
+        revision: 2,
+        state: "active",
+        recipe: recipe("bank-signin", 2),
+      },
+    });
+    expect((await revoke(by, "bank-signin", 2)).status).toBe(200);
+    const again = await revoke(by, "bank-signin", 3);
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({
+      error: "recipe_conflict",
+      current: { recipeId: "bank-signin", revision: 3, state: "revoked" },
+    });
+  });
+
+  it("never revokes another owner's recipe, an unknown one or from another origin", async () => {
+    const first = await owner();
+    const second = await owner();
+    const [device] = await Promise.all([enroll(first), enroll(second)]);
+    expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
+    const responses = await Promise.all([
+      revoke(second, "bank-signin", 1),
+      revoke(first, "missing-signin", 1),
+      revoke(first, "not a recipe id", 1),
+      revoke(first, "bank-signin", 1, "https://attacker.example"),
+      revoke(first, "bank-signin", 1, null),
+      revoke(first, "bank-signin", 0),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404, 403, 403, 400]);
+    expect((await list(first)).recipes[0]!.change.state).toBe("active");
+  });
+
+  it("serves the recipes page", async () => {
+    const { token } = await owner();
+    expect((await request("/manage/recipes", { access: token })).status).toBe(200);
+    expect((await request("/manage/recipes")).status).toBe(401);
+    expect((await manageApi("/manage/api/recipes", token, "PUT")).status).toBe(405);
   });
 });
 

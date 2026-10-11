@@ -1,7 +1,10 @@
 import {
   manageDevicesSchema,
   manageErrorSchema,
+  manageRecipeConflictSchema,
+  manageRecipesSchema,
   manageSettingsConflictSchema,
+  syncRecipeWriteResultSchema,
   syncSettingsStateSchema,
   type LocalSettings,
   type ManageErrorCode,
@@ -11,7 +14,12 @@ import * as v from "valibot";
 
 /** A failed API call; `code` is `network` when no answer arrived. */
 export class ManageApiError extends Error {
-  readonly code: ManageErrorCode | "settings_conflict" | "network" | "unexpected-response";
+  readonly code:
+    | ManageErrorCode
+    | "settings_conflict"
+    | "recipe_conflict"
+    | "network"
+    | "unexpected-response";
   constructor(code: ManageApiError["code"]) {
     super(code);
     this.code = code;
@@ -40,6 +48,8 @@ async function call(fetcher: ManageFetch, path: string, init?: RequestInit) {
   const body: unknown = await response.json().catch(() => undefined);
   if (response.status === 409 && v.is(manageSettingsConflictSchema, body))
     throw new ManageApiError("settings_conflict");
+  if (response.status === 409 && v.is(manageRecipeConflictSchema, body))
+    throw new ManageApiError("recipe_conflict");
   const error = v.safeParse(manageErrorSchema, body);
   throw new ManageApiError(error.success ? error.output.error : "unexpected-response");
 }
@@ -73,6 +83,18 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
       });
       return read(response, syncSettingsStateSchema);
     },
+    async recipes() {
+      return read(await call(fetcher, "/recipes"), manageRecipesSchema);
+    },
+    /** Revokes the recipe only if `expectedRevision` is still its current revision. */
+    async revokeRecipe(recipeId: string, expectedRevision: number) {
+      const response = await call(fetcher, `/recipes/${encodeURIComponent(recipeId)}/revoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, expectedRevision }),
+      });
+      return read(response, syncRecipeWriteResultSchema);
+    },
   };
 }
 
@@ -94,6 +116,8 @@ export function describeError(error: unknown): string {
       return "No device is paired with this account yet. Pair a device first; settings belong to an account with a paired device.";
     case "payload_too_large":
       return "The change was refused because the settings would be too large. Remove some entries first.";
+    case "recipe_conflict":
+      return "The recipe changed elsewhere or is already revoked. The page now shows its current state.";
     case "settings_conflict":
       return "The settings changed elsewhere, for example by a device sync. The page now shows the current settings; make the change again.";
     case "bad_request":

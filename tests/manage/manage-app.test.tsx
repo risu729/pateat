@@ -40,6 +40,8 @@ function mockClient(initial = devices()) {
       settings: null,
     })),
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
+    recipes: vi.fn<ManageClient["recipes"]>(),
+    revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
   } satisfies ManageClient;
 }
 
