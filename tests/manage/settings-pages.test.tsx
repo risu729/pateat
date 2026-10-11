@@ -11,7 +11,7 @@ import { ManageApp } from "../../services/api/web/app";
 const USER = "00000000-0000-4000-8000-000000000001";
 
 function settingsOf(parts: Partial<LocalSettings> = {}): LocalSettings {
-  return { connections: [], excludedSites: [], siteDefaults: [], ...parts };
+  return { connections: [], excludedSites: [], siteDefaults: [], bindings: [], ...parts };
 }
 
 const binding = {

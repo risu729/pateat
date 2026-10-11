@@ -111,7 +111,7 @@ export function BindingsPage({ client }: { client: ManageClient }) {
                       edit.mutate({
                         apply: (value) => ({
                           ...value,
-                          bindings: (value.bindings ?? []).filter(
+                          bindings: value.bindings.filter(
                             (saved) => bindingKey(saved) !== bindingKey(binding),
                           ),
                         }),
