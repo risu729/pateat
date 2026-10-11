@@ -20,23 +20,24 @@ on:
         type: string
         required: true
 permissions: {}
-# Disabled until the owner has bootstrapped routing and scoped credentials.
-
-# Keep this lock through migration, activation and smoke.
-concurrency:
-  group: server-production
-  cancel-in-progress: false
 defaults:
   run:
     shell: bash
 jobs:
   deploy:
     name: Deploy tested server
+    # Disabled until the owner has bootstrapped routing and scoped credentials. The
+    # switch is a repository variable: job conditions cannot read environment ones.
     if: >-
       ${{ vars.SERVER_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production
+    # Keep this lock through migration, activation and smoke. It sits on the job so a
+    # skipped run (failed CI, another event) never displaces a pending release.
+    concurrency:
+      group: server-production
+      cancel-in-progress: false
     permissions:
       actions: read # Verify the CI run and download its immutable artifact.
       contents: read
@@ -113,7 +114,7 @@ jobs:
             echo "deploy=true" >> "${GITHUB_OUTPUT}"
           else
             echo "deploy=false" >> "${GITHUB_OUTPUT}"
-            echo "Superseded by main revision ${current}; dispatch again with its CI run." >> "${GITHUB_STEP_SUMMARY}"
+            echo "Superseded by main revision ${current}; its own CI run releases it, or dispatch with that run." >> "${GITHUB_STEP_SUMMARY}"
           fi
       # Migrations must be additive so the serving Worker keeps working on the new
       # schema. A failed migration stops the release before activation.

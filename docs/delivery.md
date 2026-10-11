@@ -1,8 +1,8 @@
 # CI and server delivery
 
-Status: foundation CI and guarded manual server delivery are implemented.
-Deployment has not been enabled or executed. Extension store publishing and CD
-are excluded. The server remains optional for the eventual local login core.
+Status: foundation CI and guarded server delivery after main CI are implemented.
+Deployment has not been enabled or executed. Extension store publishing is
+excluded. The server remains optional for the eventual local login core.
 
 ## Current foundation workflows
 
@@ -46,15 +46,18 @@ The owner decided these on 2026-10-11, following the kogane repository:
   `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
 - Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
   as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
-- Preview: there is no preview deployment for now. The Worker's only anonymous
-  answers are `/health` and 401s, which the CI workerd smoke test already covers,
-  and a useful preview would need its own D1 database and Access setup. Add a
-  `worker-preview` deployment with a separate preview D1 binding, as biwa does for
-  its docs, when the owner web UI exists.
+- Preview: there is no preview deployment for now. Without the owner web UI there is
+  nothing to review in a browser: the anonymous routes are `/health`, the OIDC
+  discovery documents, `/redeem` and the device-authenticated `/v1/*`, which the
+  Worker tests cover, and a useful preview would need its own D1 database and Access
+  setup. Add a `worker-preview` deployment with a separate preview D1 binding, as biwa
+  does for its docs, when the owner web UI exists.
 
-`deploy-server.yml` stays disabled until `SERVER_DEPLOY_ENABLED=true`. Before enabling
-it, bootstrap the Worker and its Custom Domain, and set the `production` environment
-variables `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
+`deploy-server.yml` stays disabled until the repository variable
+`SERVER_DEPLOY_ENABLED=true`; it must be a repository variable, because the job's
+condition cannot read environment variables. Before enabling it, bootstrap the Worker
+and its Custom Domain, and set the `production` environment variables
+`CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
 `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret. Put
 the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner chose
 on 2026-10-11 to use this one token for both the migrations and the deployment, as in

@@ -118,6 +118,7 @@ The Worker bundles `packages/contracts`, which is GPL-3.0-only. Running it is no
 conveying it, but assess that combination as [LICENSING.md](../../LICENSING.md)
 requires before distributing a built Worker.
 
-Worker routing, account selection, credentials and resource provisioning are
-intentionally absent. The server delivery workflow stays disabled until those
+The configuration records the bootstrapped D1 database and the Custom Domain
+`pateat.takuk.me`; the account, credentials and Access applications are owner settings
+outside the repository. The server delivery workflow stays disabled until those
 deployment inputs, a verified Access application and a reachable health endpoint exist.

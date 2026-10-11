@@ -11,6 +11,14 @@ const databaseName = "pateat";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 export const migrationNamePattern = /^\d{4}_[a-z0-9_]+\.sql$/u;
 
+export function verifyHealthUrl(value, domains) {
+  const healthUrl = new URL(value ?? "");
+  assert.equal(healthUrl.protocol, "https:");
+  assert.equal(healthUrl.pathname, "/health");
+  assert.equal(healthUrl.username + healthUrl.password + healthUrl.search + healthUrl.hash, "");
+  assert(domains.includes(healthUrl.host), "The health URL must use the Worker's Custom Domain");
+}
+
 async function toolVersions() {
   return {
     node: process.version,
@@ -159,11 +167,7 @@ async function restore() {
     "Configure the exact account ID",
   );
   assert.equal(process.env.SERVER_WORKER, manifest.worker, "Configure the exact Worker name");
-  const healthUrl = new URL(process.env.SERVER_HEALTH_URL ?? "");
-  assert.equal(healthUrl.protocol, "https:");
-  assert.equal(healthUrl.pathname, "/health");
-  assert.equal(healthUrl.username + healthUrl.password + healthUrl.search + healthUrl.hash, "");
-  assert(domains.includes(healthUrl.host), "The health URL must use the Worker's Custom Domain");
+  verifyHealthUrl(process.env.SERVER_HEALTH_URL, domains);
   // A fresh checkout must have no pre-existing output or implicit rebuild.
   await assert.rejects(lstat(buildPath), { code: "ENOENT" });
   await mkdir(resolve(buildPath, ".."), { recursive: true });

@@ -8,6 +8,7 @@ import {
   inventory,
   migrationNamePattern,
   verifyBuild,
+  verifyHealthUrl,
   verifyProvenance,
 } from "./server-artifact.mjs";
 
@@ -128,4 +129,24 @@ test("release output refuses preview mode and another Worker", async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("the health URL must be the Worker's Custom Domain", () => {
+  const domains = ["pateat.takuk.me"];
+  verifyHealthUrl("https://pateat.takuk.me/health", domains);
+  verifyHealthUrl("https://PATEAT.takuk.me:443/health", domains);
+  for (const url of [
+    "https://pateat-api.example.workers.dev/health",
+    "https://pateat.takuk.me:8443/health",
+    "http://pateat.takuk.me/health",
+    "https://pateat.takuk.me/v1/health",
+    "https://pateat.takuk.me/health?x=1",
+    "",
+  ])
+    assert.throws(() => verifyHealthUrl(url, domains), url);
+  assert.throws(() => verifyHealthUrl("https://pateat.takuk.me/health", []));
+  // Object-form domains are not supported and fail closed.
+  assert.throws(() =>
+    verifyHealthUrl("https://pateat.takuk.me/health", [{ hostname: "pateat.takuk.me" }]),
+  );
 });
