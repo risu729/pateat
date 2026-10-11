@@ -112,9 +112,16 @@ export function SettingsApp({
   // Acquire synchronously before any await: React state alone cannot prevent racing events.
   const operation = useRef<"load" | "save" | undefined>("load");
   const [busy, setBusy] = useState(true);
-  const [saveBlocked, setSaveBlocked] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveBlocked, setSaveBlockedState] = useState(true);
+  const saveBlockedRef = useRef(true);
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
+  // Each edit counts, so a save that finishes after a later edit keeps that edit and saves again.
+  const edits = useRef(0);
+  const submittedEdits = useRef(0);
+  const submittedCatalog = useRef(0);
+  const lastSaveSucceeded = useRef(false);
   const catalogGeneration = useRef(0);
   const [message, setMessage] = useState("Loading saved settings…");
   const [generation, setGeneration] = useState(0);
@@ -133,14 +140,20 @@ export function SettingsApp({
     retry: false,
     gcTime: 0,
   });
+  function setSaveBlocked(blocked: boolean) {
+    saveBlockedRef.current = blocked;
+    setSaveBlockedState(blocked);
+  }
   const form = useForm({
     // Match reset's accepted defaults so a later hook update cannot restore the empty draft.
     defaultValues: accepted?.snapshot.settings ?? emptySettings,
     validators: { onSubmit: localSettingsSchema },
     onSubmit: async ({ value }) => {
       const previous = acceptedRef.current;
-      if (!previous || operation.current !== "save") return;
-      const epoch = catalogGeneration.current;
+      if (!previous || operation.current !== "save" || saveBlockedRef.current) return;
+      const submitted = submittedEdits.current;
+      // The catalog this draft was edited against, read before validation could yield.
+      const epoch = submittedCatalog.current;
       try {
         const result = await saveMutation.mutateAsync({
           version: 1,
@@ -166,8 +179,16 @@ export function SettingsApp({
           );
           return;
         }
-        accept(result, `Settings saved locally · Revision ${result.snapshot.revision}`, false);
         queryClient.setQueryData(SETTINGS_QUERY_KEY, result);
+        lastSaveSucceeded.current = true;
+        if (submitted === edits.current) {
+          accept(result, `Settings saved locally · Revision ${result.snapshot.revision}`, false);
+          return;
+        }
+        // Edits made while this save ran stay in the draft and are saved on top of it next.
+        const next = structuredClone(result);
+        acceptedRef.current = next;
+        setAccepted(next);
       } catch {
         setSaveBlocked(true);
         setMessage(
@@ -218,16 +239,22 @@ export function SettingsApp({
     setBusy(false);
   }, [settings.data, settings.isError, settings.isFetched, form]);
   // oxlint-enable react/set-state-in-effect
+  /** Applies one edit to the draft and saves it at once; a running save picks it up after. */
   function edit(update: (value: LocalSettings) => void) {
-    if (operation.current || !acceptedRef.current) return false;
+    if (operation.current === "load" || !acceptedRef.current) return false;
     const next = structuredClone(form.state.values);
     update(next);
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    edits.current += 1;
     setDirty(true);
     dirtyRef.current = true;
-    if (!saveBlocked) setMessage("Unsaved changes. Save settings to apply this draft.");
+    if (saveBlockedRef.current)
+      setMessage(
+        "This change is kept in the draft but was not saved. Reload saved settings before editing; reloading discards the draft.",
+      );
+    void save();
     return true;
   }
   async function reload() {
@@ -266,25 +293,42 @@ export function SettingsApp({
       setBusy(false);
     }
   }
+  /**
+   * Saves the draft until it has no unsaved edit. A failed or unknown outcome stops here and is
+   * never retried; a blocked draft waits for an explicit reload.
+   */
   async function save() {
-    if (operation.current || saveBlocked || !acceptedRef.current || !dirty) return;
+    if (operation.current) return;
     operation.current = "save";
-    setBusy(true);
-    setMessage("Saving local settings…");
+    setSaving(true);
     try {
-      await form.handleSubmit();
-      if (!form.state.isValid)
-        setMessage(
-          "Invalid settings. Your unsaved draft has been preserved. Review this draft before saving.",
-        );
+      while (dirtyRef.current && !saveBlockedRef.current && acceptedRef.current) {
+        submittedEdits.current = edits.current;
+        submittedCatalog.current = catalogGeneration.current;
+        lastSaveSucceeded.current = false;
+        setMessage("Saving local settings…");
+        // Sequential: each save expects the revision the previous one produced.
+        // eslint-disable-next-line no-await-in-loop
+        await form.handleSubmit();
+        if (!form.state.isValid)
+          setMessage(
+            "Invalid settings. Your unsaved draft has been preserved. Review this draft; the next change saves it again.",
+          );
+        // A failure is never retried as is; an edit made meanwhile is a new draft to save.
+        if (
+          !lastSaveSucceeded.current &&
+          (saveBlockedRef.current || submittedEdits.current === edits.current)
+        )
+          break;
+      }
     } finally {
       operation.current = undefined;
-      setBusy(false);
+      setSaving(false);
     }
   }
   function catalogChanged() {
     ++catalogGeneration.current;
-    if (dirtyRef.current || operation.current || saveBlocked) {
+    if (dirtyRef.current || operation.current || saveBlockedRef.current) {
       setSaveBlocked(true);
       setMessage(
         "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving.",
@@ -367,38 +411,23 @@ export function SettingsApp({
           </>
         )}
       </fieldset>
-      <form
-        id="settings-form"
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save();
-        }}
-        className="settings-footer"
-      >
+      <div className="settings-footer">
         <div className="flex flex-wrap gap-3">
-          <Button
-            id="save-settings"
-            type="submit"
-            disabled={busy || saveBlocked || !accepted || !dirty}
-          >
-            Save settings
-          </Button>
           <Button
             id="reload-settings"
             type="button"
             variant="outline"
-            disabled={busy}
+            disabled={busy || saving}
             onClick={() => void reload()}
           >
             Reload saved settings
           </Button>
         </div>
         <p className="note">
-          Edits stay in this page until saved. Reload saved settings discards this page's unsaved
-          draft.
+          Each change is saved as soon as it is made. If a save fails, this page keeps the unsaved
+          draft; Reload saved settings discards it.
         </p>
-      </form>
+      </div>
       {serviceClient && <ServiceConnection client={serviceClient} />}
       <RuntimeStatus client={client} hasConnections={!!connectionClient} />
       <p className="note">

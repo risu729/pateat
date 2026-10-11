@@ -145,7 +145,7 @@ recheck browser-provided tab URLs. Production grants no host access.
    `apps/extension/.output/chrome-mv3-probe/` as an unpacked extension in Chrome.
    Record the exact source commit, build, Chrome version and other extensions.
 3. Manually open Pateat settings. Add `http://127.0.0.1:3847` as a site default
-   for **Demo personal vault / Demo primary account**, then save. Keep the demo
+   for **Demo personal vault / Demo primary account**; it saves at once. Keep the demo
    connection and its branch, username and password fields eligible.
 4. Open `http://127.0.0.1:3847/identity` through Chrome use in an inactive tab.
    The extension must fill and advance through the password page itself. Verify
@@ -436,9 +436,15 @@ implementation PR, with peer, MV3 CSP and bundled-output checks. See
 sources.
 
 The settings form owns its draft separately from the metadata query cache.
-Queries never refetch on focus/reconnect and neither reads nor saves automatically
-retry. Only an explicit successful reload replaces edits after a failed save or
-revision conflict. A failed or ambiguous save retains the draft, and an unknown
+Each edit is saved as soon as it is made; there is no separate save button (owner
+decision, 2026-10-11, after a site default shown in the options page had never been
+saved). Saves run one at a time, and an edit made while one runs is saved on top of
+its result. Each saved change applies at once, so it also cancels logins and passkey
+requests started under the previous settings. Queries never refetch on
+focus/reconnect and neither reads nor saves automatically retry: after an invalid
+draft the next change saves again, and after a blocking failure later edits stay
+in the unsaved draft. Only an explicit successful reload replaces edits after a
+failed save or revision conflict. A failed or ambiguous save retains the draft, and an unknown
 outcome blocks saving until reload. The background worker remains the settings
 authority and validates both messages and senders; the UI migration does not
 change storage permissions. Component tests use a synthetic client; extension

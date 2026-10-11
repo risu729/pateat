@@ -108,11 +108,17 @@ afterEach(async () => {
   focusManager.setFocused(undefined);
 });
 
-test("focus and metadata cache refreshes preserve a dirty draft and its revision", async () => {
+test("each change is saved at once and refreshes never replace a pending draft", async () => {
   const client = mockClient();
+  const write = deferred<SettingsResponse>();
+  client.saveSettings.mockReturnValueOnce(write.promise);
   const { queryClient } = await mount(client);
   await addSite("draft.example");
-  await page.getByLabelText("Demo work vault: Enabled", { exact: true }).click();
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  expect(client.saveSettings.mock.calls[0]?.[0]).toMatchObject({
+    expectedRevision: 0,
+    settings: { excludedSites: [{ hostname: "draft.example", includeSubdomains: false }] },
+  });
 
   focusManager.setFocused(false);
   focusManager.setFocused(true);
@@ -121,20 +127,22 @@ test("focus and metadata cache refreshes preserve a dirty draft and its revision
   await queryClient.refetchQueries({ queryKey: SETTINGS_QUERY_KEY });
   expect(client.getSettings).toHaveBeenCalledTimes(2);
   queryClient.setQueryData(SETTINGS_QUERY_KEY, saved(5, "cached.example"));
-
   await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
   await expect.element(control("excluded-sites")).not.toMatchTextContent("remote.example");
   await expect.element(control("excluded-sites")).not.toMatchTextContent("cached.example");
+
+  write.resolve(saved(1, "draft.example"));
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 1");
+  await page.getByLabelText("Demo work vault: Enabled", { exact: true }).click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 2");
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
+  expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
+    expectedRevision: 1,
+    settings: { excludedSites: [{ hostname: "draft.example" }] },
+  });
   await expect
     .element(page.getByLabelText("Demo work vault: Enabled", { exact: true }))
     .not.toBeChecked();
-  await control("save-settings").click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally");
-  expect(client.saveSettings).toHaveBeenCalledTimes(1);
-  expect(client.saveSettings.mock.calls[0]?.[0]).toMatchObject({
-    expectedRevision: 0,
-    settings: { excludedSites: [{ hostname: "draft.example", includeSubdomains: false }] },
-  });
 });
 
 test("an unknown save outcome is never retried and requires a successful explicit reload", async () => {
@@ -142,33 +150,38 @@ test("an unknown save outcome is never retried and requires a successful explici
   client.saveSettings.mockRejectedValue(new Error("Synthetic transport lost its response"));
   const { queryClient } = await mount(client);
   await addSite("draft.example");
-  await control("save-settings").click();
   await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
-  await expect.element(control("save-settings")).toBeDisabled();
   await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
+  // Further edits stay in the draft without another save.
+  await addSite("second.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
 
   focusManager.setFocused(false);
   focusManager.setFocused(true);
   await queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
-  await expect.element(control("save-settings")).toBeDisabled();
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   client.getSettings.mockRejectedValueOnce(new Error("Synthetic read unavailable"));
   await control("reload-settings").click();
   await expect
     .poll(() => control("settings-status").element().textContent)
     .toMatch(/unable|failed|unavailable/i);
-  await expect.element(control("save-settings")).toBeDisabled();
   await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
+  await addSite("third.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
 
   client.getSettings.mockResolvedValue(saved(1, "committed.example"));
   await control("reload-settings").click();
   await expect.element(control("settings-status")).toMatchTextContent("Saved settings loaded");
   await expect.element(control("excluded-sites")).toMatchTextContent("committed.example");
   await expect.element(control("excluded-sites")).not.toMatchTextContent("draft.example");
-  await expect.element(control("save-settings")).toBeDisabled();
+  client.saveSettings.mockImplementation(async (request) => ({
+    ...saved(request.expectedRevision + 1),
+    snapshot: { version: 1, revision: request.expectedRevision + 1, settings: request.settings },
+  }));
   await addSite("next-draft.example");
-  await expect.element(control("save-settings")).toBeEnabled();
-  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 2");
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
+  expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 1 });
 });
 
 test("revision conflicts preserve all draft edits until the owner reloads", async () => {
@@ -180,12 +193,11 @@ test("revision conflicts preserve all draft edits until the owner reloads", asyn
   });
   await mount(client);
   await addSite("draft.example");
+  await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
   await page
     .getByLabelText("Demo personal vault: Item access", { exact: true })
     .selectOptions("selected");
   await page.getByLabelText("Demo personal vault: Include group Everyday", { exact: true }).click();
-  await control("save-settings").click();
-  await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
   await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
   await expect
     .element(page.getByLabelText("Demo personal vault: Item access", { exact: true }))
@@ -193,6 +205,7 @@ test("revision conflicts preserve all draft edits until the owner reloads", asyn
   await expect
     .element(page.getByLabelText("Demo personal vault: Include group Everyday", { exact: true }))
     .toBeChecked();
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
   expect(client.getSettings).toHaveBeenCalledTimes(1);
   client.getSettings.mockResolvedValue(saved(2, "protected.example"));
   await control("reload-settings").click();
@@ -200,38 +213,40 @@ test("revision conflicts preserve all draft edits until the owner reloads", asyn
   await expect.element(control("excluded-sites")).not.toMatchTextContent("draft.example");
 });
 
-test("pending writes and reloads cannot overlap or discard the draft", async () => {
+test("edits during a pending save are saved after it, and reloads cannot overlap it", async () => {
   const client = mockClient();
   const write = deferred<SettingsResponse>();
-  client.saveSettings.mockReturnValue(write.promise);
+  client.saveSettings.mockReturnValueOnce(write.promise);
   await mount(client);
   await addSite("pending.example");
-  await control("save-settings").click();
-  await expect.element(control("save-settings")).toBeDisabled();
   await expect.element(control("reload-settings")).toBeDisabled();
-  // A second submission can arrive from keyboard/form code even when its button is disabled.
-  const form = document.getElementById("settings-form");
-  if (!(form instanceof HTMLFormElement)) throw new Error("Missing settings form");
-  form.requestSubmit();
+  // Editing stays possible while the save runs; the change waits for it.
+  await addSite("later.example");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   expect(client.getSettings).toHaveBeenCalledTimes(1);
-  await expect.element(control("excluded-sites")).toMatchTextContent("pending.example");
   write.resolve(saved(1, "pending.example"));
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 2");
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
+  expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
+    expectedRevision: 1,
+    settings: {
+      excludedSites: [{ hostname: "pending.example" }, { hostname: "later.example" }],
+    },
+  });
+  await expect.element(control("excluded-sites")).toMatchTextContent("later.example");
+  await expect.element(control("reload-settings")).toBeEnabled();
 
   const read = deferred<SettingsResponse>();
   client.getSettings.mockReturnValue(read.promise);
   await control("reload-settings").click();
-  await expect.element(control("save-settings")).toBeDisabled();
   await expect.element(control("reload-settings")).toBeDisabled();
-  form.requestSubmit();
-  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  await expect.element(control("site-hostname")).toBeDisabled();
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.getSettings).toHaveBeenCalledTimes(2);
-  read.resolve(saved(2, "reloaded.example"));
+  read.resolve(saved(3, "reloaded.example"));
   await expect.element(control("excluded-sites")).toMatchTextContent("reloaded.example");
-  await expect.element(control("save-settings")).toBeDisabled();
   await addSite("next-draft.example");
-  await expect.element(control("save-settings")).toBeEnabled();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 4");
 });
 
 test("keyboard add forms validate locally and recover input focus after add and removal", async () => {
@@ -286,7 +301,47 @@ test("keyboard add forms validate locally and recover input focus after add and 
   // The default names the account, and is shown through this device's connection.
   await expect.element(control("site-defaults")).toMatchTextContent("Demo personal vault");
   await expect.element(control("default-origin")).toHaveFocus();
-  expect(client.saveSettings).not.toHaveBeenCalled();
+  // Each add and removal was saved without moving focus.
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 3");
+  await expect.element(control("default-origin")).toHaveFocus();
+  expect(client.saveSettings).toHaveBeenCalledTimes(3);
+});
+
+test("a rejected draft is not saved again until the next change", async () => {
+  const client = mockClient();
+  client.saveSettings.mockResolvedValueOnce({
+    version: 1,
+    ok: false,
+    error: { code: "invalid-settings", message: "Synthetic invalid settings." },
+  });
+  await mount(client);
+  await addSite("draft.example");
+  await expect.element(control("settings-status")).toMatchTextContent("Synthetic invalid settings");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  await addSite("second.example");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 1");
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
+  expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
+    expectedRevision: 0,
+    settings: { excludedSites: [{ hostname: "draft.example" }, { hostname: "second.example" }] },
+  });
+});
+
+test("an edit made during a save that conflicts stays in the draft unsaved", async () => {
+  const client = mockClient();
+  const write = deferred<SettingsResponse>();
+  client.saveSettings.mockReturnValueOnce(write.promise);
+  await mount(client);
+  await addSite("pending.example");
+  await addSite("later.example");
+  write.resolve({
+    version: 1,
+    ok: false,
+    error: { code: "revision-conflict", message: "Synthetic newer revision exists." },
+  });
+  await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
+  await expect.element(control("excluded-sites")).toMatchTextContent("later.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
 });
 
 test("a default for an account not connected here shows its saved item name", async () => {
@@ -320,9 +375,8 @@ test("malformed save responses are rejected at the runtime boundary and keep the
     });
   await mount(createSettingsClient(send));
   await addSite("draft.example");
-  await control("save-settings").click();
   await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
-  await expect.element(control("save-settings")).toBeDisabled();
+  await addSite("second.example");
   await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
   await expect.element(control("excluded-sites")).not.toMatchTextContent("malformed.example");
   expect(

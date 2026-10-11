@@ -35,7 +35,7 @@ and normal merges need no bypass; see [merging](delivery.md#merging).
 
 ## Local settings progress
 
-The first M2 slice provides explicit save/reload controls for local connection,
+The first M2 slice provides automatic save and explicit reload controls for local connection,
 group/item selection, item/field exclusions, host exclusions and exact-origin
 account defaults. Two bundled demo vaults contain display metadata only. There
 are no credential values, provider sessions, real vault connections, page
