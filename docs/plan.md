@@ -906,8 +906,11 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   (including link text) in the extractor and the generator.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
-- Japanese pages for the real-page corpus, then a Claude baseline on it. The
-  finite-choice provider is chosen only after that baseline exists (owner, 2026-10-11).
+- A Claude baseline on the real-page corpus, then Japanese pages for it. The
+  finite-choice provider is chosen only after that baseline exists. The owner chose on
+  2026-10-11 to run the baseline after the MyJCB generation fix, about five cases at a
+  time with fixes between batches, and to take Japanese pages from both public login
+  pages opened in the owner's Chrome and the request log.
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -934,7 +937,9 @@ homepage, a forum for cashing out stolen funds, and a page whose path carried an
 session ID (Magento's `/referer/<base64>/`); the importer now skips long opaque path
 segments. The corpus holds 78 plans and 17 abstentions. Two pages are Japanese
 (`buyee.jp`, `zeiri4.com`); `language` comes from the extractor's script heuristic,
-which also marks one Chinese page `ja` and every other non-Japanese page `en`. Some
+which also marks one Chinese page `ja` and every other non-Japanese page `en`. The owner
+chose on 2026-10-11 to publish the derived page text (titles, headings and labels) as
+is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
 sites appear twice with the same login form.
 `mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
 it.
