@@ -269,6 +269,18 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("names an image-only button by its image's alt, as the executor resolves it", () => {
+    page(
+      `<form><input id="user"><button><img src="data:," alt="ログイン" width="40" height="20"></button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates[1]!.target).toEqual({ by: "text", value: "ログイン" });
+    expect(findTargets(document, observation.candidates[1]!.target)).toEqual([
+      document.querySelector("button"),
+    ]);
+  });
+
   it("observes image buttons as buttons named by their alt text", () => {
     page(
       `<form><input id="user"><input id="go" type="image" src="data:," alt="ログイン" width="40" height="20"></form>`,

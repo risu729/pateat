@@ -677,6 +677,8 @@ test("clicks a submit button or image button named by its text, and refuses a du
       const duplicate = await context.newPage();
       await duplicate.goto(`${fixture.origin}/text-submit?button=duplicate`);
       await expect.poll(status).toContain("structural-mismatch");
+      // The fill step ran, so the attempt stopped at the ambiguous click.
+      await expect(duplicate.locator("#password")).not.toHaveValue("");
       expect(await clicks(duplicate)).toBe(0);
     });
   } finally {
