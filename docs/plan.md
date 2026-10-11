@@ -333,7 +333,10 @@ Chrome yet.
   attempt checks, so it is skipped while another login is still running; the next login
   chooses again.
 - A site default saved from now on names the provider account and item
-  (`{ origin, provider, userId, itemId }`, ADR 0013); the executor and the settings page
+  (`{ origin, provider, userId, itemId, itemName? }`, ADR 0013). `itemName` is the
+  item's label when the default was saved, kept only for display, such as for an
+  account that is not connected here; older entries lack it, and builds that predate it
+  reject settings that contain it. The executor and the settings page
   find this device's connection through the catalog connection's `userId`, and an
   account that is not connected here refuses as `connection-missing`, one connected
   twice as `account-ambiguous`, and one whose vault is locked or unavailable as
