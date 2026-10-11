@@ -24,6 +24,8 @@ const fake = vi.hoisted(() => {
     }[],
     /** Overrides the document's answer to an execution, such as a wrong-account refusal. */
     executeReply: undefined as undefined | { ok: boolean; reason?: string; switchable?: true },
+    /** The document's answer to clicking an account switch. */
+    switchReply: { ok: true } as { ok: boolean },
     granted: true,
     pageUrl: "https://login.example/signin",
     onExecute: undefined as
@@ -89,6 +91,7 @@ const fake = vi.hoisted(() => {
                 )
               : [...state.observed],
           };
+        if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.extract")
           return (
             state.extracted[message["page"] as string] ?? { ok: false, reason: "no-candidates" }
@@ -360,6 +363,7 @@ describe("production login document admission", () => {
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
+    fake.state.switchReply = { ok: true };
     fake.state.gone = new Set();
     fake.state.extracted = {};
   });
@@ -436,6 +440,29 @@ describe("production login document admission", () => {
     expect(executes()).toHaveLength(2);
     expect(executes()[1]!.accountSwitch).toBeUndefined();
     expect(types().filter((type) => type === "login.switch")).toHaveLength(1);
+  });
+  it("ends as wrong-account and keeps the tab when the page does not click the switch", async () => {
+    fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
+    fake.state.switchReply = { ok: false };
+    const h = harness({}, { username: true });
+    h.recipes.recipe.mockResolvedValue(
+      parseLoginRecipe({ ...recipe, accountSwitch: { by: "text", value: "Use another account" } }),
+    );
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+    );
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        { state: "blocked", outcome: "wrong-account", submissions: 0 },
+      ]),
+    );
+    expect(fake.state.messages.map((entry) => entry.type)).toContain("login.switch");
+    expect(fake.state.messages.at(-1)).toMatchObject({ outcome: "wrong-account" });
+    // The next document of the tab does not start another attempt.
+    await h.hello({ documentId: "next-page" });
+    expect(executes()).toHaveLength(1);
   });
   it("does not compare the page when the item has no username", async () => {
     const h = harness();

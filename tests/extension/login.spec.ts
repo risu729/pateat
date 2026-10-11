@@ -718,6 +718,18 @@ test("clicks the account switch once and logs in on the page it leads to", async
       expect(loads).toBe(2);
       await expect(loop.locator("#password")).toHaveValue("");
       expect(await clicks(loop)).toBe(0);
+      await loop.close();
+      await expect.poll(status).not.toContain("wrong-account");
+      // A switch that would submit a form is never clicked.
+      const submit = await context.newPage();
+      let submitLoads = 0;
+      submit.on("load", () => {
+        submitLoads += 1;
+      });
+      await submit.goto(`${fixture.origin}/single?shown=****9999&switch=****1234&switch-submit`);
+      await expect.poll(status).toContain('"outcome":"wrong-account"');
+      expect(submitLoads).toBe(1);
+      expect(new URL(submit.url()).searchParams.get("shown")).toBe("****9999");
     });
   } finally {
     await fixture.close();

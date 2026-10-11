@@ -208,6 +208,15 @@ export const loginRecipeSchema = v.pipe(
       24,
     "Too many result elements to observe with a step",
   ),
+  // The switch is clicked instead of signing in, so it must not be a step's own button.
+  v.check((recipe) => {
+    if (!recipe.accountSwitch) return true;
+    const key = JSON.stringify(recipe.accountSwitch);
+    return ![
+      ...recipe.steps.flatMap((step) => (step.kind === "click" ? [step.target] : [])),
+      ...(recipe.rejection ? [recipe.rejection] : []),
+    ].some((target) => JSON.stringify(target) === key);
+  }, "Account switch target is a step or rejection target"),
 );
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,

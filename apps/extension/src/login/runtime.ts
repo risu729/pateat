@@ -15,6 +15,7 @@ import {
   saveLoginChoice,
   siteDefaultConnection,
   transitionLoginAttempt,
+  withdrawAccountSwitch,
   validateLoginOperation,
   type LoginAttemptEvent,
   type LoginAccountBinding,
@@ -355,6 +356,13 @@ export function createLoginRuntime(
     await save(run);
     await publish(run.live, run.metadata);
     if (run.metadata.state === "authenticated" && run.choice) await remember(run);
+  }
+  async function withdrawSwitch(run: Execution): Promise<void> {
+    const tabId = run.live.document.tabId;
+    if (attempts.get(tabId) !== run || persisted.get(tabId)?.id !== run.metadata.id) return;
+    run.metadata = withdrawAccountSwitch(run.metadata);
+    await save(run);
+    await publish(run.live, run.metadata);
   }
   /**
    * Saves an automatic account choice after `authenticated` (ADR 0013). The settings must
@@ -1054,11 +1062,19 @@ export function createLoginRuntime(
           });
           // The switch is recorded before the click, so the page it leads to starts a new
           // attempt instead of resuming this one (owner decision, 2026-10-11).
-          if (switched && run.metadata.outcome === "account-switched")
-            await send(run.live, {
-              type: "login.switch",
-              operationId: operation.operationId,
-            }).catch(() => undefined);
+          if (run.metadata.outcome === "account-switched") {
+            const clicked =
+              current(run) &&
+              v.safeParse(
+                v.object({ ok: v.literal(true) }),
+                await send(run.live, {
+                  type: "login.switch",
+                  operationId: operation.operationId,
+                }).catch(() => undefined),
+              ).success;
+            // Without the click the attempt ends as `wrong-account` and keeps its tab.
+            if (!clicked) await withdrawSwitch(run);
+          }
           return;
         }
         if (!matchedResult || !result.output.ok) {

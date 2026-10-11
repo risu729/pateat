@@ -253,16 +253,23 @@ function record(
             ? true
             : context.retryRequired,
       };
-    case "WRONG_ACCOUNT":
+    case "WRONG_ACCOUNT": {
+      // Like a confirmed preflight failure, the reserved fill effect never started.
+      const submissions =
+        context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
+          ? context.submissions - 1
+          : context.submissions;
       return {
-        outcome: event.switched ? "account-switched" : "wrong-account",
-        // Like a confirmed preflight failure, the reserved fill effect never started.
-        submissions:
-          context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
-            ? context.submissions - 1
-            : context.submissions,
+        // A switch starts a fresh attempt with a full budget, so it is recorded only once
+        // per sign-in and only before anything was submitted.
+        outcome:
+          event.switched && !context.accountSwitched && submissions === 0
+            ? "account-switched"
+            : "wrong-account",
+        submissions,
         mutationIntent: undefined,
       };
+    }
     case "RETRY":
       return {
         retries: context.retries + 1,
@@ -523,6 +530,16 @@ export function createLoginAttempt(value: unknown) {
       return parseAttemptMetadata({ ...snapshot.context, state: snapshot.value });
     },
   });
+}
+
+/**
+ * Records that the account switch was not clicked after all: the attempt ends as
+ * `wrong-account`, which keeps holding its tab like any other ended attempt.
+ */
+export function withdrawAccountSwitch(value: unknown): LoginAttemptMetadata {
+  const metadata = parseAttemptMetadata(value);
+  if (metadata.state !== "blocked" || metadata.outcome !== "account-switched") return metadata;
+  return parseAttemptMetadata({ ...metadata, outcome: "wrong-account" });
 }
 
 /** Restart always observes; it never restores an actor snapshot with pending actions. */

@@ -218,9 +218,12 @@ export async function startLoginFixture(
               ? `<p>Signed in as ${fixtureUrl.searchParams.get("shown")!.replace(/[^A-Za-z0-9@.*]/gu, "")}</p>`
               : ""
           }${
-            // `switch` names the account the "Use another account" link shows next.
+            // `switch` names the account the "Use another account" link shows next;
+            // `switch-submit` makes it the submit button of its own form instead.
             fixtureUrl.searchParams.has("switch")
-              ? `<a href="/single?${new URLSearchParams({ shown: fixtureUrl.searchParams.get("switch")!.replace(/[^A-Za-z0-9@.*]/gu, ""), switch: fixtureUrl.searchParams.get("switch")!.replace(/[^A-Za-z0-9@.*]/gu, "") }).toString().replace(/&/gu, "&amp;")}">Use another account</a>`
+              ? fixtureUrl.searchParams.has("switch-submit")
+                ? `<form action="/single"><input type="hidden" name="shown" value="${fixtureUrl.searchParams.get("switch")!.replace(/[^A-Za-z0-9@.*]/gu, "")}"><button>Use another account</button></form>`
+                : `<a href="/single?${new URLSearchParams({ shown: fixtureUrl.searchParams.get("switch")!.replace(/[^A-Za-z0-9@.*]/gu, ""), switch: fixtureUrl.searchParams.get("switch")!.replace(/[^A-Za-z0-9@.*]/gu, "") }).toString().replace(/&/gu, "&amp;")}">Use another account</a>`
               : ""
           }<label>Password<input id="password" ${
             {

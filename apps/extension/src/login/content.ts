@@ -45,6 +45,20 @@ function clickable(element: Element | undefined): element is HTMLElement {
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
 }
+const isOnly = (found: readonly Element[], element: Element) =>
+  found.length === 1 && found[0] === element;
+/** How long after a `wrong-account` result its account switch may still be clicked. */
+const switchTimeoutMs = 10_000;
+/**
+ * Whether `element` is an account switch the executor may click: a shown link, or a shown
+ * button that does not submit a form (that would send the sign-in form instead).
+ */
+function switchable(element: Element | undefined): element is HTMLElement {
+  if (followable(element)) return true;
+  if (!clickable(element) || !isButton(element)) return false;
+  const submits = element.type === "submit" || element.type === "image";
+  return !(submits && element.form);
+}
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
   if (location.pathname !== readiness.path) return false;
@@ -84,7 +98,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let cancelled = false;
   const used = new Set<string>();
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
-  let pendingSwitch: { operationId: string; element: HTMLElement } | undefined;
+  let pendingSwitch:
+    | {
+        operationId: string;
+        element: HTMLElement;
+        target: LoginTarget;
+        path: string;
+        expiresAt: number;
+      }
+    | undefined;
   // First steps of the origin's recipes. A new attempt starts only once one is ready on
   // the current path, including after a same-document URL change or a dialog opening.
   let starts: LoginReadiness[] = [];
@@ -242,10 +264,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (command.type === "login.switch") {
       const pending = pendingSwitch;
       pendingSwitch = undefined;
+      // The page may have changed since the fill; click only the same, still unique element.
       const click =
         !cancelled &&
         pending?.operationId === command.operationId &&
-        (clickable(pending.element) || followable(pending.element));
+        Date.now() < pending.expiresAt &&
+        location.pathname === pending.path &&
+        switchable(pending.element) &&
+        isOnly(findTargets(document, pending.target, { links: true }), pending.element);
       if (click) pending.element.click();
       respond({ ok: click });
       return false;
@@ -380,8 +406,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               ? findTargets(document, command.accountSwitch, { links: true })
               : [];
             const element = found.length === 1 ? found[0] : undefined;
-            if (clickable(element) || followable(element)) {
-              pendingSwitch = { operationId: operation.operationId, element };
+            if (command.accountSwitch && switchable(element)) {
+              pendingSwitch = {
+                operationId: operation.operationId,
+                element,
+                target: command.accountSwitch,
+                path: location.pathname,
+                expiresAt: Date.now() + switchTimeoutMs,
+              };
               return { ...fail("wrong-account"), switchable: true as const };
             }
             return fail("wrong-account");
