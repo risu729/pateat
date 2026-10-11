@@ -4,7 +4,7 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
-Not implemented yet; each part below lands in its own PR.
+Each part lands in its own PR. Part A is implemented; B, C and D are not yet.
 
 Date: 2026-10-11
 

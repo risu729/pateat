@@ -982,7 +982,11 @@ owner added account choice outside the settings page to initial delivery
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)): a toolbar popup for the
 current site's default and exclusion, choosing among several password matches there
 (once or as the default), a passkey chooser window, and choosing again after a logout in
-the same tab. They land as separate PRs in that order.
+the same tab. They land as separate PRs in that order. The toolbar popup is implemented:
+clicking the icon opens `popup.html` for the active HTTPS tab, which shows whether the
+site is excluded and lists the vault items that match its origin as the default account.
+A rule for a parent domain that includes subdomains is shown but changed only in
+settings. Choosing among several matches for a refused login is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

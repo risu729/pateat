@@ -324,10 +324,11 @@ codes are distinct from future automatic email/SMS challenge retrieval.
 
 Settings, exclusions, account defaults and inference settings are edited on the
 service's owner-authenticated web UI
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's own page
-covers only vault connection, re-authentication, unlock and service pairing. The toolbar
-popup is a third place that edits the current site's default account and exclusion
-([ADR 0021](adr/0021-account-choice-outside-settings.md), not implemented yet). Chrome
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's settings
+page handles vault connection, re-authentication, unlock and service pairing, and still
+edits local policy, exclusions and account defaults. The toolbar popup edits only the
+active tab's site default account and exclusion, through the same worker-owned store
+([ADR 0021](adr/0021-account-choice-outside-settings.md)). Chrome
 use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
