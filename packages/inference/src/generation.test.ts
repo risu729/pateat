@@ -274,6 +274,10 @@ describe("recipe generation role", () => {
   it("asks for alternatives only for identifier sets the page shows now", () => {
     expect(generationInstructions).toContain("alternatives");
     expect(generationInstructions).toContain("never a sign-up, recovery, registration or");
+    expect(generationInstructions).toContain("a field belongs to one slot name only");
+    expect(generationInstructions).toContain(
+      "no set may fill exactly the same slots as another or only some of another's",
+    );
   });
 
   it.each([

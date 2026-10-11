@@ -921,6 +921,45 @@ describe("custom-field slots (ADR 0027)", () => {
     });
   });
 
+  it("drops the alternatives of a continuation's answer", async () => {
+    const device = await owner();
+    replies.push({
+      text: named(
+        [{ slot: "custom-1", candidate: "branch", name: "branch-number" }],
+        "next",
+        "advance",
+      ),
+    });
+    const first = await generateCustom(device, branchPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "custom-2", candidate: "pin", name: "pin-code" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+          alternatives: [
+            {
+              fields: [{ slot: "custom-1", candidate: "again", name: "branch-number" }],
+              action: { candidate: "sign-in", purpose: "submit" },
+            },
+          ],
+        },
+      }),
+    });
+    const second = await generateCustom(device, pinPage, {
+      recipeId: first.change.recipeId,
+      revision: 1,
+    });
+    expect(second).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { slots: ["branch-number", "pin-code"] } },
+      customSlots: [{ slot: "pin-code", offered: "custom-2" }],
+    });
+    if (second.status !== "recipe") return;
+    expect(second.change.recipe).not.toHaveProperty("alternatives");
+  });
+
   it("answers no mapping for a recipe without custom slots", async () => {
     const device = await owner();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });

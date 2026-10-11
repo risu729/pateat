@@ -827,7 +827,13 @@ slot. The extension keeps that mapping as the field names it offered, per servic
 device and recipe, in `chrome.storage.local`. An item without a saved binding then binds
 from another item's saved binding of the recipe, else from that map, and the binding is
 saved after `authenticated` as for built-in slots
-([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). A `hidden`
+([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). When a
+start page shows several identifier sets at once (branch and account numbers, or a
+contract number), the generation role may also return up to 3 alternative sets, each
+with its own fields and submit action; they become the further variants of the recipe's
+`password` route. An element is filled under one slot name in every set and no two sets
+fill the same slots or elements; an answer that hedges an ambiguous mapping that way
+fails as invalid output. A `hidden`
 slot is filled only into an input the Hidden rule of ADR 0013 accepts; the decision role
 and the heuristic name no custom slot, so they abstain on pages that need one. Signing
 in to a site through Google or Microsoft follows the policy in

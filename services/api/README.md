@@ -192,9 +192,12 @@ a code, or `unavailable` with a reason when no model was called.
   identifier sets (such as branch and account numbers, or a contract number) may get up
   to 3 `alternatives`, each with its own `slots` and `steps`, stored as further variants
   of the recipe's `password` route; the top-level `slots` and `steps` are its first
-  variant. Each variant fills exactly its slots on the start path and submits, so a
-  recipe with alternatives is never continued. `customSlots` covers the custom slots of
-  every variant, and the request log records the alternatives with the plan.
+  variant. Each variant fills exactly its slots, starts on the start path and submits,
+  so a recipe with alternatives is never continued. No element is filled as different
+  slots in different variants, and no two variants fill the same elements. A
+  continuation's answer has its alternatives dropped before assembly. `customSlots`
+  covers the custom slots of every variant, and the request log records the alternatives
+  with the plan.
 - `POST /v1/recipes/:recipeId/completion` takes
   `{ version: 1, revision, route, observation }` for a page an effect step of that
   revision led to, on the recipe's origin

@@ -4661,6 +4661,25 @@ describe("password route variants (ADR 0027)", () => {
     expect(await h.hello({ documentId: "second-document" }, false)).toMatchObject({ starts: [] });
   });
 
+  it("stops as a structural mismatch when only another variant's first step is ready", async () => {
+    // The document reported the start path ready, as the branch variant's fields showed,
+    // but the item fills only the contract variant, whose field never appears.
+    fake.state.awaited = { ok: false, reason: "timeout" };
+    const { h } = start({ bindings: [byContract] });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([
+        { variant: 1, state: "retryable", outcome: "structural-mismatch", submissions: 0 },
+      ]),
+    );
+    const awaited = fake.state.messages.find((entry) => entry.type === "login.await") as
+      | { readiness: { targets: unknown[] } }
+      | undefined;
+    expect(awaited?.readiness.targets).toEqual([target("contract"), target("password")]);
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
+  });
+
   it("removes the previous attempt store on load", async () => {
     fake.state.storage["pateat.login-attempts.v2"] = [{ id: "retired-record" }];
     const { h } = start({ bindings: [byContract] });

@@ -212,8 +212,10 @@ export async function generateRecipe(
 
   // Each custom-field slot the model named, in any identifier set: the recipe stores only
   // the generic name, and the extension maps it back to the offered field (ADR 0027). A
-  // requested slot has one name in every set, so each name appears once.
-  const alternatives = outcome.value.alternatives ?? [];
+  // requested slot has one name in every set, so each name appears once. Every variant
+  // starts on the start page, so a continuation's alternatives are dropped rather than
+  // failing a call that was already paid for.
+  const alternatives = baseRecipe ? [] : (outcome.value.alternatives ?? []);
   const customSlots = [
     ...new Map(
       [outcome.value, ...alternatives]

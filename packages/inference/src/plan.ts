@@ -185,8 +185,15 @@ export type GeneratedPageRejection =
   | PlanRejection
   /** A requested slot was given another recipe slot name in another set. */
   | "inconsistent-slot-name"
-  /** Two sets fill the same slots, or one set's slots are a subset of another's. */
+  /** One element is filled under different recipe slots in different sets. */
+  | "inconsistent-candidate"
+  /**
+   * Two sets fill the same slots or the same elements, or one set's slots are a subset of
+   * another's.
+   */
   | "duplicate-variant"
+  /** More alternatives than {@link MAX_PAGE_ALTERNATIVES}. */
+  | "too-many-variants"
   /** A page with several sets has a set whose action advances instead of submitting. */
   | "variant-advance";
 
@@ -196,8 +203,10 @@ export const MAX_PAGE_ALTERNATIVES = 3;
 /**
  * Validates a generated page plan with its alternatives (ADR 0027). Each set must pass
  * {@link validatePagePlan} on its own. Across the sets, a requested slot keeps one recipe
- * slot name and two requested slots never share one, no set's slots repeat or are a subset
- * of another's, every action submits, and the account switch is none of their elements.
+ * slot name and two requested slots never share one, an element is filled under one recipe
+ * slot only, no set's slots repeat or are a subset of another's, no two sets fill the same
+ * elements, every action submits, and the account switch is none of their elements. An
+ * ambiguous mapping therefore abstains instead of becoming two variants.
  * Any failure refuses the whole plan, so a recipe never stores a set that was not checked.
  */
 export function validateGeneratedPage(
@@ -209,7 +218,7 @@ export function validateGeneratedPage(
   const primary = validatePagePlan(observation, slots, primaryDraft);
   if (!primary.ok || alternatives.length === 0) return primary;
   if (alternatives.length > MAX_PAGE_ALTERNATIVES)
-    return { ok: false, reason: "duplicate-variant" };
+    return { ok: false, reason: "too-many-variants" };
   const validated: ValidatedPagePlan[] = [];
   for (const alternative of alternatives) {
     const result = validatePagePlan(observation, slots, {
@@ -232,6 +241,24 @@ export function validateGeneratedPage(
     names.set(field.slot, name);
     owners.set(name, field.slot);
   }
+  // One recipe slot per element, over every set.
+  const filledAs = new Map<string, string>();
+  for (const field of plans.flatMap((plan) => plan.fields)) {
+    const name = field.name ?? field.slot;
+    if ((filledAs.get(field.candidate) ?? name) !== name)
+      return { ok: false, reason: "inconsistent-candidate" };
+    filledAs.set(field.candidate, name);
+  }
+  const filled = plans.map((plan) => new Set(plan.fields.map((field) => field.candidate)));
+  if (
+    filled.some((set, index) =>
+      filled.some(
+        (other, otherIndex) =>
+          otherIndex !== index && set.size === other.size && [...set].every((c) => other.has(c)),
+      ),
+    )
+  )
+    return { ok: false, reason: "duplicate-variant" };
   const sets = plans.map((plan) => plan.fields.map((field) => field.slot));
   if (
     sets.some((set, index) =>

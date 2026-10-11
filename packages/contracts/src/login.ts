@@ -296,6 +296,35 @@ export const loginRecipeSchema = v.pipe(
       ),
     "A variant's slots repeat or are a subset of another variant's",
   ),
+  // An element is filled as one slot whatever the variant, and no two variants fill the
+  // same elements, so an ambiguous mapping never becomes two variants.
+  v.check((recipe) => {
+    if (!recipe.alternatives) return true;
+    const filled = variantsOf(recipe).map(({ steps }) =>
+      steps.flatMap((step) =>
+        step.kind === "fill"
+          ? step.fields.map((field) => ({
+              key: `${step.path}\n${targetKey(field.target)}`,
+              slot: field.slot,
+            }))
+          : [],
+      ),
+    );
+    const slotOf = new Map<string, string>();
+    for (const { key, slot } of filled.flat()) {
+      if ((slotOf.get(key) ?? slot) !== slot) return false;
+      slotOf.set(key, slot);
+    }
+    const keys = filled.map((entries) => new Set(entries.map((entry) => entry.key)));
+    return keys.every((set, index) =>
+      keys.every(
+        (other, otherIndex) =>
+          otherIndex === index ||
+          set.size !== other.size ||
+          [...set].some((key) => !other.has(key)),
+      ),
+    );
+  }, "A fill target maps to several slots, or two variants fill the same targets"),
   // A binding covers one variant, and bindings hold at most 20 slots.
   v.check(
     (recipe) => new Set(variantsOf(recipe).flatMap((variant) => variant.slots)).size <= 20,

@@ -821,6 +821,48 @@ describe("password route variants (ADR 0027)", () => {
     ["the same slots", { alternatives: [variant(["password", "account", "branch"])] }],
     ["a subset of another variant's slots", { alternatives: [variant(["branch", "password"])] }],
     [
+      "an element another variant fills as another slot",
+      {
+        alternatives: [
+          {
+            slots: ["contract", "password"],
+            steps: [
+              {
+                ...fill([]),
+                fields: [
+                  { slot: "contract", target: id("branch") },
+                  { slot: "password", target: id("password") },
+                ],
+              },
+              submit(),
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      "the same elements under other slots",
+      {
+        slots: ["branch", "password"],
+        steps: [fill(["branch", "password"]), submit()],
+        alternatives: [
+          {
+            slots: ["contract", "password"],
+            steps: [
+              {
+                ...fill([]),
+                fields: [
+                  { slot: "contract", target: id("branch") },
+                  { slot: "password", target: id("password") },
+                ],
+              },
+              submit(),
+            ],
+          },
+        ],
+      },
+    ],
+    [
       "a variant that advances",
       {
         alternatives: [

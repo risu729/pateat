@@ -278,10 +278,45 @@ describe("several identifier sets on one page (ADR 0027)", () => {
         { fields: [{ slot: "custom-3", candidate: "pin", name: "pin-code" }], action },
         { fields: [{ slot: "custom-4", candidate: "contract", name: "contract-number" }], action },
       ],
-      "duplicate-variant",
+      "too-many-variants",
+    ],
+    [
+      "an element filled under another recipe slot",
+      [
+        {
+          fields: [
+            { slot: "custom-4", candidate: "branch", name: "contract-number" },
+            { slot: "password", candidate: "password" },
+          ],
+          action,
+        },
+      ],
+      "inconsistent-candidate",
     ],
   ])("refuses %s", (_label, alternatives, reason) => {
     expect(check(alternatives)).toEqual({ ok: false, reason });
+  });
+
+  it("refuses sets that fill the same elements under other slots instead of abstaining", () => {
+    // Both sets type one element as either custom field: an ambiguous mapping, which could
+    // also put a Hidden PIN where the other set puts an identifier.
+    const hedged = validateGeneratedPage(page, all, {
+      fields: [
+        { slot: "custom-1", candidate: "branch", name: "branch-number" },
+        { slot: "password", candidate: "password" },
+      ],
+      action,
+      alternatives: [
+        {
+          fields: [
+            { slot: "custom-2", candidate: "branch", name: "account-number" },
+            { slot: "password", candidate: "password" },
+          ],
+          action,
+        },
+      ],
+    });
+    expect(hedged).toEqual({ ok: false, reason: "inconsistent-candidate" });
   });
 
   it("refuses a first set that advances once alternatives exist", () => {
