@@ -354,8 +354,7 @@ export function BitwardenSetup({
       <p className="note">
         Connect manually to Bitwarden Cloud US/EU or an ordinary HTTPS self-hosted server. Master
         passwords and verification codes are not saved. Connecting retains a local unlock key, an
-        encrypted vault cache and a sync sign-in on this device. Automatic website login remains
-        unavailable.
+        encrypted vault cache and a sync sign-in on this device.
       </p>
       <output
         id="bitwarden-setup-status"

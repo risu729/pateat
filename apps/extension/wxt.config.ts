@@ -38,7 +38,8 @@ export default defineConfig({
   }),
   manifest: ({ mode }) => ({
     name: "Pateat",
-    description: "Local login assistant — foundation preview. Login is not implemented.",
+    description:
+      "Logs in to websites and answers passkey sign-ins from your own password vault, kept on this device.",
     minimum_chrome_version: "120",
     action: {
       default_title: "Open Pateat settings",
