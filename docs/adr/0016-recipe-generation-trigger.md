@@ -3,9 +3,10 @@
 Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0009](0009-install-time-https-site-access.md); amended by
 [ADR 0018](0018-recipe-generation-route.md) and by the owner's account-switch decision
-of 2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)). Not
-implemented yet in the extension: the extractor exists but nothing calls it. The service
-route enforces the 24-hour rule
+of 2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)).
+Implemented in the extension
+([Background execution](../architecture.md#background-execution)), except that
+amendment; the service route enforces the 24-hour rule as well
 ([API README](../../services/api/README.md#recipe-generation)).
 
 Date: 2026-10-11
@@ -46,6 +47,22 @@ observation is not sent.
 When the generated recipe is used, and the service route, are decided in
 [ADR 0018](0018-recipe-generation-route.md).
 
+Implementation choices that follow from this decision, made on 2026-10-11 without a
+new owner decision:
+
+- Only a page that shows such an input within 10 seconds of loading is sent, the same
+  wait a login step gets; a form shown later, for example after a click, is not.
+- The vault match is checked only once the input shows, and only matching items'
+  built-in fields decide which of the `username`, `password` and `totp` slots are
+  offered.
+- The extension remembers a page as attempted when it sends it. It forgets the attempt
+  only when the service could not be reached or answered `busy`, since no model call
+  was made.
+- Any cached recipe for the origin, even one that starts on another path, stops pages on
+  that origin from being offered; a generated recipe's later pages go through its
+  continuation in ADR 0018 instead.
+- Frames are not sent; only the tab's own page is.
+
 ## Pages where no recipe starts
 
 Amended by the owner on 2026-10-11, choosing how a login continues after an account
@@ -62,8 +79,9 @@ account"), which leads to `/signin/id`, an email page. No recipe starts there, s
 page is observed and sent, and the recipe generated for it logs in to `my2@example.com`
 ([Background execution](../architecture.md#background-execution)).
 
-Not implemented yet: the extension does not call the extractor, and the service keeps
-one generated recipe per origin.
+Not implemented yet: the extension still offers only pages of an origin without any
+cached recipe (the implementation choice above), and the service keeps one generated
+recipe per origin.
 
 ## Consequences
 

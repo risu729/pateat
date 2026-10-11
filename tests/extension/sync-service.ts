@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Miniflare } from "miniflare";
+import { Miniflare, Response } from "miniflare";
 
 const project = fileURLToPath(new URL("../../services/api/", import.meta.url));
 const workerDirectory = join(project, ".cloudflare", "output", "v0", "workers", "default");
@@ -20,12 +20,37 @@ export type SyncService = {
 /**
  * Serves the built API Worker (`mise run //services/api:build`) on loopback HTTPS with a fresh
  * local D1 database, one owner and one device. Nothing leaves the machine.
+ *
+ * `claude` answers the Worker's requests to `https://api.anthropic.com` in place of
+ * Anthropic: it gets the path and request body and returns the JSON answer. With it the
+ * owner gets synthetic workload identity federation settings and a per-run issuer key,
+ * so the recipe generation routes can call the model.
  */
-export async function startSyncService(): Promise<SyncService> {
+export async function startSyncService({
+  claude,
+}: {
+  claude?: (path: string, body: string) => unknown;
+} = {}): Promise<SyncService> {
   const config = JSON.parse(await readFile(join(workerDirectory, "worker.config.json"), "utf8"));
   // Owner pages need Cloudflare Access; device sync routes do not use it.
   delete config.env?.ACCESS_TEAM_DOMAIN;
   delete config.env?.ACCESS_AUD;
+  if (claude) {
+    // A synthetic ES256 issuer key generated per run; it never signs for a real organization.
+    const key = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const { kty, crv, x, y, d } = await crypto.subtle.exportKey("jwk", key.privateKey);
+    config.env.OIDC_ISSUER = { type: "json", value: "https://pateat.invalid" };
+    config.env.OIDC_SIGNING_KEYS = {
+      type: "json",
+      value: JSON.stringify({
+        signingKeyId: "synthetic",
+        keys: [{ kty, crv, alg: "ES256", kid: "synthetic", x, y, d }],
+      }),
+    };
+  }
   const mainModule: string = config.manifest.mainModule;
   const runtime = new Miniflare({
     https: true,
@@ -54,8 +79,11 @@ export async function startSyncService(): Promise<SyncService> {
         dev: {
           outboundService: {
             type: "fetcher",
-            handler() {
-              throw new Error("The API Worker must not make outbound requests");
+            async handler(request) {
+              const url = new URL(request.url);
+              if (claude && url.origin === "https://api.anthropic.com")
+                return Response.json(claude(url.pathname, await request.text()));
+              throw new Error("The API Worker must not make other outbound requests");
             },
           },
         },
@@ -85,6 +113,20 @@ export async function startSyncService(): Promise<SyncService> {
       )
       .bind(deviceId, ownerId, tokenHash, "Synthetic test device", now)
       .run();
+    if (claude)
+      await db
+        .prepare(
+          "INSERT INTO inference_credentials (owner_id, kind, federation_rule_id, organization_id, service_account_id, workspace_id, updated_at) VALUES (?, 'wif', ?, ?, ?, ?, ?)",
+        )
+        .bind(
+          ownerId,
+          "fdrl_01SyntheticRule",
+          "00000000-0000-4000-8000-000000000000",
+          "svac_01SyntheticAccount",
+          "wrkspc_01SyntheticWorkspace",
+          now,
+        )
+        .run();
 
     const origin = url.origin;
     let closed: Promise<void> | undefined;

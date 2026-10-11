@@ -404,8 +404,8 @@ test("local policies and account defaults survive a browser restart", async () =
         await page
           .locator("#default-account")
           .selectOption(JSON.stringify(["demo-personal", "primary"]));
+        // Each change is saved as it is made.
         await page.locator("#add-default").click();
-        await page.locator("#save-settings").click();
         await expect(page.locator("#settings-status")).toContainText("saved locally");
       },
       profile,
@@ -446,7 +446,8 @@ test("local policies and account defaults survive a browser restart", async () =
         });
         expect(response.ok).toBe(true);
         if (!response.ok) throw new Error("Settings unavailable after restart");
-        expect(response.snapshot.revision).toBe(1);
+        // Each change was saved as it was made; edits during a save share the next one.
+        expect(response.snapshot.revision).toBeGreaterThanOrEqual(1);
         expect(response.snapshot.settings.excludedSites).toEqual([
           { hostname: "excluded.example", includeSubdomains: true },
         ]);
@@ -479,11 +480,9 @@ test("a stale settings page preserves its draft and cannot overwrite newer polic
     );
     await first.locator("#site-hostname").fill("protected.example");
     await first.locator("#add-site").click();
-    await first.locator("#save-settings").click();
     await expect(first.locator("#settings-status")).toContainText("saved locally");
     await second.locator("#site-hostname").fill("draft.example");
     await second.locator("#add-site").click();
-    await second.locator("#save-settings").click();
     await expect(second.locator("#settings-status")).toContainText("Reload");
     await expect(second.locator("#excluded-sites")).toContainText("draft.example");
     await second.locator("#reload-settings").click();

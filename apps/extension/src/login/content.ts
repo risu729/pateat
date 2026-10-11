@@ -4,8 +4,15 @@ import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton } from "../page/text";
 import { findTargets } from "../page/targets";
+import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { acceptsSecret } from "./inputs";
-import { commandSchema, readySchema, reconnectSchema, type LoginReadiness } from "./wire";
+import {
+  commandSchema,
+  LOGIN_STEP_WAIT_MS,
+  readySchema,
+  reconnectSchema,
+  type LoginReadiness,
+} from "./wire";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget): Element[] {
@@ -49,6 +56,22 @@ function ready(readiness: LoginReadiness): boolean {
     return true;
   });
 }
+/**
+ * Whether the page shows a visible password input, or one marked for a username or a
+ * one-time code: the only pages without a recipe that may be sent for generation
+ * (ADR 0016).
+ */
+function showsSignIn(): boolean {
+  return [...document.querySelectorAll("input")].some((input) => {
+    const tokens = input.autocomplete.toLowerCase().split(/\s+/u);
+    return (
+      (input.type === "password" ||
+        tokens.includes("username") ||
+        tokens.includes("one-time-code")) &&
+      writable(input)
+    );
+  });
+}
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface LoginContentOptions {
@@ -66,6 +89,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // the current path, including after a same-document URL change or a dialog opening.
   let starts: LoginReadiness[] = [];
   let announced = false;
+  // The background may generate a recipe for this page if it shows a sign-in input soon
+  // after loading; a form shown only later, for example after a click, is not sent.
+  let generate = false;
+  let offered = false;
+  let offerTimer: ReturnType<typeof setTimeout> | undefined;
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
@@ -73,6 +101,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     timer ??= setTimeout(check, 100);
   };
   function unwatch(): void {
+    clearTimeout(offerTimer);
+    offerTimer = undefined;
     observer?.disconnect();
     observer = undefined;
     clearTimeout(timer);
@@ -80,9 +110,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     removeEventListener("popstate", schedule);
     navigation?.removeEventListener("currententrychange", schedule);
   }
-  function watch(list: LoginReadiness[]): void {
+  function watch(list: LoginReadiness[], offer = false): void {
     starts = list;
-    if (!starts.length || cancelled) {
+    generate = offer && !offered;
+    if (!generate) {
+      clearTimeout(offerTimer);
+      offerTimer = undefined;
+    } else
+      offerTimer ??= setTimeout(() => {
+        offerTimer = undefined;
+        offered = true;
+        watch(starts);
+      }, LOGIN_STEP_WAIT_MS);
+    if ((!starts.length && !generate) || cancelled) {
       unwatch();
       return;
     }
@@ -100,6 +140,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "name",
           "data-testid",
           "type",
+          "autocomplete",
           "hidden",
           "style",
           "class",
@@ -139,25 +180,34 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     else if (!startable) {
       announced = false;
       retries = 0;
+      // Offered once per page; the background keeps its own daily limit as well.
+      if (generate && !offered && showsSignIn()) {
+        offered = true;
+        void announce(false, true).catch(() => undefined);
+      }
     }
   }
-  async function announce(start: boolean): Promise<unknown> {
+  async function announce(start: boolean, signIn = false): Promise<unknown> {
     announced = start;
     const result: unknown = await browser.runtime.sendMessage({
       version: 1,
       type: "login.document.ready",
       token,
       ...(start ? { start: { path: location.pathname } } : {}),
+      ...(signIn ? { signIn: { path: location.pathname } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
     if (!parsed.success || parsed.output.ok) {
       unwatch();
     } else if (parsed.output.starts) {
-      watch(parsed.output.starts);
+      watch(parsed.output.starts, parsed.output.generate === true);
       // A refused start means the background did not see the form on this path yet, for
       // example while the tab still shows the previous URL.
       if (start) retry();
       else check();
+    } else if (parsed.output.reason === "generating") {
+      // The background announces a generated recipe with `login.reconnect`.
+      unwatch();
     } else if (
       ["stale-document", "closed-tab", "runtime-unavailable"].includes(parsed.output.reason ?? "")
     ) {
@@ -230,6 +280,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           location.origin,
         );
       respond({ ok: true });
+      return false;
+    }
+    if (command.type === "login.extract") {
+      if (cancelled) {
+        respond({ ok: false, reason: "cancelled" });
+        return false;
+      }
+      const result =
+        command.page === "login" ? extractLoginObservation() : extractSignedInObservation();
+      respond(result);
       return false;
     }
     if (command.type === "login.observe") {

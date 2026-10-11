@@ -44,6 +44,11 @@ export const helloSchema = v.strictObject({
   token: id,
   /** The first step's elements are ready on this path; a new attempt may start. */
   start: v.optional(v.strictObject({ path })),
+  /**
+   * A visible password, username or one-time-code input shows on this path, so a page
+   * without a recipe may be sent for generation (ADR 0016).
+   */
+  signIn: v.optional(v.strictObject({ path })),
 });
 /**
  * A refused hello. `starts` lists the first steps of the origin's recipes; the document
@@ -53,6 +58,8 @@ export const readySchema = v.strictObject({
   ok: v.boolean(),
   reason: v.optional(v.string()),
   starts: v.optional(v.pipe(v.array(loginReadinessSchema), v.maxLength(32))),
+  /** The page may be sent for generation; announce again with `signIn` once it applies. */
+  generate: v.optional(v.literal(true)),
 });
 export const reconnectSchema = v.strictObject({
   version: v.literal(1),
@@ -115,6 +122,16 @@ export const commandSchema = v.variant("type", [
     token: id,
     operationId: id,
   }),
+  /**
+   * Describes the page without values: a login page to generate a recipe from, or the
+   * page after a generated recipe's final submission (ADR 0018).
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.extract"),
+    token: id,
+    page: v.picklist(["login", "signed-in"]),
+  }),
   v.strictObject({
     version: v.literal(1),
     type: v.literal("login.status"),
@@ -140,6 +157,11 @@ export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),
   reason: v.optional(v.picklist(["timeout", "cancelled"])),
 });
+/** The page description; validated again against `loginObservationSchema` by the caller. */
+export const extractResultSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true), observation: v.unknown() }),
+  v.strictObject({ ok: v.literal(false), reason: v.string() }),
+]);
 export const observationSchema = v.strictObject({
   path: v.string(),
   targets: v.pipe(v.array(v.picklist(["missing", "unique", "ambiguous"])), v.maxLength(24)),
