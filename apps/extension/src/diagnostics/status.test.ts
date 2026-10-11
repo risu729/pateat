@@ -211,7 +211,9 @@ describe("diagnostics status", () => {
       version: "154.0.7712.45",
       installType: "normal",
     });
-    expect(report).toContain("Pateat 0.1.0 (1c42ad3) · production build · Web Store install");
+    expect(report).toContain(
+      "Pateat 0.1.0 (1c42ad3) · production build · Web Store install (normal)",
+    );
     expect(report).toContain("· sync sign-in active ·");
     expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted sites");
     expect(report).toContain("warn clock 95 s behind the service");
@@ -240,15 +242,17 @@ describe("diagnostics status", () => {
     expect(
       formatReport(status, { name: "Chrome", version: "156", installType: "development" }),
     ).toMatch(
-      /^Pateat .* · unpacked install\n[\s\S]*sync sign-in kept, next Sync tries to renew it \(refresh-required\)/u,
+      /^Pateat .* · unpacked install \(development\)\n[\s\S]*sync sign-in kept, next Sync tries to renew it \(refresh-required\)/u,
     );
     // Sync reads the stored unlock key, so without auto-unlock the token cannot be renewed.
+    expect(v.is(diagnosticsStatusSchema, status)).toBe(true);
     const manual = await collect("disabled");
+    expect(v.is(diagnosticsStatusSchema, manual)).toBe(true);
     const manualId = manual.connections[0]!.id;
     expect(manual.checks).toContainEqual({
       id: `sync:${manualId}`,
       level: "info",
-      detail: `${manualId} sync sign-in kept, next Sync tries to renew it (refresh-required), Sync needs auto-unlock (auto-unlock disabled)`,
+      detail: `${manualId} sync sign-in kept, next Sync tries to renew it (refresh-required); Sync needs auto-unlock`,
     });
   });
 

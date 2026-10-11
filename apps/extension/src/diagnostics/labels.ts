@@ -14,9 +14,10 @@ const INSTALL_LABELS: Record<string, string> = {
 
 /** Chrome's `installType`: `development` means loaded unpacked. */
 export function installLabel(installType: string): string {
-  return Object.hasOwn(INSTALL_LABELS, installType)
-    ? INSTALL_LABELS[installType]!
-    : `${installType} install`;
+  const label = Object.hasOwn(INSTALL_LABELS, installType)
+    ? INSTALL_LABELS[installType]
+    : undefined;
+  return label ?? `${installType} install`;
 }
 
 /** What the provider session means for the next Sync. */

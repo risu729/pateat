@@ -273,7 +273,7 @@ function connectionChecks(item: DiagnosticsConnection, now: number): Diagnostics
           ? {
               id: `sync:${item.id}`,
               level: "info",
-              detail: `${item.id} ${syncSignIn(item.providerSession)}, Sync needs auto-unlock (auto-unlock ${item.autoUnlock})`,
+              detail: `${item.id} ${syncSignIn(item.providerSession)}; Sync needs auto-unlock`,
             }
           : {
               id: `sync:${item.id}`,

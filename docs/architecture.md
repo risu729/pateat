@@ -513,7 +513,7 @@ that exact page URL and returns a value-free summary
 - the manifest version with the build revision (`PATEAT_REVISION` in CI, otherwise the
   checkout's `git rev-parse HEAD`), build mode, the pinned Bitwarden SDK version and the
   Bitwarden protocol label; the page adds the Chrome version and install type
-  (`development` is shown as `unpacked install`);
+  (`development` is shown as `unpacked install (development)`);
 - the platform, granted API permissions, the manifest's host patterns (other granted
   origins are only counted) and the toolbar icon state;
 - per Bitwarden connection, an HMAC pseudonym of its ID (`bitwarden:5c1e9a`, keyed by a

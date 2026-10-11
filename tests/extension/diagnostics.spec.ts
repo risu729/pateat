@@ -53,7 +53,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await expect(page.locator("#diagnostics-service")).toHaveText("not-configured");
     const report = await preview(page);
     expect(report).toMatch(
-      /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development)\) · production build · unpacked install\n/u,
+      /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development)\) · production build · unpacked install \(development\)\n/u,
     );
     expect(report).toContain("Permissions: storage, offscreen, https://*/*");
     expect(report).toContain("Pateat service: not-configured");

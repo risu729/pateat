@@ -51,7 +51,7 @@ function serviceLine(service: DiagnosticsStatus["service"]): string {
 export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): string {
   const { build } = status;
   const lines = [
-    `Pateat ${build.version} (${shortRevision(build.revision)}) · ${build.mode} build · ${installLabel(browser.installType)}`,
+    `Pateat ${build.version} (${shortRevision(build.revision)}) · ${build.mode} build · ${installLabel(browser.installType)} (${browser.installType})`,
     `${browser.name} ${browser.version} · ${status.platform.os} ${status.platform.arch}`,
     `Permissions: ${[...status.permissions.permissions, ...status.permissions.origins].join(", ")}${status.permissions.otherOrigins ? ` + ${status.permissions.otherOrigins} granted sites` : ""}`,
     `Bitwarden SDK ${build.bitwardenSdk} · protocol ${build.bitwardenProtocol}`,
