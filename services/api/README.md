@@ -159,14 +159,14 @@ releases do not apply cron triggers.
 
 ## Schema and tests
 
-`src/db/schema.ts` is the Drizzle schema. Run `mise run generate:server-migrations`
-after changing it and commit the generated `migrations/`; `check:server-migrations`
-fails when they drift. Vitest applies the committed migrations to a local Miniflare D1
-database. Sync tests seed synthetic owners and devices directly; enrollment tests sign
-synthetic Access tokens with keys generated per run. Claude credential tests use a
-synthetic issuer key generated per run and a fake token endpoint; they never reach
-Anthropic. Generation tests also answer the Messages API locally with synthetic plans
-and judgements. The concurrency cases interleave
+`src/db/schema.ts` is the Drizzle schema. Run
+`mise run //services/api:generate:migrations` after changing it and commit the generated
+`migrations/`; `//services/api:check:migrations` fails when they drift. Vitest applies
+the committed migrations to a local Miniflare D1 database. Sync tests seed synthetic
+owners and devices directly; enrollment tests sign synthetic Access tokens with keys
+generated per run. Claude credential tests use a synthetic issuer key generated per run
+and a fake token endpoint; they never reach Anthropic. Generation tests also answer the
+Messages API locally with synthetic plans and judgements. The concurrency cases interleave
 requests in one local runtime; they do not demonstrate hosted D1 behavior.
 
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds

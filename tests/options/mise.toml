@@ -1,0 +1,18 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tasks.typecheck]
+run = "tsc --noEmit -p tsconfig.json"
+
+[tasks.test]
+description = "Exercise settings components with a synthetic client in Chromium."
+depends = ["//apps/extension:build:probe", "//services/api:build"]
+# The first browser suite starts after the CPU-heavy checks: under load Vite can finish its
+# dependency crawl early, optimize a late import and reload the page mid-test.
+wait_for = [
+  "//...:typecheck",
+  "//packages/...:test",
+  "//services/api:test",
+  "//services/api:check:*",
+  "//:test:tools",
+]
+run = "node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts"

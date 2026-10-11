@@ -1,0 +1,4 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tasks.test]
+run = "node ../../node_modules/vitest/vitest.mjs run"

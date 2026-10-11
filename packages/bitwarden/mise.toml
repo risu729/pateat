@@ -1,0 +1,7 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tasks.typecheck]
+run = "tsc --noEmit -p tsconfig.json"
+
+[tasks.test]
+run = "node ../../node_modules/vitest/vitest.mjs run"
