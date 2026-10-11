@@ -55,7 +55,7 @@ host the extension can access (`host_permissions: ["https://*/*"]`,
    device-credential only and send no cookies.
 2. **Only Pateat's extension ID can pair.** The manifest pins the ID with a `key` (a
    public key), so unpacked builds get a stable ID. The service accepts only configured
-   extension IDs.
+   extension IDs. The owner keeps the key's private key in their own Bitwarden vault.
 3. **The requirement is the browser's login session, not Access.** Access is how the
    login session works today. Access may be removed later, for example for a public
    release. A service-owned login would then replace it, which is the Access-free OIDC
@@ -105,14 +105,17 @@ Access Bypass application ("pateat bypass").
   ([development](../development.md)). Sharing the production ID would give it the
   production extension's storage (vault cache, retained unlock key, device credential)
   and put its probe-only scripts and host access on that identity, against ADR 0009.
-- **The key.** The key is a 2048-bit RSA key. Its base64 DER SubjectPublicKeyInfo is
-  the manifest `key`. The ID is the first 128 bits of the key's SHA-256, written as 32
+- **The key.** The key is a 2048-bit RSA key. Its base64 DER SubjectPublicKeyInfo is the
+  manifest `key`. The ID is the first 128 bits of the key's SHA-256, written as 32
   letters `a` to `p`. Only the public key is committed. Loading an unpacked extension
   checks no signature, so no private key is needed for it. The private key only signs
-  `.crx` packages, and Pateat publishes none. The recommendation is to discard it
-  (see [open items](#open-items)). The ID alone proves nothing, because anyone can copy
-  the public key. It matters only together with the owner's login session, and Chrome
-  cannot load a second extension with the same ID.
+  `.crx` packages, and Pateat publishes none. The owner keeps it (owner decision,
+  2026-10-11): it is generated on the owner's own computer and stored as a secure note
+  in the owner's Bitwarden vault, never in the repository or a cloud session. Losing or
+  leaking it adds little risk, because anyone can already reproduce the ID for an
+  unpacked build from the public key. The ID alone proves nothing, because anyone can
+  copy the public key. It matters only together with the owner's login session, and
+  Chrome cannot load a second extension with the same ID.
 - **Chrome Web Store.** If Pateat is ever published there, the store item's public key
   replaces the manifest `key`, and its ID is added to the list. This is checked when
   publishing is planned.
@@ -221,11 +224,9 @@ Access Bypass application ("pateat bypass").
 
 These need the owner's answer:
 
-- **The private key.** Discard it after generation (recommended: an ID change is cheap
-  before release), or keep it offline in the owner's own vault. Discarding it rules out
-  ever signing a `.crx` with this ID, for example for distribution through enterprise
-  policy.
 - **Showing the paired identity, possibly later.** For example, the success response
   could carry the token's email for the settings page to show. This would be a new
-  decision and is not planned.
+  decision and is not planned. A separate admin view of every user's devices is a
+  different feature; the owner suggested it would be its own page behind its own Access
+  rule.
 - **Credential idle expiry** stays open, unchanged by this ADR.
