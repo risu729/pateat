@@ -63,6 +63,43 @@ describe("generated recipe assembly", () => {
     expect(next.recipe.rejection).toEqual(target("error"));
   });
 
+  it("keeps the first account switch that no step clicks", () => {
+    const other = { by: "text", value: "Use another account" } as const;
+    const first = appendPageSteps(undefined, {
+      id: "gen-1",
+      origin,
+      steps: page("/login", "username", "advance"),
+      accountSwitch: other,
+    });
+    if (!first.ok) throw new Error(first.reason);
+    expect(first.recipe.accountSwitch).toEqual(other);
+    const next = appendPageSteps(first.recipe, {
+      id: "gen-1",
+      origin,
+      steps: page("/pw", "pw", "submit"),
+      accountSwitch: target("elsewhere"),
+    });
+    if (!next.ok) throw new Error(next.reason);
+    expect(next.recipe.accountSwitch).toEqual(other);
+    // A switch that a step also clicks is left out rather than failing the recipe.
+    const clicked = appendPageSteps(first.recipe, {
+      id: "gen-1",
+      origin,
+      steps: [
+        {
+          kind: "fill",
+          path: "/pw",
+          effect: "prepare",
+          fields: [{ slot: "pw", target: target("pw") }],
+        },
+        { kind: "click", path: "/pw", target: other, purpose: "submit" },
+      ],
+      accountSwitch: target("switch"),
+    });
+    if (!clicked.ok) throw new Error(clicked.reason);
+    expect(clicked.recipe.accountSwitch).toEqual(target("switch"));
+  });
+
   it("refuses to append after a submit, to a learned recipe, across origins or past bounds", () => {
     const submitted = built(page("/login", "password", "submit"));
     const next = { id: "gen-1", origin, steps: page("/otp", "otp", "submit") };

@@ -954,8 +954,9 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   switch click and the new attempt on the next page are implemented
   ([Background execution](architecture.md#background-execution)), and a page where no
   recipe starts is offered for generation (the service keeps one generated recipe per
-  start path). Still to do: naming `accountSwitch`
-  (including link text) in the extractor and the generator.
+  start path). The extractor locates a link by its text and the generation role may
+  name the page's `accountSwitch`, so a generated recipe carries it
+  ([Background execution](architecture.md#background-execution)).
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
 - A real-page corpus per ADR 0012.

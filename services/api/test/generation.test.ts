@@ -746,6 +746,34 @@ describe("recipe generation", () => {
     expect(sent).toHaveLength(5);
   });
 
+  it("stores the account switch the model names", async () => {
+    const device = await owner();
+    const remembered = observation("/password", [
+      element("password", "password", "Password"),
+      element("sign-in", "button", "Sign in"),
+      {
+        id: "switch",
+        role: "link",
+        target: { by: "text", value: "Use another account" },
+        label: "Use another account",
+      },
+    ]);
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "password", candidate: "password" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+          accountSwitch: "switch",
+        },
+      }),
+    });
+    expect(await generate(device, remembered)).toMatchObject({
+      status: "recipe",
+      change: { recipe: { accountSwitch: { by: "text", value: "Use another account" } } },
+    });
+  });
+
   it("stops generating once the owner revokes the recipe in the web UI", async () => {
     const device = await owner();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });

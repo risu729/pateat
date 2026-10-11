@@ -3,6 +3,7 @@ import {
   loginStepSchema,
   type LoginObservation,
   type LoginStep,
+  type LoginTarget,
   type ObservedCandidate,
   type SemanticSlot,
 } from "@pateat/contracts";
@@ -15,6 +16,8 @@ import * as v from "valibot";
 export type PagePlan = {
   fields: { slot: string; candidate: string }[];
   action: { candidate: string; purpose: "advance" | "submit" };
+  /** The button or link that switches to another account, when the page offers one. */
+  accountSwitch?: string | undefined;
 };
 
 export type PlanRejection =
@@ -26,7 +29,7 @@ export type PlanRejection =
   | "incompatible-role"
   | "mixed-groups";
 
-export type ValidatedPagePlan = PagePlan & { steps: LoginStep[] };
+export type ValidatedPagePlan = PagePlan & { steps: LoginStep[]; switchTarget?: LoginTarget };
 
 const compatibleRoles: Record<SemanticSlot["kind"], readonly ObservedCandidate["role"][]> = {
   identifier: ["text", "email", "tel", "number"],
@@ -83,6 +86,16 @@ export function validatePagePlan(
     ),
   );
   if (groups.size > 1) return { ok: false, reason: "mixed-groups" };
+  // The switch is clicked instead of signing in: a button or link the plan does not use.
+  const accountSwitch =
+    plan.accountSwitch === undefined ? undefined : candidates.get(plan.accountSwitch);
+  if (plan.accountSwitch !== undefined) {
+    if (accountSwitch === undefined) return { ok: false, reason: "unknown-candidate" };
+    if (usedCandidates.has(accountSwitch.id) || accountSwitch.id === action.id)
+      return { ok: false, reason: "duplicate-candidate" };
+    if (!isActionRole(accountSwitch.role) && accountSwitch.role !== "link")
+      return { ok: false, reason: "incompatible-role" };
+  }
 
   const steps = v.parse(v.array(loginStepSchema), [
     {
@@ -100,6 +113,9 @@ export function validatePagePlan(
     plan: {
       fields: plan.fields.map((field) => ({ slot: field.slot, candidate: field.candidate })),
       action: { candidate: plan.action.candidate, purpose: plan.action.purpose },
+      ...(accountSwitch
+        ? { accountSwitch: accountSwitch.id, switchTarget: accountSwitch.target }
+        : {}),
       steps,
     },
   };

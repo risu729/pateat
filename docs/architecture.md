@@ -611,20 +611,22 @@ completion; its attempts stay unknown. A recipe's completion and absent elements
 its rejection and any one step's elements together stay within one 24-element
 observation.
 
-A step names its element with an allowlisted locator, never CSS: an `id` or `name`
-(any ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
+A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
+ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), or, for a click or a state check
 only, a button's text: `{ "by": "text", "value": "ログイン" }` names the `<button>`
 whose rendered text (or, without any, its images' `alt`), the
 `<input type="submit|button">` whose value, or the `<input type="image">` whose `alt`
 equals the value after whitespace is collapsed (owner decision, 2026-10-11). Hidden
-buttons and hidden text inside a button do not count, and text over 120 characters
-gives no locator. The executor compares strings and acts only when exactly one element
+buttons and hidden text inside a button do not count, and text over 120 characters gives
+no locator. The executor compares strings and acts only when exactly one element
 matches; more than one is a structural mismatch. It clicks buttons and image buttons,
-never links. A click is not tied to the form the previous fill used: a page that
-shows a second, previously hidden button with the same text stops the attempt as
-ambiguous, but if the observed button is removed and another button with the same
-text remains, that one is clicked.
+never links, except a recipe's `accountSwitch`, which may be an `<a href>` link named by
+its rendered text. The extractor gives a link a text locator only on a login page and
+only when no other link and no button shows that text. A click is not tied to the form
+the previous fill used: a page that shows a second, previously hidden button with the
+same text stops the attempt as ambiguous, but if the observed button is removed and
+another button with the same text remains, that one is clicked.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button
@@ -662,7 +664,16 @@ chose on 2026-10-11 to redact observed text before it is sent: email-like string
 including masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊`
 become `[masked]`; and runs of four or more ASCII or fullwidth digits become
 `[number]` (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be
-detected and stay. Model
+detected and stay. When such a page already shows a chosen account and offers a
+button or link to use another one, the generation role may name it as the plan's
+`accountSwitch`; it must be an observed button or link that the plan neither fills nor
+uses as its action. The generated recipe keeps the first switch a page names that no
+step clicks. Only links inside the login form are observed, so a switch link outside it
+is not named. A button whose text a link elsewhere on the page shows too, and a button
+that would submit a form, are never clicked as a switch; the attempt then ends
+`wrong-account`. Locating links by text means in-form links without an `id`, `name` or
+`data-testid` are now observed as well, with their redacted labels, and a switch
+link's redacted rendered text is stored in the recipe. Model
 output must pass structural and semantic checks on the server and again locally.
 Screenshot, audio and video collection are deferred. A provider's multimodal
 support does not enable these inputs without a separate privacy/evaluation gate.

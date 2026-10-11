@@ -6,7 +6,7 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { buttonText, collapseText, renderedText, shown } from "../page/text";
+import { buttonText, collapseText, linkText, renderedText, shown } from "../page/text";
 
 /** Why no observation was produced. A page without one is never sent to inference. */
 export type ObservationRefusal = "unsupported-page" | "no-candidates";
@@ -103,7 +103,10 @@ type LocatorIndex = Map<string, Map<string, number>>;
 /** Counts every locator value once, as the executor's whole-document lookup sees them. */
 function locatorIndex(document: Document): LocatorIndex {
   const index: LocatorIndex = new Map(
-    [...locators.map(([, attribute]) => attribute), "text"].map((key) => [key, new Map()]),
+    [...locators.map(([, attribute]) => attribute), "text", "link-text"].map((key) => [
+      key,
+      new Map(),
+    ]),
   );
   const count = (key: string, value: string) => {
     const counts = index.get(key)!;
@@ -118,6 +121,10 @@ function locatorIndex(document: Document): LocatorIndex {
     const text = buttonText(element);
     if (text !== undefined) count("text", text);
   }
+  for (const element of document.querySelectorAll("a[href]")) {
+    const text = linkText(element);
+    if (text !== undefined) count("link-text", text);
+  }
   return index;
 }
 
@@ -126,12 +133,13 @@ function locatorIndex(document: Document): LocatorIndex {
  * matches exactly one element. Button text is used only when redaction leaves it
  * unchanged, so a locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
- * and names often carry the account.
+ * and names often carry the account. With `links`, a link is located by its text too,
+ * which only an account switch uses: the text must name no other link and no button.
  */
 function locate(
   element: Element,
   index: LocatorIndex,
-  redactAttributes = false,
+  { redactAttributes = false, links = false } = {},
 ): LoginTarget | undefined {
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
@@ -139,6 +147,18 @@ function locate(
     if (redactAttributes && observedText(value) !== value) continue;
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
+  }
+  if (element instanceof HTMLAnchorElement) {
+    const text = links ? linkText(element) : undefined;
+    if (
+      text === undefined ||
+      index.get("link-text")!.get(text) !== 1 ||
+      index.get("text")!.has(text) ||
+      observedText(text) !== text
+    )
+      return undefined;
+    const target = { by: "text" as const, value: text };
+    return v.is(loginTargetSchema, target) ? target : undefined;
   }
   const text = buttonText(element);
   if (text === undefined || index.get("text")!.get(text) !== 1 || observedText(text) !== text)
@@ -399,7 +419,7 @@ export function extractLoginObservation(
   const index = locatorIndex(document);
   const located = (entries: typeof required) =>
     entries.flatMap((entry) => {
-      const target = locate(entry.draft.element, index);
+      const target = locate(entry.draft.element, index, { links: true });
       return target ? [{ ...entry, target }] : [];
     });
   const kept = located(required);
@@ -498,7 +518,7 @@ export function extractSignedInObservation(
   const index = locatorIndex(document);
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
-      const target = locate(entry.draft.element, index, true);
+      const target = locate(entry.draft.element, index, { redactAttributes: true });
       return target ? [{ ...entry, target }] : [];
     });
   const fieldsFound = located(fieldEntries);
