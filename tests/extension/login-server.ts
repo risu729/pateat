@@ -365,9 +365,14 @@ export async function startLoginFixture(
     } else if (path === "/sign-in") {
       // A page with no recipe: a generated one fills the password and opens /account. The
       // page reads its run ID itself, so nothing from the request URL is written into it.
+      // `?button=anchor` makes the login button a link without href, as on MyJCB.
+      const button =
+        fixtureUrl.searchParams.get("button") === "anchor"
+          ? '<a id="login" onclick="return false">Log in</a>'
+          : '<button id="login" type="button">Log in</button>';
       response.end(
         html(
-          '<h1>Synthetic sign-in</h1><form><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button></form>',
+          `<h1>Synthetic sign-in</h1><form><label>Password<input id="password" type="password"></label>${button}</form>`,
           `document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));

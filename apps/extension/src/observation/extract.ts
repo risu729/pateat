@@ -6,7 +6,14 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { buttonText, collapseText, linkText, renderedText, shown } from "../page/text";
+import {
+  buttonText,
+  collapseText,
+  isScriptButton,
+  linkText,
+  renderedText,
+  shown,
+} from "../page/text";
 
 /** Why no observation was produced. A page without one is never sent to inference. */
 export type ObservationRefusal = "unsupported-page" | "no-candidates";
@@ -38,6 +45,8 @@ const actionTypes = new Set(["submit", "button", "image"]);
 const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
+/** Every element `describe` may accept, script buttons included. */
+const observed = "input, select, textarea, button, a[href], a[onclick], [role]";
 /** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
 const shadowFields = Object.keys(fillTypes)
   .map((type) => `input[type='${type}' i]`)
@@ -148,7 +157,7 @@ function locate(
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
-  if (element instanceof HTMLAnchorElement) {
+  if (element instanceof HTMLAnchorElement && element.hasAttribute("href")) {
     const text = links ? linkText(element) : undefined;
     if (
       text === undefined ||
@@ -328,12 +337,19 @@ function describe(element: Element): Found | undefined {
       draft: { element, role: "button", ...(label ? { label } : {}) },
     };
   }
-  if (element instanceof HTMLAnchorElement && element.hasAttribute("href")) {
+  if (
+    isScriptButton(element) ||
+    (element instanceof HTMLAnchorElement && element.hasAttribute("href"))
+  ) {
     const label = actionLabel(element);
     return {
       kind: "candidate",
       form: element.closest("form"),
-      draft: { element, role: "link", ...(label ? { label } : {}) },
+      draft: {
+        element,
+        role: isScriptButton(element) ? "button" : "link",
+        ...(label ? { label } : {}),
+      },
     };
   }
   return undefined;
@@ -385,7 +401,7 @@ export function extractLoginObservation(
   if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
     return { ok: false, reason: "unsupported-page" };
 
-  const found = [...document.querySelectorAll("input, select, textarea, button, a[href]")]
+  const found = [...document.querySelectorAll(observed)]
     .map(describe)
     .filter((entry) => entry !== undefined);
   const fieldForms = new Set(
@@ -407,13 +423,17 @@ export function extractLoginObservation(
         (fieldForms.has(host.closest("form")) && inShadow(host.shadowRoot, controls))),
   );
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
-  const links: { form: HTMLFormElement | null; draft: Draft }[] = [];
+  // Script buttons are often widgets (menus, toggles) and only attribute locators name
+  // them, so one without a locator is left out rather than marking the page incomplete.
+  const scripted: typeof required = [];
+  const links: typeof required = [];
   for (const entry of found) {
     if (!fieldForms.has(entry.form)) continue;
     if (entry.kind === "unsupported") complete = false;
     else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
-    } else required.push(entry);
+    } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
+    else required.push(entry);
   }
 
   const index = locatorIndex(document);
@@ -424,9 +444,10 @@ export function extractLoginObservation(
     });
   const kept = located(required);
   if (kept.length < required.length || kept.length > maxCandidates) complete = false;
+  const buttons = [...kept, ...located(scripted)].slice(0, maxCandidates);
   const chosen = [
-    ...kept.slice(0, maxCandidates),
-    ...located(links).slice(0, Math.max(0, maxCandidates - kept.length)),
+    ...buttons,
+    ...located(links).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
   return observe(document, chosen, complete);
 }
@@ -501,7 +522,7 @@ export function extractSignedInObservation(
   if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
     return { ok: false, reason: "unsupported-page" };
 
-  const found = [...document.querySelectorAll("input, select, textarea, button, a[href]")]
+  const found = [...document.querySelectorAll(observed)]
     .map(describe)
     .filter((entry) => entry !== undefined);
   let complete = ![...document.querySelectorAll("*")].some(

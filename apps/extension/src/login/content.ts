@@ -2,7 +2,7 @@ import * as v from "valibot";
 import type { LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
-import { isButton } from "../page/text";
+import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { acceptsSecret } from "./inputs";
@@ -40,7 +40,14 @@ function writable(element: Element | undefined): element is HTMLInputElement {
   );
 }
 function clickable(element: Element | undefined): element is HTMLElement {
-  return element !== undefined && isButton(element) && visible(element) && !element.disabled;
+  if (element === undefined) return false;
+  if (isButton(element)) return visible(element) && !element.disabled;
+  return (
+    element instanceof HTMLElement &&
+    isScriptButton(element) &&
+    visible(element) &&
+    element.getAttribute("aria-disabled") !== "true"
+  );
 }
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
@@ -172,7 +179,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "value",
           "alt",
           "aria-hidden",
+          "aria-disabled",
           "inert",
+          "role",
+          "onclick",
+          "href",
         ],
       });
       addEventListener("popstate", schedule);
