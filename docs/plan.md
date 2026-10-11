@@ -91,7 +91,8 @@ synthetic values. A metadata journal precedes every fill and click; input-trigge
 advance/submission declares its effect and event explicitly. Recovery observes
 the current document and never blindly replays an uncertain mutation or pending
 submit. Same-origin attempts
-remain locked to one owner tab until that tab closes, including terminal results.
+remain locked to one owner tab until that tab closes, including terminal results; a tab
+keeps one record per origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
 
 The shared synthetic site verifies field values, click counts and server-observed
 POST counts independently of the executor. Interruption fixtures distinguish
@@ -628,9 +629,10 @@ tests cover it.
 ### Remaining M4 service gaps
 
 - Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md)):
-  the manifest `key` that fixes the production extension ID is implemented. The
-  Access-protected `POST /pair` and then the extension switch, with the typed-code flow
-  removed, are not.
+  the manifest `key` that fixes the production extension ID and the Access-protected
+  `POST /pair` route, beside the typed-code flow, are implemented and covered by local
+  Worker tests; the route is not deployed. The extension switch, with the typed-code
+  flow removed, is not implemented.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, are not synced yet.
   [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field

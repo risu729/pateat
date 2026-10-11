@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { deviceCredentialSchema, deviceIdSchema } from "./pairing";
 
 // Device enrollment contracts shared by the service and the extension. The verifier
 // never leaves trusted extension storage until redemption; the enrollment page sees
@@ -10,23 +11,6 @@ const base64Url256 = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{43}$/));
 export const enrollmentVerifierSchema = base64Url256;
 /** base64url SHA-256 digest of the verifier. */
 export const enrollmentChallengeSchema = base64Url256;
-export const deviceCredentialSchema = v.pipe(
-  v.string(),
-  v.regex(/^pateat_device_[A-Za-z0-9_-]{43}$/),
-);
-export const deviceIdSchema = v.pipe(v.string(), v.uuid());
-/**
- * A device credential expires after this long without an authenticated use; each
- * use renews it. There is no absolute lifetime.
- */
-export const DEVICE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
-export const deviceLabelSchema = v.pipe(
-  v.string(),
-  v.trim(),
-  v.minLength(1),
-  v.maxLength(64),
-  v.regex(/^[^\p{C}]+$/u, "Labels cannot contain control characters"),
-);
 
 export const enrollmentRedeemSchema = v.strictObject({
   version: v.literal(1),

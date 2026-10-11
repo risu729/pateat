@@ -1,0 +1,62 @@
+import * as v from "valibot";
+
+// Device pairing contracts shared by the service and the extension (ADR 0020). The
+// extension's background is to send one `POST /pair` carrying the owner's login session;
+// the service answers with the device credential exactly once and keeps only its hash.
+
+export const deviceCredentialSchema = v.pipe(
+  v.string(),
+  v.regex(/^pateat_device_[A-Za-z0-9_-]{43}$/),
+);
+export const deviceIdSchema = v.pipe(v.string(), v.uuid());
+/**
+ * A device credential expires after this long without an authenticated use; each
+ * use renews it. There is no absolute lifetime.
+ */
+export const DEVICE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
+export const deviceLabelSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.minLength(1),
+  v.maxLength(64),
+  v.regex(/^[^\p{C}]+$/u, "Labels cannot contain control characters"),
+);
+
+/** A Chrome extension ID: the first 128 bits of the key's SHA-256 as letters `a`-`p`. */
+export const extensionIdSchema = v.pipe(v.string(), v.regex(/^[a-p]{32}$/));
+
+export const devicePairRequestSchema = v.strictObject({
+  version: v.literal(1),
+  label: deviceLabelSchema,
+});
+/** The credential is returned exactly once; the service keeps only its hash. */
+export const devicePairResultSchema = v.strictObject({
+  version: v.literal(1),
+  deviceId: deviceIdSchema,
+  credential: deviceCredentialSchema,
+});
+
+export const pairErrorCodeSchema = v.picklist([
+  "bad_request",
+  /** No login token: the user must sign in to the service first. */
+  "unauthorized",
+  /** The login token failed verification. */
+  "forbidden",
+  /** `Origin` is not a listed extension ID. */
+  "extension_not_allowed",
+  /** The service has no Access configuration. */
+  "access_unavailable",
+  /** The service's list of extension IDs is empty or malformed. */
+  "pairing_unavailable",
+  "rate_limited",
+  "method_not_allowed",
+  "payload_too_large",
+  "unsupported_media_type",
+  "internal_error",
+]);
+export const pairErrorSchema = v.strictObject({ error: pairErrorCodeSchema });
+
+export type DevicePairRequest = v.InferOutput<typeof devicePairRequestSchema>;
+export type DevicePairResult = v.InferOutput<typeof devicePairResultSchema>;
+export type PairErrorCode = v.InferOutput<typeof pairErrorCodeSchema>;
+export type PairError = v.InferOutput<typeof pairErrorSchema>;

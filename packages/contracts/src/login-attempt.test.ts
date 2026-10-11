@@ -683,6 +683,106 @@ describe("submission and failure reconciliation", () => {
     ).toBe("submit-intent");
   });
 
+  it("ends a top-level attempt whose tab leaves the origin without resubmitting it", () => {
+    const top: LoginDocument = { ...document, frameId: 0 };
+    const away: LoginDocument = {
+      origin: "https://other.example",
+      tabId: top.tabId,
+      frameId: 0,
+      documentId: "document-away",
+    };
+    const create = () =>
+      transitionLoginAttempt(
+        createAttemptMetadata({
+          id: "attempt-top",
+          recipe,
+          policyRevision: 3,
+          account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+          document: top,
+        }),
+        { type: "RESOLVE" },
+      );
+    const ready = create();
+    const filling = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    const filled = transitionLoginAttempt(filling, {
+      type: "MUTATION_INTENT",
+      operationId: "fill-one",
+    });
+    const prepared = transitionLoginAttempt(
+      transitionLoginAttempt(filled, { type: "OPERATION_OK", operationId: "fill-one" }),
+      { type: "PREPARE", operationId: "click-one", kind: "click" },
+    );
+    const clicked = transitionLoginAttempt(prepared, {
+      type: "SUBMIT_INTENT",
+      operationId: "click-one",
+    });
+    const awaiting = transitionLoginAttempt(clicked, {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    // A possible submission on the previous origin: its result cannot be observed there.
+    for (const submitted of [filling, filled, clicked, awaiting]) {
+      const left = transitionLoginAttempt(submitted, { type: "NAVIGATED", document: away });
+      expect(left).toMatchObject({
+        state: "blocked",
+        outcome: "left-origin",
+        document: top,
+        submissions: submitted.submissions,
+      });
+      expect(transitionLoginAttempt(left, { type: "RETRY" })).toEqual(left);
+      expect(
+        transitionLoginAttempt(left, { type: "OBSERVED", result: "authenticated", document: top }),
+      ).toEqual(left);
+      expect(nextLoginOperation(left, recipe, top, "click-again")).toBeUndefined();
+      expect(nextLoginOperation(recoverLoginAttempt(left), recipe, top, "click-again")).toBe(
+        undefined,
+      );
+      expect(recoverLoginAttempt(parseAttemptMetadata(left))).toEqual(left);
+    }
+    // Nothing was possibly submitted: the attempt is only interrupted.
+    for (const unsubmitted of [
+      ready,
+      transitionLoginAttempt(filled, { type: "OPERATION_OK", operationId: "fill-one" }),
+      prepared,
+    ])
+      expect(
+        transitionLoginAttempt(unsubmitted, { type: "NAVIGATED", document: away }),
+      ).toMatchObject({ state: "blocked", outcome: "interrupted", document: top });
+    // A navigation within the origin still reconciles the same attempt.
+    const next = { ...top, documentId: "document-next" };
+    expect(transitionLoginAttempt(awaiting, { type: "NAVIGATED", document: next })).toMatchObject({
+      state: "reconciling",
+      outcome: "unknown-submit",
+      document: next,
+    });
+    expect(transitionLoginAttempt(ready, { type: "NAVIGATED", document: next })).toMatchObject({
+      state: "reconciling",
+      outcome: "interrupted",
+      document: next,
+    });
+    // Another tab or a frame is no origin change of this attempt's page.
+    for (const elsewhere of [
+      { ...away, tabId: top.tabId + 1 },
+      { ...away, frameId: 3 },
+    ])
+      expect(
+        transitionLoginAttempt(awaiting, { type: "NAVIGATED", document: elsewhere }),
+      ).toMatchObject({ state: "blocked", outcome: "cancelled" });
+    // A framed attempt is cancelled by any page outside its scope, as before.
+    const framed = transitionLoginAttempt(submitting(), {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    for (const elsewhere of [away, { ...away, frameId: document.frameId }])
+      expect(
+        transitionLoginAttempt(framed, { type: "NAVIGATED", document: elsewhere }),
+      ).toMatchObject({ state: "blocked", outcome: "cancelled" });
+  });
+
   it("policy revocation cancels in-flight work and stale replies cannot restore it", () => {
     const ready = transitionLoginAttempt(detected(), { type: "RESOLVE" });
     const filling = transitionLoginAttempt(ready, {

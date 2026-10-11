@@ -1,3 +1,4 @@
+import { PATEAT_EXTENSION_ID } from "@pateat/contracts/extension-id";
 import { bindings, defineConfig } from "cf/config";
 import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 import { compatibilityDate, compatibilityFlags } from "./worker-runtime.ts";
@@ -15,13 +16,19 @@ export default defineConfig({
       // The owner web UI built from manage/index.html, read by the Worker after Access.
       ASSETS: bindings.assets(),
       // The Access team domain (`<team>.cloudflareaccess.com`) and application
-      // audience tag that guard /enroll and /manage. Unset values fail closed.
+      // audience tag that guard /pair, /enroll and /manage. Unset values fail closed.
       ACCESS_TEAM_DOMAIN: bindings.secret(),
       ACCESS_AUD: bindings.secret(),
       // The public origin (`https://<host>`) and ES256 key set of the OIDC issuer that
       // owners trust for Claude Workload Identity Federation. Unset values fail closed.
       OIDC_ISSUER: bindings.secret(),
       OIDC_SIGNING_KEYS: bindings.secret(),
+      // Extension IDs allowed to pair (ADR 0020). Not a secret; a self-hosted extension
+      // build with its own key lists its ID here instead. The contracts subpath export is
+      // dependency-free, so loading this config does not pull in every schema.
+      PAIRING_EXTENSION_IDS: bindings.json([PATEAT_EXTENSION_ID]),
+      // Bounds pairing per signed-in identity.
+      PAIR_LIMITER: bindings.rateLimit({ namespace: "1003", simple: { limit: 10, period: 60 } }),
       // Bounds anonymous credential redemption per client address.
       REDEEM_LIMITER: bindings.rateLimit({
         namespace: "1001",

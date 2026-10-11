@@ -156,6 +156,17 @@ export const loginAttemptEventSchema = v.variant("type", [
 export type LoginAttemptEvent = v.InferOutput<typeof loginAttemptEventSchema>;
 const sameScope = (left: LoginDocument, right: LoginDocument) =>
   left.origin === right.origin && left.tabId === right.tabId && left.frameId === right.frameId;
+/** A top-level page of the same tab on another origin replaced the attempt's page. */
+const leftOrigin = (left: LoginDocument, right: LoginDocument) =>
+  left.frameId === 0 &&
+  right.frameId === 0 &&
+  left.tabId === right.tabId &&
+  left.origin !== right.origin;
+/** The current operation may have submitted or changed the page. */
+const maySubmit = (context: LoginAttemptMetadata) =>
+  context.mutationIntent === true ||
+  context.operationKind === "fill" ||
+  (context.operationKind === "click" && context.submissions > 0);
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
 const confirmedNoMutation = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
@@ -216,24 +227,15 @@ function record(
         outcome: event.result === "unknown" ? "unknown-submit" : event.result,
       };
     case "NAVIGATED":
+      if (leftOrigin(context.document, event.document))
+        // The result of a submission on the previous origin cannot be observed here.
+        return { outcome: maySubmit(context) ? "left-origin" : "interrupted" };
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,
-        outcome:
-          context.mutationIntent ||
-          context.operationKind === "fill" ||
-          (context.operationKind === "click" && context.submissions > 0)
-            ? "unknown-submit"
-            : "interrupted",
+        outcome: maySubmit(context) ? "unknown-submit" : "interrupted",
       };
     case "INTERRUPTED":
-      return {
-        outcome:
-          context.mutationIntent ||
-          context.operationKind === "fill" ||
-          (context.operationKind === "click" && context.submissions > 0)
-            ? "unknown-submit"
-            : "interrupted",
-      };
+      return { outcome: maySubmit(context) ? "unknown-submit" : "interrupted" };
     case "FAILED":
       return {
         outcome: event.reason,
@@ -357,6 +359,8 @@ function createLoginAttemptMachine() {
           (event.document !== undefined && !sameLoginDocument(context.document, event.document))),
       sameScope: ({ context, event }) =>
         event.type === "NAVIGATED" && sameScope(context.document, event.document),
+      leftOrigin: ({ context, event }) =>
+        event.type === "NAVIGATED" && leftOrigin(context.document, event.document),
       observedAuthenticated: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "authenticated" &&
@@ -402,6 +406,8 @@ function createLoginAttemptMachine() {
       CANCEL: { target: ".blocked", actions: "record" },
       NAVIGATED: [
         { guard: "sameScope", target: ".reconciling", actions: "record" },
+        // A top-level attempt ends when its tab leaves the origin; it is never resubmitted.
+        { guard: "leftOrigin", target: ".blocked", actions: "record" },
         { target: ".blocked", actions: "invalidNavigation" },
       ],
       INTERRUPTED: { target: ".reconciling", actions: "record" },

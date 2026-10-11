@@ -65,6 +65,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0019: Local diagnostics page and logs](adr/0019-local-diagnostics-and-logs.md)
 - [0020: Direct device pairing from the extension](adr/0020-direct-device-pairing.md)
 - [0021: Choosing an account outside the settings page](adr/0021-account-choice-outside-settings.md)
+- [0022: Login attempt records per tab and origin](adr/0022-login-attempts-per-tab-and-origin.md)
 - [0023: Synced item selection, field exclusions and custom-field review](adr/0023-synced-vault-policy.md)
 
 This layout follows the useful separation in
