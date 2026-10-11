@@ -356,8 +356,12 @@ again in that tab asks for a choice again instead of logging in. Automatic
 logout/relogin when the user picks another account while logged in stays later. Cookies
 may be shared across
 tabs even during initial login. The first executor conservatively locks an origin
-to one owner tab until closure; wider shared-session domains need explicit
-coordination before broader support, not a guessed relationship between origins.
+to one owner tab until closure. A tab keeps one attempt record per origin and runs one
+attempt at a time; a page resumes only its own origin's record, and a top-level attempt
+that may have submitted ends `left-origin` when the tab moves to another origin
+([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
+domains need explicit coordination before broader support, not a guessed relationship
+between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic
@@ -459,7 +463,8 @@ target matches exactly one shown link or button that does not submit a form, the
 background first records the attempt as `account-switched` (blocked, no submission
 spent) and then has the content script click it. The click happens only within 10
 seconds, on the same path, while the target still matches exactly that element;
-otherwise the record becomes `wrong-account` and keeps holding the tab. After the click,
+otherwise the record becomes `wrong-account` and keeps holding that origin in the tab.
+After the click,
 the tab's next document of that origin that reports ready starts a new attempt instead
 of resuming, so
 a recipe that starts on the page the switch leads to logs in, such as an email page at
@@ -604,11 +609,12 @@ A generated recipe has no completion target until the page after its first sign-
 is judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
 never reports `authenticated` with it: a submission ends `credential-rejected`, moves
 to a later step, or stays unknown (`unknown-submit`), so no account choice is saved.
-An unknown attempt stays in `reconciling` until its tab closes, as any unknown outcome
-does today: meanwhile it holds the origin, blocks saving account choices from other
-tabs and defers settings sync for up to two minutes per run. The service can judge the
-page after the final submission, which settles such attempts, but the extension does
-not send it yet.
+An unknown attempt stays in `reconciling` until its tab closes or, for a top-level
+attempt, until the tab shows a page of another origin that Pateat may run on
+(`left-origin`, ADR 0022): meanwhile it holds the origin, blocks saving account
+choices from other tabs and defers settings sync for up to two minutes per run. The
+service can judge the page after the final submission, which settles such attempts, but
+the extension does not send it yet.
 
 A completion may also list up to four `absent` elements. The executor reports
 `authenticated` only when the completion target is unique on its path and every

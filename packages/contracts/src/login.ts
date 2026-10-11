@@ -265,6 +265,9 @@ export const loginOutcomeSchema = v.picklist([
   "wrong-account",
   // As "wrong-account", and the recipe's account switch was clicked.
   "account-switched",
+  // The tab's page moved to another origin after a possible submission; its result there
+  // cannot be observed.
+  "left-origin",
 ]);
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;

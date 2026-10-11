@@ -59,7 +59,8 @@ new owner decision:
 - The extension remembers a page as attempted when it sends it. It forgets the attempt
   only when the service could not be reached or answered `busy`, since no model call
   was made.
-- A page is not offered while its tab holds an attempt record, which an executing or
+- A page is not offered while its tab holds an attempt record for the page's origin
+  ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)), which an executing or
   ended attempt keeps until the tab closes, even when no recipe starts on its path. The
   one exception is an `account-switched` record of the same origin. A generated
   recipe's later pages go through its continuation in ADR 0018 instead.

@@ -92,7 +92,8 @@ synthetic values. A metadata journal precedes every fill and click; input-trigge
 advance/submission declares its effect and event explicitly. Recovery observes
 the current document and never blindly replays an uncertain mutation or pending
 submit. Same-origin attempts
-remain locked to one owner tab until that tab closes, including terminal results.
+remain locked to one owner tab until that tab closes, including terminal results; a tab
+keeps one record per origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
 
 The shared synthetic site verifies field values, click counts and server-observed
 POST counts independently of the executor. Interruption fixtures distinguish
