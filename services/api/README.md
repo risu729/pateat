@@ -64,8 +64,9 @@ framing. `/manage/api` answers with JSON and its contracts are in
 (a token that fails verification, or a state-changing request without this origin's
 `Origin`) and `access_unavailable` (no Access configuration). An identity that never
 approved a pairing has no owner and sees no data. The bundle includes GPL-3.0-only
-`packages/contracts` code; each page links its source and the third-party notices
-(`public/manage/assets/notices.md` and the build's `licenses.md`).
+`packages/contracts` code; each page links its source and the GPL text at the built
+commit, and the third-party notices served with it (`public/manage/assets/notices.md`
+and the build's `licenses.md`).
 
 Recipe revisions are immutable. A write claims the head with a conditional statement
 and writes the history row in the same D1 batch, guarded by a per-request write ID,
@@ -90,8 +91,8 @@ own Claude credentials. `src/claude/` holds the only path from an owner to a cre
   identifiers of the owner's own federation rule: `fdrl_…`, the organization UUID,
   `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on
   `/manage/claude`, a temporary script-free page that the React web UI will replace.
-  It also applies its own Access, same-origin and body-size checks, so it stays
-  guarded if the app-wide `/manage/*` middleware changes. Its test button only
+  It applies its own Access, same-origin and body-size checks; no app-wide `/manage`
+  middleware covers it. Its test button only
   exchanges a token, which calls no model and costs nothing.
 - `resolveClaudeCredential(env, ownerId)` signs a fresh assertion
   `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`

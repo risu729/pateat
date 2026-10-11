@@ -120,8 +120,8 @@ function settingsPage(
 }
 
 /**
- * Guards its own routes instead of relying on the app-wide `/manage/*` middleware, so
- * it stays Access-only and same-origin if that middleware changes.
+ * Guards its own routes: no app-wide `/manage` middleware applies, so it alone keeps
+ * the page Access-only, same-origin and body-limited.
  */
 export const manageClaudeRoutes = new Hono<ApiEnv>()
   .use(
