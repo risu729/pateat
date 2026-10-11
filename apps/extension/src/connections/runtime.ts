@@ -2,6 +2,8 @@ import * as v from "valibot";
 import {
   createBitwardenTransport,
   type BitwardenProfile,
+  type BitwardenResult,
+  type BitwardenServerConfig,
   type BitwardenTransportOptions,
   type LocalFieldReference,
 } from "@pateat/bitwarden";
@@ -22,6 +24,9 @@ import { createIndexedDbProviderSessionStore } from "./session-store";
 import { createProviderSessions } from "./sessions";
 import { SETUP_PORT, setupRequestSchema } from "./wire";
 import type { ConnectionRegistry, SetupReply } from "./types";
+
+/** A diagnostics read must not hold the page as long as a sync may take. */
+const SERVER_CONFIG_TIMEOUT_MS = 5_000;
 
 export function createConnectionRuntime(
   host: CryptoHost,
@@ -139,6 +144,12 @@ export function createConnectionRuntime(
     ...(options.baseCatalog ? { initialCatalog: options.baseCatalog } : {}),
   });
   const policy = createConnectionPolicy({ settings, current });
+  const containsPermission =
+    options.containsPermission ??
+    (async (profile: BitwardenProfile) => {
+      const origins = providerPermissionOrigins(profile.environment);
+      return origins.ok && browser.permissions.contains({ origins: origins.data });
+    });
   const service = createConnectionSetupService({
     host,
     registry,
@@ -146,14 +157,7 @@ export function createConnectionRuntime(
     policy,
     sessions,
     transportFor: (profile) => createBitwardenTransport(profile, options.transportOptions),
-    permissions: {
-      contains:
-        options.containsPermission ??
-        (async (profile) => {
-          const origins = providerPermissionOrigins(profile.environment);
-          return origins.ok && browser.permissions.contains({ origins: origins.data });
-        }),
-    },
+    permissions: { contains: containsPermission },
   });
   function attach(port: Browser.runtime.Port) {
     if (port.name !== SETUP_PORT) return false;
@@ -260,6 +264,26 @@ export function createConnectionRuntime(
     vaultStates,
     current,
     attach,
+    /** Diagnostics only: the public `GET {api}/config`, behind the permission sync uses. */
+    async serverConfig(
+      connectionId: string,
+    ): Promise<
+      | BitwardenResult<BitwardenServerConfig>
+      | { ok: false; error: { code: "provider-permission-required" } }
+      | undefined
+    > {
+      const configuration = await registry.get(connectionId);
+      if (!configuration) return undefined;
+      if (!(await containsPermission(configuration.profile)))
+        return { ok: false, error: { code: "provider-permission-required" } };
+      const transport = createBitwardenTransport(configuration.profile, {
+        ...options.transportOptions,
+        timeoutMs: SERVER_CONFIG_TIMEOUT_MS,
+      });
+      return transport.ok
+        ? transport.data.config({ connectionId: configuration.profile.connectionId })
+        : transport;
+    },
     /** Internal only. No page/options API returns vault field values. */
     async resolveField(connectionId: string, ref: LocalFieldReference) {
       let captured: LocalFieldReference;

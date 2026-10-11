@@ -521,9 +521,12 @@ that exact page URL and returns a value-free summary
   origins are only counted) and the toolbar icon state;
 - per Bitwarden connection, an HMAC pseudonym of its ID (`bitwarden:5c1e9a`, keyed by a
   non-extractable per-device key in IndexedDB `pateat.diagnostics.v1`), the environment
-  kind, setup state, automatic unlock, sync sign-in, the vault record's accepted time
-  and read failure code, item counts by type (trash excluded) while the vault is
-  unlocked, and, on the page only, the unlock KDF;
+  kind, the server from `GET {api}/config` (its `version` and, from `server`, whether
+  it is Bitwarden, Vaultwarden or another third-party server, whose version is the
+  Bitwarden version it is compatible with), setup state, automatic unlock, sync
+  sign-in, the vault record's accepted time and read failure code, item counts by type
+  (trash excluded) while the vault is unlocked, the unlock KDF family (`PBKDF2` or
+  `Argon2id`) and, on the page only, its parameters;
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
@@ -531,15 +534,19 @@ that exact page URL and returns a value-free summary
   for site access, the crypto host, each vault cache and sync sign-in
   (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
   the token, and info without it, since Sync needs the stored unlock key), the vault
-  copy's age (info, since the vault syncs only from the settings page), service
+  copy's age (info, since the vault syncs only from the settings page), each
+  Bitwarden server's `/config` (warn when it fails or is not checked), service
   reachability, clock skew over 30 s against the service `Date` header, a recipe sync
   older than 24 hours and errors logged in the last 24 hours. Reworded states keep the
   raw code in parentheses.
 
-The worker fetches `/health` only for a paired service with site access. **Copy for bug
-report** shows the exact text before copying it; that text leaves out the unlock KDF.
-Labels, emails, item names and IDs, URLs and host names are never part of the summary.
-The Bitwarden server version is accepted in ADR 0019 but not implemented yet.
+The worker fetches `/health` only for a paired service with site access, and
+`{api}/config` only for an enabled connection whose provider permission sync also
+requires, with a 5 s timeout and no credentials. It never reads the config's
+`environment` (host URLs) or a third-party server's name other than Vaultwarden.
+**Copy for bug report** shows the exact text before copying it; that text leaves out
+the unlock KDF parameters. Labels, emails, item names and IDs, URLs and host names are
+never part of the summary.
 
 ### Local log
 

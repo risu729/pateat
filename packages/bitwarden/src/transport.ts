@@ -17,6 +17,8 @@ import { failure, type BitwardenErrorCode, type BitwardenResult } from "./errors
 import {
   encryptedSyncEnvelopeSchema,
   parsePreloginResponse,
+  parseServerConfig,
+  type BitwardenServerConfig,
   type EncryptedSyncEnvelope,
   type PreloginResponse,
 } from "./models";
@@ -43,6 +45,7 @@ const preloginRequestSchema = v.strictObject({
   email: v.pipe(v.string(), v.minLength(1), v.maxLength(320), v.email()),
   mode: v.picklist(["legacy", "password"]),
 });
+const configRequestSchema = v.strictObject({ connectionId });
 const syncRequestSchema = v.strictObject({
   connectionId,
   accessToken: v.pipe(
@@ -280,6 +283,22 @@ export function createBitwardenTransport(
           body: JSON.stringify({ email }),
         },
         (body) => parsePreloginResponse(body, mode),
+        signal,
+      );
+    },
+    /** Unauthenticated `GET {api}/config`, read for diagnostics only. */
+    async config(
+      input: unknown,
+      signal?: AbortSignal,
+    ): Promise<BitwardenResult<BitwardenServerConfig>> {
+      const parsed = v.safeParse(configRequestSchema, input);
+      if (!parsed.success) return failure("invalid-request");
+      if (parsed.output.connectionId !== profile.connectionId)
+        return failure("connection-mismatch");
+      return request(
+        `${endpoints.apiUrl}/config`,
+        { method: "GET", headers: { Accept: "application/json" } },
+        parseServerConfig,
         signal,
       );
     },

@@ -84,7 +84,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
   }
 });
 
-test("a connection appears under a stable pseudonym and its KDF stays out of the report", async () => {
+test("a connection appears under a stable pseudonym with its server, and only its KDF family is copied", async () => {
   await withVaultProfile(async (open) => {
     const first = await open();
     await setupProbe(first.page, { action: "configure", variant: "unchanged" });
@@ -104,17 +104,23 @@ test("a connection appears under a stable pseudonym and its KDF stays out of the
     await expect(page.locator("#diagnostics-checks")).toContainText(
       `${pseudonym} vault cache ready`,
     );
+    await expect(page.locator("#diagnostics-checks")).toContainText(
+      `${pseudonym} Bitwarden server 2026.9.2`,
+    );
     await expect(page.getByText(/^PBKDF2-SHA256 \d+$|^Argon2id /u)).toBeVisible();
     const report = await preview(page);
-    expect(report).toContain(`${pseudonym}: cloud-us · ready · auto-unlock enabled`);
+    expect(report).toContain(
+      `${pseudonym}: cloud-us · Bitwarden server 2026.9.2 · ready · auto-unlock enabled`,
+    );
+    expect(report).toMatch(/ · KDF (PBKDF2|Argon2id) · /u);
     expect(report).toMatch(/1 items \(login 1, TOTP \d, passkey \d\) \+ \d unsupported/u);
     for (const absent of [
       v1Email,
       "Synthetic vault",
       accepted.connectionId,
       accepted.snapshotId,
-      "PBKDF2",
-      "Argon2",
+      "PBKDF2-SHA256",
+      "Argon2id m=",
     ])
       expect(report).not.toContain(absent);
     const shown = await page.content();

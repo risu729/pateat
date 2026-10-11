@@ -53,8 +53,22 @@ const connectionSchema = v.strictObject({
       unsupported: count,
     }),
   ),
+  /** The KDF family, copied into bug reports; its parameters stay in `unlockKdf`. */
+  kdfType: v.optional(v.picklist(["PBKDF2", "Argon2id"])),
   /** Shown on the page only; never copied into a bug report. */
   unlockKdf: v.optional(label),
+  /** The provider's `GET {api}/config`; absent for a disabled connection. */
+  server: v.optional(
+    v.variant("ok", [
+      v.strictObject({
+        ok: v.literal(true),
+        /** Third-party servers report the Bitwarden version they are compatible with. */
+        version: v.pipe(v.string(), v.regex(/^[0-9A-Za-z.+-]{1,64}$/u)),
+        kind: v.picklist(["bitwarden", "vaultwarden", "third-party"]),
+      }),
+      v.strictObject({ ok: v.literal(false), error: code, status: v.optional(count) }),
+    ]),
+  ),
 });
 export type DiagnosticsConnection = v.InferOutput<typeof connectionSchema>;
 
@@ -118,8 +132,8 @@ export const diagnosticsStatusSchema = v.strictObject({
       debugUntil: v.optional(count),
     }),
   ),
-  /** Up to three per connection plus the build, service, recipe and log checks. */
-  checks: v.pipe(v.array(checkSchema), v.maxLength(256)),
+  /** Up to four per connection plus the build, service, recipe and log checks. */
+  checks: v.pipe(v.array(checkSchema), v.maxLength(320)),
 });
 export type DiagnosticsStatus = v.InferOutput<typeof diagnosticsStatusSchema>;
 

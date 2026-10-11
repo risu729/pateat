@@ -197,6 +197,7 @@ export default defineBackground(() => {
         const configuration = await connections.registry.get(connectionId);
         return configuration ? connections.vaultFor(configuration.profile).store.read() : undefined;
       },
+      server: (connectionId) => connections.serverConfig(connectionId),
     },
     cryptoHost: () => cryptoHost.status(),
     actionIcon: async () => actionIconState(await connections.vaultStates()),
