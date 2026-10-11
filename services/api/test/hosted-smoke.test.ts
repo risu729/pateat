@@ -75,6 +75,36 @@ describe("hosted smoke checks", () => {
     expect(await smokeRows()).toBe(0);
   });
 
+  it("fail when a revoked device keeps working", async () => {
+    // Pretend the revocation succeeded without sending it.
+    const ignoring: Fetch = (url, init) =>
+      new URL(url).pathname === "/v1/device"
+        ? Promise.resolve(new Response(null, { status: 204 }))
+        : worker(url, init);
+    await expect(runHostedSmoke(ORIGIN, ignoring, query)).rejects.toThrow(
+      "a revoked device answered 200",
+    );
+    expect(await smokeRows()).toBe(0);
+  });
+
+  it("report the failed check when cleanup fails too", async () => {
+    let failCleanup = false;
+    const failing: Fetch = (url, init) => {
+      if (new URL(url).pathname.startsWith("/v1/recipes/")) failCleanup = true;
+      return failCleanup
+        ? Promise.resolve(Response.json({ error: "internal_error" }, { status: 500 }))
+        : worker(url, init);
+    };
+    const flaky: Query = (sql, params) =>
+      failCleanup && sql.startsWith("DELETE")
+        ? Promise.reject(new Error("D1 unavailable"))
+        : query(sql, params);
+    const error = await runHostedSmoke(ORIGIN, failing, flaky).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(String((error as AggregateError).errors[0])).toContain("recipe write 500");
+    await removeSmokeOwners(query);
+  });
+
   it("remove leftovers of an interrupted run, children first", async () => {
     const ownerId = `${SMOKE_OWNER_PREFIX}${crypto.randomUUID()}`;
     const deviceId = crypto.randomUUID();
@@ -101,9 +131,17 @@ describe("hosted smoke checks", () => {
     );
     const owned = [];
     for (const { name } of tables) {
-      // oxlint-disable-next-line no-await-in-loop -- One pragma per table.
-      const columns = await query(`PRAGMA table_info(${String(name)})`);
-      if (columns.some((column) => column["name"] === "owner_id")) owned.push(name);
+      // oxlint-disable-next-line no-await-in-loop -- Two pragmas per table.
+      const [columns, references] = await Promise.all([
+        query(`PRAGMA table_info(${String(name)})`),
+        query(`PRAGMA foreign_key_list(${String(name)})`),
+      ]);
+      // A row that refers to an owner or a device must go before them.
+      if (
+        columns.some((column) => column["name"] === "owner_id") ||
+        references.some((reference) => ["owners", "devices"].includes(String(reference["table"])))
+      )
+        owned.push(name);
     }
     expect(owned.sort()).toEqual([...OWNER_TABLES].sort());
   });
@@ -132,6 +170,10 @@ describe("Access gate check", () => {
         answer(302, { Location: "https://team.cloudflareaccess.com/cdn-cgi/access/login" }),
       ),
     ).resolves.toBeTypeOf("string");
+  });
+
+  it("refuses the Worker's own refusal of a forged token", async () => {
+    await expect(checkAccessGate(ORIGIN, worker)).rejects.toThrow("/manage");
   });
 
   it("refuses an answer from the Worker or another site", async () => {

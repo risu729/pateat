@@ -233,10 +233,10 @@ The hosted smoke checks are in
 owners and devices without a person and without changing Access: the deploy job,
 which already holds D1 write access for migrations, inserts synthetic owners and
 device rows into D1 and then uses those devices through the hosted `/v1` routes.
-Pairing a device through Access is therefore not exercised by a hosted check. It is
-covered by Worker tests with synthetic Access tokens and by pairing in the owner's
-Chrome; automating it would need an Access service token that the Worker accepts as an
-owner, which is a separate owner decision.
+Issuing a device through Access is therefore not exercised by a hosted check, so that
+part of item 5 stays open. It is covered by Worker tests with synthetic Access tokens
+and by pairing in the owner's Chrome; automating it would need an Access service token
+that the Worker accepts as an owner, which is a separate owner decision.
 
 ## Failure and rollback
 

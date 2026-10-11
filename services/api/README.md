@@ -192,7 +192,11 @@ an owner's Access sign-in, so the job writes the device itself; synthetic owners
 missing and unknown credentials, settings and recipe round trips, owners neither seeing
 nor changing each other's data, and `DELETE /v1/device` followed by `device_revoked`.
 Every row of every `smoke-` owner is deleted before and after the checks, also after a
-failure. A failed check fails the release. The checks never call inference.
+failed check. A run killed by its timeout or a cancel leaves its rows until the next
+release removes them; their device credentials were never stored or printed. Cleanup
+removes every `smoke-` owner, so the checks run only inside the deploy job's
+`server-production` lock. A failed check fails the release. The checks never call
+inference.
 
 `test/hosted-smoke.test.ts` runs the same checks against the local Worker, so a
 contract or schema change that would break them fails CI first; it also requires

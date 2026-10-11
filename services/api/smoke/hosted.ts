@@ -234,9 +234,16 @@ export async function runHostedSmoke(origin: string, fetch: Fetch, query: Query)
     }
     check((await api(second, "/v1/settings")).status === 200, "revocation affected another owner");
     passed.push("A revoked device is refused; other owners keep working.");
-  } finally {
-    await removeSmokeOwners(query);
+  } catch (error) {
+    // Report the failed check even when cleanup fails as well.
+    await removeSmokeOwners(query).catch((cleanup: unknown) => {
+      throw new AggregateError([error, cleanup], "A check and the cleanup after it failed", {
+        cause: error,
+      });
+    });
+    throw error;
   }
+  await removeSmokeOwners(query);
   passed.push("Every synthetic row was removed.");
   return passed;
 }
@@ -283,11 +290,16 @@ export function d1Api(accountId: string, databaseId: string, token: string, fetc
       body: JSON.stringify({ sql, params }),
       signal: AbortSignal.timeout(15_000),
     });
-    const body = (await response.json()) as {
+    let body: {
       success?: boolean;
       errors?: { code?: number; message?: string }[];
       result?: { success?: boolean; results?: Record<string, unknown>[] }[];
-    };
+    } = {};
+    try {
+      body = JSON.parse(await response.text());
+    } catch {
+      // An error page; the status below still names the failure.
+    }
     const [result] = body.result ?? [];
     if (!response.ok || !body.success || !result?.success)
       throw new Error(
