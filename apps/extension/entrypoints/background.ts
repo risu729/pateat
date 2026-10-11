@@ -25,6 +25,7 @@ import { createSignedTabs } from "../src/passkeys/signed-tabs";
 import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
+  itemPasskeyFacts,
   rememberVaultPasskey,
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
@@ -152,6 +153,7 @@ export default defineBackground(() => {
   };
   const vaultUris = createVaultUriMatcher(connections);
   const vaultFields = createVaultFieldSource(connections);
+  const vaultPasskeys = createVaultPasskeySource(connections);
   // Automatic vault sync (ADR 0025): a revision check on page events and every five
   // minutes; the full sync and its replacement wait for logins and passkey requests.
   const vaultSync = createVaultAutoSync({
@@ -188,10 +190,11 @@ export default defineBackground(() => {
       storage: createBrowserGenerationAttemptStorage(),
       sync: () => recipeSync.sync(),
     }),
+    // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
+    passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     report: diagnosticsLog.login,
   });
   const setupProbe = syntheticSetup?.handler(connections);
-  const vaultPasskeys = createVaultPasskeySource(connections);
   const siteAccounts = createSiteAccountsHandler({
     settings,
     matchUris: vaultUris,
@@ -235,6 +238,7 @@ export default defineBackground(() => {
         policy: passkeyProbe.policy,
         chooser: passkeyChooser,
         remember: passkeyProbe.remember,
+        loginAccount: login.loginAccount,
         signedTabs,
       })
     : createPasskeyRuntime(vaultPasskeys, {
@@ -243,6 +247,8 @@ export default defineBackground(() => {
         report: diagnosticsLog.passkey,
         chooser: passkeyChooser,
         remember: rememberPasskey,
+        // ADR 0027: a running login's passkey request is answered with its own item.
+        loginAccount: login.loginAccount,
         signedTabs,
       });
 

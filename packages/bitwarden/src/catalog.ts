@@ -27,6 +27,7 @@ export const localVaultMetadataSchema = v.strictObject({
               name: v.nullable(label),
               kind: v.picklist(["text", "hidden", "boolean", "linked", "otp", "unsupported"]),
               linkedFieldId: v.optional(id),
+              empty: v.optional(v.literal(true)),
             }),
           ),
           v.maxLength(2000),

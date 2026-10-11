@@ -503,6 +503,23 @@ describe("vault catalog field metadata", () => {
     ).toBe(true);
   });
 
+  it("carries a value-free empty flag on built-in fields", () => {
+    for (const id of ["login.password", "login.totp-code"])
+      expect(
+        v.is(
+          vaultCatalogSchema,
+          withField({ id, label: "Password", name: null, kind: "hidden", empty: true }),
+        ),
+      ).toBe(true);
+    for (const empty of [false, "true", 1, null])
+      expect(
+        v.is(
+          vaultCatalogSchema,
+          withField({ id: "login.password", label: "Password", name: null, kind: "hidden", empty }),
+        ),
+      ).toBe(false);
+  });
+
   it.each([
     ["an empty name", { name: "" }],
     ["a name over 200 characters", { name: "x".repeat(201) }],

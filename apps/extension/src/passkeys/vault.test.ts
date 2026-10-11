@@ -7,10 +7,12 @@ import {
 } from "@pateat/contracts";
 import type { PasskeyMatches } from "../crypto/passkey";
 import { vaultFailure } from "../vault/record";
+import type { PasskeySource } from "./runtime";
 import { selectPasskey } from "./select";
 import {
   createVaultPasskeySource,
   findVaultPasskeys,
+  itemPasskeyFacts,
   rememberVaultPasskey,
   type PasskeyFinder,
   type VaultPasskeyCandidate,
@@ -404,6 +406,130 @@ describe("vault passkey candidates", () => {
   });
 });
 
+describe("a login item's passkeys (ADR 0027)", () => {
+  const only = { connectionId: "live", itemId: first };
+
+  it("searches only the item's connection and keeps only its passkeys, none preferred", async () => {
+    const find = perConnection({
+      live: { ok: true, data: matches([first, second]) },
+      other: { ok: true, data: matches([first], [], "other") },
+    });
+    const found = await findVaultPasskeys({
+      saved: saved({ other: "ready", siteDefault: second }),
+      origin,
+      rpId,
+      find,
+      only,
+    });
+    expect(find.mock.calls.map(([connectionId]) => connectionId)).toEqual(["live"]);
+    expect(found).toEqual({
+      complete: true,
+      candidates: [
+        expect.objectContaining({ connectionId: "live", itemId: first, preferred: false }),
+      ],
+    });
+    expect(selectPasskey(request, found!)).toMatchObject({ credential: { itemId: first } });
+    // The same item ID in another connection is another item.
+    const elsewhere = await findVaultPasskeys({
+      saved: saved({ other: "ready" }),
+      origin,
+      rpId,
+      find,
+      only: { connectionId: "other", itemId: first },
+    });
+    expect(find.mock.calls.map(([connectionId]) => connectionId)).toEqual(["live", "other"]);
+    expect(elsewhere?.candidates).toEqual([
+      expect.objectContaining({ connectionId: "other", itemId: first }),
+    ]);
+  });
+
+  it("is complete only when the item's own connection answered for it", async () => {
+    const search = (
+      result: Awaited<ReturnType<PasskeyFinder>>,
+      options: Parameters<typeof saved>[0] = {},
+      searched = only,
+    ) =>
+      findVaultPasskeys({
+        saved: saved(options),
+        origin,
+        rpId,
+        find: finder(result),
+        only: searched,
+      });
+    // Another item that could not be read does not matter.
+    expect(await search({ ok: true, data: matches([first], [second]) })).toMatchObject({
+      complete: true,
+    });
+    expect(await search({ ok: true, data: matches([], [first]) })).toEqual({
+      candidates: [],
+      complete: false,
+    });
+    expect(await search(vaultFailure("crypto-locked"))).toEqual({
+      candidates: [],
+      complete: false,
+    });
+    expect(await search({ ok: true, data: matches([first]) }, { state: "locked" })).toEqual({
+      candidates: [],
+      complete: false,
+    });
+    expect(await search({ ok: true, data: matches([first]) }, { enabled: false })).toEqual({
+      candidates: [],
+      complete: false,
+    });
+    expect(
+      await search(
+        { ok: true, data: matches([first]) },
+        {},
+        { connectionId: "gone", itemId: first },
+      ),
+    ).toEqual({ candidates: [], complete: false });
+    expect(
+      await search({ ok: true, data: matches([first]) }, { excludedSite: "github.com" }),
+    ).toBeUndefined();
+  });
+
+  it("reads the item's passkey facts for each RP ID the origin may use", async () => {
+    const candidates = vi.fn<PasskeySource["candidates"]>(async (_origin, candidateRpId) =>
+      candidateRpId === "github.com"
+        ? {
+            complete: true,
+            candidates: [{ ...stored(first), userHandle: null, discoverable: false }],
+          }
+        : { complete: true, candidates: [] },
+    );
+    const account = { origin: "https://login.github.com", ...only };
+    expect(await itemPasskeyFacts({ candidates }, account)).toEqual({
+      passkey: true,
+      discoverable: false,
+    });
+    expect(candidates.mock.calls.map(([, candidateRpId]) => candidateRpId)).toEqual([
+      "login.github.com",
+      "github.com",
+    ]);
+    for (const call of candidates.mock.calls) expect(call[3]).toEqual(only);
+    // A discoverable passkey with a user handle signs in on its own.
+    candidates.mockResolvedValue({ complete: true, candidates: [stored(first)] });
+    expect(await itemPasskeyFacts({ candidates }, account)).toEqual({
+      passkey: true,
+      discoverable: true,
+    });
+  });
+
+  it.each<[string, Awaited<ReturnType<PasskeySource["candidates"]>>]>([
+    ["an incomplete search", { complete: false, candidates: [stored(first)] }],
+    [
+      "a passkey with a counter",
+      { complete: true, candidates: [{ ...stored(first), counter: 3 }] },
+    ],
+    ["no passkey", { complete: true, candidates: [] }],
+    ["no answer", undefined],
+  ])("counts %s as no passkey", async (_label, answer) => {
+    expect(
+      await itemPasskeyFacts({ candidates: vi.fn(async () => answer) }, { origin, ...only }),
+    ).toEqual({ passkey: false, discoverable: false });
+  });
+});
+
 describe("vault passkey source", () => {
   const signature = "MAYCAQECAQE";
   function runtime(
@@ -465,6 +591,16 @@ describe("vault passkey source", () => {
     );
     // The runtime's per-request signal never reaches the vault manager.
     expect(manager.signPasskey.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("searches only a login's item when asked to", async () => {
+    const { source } = runtime([saved({ siteDefault: second })]);
+    expect(
+      await source.candidates(origin, rpId, signal, { connectionId: "live", itemId: second }),
+    ).toEqual({ candidates: [], complete: true });
+    expect(
+      await source.candidates(origin, rpId, signal, { connectionId: "live", itemId: first }),
+    ).toMatchObject({ complete: true, candidates: [{ itemId: first, preferred: false }] });
   });
 
   it("refuses to sign after the settings revision changes before or during signing", async () => {

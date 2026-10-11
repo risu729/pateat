@@ -55,13 +55,15 @@ describe("local field references and permission boundaries", () => {
     );
   });
 
-  it("exposes only field reference, label, name, kind and link source in listed metadata", () => {
+  it("exposes only field reference, label, name, kind, link source and empty flag in listed metadata", () => {
     const active = snapshot();
     for (const field of active.list()) {
       expect(Object.keys(field).sort()).toEqual(
         field.kind === "linked"
           ? ["kind", "label", "linkedFieldId", "name", "ref"]
-          : ["kind", "label", "name", "ref"],
+          : field.empty
+            ? ["empty", "kind", "label", "name", "ref"]
+            : ["kind", "label", "name", "ref"],
       );
       expect(Object.keys(field.ref).sort()).toEqual([
         "connectionId",
@@ -188,6 +190,34 @@ describe("local field references and permission boundaries", () => {
       ok: false,
       error: { code: "field-missing" },
     });
+  });
+
+  it("flags a login password or TOTP without a value as empty, without values", () => {
+    const flags = (login: Record<string, unknown>) =>
+      Object.fromEntries(
+        snapshot({ ...localLoginView(), login: { ...localLoginView().login, ...login } })
+          .list()
+          .filter((field) => field.empty)
+          .map((field) => [field.ref.fieldId, field.empty]),
+      );
+    // The fixture has a password and no TOTP secret.
+    expect(flags({})).toEqual({ "login.totp-code": true });
+    expect(flags({ password: "" })).toEqual({ "login.password": true, "login.totp-code": true });
+    expect(flags({ password: null })).toEqual({
+      "login.password": true,
+      "login.totp-code": true,
+    });
+    const totp = `otpauth://totp/Synthetic?secret=${rfcTotpSecrets.SHA1}`;
+    expect(flags({ totp })).toEqual({});
+    expect(flags({ password: "", totp })).toEqual({ "login.password": true });
+    // Only the password and TOTP carry the flag; an empty username is still listed plainly.
+    expect(flags({ username: "", totp })).toEqual({});
+    // Other item types list no login fields to flag.
+    expect(
+      snapshot(localCardView())
+        .list()
+        .some((field) => field.empty),
+    ).toBe(false);
   });
 
   // Bitwarden's hidden-password permission still allows autofill. Pateat's

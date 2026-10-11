@@ -207,6 +207,7 @@ async function execute(command: HostCommand) {
             name: vaultFieldName(field.name),
             kind: field.kind,
             ...(field.linkedFieldId ? { linkedFieldId: field.linkedFieldId } : {}),
+            ...(field.empty ? { empty: true as const } : {}),
           })),
         });
       } finally {

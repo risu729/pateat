@@ -13,7 +13,8 @@ custom-field review are synced and edited on the extension's settings page, and 
 account references gain the provider server (not implemented yet). Amended on
 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): recipes carry routes and
 second-factor handlers chosen per account, a binding covers the slots of the route it
-uses, and generation maps slots to custom fields by name (not implemented yet).
+uses, and generation maps slots to custom fields by name (handlers are implemented;
+routes and custom-field names are not yet).
 
 Date: 2026-10-10
 

@@ -1,17 +1,24 @@
 import * as v from "valibot";
 import { assign, createActor, setup, transition } from "xstate";
 import {
+  handlerSteps,
   loginAccountSchema,
   loginDocumentSchema,
+  loginItemFactsSchema,
   loginOperationSchema,
   loginOutcomeSchema,
+  loginRouteSchema,
   loginStepEffect,
   parseLoginRecipe,
+  routeSteps,
   sameLoginDocument,
   type LoginAccount,
   type LoginDocument,
+  type LoginItemFacts,
   type LoginOperation,
   type LoginRecipe,
+  type LoginRoute,
+  type LoginStep,
 } from "./login";
 
 const identifier = v.pipe(
@@ -21,6 +28,17 @@ const identifier = v.pipe(
   v.regex(/^[a-zA-Z0-9_.:-]+$/),
 );
 const integer = (max: number) => v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(max));
+/** Steps and effects an attempt may hold: its route's, plus those of handlers it entered. */
+const MAX_ATTEMPT_STEPS = 40;
+const MAX_ATTEMPT_SUBMISSIONS = 12;
+const MAX_ENTERED_HANDLERS = 4;
+/** Pages the model may judge after one effect step (ADR 0027). */
+export const MAX_JUDGED_PAGES = 2;
+/** Pages already sent to be judged after effect step `operationId`. */
+export const judgedPages = (
+  metadata: Pick<LoginAttemptMetadata, "judged">,
+  operationId: string,
+): number => (metadata.judged?.operationId === operationId ? metadata.judged.pages : 0);
 export const loginAttemptStateSchema = v.picklist([
   "detected",
   "ready",
@@ -41,12 +59,28 @@ export const attemptMetadataSchema = v.pipe(
     recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
     policyRevision: integer(Number.MAX_SAFE_INTEGER - 1),
     account: loginAccountSchema,
+    /** The route chosen when the login started (ADR 0027). */
+    route: loginRouteSchema,
+    /** The item's facts read when the login started; never sent anywhere. */
+    facts: loginItemFactsSchema,
+    /**
+     * Handlers this login entered, in order: `index` in the recipe's handlers, and `start`,
+     * where its steps begin in the attempt's plan (`attemptPlan`).
+     */
+    handlers: v.pipe(
+      v.array(v.strictObject({ index: integer(15), start: integer(MAX_ATTEMPT_STEPS) })),
+      v.maxLength(MAX_ENTERED_HANDLERS),
+      v.check(
+        (entries) => new Set(entries.map((entry) => entry.index)).size === entries.length,
+        "Duplicate entered handlers",
+      ),
+    ),
     document: loginDocumentSchema,
     state: loginAttemptStateSchema,
-    stepIndex: integer(32),
-    stepCount: v.pipe(integer(32), v.minValue(1)),
-    submissions: integer(8),
-    maxSubmissions: v.pipe(integer(8), v.minValue(1)),
+    stepIndex: integer(MAX_ATTEMPT_STEPS),
+    stepCount: v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1)),
+    submissions: integer(MAX_ATTEMPT_SUBMISSIONS),
+    maxSubmissions: v.pipe(integer(MAX_ATTEMPT_SUBMISSIONS), v.minValue(1)),
     retries: integer(2),
     maxRetries: v.literal(2),
     retryRequired: v.optional(v.literal(true)),
@@ -60,6 +94,18 @@ export const attemptMetadataSchema = v.pipe(
     operationEffect: v.optional(v.picklist(["prepare", "advance", "submit"])),
     mutationIntent: v.optional(v.literal(true)),
     outcome: v.optional(loginOutcomeSchema),
+    /**
+     * The result of the current effect step settled as unknown; cleared once the attempt
+     * moves on. A settled login no longer scopes the passkey bridge (ADR 0027).
+     */
+    settled: v.optional(v.literal(true)),
+    /**
+     * Pages sent to be judged after the effect step `operationId`, including one whose
+     * answer is pending; at most `MAX_JUDGED_PAGES` per effect step (ADR 0027).
+     */
+    judged: v.optional(
+      v.strictObject({ operationId: identifier, pages: integer(MAX_JUDGED_PAGES) }),
+    ),
     /** This attempt follows an account switch in its tab; it never clicks another one. */
     accountSwitched: v.optional(v.literal(true)),
   }),
@@ -79,6 +125,12 @@ export const attemptMetadataSchema = v.pipe(
       metadata.operationId === undefined ||
       metadata.usedOperationIds.includes(metadata.operationId),
     "Operation ID is not recorded",
+  ),
+  v.check(
+    (metadata) =>
+      metadata.judged === undefined ||
+      metadata.usedOperationIds.includes(metadata.judged.operationId),
+    "Judged operation ID is not recorded",
   ),
   v.check(
     (metadata) =>
@@ -161,6 +213,34 @@ export const loginAttemptEventSchema = v.variant("type", [
     document: loginDocumentSchema,
     stage: v.picklist(["before-fill", "after-fill"]),
   }),
+  /**
+   * The attempt takes over a newer revision of its recipe that only adds handlers or a
+   * completion (`extendsRecipe`, ADR 0027); the runtime checks that before sending it.
+   */
+  v.strictObject({
+    type: v.literal("REVISED"),
+    recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
+  }),
+  /**
+   * A page after the current effect step is about to be sent to be judged. It counts
+   * against the step's pages before the request, so a restart cannot resend without
+   * bound (ADR 0027).
+   */
+  v.strictObject({ type: v.literal("JUDGING"), operationId: identifier }),
+  /** The page sent under `JUDGING` reached no model, so it is given back. */
+  v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
+  /**
+   * After an effect step, the page shows the recipe's handler `handler` (its index in the
+   * recipe's handlers): its `steps` follow the effect step, and its `effects` grow the
+   * submission budget (ADR 0027).
+   */
+  v.strictObject({
+    type: v.literal("HANDLER"),
+    handler: integer(15),
+    steps: v.pipe(integer(4), v.minValue(1)),
+    effects: v.pipe(integer(4), v.minValue(1)),
+    document: loginDocumentSchema,
+  }),
   v.strictObject({ type: v.literal("RETRY") }),
   v.strictObject({ type: v.literal("POLICY_CHANGED") }),
   v.strictObject({ type: v.literal("CANCEL") }),
@@ -233,10 +313,12 @@ function record(
           operationEffect: undefined,
           mutationIntent: undefined,
           outcome: undefined,
+          settled: undefined,
         };
       return {
         document: event.document ?? context.document,
         outcome: event.result === "unknown" ? "unknown-submit" : event.result,
+        settled: event.result === "unknown" ? true : undefined,
       };
     case "NAVIGATED":
       if (leftOrigin(context.document, event.document))
@@ -294,6 +376,37 @@ function record(
             ? context.submissions - 1
             : context.submissions,
         mutationIntent: undefined,
+      };
+    case "REVISED":
+      return { recipeRevision: event.recipeRevision };
+    case "JUDGING":
+      return {
+        judged: {
+          operationId: event.operationId,
+          pages: judgedPages(context, event.operationId) + 1,
+        },
+      };
+    case "UNJUDGED":
+      return {
+        judged: {
+          operationId: event.operationId,
+          pages: judgedPages(context, event.operationId) - 1,
+        },
+      };
+    case "HANDLER":
+      return {
+        handlers: [...context.handlers, { index: event.handler, start: context.stepIndex + 1 }],
+        stepIndex: context.stepIndex + 1,
+        stepCount: context.stepCount + event.steps,
+        maxSubmissions: context.maxSubmissions + event.effects,
+        document: event.document,
+        operationId: undefined,
+        operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
+        outcome: undefined,
+        retryRequired: undefined,
+        settled: undefined,
       };
     case "RETRY":
       return {
@@ -426,12 +539,41 @@ function createLoginAttemptMachine() {
         event.type === "OBSERVED" &&
         event.result === "unknown" &&
         (!event.document || sameScope(context.document, event.document)),
+      // Only an effect step's result is judged, and only a bounded number of pages.
+      canJudge: ({ context, event }) =>
+        event.type === "JUDGING" &&
+        operationMatches(context, event) &&
+        (context.operationKind === "click" ||
+          context.operationEffect === "advance" ||
+          context.operationEffect === "submit") &&
+        judgedPages(context, event.operationId) < MAX_JUDGED_PAGES,
+      canUnjudge: ({ context, event }) =>
+        event.type === "UNJUDGED" && judgedPages(context, event.operationId) > 0,
+      newerRevision: ({ context, event }) =>
+        event.type === "REVISED" && event.recipeRevision > context.recipeRevision,
+      // A handler follows only an effect step that may have submitted, runs once per
+      // login, and stays within the attempt's step and submission caps.
+      canEnterHandler: ({ context, event }) =>
+        event.type === "HANDLER" &&
+        context.operationId !== undefined &&
+        context.mutationIntent === true &&
+        context.submissions > 0 &&
+        (context.operationKind === "click" ||
+          context.operationEffect === "advance" ||
+          context.operationEffect === "submit") &&
+        !context.handlers.some((entry) => entry.index === event.handler) &&
+        context.handlers.length < MAX_ENTERED_HANDLERS &&
+        context.stepIndex < context.stepCount &&
+        context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
+        context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
+        sameScope(context.document, event.document),
     },
   }).createMachine({
     id: "login-attempt",
     initial: "detected",
     context: ({ input }) => parseAttemptMetadata(input),
     on: {
+      REVISED: { guard: "newerRevision", actions: "record" },
       POLICY_CHANGED: { target: ".blocked", actions: "record" },
       CANCEL: { target: ".blocked", actions: "record" },
       NAVIGATED: [
@@ -495,10 +637,20 @@ function createLoginAttemptMachine() {
       "awaiting-result": {
         on: {
           OBSERVED: observedTransitions,
+          JUDGING: { guard: "canJudge", actions: "record" },
+          UNJUDGED: { guard: "canUnjudge", actions: "record" },
+          HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
         },
       },
-      reconciling: { on: { OBSERVED: observedTransitions } },
+      reconciling: {
+        on: {
+          OBSERVED: observedTransitions,
+          JUDGING: { guard: "canJudge", actions: "record" },
+          UNJUDGED: { guard: "canUnjudge", actions: "record" },
+          HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
+        },
+      },
       retryable: {
         on: {
           RETRY: [
@@ -521,6 +673,8 @@ export function createAttemptMetadata(input: {
   recipe: LoginRecipe;
   policyRevision: number;
   account: LoginAccount;
+  route: LoginRoute;
+  facts: LoginItemFacts;
   document: LoginDocument;
   accountSwitched?: boolean;
 }): LoginAttemptMetadata {
@@ -534,10 +688,13 @@ export function createAttemptMetadata(input: {
     recipeRevision: recipe.revision,
     policyRevision: input.policyRevision,
     account: input.account,
+    route: input.route,
+    facts: input.facts,
+    handlers: [],
     document: input.document,
     state: "detected",
     stepIndex: 0,
-    stepCount: recipe.steps.length,
+    stepCount: routeSteps(recipe, input.route).length,
     submissions: 0,
     maxSubmissions: recipe.maxSubmissions,
     retries: 0,
@@ -586,6 +743,30 @@ export function recoverLoginAttempt(value: unknown): LoginAttemptMetadata {
   return transitionLoginAttempt(metadata, { type: "INTERRUPTED" });
 }
 
+/**
+ * The attempt's steps: its route's steps, with each entered handler's steps inserted at
+ * its `start`, in the order they were entered. `handler` is the recipe handler index of a
+ * handler's step. Undefined when an entered handler is missing from the recipe.
+ */
+export function attemptPlan(
+  recipe: LoginRecipe,
+  metadata: Pick<LoginAttemptMetadata, "route" | "handlers">,
+): { step: LoginStep; handler?: number }[] | undefined {
+  const plan: { step: LoginStep; handler?: number }[] = routeSteps(recipe, metadata.route).map(
+    (step) => ({ step }),
+  );
+  for (const entry of metadata.handlers) {
+    const handler = recipe.handlers?.[entry.index];
+    if (!handler || entry.start > plan.length) return undefined;
+    plan.splice(
+      entry.start,
+      0,
+      ...handlerSteps(handler).map((step) => ({ step, handler: entry.index })),
+    );
+  }
+  return plan;
+}
+
 export function nextLoginOperation(
   value: unknown,
   recipeValue: unknown,
@@ -605,7 +786,9 @@ export function nextLoginOperation(
     metadata.usedOperationIds.includes(operationId)
   )
     return undefined;
-  const step = recipe.steps[metadata.stepIndex];
+  // The machine cannot see the recipe, so the plan's length checks the recorded handlers.
+  const plan = attemptPlan(recipe, metadata);
+  const step = plan?.length === metadata.stepCount ? plan[metadata.stepIndex]?.step : undefined;
   if (
     !step ||
     (loginStepEffect(step) !== undefined &&

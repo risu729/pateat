@@ -4,15 +4,16 @@ Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (which pages are observed) and settles
 the retention left open by [ADR 0012](0012-inference-request-log.md). The service
 routes are implemented ([API README](../../services/api/README.md#recipe-generation)).
-The extension sends a recipe's first page and the page after its final submission;
-continuing a recipe on the page after an `advance` step is not implemented yet.
+The extension sends a recipe's first page and a page that an effect step leads to and
+no check explains; continuing a recipe on the page after an `advance` step is not
+implemented yet.
 Its one generated recipe per origin is amended to one per start path by
 [ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts), which the
 service and the extension implement.
 Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a page is judged
 after any effect step that leads nowhere known, a judgement can add a second-factor
 handler, and judgements are limited per revision and path and to 20 per recipe a day
-(not implemented yet).
+(implemented with the `passkey` handler; the `totp` handler is not yet).
 
 Date: 2026-10-11
 

@@ -4,6 +4,7 @@ import {
   createPasskeyRuntime,
   type PasskeyChoice,
   type PasskeyChooser,
+  type PasskeyItem,
   type PasskeySource,
 } from "./runtime";
 import type { PasskeyCandidates } from "./select";
@@ -553,6 +554,137 @@ describe("passkey chooser window", () => {
   });
 });
 
+describe("passkey requests during a login (ADR 0027)", () => {
+  const loginItem = { connectionId: "personal", itemId: "login-item" };
+  type Stored = (typeof candidate & { preferred?: boolean }) & { item: string };
+  const siteDefault: Stored = {
+    ...candidate,
+    credentialId: "BBBB",
+    preferred: true,
+    item: "default-item",
+  };
+  const ofLogin: Stored = { ...candidate, credentialId: "CCCC", item: "login-item" };
+  /** A vault of several items: with `only`, just that item's passkeys, none preferred. */
+  const vault = (stored: Stored[], complete = true) =>
+    source({
+      candidates: vi.fn(async (_origin: string, _rpId: string, _signal, only?: PasskeyItem) => ({
+        candidates: only
+          ? stored
+              .filter((entry) => entry.item === only.itemId)
+              .map(({ preferred: _preferred, ...entry }) => entry)
+          : stored,
+        complete,
+      })),
+    });
+  const chooser = () => ({
+    choose: vi.fn(async (): Promise<PasskeyChoice> => ({ kind: "closed" })),
+  });
+
+  it("signs with the login's item even when the site default is another item", async () => {
+    const backing = vault([siteDefault, ofLogin]);
+    const loginAccount = vi.fn(() => loginItem);
+    const remember = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(backing, { extensionId, loginAccount, remember });
+    expect(await runtime.handle(get(), sender())).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "CCCC" },
+    });
+    expect(loginAccount).toHaveBeenCalledWith(7, origin);
+    expect(backing.candidates).toHaveBeenCalledWith(
+      origin,
+      "example.com",
+      expect.any(AbortSignal),
+      loginItem,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).not.toHaveBeenCalled();
+  });
+
+  it("opens no chooser while a login runs, whatever the vault holds", async () => {
+    const choose = chooser();
+    const other: Stored = { ...candidate, credentialId: "DDDD", item: "other-item" };
+    // Without the login, two items would make a choice; with it, its item answers alone.
+    const several = createPasskeyRuntime(vault([other, ofLogin]), {
+      extensionId,
+      chooser: choose,
+      loginAccount: async () => loginItem,
+    });
+    expect(await several.handle(get(), sender())).toMatchObject({
+      assertion: { credentialId: "CCCC" },
+    });
+    // Two passkeys of the login's own item are never offered as a choice.
+    const twice = createPasskeyRuntime(vault([ofLogin, { ...ofLogin, credentialId: "EEEE" }]), {
+      extensionId,
+      chooser: choose,
+      loginAccount: async () => loginItem,
+    });
+    expect(await twice.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "login-item-ambiguous-credential",
+    });
+    expect(choose.choose).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, Stored[], boolean, string]>([
+    ["the login's item has no passkey", [siteDefault], true, "login-item-no-credential"],
+    ["the item's search is incomplete", [ofLogin], false, "login-item-vault-incomplete"],
+    [
+      "the item's passkey has a counter",
+      [{ ...ofLogin, counter: 5 }],
+      true,
+      "login-item-unsupported-counter",
+    ],
+  ])("delegates to the browser when %s", async (_label, stored, complete, reason) => {
+    const backing = vault(stored, complete);
+    const choose = chooser();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: choose,
+      loginAccount: () => loginItem,
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({ kind: "delegate", reason });
+    expect(backing.sign).not.toHaveBeenCalled();
+    expect(choose.choose).not.toHaveBeenCalled();
+  });
+
+  it("delegates when the login lookup fails", async () => {
+    const backing = vault([siteDefault, ofLogin]);
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      loginAccount: async () => {
+        throw new Error("storage unavailable");
+      },
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "delegate" });
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
+  it("answers as before once the login has ended", async () => {
+    const backing = vault([siteDefault, ofLogin]);
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      loginAccount: async () => undefined,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "BBBB" },
+    });
+    expect(backing.candidates).toHaveBeenCalledWith(origin, "example.com", expect.any(AbortSignal));
+    const choose = chooser();
+    const other: Stored = { ...candidate, credentialId: "DDDD", item: "other-item" };
+    const ended = createPasskeyRuntime(vault([other, ofLogin]), {
+      extensionId,
+      chooser: choose,
+      loginAccount: () => undefined,
+    });
+    expect(await ended.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "chooser-closed",
+    });
+    expect(choose.choose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("asking again after Pateat signed in a tab", () => {
   /** An in-memory record of where Pateat signed. */
   const signedTabs = (...signed: Array<[number, string]>) => {
@@ -605,6 +737,30 @@ describe("asking again after Pateat signed in a tab", () => {
       kind: "assertion",
     });
     expect(choose.choose).toHaveBeenCalledOnce();
+  });
+
+  it("does not ask again while a login runs in the tab (ADR 0027)", async () => {
+    const signed = signedTabs([7, "example.com"]);
+    const choose = chosen();
+    const loginItem = { connectionId: "personal", itemId: "login-item" };
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: choose,
+      signedTabs: signed,
+      loginAccount: async () => loginItem,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "AQID" },
+    });
+    expect(backing.candidates).toHaveBeenCalledWith(
+      origin,
+      "example.com",
+      expect.any(AbortSignal),
+      loginItem,
+    );
+    expect(choose.choose).not.toHaveBeenCalled();
   });
 
   it("does not record a delegated request", async () => {

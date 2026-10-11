@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { loginObservationSchema, semanticSlotsSchema } from "./observation";
-import { loginRecipeSchema } from "./login";
+import { loginRecipeSchema, loginRouteSchema } from "./login";
 import { syncRecipeIdSchema } from "./sync";
 
 // Contracts for the service's recipe generation routes (ADR 0018). Requests carry the
@@ -37,6 +37,12 @@ export const generationUnavailableReasonSchema = v.picklist([
   "daily-limit",
   "busy",
   "recently-tried",
+  /** This recipe revision's page on this path was already judged once (ADR 0027). */
+  "already-judged",
+  /** The recipe's pages were judged 20 times this UTC day (ADR 0027). */
+  "judgement-limit",
+  /** The page still shows the route's fill fields or the completion marker (ADR 0027). */
+  "not-judgeable",
   "recipe-revoked",
   "recipe-conflict",
   /** A new recipe would exceed the owner's active recipe limit. */
@@ -88,19 +94,35 @@ export const recipeGenerationResultSchema = v.variant("status", [
 ]);
 
 /**
- * `POST /v1/recipes/:recipeId/completion`: the page shown after the final submission of
- * the given revision, sent once so the service can learn the recipe's completion.
+ * `POST /v1/recipes/:recipeId/completion`: a page shown after an effect step of the given
+ * revision that no recipe check explained, judged at most once per revision and path so
+ * the service can learn the recipe's completion or a handler (ADR 0018, ADR 0027).
  */
 export const recipeCompletionRequestSchema = v.strictObject({
   version: v.literal(1),
   revision: writtenRevision,
+  /** The login's route; the service checks the stored recipe has it. */
+  route: loginRouteSchema,
   observation: loginObservationSchema,
 });
 
 export const recipeCompletionResultSchema = v.variant("status", [
-  v.strictObject({ version: v.literal(1), status: v.literal("signed-in"), change: activeChange }),
+  /** `change` is the recipe with its learned completion; absent when it already had one. */
+  v.strictObject({
+    version: v.literal(1),
+    status: v.literal("signed-in"),
+    change: v.optional(activeChange),
+  }),
   v.strictObject({ version: v.literal(1), status: v.literal("rejected") }),
-  v.strictObject({ version: v.literal(1), status: v.literal("challenge") }),
+  /**
+   * `change` is the recipe with a handler added for the judged page; the login that sent
+   * the page may take it over (ADR 0027).
+   */
+  v.strictObject({
+    version: v.literal(1),
+    status: v.literal("challenge"),
+    change: v.optional(activeChange),
+  }),
   v.strictObject({ version: v.literal(1), status: v.literal("unclear") }),
   v.strictObject({
     version: v.literal(1),

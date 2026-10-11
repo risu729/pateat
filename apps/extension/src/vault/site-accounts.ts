@@ -9,21 +9,13 @@ import {
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginFieldSource } from "../login/vault";
-import { resolveRpId } from "../passkeys/rp-id";
+import { rpIdsFor } from "../passkeys/rp-id";
 import { findVaultPasskeys, type PasskeyFinder } from "../passkeys/vault";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "./site-candidates";
 
-type Settings = Extract<SettingsResponse, { ok: true }>;
+export { rpIdsFor };
 
-/** RP IDs a page at this origin may use: its host and each registrable parent domain. */
-export function rpIdsFor(origin: string): string[] {
-  const host = resolveRpId(origin);
-  if (!host.ok) return [];
-  const labels = host.rpId.split(".");
-  return labels
-    .map((_label, index) => labels.slice(index).join("."))
-    .filter((rpId) => resolveRpId(origin, rpId).ok);
-}
+type Settings = Extract<SettingsResponse, { ok: true }>;
 
 /**
  * Which items could be the default account for an origin under the given settings. The

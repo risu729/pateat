@@ -1,6 +1,7 @@
 # ADR 0027: Login routes and second-factor pages chosen per account
 
-Status: accepted by the owner on 2026-10-11 (13:47 UTC); not implemented. Amends
+Status: accepted by the owner on 2026-10-11 (13:47 UTC). Delivery 2 (handlers with the
+`passkey` handler) is implemented; the other deliveries are not. Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and
@@ -182,6 +183,35 @@ These rules work from any account, in any order.
 - Never: values, item names, item or account IDs, and the facts (password, TOTP,
   passkey or SSO present).
 
+### Implementation choices
+
+Implementation choices that follow from these decisions, made on 2026-10-11 without a
+new owner decision:
+
+- **Which page is judged.** After an effect step, the pages judged are the first ones
+  that reach the settle point without the route's fill fields on a route path and
+  without the completion marker, at most 2 counted pages per effect step. A page counts
+  once the extension holds its complete description, before the request, and stays
+  counted whatever the answer, except after a temporary refusal before any model call: a
+  busy service, the service's own request limit (its 429), an unreachable service, no
+  paired service, a rejected device, or a request that failed before the model
+  (`incomplete-observation`, `invalid-request`, `input-too-large`). Those give the page
+  back. Permanent refusals (`already-judged`, `not-judgeable`, `recipe-conflict`,
+  `recipe-revoked`, `judgement-limit`, the spend limits, credential and token errors,
+  and any other `unavailable` reason) count, and so do the provider's rate limit, a
+  timeout and an unexpected answer, since they may follow a model call. A login whose
+  result settled as unknown therefore makes at most 2 counted requests per effect step,
+  plus retries after temporary refusals, each of which needs the tab to reach a new page
+  that settles. A page that is not sent, because its description is incomplete, failed
+  or belongs to another path, does not count. The count is stored in the attempt before
+  the request, so a worker restart during a request cannot send that step's pages
+  without bound. A handler's click is a new effect step.
+- **Settled logins and the bridge.** A login whose result settled as unknown no longer
+  counts as running for the passkey bridge (executor step 4) until it moves on. A
+  stored record that has neither ended nor settled keeps scoping its tab and origin to
+  the same item, also after a worker restart, until it ends, settles or its tab closes,
+  even if no document of the tab resumes it.
+
 ## Consequences
 
 - npm in any order: B's login teaches the completion; A's login adds the security-key
@@ -214,6 +244,10 @@ Not handled:
   route needs regeneration, which today means revoking the recipe, and that stops
   generation for its path (ADR 0018).
 - A passkey stored in another vault item than the login item.
+- A 2FA page path shared by several methods. A page is judged once per recipe revision
+  and path, so the first account judged there decides what is learned: if a TOTP account
+  is judged first, the security-key handler on that path is not learned until a new
+  revision.
 - Start pages without a password input (passkey-only or SSO-only) are never generated
   (ADR 0016 condition 3); that is left to the SSO work.
 - Passkey requests the bridge already passes on: `conditional`, `required` or `silent`

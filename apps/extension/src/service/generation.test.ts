@@ -180,24 +180,199 @@ describe("recipe generation requests", () => {
       },
     });
     const home = { ...observation, path: "/home" };
-    expect(await h.generation.judge(recipeChange.recipeId, 1, home)).toBe("signed-in");
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "signed-in",
+    });
     expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, observation: home },
+      { version: 1, revision: 1, route: "password", observation: home },
     );
     await vi.waitFor(() => expect(h.sync).toHaveBeenCalledTimes(1));
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "challenge" },
     });
-    expect(await h.generation.judge(recipeChange.recipeId, 1, home)).toBe("challenge");
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "challenge",
+    });
     h.transport.judgeCompletion.mockResolvedValueOnce({
       kind: "result",
       result: { version: 1, status: "failed", error: "invalid-output" },
     });
-    expect(await h.generation.judge(recipeChange.recipeId, 1, home)).toBe("unclear");
-    expect(await h.generation.judge(recipeChange.recipeId, 1, home)).toBe("unclear");
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "unclear",
+    });
+    // An unreachable service is a temporary refusal, so the page is given back.
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
+      verdict: "retry",
+    });
+  });
+
+  const unavailable = (reason: string) => ({
+    kind: "result" as const,
+    result: { version: 1 as const, status: "unavailable" as const, reason },
+  });
+  const failure = (error: string) => ({
+    kind: "result" as const,
+    result: { version: 1 as const, status: "failed" as const, error },
+  });
+  it.each([
+    // Temporary refusals before any model call give the page back.
+    ["a busy service", unavailable("busy"), "retry"],
+    ["the service's own request limit", { kind: "failed", error: "rate-limited" }, "retry"],
+    ["an unreachable service", { kind: "failed", error: "unreachable" }, "retry"],
+    ["a rejected device", { kind: "rejected" }, "retry"],
+    ...(["incomplete-observation", "invalid-request", "input-too-large"] as const).map((error) => [
+      `a request that failed before the model (${error})`,
+      failure(error),
+      "retry",
+    ]),
+    // Permanent refusals and anything that may follow a model call spend it.
+    ...(
+      [
+        "already-judged",
+        "not-judgeable",
+        "recipe-conflict",
+        "recipe-revoked",
+        "judgement-limit",
+        "daily-limit",
+        "monthly-limit",
+        "credentials-not-configured",
+        "token-exchange-failed",
+      ] as const
+    ).map((reason) => [`the permanent refusal ${reason}`, unavailable(reason), "unclear"]),
+    ["the provider's rate limit", failure("rate-limited"), "unclear"],
+    [
+      "a model that abstained",
+      { kind: "result", result: { version: 1, status: "unclear" } },
+      "unclear",
+    ],
+    ["a failure after the model call", failure("truncated"), "unclear"],
+    ["a timeout, which may follow a model call", { kind: "failed", error: "timeout" }, "unclear"],
+    ["an unexpected answer", { kind: "failed", error: "unexpected-response" }, "unclear"],
+  ] as [string, Awaited<ReturnType<ServiceTransport["judgeCompletion"]>>, string][])(
+    "gives a judged page back only after a temporary refusal: %s",
+    async (_name, answer, verdict) => {
+      const h = setup();
+      h.transport.judgeCompletion.mockResolvedValueOnce(answer);
+      expect(
+        await h.generation.judge(recipeChange.recipeId, 1, "password", {
+          ...observation,
+          path: "/home",
+        }),
+      ).toEqual({ verdict });
+    },
+  );
+});
+
+describe("handlers and code fields in generation requests (ADR 0027)", () => {
+  const totp = { id: "totp", kind: "one-time-code" as const, description: "one-time code" };
+  const handled = {
+    ...recipeChange,
+    revision: 2,
+    recipe: {
+      ...recipeChange.recipe,
+      revision: 2,
+      handlers: [
+        {
+          kind: "passkey" as const,
+          path: "/login/webauthn",
+          target: { by: "text" as const, value: "Use security key" },
+        },
+      ],
+    },
+  };
+  const webauthn = { ...observation, path: "/login/webauthn" };
+
+  it("hands a judged handler's recipe to the login without waiting for the cache", async () => {
+    const h = setup();
+    h.sync.mockImplementationOnce(() => new Promise<string>(() => {}));
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "challenge", change: handled },
+    });
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).toEqual({
+      verdict: "challenge",
+      recipe: handled.recipe,
+    });
+    expect(h.sync).toHaveBeenCalledTimes(1);
+    expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      recipeChange.recipeId,
+      { version: 1, revision: 1, route: "password", observation: webauthn },
+    );
+    // A failed refresh still hands the recipe over; the login checks it before use.
+    h.sync.mockRejectedValueOnce(new Error("offline"));
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "challenge", change: handled },
+    });
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).toEqual({
+      verdict: "challenge",
+      recipe: handled.recipe,
+    });
+  });
+
+  it("answers signed-in without a change and does not wait for the cache", async () => {
+    const h = setup();
+    h.sync.mockImplementationOnce(() => new Promise<string>(() => {}));
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "signed-in" },
+    });
+    expect(
+      await h.generation.judge(recipeChange.recipeId, 3, "password", { ...observation, path: "/" }),
+    ).toEqual({ verdict: "signed-in" });
+    for (const reason of ["already-judged", "judgement-limit", "not-judgeable"] as const) {
+      h.transport.judgeCompletion.mockResolvedValueOnce({
+        kind: "result",
+        result: { version: 1, status: "unavailable", reason },
+      });
+      // eslint-disable-next-line no-await-in-loop
+      expect(await h.generation.judge(recipeChange.recipeId, 3, "password", webauthn)).toEqual({
+        verdict: "unclear",
+      });
+    }
+  });
+
+  it("offers the TOTP slot only for a page with a code field", async () => {
+    const h = setup();
+    expect(await h.generation.generate({ ...request, slots: [...request.slots, totp] })).toBe(
+      "recipe",
+    );
+    expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      request,
+    );
+    const coded: LoginObservation = {
+      ...observation,
+      path: "/verify",
+      candidates: [
+        ...observation.candidates,
+        {
+          id: "c2",
+          role: "text",
+          target: { by: "id", value: "code" },
+          autocomplete: "one-time-code",
+        },
+      ],
+    };
+    const withCode = { ...request, observation: coded, slots: [...request.slots, totp] };
+    expect(await h.generation.generate(withCode)).toBe("recipe");
+    expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      withCode,
+    );
+  });
+
+  it("sends no request whose only slot is a TOTP the page has no field for", async () => {
+    const h = setup();
+    expect(await h.generation.generate({ ...request, slots: [totp] })).toBe("none");
+    expect(h.transport.generateRecipe).not.toHaveBeenCalled();
   });
 });

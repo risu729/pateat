@@ -200,3 +200,34 @@ export const builtInLoginSlots = {
   password: { id: "password", kind: "secret", description: "account password" },
   totp: { id: "totp", kind: "one-time-code", description: "one-time authentication code" },
 } as const satisfies Record<string, SemanticSlot>;
+
+/**
+ * Whether the page shows an input the executor would fill a TOTP code into (ADR 0013, the
+ * extension's `acceptsSecret`): `autocomplete="one-time-code"`, or a numeric, tel or number
+ * input whose `maxlength` is 1 to 10. Observations omit lengths on number inputs, so a
+ * number input counts only with the autocomplete hint.
+ */
+export function showsCodeField(observation: Pick<LoginObservation, "candidates">): boolean {
+  return observation.candidates.some(
+    (candidate) =>
+      candidate.autocomplete === "one-time-code" ||
+      ((candidate.inputMode === "numeric" ||
+        candidate.role === "tel" ||
+        candidate.role === "number") &&
+        candidate.maxLength !== undefined &&
+        candidate.maxLength >= 1 &&
+        candidate.maxLength <= 10),
+  );
+}
+
+/**
+ * The slots offered for a page: one-time-code slots only when the page shows a code field,
+ * so the slots never tell the model whether an account has TOTP (ADR 0027).
+ */
+export function slotsForPage(
+  observation: Pick<LoginObservation, "candidates">,
+  slots: readonly SemanticSlot[],
+): SemanticSlot[] {
+  const code = showsCodeField(observation);
+  return slots.filter((slot) => code || slot.kind !== "one-time-code");
+}

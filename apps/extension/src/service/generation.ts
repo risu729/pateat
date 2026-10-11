@@ -1,7 +1,9 @@
-import type {
-  LoginObservation,
-  RecipeCompletionResult,
-  RecipeGenerationRequest,
+import {
+  slotsForPage,
+  type LoginObservation,
+  type LoginRoute,
+  type RecipeCompletionResult,
+  type RecipeGenerationRequest,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginGeneration } from "../login/runtime";
@@ -12,6 +14,12 @@ import type { ServiceTransport } from "./transport";
 export const GENERATION_RETRY_MS = 24 * 60 * 60 * 1000;
 /** Pages remembered at once; the oldest go first. */
 export const MAX_GENERATION_ATTEMPTS = 500;
+/** Request failures the service reports before any model call (ADR 0027). */
+const failedBeforeModel = new Set<string>([
+  "incomplete-observation",
+  "invalid-request",
+  "input-too-large",
+]);
 
 // When each origin and path was last sent, so a page is not sent again within a day.
 const attemptsSchema = v.strictObject({
@@ -83,7 +91,12 @@ export function createLoginGeneration(options: {
       await queue;
       return !(await recent()).some(same(origin, path));
     },
-    async generate(request: RecipeGenerationRequest) {
+    async generate(input: RecipeGenerationRequest) {
+      // `totp` is offered only for a page with a code field, so the slots never tell the
+      // model whether an account has TOTP (ADR 0027).
+      const slots = slotsForPage(input.observation, input.slots);
+      if (!slots.length) return "none";
+      const request = { ...input, slots };
       const connection = await connected();
       if (!connection) return "none";
       const { origin, path } = request.observation;
@@ -117,22 +130,48 @@ export function createLoginGeneration(options: {
       await sync().catch(() => undefined);
       return "recipe";
     },
-    async judge(recipeId: string, revision: number, observation: LoginObservation) {
+    async judge(
+      recipeId: string,
+      revision: number,
+      route: LoginRoute,
+      observation: LoginObservation,
+    ) {
       const connection = await connected();
-      if (!connection) return "unclear";
+      if (!connection) return { verdict: "retry" };
       const answer = await transport.judgeCompletion(
         connection.origin,
         connection.credential,
         recipeId,
-        { version: 1, revision, observation },
+        { version: 1, revision, route, observation },
       );
-      const status: RecipeCompletionResult["status"] | undefined =
-        answer.kind === "result" ? answer.result.status : undefined;
+      const result: RecipeCompletionResult | undefined =
+        answer.kind === "result" ? answer.result : undefined;
       // Later runs use the learned completion; this attempt settles without waiting.
-      if (status === "signed-in") void sync().catch(() => undefined);
-      return status === "signed-in" || status === "rejected" || status === "challenge"
-        ? status
-        : "unclear";
+      if (result?.status === "signed-in") void sync().catch(() => undefined);
+      // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
+      if (result?.status === "challenge" && result.change) {
+        void sync().catch(() => undefined);
+        return { verdict: "challenge", recipe: result.change.recipe };
+      }
+      if (
+        result?.status === "signed-in" ||
+        result?.status === "rejected" ||
+        result?.status === "challenge"
+      )
+        return { verdict: result.status };
+      // A temporary refusal before any model call (ADR 0027): the service was busy,
+      // unreachable or over its own request limit, the device was rejected, or the request
+      // failed before the model. Every other answer, including a permanent refusal such as
+      // `already-judged` and the provider's rate limit, spends the page.
+      if (
+        answer.kind === "rejected" ||
+        (answer.kind === "failed" &&
+          (answer.error === "unreachable" || answer.error === "rate-limited")) ||
+        (result?.status === "unavailable" && result.reason === "busy") ||
+        (result?.status === "failed" && failedBeforeModel.has(result.error))
+      )
+        return { verdict: "retry" };
+      return { verdict: "unclear" };
     },
   };
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
+  extendsRecipe,
+  handlerSteps,
+  loginFieldFacts,
+  loginFieldSource,
   loginTargetSchema,
   parseLoginAccountBinding,
   parseLoginOperation,
@@ -8,8 +12,15 @@ import {
   resolveLoginPlan,
   type LoginAccountBinding,
   type LoginRecipe,
+  type LoginTarget,
 } from "./login";
-import { createDefaultSettings, DUMMY_VAULT_CATALOG, type SettingsSnapshot } from "./settings";
+import {
+  createDefaultSettings,
+  DUMMY_VAULT_CATALOG,
+  getItemEligibility,
+  type SettingsSnapshot,
+  type VaultItemMetadata,
+} from "./settings";
 
 function recipe(): LoginRecipe {
   return {
@@ -428,5 +439,286 @@ describe("saved login plan authorization", () => {
         binding(),
       ),
     ).toMatchObject({ ok: false });
+  });
+});
+
+describe("second-factor page handlers (ADR 0027)", () => {
+  const securityKey = { by: "text", value: "Use security key" } as const;
+  const passkeyHandler = (path = "/webauthn", target: LoginTarget = securityKey) => ({
+    kind: "passkey" as const,
+    path,
+    target,
+  });
+  const withHandlers = (handlers: unknown[], base: LoginRecipe = recipe()) => ({
+    ...base,
+    handlers,
+  });
+
+  it("accepts passkey handlers, one per kind and path", () => {
+    const handlers = [passkeyHandler(), passkeyHandler("/password", { by: "id", value: "key" })];
+    expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+    // The path is not excluded: a code form that stays on a route path may get a handler.
+    expect(parseLoginRecipe(withHandlers([passkeyHandler("/password")])).handlers).toHaveLength(1);
+  });
+
+  it("refuses duplicate, empty, unknown and too many handlers", () => {
+    expect(() =>
+      parseLoginRecipe(
+        withHandlers([passkeyHandler(), passkeyHandler("/webauthn", { by: "id", value: "other" })]),
+      ),
+    ).toThrow();
+    expect(() => parseLoginRecipe(withHandlers([]))).toThrow();
+    expect(() =>
+      parseLoginRecipe(withHandlers([{ kind: "totp", path: "/webauthn", target: securityKey }])),
+    ).toThrow();
+    expect(() => parseLoginRecipe(withHandlers([{ ...passkeyHandler(), steps: [] }]))).toThrow();
+    const many = (count: number) =>
+      Array.from({ length: count }, (_, index) => passkeyHandler(`/factor-${index}`));
+    expect(parseLoginRecipe(withHandlers(many(16))).handlers).toHaveLength(16);
+    expect(() => parseLoginRecipe(withHandlers(many(17)))).toThrow();
+  });
+
+  it("refuses an account switch or completion marker that is a handler's button", () => {
+    expect(() =>
+      parseLoginRecipe({
+        ...withHandlers([passkeyHandler()]),
+        accountSwitch: securityKey,
+      }),
+    ).toThrow();
+    const marker = { by: "id", value: "authenticated" } as const;
+    expect(() =>
+      parseLoginRecipe(withHandlers([passkeyHandler("/authenticated", marker)])),
+    ).toThrow();
+    // The same element on another path proves nothing on the completion's page.
+    expect(
+      parseLoginRecipe(withHandlers([passkeyHandler("/webauthn", marker)])).handlers,
+    ).toHaveLength(1);
+  });
+
+  it("derives a passkey handler's steps from its kind", () => {
+    expect(handlerSteps(passkeyHandler())).toEqual([
+      { kind: "click", path: "/webauthn", target: securityKey, purpose: "submit" },
+    ]);
+  });
+
+  it("allows handler steps beyond the route's step indices in an operation", () => {
+    const operation = {
+      version: 1,
+      attemptId: "attempt-one",
+      operationId: "operation-one",
+      policyRevision: 4,
+      document: {
+        origin: "https://bank.example",
+        tabId: 11,
+        frameId: 0,
+        documentId: "document-one",
+      },
+      stepIndex: 39,
+      step: handlerSteps(passkeyHandler())[0],
+      expiresAt: 15_000,
+    };
+    expect(parseLoginOperation(operation).stepIndex).toBe(39);
+    expect(() => parseLoginOperation({ ...operation, stepIndex: 40 })).toThrow();
+  });
+
+  describe("taking over a newer revision", () => {
+    const { completion, ...unlearned } = recipe();
+    const base = parseLoginRecipe(unlearned);
+    const next = (change: Partial<LoginRecipe>, from: LoginRecipe = base) =>
+      parseLoginRecipe({ ...from, revision: from.revision + 1, ...change });
+
+    it("accepts a revision that adds handlers, a completion, or both", () => {
+      expect(extendsRecipe(base, next({ handlers: [passkeyHandler()] }))).toBe(true);
+      expect(extendsRecipe(base, next({ completion }))).toBe(true);
+      expect(extendsRecipe(base, next({ handlers: [passkeyHandler()], completion }))).toBe(true);
+      // Revisions may skip numbers; handlers are appended after the existing ones.
+      const handled = next({ handlers: [passkeyHandler()] });
+      expect(
+        extendsRecipe(
+          handled,
+          next(
+            {
+              revision: handled.revision + 3,
+              handlers: [passkeyHandler(), passkeyHandler("/password", { by: "id", value: "key" })],
+              completion,
+            },
+            handled,
+          ),
+        ),
+      ).toBe(true);
+      // An unchanged completion is kept.
+      const learned = next({ completion });
+      expect(extendsRecipe(learned, next({ handlers: [passkeyHandler()] }, learned))).toBe(true);
+    });
+
+    it("compares the recipe whatever the key order", () => {
+      const reordered = Object.fromEntries(
+        Object.entries(next({ handlers: [passkeyHandler()] })).reverse(),
+      ) as LoginRecipe;
+      reordered.steps = reordered.steps.map(
+        (step) => Object.fromEntries(Object.entries(step).reverse()) as typeof step,
+      );
+      expect(extendsRecipe(base, reordered)).toBe(true);
+    });
+
+    it.each<[string, (recipe: LoginRecipe) => Partial<LoginRecipe>]>([
+      [
+        "changed steps",
+        (from) => ({
+          steps: from.steps.map((step, index) =>
+            index === 1 ? { ...step, path: "/identity-next" } : step,
+          ),
+        }),
+      ],
+      ["changed slots", (from) => ({ slots: [...from.slots].reverse() })],
+      ["a changed submission budget", () => ({ maxSubmissions: 3 })],
+      ["a changed rejection", () => ({ rejection: { by: "id", value: "error" } })],
+      ["an added account switch", () => ({ accountSwitch: { by: "text", value: "Switch" } })],
+      ["another origin", () => ({ origin: "https://other.example" })],
+      ["another ID", () => ({ id: "bank-login-2" })],
+    ])("refuses %s", (_label, change) => {
+      expect(extendsRecipe(base, next({ ...change(base), handlers: [passkeyHandler()] }))).toBe(
+        false,
+      );
+    });
+
+    it("refuses removed, reordered or changed handlers and a changed completion", () => {
+      const second = passkeyHandler("/password", { by: "id", value: "key" });
+      const handled = next({ handlers: [passkeyHandler(), second], completion });
+      expect(
+        extendsRecipe(handled, next({ handlers: [passkeyHandler()], completion }, handled)),
+      ).toBe(false);
+      expect(extendsRecipe(handled, next({ handlers: undefined, completion }, handled))).toBe(
+        false,
+      );
+      expect(
+        extendsRecipe(handled, next({ handlers: [second, passkeyHandler()], completion }, handled)),
+      ).toBe(false);
+      expect(
+        extendsRecipe(
+          handled,
+          next(
+            {
+              handlers: [passkeyHandler("/webauthn", { by: "id", value: "other-key" }), second],
+              completion,
+            },
+            handled,
+          ),
+        ),
+      ).toBe(false);
+      expect(
+        extendsRecipe(
+          handled,
+          next(
+            {
+              completion: { path: "/home", target: { by: "id", value: "sign-out" } },
+            },
+            handled,
+          ),
+        ),
+      ).toBe(false);
+      // A learned completion is never dropped either.
+      const { completion: _dropped, ...withoutCompletion } = handled;
+      expect(
+        extendsRecipe(
+          handled,
+          parseLoginRecipe({ ...withoutCompletion, revision: handled.revision + 1 }),
+        ),
+      ).toBe(false);
+    });
+
+    it("refuses an equal or lower revision", () => {
+      const handled = next({ handlers: [passkeyHandler()] });
+      expect(extendsRecipe(handled, { ...handled, revision: base.revision + 1 })).toBe(false);
+      expect(
+        extendsRecipe(handled, { ...handled, handlers: [passkeyHandler()], revision: 1 }),
+      ).toBe(false);
+      expect(extendsRecipe(base, base)).toBe(false);
+    });
+  });
+
+  describe("item facts", () => {
+    const item = (fields: VaultItemMetadata["fields"]) => ({ fields });
+    const builtIn = (empty: { password?: boolean; totp?: boolean } = {}) =>
+      item([
+        { id: "login.username", label: "Username", name: null, kind: "text" },
+        {
+          id: "login.password",
+          label: "Password",
+          name: null,
+          kind: "hidden",
+          ...(empty.password ? { empty: true as const } : {}),
+        },
+        {
+          id: "login.totp-code",
+          label: "Verification code",
+          name: null,
+          kind: "otp",
+          ...(empty.totp ? { empty: true as const } : {}),
+        },
+      ]);
+    const allowed = ["login.username", "login.password", "login.totp-code"];
+
+    it("reads the password and TOTP facts from the catalog's empty flags", () => {
+      expect(loginFieldFacts(builtIn(), allowed)).toEqual({ password: true, totp: true });
+      expect(loginFieldFacts(builtIn({ password: true }), allowed)).toEqual({
+        password: false,
+        totp: true,
+      });
+      expect(loginFieldFacts(builtIn({ totp: true }), allowed)).toEqual({
+        password: true,
+        totp: false,
+      });
+      // A missing field holds nothing.
+      expect(loginFieldFacts(item([]), allowed)).toEqual({ password: false, totp: false });
+    });
+
+    it("counts an allowed Linked field like the built-in field it reads", () => {
+      const linked = item([
+        ...builtIn({ totp: true }).fields,
+        {
+          id: "custom.s.0",
+          label: "Linked password",
+          name: "pw",
+          kind: "linked",
+          linkedFieldId: "login.password",
+        },
+      ]);
+      expect(loginFieldFacts(linked, ["login.username", "custom.s.0"])).toEqual({
+        password: true,
+        totp: false,
+      });
+      expect(loginFieldSource(linked, "custom.s.0")).toBe("login.password");
+      expect(loginFieldSource(linked, "login.username")).toBe("login.username");
+      expect(
+        loginFieldFacts(item([...builtIn({ password: true }).fields, ...linked.fields.slice(3)]), [
+          "custom.s.0",
+        ]),
+      ).toEqual({ password: false, totp: false });
+    });
+
+    it("counts an excluded field as missing", () => {
+      expect(loginFieldFacts(builtIn(), ["login.username", "login.totp-code"])).toEqual({
+        password: false,
+        totp: true,
+      });
+      expect(loginFieldFacts(builtIn(), ["login.username", "login.password"])).toEqual({
+        password: true,
+        totp: false,
+      });
+      // The allowed IDs are the eligibility's, which drop excluded fields.
+      const catalog = structuredClone(DUMMY_VAULT_CATALOG);
+      const primary = catalog.connections[0]!.items[0]!;
+      primary.fields = builtIn().fields;
+      const settings = createDefaultSettings(catalog);
+      settings.connections[0]!.excludedFields = [{ itemId: "primary", fieldId: "login.password" }];
+      const eligibility = getItemEligibility(settings, catalog, "demo-personal", "primary");
+      expect(eligibility.eligible).toBe(true);
+      if (eligibility.eligible)
+        expect(loginFieldFacts(primary, eligibility.fieldIds)).toEqual({
+          password: false,
+          totp: true,
+        });
+    });
   });
 });

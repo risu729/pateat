@@ -1,6 +1,12 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { loginObservationSchema, semanticSlotsSchema } from "./observation";
+import {
+  builtInLoginSlots,
+  loginObservationSchema,
+  semanticSlotsSchema,
+  showsCodeField,
+  slotsForPage,
+} from "./observation";
 
 const base = {
   version: 1,
@@ -109,5 +115,54 @@ describe("observation contract", () => {
     expect(withConstraints({ role: "number", inputMode: "numeric" })).toBe(true);
     expect(withConstraints({ role: "button", maxLength: 3 })).toBe(false);
     expect(withConstraints({ role: "link", inputMode: "text" })).toBe(false);
+  });
+});
+
+describe("code fields on a generated page (ADR 0027)", () => {
+  const field = (extra: object) => ({
+    candidates: [
+      ...base.candidates,
+      { id: "code", role: "text", target: { by: "id", value: "code" }, ...extra },
+    ],
+  });
+  const slots = Object.values(builtInLoginSlots);
+
+  it.each([
+    ["autocomplete=one-time-code", { autocomplete: "one-time-code" }],
+    ["a tel input of 6", { role: "tel", maxLength: 6 }],
+    ["a numeric text input of 6", { inputMode: "numeric", maxLength: 6 }],
+    ["a numeric text input of 10", { inputMode: "numeric", maxLength: 10 }],
+    ["a number input marked one-time-code", { role: "number", autocomplete: "one-time-code" }],
+  ])("offers totp for a page with %s", (_label, extra) => {
+    const page = field(extra);
+    expect(parse({ ...base, ...page })).toBe(true);
+    expect(showsCodeField(page as never)).toBe(true);
+    expect(slotsForPage(page as never, slots)).toEqual(slots);
+  });
+
+  it.each([
+    ["only a sign-in form", {}],
+    ["a text input of 6", { maxLength: 6 }],
+    ["a numeric text input without a length", { inputMode: "numeric" }],
+    ["a tel input of 20", { role: "tel", maxLength: 20 }],
+    ["a tel input without a length", { role: "tel" }],
+    ["a numeric text input of 11", { inputMode: "numeric", maxLength: 11 }],
+    // The executor needs a length of 1 to 10, which observations omit on number inputs.
+    ["a number input without the hint", { role: "number" }],
+  ])("drops totp for a page with %s", (_label, extra) => {
+    const page = field(extra);
+    expect(parse({ ...base, ...page })).toBe(true);
+    expect(showsCodeField(page as never)).toBe(false);
+    expect(slotsForPage(page as never, slots)).toEqual([
+      builtInLoginSlots.username,
+      builtInLoginSlots.password,
+    ]);
+  });
+
+  it("keeps every other slot, including custom ones, and may leave none", () => {
+    const page = field({});
+    const branch = { id: "branch", kind: "identifier", description: "bank branch number" } as const;
+    expect(slotsForPage(page as never, [branch, builtInLoginSlots.totp])).toEqual([branch]);
+    expect(slotsForPage(page as never, [builtInLoginSlots.totp])).toEqual([]);
   });
 });

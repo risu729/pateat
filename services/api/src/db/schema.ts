@@ -223,6 +223,27 @@ export const generationAttempts = sqliteTable(
   ],
 );
 
+/**
+ * Pages sent to the judge per recipe revision and path (ADR 0027): each is judged at most
+ * once across devices and Worker restarts, and a recipe at most 20 times a UTC day.
+ */
+export const pageJudgements = sqliteTable(
+  "page_judgements",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    recipeId: text("recipe_id").notNull(),
+    revision: integer("revision").notNull(),
+    path: text("path").notNull(),
+    judgedAt: integer("judged_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.recipeId, table.revision, table.path] }),
+    index("page_judgements_day").on(table.ownerId, table.recipeId, table.judgedAt),
+  ],
+);
+
 /** One model call at a time per owner; a lock past `expiresAt` is abandoned. */
 export const inferenceLocks = sqliteTable("inference_locks", {
   ownerId: text("owner_id")

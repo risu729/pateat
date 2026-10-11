@@ -50,6 +50,17 @@ function RecipeDetails({ recipe }: { recipe: LoginRecipe }) {
         </dd>
         <dt className="font-medium">Rejection</dt>
         <dd>{recipe.rejection ? describeTarget(recipe.rejection) : "None"}</dd>
+        <dt className="font-medium">Handlers</dt>
+        <dd>
+          {recipe.handlers?.length
+            ? recipe.handlers
+                .map(
+                  (handler) =>
+                    `${handler.kind}: click ${describeTarget(handler.target)} on ${handler.path}`,
+                )
+                .join("; ")
+            : "None"}
+        </dd>
         <dt className="font-medium">Submissions</dt>
         <dd>At most {recipe.maxSubmissions}</dd>
       </dl>
