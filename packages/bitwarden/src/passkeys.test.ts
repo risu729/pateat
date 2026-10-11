@@ -95,6 +95,7 @@ describe("Bitwarden passkey metadata mapping", () => {
           userHandle: "c3ludGhldGljLXVzZXI",
           discoverable: true,
           counter: 0,
+          userName: "synthetic-user",
         },
       ],
     });
@@ -112,6 +113,18 @@ describe("Bitwarden passkey metadata mapping", () => {
     expect(map({ ...view, discoverable: "false", userHandle: null })).toMatchObject({
       ok: true,
       data: [{ discoverable: false, userHandle: null }],
+    });
+  });
+
+  it("keeps a bounded display user name and treats a missing one as null", () => {
+    expect(map({ ...view, userName: null })).toMatchObject({
+      ok: true,
+      data: [{ userName: null }],
+    });
+    expect(map({ ...view, userName: "" })).toMatchObject({ ok: true, data: [{ userName: null }] });
+    expect(map({ ...view, userName: "🙂".repeat(300) })).toMatchObject({
+      ok: true,
+      data: [{ userName: "🙂".repeat(256) }],
     });
   });
 

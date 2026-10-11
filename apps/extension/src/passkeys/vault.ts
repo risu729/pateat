@@ -3,6 +3,7 @@ import {
   isSiteExcluded,
   siteDefaultConnection,
   type SettingsResponse,
+  type SettingsSnapshot,
   type VaultCatalog,
   type LocalSettings,
 } from "@pateat/contracts";
@@ -114,6 +115,7 @@ export async function findVaultPasskeys(input: {
       defaultState = "searched";
     for (const entry of result.data.candidates) {
       if (!eligible(entry.itemId)) continue;
+      const item = connection.items.find((candidate) => candidate.id === entry.itemId);
       candidates.push({
         connectionId: connection.id,
         userId: entry.userId,
@@ -126,6 +128,11 @@ export async function findVaultPasskeys(input: {
         discoverable: entry.discoverable,
         counter: entry.counter,
         preferred: preferred?.connectionId === connection.id && preferred.itemId === entry.itemId,
+        display: {
+          item: item?.label ?? "Unnamed item",
+          ...(entry.userName ? { userName: entry.userName } : {}),
+          account: connection.label,
+        },
       });
     }
   }
@@ -226,4 +233,69 @@ export function createVaultPasskeySource(
       return signature;
     },
   };
+}
+
+/**
+ * Saves a passkey chosen in the chooser window as the origin's site default (ADR 0021), replacing
+ * any default the origin had. Nothing is saved once the settings, snapshot or item eligibility
+ * that produced the candidate have changed, or when the default would not lead back to the
+ * candidate's connection.
+ */
+export async function rememberVaultPasskey(input: {
+  settings: {
+    handle(request: { version: 1; type: "settings.get" }): Promise<SettingsResponse>;
+    update(
+      expectedRevision: number | undefined,
+      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+    ): Promise<SettingsSnapshot>;
+  };
+  origin: string;
+  candidate: VaultPasskeyCandidate;
+}): Promise<boolean> {
+  const { origin, candidate } = input;
+  const saved = await input.settings.handle({ version: 1, type: "settings.get" });
+  if (!saved.ok || saved.snapshot.revision !== candidate.settingsRevision) return false;
+  const { settings } = saved.snapshot;
+  const connection = saved.catalog.connections.find((entry) => entry.id === candidate.connectionId);
+  if (
+    !connection?.userId ||
+    connection.snapshotId !== candidate.snapshotId ||
+    connection.quarantinedItemIds?.includes(candidate.itemId) ||
+    isSiteExcluded(settings, origin) ||
+    !passkeyEligible(settings, saved.catalog, candidate.connectionId, candidate.itemId)
+  )
+    return false;
+  const item = connection.items.find((entry) => entry.id === candidate.itemId);
+  const entry = {
+    origin,
+    provider: connection.provider,
+    userId: connection.userId,
+    itemId: candidate.itemId,
+    ...(item ? { itemName: item.label.slice(0, 200) } : {}),
+    accountName: connection.label.slice(0, 200),
+  };
+  // A default names the account, so it must lead back to the chosen connection.
+  const mapped = siteDefaultConnection(entry, saved.catalog);
+  if (!mapped.ok || mapped.connectionId !== candidate.connectionId) return false;
+  const current = settings.siteDefaults.find((site) => site.origin === origin);
+  if (
+    current?.provider === entry.provider &&
+    current.userId === entry.userId &&
+    current.itemId === entry.itemId
+  )
+    return true;
+  const others = settings.siteDefaults.filter((site) => site.origin !== origin);
+  // The settings schema bounds the list; a full list keeps its entries.
+  if (others.length >= 1000) return false;
+  await input.settings.update(saved.snapshot.revision, (snapshot) => ({
+    ...snapshot,
+    settings: {
+      ...snapshot.settings,
+      siteDefaults: [
+        ...snapshot.settings.siteDefaults.filter((site) => site.origin !== origin),
+        entry,
+      ],
+    },
+  }));
+  return true;
 }

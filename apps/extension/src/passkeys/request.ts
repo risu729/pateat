@@ -25,9 +25,9 @@ const shortText = v.pipe(v.string(), v.maxLength(64));
 
 /**
  * Bounded, page-supplied snapshot of `navigator.credentials.get({ publicKey })` options. The bridge
- * copies only these members: `timeout`, `hints` and `extensions` are dropped before relaying,
- * because Pateat neither waits on the caller's timeout nor interprets hints or extensions. A
- * snapshot with any other member is malformed and delegates.
+ * copies only these members: `hints` and `extensions` are dropped before relaying, because Pateat
+ * does not interpret them. `timeout` only shortens how long the chooser window may wait
+ * (ADR 0021). A snapshot with any other member is malformed and delegates.
  */
 export const bridgedGetRequestSchema = v.strictObject({
   challenge: bytes(MIN_CHALLENGE_BYTES, MAX_CHALLENGE_BYTES),
@@ -44,6 +44,7 @@ export const bridgedGetRequestSchema = v.strictObject({
   ),
   userVerification: v.optional(shortText),
   mediation: v.optional(shortText),
+  timeout: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(0xff_ff_ff_ff))),
 });
 export type BridgedGetRequest = v.InferInput<typeof bridgedGetRequestSchema>;
 
@@ -65,6 +66,8 @@ export interface AdmittedGetRequest {
   readonly allowCredentialIds: readonly string[];
   /** Whether the assertion sets UV, as the policy decided at admission. */
   readonly userVerified: boolean;
+  /** The caller's `timeout` in milliseconds, when it gave one. */
+  readonly timeoutMs?: number;
 }
 
 export type Admission =
@@ -119,6 +122,7 @@ export function admitGetRequest(input: {
       challenge: request.challenge,
       allowCredentialIds: Object.freeze(allowed.map((entry) => toBase64Url(entry.id))),
       userVerified: input.policy.verification === "always",
+      ...(request.timeout === undefined ? {} : { timeoutMs: request.timeout }),
     }),
   };
 }

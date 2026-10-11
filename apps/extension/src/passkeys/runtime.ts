@@ -7,12 +7,19 @@ import {
   selectPasskey,
   type PasskeyCandidate,
   type PasskeyCandidates,
+  type PasskeyDisplay,
 } from "./select";
-import { RUNTIME_TIMEOUT_MS, runtimeMessageSchema, type RuntimeResult } from "./wire";
+import {
+  CHOOSER_MAX_WAIT_MS,
+  CHOOSER_MIN_WAIT_MS,
+  RUNTIME_TIMEOUT_MS,
+  runtimeMessageSchema,
+  type RuntimeResult,
+} from "./wire";
 
 type Sender = {
   id?: string | undefined;
-  tab?: { id?: number | undefined } | undefined;
+  tab?: { id?: number | undefined; incognito?: boolean | undefined } | undefined;
   frameId?: number | undefined;
   documentId?: string | undefined;
   origin?: string | undefined;
@@ -35,6 +42,35 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
   ): Promise<Uint8Array>;
 }
 
+/** What the user did in the chooser window, by position in the offered list. */
+export type PasskeyChoice =
+  | { readonly kind: "chosen"; readonly index: number; readonly makeDefault: boolean }
+  /** "Use the browser" was pressed, the window was closed, or it could not be shown. */
+  | { readonly kind: "browser" | "closed" | "unavailable" };
+
+/** Opens Pateat's chooser window for one request (ADR 0021) and settles when it is answered. */
+export interface PasskeyChooser {
+  choose(input: {
+    readonly tabId: number;
+    readonly origin: string;
+    readonly rpId: string;
+    readonly entries: readonly PasskeyDisplay[];
+    /** A site default exists but holds none of these passkeys; making one default replaces it. */
+    readonly replacesDefault: boolean;
+    /** Aborted when the request ends any other way; the window then closes. */
+    readonly signal: AbortSignal;
+  }): Promise<PasskeyChoice>;
+}
+
+/**
+ * How long the chooser may keep a request open, from when the background received it: the
+ * caller's `timeout`, raised to `CHOOSER_MIN_WAIT_MS`, and never past `CHOOSER_MAX_WAIT_MS`.
+ */
+export function chooserWaitMs(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined) return CHOOSER_MAX_WAIT_MS;
+  return Math.min(Math.max(timeoutMs, CHOOSER_MIN_WAIT_MS), CHOOSER_MAX_WAIT_MS);
+}
+
 /**
  * Value-free account of one bridged request, for the extension's own console only: the outcome or
  * delegate reason, and how many stored passkeys the vault returned, the request accepted and the
@@ -54,6 +90,8 @@ export interface PasskeyRequestReport {
   readonly siteDefaultAccepted?: number;
   readonly siteDefaultItem?: PasskeyCandidates["siteDefault"];
   readonly complete?: boolean;
+  /** How the chooser window ended, when one was opened. */
+  readonly chooser?: PasskeyChoice["kind"];
 }
 type ReportDetail = {
   -readonly [
@@ -101,6 +139,13 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     policy?: (origin: string) => PasskeyPolicy;
     /** Receives a value-free report of each finished request. */
     report?: (report: PasskeyRequestReport) => void;
+    /** Asks the user when several passkeys match and no site default is among them. */
+    chooser?: PasskeyChooser;
+    /**
+     * Saves a passkey chosen in the window as the origin's site default. Called only after the
+     * assertion was handed back, because a settings save cancels pending passkey requests.
+     */
+    remember?: (origin: string, candidate: TCandidate) => Promise<void>;
   },
 ) {
   const operations = new Map<string, { documentId: string; controller: AbortController }>();
@@ -112,9 +157,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   async function get(
     message: { operationId: string; request: unknown; userActivation: boolean },
     origin: string,
-    documentId: string,
+    context: { documentId: string; tabId: number; incognito: boolean },
     detail: ReportDetail,
+    after: { remember?: TCandidate },
   ): Promise<RuntimeResult> {
+    const { documentId } = context;
     const documentOperations = [...operations.values()].filter(
       (operation) => operation.documentId === documentId,
     ).length;
@@ -135,10 +182,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const controller = new AbortController();
     operations.set(message.operationId, { documentId, controller });
-    const timer = setTimeout(
-      () => controller.abort(new DOMException("Passkey bridge timed out", "TimeoutError")),
-      options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS,
-    );
+    const received = Date.now();
+    const expire = () =>
+      controller.abort(new DOMException("Passkey bridge timed out", "TimeoutError"));
+    let timer = setTimeout(expire, options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
     try {
       const signal = controller.signal;
       const candidates = await abortable(
@@ -154,14 +201,56 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
       const selection = selectPasskey(admission.request, candidates);
-      if (selection.kind === "delegate") return selection;
+      let credential: TCandidate;
+      let makeDefault = false;
+      if (selection.kind === "credential") credential = selection.credential;
+      else {
+        // Only passkeys Pateat can sign with are offered; fewer than two is not a choice.
+        const offered = accepted.filter((entry) => entry.counter === 0);
+        if (
+          selection.reason !== "ambiguous-credential" ||
+          !options.chooser ||
+          // An extension window would open outside the incognito window (ADR 0021).
+          context.incognito ||
+          offered.length < 2
+        )
+          return selection;
+        // The window waits for a person, so the lookup budget no longer applies.
+        clearTimeout(timer);
+        timer = setTimeout(
+          expire,
+          Math.max(0, received + chooserWaitMs(admission.request.timeoutMs) - Date.now()),
+        );
+        const choice = await abortable(
+          options.chooser.choose({
+            tabId: context.tabId,
+            origin,
+            rpId: admission.request.rpId,
+            entries: offered.map(
+              (entry, index) => entry.display ?? { item: `Passkey ${index + 1}` },
+            ),
+            replacesDefault:
+              candidates.siteDefault !== undefined && candidates.siteDefault !== "unset",
+            signal,
+          }),
+          signal,
+        );
+        detail.chooser = choice.kind;
+        if (choice.kind !== "chosen") return { kind: "delegate", reason: `chooser-${choice.kind}` };
+        const chosen = offered[choice.index];
+        if (!chosen) return { kind: "delegate", reason: "chooser-invalid" };
+        credential = chosen;
+        makeDefault = choice.makeDefault;
+      }
       const assertion = await abortable(
-        createPasskeyAssertion(admission.request, selection.credential, (data, hash) =>
-          source.sign(selection.credential, data, hash, signal),
+        createPasskeyAssertion(admission.request, credential, (data, hash) =>
+          source.sign(credential, data, hash, signal),
         ),
         signal,
       );
-      return signal.aborted ? { kind: "cancelled" } : { kind: "assertion", assertion };
+      if (signal.aborted) return { kind: "cancelled" };
+      if (makeDefault) after.remember = credential;
+      return { kind: "assertion", assertion };
     } catch {
       const reason = controller.signal.reason as unknown;
       if (reason instanceof DOMException && reason.name === "TimeoutError")
@@ -190,7 +279,24 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         return { ok: true };
       }
       const detail: ReportDetail = {};
-      const result = await get(command, origin, sender.documentId!, detail);
+      const after: { remember?: TCandidate } = {};
+      const result = await get(
+        command,
+        origin,
+        {
+          documentId: sender.documentId!,
+          tabId: sender.tab!.id!,
+          incognito: sender.tab?.incognito === true,
+        },
+        detail,
+        after,
+      );
+      const remembered = after.remember;
+      if (remembered && options.remember) {
+        const remember = options.remember;
+        // After the reply is on its way: saving settings cancels pending passkey requests.
+        setTimeout(() => void remember(origin, remembered).catch(() => undefined), 0);
+      }
       try {
         options.report?.({
           ...detail,
