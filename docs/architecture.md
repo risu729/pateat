@@ -630,7 +630,9 @@ the credential idle-expiry decision, and the optional `launchWebAuthFlow` varian
 
 ### Owner web UI
 
-Status: design approved by the owner on 2026-10-11; not implemented. It replaces the
+Status: design approved by the owner on 2026-10-11. The app, its Access-checked
+assets and API, and the devices page are implemented and tested locally; the other
+pages, display names and nullable writer columns are not. It replaces the
 extension's settings page for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
@@ -664,7 +666,8 @@ extension's settings page for the data the service holds
 - Authentication. The Access application that covers `/enroll` and `/manage` also
   covers the app's assets and `/manage/api/*`. The Worker verifies the Access token
   on each API request as it does for the current pages, finds the owner by issuer and
-  subject without creating one, and accepts only same-origin requests. The page's
+  subject without creating one, and accepts a state-changing request only with an
+  `Origin` equal to its own. The page's
   Content Security Policy allows scripts from its own origin only, with no framing.
 
 ## Deferred interfaces and challenges

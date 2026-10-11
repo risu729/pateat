@@ -2,17 +2,18 @@ import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
-import { requireAccess } from "./access";
+import { requireAccess, requireAccessApi, requireSameOrigin } from "./access";
 import { requireDevice, type ApiEnv } from "./auth";
 import { API_HEADERS, apiError } from "./http";
 import { message } from "./pages";
 import { deviceRoutes } from "./routes/device";
 import { enrollRoutes } from "./routes/enroll";
-import { manageRoutes } from "./routes/manage";
+import { manageApiRoutes } from "./routes/manage-api";
 import { oidcRoutes } from "./routes/oidc";
 import { recipeRoutes } from "./routes/recipes";
 import { redeemRoutes } from "./routes/redeem";
 import { settingsRoutes } from "./routes/settings";
+import { appAsset, appPage } from "./web-app";
 
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_FORM_BYTES = 4 * 1024;
@@ -49,20 +50,26 @@ export const app = new Hono<ApiEnv>()
       onError: (c) => message(c, 413, "Too large", "The form was too large."),
     }),
   )
-  .use(
-    "/manage/*",
-    requireAccess,
-    csrf(),
-    bodyLimit({
-      maxSize: MAX_FORM_BYTES,
-      onError: (c) => message(c, 413, "Too large", "The form was too large."),
-    }),
-  )
   .route("/enroll", enrollRoutes)
   .all("/enroll", methodNotAllowed("GET, POST"))
-  .route("/manage", manageRoutes)
+  // The owner web UI: its JSON API, its pages and its built assets all need Access.
+  // The API answers its own pages only; Access runs before any body read.
+  .use(
+    "/manage/api/*",
+    requireAccessApi,
+    requireSameOrigin,
+    bodyLimit({
+      maxSize: MAX_BODY_BYTES,
+      onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
+    }),
+  )
+  .route("/manage/api", manageApiRoutes)
+  .all("/manage/api/devices", methodNotAllowed("GET"))
+  .all("/manage/api/devices/:deviceId/revoke", methodNotAllowed("POST"))
+  .get("/manage/assets/*", requireAccess, appAsset)
+  // Each page the app renders; any other path under /manage is not found.
+  .get("/manage", requireAccess, appPage)
   .all("/manage", methodNotAllowed("GET"))
-  .all("/manage/devices/:deviceId/revoke", methodNotAllowed("POST"))
   // Redemption is the only anonymous write; it is rate limited and body-bounded.
   .use(
     "/redeem",
@@ -91,7 +98,8 @@ export const app = new Hono<ApiEnv>()
   .all("/v1/recipes/:recipeId", methodNotAllowed("PUT"))
   .notFound((c) => apiError(c, 404, { error: "not_found" }))
   .onError((error, c) => {
-    const ownerPage = /^\/(?:enroll|manage)(?:\/|$)/.test(c.req.path);
+    const ownerPage =
+      /^\/(?:enroll|manage)(?:\/|$)/.test(c.req.path) && !/^\/manage\/api(?:\/|$)/.test(c.req.path);
     if (error instanceof HTTPException && error.status === 400)
       return ownerPage
         ? message(c, 400, "Invalid request", "Start again from Pateat's settings.")

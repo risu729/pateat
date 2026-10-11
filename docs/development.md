@@ -249,7 +249,7 @@ use.
 | Area | Choice and integration status | Owning slice |
 | --- | --- | --- |
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
-| Service web UI | **Approved 2026-10-11, not implemented:** the extension's React, Tailwind/Base UI, shadcn/ui and TanStack Form/Query choices, built by Vite and served as Worker static assets | M4 owner web UI |
+| Service web UI | **Implemented for the devices page:** React, Tailwind through its Vite plugin, Base UI with the selected shadcn/ui Button and TanStack Query, built by Vite into Worker static assets; **approved:** TanStack Form | M4 owner web UI |
 | Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented in the local probe:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |

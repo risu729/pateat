@@ -54,7 +54,7 @@ test("release inventory detects changed bytes, extra files, and symlinks", async
   }
 });
 
-test("release output refuses preview mode and another Worker", async () => {
+test("release output refuses preview mode, another Worker and unguarded assets", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pateat-build-"));
   try {
     await mkdir(join(directory, "workers", "default"), { recursive: true });
@@ -64,8 +64,12 @@ test("release output refuses preview mode and another Worker", async () => {
       configPath,
       JSON.stringify({ buildContext: { mode: "production", isPreview: false } }),
     );
-    await writeFile(workerPath, JSON.stringify({ name: "pateat-api" }));
+    const worker = { name: "pateat-api", assets: { runWorkerFirst: true } };
+    await writeFile(workerPath, JSON.stringify(worker));
     await verifyBuild(directory);
+    await writeFile(workerPath, JSON.stringify({ ...worker, assets: {} }));
+    await assert.rejects(verifyBuild(directory));
+    await writeFile(workerPath, JSON.stringify(worker));
     await writeFile(
       configPath,
       JSON.stringify({ buildContext: { mode: "production", isPreview: true } }),
@@ -75,7 +79,7 @@ test("release output refuses preview mode and another Worker", async () => {
       configPath,
       JSON.stringify({ buildContext: { mode: "production", isPreview: false } }),
     );
-    await writeFile(workerPath, JSON.stringify({ name: "another-worker" }));
+    await writeFile(workerPath, JSON.stringify({ ...worker, name: "another-worker" }));
     await assert.rejects(verifyBuild(directory));
   } finally {
     await rm(directory, { recursive: true, force: true });

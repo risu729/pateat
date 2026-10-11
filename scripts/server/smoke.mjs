@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
@@ -30,11 +30,37 @@ assert.ok(
   "Worker entrypoint must stay inside the emitted bundle",
 );
 
+// The owner web UI is built into the Worker's static assets, all under /manage.
+const assetsDirectory = join(workerDirectory, "assets");
+const appFiles = await readdir(join(assetsDirectory, "manage", "assets"));
+const appScripts = appFiles.filter((name) => name.endsWith(".js"));
+assert.equal(appScripts.length, 1, "The web UI is one script bundle");
+assert.ok(
+  (await readFile(join(assetsDirectory, "manage", "index.html"), "utf8")).includes(
+    `src="/manage/assets/${appScripts[0]}"`,
+  ),
+  "The app document loads the built script",
+);
+assert.match(
+  await readFile(join(assetsDirectory, "manage", "assets", "licenses.md"), "utf8"),
+  /react/,
+);
+assert.match(
+  await readFile(join(assetsDirectory, "manage", "assets", "notices.md"), "utf8"),
+  /shadcn/,
+);
+assert.match(
+  await readFile(join(assetsDirectory, "manage", "assets", "LICENSE-GPL-3.0.txt"), "utf8"),
+  /GNU GENERAL PUBLIC LICENSE\s+Version 3/,
+);
+assert.equal(config.assets?.runWorkerFirst, true, "Assets must pass the Worker's Access check");
+
 const runtime = new Miniflare({
   workers: [
     {
       config: {
         ...config,
+        assets: { ...config.assets, directory: assetsDirectory, hasUserWorker: true },
         manifest: {
           mainModule: config.manifest.mainModule,
           modules: {
@@ -90,6 +116,17 @@ try {
   });
   assert.equal(manage.status, 503);
   assert.equal(manage.headers.get("X-Frame-Options"), "DENY");
+  // Built files are never served around that check.
+  const assets = appFiles.map((name) => `/manage/assets/${name}`);
+  const assetResponses = await Promise.all(
+    assets.map((path) => runtime.dispatchFetch(`https://pateat.invalid${path}`)),
+  );
+  assert.deepEqual(
+    assetResponses.map((asset) => asset.status),
+    assets.map(() => 503),
+  );
+  const document = await runtime.dispatchFetch("https://pateat.invalid/manage/index.html");
+  assert.equal(document.status, 404);
   console.log(`Production artifact smoke passed: pateat-api @ ${expectedRevision}`);
 } finally {
   await runtime.dispose();

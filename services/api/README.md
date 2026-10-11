@@ -26,8 +26,10 @@ framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
 | `GET /enroll?challenge=&label=` | Access page asking the owner to type the device's pairing code |
 | `POST /enroll` | Record the owner's approval and typed code for 10 minutes |
 | `POST /redeem` | Exchange an approved verifier for a device credential, once |
-| `GET /manage` | Access page listing the owner's devices |
-| `POST /manage/devices/:deviceId/revoke` | Revoke one of the owner's devices |
+| `GET /manage` | Owner web UI (React app): the owner's devices |
+| `GET /manage/assets/*` | The web UI's built script, styles and notices |
+| `GET /manage/api/devices` | The owner's devices, newest first |
+| `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 
 `/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only
 the SHA-256 digest of each 256-bit device credential and derives the owner from it;
@@ -38,17 +40,29 @@ metadata; device-local field policies, vault values and provider sessions are
 rejected by the strict schemas. Stored documents are revalidated on read and fail
 closed with a 500 `internal_error`.
 
-`/enroll` and `/manage` must sit behind one Cloudflare Access application, and the
-Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's keys, the
-`ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both secrets those
-pages answer 503. The owner is found by token issuer and subject, never by email.
-Approval forms must come from the same origin. `/redeem` is anonymous and issues a
-credential only when the typed code equals the code derived from the verifier; a
-mismatch returns 409 `enrollment_code_mismatch`, and unapproved, expired, used and
+`/enroll` and `/manage` (with everything under it) must sit behind one Cloudflare Access
+application, and the Worker verifies the `Cf-Access-Jwt-Assertion` itself against the
+team's keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
+secrets those routes answer 503. The owner is found by token issuer and subject, never
+by email. Approval forms must come from the same origin. `/redeem` is anonymous and
+issues a credential only when the typed code equals the code derived from the verifier;
+a mismatch returns 409 `enrollment_code_mismatch`, and unapproved, expired, used and
 unknown verifiers return the same 404 `enrollment_not_found`. The `REDEEM_LIMITER`
 binding allows about 10 requests a minute per client address (the hosted limiter is
 approximate and per location), so poll no more than every 6 seconds. The
 [enrollment design](../../docs/architecture.md#device-enrollment) describes the flow.
+
+The web UI is built from `web/` (entry `manage/index.html`) into the Worker's static
+assets under `/manage`. Every request runs the Worker first, so no built file is served
+before the Access check; the Worker serves the app only at its page paths and its
+assets, all with a Content Security Policy that allows only this origin's scripts and no
+framing. `/manage/api` answers with JSON and its contracts are in
+`packages/contracts/src/manage.ts`; failures are `unauthorized` (no token), `forbidden`
+(a token that fails verification, or a state-changing request without this origin's
+`Origin`) and `access_unavailable` (no Access configuration). An identity that never
+approved a pairing has no owner and sees no data. The bundle includes GPL-3.0-only
+`packages/contracts` code; each page links its source and the third-party notices
+(`public/manage/assets/notices.md` and the build's `licenses.md`).
 
 Recipe revisions are immutable. A write claims the head with a conditional statement
 and writes the history row in the same D1 batch, guarded by a per-request write ID,

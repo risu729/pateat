@@ -63,6 +63,8 @@ export async function verifyBuild(directory) {
     await readFile(`${directory}/workers/default/worker.config.json`, "utf8"),
   );
   assert.equal(worker.name, "pateat-api");
+  // The owner web UI assets must pass the Worker's Access check.
+  assert.equal(worker.assets?.runWorkerFirst, true);
 }
 
 async function pack() {

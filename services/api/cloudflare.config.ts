@@ -11,6 +11,8 @@ export default defineConfig({
     env: {
       // Declared for typed bindings only; the database is not provisioned yet.
       DB: bindings.d1({ name: "pateat" }),
+      // The owner web UI built from manage/index.html, read by the Worker after Access.
+      ASSETS: bindings.assets(),
       // The Access team domain (`<team>.cloudflareaccess.com`) and application
       // audience tag that guard /enroll and /manage. Unset values fail closed.
       ACCESS_TEAM_DOMAIN: bindings.secret(),
@@ -25,6 +27,8 @@ export default defineConfig({
         simple: { limit: 10, period: 60 },
       }),
     },
+    // Every request reaches the Worker first, so no built file skips the Access check.
+    assets: { runWorkerFirst: true, htmlHandling: "none", notFoundHandling: "none" },
     workersDev: false,
     previewUrls: false,
     observability: { enabled: true, headSamplingRate: 1, redactQueryString: true },
