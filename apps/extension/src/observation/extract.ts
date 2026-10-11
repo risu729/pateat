@@ -16,6 +16,7 @@ export type ObservationResult =
 const maxCandidates = 48;
 const maxHeadings = 8;
 const maxText = 120;
+const rawLimit = maxText * 4;
 const labelDepth = 3;
 const autocompleteTokens = [
   "username",
@@ -77,7 +78,9 @@ const redactions: readonly (readonly [RegExp, string])[] = [
  */
 function observedText(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
-  let text = raw.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ");
+  // Format characters (zero-width spaces, soft hyphens) vanish so they cannot split a
+  // digit run; control and separator characters become spaces.
+  let text = raw.replace(/\p{Cf}+/gu, "").replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ");
   for (const [pattern, replacement] of redactions) text = text.replace(pattern, replacement);
   text = text.replace(/\s+/gu, " ").trim();
   if (text.length > maxText) {
@@ -88,36 +91,33 @@ function observedText(raw: string | null | undefined): string | undefined {
   return text || undefined;
 }
 
-/** Rendered on screen: not hidden by CSS, opacity, a closed `<details>` or an attribute. */
-function shown(element: Element): element is HTMLElement {
+/** Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional). */
+function shown(element: Element, opacity = true): element is HTMLElement {
   return (
     element instanceof HTMLElement &&
     element.isConnected &&
     !element.closest("[hidden], [inert], [aria-hidden='true']") &&
     element.checkVisibility({
       contentVisibilityAuto: true,
-      opacityProperty: true,
+      opacityProperty: opacity,
       visibilityProperty: true,
     })
   );
 }
 
-/** A candidate the user could see. Trap inputs are usually tiny or moved off the page. */
-function visible(element: HTMLElement): boolean {
-  if (!shown(element)) return false;
+/**
+ * Whether a control is on the page: `visible`, `faint` when it is rendered but
+ * transparent or tiny (a trap, or a real input under a styled widget), or `absent`
+ * when it is hidden or moved before the page's start, where trap inputs usually go.
+ */
+function presence(element: HTMLElement): "visible" | "faint" | "absent" {
   const view = element.ownerDocument.defaultView;
-  if (!view) return false;
+  if (!view || !shown(element, false)) return "absent";
   const rect = element.getBoundingClientRect();
-  // Login pages do not scroll sideways, so anything outside the viewport's width is a trap.
-  const left = rect.left + view.scrollX;
-  return (
-    rect.width >= 2 &&
-    rect.height >= 2 &&
-    rect.right + view.scrollX > 0 &&
-    rect.bottom + view.scrollY > 0 &&
-    left < view.innerWidth
-  );
+  if (rect.right + view.scrollX <= 0 || rect.bottom + view.scrollY <= 0) return "absent";
+  return shown(element) && rect.width >= 2 && rect.height >= 2 ? "visible" : "faint";
 }
+const visible = (element: HTMLElement) => presence(element) === "visible";
 
 /**
  * The rendered text inside an element, read from text nodes of shown elements only.
@@ -125,6 +125,7 @@ function visible(element: HTMLElement): boolean {
  */
 function visibleText(root: Element): string | undefined {
   if (!shown(root) || textless.has(root.tagName)) return undefined;
+  const view = root.ownerDocument.defaultView;
   const walker = root.ownerDocument.createTreeWalker(
     root,
     NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
@@ -133,12 +134,18 @@ function visibleText(root: Element): string | undefined {
         node instanceof Text
           ? NodeFilter.FILTER_ACCEPT
           : node instanceof Element && !textless.has(node.tagName) && shown(node)
-            ? NodeFilter.FILTER_SKIP
+            ? NodeFilter.FILTER_ACCEPT
             : NodeFilter.FILTER_REJECT,
     },
   );
   let text = "";
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) text += node.nodeValue ?? "";
+  // Read a little beyond the limit so redaction sees whole tokens, then stop.
+  for (let node = walker.nextNode(); node && text.length <= rawLimit; node = walker.nextNode()) {
+    if (node instanceof Text) text += node.data;
+    // Separate blocks as rendering does: `<div>Customer</div><div>Number</div>`.
+    else if (node instanceof Element && !view?.getComputedStyle(node).display.startsWith("inline"))
+      text += " ";
+  }
   return observedText(text);
 }
 
@@ -263,17 +270,27 @@ function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
 type Draft = Omit<ObservedCandidate, "id" | "target" | "group"> & { element: HTMLElement };
 type Found =
   | { kind: "candidate"; form: HTMLFormElement | null; draft: Draft }
-  /** A visible control the executor cannot act on, such as a select or an image button. */
-  | { kind: "unsupported"; form: HTMLFormElement | null };
+  /**
+   * A visible control the executor cannot act on, such as a select or an image button.
+   * `field` marks a text or password field that cannot be filled: read-only (as with
+   * software keyboards), disabled until another step, or transparent or tiny.
+   */
+  | { kind: "unsupported"; form: HTMLFormElement | null; field: boolean };
 
 function describe(element: Element): Found | undefined {
-  if (!(element instanceof HTMLElement) || !visible(element)) return undefined;
+  if (!(element instanceof HTMLElement)) return undefined;
+  const present = presence(element);
+  if (element instanceof HTMLInputElement && fillTypes[element.type] && present !== "absent") {
+    if (present === "faint" || element.readOnly || element.disabled)
+      return { kind: "unsupported", form: element.form, field: true };
+  } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
     const type = element.type;
-    if (ignoredTypes.has(type) || element.disabled) return undefined;
+    if (ignoredTypes.has(type)) return undefined;
+    // A disabled submit often enables once fields are filled, so it stays a candidate.
+    if (element.disabled && !actionTypes.has(type)) return undefined;
     const fillRole = fillTypes[type];
     if (fillRole) {
-      if (element.readOnly) return undefined;
       const label = fieldLabel(element);
       const placeholder = observedText(element.placeholder);
       const hint = autocomplete(element);
@@ -303,10 +320,10 @@ function describe(element: Element): Found | undefined {
       };
     }
     // Image buttons, radio groups and other input types have no executor support yet.
-    return { kind: "unsupported", form: element.form };
+    return { kind: "unsupported", form: element.form, field: false };
   }
   if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)
-    return element.disabled ? undefined : { kind: "unsupported", form: element.form };
+    return element.disabled ? undefined : { kind: "unsupported", form: element.form, field: false };
   if (element instanceof HTMLButtonElement) {
     if (element.type === "reset") return undefined;
     const label = actionLabel(element);
@@ -328,24 +345,20 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
-/** True when an open shadow root holds a control the executor's document lookup cannot reach. */
-function shadowControls(root: Document | ShadowRoot): boolean {
-  for (const host of root.querySelectorAll("*")) {
-    const shadow = host.shadowRoot;
-    if (!shadow) continue;
-    if (
-      [...shadow.querySelectorAll(controls)].some(
-        (element) => element instanceof HTMLElement && visible(element),
-      ) ||
-      shadowControls(shadow)
+/** True when an open shadow root holds a visible control, which the executor cannot reach. */
+function shadowControls(shadow: ShadowRoot): boolean {
+  return (
+    [...shadow.querySelectorAll(controls)].some(
+      (element) => element instanceof HTMLElement && visible(element),
+    ) ||
+    [...shadow.querySelectorAll("*")].some(
+      (element) => element.shadowRoot !== null && shadowControls(element.shadowRoot),
     )
-      return true;
-  }
-  return false;
+  );
 }
 
 function language(texts: readonly string[]): LoginObservation["language"] {
-  const joined = texts.join(" ");
+  const joined = texts.join(" ").replace(/\[(?:email|masked|number)\]/gu, " ");
   const japanese = joined.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu);
   const latin = joined.match(/[A-Za-zＡ-Ｚａ-ｚ]/gu);
   const ja = japanese?.length ?? 0;
@@ -372,8 +385,9 @@ export function extractLoginObservation(
   document: Document = globalThis.document,
 ): ObservationResult {
   const location = document.location;
-  // Matrix parameters such as `;jsessionid=` carry session tokens in the path.
-  if (!location || location.pathname.includes(";"))
+  // Session IDs in the path: matrix parameters such as `;jsessionid=`, and ASP.NET
+  // cookieless segments such as `/(S(lit3py55t21z5))/`.
+  if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
     return { ok: false, reason: "unsupported-page" };
 
   const found = [...document.querySelectorAll("input, select, textarea, button, a[href]")]
@@ -381,12 +395,20 @@ export function extractLoginObservation(
     .filter((entry) => entry !== undefined);
   const fieldForms = new Set(
     found.flatMap((entry) =>
-      entry.kind === "candidate" && fillTypes[entry.draft.role] ? [entry.form] : [],
+      (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
+      (entry.kind === "unsupported" && entry.field)
+        ? [entry.form]
+        : [],
     ),
   );
   if (fieldForms.size === 0) return { ok: false, reason: "no-candidates" };
 
-  let complete = !shadowControls(document);
+  let complete = ![...document.querySelectorAll("*")].some(
+    (host) =>
+      host.shadowRoot !== null &&
+      fieldForms.has(host.closest("form")) &&
+      shadowControls(host.shadowRoot),
+  );
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
   const links: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {

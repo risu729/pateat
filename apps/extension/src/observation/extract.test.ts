@@ -218,7 +218,8 @@ describe("extractLoginObservation", () => {
     const observation = observe();
     expect(observation.title).toBe("Sign in");
     const label = observation.candidates[0]!.label!;
-    expect(label.startsWith("a b c 長")).toBe(true);
+    // Format characters vanish; they could otherwise split a redacted digit run.
+    expect(label.startsWith("abc 長")).toBe(true);
     expect(label.length).toBe(120);
   });
 
@@ -460,15 +461,92 @@ describe("extractLoginObservation", () => {
     );
   });
 
-  it("skips trap inputs that are transparent, tiny, far off the page or in a closed details", () => {
+  it("skips inputs moved before the page start or collapsed, and keeps ones far right", () => {
     page(
-      `<form id="f"><input id="u">
-        <input id="clear" style="opacity:0">
-        <input id="tiny" style="width:1px;height:1px;padding:0;border:0">
-        <input id="far" style="position:absolute;left:99999px">
+      `<form id="f" style="width:${innerWidth + 400}px"><input id="u">
+        <input id="trap" style="position:absolute;left:-9999px">
+        <input id="above" style="position:absolute;top:-9999px">
         <details><summary>More</summary><input id="inside"></details>
+        <input id="p" type="password" style="position:relative;left:${innerWidth}px">
         <button id="go">Go</button></form>`,
     );
-    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["u", "go"]);
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "go",
+    ]);
+  });
+
+  it("marks fields it cannot fill incomplete instead of dropping them", () => {
+    for (const field of [
+      `<input id="p" type="password" readonly>`,
+      `<input id="p" type="password" disabled>`,
+      `<input id="p" type="password" style="opacity:0">`,
+      `<input id="p" style="width:1px;height:1px;padding:0;border:0">`,
+    ]) {
+      page(`<form id="f"><input id="u">${field}<button id="go">ログイン</button></form>`);
+      const observation = observe();
+      expect(observation.complete, field).toBe(false);
+      expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+        "u",
+        "go",
+      ]);
+    }
+    // A software-keyboard-only form is still recognized as a login form.
+    page(`<form id="f"><input id="p" type="password" readonly><button id="go">Go</button></form>`);
+    expect(observe().complete).toBe(false);
+  });
+
+  it("keeps a disabled submit input as a button", () => {
+    page(
+      `<form id="f"><input id="u"><input id="go" type="submit" value="ログイン" disabled></form>`,
+    );
+    expect(summary(observe())).toContainEqual({
+      role: "button",
+      target: { by: "id", value: "go" },
+      label: "ログイン",
+      group: "f1",
+    });
+  });
+
+  it("ignores shadow-root controls outside the login form", () => {
+    page(`<form id="f"><input id="u"><button id="go">Go</button></form><div id="host"></div>`);
+    document
+      .querySelector("#host")!
+      .attachShadow({ mode: "open" }).innerHTML = `<button>Chat</button>`;
+    expect(observe().complete).toBe(true);
+  });
+
+  it("refuses ASP.NET cookieless session paths", () => {
+    page(`<input id="u">`);
+    history.replaceState(null, "", "/(S(lit3py55t21z5))/default.aspx");
+    expect(extractLoginObservation()).toEqual({ ok: false, reason: "unsupported-page" });
+  });
+
+  it("detects language without counting redaction placeholders", () => {
+    page(
+      `<form id="f"><label for="a">口座番号 ****1234</label><input id="a">
+        <label for="m">メール t***@gmail.com</label><input id="m">
+        <label for="p">暗証 1234 5678</label><input id="p" type="password">
+        <button id="go">ログイン</button></form>`,
+      "ログイン",
+    );
+    expect(observe().language).toBe("ja");
+  });
+
+  it("redacts digit runs split by zero-width characters", () => {
+    page(`<input id="u" aria-label="口座 1​2​3​4​5​6​7">`);
+    expect(observe().candidates[0]!.label).toBe("口座 [number]");
+  });
+
+  it("separates block text and bounds large label sources", () => {
+    page(
+      `<table><tr><th><div>Customer</div><div>Number</div></th><td><input id="u"></td></tr></table>`,
+    );
+    expect(observe().candidates[0]!.label).toBe("Customer Number");
+    page(`<label for="u">${"<span>ラベル</span>".repeat(20000)}</label><input id="u">`);
+    expect(observe().candidates[0]!.label!.length).toBeLessThanOrEqual(120);
   });
 });
