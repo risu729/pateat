@@ -22,6 +22,13 @@ steps = (
     // The builtin diff wrapper uses POSIX shell syntax; checks/fixes work on Windows.
     check_diff = null
   }
+  ["pkl-format"] {
+    // The builtin runs through `sh -c`, which Windows lacks; pkl format --write exits 0.
+    shell = null
+    fix {
+      command = "pkl format --write {{ files }}"
+    }
+  }
   ["betterleaks"] {
     // Fixtures, tests and the synthetic corpus hold low-confidence generic matches
     // (password: "password"); report only medium- and high-confidence secret formats.
