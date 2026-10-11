@@ -204,10 +204,55 @@ describe("recipe generation requests", () => {
     expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
       verdict: "unclear",
     });
+    // An unreachable service never showed the page to a model.
     expect(await h.generation.judge(recipeChange.recipeId, 1, "password", home)).toEqual({
-      verdict: "unclear",
+      verdict: "unavailable",
     });
   });
+
+  it.each([
+    [
+      "an unavailable reason",
+      { kind: "result", result: { version: 1, status: "unavailable", reason: "already-judged" } },
+      "unavailable",
+    ],
+    [
+      "a failure before the model call",
+      { kind: "result", result: { version: 1, status: "failed", error: "incomplete-observation" } },
+      "unavailable",
+    ],
+    [
+      "the provider's rate limit",
+      { kind: "result", result: { version: 1, status: "failed", error: "rate-limited" } },
+      "unavailable",
+    ],
+    ["the service's request limit", { kind: "failed", error: "rate-limited" }, "unavailable"],
+    ["a rejected device", { kind: "rejected" }, "unavailable"],
+    [
+      "a model that abstained",
+      { kind: "result", result: { version: 1, status: "unclear" } },
+      "unclear",
+    ],
+    [
+      "a failure after the model call",
+      { kind: "result", result: { version: 1, status: "failed", error: "truncated" } },
+      "unclear",
+    ],
+    ["a timeout, which may follow a model call", { kind: "failed", error: "timeout" }, "unclear"],
+    ["an unexpected answer", { kind: "failed", error: "unexpected-response" }, "unclear"],
+  ] as const)(
+    "tells whether a model saw the judged page after %s",
+    async (_name, answer, verdict) => {
+      const h = setup();
+      h.transport.judgeCompletion.mockResolvedValueOnce(answer);
+      expect(
+        await h.generation.judge(recipeChange.recipeId, 1, "password", {
+          ...observation,
+          path: "/home",
+        }),
+      ).toEqual({ verdict });
+    },
+  );
 });
 
 describe("handlers and code fields in generation requests (ADR 0027)", () => {
@@ -276,7 +321,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       });
       // eslint-disable-next-line no-await-in-loop
       expect(await h.generation.judge(recipeChange.recipeId, 3, "password", webauthn)).toEqual({
-        verdict: "unclear",
+        verdict: "unavailable",
       });
     }
   });

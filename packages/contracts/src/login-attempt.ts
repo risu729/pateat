@@ -32,6 +32,13 @@ const integer = (max: number) => v.pipe(v.number(), v.integer(), v.minValue(0), 
 const MAX_ATTEMPT_STEPS = 40;
 const MAX_ATTEMPT_SUBMISSIONS = 12;
 const MAX_ENTERED_HANDLERS = 4;
+/** Pages the model may judge after one effect step (ADR 0027). */
+export const MAX_JUDGED_PAGES = 2;
+/** Pages already sent to be judged after effect step `operationId`. */
+export const judgedPages = (
+  metadata: Pick<LoginAttemptMetadata, "judged">,
+  operationId: string,
+): number => (metadata.judged?.operationId === operationId ? metadata.judged.pages : 0);
 export const loginAttemptStateSchema = v.picklist([
   "detected",
   "ready",
@@ -92,8 +99,13 @@ export const attemptMetadataSchema = v.pipe(
      * moves on. A settled login no longer scopes the passkey bridge (ADR 0027).
      */
     settled: v.optional(v.literal(true)),
-    /** The effect step whose resulting page was sent to be judged; each is sent once. */
-    judgedOperationId: v.optional(identifier),
+    /**
+     * Pages sent to be judged after the effect step `operationId`, including one whose
+     * answer is pending; at most `MAX_JUDGED_PAGES` per effect step (ADR 0027).
+     */
+    judged: v.optional(
+      v.strictObject({ operationId: identifier, pages: integer(MAX_JUDGED_PAGES) }),
+    ),
     /** This attempt follows an account switch in its tab; it never clicks another one. */
     accountSwitched: v.optional(v.literal(true)),
   }),
@@ -116,8 +128,8 @@ export const attemptMetadataSchema = v.pipe(
   ),
   v.check(
     (metadata) =>
-      metadata.judgedOperationId === undefined ||
-      metadata.usedOperationIds.includes(metadata.judgedOperationId),
+      metadata.judged === undefined ||
+      metadata.usedOperationIds.includes(metadata.judged.operationId),
     "Judged operation ID is not recorded",
   ),
   v.check(
@@ -210,15 +222,18 @@ export const loginAttemptEventSchema = v.variant("type", [
     recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
   }),
   /**
+   * A page after the current effect step is about to be sent to be judged. It counts
+   * against the step's pages before the request, so a restart cannot resend without
+   * bound (ADR 0027).
+   */
+  v.strictObject({ type: v.literal("JUDGING"), operationId: identifier }),
+  /** The page sent under `JUDGING` reached no model, so it is given back. */
+  v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
+  /**
    * After an effect step, the page shows the recipe's handler `handler` (its index in the
    * recipe's handlers): its `steps` follow the effect step, and its `effects` grow the
    * submission budget (ADR 0027).
    */
-  /**
-   * The page after the current effect step is sent to be judged. It is recorded before
-   * the request, so no later page of that step is sent, even after a restart (ADR 0027).
-   */
-  v.strictObject({ type: v.literal("JUDGING"), operationId: identifier }),
   v.strictObject({
     type: v.literal("HANDLER"),
     handler: integer(15),
@@ -365,7 +380,19 @@ function record(
     case "REVISED":
       return { recipeRevision: event.recipeRevision };
     case "JUDGING":
-      return { judgedOperationId: event.operationId };
+      return {
+        judged: {
+          operationId: event.operationId,
+          pages: judgedPages(context, event.operationId) + 1,
+        },
+      };
+    case "UNJUDGED":
+      return {
+        judged: {
+          operationId: event.operationId,
+          pages: judgedPages(context, event.operationId) - 1,
+        },
+      };
     case "HANDLER":
       return {
         handlers: [...context.handlers, { index: event.handler, start: context.stepIndex + 1 }],
@@ -512,14 +539,16 @@ function createLoginAttemptMachine() {
         event.type === "OBSERVED" &&
         event.result === "unknown" &&
         (!event.document || sameScope(context.document, event.document)),
-      // Only an effect step's result is judged, and only once.
+      // Only an effect step's result is judged, and only a bounded number of pages.
       canJudge: ({ context, event }) =>
         event.type === "JUDGING" &&
         operationMatches(context, event) &&
         (context.operationKind === "click" ||
           context.operationEffect === "advance" ||
           context.operationEffect === "submit") &&
-        context.judgedOperationId !== event.operationId,
+        judgedPages(context, event.operationId) < MAX_JUDGED_PAGES,
+      canUnjudge: ({ context, event }) =>
+        event.type === "UNJUDGED" && judgedPages(context, event.operationId) > 0,
       newerRevision: ({ context, event }) =>
         event.type === "REVISED" && event.recipeRevision > context.recipeRevision,
       // A handler follows only an effect step that may have submitted, runs once per
@@ -609,6 +638,7 @@ function createLoginAttemptMachine() {
         on: {
           OBSERVED: observedTransitions,
           JUDGING: { guard: "canJudge", actions: "record" },
+          UNJUDGED: { guard: "canUnjudge", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
         },
@@ -617,6 +647,7 @@ function createLoginAttemptMachine() {
         on: {
           OBSERVED: observedTransitions,
           JUDGING: { guard: "canJudge", actions: "record" },
+          UNJUDGED: { guard: "canUnjudge", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
         },
       },

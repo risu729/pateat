@@ -504,9 +504,9 @@ Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.
 
-A new login reads its item's facts once and records them in its attempt
-([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
-and TOTP field from the catalog's value-free `empty` flags (an allowed Linked field that
+A new login reads its item's facts once and records them in its attempt ([ADR
+0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password and
+TOTP field from the catalog's value-free `empty` flags (an allowed Linked field that
 reads one counts like it), and any usable or discoverable passkey from one item-scoped
 vault search per RP ID the origin may use. The facts never leave the extension. The
 attempt also records its route; only `password` exists yet, and it fits when every bound
@@ -520,14 +520,22 @@ key" only for an item with a usable passkey; otherwise, and when a handler's pag
 again after it ran, the attempt ends `challenge`. While a handler's clicked button still
 shows in the document that clicked it, the page is neither judged nor settled for up to
 two minutes; then it ends `challenge`. A new document of the tab that shows the button
-of a handler that already ran ends `challenge` at once. A page no check explains is
-judged only if it is the first page reached after its effect step, unless it still shows
-the route's fill fields on a route path or the completion marker. A `challenge` verdict
-that added a handler hands back the newer revision: the attempt takes it over
-(`REVISED`) when it only adds handlers or a completion, and runs the handler on the page
-it is on. A resumed attempt accepts a newer cached revision on the same terms only while
-the worker still holds its recorded revision; after a worker restart only the recorded
-revision resumes.
+of a handler that already ran ends `challenge` at once. When the result settles, a page
+no check explains is sent to be judged unless it still shows the route's fill fields on
+a route path or the completion marker; this applies to later documents of the tab too,
+while the attempt has not ended. At most 2 pages per effect step are sent to a model:
+the attempt counts a page once its complete description is in hand, before the request,
+so a restart during the request cannot resend without bound, and gives it back when the
+answer shows no model saw it (an `unavailable` reason such as `already-judged`, a
+failure the service reports before the model call, no paired service, a rejected device,
+or an unreachable or rate-limited service; a timeout or an unexpected answer counts,
+since it may follow a model call). A page whose description is incomplete, failed or of
+another path is not sent and does not count. A handler's click is a new effect step. A
+`challenge` verdict that added a handler hands back the newer revision: the attempt
+takes it over (`REVISED`) when it only adds handlers or a completion, and runs the
+handler on the page it is on. A resumed attempt accepts a newer cached revision on the
+same terms only while the worker still holds its recorded revision; after a worker
+restart only the recorded revision resumes.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already
@@ -839,9 +847,11 @@ that login's own vault item only, never the site default or the chooser
 ([ADR 0027](adr/0027-per-account-login-routes.md)). A login counts as running while its
 stored attempt record for that tab and origin is neither `authenticated` nor `blocked`
 and its result has not settled as unknown since it last moved on. The record carries
-that settled mark, so the rule holds the same after a worker restart. When that item
-holds no single signable match, or its search is incomplete, the request is delegated,
-so Pateat never signs in as another account.
+that settled mark, so the rule holds the same after a worker restart, and a stored
+record that neither ends, settles nor resumes keeps scoping its tab and origin to the
+same item until the tab closes. When that item holds no single signable match, or its
+search is incomplete, the request is delegated, so Pateat never signs in as another
+account.
 
 ## Minimal service
 

@@ -14,6 +14,13 @@ import type { ServiceTransport } from "./transport";
 export const GENERATION_RETRY_MS = 24 * 60 * 60 * 1000;
 /** Pages remembered at once; the oldest go first. */
 export const MAX_GENERATION_ATTEMPTS = 500;
+/** Failures the service reports before it calls the model (ADR 0027). */
+const failedBeforeModel = new Set<string>([
+  "incomplete-observation",
+  "invalid-request",
+  "input-too-large",
+  "rate-limited",
+]);
 
 // When each origin and path was last sent, so a page is not sent again within a day.
 const attemptsSchema = v.strictObject({
@@ -131,7 +138,7 @@ export function createLoginGeneration(options: {
       observation: LoginObservation,
     ) {
       const connection = await connected();
-      if (!connection) return { verdict: "unclear" };
+      if (!connection) return { verdict: "unavailable" };
       const answer = await transport.judgeCompletion(
         connection.origin,
         connection.credential,
@@ -147,14 +154,23 @@ export function createLoginGeneration(options: {
         void sync().catch(() => undefined);
         return { verdict: "challenge", recipe: result.change.recipe };
       }
-      return {
-        verdict:
-          result?.status === "signed-in" ||
-          result?.status === "rejected" ||
-          result?.status === "challenge"
-            ? result.status
-            : "unclear",
-      };
+      if (
+        result?.status === "signed-in" ||
+        result?.status === "rejected" ||
+        result?.status === "challenge"
+      )
+        return { verdict: result.status };
+      // No model saw the page (ADR 0027). A timeout or an unexpected answer may follow a
+      // model call, and so may every other failure the service reports.
+      if (
+        answer.kind === "rejected" ||
+        (answer.kind === "failed" &&
+          (answer.error === "unreachable" || answer.error === "rate-limited")) ||
+        result?.status === "unavailable" ||
+        (result?.status === "failed" && failedBeforeModel.has(result.error))
+      )
+        return { verdict: "unavailable" };
+      return { verdict: "unclear" };
     },
   };
 }

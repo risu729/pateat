@@ -2773,58 +2773,91 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(clicks("Use security key")).toBe(1);
     });
 
-    describe("each effect step's page is judged once", () => {
-      const settingsPage = observation("/settings", [
-        { id: "c1", role: "button", target: target("save"), label: "Save" },
-      ]);
-      const elsewhere = observation("/elsewhere", [
-        { id: "c1", role: "link", target: target("help"), label: "Help" },
-      ]);
-      /** Signs in with an unclear judgement, so the attempt settles as unknown. */
-      async function settledLogin() {
+    describe("the pages judged after one effect step", () => {
+      const page = (path: string, complete = true) => {
+        const described = observation(path, [
+          { id: "c1", role: "link", target: target("help"), label: "Help" },
+        ]);
+        return { ...described, observation: { ...described.observation, complete } };
+      };
+      const judged = () => status()![0]!["judged"] as { pages: number } | undefined;
+      /** The login's click leads to `/elsewhere`, which no check explains. */
+      async function settledLogin(
+        judge: LoginGeneration["judge"] = async () => ({ verdict: "unclear" }),
+        extracted = page("/elsewhere"),
+      ) {
         vi.useFakeTimers();
-        onClick({ login: { path: "/elsewhere", present: [], extracted: elsewhere } });
-        const service = generation();
+        onClick({ login: { path: "/elsewhere", present: [], extracted } });
+        const service = generation(judge);
         const h = harness({}, { passkeys: withPasskey, generation: service });
         h.recipes.recipe.mockResolvedValue(plain);
         expect(await h.hello()).toEqual({ ok: true });
         await until(settled("reconciling", "unknown-submit"), 10_000);
-        expect(service.judge).toHaveBeenCalledTimes(1);
         expect(status()![0]).toMatchObject({ settled: true });
-        expect(status()![0]!["judgedOperationId"]).toBe(status()![0]!["operationId"]);
         return { h, service };
       }
-      /** The tab opens another page of the origin. */
-      function openSettings() {
-        fake.state.pageUrl = `${origin}/settings`;
-        fake.state.observedPath = "/settings";
-        fake.state.present = new Set(["save"]);
-        fake.state.extracted = { "signed-in": settingsPage };
+      /** The tab opens another page of the origin, which settles in turn. */
+      async function open(h: ReturnType<typeof harness>, path: string) {
+        fake.state.pageUrl = `${origin}${path}`;
+        fake.state.observedPath = path;
+        fake.state.present = new Set();
+        fake.state.extracted = { "signed-in": page(path) };
+        await h.hello({ documentId: `document${path.replaceAll("/", "-")}` }, false);
+        await vi.advanceTimersByTimeAsync(30_000);
       }
 
-      it("does not send a later page of the tab after the result settled", async () => {
+      it("sends at most two pages the model saw, also after the result settled", async () => {
         const { h, service } = await settledLogin();
-        openSettings();
-        await h.hello({ documentId: "settings" }, false);
-        await vi.advanceTimersByTimeAsync(30_000);
         expect(service.judge).toHaveBeenCalledTimes(1);
+        await open(h, "/settings");
+        expect(service.judge).toHaveBeenCalledTimes(2);
+        expect(judged()).toMatchObject({ pages: 2 });
+        await open(h, "/billing");
+        expect(service.judge).toHaveBeenCalledTimes(2);
         expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]);
       });
 
-      it("does not send a later page after a worker restart either", async () => {
-        const { service } = await settledLogin();
+      it("does not count a page it could not describe completely", async () => {
+        const { h, service } = await settledLogin(undefined, page("/elsewhere", false));
+        expect(service.judge).not.toHaveBeenCalled();
+        expect(judged()).toBeUndefined();
+        await open(h, "/settings");
+        expect(service.judge).toHaveBeenCalledTimes(1);
+        expect(service.judge.mock.calls[0]![3]).toMatchObject({ path: "/settings" });
+        expect(judged()).toMatchObject({ pages: 1 });
+      });
+
+      it("gives back a page no model saw, such as an already-judged one", async () => {
+        const { h, service } = await settledLogin(async () => ({ verdict: "unavailable" }));
+        expect(service.judge).toHaveBeenCalledTimes(1);
+        expect(judged()).toMatchObject({ pages: 0 });
+        service.judge.mockImplementation(async () => ({ verdict: "unclear" }));
+        await open(h, "/settings");
+        expect(service.judge).toHaveBeenCalledTimes(2);
+        expect(service.judge.mock.calls[1]![3]).toMatchObject({ path: "/settings" });
+        expect(judged()).toMatchObject({ pages: 1 });
+      });
+
+      it("counts a page whose request a worker restart cut off", async () => {
+        vi.useFakeTimers();
+        onClick({ login: { path: "/elsewhere", present: [], extracted: page("/elsewhere") } });
+        const lost = generation(() => new Promise(() => undefined));
+        const h = harness({}, { passkeys: withPasskey, generation: lost });
+        h.recipes.recipe.mockResolvedValue(plain);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => lost.judge.mock.calls.length === 1, 10_000);
+        expect(judged()).toMatchObject({ pages: 1 });
         const query = fake.browser.tabs.query;
         fake.browser.tabs.query = async () => [{ id: 1 }] as never;
         try {
-          const again = generation(async () => ({ verdict: "signed-in" }));
-          const restarted = harness({}, { passkeys: withPasskey, generation: again });
+          const service = generation();
+          const restarted = harness({}, { passkeys: withPasskey, generation: service });
           restarted.recipes.recipe.mockResolvedValue(plain);
-          openSettings();
-          await restarted.hello({ documentId: "settings" }, false);
-          await vi.advanceTimersByTimeAsync(30_000);
-          expect(again.judge).not.toHaveBeenCalled();
+          await open(restarted, "/settings");
+          await open(restarted, "/billing");
+          await open(restarted, "/account");
           expect(service.judge).toHaveBeenCalledTimes(1);
-          expect(status()).toMatchObject([{ state: "reconciling", settled: true }]);
+          expect(judged()).toMatchObject({ pages: 2 });
         } finally {
           fake.browser.tabs.query = query;
         }

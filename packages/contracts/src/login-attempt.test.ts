@@ -5,6 +5,8 @@ import {
   nextLoginOperation,
   parseAttemptMetadata,
   recoverLoginAttempt,
+  judgedPages,
+  MAX_JUDGED_PAGES,
   transitionLoginAttempt,
   validateLoginOperation,
   withdrawAccountSwitch,
@@ -1109,25 +1111,39 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
       expect(() => transitionLoginAttempt(before, malformed)).toThrow();
   });
 
-  it("records the judged effect step once and keeps it across later documents", () => {
+  it("counts at most two judged pages per effect step, across later documents", () => {
     const before = awaiting();
     const judging = { type: "JUDGING" as const, operationId: "click-one" };
-    const judged = transitionLoginAttempt(before, judging);
-    expect(judged).toEqual({ ...before, judgedOperationId: "click-one" });
-    // The same step is never judged twice, and only the current effect step is judged.
-    expect(transitionLoginAttempt(judged, judging)).toEqual(judged);
+    const unjudged = { type: "UNJUDGED" as const, operationId: "click-one" };
+    const first = transitionLoginAttempt(before, judging);
+    expect(first).toEqual({ ...before, judged: { operationId: "click-one", pages: 1 } });
+    // A page no model saw is given back; nothing is given back below zero.
+    expect(transitionLoginAttempt(first, unjudged)).toEqual({
+      ...before,
+      judged: { operationId: "click-one", pages: 0 },
+    });
+    expect(transitionLoginAttempt(before, unjudged)).toEqual(before);
+    // Only the current effect step is judged.
     expect(transitionLoginAttempt(before, { type: "JUDGING", operationId: "fill-one" })).toEqual(
       before,
     );
-    const unknown = transitionLoginAttempt(judged, {
+    const unknown = transitionLoginAttempt(first, {
       type: "OBSERVED",
       result: "unknown",
       document,
     });
     const moved = transitionLoginAttempt(unknown, { type: "NAVIGATED", document: webauthn });
-    expect(moved).toMatchObject({ state: "reconciling", judgedOperationId: "click-one" });
-    expect(transitionLoginAttempt(moved, judging)).toEqual(moved);
-    expect(() => parseAttemptMetadata({ ...before, judgedOperationId: "never-used" })).toThrow();
+    expect(moved).toMatchObject({ state: "reconciling", judged: { pages: 1 } });
+    const second = transitionLoginAttempt(moved, judging);
+    expect(second).toMatchObject({ judged: { operationId: "click-one", pages: 2 } });
+    expect(judgedPages(second, "click-one")).toBe(MAX_JUDGED_PAGES);
+    expect(transitionLoginAttempt(second, judging)).toEqual(second);
+    expect(() =>
+      parseAttemptMetadata({ ...before, judged: { operationId: "never-used", pages: 1 } }),
+    ).toThrow();
+    expect(() =>
+      parseAttemptMetadata({ ...before, judged: { operationId: "click-one", pages: 3 } }),
+    ).toThrow();
   });
 
   it("marks a result settled as unknown until the attempt moves on", () => {

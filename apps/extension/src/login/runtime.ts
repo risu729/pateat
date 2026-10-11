@@ -11,6 +11,8 @@ import {
   isSiteExcluded,
   loginFieldFacts,
   loginFieldSource,
+  judgedPages,
+  MAX_JUDGED_PAGES,
   loginDocumentSchema,
   loginObservationSchema,
   nextLoginOperation,
@@ -251,7 +253,12 @@ export interface LoginGeneration {
     route: LoginRoute,
     observation: LoginObservation,
   ): Promise<{
-    verdict: "signed-in" | "rejected" | "challenge" | "unclear";
+    /**
+     * `unavailable` when no model saw the page: an unavailable reason, a failure the
+     * service reports before the model call, or an unreachable or rate-limited service.
+     * `unclear` covers every other answer, including one after a model call that failed.
+     */
+    verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "unavailable";
     recipe?: LoginRecipe;
   }>;
 }
@@ -1331,10 +1338,11 @@ export function createLoginRuntime(
    * After an effect step that no check explained, sends the resulting page so the
    * service can judge it and learn the completion or a handler (ADR 0018, ADR 0027).
    * Returns whether the attempt settled or moved on. A page that still shows the route's
-   * fields on one of its paths, or the completion marker, is not sent. Only the first
-   * page reached after an effect step is sent: the attempt records the step before the
-   * request, so later pages of a login that settled as unknown are never sent, even
-   * after a worker restart.
+   * fields on one of its paths, or the completion marker, is not sent. At most
+   * `MAX_JUDGED_PAGES` pages the model saw are sent per effect step: a page counts in
+   * the attempt once its complete description is in hand, before the request, so a
+   * restart cannot resend without bound, and is given back when the answer shows that
+   * no model saw it.
    */
   async function learn(run: Execution): Promise<boolean> {
     const { recipe, metadata } = run;
@@ -1343,7 +1351,7 @@ export function createLoginRuntime(
       !generation ||
       !effectful(metadata) ||
       !operationId ||
-      metadata.judgedOperationId === operationId
+      judgedPages(metadata, operationId) >= MAX_JUDGED_PAGES
     )
       return false;
     const steps = routeSteps(recipe, metadata.route);
@@ -1359,8 +1367,6 @@ export function createLoginRuntime(
       (marker.length > 0 && remaining.targets[fills.length] !== "missing")
     )
       return false;
-    await change(run, { type: "JUDGING", operationId });
-    if (!current(run) || run.metadata.judgedOperationId !== operationId) return !current(run);
     let observation: LoginObservation | undefined;
     try {
       const extracted = v.safeParse(
@@ -1382,14 +1388,21 @@ export function createLoginRuntime(
       observation = undefined;
     }
     if (!current(run)) return true;
-    // A page that cannot be described completely is not sent; a later login tries again.
+    // A page that cannot be described completely is not sent and does not count.
     if (!observation) return false;
+    const pages = judgedPages(run.metadata, operationId);
+    await change(run, { type: "JUDGING", operationId });
+    if (!current(run)) return true;
+    if (judgedPages(run.metadata, operationId) !== pages + 1) return false;
     const { verdict, recipe: added } = await generation.judge(
       recipe.id,
       recipe.revision,
       metadata.route,
       observation,
     );
+    if (!current(run)) return true;
+    // No model saw the page, such as an `already-judged` answer: it is given back.
+    if (verdict === "unavailable") await change(run, { type: "UNJUDGED", operationId });
     if (!current(run)) return true;
     if (verdict === "challenge" && added && (await takeOver(run, added, observation.path)))
       return true;
