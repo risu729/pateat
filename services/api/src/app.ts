@@ -129,7 +129,7 @@ export const app = new Hono<ApiEnv>()
     }),
   )
   .route("/v1/device", deviceRoutes)
-  .all("/v1/device", methodNotAllowed("DELETE"))
+  .all("/v1/device", methodNotAllowed("GET, DELETE"))
   .route("/v1/settings", settingsRoutes)
   .all("/v1/settings", methodNotAllowed("GET, PUT"))
   .route("/v1/recipes", recipeRoutes)

@@ -3,6 +3,7 @@ import {
   recipeCompletionResultSchema,
   recipeGenerationResultSchema,
   SYNC_PAGE_LIMIT,
+  syncDeviceStateSchema,
   syncRecipeChangesSchema,
   syncSettingsStateSchema,
   type EnrollmentRedeemResult,
@@ -10,6 +11,7 @@ import {
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type SyncDeviceState,
   type SyncRecipeChanges,
   type SyncSettingsState,
   type SyncSettingsWrite,
@@ -25,6 +27,12 @@ export type RedeemResult =
   | { kind: "failed"; error: TransportFailure };
 
 export type RevokeResult = { kind: "revoked" } | { kind: "failed"; error: TransportFailure };
+
+/** `GET /v1/device`: the service's view of this device, for diagnostics only. */
+export type DeviceStateResult =
+  | { kind: "state"; state: SyncDeviceState }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
 
 export type RecipeChangesResult =
   | { kind: "page"; page: SyncRecipeChanges }
@@ -49,6 +57,8 @@ export type InferenceResult<T> =
 export interface ServiceTransport {
   redeem(origin: string, verifier: string): Promise<RedeemResult>;
   revoke(origin: string, credential: string): Promise<RevokeResult>;
+  /** `GET /v1/device`: what the service holds for this device's owner. */
+  device(origin: string, credential: string): Promise<DeviceStateResult>;
   /** One page of recipe changes after `after`, as returned by `GET /v1/recipes`. */
   recipeChanges(origin: string, credential: string, after: number): Promise<RecipeChangesResult>;
   /** The owner's synced settings document, as returned by `GET /v1/settings`. */
@@ -116,6 +126,9 @@ async function readBounded(response: Response, limit: number): Promise<string | 
     return undefined;
   }
 }
+
+/** The diagnostics page waits for this read, so it gives up sooner than sync does. */
+export const DEVICE_TIMEOUT_MS = 5_000;
 
 /**
  * Talks only to the configured service origin. Redirects, cookies, caches and
@@ -213,6 +226,25 @@ export function createServiceTransport(
       if ("failed" in response) return { kind: "failed", error: response.failed };
       if (response.status === 204) return { kind: "revoked" };
       if (rejected(response)) return { kind: "revoked" };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+      return { kind: "failed", error: "unexpected-response" };
+    },
+    async device(origin, credential) {
+      const response = await call(
+        origin,
+        "/v1/device",
+        { method: "GET", headers: { Authorization: `Bearer ${credential}` } },
+        MAX_RESPONSE_BYTES,
+        Math.min(timeoutMs, DEVICE_TIMEOUT_MS),
+      );
+      if ("failed" in response) return { kind: "failed", error: response.failed };
+      if (response.status === 200) {
+        const parsed = v.safeParse(syncDeviceStateSchema, response.body);
+        return parsed.success
+          ? { kind: "state", state: parsed.output }
+          : { kind: "failed", error: "unexpected-response" };
+      }
+      if (rejected(response)) return { kind: "rejected" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };
     },

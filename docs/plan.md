@@ -1030,7 +1030,11 @@ is rendered text only: scripts, styles, `<noscript>`, SVG, hidden elements and
 select or text area contents never contribute. Only forms that hold a field count,
 or every control outside a form when a field is outside one. There the candidates
 are visible text, email, tel, number and password inputs, checkboxes, buttons
-(disabled ones too, since many enable after typing) and, as context only, links.
+(disabled ones too, since many enable after typing), script buttons with an `id`,
+`name` or `data-testid` (an `<a>` without `href` that has an `onclick` attribute, or an
+element with `role="button"`, as
+[architecture](architecture.md#declarative-recipes-and-ai) describes) and, as context
+only, links.
 Hidden, collapsed, `aria-hidden` and before-the-page-start inputs are skipped as likely
 traps. Labels come from `aria-labelledby`,
 `aria-label`, `<label>`, the text next to a field (the preceding table cell, `<dt>` or

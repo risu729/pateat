@@ -86,6 +86,33 @@ const healthSchema = v.variant("ok", [
   }),
 ]);
 
+/** `GET /v1/device`: the service's own record for this device and its owner. */
+const deviceSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    pairedAt: time,
+    recipes: count,
+    settingsRevision: count,
+    generation: v.picklist([
+      "ok",
+      "credentials-not-configured",
+      "issuer-unavailable",
+      "monthly-limit",
+      "daily-limit",
+    ]),
+  }),
+  v.strictObject({
+    ok: v.literal(false),
+    error: v.picklist([
+      "rejected",
+      "unreachable",
+      "unexpected-response",
+      "rate-limited",
+      "unavailable",
+    ]),
+  }),
+]);
+
 const serviceSchema = v.strictObject({
   kind: v.picklist(["not-configured", "pairing", "connected", "unavailable"]),
   rejected: v.optional(v.literal(true)),
@@ -97,6 +124,7 @@ const serviceSchema = v.strictObject({
   recipes: v.optional(v.strictObject({ count, bytes: count })),
   nextSyncAt: v.optional(time),
   health: v.optional(healthSchema),
+  device: v.optional(deviceSchema),
 });
 
 /**

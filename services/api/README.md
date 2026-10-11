@@ -28,6 +28,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts`,
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
 | `POST /v1/recipes/generate` | Generate or extend this origin's recipe from one login page observation |
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
+| `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /enroll?challenge=&label=` | Access page asking the owner to type the device's pairing code |

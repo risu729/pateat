@@ -984,6 +984,6 @@ describe("device self-revocation", () => {
     expect((await deviceApi(unknown, "/v1/device", { method: "DELETE" })).status).toBe(401);
     const by = await owner();
     const device = await enroll(by);
-    expect((await deviceApi(device.credential, "/v1/device")).status).toBe(405);
+    expect((await deviceApi(device.credential, "/v1/device", { method: "PUT" })).status).toBe(405);
   });
 });

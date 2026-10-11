@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createServiceTransport } from "./transport";
+import { DEVICE_TIMEOUT_MS, createServiceTransport } from "./transport";
 
 // Synthetic responses only; no request leaves the test.
 
@@ -162,6 +162,70 @@ describe("revoke", () => {
         CREDENTIAL,
       ),
     ).toEqual({ kind: "failed", error: "unexpected-response" });
+  });
+});
+
+describe("device state", () => {
+  const state = {
+    version: 1,
+    pairedAt: 1_760_000_000_000,
+    recipes: 3,
+    settingsRevision: 7,
+    generation: "monthly-limit",
+  };
+
+  it("reads the device route with the credential", async () => {
+    const fetch = respond(200, state);
+    expect(await createServiceTransport({ fetch }).device(ORIGIN, CREDENTIAL)).toEqual({
+      kind: "state",
+      state,
+    });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/device`);
+    expect(init).toMatchObject({
+      method: "GET",
+      headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      redirect: "error",
+      credentials: "omit",
+      cache: "no-store",
+    });
+  });
+
+  it.each([
+    ["an unknown field", 200, { ...state, deviceId: "dev_1" }, "unexpected-response"],
+    ["an unknown status", 200, { ...state, generation: "busy" }, "unexpected-response"],
+    ["a server error", 500, { error: "internal_error" }, "unexpected-response"],
+    ["a rate limit", 429, { error: "rate_limited" }, "rate-limited"],
+  ])("refuses %s", async (_name, status, body, error) => {
+    expect(
+      await createServiceTransport({ fetch: respond(status, body) }).device(ORIGIN, CREDENTIAL),
+    ).toEqual({ kind: "failed", error });
+  });
+
+  it.each(["device_revoked", "device_expired", "unauthorized"])(
+    "reports a rejected credential: %s",
+    async (error) => {
+      expect(
+        await createServiceTransport({ fetch: respond(401, { error }) }).device(ORIGIN, CREDENTIAL),
+      ).toEqual({ kind: "rejected" });
+    },
+  );
+
+  it("gives up sooner than sync, since the diagnostics page waits for it", async () => {
+    vi.useFakeTimers();
+    try {
+      const hanging = vi.fn<typeof globalThis.fetch>(
+        (_input, init) =>
+          new Promise((_resolve, reject) =>
+            init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+          ),
+      );
+      const pending = createServiceTransport({ fetch: hanging }).device(ORIGIN, CREDENTIAL);
+      await vi.advanceTimersByTimeAsync(DEVICE_TIMEOUT_MS);
+      expect(await pending).toEqual({ kind: "failed", error: "unreachable" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

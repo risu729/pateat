@@ -269,6 +269,26 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("observes script buttons, such as MyJCB's onclick link, by attribute only", () => {
+    page(
+      `<div role="button">ログイン</div>
+      <form name="loginForm"><input id="userId"><input id="password" type="password">
+        <a id="loginButtonAD" onclick="document.loginForm.submit()">ログイン</a>
+        <span role="button" aria-label="Show password"></span><a class="plain">ヘルプ</a>
+        <button>ログイン</button></form>`,
+    );
+    const observation = observe();
+    // A script button without a locator is left out without making the page incomplete,
+    // and never takes a native button's text locator.
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target, label }) => [role, target, label])).toEqual([
+      ["text", { by: "id", value: "userId" }, undefined],
+      ["password", { by: "id", value: "password" }, undefined],
+      ["button", { by: "id", value: "loginButtonAD" }, "ログイン"],
+      ["button", { by: "text", value: "ログイン" }, "ログイン"],
+    ]);
+  });
+
   it("names an image-only button by its image's alt, as the executor resolves it", () => {
     page(
       `<form><input id="user"><button><img src="data:," alt="ログイン" width="40" height="20"></button></form>`,
