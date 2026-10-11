@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MANIFEST_KEY } from "../../apps/extension/manifest-key";
 import { withLoginExtension } from "./login-fixture";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
@@ -26,6 +27,8 @@ test("crypto host packages native WASM under MV3 CSP while its synthetic probe s
       expect(manifest.host_permissions).toEqual(
         directory === probe ? ["https://*/*", "http://127.0.0.1/*"] : ["https://*/*"],
       );
+      // Only production pins its ID (ADR 0020); the probe keeps a path-derived one.
+      expect(manifest.key).toBe(directory === production ? MANIFEST_KEY : undefined);
       if (directory === production) {
         const background = await readFile(
           resolve(directory, manifest.background.service_worker),

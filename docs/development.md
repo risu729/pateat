@@ -149,6 +149,41 @@ Pass one task to each `mise run` invocation; listing several task names turns th
 later names into arguments of the first. To run every static check without the
 runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runtime`.
 
+### Extension ID
+
+The production build has a fixed extension ID, `PATEAT_EXTENSION_ID` in
+`packages/contracts/src/extension-id.ts`. Chrome derives it from the manifest `key`,
+which is the public key in `apps/extension/manifest-key.ts`
+([ADR 0020](adr/0020-direct-device-pairing.md)). `src/service/manifest-key.test.ts`
+checks that derivation, and the browser tests check that Chrome loads the production
+build under that ID. Loading an unpacked build needs no private key. A self-hosted build
+may use its own key; it then replaces both files with its own public key and ID, and
+lists that ID on its server once pairing checks the ID. The synthetic probe build has no
+`key`. It keeps the ID that Chrome derives from its folder, so it never shares storage
+with a production install.
+
+The first production build with the `key` changes the ID of an install that was loaded
+without one. No key can reproduce the old ID, which Chrome derived from the folder path.
+The new ID starts with empty extension storage. These are lost:
+
+- the vault connection, the local vault cache and the retained unlock key, so automatic
+  unlock must be set up again;
+- the Bitwarden sync sign-in, which may ask for Bitwarden's new-device verification;
+- the service pairing and the recipe cache;
+- item selection and field exclusions, which are not synced;
+- Chrome's site-access choices for the extension and its toolbar pin.
+
+Settings, bindings and recipes held by the service return after pairing again. Reset
+an existing install once:
+
+1. Disconnect the service in the old build, or revoke that device on `/manage` later.
+2. Remove the old Pateat entry in `chrome://extensions`. Do not press Reload.
+3. Load the new build and check that its ID equals `PATEAT_EXTENSION_ID`.
+4. Set up the vault connection and automatic unlock again.
+5. Pair again. Until direct pairing lands, this uses the typed code.
+6. Redo item selection and field exclusions.
+7. Optionally remove the old Pateat device from Bitwarden's device list.
+
 ### Windows notes
 
 Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs
@@ -167,7 +202,8 @@ disk, do the same.
 This procedure prepares a manual acceptance run; its availability is not evidence
 that installed Chrome or Chrome use has passed. Use only the synthetic probe build.
 The probe grants host access only to `http://127.0.0.1/*` so the coordinator can
-recheck browser-provided tab URLs. Production grants no host access.
+recheck browser-provided tab URLs. Production grants no host access. The probe build has
+its own [extension ID](#extension-id) and storage, separate from a production install.
 
 1. Run `mise run //apps/extension:build:probe` and `mise run probe:login`. The latter
    serves only `http://127.0.0.1:3847` and stops with Ctrl+C. It does not contact a
@@ -210,7 +246,8 @@ that installed Chrome has passed. The probe build adds passkey scripts for
 the public WebAuthn Level 3 test-vector key. HTTPS pages get the production bridge and
 vault source; automated tests reach them on `https://synthetic.example.test`, which
 never resolves, with the probe build's synthetic Bitwarden account. No real vault,
-passkey or provider is involved.
+passkey or provider is involved. The probe build has its own
+[extension ID](#extension-id) and storage, separate from a production install.
 
 1. Run `mise run //apps/extension:build:probe` and `mise run probe:passkeys`. The latter
    listens only on loopback `127.0.0.1:3848`, is opened as `http://localhost:3848`, and

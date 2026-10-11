@@ -1,0 +1,4 @@
+// Public key that fixes the production extension ID (ADR 0020): base64 DER
+// SubjectPublicKeyInfo of a 2048-bit RSA key. Unpacked loading needs no private key.
+export const MANIFEST_KEY =
+  "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwnwh87fh87ygK3wgamSaKdcuExgVI/BS73iamTYEqilEmrmfwVBp/lWBoew07zWfxR718DKhQlxIa3SpoZTBVALaDrji80jadya8BXXQqa/ykLABbIPDwObFL9bLU5NS0PIVYHV7jYSQFTkTRmwJYFgAt0XSKUI2riIp0X7AI3AMc0lRZLU8vueo8cjqWK5l+/c/I8d03H/wEo64CdIzpsP3rHQam1d89CE45CTd9K5fwFf33ZLFbNtJcOPQStdq+3jJK2pGR61aK7sgJRjIeqfEAINbmConauslTWoGQdSCc9qmZbo5rivRf5evmcDknwjVcakbMIbdWh8F97kJAQIDAQAB";

@@ -2,7 +2,8 @@
 
 Status: the decisions under "Owner decisions" were approved by the owner on 2026-10-11.
 The implementation choices further down are Claude's; they are not owner decisions and
-may change in their PRs. Not implemented yet; the [plan](../plan.md) tracks the work.
+may change in their PRs. The manifest `key` is implemented; `POST /pair` and the
+extension switch are not yet, and the [plan](../plan.md) tracks them.
 This replaces the typed-code pairing in the architecture's
 [device enrollment](../architecture.md#device-enrollment) section and settles the
 "enrollment transport" that [ADR 0003](0003-service-and-ai.md) left open.
