@@ -2,10 +2,11 @@
 
 Status: accepted by the owner on 2026-10-11 (12:10 UTC, option B with a five-minute
 alarm). Amends [ADR 0008](0008-durable-provider-sessions.md), which synced only on an
-explicit Sync action. The trigger after a site with a recipe finds no matching item is
-not implemented yet. The custom-field comparison that keeps unchanged protected items
-usable, listed as later work at acceptance, is implemented as
-[Protected items after a sync](#protected-items-after-a-sync) describes.
+explicit Sync action. The check after a page with a recipe finds no matching item and
+the custom-field comparison that keeps unchanged protected items usable, both listed as
+later work at acceptance, are implemented as
+[After no item matches](#after-no-item-matches) and
+[Protected items after a sync](#protected-items-after-a-sync) describe.
 
 Date: 2026-10-11
 
@@ -34,7 +35,8 @@ revision of every user who can see them.
 
 Each connection with automatic unlock (an active vault record), a sync session that is
 `active` or `refresh-required`, and `enabled` in settings is checked at most once a
-minute, on any of:
+minute (every ten seconds after a page finds no matching item, see
+[below](#after-no-item-matches)), on any of:
 
 - a `login.document.ready` announcement, which every HTTPS page and frame sends;
 - a `passkey.get` request;
@@ -98,6 +100,35 @@ next check may be sent.
   passkey request until it finishes, without a time limit. The hold is taken with no
   await after the last check that nothing is starting.
 
+### After no item matches
+
+A page with a recipe whose first step is ready may find no matching vault item, as when
+the item or its URI was added on another device after the last sync. Two refusals count,
+and only for a fresh attempt, not a resumed one or the page after an account switch:
+without a saved default, no eligible item's URI rules match the page (`default-not-set`
+with live URI matching), and a saved default's item no longer matches the page
+(`item-origin-mismatch`). The reported reasons stay the same.
+
+- The refusal asks for a check of each connection last checked at least ten seconds ago,
+  counted from the same stored check time as every other check. A 429 back-off, a
+  deleted account, offline and the deferral for a login in progress apply unchanged.
+  The request is asked for while the page still holds replacements off, and is kept in
+  the worker's memory only; a request made during a check runs one more pass after it.
+- When an automatic check of any connection applies a new snapshot within ten seconds of
+  the refusal, with the replacement begun after it (so not one the page may already have
+  seen), the background sends `login.reconnect` only to the refused tab, frame and
+  document, and only while that document is still the refused one; one that announced
+  again, was replaced or went away gets nothing. The document announces again, and its
+  login starts if an item now matches. Otherwise, and after a manual **Sync**, nothing
+  more happens until the page announces again.
+- A worker restart loses the request. Its startup reconnect asks tabs on sites with a
+  saved default or an attempt record to announce again; a page refused without a saved
+  default asks again the next time it announces.
+- Other refusals ask for no check: several matches, rules that could not be evaluated, a
+  locked or unavailable vault, an account not connected here, live URI matching not
+  available, a page without a recipe or whose first step is not ready, a busy tab, the
+  choice after a logout, and the probe build's synthetic origin.
+
 ### Protected items after a sync
 
 Bitwarden re-encrypts the whole item on every save, so editing only the password or a
@@ -133,7 +164,7 @@ device without the old snapshot open still relies on review.
 | Immediate updates | SignalR notifications (`wss://notifications.bitwarden.com/hub`), with per-item fetches | None. Later work (option C): it needs a SignalR client library choice and the notification host in `providerPermissionOrigins()` |
 | Periodic check | Five-minute alarm, syncing only when the last sync is over six hours old | Five-minute alarm and page events, each at most once a minute, always asking the revision date |
 | Token renewal | Before every `/sync` | Only near the access token's expiry |
-| No matching item | No sync | Planned: a check at most every ten seconds on sites with a recipe |
+| No matching item | No sync | A check at most every ten seconds on sites with a recipe, then a reconnect of the refused document only |
 | Startup | A check 500 ms after the worker starts | The first page event or alarm |
 | Failed renewal | Retried at the next trigger | The same, since ADR 0008's restore after a failure without rejection |
 
@@ -141,9 +172,9 @@ device without the old snapshot open still relies on review.
 
 Per connection and hour of browser use: at most 60 revision-date requests (up to six a
 minute while a check is deferred for an active login or a request still being handled,
-such as an open passkey prompt) and about one token renewal; `/sync` only when the vault
-changed. Bitwarden cloud allows 200 `GET` requests a minute and 10 token requests a
-minute per IP
+such as an open passkey prompt, or while pages with a recipe find no matching item) and
+about one token renewal; `/sync` only when the vault changed. Bitwarden cloud allows 200
+`GET` requests a minute and 10 token requests a minute per IP
 ([API](https://github.com/bitwarden/server/blob/5e68c1e65dd5ea476c3a00283b2a2ba575574c1d/src/Api/appsettings.json),
 [Identity](https://github.com/bitwarden/server/blob/5e68c1e65dd5ea476c3a00283b2a2ba575574c1d/src/Identity/appsettings.json)),
 so even five connections stay far below it. Self-hosted and Vaultwarden limits depend
@@ -151,8 +182,6 @@ on the installation.
 
 ## Later work
 
-- After a site with a recipe finds no matching item, check at most every ten seconds and
-  send `login.reconnect` only to the refused document within ten seconds.
 - Record the evidence of items found equal as reviewed in the synced record of
   [ADR 0023](0023-synced-vault-policy.md), once that record is implemented.
 - Show items awaiting review on the toolbar icon, and tell the settings page why its
