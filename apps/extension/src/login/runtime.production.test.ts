@@ -221,6 +221,8 @@ function harness(
     duplicateAccount?: boolean;
     /** Adds a login username field to the item. */
     username?: boolean;
+    /** Adds a login username field to the other item. */
+    otherUsername?: boolean;
     /** Recipe generation for pages without a recipe. */
     generation?: LoginGeneration;
     /** Replaces the item's custom fields. */
@@ -310,6 +312,16 @@ function harness(
                 allowedOrigins: [],
                 groupIds: [],
                 fields: [
+                  ...(live.otherUsername
+                    ? [
+                        {
+                          id: "login.username",
+                          label: "Username",
+                          name: null,
+                          kind: "text" as const,
+                        },
+                      ]
+                    : []),
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
                 ],
               },
@@ -2206,15 +2218,21 @@ describe("production login document admission", () => {
       );
       expect(service.available).toHaveBeenCalledWith(origin, "/signin");
       // Only slots the matching item can fill are offered.
+      // The username's shape goes with its slot; the value itself never does.
       expect(service.generate).toHaveBeenCalledWith({
         version: 1,
         observation: loginPage.observation,
         slots: [
-          expect.objectContaining({ id: "username", kind: "identifier" }),
-          expect.objectContaining({ id: "password", kind: "secret" }),
+          expect.objectContaining({
+            id: "username",
+            kind: "identifier",
+            valueShape: { length: 16, classes: ["ascii-letter", "ascii-symbol"], email: false },
+          }),
+          expect.not.objectContaining({ valueShape: expect.anything() }),
         ],
       });
-      expect(h.fields).not.toHaveBeenCalled();
+      expect(JSON.stringify(service.generate.mock.calls)).not.toContain("synthetic-secret");
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.username"]);
       // The document announces again and starts the generated recipe at once.
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
@@ -2226,6 +2244,81 @@ describe("production login document admission", () => {
         { slot: "username", value: "synthetic-secret" },
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
+    });
+
+    it("sends the username's shape only when every matching item agrees", async () => {
+      fake.state.extracted = { login: loginPage };
+      const both = async () => ({
+        ok: true as const,
+        data: uriMatch({
+          candidates: [itemId, otherItemId].map((id) => ({
+            itemId: id,
+            matches: [{ uriIndex: 0, match: 0 }],
+          })),
+        }),
+      });
+      const sentShape = async (
+        usernames: Record<string, string | undefined>,
+        options: { overrides?: Partial<LocalSettings>; uris?: LiveUriMatcher } = {},
+      ) => {
+        const service = generation();
+        const h = harness(
+          { ...unsaved, ...options.overrides },
+          {
+            allowedOrigins: [],
+            uris: options.uris ?? both,
+            username: true,
+            otherUsername: true,
+            generation: service,
+          },
+        );
+        h.fields.mockImplementation(async ({ account }) => usernames[account.itemId]);
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.firstSteps.mockResolvedValue([]);
+        expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
+        return service.generate.mock.calls[0]![0].slots.find((slot) => slot.id === "username")!
+          .valueShape;
+      };
+      const digits = (length: number) => ({ length, classes: ["ascii-digit"], email: false });
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "00005678" })).toEqual(
+        digits(8),
+      );
+      // Different lengths, an unreadable username or an unchecked item send no shape.
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "0000123456" })).toBe(
+        undefined,
+      );
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: undefined })).toBe(undefined);
+      expect(
+        await sentShape(
+          { [itemId]: "00001234", [otherItemId]: "00005678" },
+          {
+            uris: async () => ({
+              ok: true as const,
+              data: uriMatch({ unavailableItemIds: [otherItemId] }),
+            }),
+          },
+        ),
+      ).toBe(undefined);
+      // An empty or excluded username does not count, and an excluded one is never read.
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "" })).toEqual(digits(8));
+      const excluded = {
+        connections: [
+          {
+            connectionId,
+            enabled: true,
+            selection: { mode: "all" as const, groupIds: [], itemIds: [] },
+            excludedItemIds: [],
+            excludedFields: [{ itemId: otherItemId, fieldId: "login.username" }],
+          },
+        ],
+      };
+      expect(
+        await sentShape(
+          { [itemId]: "00001234", [otherItemId]: "0000123456" },
+          { overrides: excluded },
+        ),
+      ).toEqual(digits(8));
     });
 
     it("sends nothing when no vault item matches the page", async () => {

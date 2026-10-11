@@ -850,9 +850,11 @@ username or Text field value, and observations carry page `maxLength`, `minLengt
 `inputMode`. `checkPlanValues` checks a plan against the real values before filling and
 turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
 carries synthetic values. The executor applies the same check to the real inputs before
-filling. The vault adapter and runtime do not supply these hints yet.
-`valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
-resolve Linked fields and never pass Hidden, password or TOTP values.
+filling. Automatic generation sends the username's shape when every matching item
+agrees ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)); `fieldName`
+waits for custom-field slots. `valueShapeOf` (`packages/contracts/src/values.ts`) takes
+`{ source: "username" | "text", value }`, so a caller must resolve Linked fields and
+never pass Hidden, password or TOTP values.
 
 For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a later
@@ -968,9 +970,6 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   recipe starts is offered for generation (the service keeps one generated recipe per
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
-  ([Background execution](architecture.md#background-execution)).
-- Supplying ADR 0010 hints from the vault adapter. The executor runs the local value
-  check before filling and the post-fill check before the click
   ([Background execution](architecture.md#background-execution)).
 - A Claude baseline on the real-page corpus, then Japanese pages for it. The
   finite-choice provider is chosen only after that baseline exists. The owner chose on
