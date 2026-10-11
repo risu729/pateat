@@ -211,7 +211,33 @@ describe("Claude settings page", () => {
     expect(response.status).toBe(200);
     const body = await response.text();
     expect(body).toContain("The stored identifiers are no longer valid.");
+    expect(body).toContain("<p>None yet.</p>");
     expect(body).not.toContain('value="bad"');
+
+    // A rejected form and a test exchange answer the same way instead of failing.
+    const rejected = await postForm("/manage/claude", access, { ...ids, workspaceId: "bad" });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.text()).toContain("<p>None yet.</p>");
+    const exchangesBefore = tokenRequests.length;
+    const tested = await postForm("/manage/claude/test", access, {});
+    expect(tested.status).toBe(200);
+    const testedBody = await tested.text();
+    expect(testedBody).toContain("The stored identifiers are no longer valid.");
+    expect(testedBody).toContain("<p>None yet.</p>");
+    expect(tokenRequests).toHaveLength(exchangesBefore);
+  });
+
+  it("keeps showing the saved identifiers beside a rejected form", async () => {
+    const { access } = await signedInOwner();
+    expect((await postForm("/manage/claude", access, ids)).status).toBe(303);
+    const response = await postForm("/manage/claude", access, {
+      ...ids,
+      serviceAccountId: "svac_bad!",
+    });
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(body).toContain(`<td><code>${ids.serviceAccountId}</code></td>`);
+    expect(body).toContain('value="svac_bad!"');
   });
 
   it("rejects malformed identifiers, escapes them and stores nothing", async () => {

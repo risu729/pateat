@@ -131,9 +131,11 @@ Custom OIDC), the issuer URL is `OIDC_ISSUER`, with discovery. The federation ru
 matches `subject_prefix` `owner:<ownerId>` exactly, may also match audience
 `https://api.anthropic.com`, and should use the `workspace:inference` scope where the
 Console offers it. On 2026-10-11 the Connect workload wizard offered only
-`workspace:developer` and `org:admin`, so use `workspace:developer` there; the Worker
-calls only the Messages API, and the token lasts at most ten minutes. `/manage/claude`
-shows the saved identifiers.
+`workspace:developer` and `org:admin`, so the owner's rule uses `workspace:developer`
+with the wizard's 600-second token lifetime. That scope also allows Files, Skills and
+Managed Agents in the rule's workspace; Pateat calls only the Messages API, and each
+exchanged token serves one call and is then discarded. `/manage/claude` shows the saved
+identifiers.
 
 ## Recipe generation
 

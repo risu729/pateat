@@ -46,6 +46,8 @@ const STATUS_TEXT = {
   failed: "The token exchange did not complete. Try again later.",
 } as const;
 
+const INVALID_ROW = "The stored identifiers are no longer valid. Enter them again.";
+
 function validFor(milliseconds: number) {
   const seconds = Math.max(0, Math.round(milliseconds / 1000));
   return seconds < 120
@@ -112,6 +114,7 @@ function settingsPage(
             </table>`
           : html`<p>None yet.</p>`
       }
+      <h2>Update identifiers</h2>
       <p>Copy the identifiers the Console shows for that rule. None of them is a secret.</p>
       <form method="post" action="/manage/claude">
         ${FIELDS.map(
@@ -171,9 +174,7 @@ export const manageClaudeRoutes = new Hono<ApiEnv>()
     } catch (error) {
       if (!v.isValiError(error)) throw error;
       // Keep the form reachable so the owner can replace a row the schema no longer accepts.
-      return settingsPage(c, 200, ownerId, null, {
-        notice: "The stored identifiers are no longer valid. Enter them again.",
-      });
+      return settingsPage(c, 200, ownerId, null, { notice: INVALID_ROW });
     }
   })
   .post("/", requireFormBody, async (c) => {
@@ -193,7 +194,13 @@ export const manageClaudeRoutes = new Hono<ApiEnv>()
   .post("/test", requireFormBody, async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     if (!ownerId) return message(c, 404, "Not found", "Pair a device with this account first.");
-    const result = await resolveClaudeCredential(c.env, ownerId);
+    let result;
+    try {
+      result = await resolveClaudeCredential(c.env, ownerId);
+    } catch (error) {
+      if (!v.isValiError(error)) throw error;
+      return settingsPage(c, 200, ownerId, null, { notice: INVALID_ROW });
+    }
     // The token itself is discarded; only the outcome is shown.
     const notice =
       result.status === "ready"
