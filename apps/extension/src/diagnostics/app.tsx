@@ -214,6 +214,11 @@ export function logFilename(ms: number): string {
   return `pateat-logs-${iso.slice(0, 10).replaceAll("-", "")}-${iso.slice(11, 16).replace(":", "")}.jsonl`;
 }
 
+/** Entries in an export: every line after its header line. */
+function exportedEntries(text: string): number {
+  return Math.max(0, text.trimEnd().split("\n").length - 1);
+}
+
 function Logs({
   status,
   client,
@@ -326,7 +331,7 @@ function Logs({
       {preview !== undefined && (
         <div>
           <p className="note">
-            This exact text is saved. Check it before attaching it to a bug report.
+            This exact text is saved or copied. Check it before attaching it to a bug report.
           </p>
           <label className="mb-3 flex items-center gap-2">
             <input
@@ -351,6 +356,23 @@ function Logs({
               }}
             >
               Save file
+            </Button>
+            <Button
+              id="copy-logs"
+              type="button"
+              variant="outline"
+              disabled={pending !== undefined}
+              onClick={() =>
+                void client.copy(preview.text).then(
+                  () =>
+                    setMessage(
+                      `Copied ${plural(exportedEntries(preview.text), "entry", "entries")}.`,
+                    ),
+                  () => setMessage("Copy failed. Use Save file instead."),
+                )
+              }
+            >
+              Copy all
             </Button>
             <Button
               type="button"

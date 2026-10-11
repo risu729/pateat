@@ -71,6 +71,20 @@ test("production diagnostics show the build, checks and a value-free bug report"
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Save file" }).click();
     expect((await download).suggestedFilename()).toMatch(/^pateat-logs-\d{8}-\d{4}\.jsonl$/u);
+    // The same text, whole, goes to the clipboard for pasting into a chat. Chrome grants no
+    // clipboard permission to an extension origin here, so the page's write is recorded.
+    await page.evaluate(() => {
+      const copied: string[] = [];
+      Object.assign(window, { copied });
+      navigator.clipboard.writeText = async (text) => void copied.push(text);
+    });
+    await page.getByRole("button", { name: "Copy all" }).click();
+    await expect(page.locator("#logs-status")).toHaveText(
+      `Copied ${lines.length} ${lines.length === 1 ? "entry" : "entries"}.`,
+    );
+    expect(await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).toEqual([
+      saved,
+    ]);
     await page.getByRole("button", { name: "Clear logs" }).click();
     await page.getByRole("button", { name: "Delete all log entries" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Logs cleared.");

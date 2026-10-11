@@ -329,7 +329,8 @@ pseudonyms, with no labels, emails, item names, URLs or host names
 ([architecture](architecture.md#diagnostics)). Add the steps that led to the problem.
 
 For a problem that happened earlier, click **Download logs** on the same page, check
-the preview and click **Save file**, then attach the `.jsonl` file. Site addresses and
+the preview and click **Save file**, then attach the `.jsonl` file, or click **Copy
+all** and paste the whole text. Site addresses and
 recipe IDs appear as `site-1` and `recipe-1` unless you check **Include site addresses
 and recipe IDs**. To record more detail, click **Enable debug logging for 24 hours**,
 reproduce the problem, then download the logs ([local log](architecture.md#local-log)).
