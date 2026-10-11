@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { age, installLabel, syncSignIn } from "./labels";
+import { age, installLabel, serverLabel, syncSignIn } from "./labels";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -24,5 +24,11 @@ describe("diagnostics labels", () => {
     expect(syncSignIn("active")).toBe("sync sign-in active");
     expect(syncSignIn("none")).toBe("no sync sign-in (none)");
     expect(syncSignIn("unavailable")).toBe("sync sign-in unreadable (unavailable)");
+  });
+
+  it("labels a third-party server by the Bitwarden version it reports", () => {
+    expect(serverLabel({ ok: true, version: "2026.9.2", kind: "third-party" })).toBe(
+      "third-party server, compatible with Bitwarden 2026.9.2",
+    );
   });
 });
