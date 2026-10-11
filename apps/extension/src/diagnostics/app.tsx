@@ -1,14 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "../options/button";
-import {
-  formatReport,
-  installLabel,
-  shortRevision,
-  syncSignIn,
-  utcMinute,
-  type BrowserInfo,
-} from "./report";
+import { installLabel, syncSignIn } from "./labels";
+import { formatReport, shortRevision, utcMinute, type BrowserInfo } from "./report";
 import type {
   DiagnosticsCheck,
   DiagnosticsResponse,

@@ -526,10 +526,12 @@ that exact page URL and returns a value-free summary
   settings revision, settings hold and recipe cache size;
 - setting counts, `storage.local` usage, the log's size and debug state, and checks
   for site access, the crypto host, each vault cache and sync sign-in
-  (`refresh-required` is ok: the next Sync refreshes the token), the vault copy's age
-  (info, since the vault syncs only from the settings page), service reachability,
-  clock skew over 30 s against the service `Date` header, a recipe sync older than 24
-  hours and errors logged in the last 24 hours.
+  (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
+  the token, and info without it, since Sync needs the stored unlock key), the vault
+  copy's age (info, since the vault syncs only from the settings page), service
+  reachability, clock skew over 30 s against the service `Date` header, a recipe sync
+  older than 24 hours and errors logged in the last 24 hours. Reworded states keep the
+  raw code in parentheses.
 
 The worker fetches `/health` only for a paired service with site access. **Copy for bug
 report** shows the exact text before copying it; that text leaves out the unlock KDF.

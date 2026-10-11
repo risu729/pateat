@@ -1,5 +1,6 @@
 // The text "Copy for bug report" copies (ADR 0019). It leaves out the unlock KDF, which
 // is shown on the page only.
+import { installLabel, syncSignIn } from "./labels";
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 export type BrowserInfo = { name: string; version: string; installType: string };
@@ -11,33 +12,6 @@ export function utcMinute(ms: number): string {
 
 export function shortRevision(revision: string): string {
   return /^[0-9a-f]{40}$/u.test(revision) ? revision.slice(0, 7) : revision;
-}
-
-/** Chrome's `installType`: `development` means loaded unpacked. */
-export function installLabel(installType: string): string {
-  const labels: Record<string, string> = {
-    development: "unpacked install",
-    normal: "Web Store install",
-    admin: "policy install",
-    sideload: "sideloaded install",
-  };
-  return labels[installType] ?? `${installType} install`;
-}
-
-/** What the provider session means for the next Sync. */
-export function syncSignIn(state: DiagnosticsConnection["providerSession"]): string {
-  switch (state) {
-    case "active":
-      return "sync sign-in active";
-    case "refresh-required":
-      return "sync sign-in kept (token refreshes at next Sync)";
-    case "reauthentication-required":
-      return "sync sign-in needs the password";
-    case "none":
-      return "no sync sign-in";
-    default:
-      return "sync sign-in unreadable";
-  }
 }
 
 function connectionLine(entry: DiagnosticsConnection): string {

@@ -220,26 +220,36 @@ describe("diagnostics status", () => {
     expect(report).not.toContain("600000");
   });
 
-  it("explains an expired sync token that the next Sync refreshes", async () => {
-    const status = await collectDiagnostics(
-      dependencies({
-        connections: {
-          status: async () => setupStatus({ providerSession: "refresh-required" }),
-          read: async () => record(),
-        },
-      }),
-    );
+  it("explains an expired sync token that the next Sync tries to renew", async () => {
+    const collect = (autoUnlock: "enabled" | "disabled") =>
+      collectDiagnostics(
+        dependencies({
+          connections: {
+            status: async () => setupStatus({ providerSession: "refresh-required", autoUnlock }),
+            read: async () => record(),
+          },
+        }),
+      );
+    const status = await collect("enabled");
     const id = status.connections[0]!.id;
     expect(status.checks).toContainEqual({
       id: `sync:${id}`,
       level: "ok",
-      detail: `${id} sync sign-in kept (token refreshes at next Sync)`,
+      detail: `${id} sync sign-in kept, next Sync tries to renew it (refresh-required)`,
     });
     expect(
       formatReport(status, { name: "Chrome", version: "156", installType: "development" }),
     ).toMatch(
-      /^Pateat .* · unpacked install\n[\s\S]*sync sign-in kept \(token refreshes at next Sync\)/u,
+      /^Pateat .* · unpacked install\n[\s\S]*sync sign-in kept, next Sync tries to renew it \(refresh-required\)/u,
     );
+    // Sync reads the stored unlock key, so without auto-unlock the token cannot be renewed.
+    const manual = await collect("disabled");
+    const manualId = manual.connections[0]!.id;
+    expect(manual.checks).toContainEqual({
+      id: `sync:${manualId}`,
+      level: "info",
+      detail: `${manualId} sync sign-in kept, next Sync tries to renew it (refresh-required), Sync needs auto-unlock (auto-unlock disabled)`,
+    });
   });
 
   it("checks the service only with site access and reports failures by code", async () => {
@@ -286,7 +296,7 @@ describe("diagnostics status", () => {
     expect(status.checks).toContainEqual({
       id: `sync:${id}`,
       level: "warn",
-      detail: `${id} sync sign-in needs the password`,
+      detail: `${id} sync sign-in needs the password (reauthentication-required)`,
     });
     expect(status.connections[0]?.items).toBeUndefined();
   });
