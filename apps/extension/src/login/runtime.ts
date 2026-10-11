@@ -1108,10 +1108,15 @@ export function createLoginRuntime(
   }
   /**
    * Whether this document may be sent for generation once it shows a sign-in input: a
-   * top-level page without a recipe whose path was not sent in the last day (ADR 0016).
+   * top-level page on an origin with no cached recipe, whose path was not sent in the
+   * last day (ADR 0016). A recipe starting on another path, or several starting on this
+   * one, still counts as the origin's recipe.
    */
   async function offersGeneration(live: LiveDocument): Promise<boolean> {
     if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return false;
+    if (probeMode && live.document.origin === origin) return false;
+    const steps = await recipes.firstSteps(live.document.origin).catch(() => undefined);
+    if (steps === undefined || steps.length) return false;
     return generation.available(live.document.origin, live.path).catch(() => false);
   }
   /**

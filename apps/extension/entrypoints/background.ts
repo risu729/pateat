@@ -101,6 +101,12 @@ export default defineBackground(() => {
         return snapshot;
       }),
   };
+  // A model call can outlast the worker's 30-second idle timeout; an extension API call
+  // resets it, so the answer is not lost with a stopped worker.
+  const keepAlive = <T>(work: Promise<T>): Promise<T> => {
+    const timer = setInterval(() => void browser.runtime.getPlatformInfo(), 20_000);
+    return work.finally(() => clearInterval(timer));
+  };
   const vaultUris = createVaultUriMatcher(connections);
   const vaultFields = createVaultFieldSource(connections);
   const login = createLoginRuntime(loginSettings, {
@@ -113,7 +119,10 @@ export default defineBackground(() => {
     uris: vaultUris,
     generation: createLoginGeneration({
       service,
-      transport: serviceTransport,
+      transport: {
+        generateRecipe: (...request) => keepAlive(serviceTransport.generateRecipe(...request)),
+        judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
+      },
       storage: createBrowserGenerationAttemptStorage(),
       sync: () => recipeSync.sync(),
     }),

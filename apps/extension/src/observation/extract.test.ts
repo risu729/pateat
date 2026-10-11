@@ -649,6 +649,25 @@ describe("extractSignedInObservation", () => {
     ]);
   });
 
+  it("never locates by an id or name that carries an email address or a long number", () => {
+    page(
+      `<a id="acct-0123456789" href="/a">Account</a>
+      <button name="alice@example.com" type="button">Profile</button>
+      <button id="logout" name="user-123456" type="button">Sign out</button>`,
+    );
+    // The link has no other locator, so it is left out; the buttons fall back to their
+    // text and id.
+    expect(summary(signedIn())).toEqual([
+      { role: "button", target: { by: "text", value: "Profile" }, label: "Profile" },
+      { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
+    ]);
+
+    page(`<form><input id="note-0123456789" type="text" aria-label="Note"></form>
+      <button id="logout" type="button">Sign out</button>`);
+    // A field that cannot be located safely makes the description incomplete.
+    expect(signedIn().complete).toBe(false);
+  });
+
   it("keeps every field ahead of markers and drops markers past the limit", () => {
     const links = Array.from(
       { length: 60 },

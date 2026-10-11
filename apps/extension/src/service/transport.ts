@@ -40,10 +40,11 @@ export type SettingsResult =
   | { kind: "failed"; error: TransportFailure };
 
 /** A recipe generation route's answer (ADR 0018); every answer is a 200 with a status. */
+/** `timeout`: no answer in time, though the service may have called the model. */
 export type InferenceResult<T> =
   | { kind: "result"; result: T }
   | { kind: "rejected" }
-  | { kind: "failed"; error: TransportFailure };
+  | { kind: "failed"; error: TransportFailure | "timeout" };
 
 export interface ServiceTransport {
   redeem(origin: string, verifier: string): Promise<RedeemResult>;
@@ -161,7 +162,10 @@ export function createServiceTransport(
       }
       return { status: response.status, body };
     } catch {
-      return { failed: "unreachable" as const };
+      return {
+        failed: "unreachable" as const,
+        ...(controller.signal.aborted ? { timedOut: true as const } : {}),
+      };
     } finally {
       clearTimeout(timer);
     }
@@ -294,7 +298,8 @@ export function createServiceTransport(
       MAX_INFERENCE_BYTES,
       inferenceTimeoutMs,
     );
-    if ("failed" in response) return { kind: "failed", error: response.failed };
+    if ("failed" in response)
+      return { kind: "failed", error: "timedOut" in response ? "timeout" : response.failed };
     if (response.status === 200) {
       const parsed = v.safeParse(schema, response.body);
       return parsed.success

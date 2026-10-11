@@ -1453,7 +1453,7 @@ describe("production login document admission", () => {
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
     });
 
-    it("offers nothing for a page sent recently, a frame or an incomplete description", async () => {
+    it("offers nothing for a page sent recently, an origin with a recipe, a frame or an incomplete description", async () => {
       const service = generation({ available: async () => false });
       const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
       h.recipes.recipe.mockResolvedValue(undefined);
@@ -1462,6 +1462,15 @@ describe("production login document admission", () => {
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
 
       service.available.mockResolvedValue(true);
+      // A recipe for the origin that starts on another path, or an unreadable cache.
+      fake.state.extracted = { login: loginPage };
+      h.recipes.firstSteps.mockResolvedValue([{ ...generated.steps[0]!, path: "/elsewhere" }]);
+      expect(await h.signIn()).not.toHaveProperty("generate");
+      h.recipes.firstSteps.mockRejectedValue(new Error("cache"));
+      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      h.recipes.firstSteps.mockResolvedValue([]);
+      expect(service.generate).not.toHaveBeenCalled();
+
       fake.state.extracted = {
         login: { ...loginPage, observation: { ...loginPage.observation, complete: false } },
       };
@@ -1475,14 +1484,20 @@ describe("production login document admission", () => {
       fake.state.tabUrls = { 1: "https://top.example/" };
       expect(
         await h.login.handle(
-          { version: 1, type: "login.document.ready", token: "frame-token" },
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "frame-token",
+            signIn: { path: "/" },
+          },
           sender({
             frameId: 3,
             documentId: "frame-document",
             tab: { id: 1, url: "https://login.example/" },
           }),
         ),
-      ).not.toHaveProperty("generate");
+      ).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(service.generate).not.toHaveBeenCalled();
     });
 
     it("learns the completion from the page after the final submission", async () => {

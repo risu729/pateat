@@ -899,7 +899,8 @@ inputs moved to the right or clipped by `overflow: hidden` stay candidates.
 submission the same way, but over the whole page: every field, then buttons and links in
 document order up to 48 candidates. A field it cannot describe marks it incomplete;
 buttons and links past the limit or without a locator are left out, since they are only
-possible sign-in markers.
+possible sign-in markers. There, an attribute locator that redaction would change counts
+as no locator, so an account number in an `id` is never sent.
 `mise run test:dom` covers these cases in Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each

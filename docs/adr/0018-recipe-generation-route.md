@@ -74,10 +74,18 @@ new owner decision:
 - The extension sends the page after the final submission once the usual three-second
   observation finds no other result. A page that still shows one of the recipe's fields
   on one of its paths is not sent, since the sign-in has not finished there. Each
-  attempt sends at most one such page.
+  attempt sends at most one such page while the extension's service worker runs; an
+  attempt resumed after the worker restarts may send it again, within the daily limit.
 - That page is described by `extractSignedInObservation`: every field on the page, which
   the judge needs to refuse a page that still shows a sign-in field, then buttons and
-  links as possible markers up to the 48-candidate limit.
+  links as possible markers up to the 48-candidate limit. An `id`, `name` or
+  `data-testid` value that the label redaction would change is never used as a locator
+  there, since signed-in pages often name the account in them: such a button or link is
+  left out, and such a field makes the page incomplete.
+- While a model call runs, the extension calls an extension API every 20 seconds, so
+  Chrome does not stop its service worker and lose the answer. It waits up to 90
+  seconds; a page whose answer timed out stays claimed for the day, since the service
+  may have called the model.
 
 ## Consequences
 

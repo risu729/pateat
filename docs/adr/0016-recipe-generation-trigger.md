@@ -56,6 +56,9 @@ new owner decision:
 - The extension remembers a page as attempted when it sends it. It forgets the attempt
   only when the service could not be reached or answered `busy`, since no model call
   was made.
+- Any cached recipe for the origin, even one that starts on another path, stops pages on
+  that origin from being offered; a generated recipe's later pages go through its
+  continuation in ADR 0018 instead.
 - Frames are not sent; only the tab's own page is.
 
 ## Consequences

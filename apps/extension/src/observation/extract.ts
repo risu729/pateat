@@ -124,12 +124,19 @@ function locatorIndex(document: Document): LocatorIndex {
 /**
  * Mirrors the executor's lookup: an attribute value, or else a button's text, that
  * matches exactly one element. Button text is used only when redaction leaves it
- * unchanged, so a locator never carries an email address or a long number.
+ * unchanged, so a locator never carries an email address or a long number. With
+ * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
+ * and names often carry the account.
  */
-function locate(element: Element, index: LocatorIndex): LoginTarget | undefined {
+function locate(
+  element: Element,
+  index: LocatorIndex,
+  redactAttributes = false,
+): LoginTarget | undefined {
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
     if (value === null || index.get(attribute)!.get(value) !== 1) continue;
+    if (redactAttributes && observedText(value) !== value) continue;
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
@@ -491,7 +498,7 @@ export function extractSignedInObservation(
   const index = locatorIndex(document);
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
-      const target = locate(entry.draft.element, index);
+      const target = locate(entry.draft.element, index, true);
       return target ? [{ ...entry, target }] : [];
     });
   const fieldsFound = located(fieldEntries);

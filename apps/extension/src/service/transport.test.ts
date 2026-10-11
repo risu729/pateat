@@ -385,7 +385,7 @@ describe("recipe generation", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(hanging.mock.calls[0]![1]!.signal!.aborted).toBe(false);
       await vi.advanceTimersByTimeAsync(89_000);
-      expect(await pending).toEqual({ kind: "failed", error: "unreachable" });
+      expect(await pending).toEqual({ kind: "failed", error: "timeout" });
     } finally {
       vi.useRealTimers();
     }

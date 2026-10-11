@@ -137,6 +137,18 @@ describe("recipe generation requests", () => {
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
   });
 
+  it.each([
+    ["a timeout", { kind: "failed", error: "timeout" }],
+    ["an unexpected answer", { kind: "failed", error: "unexpected-response" }],
+  ] as const)(
+    "keeps the page claimed after %s, which may follow a model call",
+    async (_name, answer) => {
+      const h = setup(answer);
+      expect(await h.generation.generate(request)).toBe("none");
+      expect(await h.generation.available(observation.origin, "/login")).toBe(false);
+    },
+  );
+
   it("sends nothing without a paired, accepted device or when it cannot remember", async () => {
     const h = setup();
     h.service.connection.mockResolvedValueOnce(undefined);
