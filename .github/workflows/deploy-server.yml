@@ -55,7 +55,7 @@ jobs:
             echo "::error::Set the production environment secret CLOUDFLARE_API_TOKEN and variable CLOUDFLARE_ACCOUNT_ID."
             exit 1
           fi
-      - name: Require successful CI for this exact main revision
+      - name: Choose the newest main revision whose CI passed
         id: source
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -63,36 +63,52 @@ jobs:
           # A dispatch releases the main revision it was started on.
           DISPATCH_REVISION: ${{ github.sha }}
           TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
-          TRIGGER_REVISION: ${{ github.event.workflow_run.head_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "${EVENT_NAME}" = workflow_dispatch ]]; then
             expected="${DISPATCH_REVISION}"
             ci_run_id="${DISPATCH_RUN_ID}"
           else
-            # Main CI runs can finish out of order, and the release lock keeps only the
-            # newest pending run, so every automatic run releases the current main
-            # rather than the revision that triggered it.
-            expected="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
-            [[ "${expected}" =~ ^[0-9a-f]{40}$ ]]
-            live="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "${SERVER_HEALTH_URL}" | jq -r '.revision // empty' || true)"
-            if [[ "${live}" = "${expected}" ]]; then
-              echo "release=false" >> "${GITHUB_OUTPUT}"
-              echo "Main revision ${expected} is already live." >> "${GITHUB_STEP_SUMMARY}"
-              exit 0
-            fi
-            if [[ "${expected}" = "${TRIGGER_REVISION}" ]]; then
-              # Main's own CI run is the last automatic chance; don't depend on a list query.
+            # Main often gains merges faster than CI finishes, so release the newest main
+            # revision whose push CI passed. Main pushes are serialized, so their CI run
+            # IDs follow push order; the triggering run may not be listed as successful
+            # yet. If a run is ever picked out of order, the check below keeps the server
+            # from moving back and a later run releases the newest revision.
+            ci_run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].id // 0')"
+            [[ "${ci_run_id}" =~ ^[0-9]+$ && "${TRIGGER_RUN_ID}" =~ ^[0-9]+$ ]]
+            if (( TRIGGER_RUN_ID > ci_run_id )); then
               ci_run_id="${TRIGGER_RUN_ID}"
-            else
-              ci_run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=${expected}&per_page=1" --jq '.workflow_runs[0].id // empty')"
             fi
-            if [[ -z "${ci_run_id}" ]]; then
-              echo "release=false" >> "${GITHUB_OUTPUT}"
-              echo "Main revision ${expected} has no successful CI run yet; its own CI run releases it." >> "${GITHUB_STEP_SUMMARY}"
-              exit 0
-            fi
+            expected="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ci_run_id}" --jq .head_sha)"
+            [[ "${expected}" =~ ^[0-9a-f]{40}$ ]]
           fi
+          # Never move the server back; a dispatch may repeat the live revision.
+          live="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "${SERVER_HEALTH_URL}" | jq -r '.revision // empty' || true)"
+          if [[ "${live}" =~ ^[0-9a-f]{40}$ ]]; then
+            order="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${live}...${expected}" --jq .status)"
+          else
+            # Without a readable live revision, only the main head may be released.
+            head="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+            if [[ "${head}" = "${expected}" ]]; then order=ahead; else order=behind; fi
+            echo "The live revision is unreadable; releasing only the main head ${head}." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+          case "${order}" in
+            ahead) ;;
+            identical | behind)
+              if [[ "${order}" = behind || "${EVENT_NAME}" != workflow_dispatch ]]; then
+                echo "release=false" >> "${GITHUB_OUTPUT}"
+                echo "Revision ${expected} is not ahead of the live server (${order}); nothing to release." >> "${GITHUB_STEP_SUMMARY}"
+                exit 0
+              fi
+              ;;
+            *)
+              # A live revision outside main needs the owner: a dispatch replaces it.
+              if [[ "${EVENT_NAME}" != workflow_dispatch ]]; then
+                echo "::error::Live revision ${live} is not on main (${order}); check the server, then release by dispatch."
+                exit 1
+              fi
+              ;;
+          esac
           [[ "${ci_run_id}" =~ ^[0-9]+$ ]]
           run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ci_run_id}")"
           workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
@@ -139,24 +155,10 @@ jobs:
           RELEASE_RUN_ID: ${{ steps.source.outputs.run-id }}
           RELEASE_RUN_ATTEMPT: ${{ steps.source.outputs.attempt }}
         run: mise exec -- node .github/scripts/server-artifact.mjs restore
-      - name: Skip superseded revisions before the first mutation
-        if: ${{ steps.source.outputs.release == 'true' }}
-        id: current
-        env:
-          RELEASE_REVISION: ${{ steps.source.outputs.revision }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
-          if [[ "${current}" = "${RELEASE_REVISION}" ]]; then
-            echo "deploy=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "deploy=false" >> "${GITHUB_OUTPUT}"
-            echo "Superseded by main revision ${current} during the release; the next automatic run releases it." >> "${GITHUB_STEP_SUMMARY}"
-          fi
       # Migrations must be additive so the serving Worker keeps working on the new
       # schema. A failed migration stops the release before activation.
       - name: Apply the released migrations to the recorded database
-        if: ${{ steps.current.outputs.deploy == 'true' }}
+        if: ${{ steps.source.outputs.release == 'true' }}
         timeout-minutes: 10
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -177,7 +179,7 @@ jobs:
           "${cf[@]}" d1 migrations list "${DATABASE}" --dir "${migrations}" |
             jq -e 'length == 0' > /dev/null
       - name: Activate the exact prebuilt server
-        if: ${{ steps.current.outputs.deploy == 'true' }}
+        if: ${{ steps.source.outputs.release == 'true' }}
         id: deploy
         uses: risu729/wrangler-deploy-action@a9db854f3a31cdf3cdf28977e66f52f32fc9e8a0 # v2.2.2
         with:
@@ -190,7 +192,7 @@ jobs:
           production-strategy: versions
           deploy-triggers: "false"
       - name: Verify deployment readback and hosted revision
-        if: ${{ steps.current.outputs.deploy == 'true' }}
+        if: ${{ steps.source.outputs.release == 'true' }}
         env:
           RELEASE_REVISION: ${{ steps.source.outputs.revision }}
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment-id }}

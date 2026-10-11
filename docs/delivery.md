@@ -70,7 +70,7 @@ The owner decided these on 2026-10-11, following the kogane repository:
   does for its docs, when the owner web UI exists.
 
 `deploy-server.yml` has no enable switch: the owner decided on 2026-10-11 that every
-successful main-push CI run starts a release of the current main. Until the production
+successful main-push CI run starts a release. Until the production
 credentials exist, each run fails at its first step without changing anything. Set the
 release credentials last: first bootstrap the Worker and its Custom Domain, the two
 Access applications and the Worker secrets, and verify enrollment through Access;
@@ -91,28 +91,33 @@ permission. The `production` environment accepts deployments only from `main`
 2026-10-11), so a workflow on another branch cannot read the token. This repository
 does not supply or provision them.
 
-An automatic run releases the current main revision, not necessarily the one whose CI
-run started it: main CI runs can finish out of order, and the release lock keeps only
-the newest pending run. It uses main's successful push CI run, and does nothing when
-that run has not finished yet (its own completion starts a release) or when `/health`
-already reports that revision. A manual dispatch releases the `ci_run_id` it is given
-for the main revision it started on. The workflow fails before any change when the token
-is empty or the account ID is not a 32-character hex ID. It verifies the run's identity,
-event and conclusion, restores only its hashed artifact, rechecks main within a
-non-cancelling release lock, applies the released migrations, deploys through the pinned
-action without rebuilding, and verifies returned deployment IDs and the hosted revision.
-Before `cf d1 migrations apply`, it reads the database by the recorded ID and requires
-the name `pateat`; afterwards no migration may remain unapplied. A failed migration
-stops the release before activation. Before the first public release, migrations need
-not be additive and the previously serving Worker need not keep running on the new
-schema ([compatibility before release](development.md#compatibility-before-release)); cf
+An automatic run releases the newest main revision whose push CI passed, not necessarily
+the one whose CI run started it: main often gains merges faster than CI finishes, main
+CI runs can finish out of order, and the release lock keeps only the newest pending run.
+Requiring the current main head instead left the server unreleased for as long as merges
+kept coming (observed on 2026-10-11). A manual dispatch releases the `ci_run_id` it is
+given for the main revision it started on. Inside a non-cancelling release lock, every
+run compares the chosen revision with the revision `/health` reports and releases only
+one that is ahead of it, so the server never moves back; a dispatch may also repeat the
+live revision. When `/health` gives no revision, only the current main head may be
+released. A live revision that is not on main fails an automatic run instead of
+skipping; after checking the server, the owner replaces it with a dispatch. The workflow
+fails before any change when the token is empty or the account ID is not a 32-character
+hex ID. It verifies the run's identity, event and conclusion, restores only its hashed
+artifact, applies the released migrations, deploys through the pinned action without
+rebuilding, and verifies returned deployment IDs and the hosted revision. Before
+`cf d1 migrations apply`, it reads the database by the recorded ID and requires the name
+`pateat`; afterwards no migration may remain unapplied. A failed migration stops the
+release before activation. Before the first public release, migrations need not be
+additive and the previously serving Worker need not keep running on the new schema
+([compatibility before release](development.md#compatibility-before-release)); cf
 compares applied migrations by name only, so an applied migration file is never edited.
 `cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
-is updated. A failed release is not retried automatically, except that a late CI run for
-an older revision releases main again; otherwise retry with an explicit dispatch, or let
-the next merge start a new release. Routine releases never change the Custom Domain or
-other triggers; the bootstrap applies them once. The complete service release gates
-below remain planned, including automatic promotion/failure acknowledgement.
+is updated. There is no automatic retry; the next successful main CI run releases the
+newest tested revision, or retry with a dispatch. Routine releases never change the
+Custom Domain or other triggers; the bootstrap applies them once. The complete service
+release gates below remain planned, including automatic promotion/failure
+acknowledgement.
 
 ## Repository configuration
 
@@ -186,19 +191,19 @@ for the typed-config/test-harness compatibility gate.
    workflow run, mode, tool versions and digests. A main-only deployment consumes
    that artifact, verifies its provenance/digests, and never rebuilds inside
    deploy. Never promote an arbitrary PR artifact into a privileged workflow.
-2. Serialize production migrations, deployment, readback and smoke checks with
-   GitHub concurrency and `cancel-in-progress: false`. Inside the lock, before
-   the first mutation, recheck the intended release revision and skip superseded
-   builds; concurrency does not guarantee source-revision ordering. Once mutation
-   starts, finish/reconcile the release instead of cancelling it for a newer run.
-   Provision the Worker/D1/routing and scoped credentials in a distinct initial
-   bootstrap operation. Keep bootstrap permissions separate from routine code
-   releases; resource names, account IDs and enrollment are M6 inputs. The D1
-   database was bootstrapped early, on 2026-10-11, and its ID is in the config.
-   The initial service bootstrap includes Access identity configuration and a
-   verified device enrollment/revocation flow. Do not distribute a universal
-   service credential with the extension. D1 initially stores private settings
-   in server-readable form; vault credentials and decryption keys remain local.
+2. Serialize production migrations, deployment, readback and smoke checks with GitHub
+   concurrency and `cancel-in-progress: false`. Inside the lock, before the first
+   mutation, compare the intended revision with the live one and skip anything not ahead
+   of it; concurrency does not guarantee source-revision ordering. Once mutation starts,
+   finish/reconcile the release instead of cancelling it for a newer run. Provision the
+   Worker/D1/routing and scoped credentials in a distinct initial bootstrap operation.
+   Keep bootstrap permissions separate from routine code releases; resource names,
+   account IDs and enrollment are M6 inputs. The D1 database was bootstrapped early, on
+   2026-10-11, and its ID is in the config. The initial service bootstrap includes
+   Access identity configuration and a verified device enrollment/revocation flow. Do
+   not distribute a universal service credential with the extension. D1 initially stores
+   private settings in server-readable form; vault credentials and decryption keys
+   remain local.
 3. Apply D1 migrations using the caller's task and the production token above. cf
    migrations take a database ID and default to remote execution; use explicit local
    mode in tests. Verify target identity before execution. After the first public
