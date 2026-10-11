@@ -68,6 +68,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0015: Per-owner Claude credentials through Workload Identity Federation](adr/0015-per-owner-claude-credentials.md)
 - [0016: Automatic recipe generation on pages with a vault match](adr/0016-recipe-generation-trigger.md)
 - [0017: Login forms inside frames](adr/0017-login-forms-in-frames.md)
+- [0018: Service recipe generation route](adr/0018-recipe-generation-route.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

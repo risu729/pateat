@@ -792,7 +792,10 @@ must abstain still do. With one sample per case this cannot show that the refusa
 not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
 - The service route, monthly spend stop and the
-  [request log](adr/0012-inference-request-log.md).
+  [request log](adr/0012-inference-request-log.md), as decided in
+  [ADR 0018](adr/0018-recipe-generation-route.md): `POST /v1/recipes/generate`, use of
+  the returned recipe at once, the post-login page sent once to learn `completion`,
+  and 90-day log retention.
 - Calling the extension observation extractor (below) under the automatic send rule
   of [ADR 0016](adr/0016-recipe-generation-trigger.md).
 - A different remembered account, approved by the owner on 2026-10-11: on a step that
