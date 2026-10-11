@@ -9,8 +9,10 @@ remains optional for the eventual local login core.
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
 and main push, and repeats the packaged-extension browser tests on Windows. `CI Check`
 requires both jobs to succeed, including when an upstream job failed, skipped or was
-cancelled. `codeql.yml` analyzes TypeScript/JavaScript and Actions separately. GitHub
-Code Quality is not used: since its
+cancelled. A newer push to a PR cancels its older run, but each main push finishes its
+own run; otherwise frequent merges would cancel every main run before it could package a
+release and start `deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and
+Actions separately. GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
