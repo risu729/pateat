@@ -4,7 +4,7 @@ The repository contains local policy settings, manual Bitwarden connection setup
 contracts, isolated transport/local-crypto libraries, a packaged offscreen crypto host,
 a local vault cache with offline restoration, a localhost-only synthetic login executor
 probe, a device-authenticated settings/recipe sync Worker skeleton and
-CI/manual-delivery foundations. Connection setup and its live metadata integration
+CI/delivery foundations. Connection setup and its live metadata integration
 passed synthetic native-browser tests; real-account compatibility is unproven. An
 offline AI evaluation harness scores role adapters on a synthetic Japanese/English
 corpus with fake providers only. The settings page can pair a device with the

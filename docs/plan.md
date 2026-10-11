@@ -12,7 +12,8 @@ gates rather than maintaining a second roadmap.
 Implemented: WXT production shell with no site permissions, human-operated status
 page, strict Valibot status contracts, isolated localhost-only probe build,
 health-only Worker with typed cf configuration, shared mise/hk checks, CI/CodeQL,
-and disabled-by-default manual delivery of a verified main-build artifact.
+and delivery of a verified main-build artifact after main CI (it fails until the
+production credentials and deployment variables exist).
 Mise and Bun dependencies are locked; no native helper or production secrets are
 required to build or test.
 
