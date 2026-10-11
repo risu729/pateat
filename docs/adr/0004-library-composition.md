@@ -33,7 +33,9 @@ Form + Valibot, TanStack Query, XState, `@webext-core/messaging`, WXT storage,
 Hono, Drizzle and AI SDK with Valibot on 2026-10-10. The owner delegated OTP/PSL
 selection by maintenance and freshness; choose OTPAuth and tldts on that basis. Keep
 React in human-operated extension pages and preserve the settings operation contracts
-and draft/conflict behavior.
+and draft/conflict behavior. On 2026-10-11 the owner extended the same UI choices to the
+service's owner web UI
+([architecture](../architecture.md#owner-web-ui)).
 
 The owner selected XState after comparing it with a custom TypeScript state
 machine. Login policy, interruption recovery and duplicate-submit prevention
