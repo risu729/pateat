@@ -77,9 +77,15 @@ Chrome, on a production build of main.
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
   keeps local; that is a design to bring to the owner first.
+- Claude also watches the service's D1 records, such as the inference request log
+  ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
+  the device (owner, 2026-10-11 18:45 UTC).
 - Browser agents that drive the owner's Chrome, such as Claude in Chrome and ChatGPT's
   agent in Chrome, must be logged in by Pateat and carry on with their task. This is the
   M1/M6 "Chrome use coexistence" gate, and it can only be checked by using them.
+- The owner also wants Pateat in the browser of ChatGPT's own computer, which is not
+  the installed Chrome. Whether an extension can be installed there is not known yet;
+  it is researched first.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
