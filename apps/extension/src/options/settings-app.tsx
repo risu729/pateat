@@ -345,7 +345,7 @@ export function SettingsApp({
         <h1>Settings</h1>
         <p className="intro">
           {connectionClient
-            ? "Connect Bitwarden and configure local vault policy. Automatic website login remains unavailable."
+            ? "Connect Bitwarden and configure local vault policy. Pateat logs in on sites that have a login recipe and answers passkey sign-ins."
             : "Configure local policy with demo vault metadata. No real vault is connected, and this preview cannot log in to websites."}
         </p>
       </header>
@@ -439,7 +439,7 @@ export function SettingsApp({
       </p>
       <p className="note">
         {connectionClient
-          ? "Provider setup is manual. Site form filling, passkey requests and the optional AI service remain unavailable."
+          ? "Provider setup is manual. Website login needs a login recipe from the paired sync service; passkey sign-ins need none."
           : "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests."}
       </p>
     </main>
