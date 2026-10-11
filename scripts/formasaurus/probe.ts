@@ -27,7 +27,8 @@ export type ProbeResult =
 function probe(): ProbeResult {
   const result = extractLoginObservation(document);
   if (!result.ok) return { ok: false, reason: result.reason };
-  const forms = [...document.forms];
+  // Not `document.forms`: a form named "forms" shadows it.
+  const forms = [...document.querySelectorAll("form")];
   const candidates = result.observation.candidates.map((candidate) => {
     const found = findTargets(document, candidate.target);
     const element = found.length === 1 ? found[0]! : undefined;

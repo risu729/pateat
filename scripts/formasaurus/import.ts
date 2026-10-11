@@ -68,8 +68,11 @@ const bundle = await Bun.build({
 });
 if (!bundle.success) throw new AggregateError(bundle.logs, "Probe bundle failed");
 const probeSource = await bundle.outputs[0]!.text();
-// Probes are reused only for the same checkout and the same extractor build.
-const cacheKey = `${commit}:${createHash("sha256").update(probeSource).digest("hex")}`;
+// Probes are reused only for the same checkout, extractor build and rendering setup.
+const cacheKey = `${commit}:${createHash("sha256")
+  .update(probeSource)
+  .update(await readFile(new URL(import.meta.url)))
+  .digest("hex")}`;
 
 async function probeAll(): Promise<Probed[]> {
   const browser = await chromium.launch({

@@ -940,10 +940,10 @@ sites appear twice with the same login form.
 it.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
-the 241 pages with an annotated login form, 7 gave no observation and 108 an incomplete
-one, which inference rejects without a call; 126 were complete. In 62 of the 108, the
+the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
+one, which inference rejects without a call; 126 were complete. In 62 of the 109, the
 only shown select, radio button, text area or other unsupported input was outside the
-login form, for example a search form's category select. In 41 none was shown, so a
+login form, for example a search form's category select. In 42 none was shown, so a
 control without a unique `id`, `name` or `data-testid` is the likely cause (inferred,
 not measured). The saved pages have no stylesheets, so elements a live page hides may
 count here. The extractor refuses `;jsessionid=` and ASP.NET session segments but not

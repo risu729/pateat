@@ -35,11 +35,15 @@ const identifierTypes = new Set(["us", "e1", "ue"]);
  */
 const heldBack = new Set(["html/946.html", "html/60.html"]);
 /**
- * A long opaque path segment, such as Magento's base64 `/referer/` that carries the
- * original URL with its session ID. Such paths are left out rather than rewritten.
+ * A long opaque token in a path segment, such as Magento's base64 `/referer/` that
+ * carries the original URL with its session ID: a run of 24 or more characters between
+ * `-` or `_` that mixes upper case, lower case and digits. Such paths are left out
+ * rather than rewritten; slugs of words and product numbers are not opaque.
  */
-// Base64url may hold a hyphen or two; a slug of hyphenated words is not opaque.
-const opaqueSegment = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?!(?:[^-]*-){3})[\w+=-]{32,}$/u;
+const opaque = (segment: string) =>
+  segment
+    .split(/[-_]/u)
+    .some((run) => run.length >= 24 && /\d/u.test(run) && /[a-z]/u.test(run) && /[A-Z]/u.test(run));
 const fillRoles = new Set(["text", "email", "tel", "number", "password"]);
 // Submit, cancel, reset and other buttons; only Bs may be the page action.
 const otherButtonTypes = new Set(["Bc", "Br", "Bo"]);
@@ -65,8 +69,7 @@ export function label(
   if (heldBack.has(file)) return { ok: false, skip: "held-back" };
   if (!probe.ok) return { ok: false, skip: "not-observed" };
   const observation = probe.observation as LoginObservation;
-  if (observation.path.split("/").some((segment) => opaqueSegment.test(segment)))
-    return { ok: false, skip: "token-in-path" };
+  if (observation.path.split("/").some(opaque)) return { ok: false, skip: "token-in-path" };
   // An observed candidate that cannot be found again cannot be placed in a form.
   if (probe.candidates.some((candidate) => candidate.tag === "missing"))
     return { ok: false, skip: "unresolved-candidate" };
