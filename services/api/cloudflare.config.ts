@@ -9,8 +9,9 @@ export default defineConfig({
     compatibilityDate,
     compatibilityFlags,
     env: {
-      // Declared for typed bindings only; the database is not provisioned yet.
-      DB: bindings.d1({ name: "pateat" }),
+      // Bootstrapped on 2026-10-11. The ID keeps cf deploy from provisioning another
+      // database; the release applies committed migrations to exactly this one.
+      DB: bindings.d1({ name: "pateat", id: "68342d29-6704-464c-bdb2-b749812c1f19" }),
       // The Access team domain (`<team>.cloudflareaccess.com`) and application
       // audience tag that guard /enroll and /manage. Unset values fail closed.
       ACCESS_TEAM_DOMAIN: bindings.secret(),

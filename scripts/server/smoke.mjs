@@ -20,6 +20,9 @@ assert.equal(root.buildContext?.isPreview, false, "Preview output is not a produ
 const workerDirectory = join(output, "workers", "default");
 const config = JSON.parse(await readFile(join(workerDirectory, "worker.config.json"), "utf8"));
 assert.equal(config.name, "pateat-api");
+// The release refuses a D1 binding without an ID, which cf deploy would provision.
+assert.equal(config.env?.DB?.type, "d1");
+assert.match(config.env.DB.id ?? "", /^[0-9a-f-]{36}$/u, "Record the bootstrapped D1 ID");
 assert.equal(typeof config.manifest?.mainModule, "string");
 assert.equal(Object.keys(config.manifest.modules).length, 0, "Review new non-JavaScript modules");
 const bundleDirectory = join(workerDirectory, "bundle");

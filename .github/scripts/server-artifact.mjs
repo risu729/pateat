@@ -5,7 +5,11 @@ import { cp, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises
 import { resolve } from "node:path";
 
 const buildPath = "services/api/.cloudflare/output/v0";
+const migrationsPath = "services/api/migrations";
 const releasePath = "work/server-release";
+const databaseName = "pateat";
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+export const migrationNamePattern = /^\d{4}_[a-z0-9_]+\.sql$/u;
 
 async function toolVersions() {
   return {
@@ -53,6 +57,22 @@ export function verifyProvenance(manifest, expected) {
   assert.equal(manifest.worker, "pateat-api");
   assert.equal(manifest.tools.node, process.version);
   assert(Array.isArray(manifest.files) && manifest.files.length > 0);
+  assert(Array.isArray(manifest.migrations) && manifest.migrations.length > 0);
+  assert(
+    manifest.migrations.every(({ path }) => migrationNamePattern.test(path)),
+    "Migrations are flat numbered SQL files",
+  );
+  assert.match(manifest.database ?? "", uuidPattern);
+}
+
+/** The SQL files cf applies by default: `<dir>/*.sql`, in numeric order. */
+export async function copyMigrations(from, to) {
+  await mkdir(to, { recursive: false });
+  const names = (await readdir(from, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
+    .map((entry) => entry.name);
+  assert(names.length > 0, "No migrations to release");
+  await Promise.all(names.map((name) => cp(`${from}/${name}`, `${to}/${name}`)));
 }
 
 export async function verifyBuild(directory) {
@@ -63,6 +83,11 @@ export async function verifyBuild(directory) {
     await readFile(`${directory}/workers/default/worker.config.json`, "utf8"),
   );
   assert.equal(worker.name, "pateat-api");
+  // A D1 binding without an ID makes cf deploy provision a new database.
+  assert.equal(worker.env?.DB?.type, "d1");
+  assert.equal(worker.env.DB.name, databaseName);
+  assert.match(worker.env.DB.id ?? "", uuidPattern, "Record the bootstrapped D1 database ID");
+  return { database: worker.env.DB.id };
 }
 
 async function pack() {
@@ -74,7 +99,8 @@ async function pack() {
   await mkdir(resolve(releasePath, ".."), { recursive: true });
   await mkdir(releasePath, { recursive: false });
   await cp(buildPath, `${releasePath}/output`, { recursive: true, errorOnExist: true });
-  await verifyBuild(`${releasePath}/output`);
+  const { database } = await verifyBuild(`${releasePath}/output`);
+  await copyMigrations(migrationsPath, `${releasePath}/migrations`);
   const manifest = {
     schema: 1,
     repository: process.env.GITHUB_REPOSITORY,
@@ -88,6 +114,8 @@ async function pack() {
     worker: "pateat-api",
     tools: await toolVersions(),
     files: await inventory(`${releasePath}/output`),
+    database,
+    migrations: await inventory(`${releasePath}/migrations`),
   };
   verifyProvenance(manifest, {
     repository: process.env.GITHUB_REPOSITORY,
@@ -112,7 +140,19 @@ async function restore() {
     manifest.files,
     "Release file digests differ",
   );
-  await verifyBuild(`${releasePath}/output`);
+  const { database } = await verifyBuild(`${releasePath}/output`);
+  assert.equal(database, manifest.database, "Release database differs from its build");
+  assert.deepEqual(
+    await inventory(`${releasePath}/migrations`),
+    manifest.migrations,
+    "Release migration digests differ",
+  );
+  // The checkout is the same revision; its migrations must be the released ones.
+  assert.deepEqual(
+    (await inventory(migrationsPath)).filter(({ path }) => /^[^/]+\.sql$/u.test(path)),
+    manifest.migrations,
+    "Migrations differ from source",
+  );
   assert.match(
     process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
     /^[0-9a-f]{32}$/u,
@@ -128,6 +168,8 @@ async function restore() {
   await mkdir(resolve(buildPath, ".."), { recursive: true });
   await cp(`${releasePath}/output`, buildPath, { recursive: true, errorOnExist: true });
   assert.deepEqual(await inventory(buildPath), manifest.files);
+  if (process.env.GITHUB_OUTPUT)
+    await writeFile(process.env.GITHUB_OUTPUT, `database=${manifest.database}\n`, { flag: "a" });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
