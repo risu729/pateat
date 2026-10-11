@@ -649,8 +649,9 @@ Evidence, 2026-10-10, synthetic relying party only:
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
-contract carries bounded, value-free element roles, locators and labels; incomplete
-observations are rejected before inference. The generation/repair role uses AI SDK
+contract (`packages/contracts/src/observation.ts`, shared with the extension) carries
+bounded, value-free element roles, locators and labels; incomplete observations are
+rejected before inference. The generation/repair role uses AI SDK
 structured output and the finite-choice role uses the SDK decision contract with an
 explicit none option per question. Both resolve observation-local candidate IDs, check
 slot/role compatibility, joint mapping uniqueness and same-form grouping, refuse secrets
@@ -747,8 +748,7 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   offer software keyboards.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
-- A real-page corpus per ADR 0012, then moving the observation contract to
-  `packages/contracts` when the service shares it.
+- A real-page corpus per ADR 0012.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
