@@ -115,6 +115,8 @@ export const syncErrorCodeSchema = v.picklist([
   "bad_request",
   "unauthorized",
   "device_revoked",
+  /** Unused for `DEVICE_IDLE_LIMIT_MS`; the device must pair again. */
+  "device_expired",
   "not_found",
   "method_not_allowed",
   "payload_too_large",

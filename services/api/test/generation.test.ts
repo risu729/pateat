@@ -135,8 +135,8 @@ async function owner({ claude = true } = {}): Promise<Device> {
   await env.DB.batch([
     env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)").bind(ownerId, Date.now()),
     env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at) VALUES (?, ?, ?, ?)",
-    ).bind(deviceId, ownerId, await hashDeviceToken(token), Date.now()),
+      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+    ).bind(deviceId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
   ]);
   if (claude)
     await saveWifCredential(env.DB, ownerId, {

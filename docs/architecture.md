@@ -821,18 +821,26 @@ API calls.
   unknown verifiers return the same response. The owner chose direct pairing over
   `chrome.identity.launchWebAuthFlow`, which would add the `identity` permission
   ([ADR 0020](adr/0020-direct-device-pairing.md)).
-- Lifetime and recovery. Credentials stay valid until revoked; an idle expiry is
-  an open decision. The Access-protected management page lists and revokes the
-  owner's devices, and a device can revoke itself on sign-out. A lost device is
+- Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
+  each authenticated use renews it; there is no absolute lifetime and no rotation (owner
+  decision, 2026-10-11). The service records a device's last use at most once a day
+  with a conditional update, so the recorded time can lag by up to a day and a device
+  can expire up to a day before 90 days of real non-use. An expired
+  credential gets 401 `device_expired`, which the extension handles like a revoked
+  device: it stops syncing and asks for a new pairing. A revoked device keeps getting
+  `device_revoked`. The Access-protected management page lists the owner's devices
+  with their last use, marks expired ones, and revokes devices; a device can revoke
+  itself on sign-out. A lost device is
   revoked from another Access login and a replacement re-enrolls. Revocation stops
   later requests; a request already authenticated may still complete. It stops
   service access only and neither erases offline caches nor touches any vault.
 
 Local tests cover signature, issuer, audience, expiry and subject checks, approval
 CSRF and code mismatch, redemption rate limits, replay, concurrent redemption, expiry,
-cleanup of stale approvals, cross-owner management and self-revocation. JWT
-verification worked against the real Access application when the owner paired on
-2026-10-11. Still open: the credential idle-expiry decision.
+cleanup of stale approvals, cross-owner management, self-revocation, and credential
+idle expiry with its daily renewal. JWT verification worked against the real Access
+application when the owner paired on 2026-10-11. Credential idle expiry has local
+tests only so far.
 
 ### Owner web UI
 
