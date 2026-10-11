@@ -439,9 +439,9 @@ export type SiteDefaultConnection =
 
 /**
  * The local connection a saved site default names: the one catalog connection of that
- * provider account. An account connected twice is ambiguous. With no match while a connection of that provider
- * cannot name its account (locked or unavailable), the vault is unavailable rather than
- * the account missing.
+ * provider account. An account connected twice is ambiguous. With no match while a
+ * connection of that provider cannot name its account (locked or unavailable), the vault
+ * is unavailable rather than the account missing.
  */
 export function siteDefaultConnection(
   entry: SiteDefault,

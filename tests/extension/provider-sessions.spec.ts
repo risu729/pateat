@@ -17,6 +17,16 @@ test("sync after a full profile reopen uses the saved sign-in without a password
       input: beginInput(),
     });
     if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
+    // The native store holds the session tokens beside, never inside, the vault records,
+    // and neither the master password nor vault plaintext.
+    expect(await inspectProviderSessions(first.page)).toMatchObject({
+      version: 2,
+      stores: ["providerSessions", "records"],
+      sessions: [{ state: "active", hasAccessToken: true, hasRefreshToken: true }],
+      recordsHaveNoToken: true,
+      passwordAbsent: true,
+      plaintextAbsent: true,
+    });
     const reopened = await open();
     const page = await reopened.context.newPage();
     await page.goto(`chrome-extension://${reopened.extensionId}/options.html`);

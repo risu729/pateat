@@ -14,7 +14,8 @@ bridge in the production build on every top-level HTTPS page and to sign whereve
 item selection allows on sites that are not excluded, rather than only on sites with a
 synced recipe. Amended on 2026-10-11 by the owner's
 [compatibility before release](../development.md#compatibility-before-release)
-decision: a site default saved with a `connectionId` is no longer read.
+decision: settings holding a site default saved with a `connectionId` are rejected as
+invalid.
 
 Date: 2026-10-10
 
