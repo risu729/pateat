@@ -22,25 +22,24 @@ fails with `VersionError`. The vault record of
 also keeps the binding (user ID and email) and the narrow encrypted account fields
 the mapper needs, because refresh responses omit them.
 
-Before a refresh request, commit a token-free claim by compare-and-swap; only the
-writer whose claim committed sends the request. Keep the previous refresh token only
-in that worker's memory. When the refresh fails with a network error, a timeout, HTTP
-429 or a 5xx status, the provider has not rejected the token, so the claim is swapped
-back to the previous session (same refresh token, new revision) and a later sync sends
-it again. The Bitwarden server reuses refresh tokens (`TokenUsage.ReUse`), so a refresh
-never invalidates the presented token, even if the server processed the lost request.
-Vaultwarden returns a new refresh token on each refresh but keeps the old one valid until
-its own expiry, so a restore is safe there too. Any other failure, or
-a worker restart while the request is in flight, leaves the claim, which then requires
-password sign-in. Once the claim has
-committed, closing the options page does not abort the request or the rotation commit;
-only the transport timeout bounds them. Commit a rotated token before syncing and keep
-the captured token when the response omits it. A session is usable only until 60
-seconds before the earlier of its receipt time plus `expires_in` and the access
-token's `exp` claim. Claim and retain writes compare the session revision and the
-current active vault record revision in one transaction, so a session is never
-pinned to an older cache; rotation commits, restores and deletes compare only the session
-revision.
+Before a refresh request, commit a token-free claim by compare-and-swap; only the writer
+whose claim committed sends the request. Keep the previous refresh token only in that
+worker's memory. When the refresh fails with a network error, a timeout, HTTP 429 or a
+5xx status, the provider has not rejected the token, so the claim is swapped back to the
+previous session (same refresh token, new revision) and a later sync sends it again. The
+Bitwarden server reuses refresh tokens (`TokenUsage.ReUse`), so a refresh never
+invalidates the presented token, even if the server processed the lost request.
+Vaultwarden returns a new refresh token on each refresh but keeps the old one valid
+until its own expiry, so a restore is safe there too. Any other failure, or a worker
+restart while the request is in flight, leaves the claim, which then requires password
+sign-in. Once the claim has committed, closing the options page does not abort the
+request or the rotation commit; only the transport timeout bounds them. Commit a rotated
+token before syncing and keep the captured token when the response omits it. A session
+is usable only until 60 seconds before the earlier of its receipt time plus `expires_in`
+and the access token's `exp` claim. Claim and retain writes compare the session revision
+and the current active vault record revision in one transaction, so a session is never
+pinned to an older cache; rotation commits, restores and deletes compare only the
+session revision.
 
 Local forget, permission loss for that provider, a rejected refresh or access token,
 and a stored context that no longer matches the account clear only the sync session.
