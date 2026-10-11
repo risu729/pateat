@@ -14,7 +14,8 @@ export type ApiEnv = {
 };
 
 const TOKEN_PREFIX = "pateat_device_";
-const TOKEN_PATTERN = /^pateat_device_[A-Za-z0-9_-]{43}$/;
+/** Must equal the shape of `deviceCredentialSchema` in the contracts. */
+export const TOKEN_PATTERN = /^pateat_device_[A-Za-z0-9_-]{43}$/;
 
 /** A 256-bit bearer credential. Callers show it once and persist only its hash. */
 export function createDeviceToken(): string {

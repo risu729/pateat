@@ -8,121 +8,32 @@ import {
   type EnrollmentRedeemResult,
   type LoginRecipe,
 } from "@pateat/contracts";
-import { env, exports } from "cloudflare:workers";
-import { Jwt } from "hono/utils/jwt";
-import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
-import type { JWTPayload } from "hono/utils/jwt/types";
+import { env } from "cloudflare:workers";
 import * as v from "valibot";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { app } from "../src/app";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
+import {
+  claims,
+  deviceApi,
+  forgedAccess,
+  installAccessKeys,
+  ISSUER,
+  jwks,
+  newSubject,
+  ORIGIN,
+  owner,
+  ownerIdFor,
+  rejectedTokens,
+  request,
+  type Owner,
+} from "./access-helpers";
+import { awaitRoomInMinute } from "./limiter";
 
 // Synthetic Access keys and identities only. Every test uses fresh subjects and
 // verifiers so results never depend on rows written by another test.
 
-const ORIGIN = "https://pateat.invalid";
-const TEAM = "pateat-test.cloudflareaccess.com";
-const ISSUER = `https://${TEAM}`;
-const AUDIENCE = "pateat-test-audience";
-const JWKS_URL = `${ISSUER}/cdn-cgi/access/certs`;
-
-type SigningKey = { privateJwk: HonoJsonWebKey; publicJwk: HonoJsonWebKey };
-
-async function createSigningKey(kid: string): Promise<SigningKey> {
-  const pair = (await crypto.subtle.generateKey(
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    true,
-    ["sign", "verify"],
-  )) as CryptoKeyPair;
-  const privateJwk = (await crypto.subtle.exportKey("jwk", pair.privateKey)) as JsonWebKey;
-  const publicJwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey;
-  return {
-    privateJwk: { ...privateJwk, kid, alg: "RS256" },
-    publicJwk: { ...publicJwk, kid, alg: "RS256", use: "sig" },
-  };
-}
-
-let accessKey: SigningKey;
-let impostorKey: SigningKey;
-let jwksAvailable = true;
-const originalFetch = globalThis.fetch;
-
-beforeAll(async () => {
-  accessKey = await createSigningKey("access-test-key");
-  // Same key ID, different key: a forged token must fail the signature check.
-  impostorKey = await createSigningKey("access-test-key");
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const url = input instanceof Request ? input.url : String(input);
-    if (url === JWKS_URL)
-      return jwksAvailable
-        ? Response.json({ keys: [accessKey.publicJwk] })
-        : new Response("unavailable", { status: 503 });
-    return originalFetch(input, init);
-  });
-});
-
-afterAll(() => {
-  vi.restoreAllMocks();
-});
-
-function claims(subject: string, overrides: JWTPayload = {}): JWTPayload {
-  const now = Math.floor(Date.now() / 1000);
-  return {
-    iss: ISSUER,
-    aud: [AUDIENCE],
-    sub: subject,
-    iat: now,
-    nbf: now,
-    exp: now + 600,
-    type: "app",
-    ...overrides,
-  };
-}
-
-function withoutExpiry(payload: JWTPayload): JWTPayload {
-  const copy = { ...payload };
-  delete copy.exp;
-  return copy;
-}
-
-function unsigned(payload: JWTPayload) {
-  const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
-  return `${encode({ alg: "none", kid: "access-test-key", typ: "JWT" })}.${encode(payload)}.`;
-}
-
-function signAccess(payload: JWTPayload, key = accessKey) {
-  return Jwt.sign(payload, key.privateJwk, "RS256");
-}
-
-function newSubject() {
-  return `subject-${crypto.randomUUID()}`;
-}
-
-async function owner(subject = newSubject()) {
-  return { subject, token: await signAccess(claims(subject)) };
-}
-
-type Owner = Awaited<ReturnType<typeof owner>>;
-
-function request(path: string, init: RequestInit & { access?: string | undefined } = {}) {
-  const headers = new Headers(init.headers);
-  if (init.access) headers.set("Cf-Access-Jwt-Assertion", init.access);
-  return exports.default.fetch(`${ORIGIN}${path}`, { ...init, headers });
-}
-
-/**
- * The local limiter counts in wall-clock minutes, so a loop that crosses a minute
- * boundary would start a fresh count; start the loop at least 10 s before one.
- */
-async function awaitRoomInMinute() {
-  const left = 60_000 - (Date.now() % 60_000);
-  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
-}
+installAccessKeys();
 
 function postForm(path: string, access: string | undefined, fields: Record<string, string>) {
   return request(path, {
@@ -176,21 +87,6 @@ async function enroll(by: Owner, label = "Test laptop"): Promise<EnrollmentRedee
   return v.parse(enrollmentRedeemResultSchema, await response.json());
 }
 
-function deviceApi(credential: string, path = "/v1/settings", init: RequestInit = {}) {
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${credential}`);
-  return exports.default.fetch(`${ORIGIN}${path}`, { ...init, headers });
-}
-
-async function ownerIdFor(subject: string) {
-  const row = await env.DB.prepare(
-    "SELECT owner_id FROM owner_identities WHERE issuer = ? AND subject = ?",
-  )
-    .bind(ISSUER, subject)
-    .first<{ owner_id: string }>();
-  return row?.owner_id ?? null;
-}
-
 describe("Access verification", () => {
   it("requires the signed assertion and ignores plain identity headers", async () => {
     const response = await request("/manage", {
@@ -221,46 +117,19 @@ describe("Access verification", () => {
     expect(await response.text()).toContain("Pateat test app");
   });
 
-  it.each([
-    ["a forged signature", async () => signAccess(claims(newSubject()), impostorKey)],
-    [
-      "another issuer",
-      async () => signAccess(claims(newSubject(), { iss: "https://other.cloudflareaccess.com" })),
-    ],
-    ["another audience", async () => signAccess(claims(newSubject(), { aud: ["other-audience"] }))],
-    [
-      "an expired token",
-      async () => signAccess(claims(newSubject(), { exp: Math.floor(Date.now() / 1000) - 1 })),
-    ],
-    ["a token without expiry", async () => signAccess(withoutExpiry(claims(newSubject())))],
-    [
-      "a token issued in the future",
-      async () => signAccess(claims(newSubject(), { iat: Math.floor(Date.now() / 1000) + 600 })),
-    ],
-    [
-      "a service token without a subject",
-      async () => signAccess(claims("", { common_name: "service" })),
-    ],
-    ["a symmetric token", async () => Jwt.sign(claims(newSubject()), "shared-secret", "HS256")],
-    [
-      "a token not yet valid",
-      async () => signAccess(claims(newSubject(), { nbf: Math.floor(Date.now() / 1000) + 600 })),
-    ],
-    ["an unsigned token", async () => unsigned(claims(newSubject()))],
-    ["a malformed token", async () => "not.a.jwt"],
-  ])("rejects %s", async (_, token) => {
+  it.each(rejectedTokens)("rejects %s", async (_, token) => {
     const response = await request("/manage", { access: await token() });
     expect(response.status).toBe(403);
     expect(await response.text()).not.toContain("Pateat test app");
   });
 
   it("fails closed when the signing keys cannot be fetched", async () => {
-    jwksAvailable = false;
+    jwks.available = false;
     try {
       const response = await request("/manage", { access: (await owner()).token });
       expect(response.status).toBe(403);
     } finally {
-      jwksAvailable = true;
+      jwks.available = true;
     }
   });
 
@@ -614,7 +483,7 @@ describe("owner web UI", () => {
   });
 
   it("serves no page or asset without a verified token", async () => {
-    const forged = await signAccess(claims(newSubject()), impostorKey);
+    const forged = await forgedAccess(claims(newSubject()));
     const anonymous = await Promise.all(
       ["GET", "HEAD"].flatMap((method) =>
         ["/manage", "/manage/assets/app.js"].map((path) => request(path, { method })),
@@ -625,7 +494,7 @@ describe("owner web UI", () => {
   });
 
   it("answers API Access failures with error codes", async () => {
-    const forged = await signAccess(claims(newSubject()), impostorKey);
+    const forged = await forgedAccess(claims(newSubject()));
     const rejected = await request("/manage/api/devices", { access: forged });
     expect(rejected.status).toBe(403);
     expect(await rejected.json()).toEqual({ error: "forbidden" });

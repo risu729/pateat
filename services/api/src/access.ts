@@ -1,6 +1,8 @@
+import { extensionIdSchema } from "@pateat/contracts";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { Jwt } from "hono/utils/jwt";
+import * as v from "valibot";
 import type { ApiEnv } from "./auth";
 import { apiError } from "./http";
 import { message } from "./pages";
@@ -79,5 +81,25 @@ export const requireSameOrigin = createMiddleware<ApiEnv>(async (c, next) => {
   if (c.req.method === "GET" || c.req.method === "HEAD") return next();
   if (c.req.header("Origin") !== new URL(c.req.url).origin)
     return apiError(c, 403, { error: "forbidden" });
+  return next();
+});
+
+const pairingExtensionIdsSchema = v.pipe(v.array(extensionIdSchema), v.minLength(1));
+
+/**
+ * Pairing answers only listed extensions (ADR 0020). Pages cannot set `Origin` to a
+ * `chrome-extension://` value, so this also refuses script on the service's own pages.
+ * An empty or malformed list refuses every pairing.
+ */
+export const requirePairingOrigin = createMiddleware<ApiEnv>(async (c, next) => {
+  // Parsed at runtime: a deployment may leave the binding out or mistype it.
+  const configured = v.safeParse(pairingExtensionIdsSchema, c.env.PAIRING_EXTENSION_IDS);
+  if (!configured.success) {
+    console.error("Pairing extension IDs misconfigured");
+    return apiError(c, 503, { error: "pairing_unavailable" });
+  }
+  const origin = c.req.header("Origin");
+  if (!configured.output.some((id) => origin === `chrome-extension://${id}`))
+    return apiError(c, 403, { error: "extension_not_allowed" });
   return next();
 });

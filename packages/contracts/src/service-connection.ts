@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { deviceIdSchema, deviceLabelSchema } from "./enrollment";
+import { deviceIdSchema, deviceLabelSchema } from "./pairing";
 import { normalizeHostname, parseSiteUrl } from "./settings";
 
 // Options page ↔ background contracts for the optional sync service connection.

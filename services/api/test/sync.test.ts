@@ -9,6 +9,7 @@ import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { KEPT_RECIPE_REVISIONS, MAX_ACTIVE_RECIPES } from "../src/limits";
+import { awaitRoomInMinute } from "./limiter";
 
 // Synthetic owners, devices and recipes only. Each test creates its own owner so
 // results never depend on storage shared with another test.
@@ -106,15 +107,6 @@ async function seedActiveRecipes(ownerId: string, count: number) {
   )
     .bind(count, ownerId, Date.now())
     .run();
-}
-
-/**
- * The local limiter counts in wall-clock minutes, so a loop that crosses a minute
- * boundary would start a fresh count; start the loop at least 10 s before one.
- */
-async function awaitRoomInMinute() {
-  const left = 60_000 - (Date.now() % 60_000);
-  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
 }
 
 async function revisions(ownerId: string, recipeId: string) {

@@ -5,7 +5,8 @@
   "license": "GPL-3.0-only",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./extension-id": "./src/extension-id.ts"
   },
   "dependencies": {
     "valibot": "1.5.0",
