@@ -71,12 +71,16 @@ test("production diagnostics show the build, checks and a value-free bug report"
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Save file" }).click();
     expect((await download).suggestedFilename()).toMatch(/^pateat-logs-\d{8}-\d{4}\.jsonl$/u);
-    // The same text, whole, goes to the clipboard for pasting into a chat. Chrome grants no
-    // clipboard permission to an extension origin here, so the page's write is recorded.
+    // The same text, whole, goes to the clipboard. The clipboard cannot be read back from an
+    // extension origin here, so the page's write is recorded on its way to the real one.
     await page.evaluate(() => {
       const copied: string[] = [];
+      const write = navigator.clipboard.writeText.bind(navigator.clipboard);
       Object.assign(window, { copied });
-      navigator.clipboard.writeText = async (text) => void copied.push(text);
+      navigator.clipboard.writeText = (text) => {
+        copied.push(text);
+        return write(text);
+      };
     });
     await page.getByRole("button", { name: "Copy all" }).click();
     await expect(page.locator("#logs-status")).toHaveText(
@@ -85,6 +89,13 @@ test("production diagnostics show the build, checks and a value-free bug report"
     expect(await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).toEqual([
       saved,
     ]);
+    await page.evaluate(() => {
+      navigator.clipboard.writeText = async () => {
+        throw new DOMException("Document is not focused.", "NotAllowedError");
+      };
+    });
+    await page.getByRole("button", { name: "Copy all" }).click();
+    await expect(page.locator("#logs-status")).toHaveText("Copy failed. Use Save file instead.");
     await page.getByRole("button", { name: "Clear logs" }).click();
     await page.getByRole("button", { name: "Delete all log entries" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Logs cleared.");

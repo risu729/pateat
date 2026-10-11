@@ -255,6 +255,22 @@ function Logs({
       setMessage("Unable to read the logs.");
     }
   }
+  async function copy(text: string) {
+    const request = latest.current;
+    let copied = true;
+    try {
+      await client.copy(text);
+    } catch {
+      copied = false;
+    }
+    // A preview closed or cleared meanwhile keeps its own message.
+    if (request !== latest.current) return;
+    setMessage(
+      copied
+        ? `Copied ${plural(exportedEntries(text), "entry", "entries")}.`
+        : "Copy failed. Use Save file instead.",
+    );
+  }
   return (
     <section aria-labelledby="logs-heading" className="panel">
       <h2 id="logs-heading">Logs</h2>
@@ -362,15 +378,7 @@ function Logs({
               type="button"
               variant="outline"
               disabled={pending !== undefined}
-              onClick={() =>
-                void client.copy(preview.text).then(
-                  () =>
-                    setMessage(
-                      `Copied ${plural(exportedEntries(preview.text), "entry", "entries")}.`,
-                    ),
-                  () => setMessage("Copy failed. Use Save file instead."),
-                )
-              }
+              onClick={() => void copy(preview.text)}
             >
               Copy all
             </Button>
