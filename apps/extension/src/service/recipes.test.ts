@@ -167,6 +167,21 @@ describe("recipe sync", () => {
     expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { syncedAt: 5_000 });
   });
 
+  it("counts no change for a recipe added and revoked in one page or an uncached revoke", async () => {
+    const { sync, report } = setup({
+      pages: [
+        page([active(recipe("bank-otp", "/otp")), revoked("bank-otp", 2), revoked("x", 3)], 3),
+      ],
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(report).toHaveBeenCalledExactlyOnceWith("synced", {
+      scope: "full",
+      added: 0,
+      updated: 0,
+      removed: 0,
+    });
+  });
+
   it("continues from the stored cursor", async () => {
     const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 7, recipes: [] };
     const { sync, transport } = setup({ stored, pages: [page([], 7)] });

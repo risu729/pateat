@@ -199,7 +199,7 @@ export function createDiagnosticsLog(options: {
     },
     /**
      * Settings were synced from the service or saved on the settings page: running logins
-     * and passkey requests stop. The entry carries the settings revision now in effect.
+     * and passkey requests stop. The entry carries the settings revision read when it is written.
      */
     settingsChanged(source: "synced" | "saved") {
       void options

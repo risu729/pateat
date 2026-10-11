@@ -3321,6 +3321,51 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(executed()).toHaveLength(1);
     });
 
+    it("logs a handler entered mid-route only for its own steps", async () => {
+      vi.useFakeTimers();
+      const midway = parseLoginRecipe({
+        ...unlearned,
+        steps: [
+          { kind: "click", path: "/signin", target: target("continue"), purpose: "advance" },
+          {
+            kind: "fill",
+            path: "/next",
+            fields: [{ slot: "password", target: target("password") }],
+          },
+          { kind: "click", path: "/next", target: target("login"), purpose: "submit" },
+        ],
+        handlers: [{ kind: "passkey", path: "/verify", target: securityKey }],
+        maxSubmissions: 2,
+      });
+      fake.state.present = new Set(["continue"]);
+      onClick({
+        continue: { path: "/verify", present: ["Use security key"] },
+        "Use security key": { path: "/next", present: ["password", "login"] },
+        login: toHome,
+      });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const h = harness({}, { passkeys: withPasskey, generation: service, report });
+      h.recipes.recipe.mockResolvedValue(midway);
+      h.recipes.firstSteps.mockResolvedValue([midway.steps[0]!]);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(status()![0]).toMatchObject({ handlers: [{ index: 0, start: 1 }] });
+      // The route's steps after the handler's click belong to no handler.
+      expect(
+        report.mock.calls.flatMap(([value]) =>
+          value.type === "attempt" && value.state === "executing"
+            ? [[value.stepIndex, value.operation, value.handler]]
+            : [],
+        ),
+      ).toEqual([
+        [0, "click", undefined],
+        [1, "click", 0],
+        [2, "fill", undefined],
+        [3, "click", undefined],
+      ]);
+    });
+
     it("sends a page without the marker even when the recipe has a completion", async () => {
       vi.useFakeTimers();
       const learned = parseLoginRecipe({ ...unlearned, completion: home });

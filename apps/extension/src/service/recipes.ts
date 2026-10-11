@@ -219,14 +219,18 @@ export function createRecipeSync(options: {
       if (result.kind === "failed") return result.error;
       const { changes, cursor, complete } = result.page;
       if (!complete && cursor === cache.cursor) return "unexpected-response";
-      const recipes = new Map(cache.recipes.map((recipe) => [recipe.id, recipe]));
-      const counts = { added: 0, updated: 0, removed: 0 };
+      const before = new Map(cache.recipes.map((recipe) => [recipe.id, recipe]));
+      const recipes = new Map(before);
       for (const change of changes) {
-        const held = recipes.has(change.recipeId);
-        if (change.state === "active") {
-          recipes.set(change.recipeId, change.recipe);
-          counts[held ? "updated" : "added"] += 1;
-        } else if (recipes.delete(change.recipeId)) counts.removed += 1;
+        if (change.state === "active") recipes.set(change.recipeId, change.recipe);
+        else recipes.delete(change.recipeId);
+      }
+      // Counted against the page's starting cache, so a recipe changed twice counts once.
+      const counts = { added: 0, updated: 0, removed: 0 };
+      for (const id of new Set(changes.map((change) => change.recipeId))) {
+        const [held, kept] = [before.has(id), recipes.has(id)];
+        if (kept) counts[held ? "updated" : "added"] += 1;
+        else if (held) counts.removed += 1;
       }
       const next: RecipeCache = { ...cache, cursor, recipes: [...recipes.values()] };
       if (encoder.encode(JSON.stringify(next)).byteLength > MAX_RECIPE_CACHE_BYTES) {

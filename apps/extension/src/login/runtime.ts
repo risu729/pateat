@@ -437,9 +437,16 @@ export function createLoginRuntime(
       // A report must never change the answer.
     }
   };
-  const reportAttempt = (metadata: LoginAttemptMetadata, policy?: PolicyChange) => {
-    // Entered handlers are kept in order, so the last one starting at or before the step owns it.
-    const handler = metadata.handlers.findLast((entry) => entry.start <= metadata.stepIndex);
+  const reportAttempt = (
+    metadata: LoginAttemptMetadata,
+    recipe: LoginRecipe | undefined,
+    policy?: PolicyChange,
+  ) => {
+    // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
+    const handler =
+      recipe && metadata.handlers.length
+        ? attemptPlan(recipe, metadata)?.[metadata.stepIndex]?.handler
+        : undefined;
     report({
       type: "attempt",
       tabId: metadata.document.tabId,
@@ -450,7 +457,7 @@ export function createLoginRuntime(
       stepCount: metadata.stepCount,
       ...(metadata.operationKind ? { operation: metadata.operationKind } : {}),
       ...(metadata.operationEffect ? { effect: metadata.operationEffect } : {}),
-      ...(handler ? { handler: handler.index } : {}),
+      ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
     });
@@ -814,7 +821,7 @@ export function createLoginRuntime(
     if (!current(run)) return;
     const previous = run.metadata.state;
     run.metadata = transitionLoginAttempt(run.metadata, event);
-    if (run.metadata.state !== previous) reportAttempt(run.metadata, policy);
+    if (run.metadata.state !== previous) reportAttempt(run.metadata, run.recipe, policy);
     if (
       import.meta.env.MODE === "probe" &&
       armed === "intent-write-failure" &&
@@ -1546,7 +1553,10 @@ export function createLoginRuntime(
       recipe: added,
     } = await generation.judge(recipe.id, recipe.revision, metadata.route, observation);
     if (!current(run)) {
-      reportJudge(verdict, reason ? { reason } : {});
+      reportJudge(verdict, {
+        ...(reason ? { reason } : {}),
+        ...(added ? { takenOver: false } : {}),
+      });
       return true;
     }
     // A temporary refusal, such as a busy service, gives the page back.
@@ -2242,7 +2252,7 @@ export function createLoginRuntime(
         document,
       });
       if (run) run.metadata = ended;
-      reportAttempt(ended);
+      reportAttempt(ended, run?.recipe);
       try {
         await keep(ended);
       } catch {
@@ -2507,7 +2517,7 @@ export function createLoginRuntime(
         : {}),
     };
     attempts.set(document.tabId, run);
-    reportAttempt(metadata, resumedPolicy);
+    reportAttempt(metadata, recipe, resumedPolicy);
     clearChoice(document.tabId);
     const pick = picked.get(document.tabId);
     if (
