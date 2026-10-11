@@ -354,13 +354,18 @@ Chrome yet.
   `vault-unavailable`; the settings page refuses to save a default it could not use. A
   default saved earlier with a `connectionId` is still read and used as before and is
   never rewritten.
-- The settings page lists, as the default account for an origin, only the items the
-  saved settings allow that could serve it: a provider URI match for `origin/`, a static
+- The settings page lists, as the default account for an origin, only the items its
+  unsaved draft allows that could serve it: a provider URI match for `origin/`, a static
   `allowedOrigins` entry, or a stored passkey whose RP ID is the origin's host or a
-  parent domain. The background answers `settings.site-accounts` with item IDs and the
-  reasons only, and says when a vault could not be searched; a deeper-path Exact or
-  StartsWith rule is not evaluated there. A saved default for a live vault item is not
-  shown as an origin mismatch, since its URI rules are checked on each page.
+  registrable parent domain. The draft only narrows what is searched; it grants nothing.
+  The background answers `settings.site-accounts` with item IDs, the reasons and, for
+  those matched items only, the login username (owner decision, 2026-10-11: usernames
+  are shown only while matching, never kept in the catalog or sent to the server). It
+  says when a vault or an item could not be searched. Items whose names are still equal
+  get an item ID prefix. A deeper-path Exact or StartsWith rule is not evaluated there,
+  so the page can also list every item, marked as not matching. A saved default for a
+  live vault item is not shown as an origin mismatch, since its URI rules are checked on
+  each page.
 - A saved default's own item is matched the same way. A match satisfies the item origin
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is

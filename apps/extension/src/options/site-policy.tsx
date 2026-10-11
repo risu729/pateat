@@ -9,7 +9,7 @@ import {
 } from "@pateat/contracts";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Button } from "./button";
 
@@ -57,20 +57,26 @@ type SiteAccountOption = {
   uri: boolean;
   passkey: boolean;
   value: string;
+  /** The item name, then the login username when it matched, then an ID prefix if still ambiguous. */
+  label: string;
 };
 
-/** Matched items that are still in the catalog, grouped in catalog order. */
-function siteAccountOptions(
+/**
+ * Matched items that are still in the catalog, grouped in catalog order. With `all`, every
+ * item is listed, for a URI rule on a deeper path that `origin/` does not match.
+ */
+export function siteAccountOptions(
   catalog: VaultCatalog,
   found: Extract<SiteAccountsResponse, { ok: true }> | undefined,
+  all: boolean,
 ): SiteAccountOption[] {
   if (!found) return [];
-  return catalog.connections.flatMap((connection) =>
+  const options = catalog.connections.flatMap((connection) =>
     connection.items.flatMap((item) => {
       const match = found.accounts.find(
         (entry) => entry.connectionId === connection.id && entry.itemId === item.id,
       );
-      return match
+      return match || all
         ? [
             {
               connectionId: connection.id,
@@ -79,20 +85,34 @@ function siteAccountOptions(
               userId: connection.userId,
               itemId: item.id,
               itemName: item.label,
-              uri: match.uri,
-              passkey: match.passkey,
+              uri: match?.uri ?? false,
+              passkey: match?.passkey ?? false,
               value: JSON.stringify([connection.id, item.id]),
+              label: match?.username ? `${item.label} · ${match.username}` : item.label,
             },
           ]
         : [];
     }),
   );
+  const seen = new Map<string, number>();
+  for (const option of options) {
+    const key = JSON.stringify([option.connectionId, option.label]);
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+  return options.map((option) =>
+    (seen.get(JSON.stringify([option.connectionId, option.label])) ?? 0) > 1
+      ? { ...option, label: `${option.label} · ID ${option.itemId.slice(0, 8)}` }
+      : option,
+  );
 }
 
 function matchedBy(option: SiteAccountOption): string {
   if (option.uri && option.passkey) return "URI and passkey";
-  return option.uri ? "URI" : "passkey";
+  if (option.uri) return "URI";
+  return option.passkey ? "passkey" : "no match for this origin";
 }
+
+const SITE_ACCOUNTS_DELAY_MS = 300;
 
 export function SitePolicy({
   draft,
@@ -104,12 +124,13 @@ export function SitePolicy({
   catalog: VaultCatalog;
   edit: (update: (value: LocalSettings) => void) => boolean;
   /** Asks the background which saved-settings items match an origin. */
-  findSiteAccounts: (origin: string) => Promise<SiteAccountsResponse>;
+  findSiteAccounts: (origin: string, settings: LocalSettings) => Promise<SiteAccountsResponse>;
 }) {
   const hostnameInput = useRef<HTMLInputElement>(null);
   const originInput = useRef<HTMLInputElement>(null);
   const [siteError, setSiteError] = useState("");
   const [defaultError, setDefaultError] = useState("");
+  const [showAllAccounts, setShowAllAccounts] = useState(false);
   const siteForm = useForm({
     defaultValues: { hostname: "", includeSubdomains: false },
     onSubmit: ({ value }) => {
@@ -142,7 +163,11 @@ export function SitePolicy({
         originInput.current?.focus();
         return;
       }
-      // Only an item that matches the origin entered can be chosen.
+      if (accountsPending) {
+        setDefaultError("Wait until the matching accounts are listed.");
+        return;
+      }
+      // Only an item listed for the origin entered can be chosen.
       const selected =
         found?.origin === validated.output.trim()
           ? (accountOptions.find((entry) => entry.value === value.account) ?? accountOptions[0])
@@ -181,19 +206,30 @@ export function SitePolicy({
 
   const enteredOrigin = useStore(defaultForm.store, (state) => state.values.origin.trim());
   const accountOrigin = v.is(originSchema, enteredOrigin) ? enteredOrigin : undefined;
+  // Each search queries every live vault, so wait until typing pauses.
+  const [queriedOrigin, setQueriedOrigin] = useState<string>();
+  useEffect(() => {
+    const timer = setTimeout(() => setQueriedOrigin(accountOrigin), SITE_ACCOUNTS_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [accountOrigin]);
+  // The draft's connections, items and exclusions decide what is searched.
+  const scope = JSON.stringify([draft.connections, draft.excludedSites]);
   const accounts = useQuery({
-    queryKey: ["settings", "site-accounts", accountOrigin],
-    queryFn: () => findSiteAccounts(accountOrigin!),
-    enabled: accountOrigin !== undefined,
-    // Vault syncs and saved settings change the answer; ask again for each origin entered.
+    queryKey: ["settings", "site-accounts", queriedOrigin, scope],
+    queryFn: () => findSiteAccounts(queriedOrigin!, draft),
+    enabled: queriedOrigin !== undefined && queriedOrigin === accountOrigin,
+    // Vault syncs change the answer; ask again for each origin entered.
     staleTime: 0,
     gcTime: 0,
   });
+  const accountsPending =
+    accountOrigin !== undefined && (queriedOrigin !== accountOrigin || accounts.isPending);
   const found =
-    accountOrigin !== undefined && accounts.data?.ok && accounts.data.origin === accountOrigin
+    !accountsPending && accounts.data?.ok && accounts.data.origin === accountOrigin
       ? accounts.data
       : undefined;
-  const accountOptions = siteAccountOptions(catalog, found);
+  const accountOptions = siteAccountOptions(catalog, found, showAllAccounts);
+  const matchedCount = accountOptions.filter((entry) => entry.uri || entry.passkey).length;
   const selectedAccount = useStore(defaultForm.store, (state) => state.values.account);
   const shownAccount = accountOptions.some((entry) => entry.value === selectedAccount)
     ? selectedAccount
@@ -201,19 +237,16 @@ export function SitePolicy({
   let accountNote: string;
   if (accountOrigin === undefined)
     accountNote = "Enter an origin to list the accounts that match it.";
-  else if (accounts.isPending) accountNote = "Finding the vault items that match this origin…";
+  else if (accountsPending) accountNote = "Finding the vault items that match this origin…";
   else if (accounts.isError || (accounts.data && !accounts.data.ok))
     accountNote =
       accounts.data && !accounts.data.ok && accounts.data.reason === "site-excluded"
         ? "This site is excluded."
         : "The matching accounts could not be listed.";
-  else if (!accountOptions.length)
+  else if (!matchedCount)
     accountNote =
       "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.";
-  else
-    accountNote = `${accountOptions.length} matching ${
-      accountOptions.length === 1 ? "item" : "items"
-    }.`;
+  else accountNote = `${matchedCount} matching ${matchedCount === 1 ? "item" : "items"}.`;
   if (found && !found.complete)
     accountNote += " Some vaults could not be searched because they are locked or unavailable.";
 
@@ -330,7 +363,7 @@ export function SitePolicy({
             const status = resolved.ok
               ? "Available under this draft policy"
               : liveItem && resolved.reason === "item-origin-mismatch"
-                ? "Available under this draft policy; the vault's URI rules or passkey are checked on each page"
+                ? "Allowed by this draft policy; whether it matches the page is checked against the vault's URI rules or passkeys on each login"
                 : `Unavailable under this draft policy: ${unavailableReason(resolved.reason)}`;
             return (
               <li key={selected.origin}>
@@ -415,7 +448,7 @@ export function SitePolicy({
                       <optgroup key={connection.id} label={connection.label}>
                         {options.map((option) => (
                           <option key={option.itemId} value={option.value}>
-                            {option.itemName} ({matchedBy(option)})
+                            {option.label} ({matchedBy(option)})
                           </option>
                         ))}
                       </optgroup>
@@ -425,6 +458,15 @@ export function SitePolicy({
                 <p id="default-account-note" className="note" aria-live="polite">
                   {accountNote}
                 </p>
+                <label className="checkbox-row">
+                  <input
+                    id="default-account-all"
+                    type="checkbox"
+                    checked={showAllAccounts}
+                    onChange={(event) => setShowAllAccounts(event.target.checked)}
+                  />
+                  Also list items that do not match this origin (for a URI rule on a longer path)
+                </label>
               </>
             )}
           </defaultForm.Field>

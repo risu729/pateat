@@ -19,7 +19,7 @@ import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
-import { createVaultPasskeySource } from "../src/passkeys/vault";
+import { createVaultPasskeyFinder, createVaultPasskeySource } from "../src/passkeys/vault";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
@@ -100,9 +100,10 @@ export default defineBackground(() => {
       }),
   };
   const vaultUris = createVaultUriMatcher(connections);
+  const vaultFields = createVaultFieldSource(connections);
   const login = createLoginRuntime(loginSettings, {
     fields: combineFieldSources({
-      bitwarden: createVaultFieldSource(connections),
+      bitwarden: vaultFields,
       ...(catalog ? { dummy: dummyFieldSource } : {}),
     }),
     sites: createLoginSites(settings),
@@ -114,9 +115,8 @@ export default defineBackground(() => {
   const siteAccounts = createSiteAccountsHandler({
     settings,
     matchUris: vaultUris,
-    // The vault source never aborts a query; host cancellation would retire its session.
-    findPasskeys: (origin, rpId) =>
-      vaultPasskeys.candidates(origin, rpId, new AbortController().signal),
+    findPasskeys: createVaultPasskeyFinder(connections),
+    readField: vaultFields,
   });
   const passkeyProbe =
     import.meta.env.MODE === "probe" ? createProbePasskeySource(vaultPasskeys) : undefined;

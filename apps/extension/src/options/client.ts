@@ -2,6 +2,7 @@ import {
   parseRuntimeStatus,
   parseSettingsResponse,
   parseSiteAccountsResponse,
+  type LocalSettings,
   type RuntimeStatus,
   type SettingsRequest,
   type SettingsResponse,
@@ -18,11 +19,14 @@ export interface SettingsClient {
     request: Extract<SettingsRequest, { type: "settings.save" }>,
   ): Promise<SettingsResponse>;
   getStatus(): Promise<RuntimeStatus>;
-  /** Items the saved settings allow as the default account for one origin; IDs only. */
-  findSiteAccounts(origin: string): Promise<SiteAccountsResponse>;
+  /** Items the draft allows as the default account for one origin, with their usernames. */
+  findSiteAccounts(origin: string, settings: LocalSettings): Promise<SiteAccountsResponse>;
 }
 
-/** Only metadata contracts may cross this UI boundary. Never cache vault field values. */
+/**
+ * Only metadata contracts may cross this UI boundary, plus the login usernames of the items
+ * that match one origin in `findSiteAccounts`. Never cache or persist vault field values.
+ */
 export function createSettingsClient(send: (message: unknown) => Promise<unknown>): SettingsClient {
   return {
     getSettings: async () =>
@@ -30,8 +34,10 @@ export function createSettingsClient(send: (message: unknown) => Promise<unknown
     saveSettings: async (request) => parseSettingsResponse(await send(request)),
     getStatus: async () =>
       parseRuntimeStatus(await send({ version: 1, type: "runtime.status.get" })),
-    findSiteAccounts: async (origin) =>
-      parseSiteAccountsResponse(await send({ version: 1, type: "settings.site-accounts", origin })),
+    findSiteAccounts: async (origin, settings) =>
+      parseSiteAccountsResponse(
+        await send({ version: 1, type: "settings.site-accounts", origin, settings }),
+      ),
   };
 }
 

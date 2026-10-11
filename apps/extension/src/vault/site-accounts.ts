@@ -2,49 +2,53 @@ import {
   getItemEligibility,
   isSiteExcluded,
   siteAccountsRequestSchema,
+  type LocalSettings,
   type SettingsRequest,
   type SettingsResponse,
   type SiteAccountsResponse,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import type { LoginFieldSource } from "../login/vault";
+import { resolveRpId } from "../passkeys/rp-id";
+import { findVaultPasskeys, type PasskeyFinder } from "../passkeys/vault";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "./site-candidates";
 
 type Settings = Extract<SettingsResponse, { ok: true }>;
-/** Passkeys stored for one RP ID, as the passkey runtime finds them for a page origin. */
-export type SitePasskeyFinder = (
-  origin: string,
-  rpId: string,
-) => Promise<
-  { candidates: readonly { connectionId: string; itemId: string }[]; complete: boolean } | undefined
->;
 
-/** RP IDs a page on this host may use: the host itself and each parent domain. */
-export function rpIdsFor(hostname: string): string[] {
-  if (/^[\d.]+$/.test(hostname) || hostname.startsWith("[")) return [hostname];
-  const labels = hostname.split(".");
-  return labels.slice(0, -1).map((_label, index) => labels.slice(index).join("."));
+/** RP IDs a page at this origin may use: its host and each registrable parent domain. */
+export function rpIdsFor(origin: string): string[] {
+  const host = resolveRpId(origin);
+  if (!host.ok) return [];
+  const labels = host.rpId.split(".");
+  return labels
+    .map((_label, index) => labels.slice(index).join("."))
+    .filter((rpId) => resolveRpId(origin, rpId).ok);
 }
 
 /**
- * Which items could be the saved default account for an origin, under the saved settings.
- * The login executor accepts a default only for an item whose provider URI rules match the
+ * Which items could be the default account for an origin under the given settings. The
+ * login executor accepts a default only for an item whose provider URI rules match the
  * page (or whose static `allowedOrigins` include it), and a passkey request prefers it only
- * when it holds a passkey for the request's RP ID, so no other item is offered. Matching
- * uses `origin/`; rules for a deeper path are not evaluated here.
+ * when it holds a passkey for the request's RP ID, so only those items are listed. URI
+ * rules are matched for `origin/`; a rule for a deeper path is not evaluated here.
  */
 export async function findSiteAccounts(input: {
   saved: Settings;
+  /** The settings page's draft; it only narrows which connections and items are searched. */
+  settings: LocalSettings;
   origin: string;
   matchUris: LiveUriMatcher;
-  findPasskeys: SitePasskeyFinder;
+  findPasskeys: PasskeyFinder;
+  /** Resolves a matched live item's field under the saved settings; never the demo vaults. */
+  readField?: LoginFieldSource;
 }): Promise<SiteAccountsResponse> {
-  const { settings } = input.saved.snapshot;
+  const { settings } = input;
   const { catalog } = input.saved;
   if (isSiteExcluded(settings, input.origin))
     return { version: 1, ok: false, reason: "site-excluded" };
   const accounts = new Map<
     string,
-    { connectionId: string; itemId: string; uri: boolean; passkey: boolean }
+    { connectionId: string; itemId: string; uri: boolean; passkey: boolean; username?: string }
   >();
   const add = (connectionId: string, itemId: string, via: "uri" | "passkey") => {
     const key = JSON.stringify([connectionId, itemId]);
@@ -65,29 +69,38 @@ export async function findSiteAccounts(input: {
         add(connection.id, item.id, "uri");
   }
 
-  const live = await findLiveSiteCandidates({
+  // Bundled demo connections hold static metadata only; only live vaults are queried.
+  const live = { connections: catalog.connections.filter((entry) => entry.provider !== "dummy") };
+  const uris = await findLiveSiteCandidates({
     settings,
-    catalog,
+    catalog: live,
     url: `${input.origin}/`,
     match: input.matchUris,
   });
-  if (!live.ok)
+  if (!uris.ok)
     return {
       version: 1,
       ok: false,
-      reason: live.reason === "site-excluded" ? "site-excluded" : "invalid-request",
+      reason: uris.reason === "site-excluded" ? "site-excluded" : "invalid-request",
     };
-  for (const entry of live.candidates) add(entry.connectionId, entry.itemId, "uri");
-  // Bundled demo connections hold static metadata only; they never answer URI queries.
-  const provider = (connectionId: string) =>
-    catalog.connections.find((entry) => entry.id === connectionId)?.provider;
-  if (live.unavailableConnections.some((entry) => provider(entry.connectionId) === "bitwarden"))
-    complete = false;
+  for (const entry of uris.candidates) add(entry.connectionId, entry.itemId, "uri");
+  // An item whose rules could not be evaluated may still match; never report "no match".
+  if (uris.unavailableConnections.length || uris.incompleteItems.length) complete = false;
 
-  for (const rpId of rpIdsFor(new URL(input.origin).hostname)) {
+  const view: Settings = {
+    ...input.saved,
+    snapshot: { ...input.saved.snapshot, settings },
+    catalog: live,
+  };
+  for (const rpId of rpIdsFor(input.origin)) {
     // Sequential: each query shares the bounded native host.
     // eslint-disable-next-line no-await-in-loop
-    const found = await input.findPasskeys(input.origin, rpId).catch(() => undefined);
+    const found = await findVaultPasskeys({
+      saved: view,
+      origin: input.origin,
+      rpId,
+      find: input.findPasskeys,
+    }).catch(() => undefined);
     if (!found) {
       complete = false;
       continue;
@@ -95,6 +108,25 @@ export async function findSiteAccounts(input: {
     if (!found.complete) complete = false;
     for (const entry of found.candidates) add(entry.connectionId, entry.itemId, "passkey");
   }
+  // Only matched items, so same-named items can be told apart; no other value is read.
+  if (input.readField)
+    for (const account of accounts.values()) {
+      const connection = live.connections.find((entry) => entry.id === account.connectionId);
+      if (!connection) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const username = await input
+        .readField({
+          account: {
+            origin: input.origin,
+            connectionId: account.connectionId,
+            itemId: account.itemId,
+          },
+          connection,
+          fieldId: "login.username",
+        })
+        .catch(() => undefined);
+      if (username) account.username = username.slice(0, 1024);
+    }
   return { version: 1, ok: true, origin: input.origin, accounts: [...accounts.values()], complete };
 }
 
@@ -102,7 +134,8 @@ export async function findSiteAccounts(input: {
 export function createSiteAccountsHandler(options: {
   settings: { handle(request: SettingsRequest): Promise<SettingsResponse> };
   matchUris: LiveUriMatcher;
-  findPasskeys: SitePasskeyFinder;
+  findPasskeys: PasskeyFinder;
+  readField?: LoginFieldSource;
 }) {
   return async (message: unknown): Promise<SiteAccountsResponse> => {
     const request = v.safeParse(siteAccountsRequestSchema, message);
@@ -111,9 +144,11 @@ export function createSiteAccountsHandler(options: {
     if (!saved.ok) return { version: 1, ok: false, reason: "unavailable" };
     return findSiteAccounts({
       saved,
+      settings: request.output.settings,
       origin: request.output.origin,
       matchUris: options.matchUris,
       findPasskeys: options.findPasskeys,
+      ...(options.readField ? { readField: options.readField } : {}),
     });
   };
 }

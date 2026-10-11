@@ -108,7 +108,10 @@ the metadata query cache. Closing that Port cancels its flow and withholds late
 results. Every setup failure crosses that Port as an error code only; provider
 HTTP statuses and other failure details stay in the background. Only
 value-free connection, group, item and field metadata returns to
-the settings catalog; vault field resolution remains an internal background API.
+the settings catalog; vault field resolution remains an internal background API. The
+one exception is the default account picker: for the items that match the entered
+origin, the background returns each item's login username so same-named items can be
+told apart. It is not cached, persisted or synced.
 Password requests accept explicit manual authenticator/email codes and new-device
 OTP values. Return bounded challenge categories and provider IDs, never raw
 challenge parameters, server descriptions or URLs. Code delivery and interactive

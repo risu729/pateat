@@ -268,6 +268,11 @@ test("keyboard add forms validate locally and recover input focus after add and 
   await control("default-origin").fill("https://none.example");
   await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
   await expect.element(control("default-account")).toBeDisabled();
+  // A rule on a longer path does not match the origin, so every item can still be listed.
+  await control("default-account-all").click();
+  await expect.element(control("default-account")).toBeEnabled();
+  await expect.element(control("default-account")).toMatchTextContent("no match for this origin");
+  await control("default-account-all").click();
   await control("default-origin").fill("https://bank.example");
   await control("default-account").selectOptions(JSON.stringify(["demo-personal", "primary"]));
   await control("default-origin").fill("https://bank.example/path");

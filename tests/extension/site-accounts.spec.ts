@@ -55,12 +55,15 @@ for (const [variant, matched] of [
 
       await options.locator("#default-origin").fill(site);
       await expect(options.locator("#default-account-note")).toContainText("1 matching item");
-      expect(await accountOptions(options)).toEqual([[value, expect.stringContaining(matched)]]);
+      // The matched item shows its login username, decrypted only for this answer.
+      expect(await accountOptions(options)).toEqual([
+        [value, `My test login · test_username (${matched})`],
+      ]);
       await options.locator("#add-default").click();
       await expect(options.locator("#site-defaults")).toContainText(site);
       // The saved line no longer reports a live item as an origin mismatch.
       await expect(options.locator("#site-defaults")).toContainText(
-        "the vault's URI rules or passkey are checked on each page",
+        "checked against the vault's URI rules or passkeys on each login",
       );
     });
   });
