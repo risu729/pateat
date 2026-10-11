@@ -462,7 +462,7 @@ describe("custom-field comparison with the replaced snapshot", () => {
       const next = await h.manager.accept(compare());
       expect(next.ok && next.data.sameCustomFields).toEqual([]);
       expect(h.host.customFieldDigests).not.toHaveBeenCalled();
-      // Only once: the sync after that compares again.
+      // Comparing resumes once a skipping sync has committed.
       h.host.customFieldDigests.mockImplementation(async (_session, ids) => ({
         ok: true,
         data: { digests: Object.fromEntries(ids.map((id) => [id, "A".repeat(43)])) },
