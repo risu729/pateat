@@ -187,17 +187,19 @@ test("a recipe and binding synced from the service log in with the live vault an
             attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 2 }],
           });
 
-        // The single URI match is saved as this site's account and uploaded at once.
+        // The single URI match is saved as this site's account, with the item's name for
+        // display, and uploaded at once.
+        const savedDefault = { origin: site, ...account, itemName: item.label };
         await expect
           .poll(
             async () =>
               ((await (await service.request("/v1/settings")).json()) as { settings: unknown })
                 .settings,
           )
-          .toMatchObject({ siteDefaults: [{ origin: site, ...account }], bindings: [binding] });
+          .toMatchObject({ siteDefaults: [savedDefault], bindings: [binding] });
         await expect
           .poll(async () => (await settingsRequest(options)).snapshot.settings.siteDefaults)
-          .toEqual([{ origin: site, ...account }]);
+          .toEqual([savedDefault]);
 
         // After a full restart the cached recipe, binding and saved account still apply,
         // with the service gone.
