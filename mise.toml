@@ -139,6 +139,10 @@ run = "node node_modules/vitest/vitest.mjs run --config tests/options/vitest.con
 [tasks."typecheck:options"]
 run = "node node_modules/typescript/bin/tsc --noEmit -p tests/options/tsconfig.json"
 
+[tasks."render:icons"]
+description = "Render the extension icon SVG sources into the committed PNG sizes."
+run = "node scripts/render-icons.mjs"
+
 [tasks."check:runtime"]
 description = "Run implementation checks without recursing into hk."
 run = ["mise run typecheck:extension", "mise run typecheck:browser", "mise run typecheck:options", "mise run typecheck:bitwarden", "mise run typecheck:inference", "mise run test:contracts", "mise run test:bitwarden", "mise run test:inference", "mise run test:crypto-host", "mise run test:vault", "mise run test:connections", "mise run test:login", "mise run test:service", "mise run test:passkeys", "mise run test:tools", "mise run check:server-migrations", "mise run test:server", "mise run build:server", "mise run typecheck:server", "mise run check:server-output", "mise run check:server-artifact", "mise run test:options", "mise run test:browser"]
