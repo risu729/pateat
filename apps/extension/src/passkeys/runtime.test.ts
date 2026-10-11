@@ -496,8 +496,11 @@ describe("passkey chooser window", () => {
     // Only the runtime's timers are fake; hashing and polling run on real time.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const tick = () => new Promise((resolve) => setImmediate(resolve));
+    // Polls on the real clock, which the fake timers leave alone, so a slow runner's hashing
+    // gets as long as it needs instead of a fixed number of turns.
     const until = async (condition: () => boolean) => {
-      for (let step = 0; step < 1000 && !condition(); step++)
+      const deadline = performance.now() + 10_000;
+      while (!condition() && performance.now() < deadline)
         // eslint-disable-next-line no-await-in-loop
         await tick();
       expect(condition()).toBe(true);
