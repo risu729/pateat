@@ -66,6 +66,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0013: Service-held recipes, settings and account bindings](adr/0013-service-held-recipes-and-settings.md)
 - [0014: Claude Opus 5.5 for recipe generation](adr/0014-claude-generation-provider.md)
 - [0015: Per-owner Claude credentials through Workload Identity Federation](adr/0015-per-owner-claude-credentials.md)
+- [0016: Automatic recipe generation on pages with a vault match](adr/0016-recipe-generation-trigger.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

@@ -14,6 +14,12 @@ function nativeCallbacks(options: { profile?: typeof accountProfile; timeoutMs?:
       return request;
     }),
     put: vi.fn(),
+    delete: vi.fn(),
+    count: vi.fn(() => {
+      const request = {} as (typeof requests)[number];
+      requests.push(request);
+      return request;
+    }),
   };
   const tx = {
     oncomplete: undefined as (() => void) | undefined,
@@ -53,6 +59,42 @@ const stores: DurableVaultStore[] = [];
 afterEach(() => {
   for (const store of stores.splice(0)) store.close();
   vi.restoreAllMocks();
+});
+
+describe("connection record deletion", () => {
+  it("deletes the record without admitting it and publishes only after readback and commit", async () => {
+    const h = nativeCallbacks();
+    const pending = h.store.remove();
+    const settled = vi.fn();
+    void pending.then(settled);
+    await h.ready();
+    expect(h.objectStore.delete).toHaveBeenCalledWith(accountProfile.connectionId);
+    expect(h.objectStore.get).not.toHaveBeenCalled();
+    h.respond(0, 0);
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    expect(h.database.transaction).toHaveBeenCalledWith("records", "readwrite", {
+      durability: "strict",
+    });
+    h.tx.oncomplete!();
+    expect(await pending).toEqual({ ok: true, data: true });
+  });
+  it("reports uncertainty when the record is still present after deletion", async () => {
+    const h = nativeCallbacks();
+    const pending = h.store.remove();
+    await h.ready();
+    h.respond(0, 1);
+    expect(h.tx.abort).toHaveBeenCalled();
+    h.tx.onabort!();
+    expect(await pending).toEqual({ ok: false, error: { code: "storage-uncertain" } });
+  });
+  it("rejects an invalid profile before opening IndexedDB", async () => {
+    const h = nativeCallbacks({
+      profile: { ...accountProfile, connectionId: "" } as unknown as typeof accountProfile,
+    });
+    expect(await h.store.remove()).toEqual({ ok: false, error: { code: "invalid-profile" } });
+    expect(h.factory.open).not.toHaveBeenCalled();
+  });
 });
 
 describe("native transaction completion controls publication", () => {

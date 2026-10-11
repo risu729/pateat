@@ -60,7 +60,12 @@ export const setupRequestSchema = v.variant("type", [
   v.strictObject({ requestId: v.pipe(v.string(), v.uuid()), type: v.literal("connection.status") }),
   v.strictObject({
     requestId: v.pipe(v.string(), v.uuid()),
-    type: v.picklist(["connection.sync", "connection.disable", "connection.forget"]),
+    type: v.picklist([
+      "connection.sync",
+      "connection.disable",
+      "connection.forget",
+      "connection.delete",
+    ]),
     connectionId: id,
   }),
   v.strictObject({
@@ -77,7 +82,13 @@ export const setupRequestSchema = v.variant("type", [
 ]);
 const errorCode = v.pipe(v.string(), v.minLength(1), v.maxLength(80), v.regex(/^[a-z-]+$/));
 const replySchema = v.union([
-  v.strictObject({ ok: v.literal(false), error: v.strictObject({ code: errorCode }) }),
+  v.strictObject({
+    ok: v.literal(false),
+    error: v.strictObject({
+      code: errorCode,
+      check: v.optional(v.pipe(v.string(), v.maxLength(40), v.regex(/^[a-z-]+$/))),
+    }),
+  }),
   v.strictObject({
     ok: v.literal(true),
     kind: v.literal("ready"),
@@ -105,6 +116,7 @@ const replySchema = v.union([
   v.strictObject({ ok: v.literal(true), kind: v.literal("cancelled") }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("disabled"), connectionId: id }),
   v.strictObject({ ok: v.literal(true), kind: v.literal("forgotten"), connectionId: id }),
+  v.strictObject({ ok: v.literal(true), kind: v.literal("deleted"), connectionId: id }),
   v.strictObject({
     ok: v.literal(true),
     kind: v.literal("status"),

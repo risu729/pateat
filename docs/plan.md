@@ -305,6 +305,12 @@ cannot clear unresolved exclusions or that binding history. Separate cache/setti
 stores detect mismatched state after interruption; they do not provide one atomic
 combined commit. Catalog bounds are validated before unlock-key export and cache commit.
 
+The settings page can delete a connection locally, as
+[Development](development.md#manual-bitwarden-setup-preview) describes. Unit, options
+component and isolated Chromium tests cover deletion with synthetic providers, including
+removed native records after a full profile reopen; it has not been exercised in the
+owner's Chrome.
+
 [PR #20](https://github.com/risu729/pateat/pull/20) passed
 [full Linux CI](https://github.com/risu729/pateat/actions/runs/38047201686) with 766
 package, 72 connection, 73 vault, 47 host, 42 contract, 21 options and 69 extension
@@ -548,8 +554,9 @@ the real settings store over in-memory storage; no running service has been trie
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the
   `inference_credentials` table and `resolveClaudeCredential` exist and are tested
-  against a fake token endpoint only; no owner can enter identifiers yet, and no
-  exchange with Anthropic's real token endpoint has been made.
+  against a fake token endpoint only. Owners enter identifiers on the temporary
+  `/manage/claude` page until the React web UI replaces it; no exchange with
+  Anthropic's real token endpoint has been made.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first approval. Before the service is offered to other people, it needs
   per-owner storage and request limits; today only `/redeem` is rate limited (per
@@ -806,8 +813,8 @@ nonzero passkey counter writeback and passkey creation; Bitwarden provider login
 with passkeys, API keys, SSO or device approval; external email/SMS OTP and magic
 links; and separately authorized post-login actions, including transactions and
 approvals. UI extensions, account switching, a mode without the service, direct AI,
-recipe sharing, additional service auth, E2EE settings sync and MCP are also
-deferred. They are extension points, not
+recipe sharing, additional service auth, E2EE settings sync, MCP and Vaultwarden
+support are also deferred. They are extension points, not
 implicit permissions or initial acceptance requirements.
 
 ## Ordered milestones
@@ -882,6 +889,10 @@ claiming compatibility. This provider setup is separate from website OTP
 automation. Preserve supported Bitwarden TOTP forms, including raw Base32,
 `otpauth://totp/` parameters and Steam form; verify algorithms, digits, periods
 and clock boundaries. Do not imply HOTP support from URI parsing alone.
+Vaultwarden support is later work (owner request, 2026-10-11). A self-hosted
+connection to a Vaultwarden URL is accepted, but Pateat is tested only against
+official Bitwarden server response shapes, so Vaultwarden compatibility is
+unverified until its own response shapes and sign-in flow are tested.
 
 ## Mandatory acceptance matrix
 

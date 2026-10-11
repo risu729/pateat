@@ -354,7 +354,10 @@ scripts/host permissions and browser events, not a popup or focus event as the e
 trigger. A static content script runs on every top-level HTTPS page; the background
 admits non-excluded sites with host access and needs a cached recipe for the exact
 origin before any policy or vault access
-([ADR 0009](adr/0009-install-time-https-site-access.md)). Inactive, frozen, discarded,
+([ADR 0009](adr/0009-install-time-https-site-access.md)). The planned exception is
+recipe generation: a page without a recipe that shows a login field and has a vault URI
+match is observed and sent at most once a day per origin and path
+([ADR 0016](adr/0016-recipe-generation-trigger.md)). Inactive, frozen, discarded,
 and navigated documents are different states; only live documents can execute.
 
 Do not inject `chrome-extension://` iframes, automatic overlays, unlock windows,
@@ -649,6 +652,10 @@ extension's settings page for the data the service holds
   `PUT /v1/recipes/:recipeId`. Settings that still use device-local IDs (connections,
   item selection and field exclusions) are not shown until their device-independent
   form is decided.
+
+  Claude credentials are entered on `/manage/claude`, a temporary script-free page
+  ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,
+  but its page for Claude credentials is not designed yet.
 - Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
   routes accept only device credentials. The API shares the owner-scoped read and
   write code of `/v1/settings` and `/v1/recipes/:recipeId`. Writes carry the revision
