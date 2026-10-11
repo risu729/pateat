@@ -61,7 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        repeat: [1, 2, 3]
+        repeat: [1, 2, 3, 4, 5]
     permissions:
       contents: read
     steps:
@@ -77,6 +77,11 @@ jobs:
       - name: Install isolated browser runtime
         run: mise run browser:install
       - name: Run the packaged-extension browser tests
+        # Browser profiles go on the runner's work drive. The system drive that holds the
+        # default temp directory stalls I/O long enough to time out browser tests.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: mise run test:browser
       - name: Archive browser test failure context
         if: ${{ failure() }}
