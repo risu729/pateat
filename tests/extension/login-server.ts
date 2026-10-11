@@ -50,6 +50,10 @@ export async function startLoginFixture(
   const server = createServer((request, response) => {
     const fixtureUrl = new URL(request.url ?? "/", "http://fixture.test");
     const path = fixtureUrl.pathname;
+    // Pages echo only a run ID this fixture issued, never other request text.
+    const requestedRunId = fixtureUrl.searchParams.get("runId");
+    const issuedRunId =
+      requestedRunId !== null && runs.has(requestedRunId) ? requestedRunId : undefined;
     if (path.startsWith("/effect/") && request.method === "POST") {
       const run = runs.get(path.slice("/effect/".length));
       if (!run) {
@@ -160,7 +164,7 @@ export async function startLoginFixture(
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));
           sessionStorage.setItem('identityMatched', String(document.getElementById('branch').value === '007' && document.getElementById('account').value === '00001234'));
-          ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', stage:'identity', branch:document.getElementById('branch').value, account:document.getElementById('account').value})});` : ""}
+          ${issuedRunId === undefined ? "" : `void fetch('/effect/${issuedRunId}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', stage:'identity', branch:document.getElementById('branch').value, account:document.getElementById('account').value})});`}
           location.href = '/password${fixtureUrl.searchParams.has("slow-password") ? "?slow=1" : ""}';
         });
         ${
@@ -199,7 +203,7 @@ export async function startLoginFixture(
           function bindLogin() { document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
-          ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});` : ""}
+          ${issuedRunId === undefined ? "" : `void fetch('/effect/${issuedRunId}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});`}
           location.href = '/authenticated';
         }); }
           ${slow ? "" : "bindLogin();"}`,
@@ -211,12 +215,12 @@ export async function startLoginFixture(
       path === "/unknown" ||
       path === "/delayed-result"
     ) {
+      // A masked login ID such as `****1234`; anything else is left out.
+      const shown = fixtureUrl.searchParams.get("shown");
       response.end(
         html(
           `<h1>Synthetic single-page login</h1>${
-            fixtureUrl.searchParams.has("shown")
-              ? `<p>Signed in as ${fixtureUrl.searchParams.get("shown")!.replace(/[^A-Za-z0-9@.*]/gu, "")}</p>`
-              : ""
+            shown !== null && /^[A-Za-z0-9@.*]+$/u.test(shown) ? `<p>Signed in as ${shown}</p>` : ""
           }<label>Password<input id="password" ${
             {
               text: 'type="text"',
@@ -231,7 +235,7 @@ export async function startLoginFixture(
           `document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
-          ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});` : ""}
+          ${issuedRunId === undefined ? "" : `void fetch('/effect/${issuedRunId}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});`}
           ${path === "/rejection" ? "document.body.insertAdjacentHTML('beforeend', '<p id=\"rejected\">Credentials rejected</p>');" : path === "/single" ? "document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id=\"authenticated\">Authenticated</p>' : '<p id=\"rejected\">Credentials rejected</p>');" : ""}
           ${path === "/delayed-result" ? `setTimeout(() => { document.body.insertAdjacentHTML('beforeend', ${fixtureUrl.searchParams.has("reject") ? "'<p id=\"rejected\">Credentials rejected</p>'" : "sessionStorage.getItem('passwordMatched') === 'true' ? '<p id=\"authenticated\">Authenticated</p>' : '<p id=\"rejected\">Credentials rejected</p>'"}); updateFixtureStatus(); }, 250);` : ""}
           updateFixtureStatus();
