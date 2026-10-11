@@ -4,6 +4,7 @@ import {
   PAGE_CHANNEL,
   pageRequestSchema,
   runtimeResultSchema,
+  type PageResult,
   type RuntimeResult,
 } from "./wire";
 
@@ -36,8 +37,13 @@ function withinBound(request: unknown): boolean {
 export function installPasskeyRelay(send: Send): () => void {
   // A synchronous throw, such as from an invalidated extension context, still settles.
   const relay = (message: unknown) => Promise.resolve().then(() => send(message));
-  const reply = (id: string, result: RuntimeResult) =>
-    window.postMessage({ channel: PAGE_CHANNEL, type: "result", id, result }, location.origin);
+  const reply = (id: string, result: RuntimeResult) => {
+    const outcome: PageResult = result.kind === "delegate" ? { kind: "delegate" } : result;
+    window.postMessage(
+      { channel: PAGE_CHANNEL, type: "result", id, result: outcome },
+      location.origin,
+    );
+  };
   const listener = (event: MessageEvent<unknown>) => {
     if (event.source !== window || event.origin !== location.origin) return;
     const parsed = v.safeParse(pageRequestSchema, event.data);

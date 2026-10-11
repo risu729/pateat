@@ -612,9 +612,13 @@ through the probe build, which wraps the same vault source. Real-site interopera
 and real-account use remain open; a navigation during signing relies on Chrome dropping
 the response to the replaced document.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
-installed-Chrome acceptance procedure. Page script can detect the wrapper (an own `get`
-accessor property returning a function with a different `length` and source text), which
-real-site testing must evaluate.
+installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
+extension ID from stack traces; the relay posts only the outcome of a request to the
+page, never the delegate reason. On 2026-10-11 a real passkey sign-in on webauthn.io
+went through the wrapper unchanged and CreepJS did not flag it
+([wrapper detectability](research/2026-10-11-passkey-wrapper-detectability.md)). Open:
+a page or provider wrapper that rebuilds the options object, and especially one that
+replaces the challenge, loops back into Pateat on every delegated call.
 
 Evidence, 2026-10-10, synthetic relying party only:
 

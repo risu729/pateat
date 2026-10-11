@@ -5,7 +5,7 @@ import {
   PAGE_TIMEOUT_MS,
   RELAY_ACK_TIMEOUT_MS,
   pageReplySchema,
-  type RuntimeResult,
+  type PageResult,
 } from "./wire";
 import type { BridgedGetRequest } from "./request";
 import type { PasskeyAssertion } from "./assertion";
@@ -189,7 +189,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
   const AbortSignalClass = scope.AbortSignal;
   const pending = new Map<
     string,
-    { finish(result: RuntimeResult | { kind: "aborted" }): void; acknowledge(): void }
+    { finish(result: PageResult | { kind: "aborted" }): void; acknowledge(): void }
   >();
 
   scope.addEventListener("message", (event: MessageEvent<unknown>) => {
@@ -237,8 +237,8 @@ export function installPasskeyPage(scope: PageScope = window): void {
       return delegate();
     if (signal?.aborted) return delegate();
     const id = crypto.randomUUID();
-    const result = await new Promise<RuntimeResult | { kind: "aborted" }>((resolve) => {
-      const finish = (outcome: RuntimeResult | { kind: "aborted" }) => {
+    const result = await new Promise<PageResult | { kind: "aborted" }>((resolve) => {
+      const finish = (outcome: PageResult | { kind: "aborted" }) => {
         if (!pending.delete(id)) return;
         clearTimeout(timer);
         clearTimeout(ackTimer);

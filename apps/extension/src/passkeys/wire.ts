@@ -40,6 +40,18 @@ export const runtimeResultSchema = v.variant("kind", [
 ]);
 export type RuntimeResult = v.InferOutput<typeof runtimeResultSchema>;
 
+/**
+ * The outcome the relay posts to the page. Every page listener can read it, so it never says why
+ * Pateat delegated: a reason such as `no-credential` or `ambiguous-credential` would tell the site
+ * whether a vault is connected and how many of its passkeys that vault holds.
+ */
+export const pageResultSchema = v.variant("kind", [
+  v.strictObject({ kind: v.literal("assertion"), assertion: assertionSchema }),
+  v.strictObject({ kind: v.literal("delegate") }),
+  v.strictObject({ kind: v.literal("cancelled") }),
+]);
+export type PageResult = v.InferOutput<typeof pageResultSchema>;
+
 /** Relay replies the MAIN-world wrapper accepts: an acknowledgement, then one result. */
 export const pageReplySchema = v.variant("type", [
   v.strictObject({ channel: v.literal(PAGE_CHANNEL), type: v.literal("ack"), id: operationId }),
@@ -47,7 +59,7 @@ export const pageReplySchema = v.variant("type", [
     channel: v.literal(PAGE_CHANNEL),
     type: v.literal("result"),
     id: operationId,
-    result: runtimeResultSchema,
+    result: pageResultSchema,
   }),
 ]);
 
