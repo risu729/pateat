@@ -54,6 +54,8 @@ export const runtimeResultSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("assertion"), assertion: assertionSchema }),
   v.strictObject({ kind: v.literal("delegate"), reason: v.pipe(v.string(), v.maxLength(64)) }),
   v.strictObject({ kind: v.literal("cancelled") }),
+  /** The chooser window's wait ran out; the request fails as the browser's prompt would. */
+  v.strictObject({ kind: v.literal("not-allowed") }),
 ]);
 export type RuntimeResult = v.InferOutput<typeof runtimeResultSchema>;
 
@@ -66,6 +68,7 @@ export const pageResultSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("assertion"), assertion: assertionSchema }),
   v.strictObject({ kind: v.literal("delegate") }),
   v.strictObject({ kind: v.literal("cancelled") }),
+  v.strictObject({ kind: v.literal("not-allowed") }),
 ]);
 export type PageResult = v.InferOutput<typeof pageResultSchema>;
 

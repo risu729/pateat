@@ -873,11 +873,15 @@ the chooser window `passkey-picker.html`
 It shows only item names, passkey user names and connection labels. The background
 answers its messages only from that page, for the request token in its URL and from the
 window it opened, and keeps the worker alive while the window waits. Choosing signs with
-that passkey; a ticked checkbox then saves it as the origin's site default. Any other
-ending delegates to the browser. The background also keeps, per tab in session storage,
-the RP IDs it signed for; a later request with no allow list for one of them in that tab
-opens the window even for one match or a site default, because it may follow a logout.
-A running login's own requests never open it (below).
+that passkey; a ticked checkbox then saves it as the origin's site default. When the
+request's wait runs out first, the window closes and the request fails with
+`NotAllowedError`, as Chrome's own prompt does. Any other ending delegates to the
+browser. A settings change, such as a sync, leaves the window open; the chosen passkey
+is then looked up again and used only if the new settings still offer it. The background
+also keeps, per tab in session storage, the RP IDs it signed for; a later request with
+no allow list for one of them in that tab opens the window even for one match or a site
+default, because it may follow a logout. A running login's own requests never open it
+(below).
 
 While a login is running, a request from its tab and top-level origin is answered with
 that login's own vault item only, never the site default or the chooser

@@ -150,17 +150,17 @@ describe("passkey runtime cancellation", () => {
     expect(await runtime.handle(get(), sender())).toEqual({ kind: "delegate", reason: "busy" });
     const other = runtime.handle(get(), sender({ documentId: "document-b" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    runtime.cancelAll();
+    runtime.settingsChanged();
     expect(await Promise.all([...pending, other])).toEqual(
       Array.from({ length: 5 }, () => ({ kind: "cancelled" })),
     );
   });
 
-  it("cancels every in-flight operation on a policy change", async () => {
+  it("cancels every in-flight operation on a settings change", async () => {
     const runtime = createPasskeyRuntime(slowSign(), { extensionId });
     const pending = [runtime.handle(get(), sender()), runtime.handle(get(), sender())];
     await new Promise((resolve) => setTimeout(resolve, 0));
-    runtime.cancelAll();
+    runtime.settingsChanged();
     expect(await Promise.all(pending)).toEqual([{ kind: "cancelled" }, { kind: "cancelled" }]);
   });
 });
@@ -444,7 +444,7 @@ describe("passkey chooser window", () => {
     expect(choose.choose).not.toHaveBeenCalled();
   });
 
-  it("closes the window when the page cancels or settings change", async () => {
+  it("closes the window when the page cancels", async () => {
     const signals: AbortSignal[] = [];
     const choose = chooser(
       (input) =>
@@ -452,26 +452,81 @@ describe("passkey chooser window", () => {
           signals.push(input.signal);
         }),
     );
-    const runtime = createPasskeyRuntime(several(), { extensionId, chooser: choose });
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(several(), { extensionId, chooser: choose, report });
     const operationId = crypto.randomUUID();
     const pending = runtime.handle(get(operationId), sender());
     await vi.waitFor(() => expect(signals).toHaveLength(1));
     await runtime.handle({ version: 1, type: "passkey.cancel", operationId }, sender());
     expect(await pending).toEqual({ kind: "cancelled" });
     expect(signals[0]!.aborted).toBe(true);
-    const second = runtime.handle(get(), sender());
-    await vi.waitFor(() => expect(signals).toHaveLength(2));
-    runtime.cancelAll();
-    expect(await second).toEqual({ kind: "cancelled" });
-    expect(signals[1]!.aborted).toBe(true);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", chooser: "cancelled" }),
+    );
   });
 
-  it("waits past the lookup budget up to the caller's timeout", async () => {
+  it("keeps the window open when settings change, and signs if the choice is still offered", async () => {
+    let choose!: (choice: PasskeyChoice) => void;
+    const signals: AbortSignal[] = [];
+    const backing = several();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: chooser((input) => {
+        signals.push(input.signal);
+        return new Promise<PasskeyChoice>((resolve) => (choose = resolve));
+      }),
+    });
+    const pending = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    runtime.settingsChanged();
+    expect(signals[0]!.aborted).toBe(false);
+    // The new settings make the other passkey the site default; the choice still stands.
+    vi.mocked(backing.candidates).mockResolvedValueOnce({
+      candidates: [{ ...pair[0]!, preferred: true }, pair[1]!],
+      complete: true,
+    });
+    choose({ kind: "chosen", index: 1, makeDefault: false });
+    expect(await pending).toMatchObject({ kind: "assertion", assertion: { credentialId: "BAUG" } });
+    expect(backing.candidates).toHaveBeenCalledTimes(2);
+  });
+
+  it("delegates a choice the changed settings no longer offer", async () => {
+    const answers: ((choice: PasskeyChoice) => void)[] = [];
+    const backing = several();
+    const remember = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      remember,
+      chooser: chooser(() => new Promise<PasskeyChoice>((resolve) => answers.push(resolve))),
+    });
+    const excluded = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(answers).toHaveLength(1));
+    runtime.settingsChanged();
+    // The site is now excluded.
+    vi.mocked(backing.candidates).mockResolvedValueOnce(undefined);
+    answers[0]!({ kind: "chosen", index: 0, makeDefault: true });
+    expect(await excluded).toEqual({ kind: "delegate", reason: "settings-changed" });
+
+    const removed = runtime.handle(get(), sender());
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    runtime.settingsChanged();
+    // The chosen passkey's item was removed from the vault or the settings.
+    vi.mocked(backing.candidates).mockResolvedValueOnce({ candidates: [pair[0]!], complete: true });
+    answers[1]!({ kind: "chosen", index: 1, makeDefault: false });
+    expect(await removed).toEqual({ kind: "delegate", reason: "settings-changed" });
+    expect(backing.sign).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).not.toHaveBeenCalled();
+  });
+
+  it("waits past the lookup budget up to the caller's timeout, then fails", async () => {
     vi.useFakeTimers();
     try {
       const signals: AbortSignal[] = [];
+      const report = vi.fn();
       const runtime = createPasskeyRuntime(several(), {
         extensionId,
+        report,
         chooser: chooser(
           (input) =>
             new Promise<PasskeyChoice>(() => {
@@ -486,8 +541,12 @@ describe("passkey chooser window", () => {
       await vi.advanceTimersByTimeAsync(29_999);
       expect(settled).toBeUndefined();
       await vi.advanceTimersByTimeAsync(1);
-      expect(settled).toEqual({ kind: "delegate", reason: "timeout" });
+      // As with the browser's own prompt, an unanswered window fails the request (ADR 0021).
+      expect(settled).toEqual({ kind: "not-allowed" });
       expect(signals[0]!.aborted).toBe(true);
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "not-allowed", chooser: "timeout" }),
+      );
     } finally {
       vi.useRealTimers();
     }
