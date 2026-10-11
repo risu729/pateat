@@ -328,6 +328,103 @@ describe("raw provider account through native local crypto", () => {
     },
   );
 
+  /** Server-stored Data is PascalCase with nulls omitted; the response model carries nulls. */
+  function serverStoredLogin(passwordRevisionDate: string | null) {
+    const raw = rawModernV1Account();
+    const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
+    const login = rawLoginCipher().login;
+    // Any recorded ciphertext stands in for the encrypted URI.
+    const uri = login.username;
+    cipher["login"] = {
+      ...login,
+      uri: uri,
+      uris: [{ uri: uri, uriChecksum: null, match: null }],
+      passwordRevisionDate,
+    };
+    cipher["attachments"] = null;
+    cipher["data"] = JSON.stringify({
+      Uri: uri,
+      Uris: [{ Uri: uri }],
+      Username: login.username,
+      Password: login.password,
+      ...(passwordRevisionDate ? { PasswordRevisionDate: "2024-01-30T17:55:36.15Z" } : {}),
+      Name: cipher["name"],
+    });
+    return raw;
+  }
+
+  it.each([null, "2024-01-30T17:55:36.150Z"])(
+    "accepts server-stored Data that omits nulls (revision date %j)",
+    async (date) => {
+      const { prepared, session } = await received(serverStoredLogin(date));
+      const result = await session.decryptCipher({
+        connectionId: accountProfile.connectionId,
+        cipher: prepared.ciphers[0],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.login?.password).toBe("test_password");
+    },
+  );
+
+  it("still rejects stored Data that contradicts the response model", () => {
+    const raw = serverStoredLogin(null);
+    const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
+    cipher["data"] = JSON.stringify({ Username: v1WrappedUserKey, Name: cipher["name"] });
+    expect(mapRaw(raw)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
+  });
+
+  it("maps an identity whose stored Data spells SSN in capitals", async () => {
+    const raw = rawModernV1Account();
+    const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
+    const secret = rawLoginCipher().login.password;
+    cipher["type"] = 4;
+    cipher["login"] = null;
+    cipher["identity"] = { ssn: secret };
+    cipher["data"] = JSON.stringify({ Name: cipher["name"], SSN: secret });
+    const { prepared, session } = await received(raw);
+    const result = await session.decryptCipher({
+      connectionId: accountProfile.connectionId,
+      cipher: prepared.ciphers[0],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.identity?.ssn).toBe("test_password");
+  });
+
+  it.each([0, 1])("maps an organization collection of type %d", (type) => {
+    const raw = rawOrganizationAccount();
+    (raw.sync.collections as unknown[]).push({
+      id: "2bc9ac1e-f5aa-45f2-94bf-b181009709b8",
+      organizationId: "1bc9ac1e-f5aa-45f2-94bf-b181009709b8",
+      name: rawLoginCipher().login.username,
+      externalId: null,
+      readOnly: false,
+      hidePasswords: false,
+      manage: false,
+      type,
+      object: "collectionDetails",
+    });
+    expect(mapRaw(raw).ok).toBe(true);
+  });
+
+  it("accepts attachments carrying the response model type tag", () => {
+    const raw = rawModernV1Account();
+    const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
+    cipher["attachments"] = [
+      {
+        id: "a1b2c3",
+        url: null,
+        fileName: rawLoginCipher().login.username,
+        key: null,
+        size: "10",
+        sizeName: "10 Bytes",
+        object: "attachment",
+      },
+    ];
+    expect(mapRaw(raw).ok).toBe(true);
+    (cipher["attachments"] as Record<string, unknown>[])[0]!["object"] = "cipher";
+    expect(mapRaw(raw).ok).toBe(false);
+  });
+
   it("ignores unsigned advertised securityVersion when determining verified local state", async () => {
     const raw = rawV2Account();
     raw.sync.profile.accountKeys.securityState.securityVersion = 99;

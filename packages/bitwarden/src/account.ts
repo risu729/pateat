@@ -213,6 +213,35 @@ function same(a: unknown, b: unknown): boolean {
   }
   return a === b;
 }
+const isoDate = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?(Z|[+-]\d{2}:\d{2})$/;
+/** Server-stored legacy cipher Data omits nulls and may format dates differently from the
+ * response model built from it. Present values must still agree. */
+function sameStored(a: unknown, b: unknown): boolean {
+  if (a == null && b == null) return true;
+  if (typeof a === "string" && typeof b === "string")
+    return a === b || (isoDate.test(a) && isoDate.test(b) && Date.parse(a) === Date.parse(b));
+  if (Array.isArray(a) && Array.isArray(b))
+    return a.length === b.length && a.every((entry, i) => sameStored(entry, b[i]));
+  if (
+    a &&
+    b &&
+    typeof a === "object" &&
+    typeof b === "object" &&
+    !Array.isArray(a) &&
+    !Array.isArray(b)
+  ) {
+    const keys = (value: object) =>
+      Object.keys(value)
+        .filter((key) => (value as RecordValue)[key] != null)
+        .sort();
+    const left = keys(a);
+    return (
+      same(left, keys(b)) &&
+      left.every((key) => sameStored((a as RecordValue)[key], (b as RecordValue)[key]))
+    );
+  }
+  return a === b;
+}
 function read(value: RecordValue, name: string): unknown {
   const pascal = name === "sshKey" ? "SSHKey" : name[0]!.toUpperCase() + name.slice(1);
   if (
@@ -297,6 +326,10 @@ function kdf(input: unknown): Sdk.Kdf {
       },
     };
   reject("unsupported-crypto");
+}
+function collectionType(input: unknown): 0 | 1 {
+  if (input !== 0 && input !== 1) reject();
+  return input;
 }
 function containedId(input: unknown): Sdk.KeyId | undefined {
   if (input == null) return undefined;
@@ -411,7 +444,8 @@ function camelRecord(input: unknown): RecordValue {
   for (const [key, entry] of Object.entries(value)) {
     // Reject rather than assign keys that change prototypes or bypass Valibot's key admission.
     if (["__proto__", "prototype", "constructor"].includes(key)) reject();
-    const name = key === "SSHKey" ? "sshKey" : key[0]!.toLowerCase() + key.slice(1);
+    const name =
+      key === "SSHKey" ? "sshKey" : key === "SSN" ? "ssn" : key[0]!.toLowerCase() + key.slice(1);
     if (Object.hasOwn(output, name) && !same(output[name], entry)) reject();
     output[name] = entry;
   }
@@ -501,6 +535,14 @@ function cipherDto(input: RecordValue, type: number, itemId: string): Sdk.Cipher
   }
   for (const name of ["organizationId", "folderId"])
     if (output[name] != null) output[name] = identifier(output[name]);
+  // Every response model carries its type tag; the SDK attachment DTO does not accept it.
+  if (Array.isArray(output["attachments"]))
+    output["attachments"] = output["attachments"].map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+      const { object, ...rest } = entry as RecordValue;
+      if (object !== undefined && object !== "attachment") reject();
+      return rest;
+    });
   output["collectionIds"] = optionalList(read(input, "collectionIds")).map(identifier);
   if (
     new Set(output["collectionIds"] as string[]).size !==
@@ -546,8 +588,10 @@ function cipherDto(input: RecordValue, type: number, itemId: string): Sdk.Cipher
       for (const name of ["name", "notes", "fields", "passwordHistory"])
         if (Object.hasOwn(flat, name)) fromData[name] = flat[name];
       for (const [name, value] of Object.entries(fromData)) {
-        if (Object.hasOwn(output, name) && !same(output[name], value)) reject();
-        output[name] = value;
+        if (Object.hasOwn(output, name) && output[name] != null) {
+          // The response model is authoritative; its stored Data copy must not contradict it.
+          if (!sameStored(output[name], value)) reject();
+        } else output[name] = value;
       }
       // Known, checked flat legacy Data is redundant. Never pass it to the sealed-blob gate.
     }
@@ -841,7 +885,8 @@ export function createBitwardenAccountMapper(
                   read(collection, "defaultUserCollectionEmail") == null
                     ? undefined
                     : requiredText(read(collection, "defaultUserCollectionEmail")),
-                type: integer(read(collection, "type")) as 0 | 1,
+                // SharedCollection is 0 and DefaultUserCollection is 1.
+                type: collectionType(read(collection, "type")),
               };
             }),
           });
