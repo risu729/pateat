@@ -89,6 +89,11 @@ export const commandSchema = v.variant("type", [
       ),
       v.maxLength(20),
     ),
+    /**
+     * The selected account's username, sent only with a fill of secrets alone. The page
+     * must not show another account; it never leaves the content script.
+     */
+    account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -112,7 +117,7 @@ export const executionResultSchema = v.strictObject({
   operationId: id,
   documentId: id,
   mutation: v.picklist(["none", "possible"]),
-  reason: v.optional(v.picklist(["structural-mismatch", "timeout", "cancelled"])),
+  reason: v.optional(v.picklist(["structural-mismatch", "timeout", "cancelled", "wrong-account"])),
 });
 export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),

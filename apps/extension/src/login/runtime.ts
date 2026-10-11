@@ -55,7 +55,7 @@ import {
 } from "./dummy";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import type { LoginSites } from "./sites";
-import { loginSecretKind, type LoginFieldSource } from "./vault";
+import { loginSecretKind, loginUsernameFieldId, type LoginFieldSource } from "./vault";
 
 const STORAGE_KEY = "pateat.login-attempts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
@@ -694,6 +694,7 @@ export function createLoginRuntime(
           return;
         }
         const values: { slot: string; value: string; secret?: LoginSecretKind }[] = [];
+        let expected: { username: string } | undefined;
         let response: unknown;
         try {
           if (operation.step.kind === "fill") {
@@ -728,6 +729,27 @@ export function createLoginRuntime(
               );
               values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
             }
+            // A step that fills only secrets, such as a password page for a remembered
+            // account, must not show another account. Without a readable username the
+            // page is not compared.
+            const usernameField = loginUsernameFieldId(
+              authorized.connection,
+              run.metadata.account.itemId,
+            );
+            if (values.every((entry) => entry.secret) && usernameField) {
+              let username: string | undefined;
+              try {
+                username = await fields({
+                  account: run.metadata.account,
+                  connection: authorized.connection,
+                  fieldId: usernameField,
+                });
+              } catch {
+                username = undefined;
+              }
+              if (!current(run)) return;
+              if (username) expected = { username };
+            }
           }
           if (operation.step.kind === "fill" || operation.step.kind === "click")
             await pause("before-delivery");
@@ -739,9 +761,15 @@ export function createLoginRuntime(
             await change(run, { type: "POLICY_CHANGED" });
             return;
           }
-          response = await send(run.live, { type: "login.execute", operation, values });
+          response = await send(run.live, {
+            type: "login.execute",
+            operation,
+            values,
+            ...(expected ? { account: expected } : {}),
+          });
         } finally {
           for (const entry of values) entry.value = "";
+          if (expected) expected.username = "";
         }
         if (!current(run)) return;
         if (operation.step.kind === "fill" || operation.step.kind === "click")
@@ -753,6 +781,19 @@ export function createLoginRuntime(
           result.success &&
           result.output.operationId === operation.operationId &&
           result.output.documentId === run.live.document.documentId;
+        if (
+          matchedResult &&
+          !result.output.ok &&
+          result.output.reason === "wrong-account" &&
+          result.output.mutation === "none"
+        ) {
+          await change(run, {
+            type: "WRONG_ACCOUNT",
+            operationId: operation.operationId,
+            document: run.live.document,
+          });
+          return;
+        }
         if (!matchedResult || !result.output.ok) {
           await change(
             run,

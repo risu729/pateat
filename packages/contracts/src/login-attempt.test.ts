@@ -589,6 +589,69 @@ describe("submission and failure reconciliation", () => {
     ).toBeUndefined();
   });
 
+  it("a wrong displayed account ends the attempt without a retry or a spent submission", () => {
+    const ready = transitionLoginAttempt(detected(), { type: "RESOLVE" });
+    const filling = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    const intent = transitionLoginAttempt(filling, {
+      type: "MUTATION_INTENT",
+      operationId: "fill-one",
+    });
+    for (const stale of [
+      { type: "WRONG_ACCOUNT", operationId: "fill-two", document },
+      {
+        type: "WRONG_ACCOUNT",
+        operationId: "fill-one",
+        document: { ...document, documentId: "x" },
+      },
+    ])
+      expect(transitionLoginAttempt(intent, stale)).toEqual(intent);
+    const wrong = transitionLoginAttempt(intent, {
+      type: "WRONG_ACCOUNT",
+      operationId: "fill-one",
+      document,
+    });
+    expect(wrong).toMatchObject({ state: "blocked", outcome: "wrong-account", submissions: 0 });
+    expect(wrong.mutationIntent).toBeUndefined();
+    expect(transitionLoginAttempt(wrong, { type: "RETRY" })).toEqual(wrong);
+    // An input-triggered secret fill gives back the submission it reserved.
+    const inputRecipe: LoginRecipe = {
+      ...recipe,
+      steps: [
+        {
+          kind: "fill",
+          effect: "submit",
+          event: "input",
+          path: "/login",
+          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+        },
+      ],
+    };
+    let submit = transitionLoginAttempt(detected(inputRecipe), { type: "RESOLVE" });
+    submit = transitionLoginAttempt(submit, {
+      type: "PREPARE",
+      kind: "fill",
+      effect: "submit",
+      operationId: "input-one",
+    });
+    submit = transitionLoginAttempt(submit, { type: "MUTATION_INTENT", operationId: "input-one" });
+    expect(submit).toMatchObject({ state: "submit-intent", submissions: 1 });
+    expect(
+      transitionLoginAttempt(submit, { type: "WRONG_ACCOUNT", operationId: "input-one", document }),
+    ).toMatchObject({ state: "blocked", outcome: "wrong-account", submissions: 0 });
+    // A click never reports a wrong account.
+    expect(
+      transitionLoginAttempt(submitting(), {
+        type: "WRONG_ACCOUNT",
+        operationId: "click-one",
+        document,
+      }).state,
+    ).toBe("submit-intent");
+  });
+
   it("policy revocation cancels in-flight work and stale replies cannot restore it", () => {
     const ready = transitionLoginAttempt(detected(), { type: "RESOLVE" });
     const filling = transitionLoginAttempt(ready, {

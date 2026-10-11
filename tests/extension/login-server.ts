@@ -213,7 +213,11 @@ export async function startLoginFixture(
     ) {
       response.end(
         html(
-          `<h1>Synthetic single-page login</h1><label>Password<input id="password" ${
+          `<h1>Synthetic single-page login</h1>${
+            fixtureUrl.searchParams.has("shown")
+              ? `<p>Signed in as ${fixtureUrl.searchParams.get("shown")!.replace(/[^A-Za-z0-9@.*]/gu, "")}</p>`
+              : ""
+          }<label>Password<input id="password" ${
             {
               text: 'type="text"',
               "text-current-password": 'type="text" autocomplete="current-password"',

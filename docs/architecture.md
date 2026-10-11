@@ -403,6 +403,16 @@ form). A provider password goes only into a password input, and a TOTP code only
 into a one-time-code or short numeric input, so a recipe cannot place them in a
 search box. A Hidden custom field goes only into a password or short numeric input,
 and a Linked custom field follows the field it reads.
+Before a fill step that writes only secrets (a site that remembers the account and
+asks only for the password), the background sends the selected item's username to the
+content script with that one fill, and the content script compares it with the email
+addresses and masked IDs shown in the form, or the page when there is no form, and the
+`h1`-`h3` headings. The username never leaves the content script or reaches status. If
+identifiers of the username's kind are shown and none fits it (`myaccount@example.com`
+or `****9999` shown while `my2@example.com` or `00001234` is selected), the step fills
+nothing and the attempt ends `wrong-account` without a retry or a spent submission. A
+masked value consistent with the username (`m***@example.com`, `****1234`) proceeds,
+as does an item without a username or a page that shows no identifier of that kind.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.

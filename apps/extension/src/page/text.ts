@@ -36,29 +36,26 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
  * The rendered text inside a shown element, read from text nodes of shown elements
  * only, until it is longer than `limit`. Scripts, styles, raw markup, SVG and
  * form-control contents never contribute. Blocks and `<br>` separate words as
- * rendering does: `<div>Customer</div><div>Number</div>`.
+ * rendering does: `<div>Customer</div><div>Number</div>` and
+ * `<p>Customer</p><label>Number</label>`.
  */
 export function renderedText(root: Element, limit: number): string | undefined {
   if (!shown(root) || textless.has(root.tagName)) return undefined;
   const view = root.ownerDocument.defaultView;
-  const walker = root.ownerDocument.createTreeWalker(
-    root,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-    {
-      acceptNode: (node) =>
-        node instanceof Text
-          ? NodeFilter.FILTER_ACCEPT
-          : node instanceof Element && !textless.has(node.tagName) && shown(node)
-            ? NodeFilter.FILTER_ACCEPT
-            : NodeFilter.FILTER_REJECT,
-    },
-  );
   let text = "";
-  for (let node = walker.nextNode(); node && text.length <= limit; node = walker.nextNode()) {
-    if (node instanceof Text) text += node.data;
-    else if (node instanceof HTMLBRElement) text += " ";
-    else if (node instanceof Element && !view?.getComputedStyle(node).display.startsWith("inline"))
-      text += " ";
+  // `undefined` marks the end of a block, so its text never joins the text after it.
+  const pending: (ChildNode | undefined)[] = [...root.childNodes].reverse();
+  while (pending.length > 0 && text.length <= limit) {
+    const node = pending.pop();
+    if (node === undefined || node instanceof HTMLBRElement) text += " ";
+    else if (node instanceof Text) text += node.data;
+    else if (node instanceof Element && !textless.has(node.tagName) && shown(node)) {
+      if (!view?.getComputedStyle(node).display.startsWith("inline")) {
+        text += " ";
+        pending.push(undefined);
+      }
+      pending.push(...[...node.childNodes].reverse());
+    }
   }
   return text;
 }

@@ -206,6 +206,8 @@ export const loginOutcomeSchema = v.picklist([
   "submission-limit",
   "policy-changed",
   "cancelled",
+  // The page shows a different account than the one selected; nothing was filled.
+  "wrong-account",
 ]);
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;

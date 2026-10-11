@@ -85,6 +85,17 @@ export function loginSecretKind(
   return undefined;
 }
 
+/** The item's login username field, which a secret-only fill compares with the page. */
+export function loginUsernameFieldId(
+  connection: Pick<VaultConnectionMetadata, "provider" | "items">,
+  itemId: string,
+): string | undefined {
+  if (connection.provider === "dummy") return "username";
+  if (connection.provider !== "bitwarden") return undefined;
+  const item = connection.items.find((entry) => entry.id === itemId);
+  return item?.fields.some((field) => field.id === "login.username") ? "login.username" : undefined;
+}
+
 /** Bundled synthetic values; the probe build is the only caller. */
 export const dummyFieldSource: LoginFieldSource = async ({ connection, fieldId }) =>
   connection.provider === "dummy" ? resolveDummyField(fieldId) : undefined;

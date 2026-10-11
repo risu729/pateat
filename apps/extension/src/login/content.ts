@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import type { LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
+import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton } from "../page/text";
 import { findTargets } from "../page/targets";
 import { acceptsSecret } from "./inputs";
@@ -232,7 +233,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     void (async () => {
       const operation = command.operation;
       let mutated = false;
-      const fail = (reason: "structural-mismatch" | "timeout" | "cancelled") => ({
+      const fail = (reason: "structural-mismatch" | "timeout" | "cancelled" | "wrong-account") => ({
         ok: false,
         reason,
         mutation: mutated ? "possible" : "none",
@@ -283,6 +284,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           )
         )
           return fail("structural-mismatch");
+        // A secret goes only to the account the page shows, when it shows one (owner
+        // decision, 2026-10-11). The comparison stays in this content script.
+        if (
+          command.account &&
+          showsOtherAccount(shownAccounts(accountText(document, form)), command.account.username)
+        )
+          return fail("wrong-account");
+        if (command.account) command.account.username = "";
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch");
         for (const [index, field] of step.fields.entries()) {
