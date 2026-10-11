@@ -1063,7 +1063,8 @@ or as the default. Choosing again after a logout (part D) is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
-API keys, SSO or device approval; external email/SMS OTP and magic links; and separately
+API keys, SSO or device approval; signing in to sites through an identity provider
+(policy in ADR 0026); external email/SMS OTP and magic links; and separately
 authorized post-login actions, including transactions and approvals. UI extensions,
 automatic account switching (logging out and in again when another account is picked
 while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe
