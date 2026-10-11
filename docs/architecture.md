@@ -484,7 +484,9 @@ A completion may also list up to four `absent` elements. The executor reports
 `absent` element is missing. A learned completion on a page that signs in on its own
 path lists that path's sign-in fields there, because the executor checks the completion
 after every step and counts hidden elements: a login page that keeps a hidden
-"Sign out" link never counts as signed in. A recipe's completion and absent elements,
+"Sign out" link never counts as signed in. A site that keeps its sign-in inputs hidden
+in the page after signing in therefore never reports `authenticated` with such a
+completion; its attempts stay unknown. A recipe's completion and absent elements,
 its rejection and any one step's elements together stay within one 24-element
 observation.
 

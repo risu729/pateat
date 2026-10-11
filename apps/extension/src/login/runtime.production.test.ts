@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseLoginRecipe,
   type LocalSettings,
@@ -39,6 +39,8 @@ const fake = vi.hoisted(() => {
     onAwait: undefined as undefined | (() => void),
     /** Documents that went away with their page; messages to them fail. */
     gone: new Set<string>(),
+    /** Every runtime's tab-closed listener, so a test can close its tabs afterwards. */
+    removed: [] as ((tabId: number) => void)[],
   };
   const browser = {
     runtime: {
@@ -98,7 +100,11 @@ const fake = vi.hoisted(() => {
         }
         return { ok: true };
       },
-      onRemoved: { addListener: () => undefined },
+      onRemoved: {
+        addListener: (listener: (tabId: number) => void) => {
+          state.removed.push(listener);
+        },
+      },
     },
   };
   return { state, browser };
@@ -313,6 +319,11 @@ function harness(
 }
 
 describe("production login document admission", () => {
+  afterEach(() => {
+    // Close every test's tabs, so no attempt left reconciling answers a later test.
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2]) listener(tabId);
+  });
   beforeEach(() => {
     fake.state.storage = {};
     fake.state.messages = [];
@@ -996,6 +1007,46 @@ describe("production login document admission", () => {
       expect(h.fields).not.toHaveBeenCalled();
       expect(h.store.update).not.toHaveBeenCalled();
     });
+    describe("with a completion that also lists absent elements", () => {
+      // A learned completion on the sign-in page's own path: the sign-out marker counts
+      // only once the password field is gone (ADR 0018).
+      const learned = parseLoginRecipe({
+        ...recipe,
+        completion: { ...recipe.completion, absent: [target("password")] },
+      });
+      const published = () => JSON.stringify(fake.state.messages);
+      it("authenticates once the marker shows and the field is gone", async () => {
+        fake.state.present = new Set(["authenticated"]);
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+        });
+        h.recipes.recipe.mockResolvedValue(learned);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"state":"authenticated"'));
+        // The completion target comes first, then the elements that must be missing.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("authenticated"), target("password")],
+          }),
+        );
+      });
+      it("never authenticates while the field is still there", async () => {
+        fake.state.present = new Set(["authenticated", "password", "login"]);
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+        });
+        h.recipes.recipe.mockResolvedValue(learned);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"outcome":"unknown-submit"'), {
+          timeout: 6_000,
+        });
+        expect(published()).not.toContain('"state":"authenticated"');
+        expect(h.store.update).not.toHaveBeenCalled();
+      }, 10_000);
+    });
     it("saves nothing while another login is still running", async () => {
       const second = "https://second.example";
       const h = harness(
@@ -1048,46 +1099,6 @@ describe("production login document admission", () => {
         expect(JSON.stringify(fake.state.messages)).toContain("authenticated"),
       );
       expect(h.store.update).not.toHaveBeenCalled();
-    });
-    describe("with a completion that also lists absent elements", () => {
-      // A learned completion on the sign-in page's own path: the sign-out marker counts
-      // only once the password field is gone (ADR 0018).
-      const learned = parseLoginRecipe({
-        ...recipe,
-        completion: { ...recipe.completion, absent: [target("password")] },
-      });
-      const published = () => JSON.stringify(fake.state.messages);
-      it("authenticates once the marker shows and the field is gone", async () => {
-        fake.state.present = new Set(["authenticated"]);
-        const h = harness(unsaved, {
-          allowedOrigins: [],
-          uris: async () => ({ ok: true, data: uriMatch() }),
-        });
-        h.recipes.recipe.mockResolvedValue(learned);
-        expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(published()).toContain('"state":"authenticated"'));
-        // The completion target comes first, then the elements that must be missing.
-        expect(fake.state.messages).toContainEqual(
-          expect.objectContaining({
-            type: "login.observe",
-            targets: [target("authenticated"), target("password")],
-          }),
-        );
-      });
-      it("never authenticates while the field is still there", async () => {
-        fake.state.present = new Set(["authenticated", "password", "login"]);
-        const h = harness(unsaved, {
-          allowedOrigins: [],
-          uris: async () => ({ ok: true, data: uriMatch() }),
-        });
-        h.recipes.recipe.mockResolvedValue(learned);
-        expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(published()).toContain('"outcome":"unknown-submit"'), {
-          timeout: 6_000,
-        });
-        expect(published()).not.toContain('"state":"authenticated"');
-        expect(h.store.update).not.toHaveBeenCalled();
-      }, 10_000);
     });
     it("saves nothing when the credential is rejected", async () => {
       const rejecting = { ...recipe, rejection: target("rejected") };
