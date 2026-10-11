@@ -7,9 +7,8 @@ routes are implemented ([API README](../../services/api/README.md#recipe-generat
 The extension sends a recipe's first page and the page after its final submission;
 continuing a recipe on the page after an `advance` step is not implemented yet.
 Its one generated recipe per origin is amended to one per start path by
-[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts); the service
-implements that, and the extension does not yet send pages of an origin that has
-another recipe.
+[ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts), which the
+service and the extension implement.
 
 Date: 2026-10-11
 

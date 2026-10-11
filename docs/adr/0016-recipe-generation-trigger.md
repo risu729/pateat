@@ -5,7 +5,7 @@ Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0018](0018-recipe-generation-route.md) and by the owner's account-switch decision
 of 2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)).
 Implemented in the extension
-([Background execution](../architecture.md#background-execution)), except that
+([Background execution](../architecture.md#background-execution)), including that
 amendment; the service route enforces the 24-hour rule as well
 ([API README](../../services/api/README.md#recipe-generation)).
 
@@ -23,8 +23,9 @@ needs a click on every new site.
 
 ## Decision
 
-A top-level HTTPS document without a cached recipe for its origin is observed and sent
-for recipe generation automatically when all of these hold:
+A top-level HTTPS document without a cached recipe for its origin (since the amendment
+below: on whose path no cached recipe starts) is observed and sent for recipe
+generation automatically when all of these hold:
 
 1. The site is not excluded.
 2. The vault has at least one item whose URI matches the origin under the existing
@@ -58,9 +59,10 @@ new owner decision:
 - The extension remembers a page as attempted when it sends it. It forgets the attempt
   only when the service could not be reached or answered `busy`, since no model call
   was made.
-- Any cached recipe for the origin, even one that starts on another path, stops pages on
-  that origin from being offered; a generated recipe's later pages go through its
-  continuation in ADR 0018 instead.
+- A page is not offered while its tab holds an attempt record, which an executing or
+  ended attempt keeps until the tab closes, even when no recipe starts on its path. The
+  one exception is an `account-switched` record of the same origin. A generated
+  recipe's later pages go through its continuation in ADR 0018 instead.
 - Frames are not sent; only the tab's own page is.
 
 ## Pages where no recipe starts
@@ -79,10 +81,8 @@ account"), which leads to `/signin/id`, an email page. No recipe starts there, s
 page is observed and sent, and the recipe generated for it logs in to `my2@example.com`
 ([Background execution](../architecture.md#background-execution)).
 
-Not implemented yet: the extension still offers only pages of an origin without any
-cached recipe (the implementation choice above). The service already keeps one
-generated recipe per origin and start path
-([API README](../../services/api/README.md#recipe-generation)).
+The extension offers such pages, and the service keeps one generated recipe per origin
+and start path ([API README](../../services/api/README.md#recipe-generation)).
 
 ## Consequences
 
