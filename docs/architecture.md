@@ -351,10 +351,12 @@ vocabulary contains login operations only.
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution
-trigger. A static content script runs on every top-level HTTPS page; the background
+trigger. A static content script runs on every HTTPS page and frame; the background
 admits non-excluded sites with host access and needs a cached recipe for the exact
 origin before any policy or vault access
-([ADR 0009](adr/0009-install-time-https-site-access.md)). The planned exception is
+([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the tab's
+page admitted, and its account must match the tab's URL as well as the frame's
+([ADR 0017](adr/0017-login-forms-in-frames.md)). The planned exception is
 recipe generation: a page without a recipe that shows a login field and has a vault URI
 match is observed and sent at most once a day per origin and path
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). Inactive, frozen, discarded,
@@ -368,7 +370,8 @@ requires an explicit compatibility test and documented settings.
 
 Use a per-document attempt state machine: detected -> resolving -> filling ->
 awaiting-result -> authenticated / retryable / blocked. One writer owns an
-attempt for a tab/document; other tabs can progress independently. Revalidate
+attempt for a tab/document, and a tab runs one attempt across all of its frames; other
+tabs can progress independently. Revalidate
 origin, account binding, target elements, and document immediately before each
 fill or click. Expire late AI results after navigation and cancel outstanding
 work. Synthetic events and lack of trusted user activation may limit some sites.

@@ -88,14 +88,20 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     16: "icon-locked/16.png",
     32: "icon-locked/32.png",
   });
-  // Owner-approved install-time HTTPS access (ADR 0009): top-level only. The ADR 0007
+  // Owner-approved install-time HTTPS access (ADR 0009); the login script also runs in
+  // frames, which need the tab's page admitted too (ADR 0017). The ADR 0007
   // passkey bridge is the only MAIN-world script.
   expect(
     [...manifest.content_scripts].sort((a: { js: string[] }, b: { js: string[] }) =>
       a.js[0]!.localeCompare(b.js[0]!),
     ),
   ).toEqual([
-    { matches: ["https://*/*"], run_at: "document_idle", js: ["content-scripts/login.js"] },
+    {
+      matches: ["https://*/*"],
+      run_at: "document_idle",
+      all_frames: true,
+      js: ["content-scripts/login.js"],
+    },
     {
       matches: ["https://*/*"],
       run_at: "document_start",
