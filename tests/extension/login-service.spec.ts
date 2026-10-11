@@ -78,7 +78,7 @@ test("a recipe and binding synced from the service log in with the live vault an
   const service = await startSyncService();
   try {
     await withVaultProfile(
-      async (open) => {
+      async (open, externalRequests) => {
         const browser = await open();
         await serveSite(browser.context, fixture);
         await setupProbe(browser.page, { action: "configure", variant: "uri" });
@@ -199,7 +199,9 @@ test("a recipe and binding synced from the service log in with the live vault an
           .poll(async () => (await settingsRequest(options)).snapshot.settings.siteDefaults)
           .toEqual([{ origin: site, ...account }]);
 
-        // After a full restart the cached recipe, binding and saved account still apply.
+        // After a full restart the cached recipe, binding and saved account still apply,
+        // with the service gone.
+        await service.close();
         const reopened = await open();
         await serveSite(reopened.context, fixture);
         const again = fixture.createRun();
@@ -207,6 +209,8 @@ test("a recipe and binding synced from the service log in with the live vault an
         await restarted.goto(`${site}/identity?runId=${again}`);
         await expect(restarted.locator("#authenticated")).toBeVisible();
         expect(fixture.evidence(again)).toMatchObject({ posts: 1, allMatched: true });
+        // Only the routed site and the loopback service were contacted.
+        expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
       },
       { args: ["--ignore-certificate-errors"] },
     );

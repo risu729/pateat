@@ -13,6 +13,7 @@ export type SyncService = {
   credential: string;
   /** Calls the API as the paired device without going through the browser. */
   request(path: string, init?: { method?: string; body?: unknown }): Promise<Response>;
+  /** Stops the service; later calls wait for the same shutdown. */
   close(): Promise<void>;
 };
 
@@ -80,6 +81,7 @@ export async function startSyncService(): Promise<SyncService> {
       .run();
 
     const origin = url.origin;
+    let closed: Promise<void> | undefined;
     return {
       origin,
       deviceId,
@@ -93,7 +95,8 @@ export async function startSyncService(): Promise<SyncService> {
           },
           ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
         }) as unknown as Promise<Response>,
-      close: () => runtime.dispose(),
+      // Safe to call again, e.g. from a `finally` after a test already stopped it.
+      close: () => (closed ??= runtime.dispose()),
     };
   } catch (error) {
     await runtime.dispose();
