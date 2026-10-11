@@ -475,9 +475,9 @@ never reports `authenticated` with it: a submission ends `credential-rejected`, 
 to a later step, or stays unknown (`unknown-submit`), so no account choice is saved.
 An unknown attempt stays in `reconciling` until its tab closes, as any unknown outcome
 does today: meanwhile it holds the origin, blocks saving account choices from other
-tabs and defers settings sync for up to two minutes per run. Sending the page after
-the final submission for judgment, which settles such attempts, is the next step of
-ADR 0018 and is not implemented yet.
+tabs and defers settings sync for up to two minutes per run. The service can judge the
+page after the final submission, which settles such attempts, but the extension does
+not send it yet.
 
 A completion may also list up to four `absent` elements. The executor reports
 `authenticated` only when the completion target is unique on its path and every
@@ -604,11 +604,10 @@ vector search, or an agent framework without a demonstrated need. Use bound SQL
 parameters through the approved Drizzle integration, with Hono for API routing
 and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
-sync, enrollment and device management routes described in
-[its README](../services/api/README.md); inference and its request log
-([ADR 0012](adr/0012-inference-request-log.md)) remain planned. The generation route,
-its limits and how a generated recipe learns its completion target are decided in
-[ADR 0018](adr/0018-recipe-generation-route.md).
+sync, enrollment and device management routes and the recipe generation routes of
+[ADR 0018](adr/0018-recipe-generation-route.md), with their limits and the
+[ADR 0012](adr/0012-inference-request-log.md) request log, as described in
+[its README](../services/api/README.md).
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free

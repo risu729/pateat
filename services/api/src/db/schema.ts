@@ -165,3 +165,85 @@ export const inferenceCredentials = sqliteTable(
   },
   (table) => [check("inference_credentials_kind_check", sql`${table.kind} IN ('wif')`)],
 );
+
+/**
+ * Every inference request the service sent and its local outcome (ADR 0012), kept for
+ * 90 days (ADR 0018). A request refused locally before any model call is not logged.
+ * `request` is the instructions and input exactly as sent; vault values never reach
+ * inference, so they are never here.
+ */
+export const inferenceLog = sqliteTable(
+  "inference_log",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    role: text("role", { enum: ["generate", "judge"] }).notNull(),
+    provider: text("provider").notNull(),
+    modelId: text("model_id").notNull(),
+    origin: text("origin").notNull(),
+    path: text("path").notNull(),
+    request: text("request", { mode: "json" }).notNull(),
+    /** The validated result (a plan, a judgement or an abstention reason), or null. */
+    result: text("result", { mode: "json" }),
+    /** `ok`, `abstained` or the failure code. */
+    outcome: text("outcome").notNull(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    costMicroUsd: integer("cost_micro_usd").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("inference_log_owner_created").on(table.ownerId, table.createdAt),
+    index("inference_log_created").on(table.createdAt),
+    check("inference_log_role_check", sql`${table.role} IN ('generate', 'judge')`),
+  ],
+);
+
+/**
+ * Model calls and estimated spend per owner and period: a `YYYY-MM` row for the monthly
+ * spend stop and a `YYYY-MM-DD` row for the daily call limit (UTC).
+ */
+export const inferenceSpend = sqliteTable(
+  "inference_spend",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    period: text("period").notNull(),
+    calls: integer("calls").notNull(),
+    costMicroUsd: integer("cost_micro_usd").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.period] })],
+);
+
+/**
+ * The last generation attempt per page, for the 24-hour rule of ADR 0016. A page that
+ * continues a recipe is keyed by the revision it continues (0 for a first page), so the
+ * next form of a login that stays on one path is not mistaken for a retry (ADR 0018).
+ */
+export const generationAttempts = sqliteTable(
+  "generation_attempts",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    origin: text("origin").notNull(),
+    path: text("path").notNull(),
+    baseRevision: integer("base_revision").notNull(),
+    attemptedAt: integer("attempted_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.origin, table.path, table.baseRevision] }),
+  ],
+);
+
+/** One model call at a time per owner; a lock past `expiresAt` is abandoned. */
+export const inferenceLocks = sqliteTable("inference_locks", {
+  ownerId: text("owner_id")
+    .primaryKey()
+    .references(() => owners.id),
+  lockId: text("lock_id").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+});

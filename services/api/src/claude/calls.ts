@@ -1,0 +1,215 @@
+import type { GenerationUnavailableReason } from "@pateat/contracts";
+import {
+  claudeGeneration,
+  createClaudeGenerationModel,
+  estimateClaudeCostUsd,
+  unknownUsage,
+  type InferenceOutcome,
+} from "@pateat/inference";
+import { and, eq, inArray, lt, lte, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
+import { inferenceLocks, inferenceLog, inferenceSpend } from "../db/schema";
+import { resolveClaudeCredential } from "./credentials";
+
+// Every Claude call the service makes goes through here (ADR 0018): one call at a time
+// per owner, the monthly spend stop and the daily call limit, and the ADR 0012 request
+// log with its 90-day retention.
+
+/** Request bounds shared by both roles; the same as the approved benchmark run. */
+export const ROLE_LIMITS = { timeoutMs: 60_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
+export const MAX_OUTPUT_TOKENS = 8_192;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const CLAUDE_CALL_LIMITS = {
+  /** $150 a month (ADR 0014), estimated from returned usage. */
+  monthlyMicroUsd: 150_000_000,
+  /** Model calls a day (UTC), counting generation and judgement alike. */
+  dailyCalls: 50,
+  /** Longer than the token exchange and the model timeout together. */
+  lockMs: 90_000,
+  logRetentionMs: 90 * DAY_MS,
+};
+
+/**
+ * Charged before each call and corrected afterwards, so a request that never finishes
+ * still counts. Usage the provider does not report keeps this upper bound: a request
+ * holds at most `maxInputBytes` tokens.
+ */
+const RESERVED_MICRO_USD =
+  ROLE_LIMITS.maxInputBytes * claudeGeneration.rates.input +
+  MAX_OUTPUT_TOKENS * claudeGeneration.rates.output;
+
+type Db = DrizzleD1Database<Record<string, never>>;
+type CallEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
+type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
+
+export type ClaudeCall<T> = {
+  role: "generate" | "judge";
+  origin: string;
+  path: string;
+  /** What is sent: the instructions and the input, as ADR 0012 requires. */
+  request: unknown;
+  /** Checked under the owner's lock, before credentials are resolved. */
+  gate?: (db: Db, now: number) => Promise<GenerationUnavailableReason | undefined>;
+  /** Written together with the spend reservation, once a call is certain. */
+  reserved?: (db: Db, now: number) => BatchItem<"sqlite">[];
+  invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
+  /** The structured result to log for an `ok` outcome. */
+  logValue: (value: T) => unknown;
+};
+
+export type ClaudeCallResult<T> =
+  | { status: "unavailable"; reason: GenerationUnavailableReason }
+  | { status: "called"; outcome: InferenceOutcome<T> };
+
+const periods = (now: number) => {
+  const day = new Date(now).toISOString().slice(0, 10);
+  return [day.slice(0, 7), day] as const;
+};
+
+function addSpend(db: Db, ownerId: string, period: string, calls: number, micro: number) {
+  return db
+    .insert(inferenceSpend)
+    .values({ ownerId, period, calls, costMicroUsd: micro })
+    .onConflictDoUpdate({
+      target: [inferenceSpend.ownerId, inferenceSpend.period],
+      set: {
+        calls: sql`${inferenceSpend.calls} + ${calls}`,
+        costMicroUsd: sql`${inferenceSpend.costMicroUsd} + ${micro}`,
+      },
+    });
+}
+
+async function acquireLock(db: Db, ownerId: string, now: number) {
+  const lockId = crypto.randomUUID();
+  const expiresAt = now + CLAUDE_CALL_LIMITS.lockMs;
+  const result = await db
+    .insert(inferenceLocks)
+    .values({ ownerId, lockId, expiresAt })
+    .onConflictDoUpdate({
+      target: inferenceLocks.ownerId,
+      set: { lockId, expiresAt },
+      // An abandoned lock (its request ended without releasing it) is taken over.
+      setWhere: lte(inferenceLocks.expiresAt, now),
+    })
+    .run();
+  return result.meta.changes === 1 ? lockId : undefined;
+}
+
+async function limitReached(db: Db, ownerId: string, now: number) {
+  const [month, day] = periods(now);
+  const rows = await db
+    .select()
+    .from(inferenceSpend)
+    .where(and(eq(inferenceSpend.ownerId, ownerId), inArray(inferenceSpend.period, [month, day])));
+  const spent = rows.find((row) => row.period === month)?.costMicroUsd ?? 0;
+  const calls = rows.find((row) => row.period === day)?.calls ?? 0;
+  if (spent >= CLAUDE_CALL_LIMITS.monthlyMicroUsd) return "monthly-limit" as const;
+  if (calls >= CLAUDE_CALL_LIMITS.dailyCalls) return "daily-limit" as const;
+  return undefined;
+}
+
+/**
+ * Deletes log rows past the 90-day retention. Routine releases do not apply cron
+ * triggers, so this runs whenever a call is logged and on every recipe sync read.
+ */
+export function purgeExpiredLog(db: Db, now: number) {
+  return db
+    .delete(inferenceLog)
+    .where(lt(inferenceLog.createdAt, now - CLAUDE_CALL_LIMITS.logRetentionMs));
+}
+
+const credentialUnavailable = {
+  not_configured: "credentials-not-configured",
+  rejected: "credentials-rejected",
+  issuer_unavailable: "issuer-unavailable",
+  failed: "token-exchange-failed",
+} as const;
+
+/**
+ * Makes one role call for the authenticated owner. `ownerId` must come from the request
+ * scope. Nothing is reserved, logged or sent unless every check passes.
+ */
+export async function callClaude<T>(
+  env: CallEnv,
+  ownerId: string,
+  call: ClaudeCall<T>,
+): Promise<ClaudeCallResult<T>> {
+  const db = drizzle(env.DB);
+  const start = Date.now();
+  const lockId = await acquireLock(db, ownerId, start);
+  if (!lockId) return { status: "unavailable", reason: "busy" };
+  try {
+    const blocked = (await call.gate?.(db, start)) ?? (await limitReached(db, ownerId, start));
+    if (blocked) return { status: "unavailable", reason: blocked };
+
+    const credential = await resolveClaudeCredential(env, ownerId);
+    if (credential.status !== "ready")
+      return { status: "unavailable", reason: credentialUnavailable[credential.status] };
+
+    const now = Date.now();
+    const [month, day] = periods(now);
+    await db.batch([
+      addSpend(db, ownerId, month, 1, RESERVED_MICRO_USD),
+      addSpend(db, ownerId, day, 1, RESERVED_MICRO_USD),
+      ...(call.reserved?.(db, now) ?? []),
+    ]);
+
+    let outcome: InferenceOutcome<T>;
+    try {
+      outcome = await call.invoke(createClaudeGenerationModel(credential.credential));
+    } catch {
+      // The roles return their errors; this only guards the reservation's correction.
+      outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
+    }
+    const estimate = estimateClaudeCostUsd(outcome.usage);
+    const micro =
+      outcome.calls === 0
+        ? 0
+        : estimate === undefined
+          ? RESERVED_MICRO_USD * outcome.calls
+          : Math.ceil(estimate * 1_000_000);
+    const finished = Date.now();
+    const corrections = [
+      // The reservation's own periods, even when the call ended on the next UTC day.
+      addSpend(db, ownerId, month, outcome.calls - 1, micro - RESERVED_MICRO_USD),
+      addSpend(db, ownerId, day, outcome.calls - 1, micro - RESERVED_MICRO_USD),
+    ] as const;
+    // A request the role refused locally was never sent, so it is not logged (ADR 0012).
+    if (outcome.calls === 0) {
+      await db.batch(corrections);
+      return { status: "called", outcome };
+    }
+    await db.batch([
+      ...corrections,
+      db.insert(inferenceLog).values({
+        id: crypto.randomUUID(),
+        ownerId,
+        role: call.role,
+        provider: "anthropic",
+        modelId: claudeGeneration.modelId,
+        origin: call.origin,
+        path: call.path,
+        request: call.request,
+        result:
+          outcome.status === "ok"
+            ? call.logValue(outcome.value)
+            : outcome.status === "abstained"
+              ? { reason: outcome.reason }
+              : null,
+        outcome: outcome.status === "failed" ? outcome.error : outcome.status,
+        inputTokens: outcome.usage.inputTokens,
+        outputTokens: outcome.usage.outputTokens,
+        costMicroUsd: micro,
+        createdAt: finished,
+      }),
+      purgeExpiredLog(db, finished),
+    ]);
+    return { status: "called", outcome };
+  } finally {
+    await db
+      .delete(inferenceLocks)
+      .where(and(eq(inferenceLocks.ownerId, ownerId), eq(inferenceLocks.lockId, lockId)));
+  }
+}

@@ -109,7 +109,9 @@ export const app = new Hono<ApiEnv>()
   .all("/v1/settings", methodNotAllowed("GET, PUT"))
   .route("/v1/recipes", recipeRoutes)
   .all("/v1/recipes", methodNotAllowed("GET"))
+  .all("/v1/recipes/generate", methodNotAllowed("POST"))
   .all("/v1/recipes/:recipeId", methodNotAllowed("PUT"))
+  .all("/v1/recipes/:recipeId/completion", methodNotAllowed("POST"))
   .notFound((c) => apiError(c, 404, { error: "not_found" }))
   .onError((error, c) => {
     const ownerPage =

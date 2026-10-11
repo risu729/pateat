@@ -1,7 +1,8 @@
 # API
 
 This Worker is the optional private settings/recipe sync service with device enrollment.
-It has no vault implementation and no inference route yet, and it is not deployed. The
+It has no vault implementation, and it is not deployed. It generates recipes with the
+owner's own Claude credentials ([recipe generation](#recipe-generation)). The
 `pateat` D1 database was bootstrapped on 2026-10-11, and `cloudflare.config.ts` records
 its ID. cf deploy provisions declared bindings that lack an ID, so the release artifact
 refuses a build without one; a routine release never creates the database implicitly.
@@ -12,7 +13,8 @@ The release applies the committed migrations to that database before activation
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
 headers. API routes answer JSON, and owner pages answer script-free HTML that cannot be
-framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
+framed. Contracts live in `packages/contracts/src/sync.ts`, `enrollment.ts` and
+`generation.ts`.
 
 | Route | Purpose |
 | --- | --- |
@@ -23,6 +25,8 @@ framed. Contracts live in `packages/contracts/src/sync.ts` and `enrollment.ts`.
 | `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state |
 | `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
+| `POST /v1/recipes/generate` | Generate or extend this origin's recipe from one login page observation |
+| `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `GET /enroll?challenge=&label=` | Access page asking the owner to type the device's pairing code |
 | `POST /enroll` | Record the owner's approval and typed code for 10 minutes |
@@ -116,6 +120,43 @@ Custom OIDC), the issuer URL is `OIDC_ISSUER`, with discovery. The federation ru
 matches `subject_prefix` `owner:<ownerId>` exactly, may also match audience
 `https://api.anthropic.com`, and should use the `workspace:inference` scope.
 
+## Recipe generation
+
+[ADR 0018](../../docs/adr/0018-recipe-generation-route.md) routes, in
+`src/recipes/generate.ts`. Both answer 200 with a `status`: `recipe` or `signed-in`
+with the stored change, `abstained`, `rejected`, `challenge` or `unclear`, `failed` with
+a code, or `unavailable` with a reason when no model was called.
+
+- `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base? }`. Each
+  origin has one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of
+  the origin. Without `base`, an active recipe is returned as is; with `base`, the
+  page's steps are appended after the recipe's last `advance` step. A stale `base`
+  gets the current recipe back, a revoked recipe answers `recipe-revoked`, and a
+  `base` naming another recipe is 400. The model maps the slots, the plan is checked
+  with `validatePagePlan`, and the steps are stored with a conditional write.
+- `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, observation }`
+  for the page after the final `submit` step of that revision, on the recipe's origin.
+  The login paths come from the stored recipe. A `signed-in` marker passes
+  `addCompletion` and is stored as `completion` in the next revision.
+
+`src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
+(`busy` otherwise), refuses past $150 of estimated spend a month or 50 calls a day (UTC,
+both roles counted), and only then resolves credentials: missing, refused or failed
+credentials answer `credentials-not-configured`, `credentials-rejected`,
+`issuer-unavailable` or `token-exchange-failed`. Generation also re-reads the recipe
+under the lock, answering with a recipe another device stored meanwhile, and refuses a
+page tried in the previous 24 hours, abstentions and failures included. The attempt key
+is the origin, the path and the revision being continued (0 for a first page). A request
+that passes every check is an attempt, including one the role then refuses locally for
+its size, which would be refused again. Each call first reserves its upper bound (64 KiB
+of input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and then
+corrects it from reported usage; usage the provider does not report keeps the
+reservation. The `inference_log` row stores the provider and model, the instructions and
+input as sent, the structured result, the outcome code, usage and estimated cost; a
+request refused locally before any model call is not logged. Rows older than 90 days are
+deleted whenever a call is logged and on every `GET /v1/recipes`, because routine
+releases do not apply cron triggers.
+
 ## Schema and tests
 
 `src/db/schema.ts` is the Drizzle schema. Run `mise run generate:server-migrations`
@@ -124,7 +165,8 @@ fails when they drift. Vitest applies the committed migrations to a local Minifl
 database. Sync tests seed synthetic owners and devices directly; enrollment tests sign
 synthetic Access tokens with keys generated per run. Claude credential tests use a
 synthetic issuer key generated per run and a fake token endpoint; they never reach
-Anthropic. The concurrency cases interleave
+Anthropic. Generation tests also answer the Messages API locally with synthetic plans
+and judgements. The concurrency cases interleave
 requests in one local runtime; they do not demonstrate hosted D1 behavior.
 
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds
@@ -134,7 +176,8 @@ artifact smoke test executes that bundle in workerd. None of this demonstrates a
 deployed service or the service acceptance gates in
 [the delivery plan](../../docs/delivery.md).
 
-The Worker bundles `packages/contracts`, which is GPL-3.0-only. Running it is not
+The Worker bundles `packages/contracts` and `packages/inference`, which are
+GPL-3.0-only, and the Apache-2.0 AI SDK. Running it is not
 conveying it, but assess that combination as [LICENSING.md](../../LICENSING.md)
 requires before distributing a built Worker.
 
