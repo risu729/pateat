@@ -1081,8 +1081,20 @@ other session IDs in a path, such as Magento's `/referer/<base64>/`.
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
 locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
 title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
-strings, and refuses a path that carries a session ID (matrix parameters such as
-`;jsessionid=`, or ASP.NET segments such as `/(S(...))/`). Label text is rendered text
+strings, and refuses a path that may carry a session ID or another token: a segment,
+percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET part such as
+`(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
+`/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
+contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
+that contains a digit and switches case or between letters and digits often. Each
+segment is checked as it is and percent-decoded up to three times.
+`extractSignedInObservation` refuses the same paths. The rule is a heuristic: it misses
+tokens shorter than 16 characters and some plain-looking ones, and it also refuses paths
+that carry no session, such as Microsoft Entra tenant IDs
+(`/<tenant UUID>/oauth2/v2.0/authorize`), mixed-case Azure AD B2C policy names such as
+`B2C_1A_SignUpOrSignIn`, Okta authorization server IDs and long numeric IDs, so
+generation is not offered there. On the Formasaurus pages of the real-page corpus it
+refused 10 of 954 paths (2026-10-11). Label text is rendered text
 only: scripts, styles, `<noscript>`, SVG, hidden elements and select or text area
 contents never contribute. Only forms that hold a field count, or every control outside
 a form when a field is outside one. There the candidates are visible text, email, tel,

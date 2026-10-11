@@ -692,10 +692,46 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates[0]!.label).toBe("User ID");
   });
 
-  it("refuses ASP.NET cookieless session paths", () => {
-    page(`<input id="u">`);
-    history.replaceState(null, "", "/(S(lit3py55t21z5))/default.aspx");
-    expect(extractLoginObservation()).toEqual({ ok: false, reason: "unsupported-page" });
+  it("refuses paths that may carry a session ID or token, on both extractors", () => {
+    page(`<input id="u"><input id="p" type="password"><button id="go">Log in</button>`);
+    const magento = btoa("https://shop.example/en/?SID=synthetic0session1&___SID=U")
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replaceAll("=", ",");
+    for (const refused of [
+      "/(S(lit3py55t21z5))/default.aspx",
+      `/customer/account/login/referer/${magento}/`,
+      // An `=`, such as base64 padding.
+      "/login/referer/Lw==/",
+      "/login/next/%2Faccount%3Fsid%3Dabc/",
+      "/login/next/%252Faccount%253Fsid%253Dabc/",
+      "/reset-password/V1StGXR8_Z5jdHi6B-myT",
+      "/login/%3Bjsessionid%3Dabc",
+      "/session/123e4567-e89b-12d3-a456-426614174000/login",
+      "/s/0123456789abcdef0123456789abcdef/login",
+      "/login/sid1234567890123456",
+    ]) {
+      history.replaceState(null, "", refused);
+      expect(extractLoginObservation(), refused).toEqual({ ok: false, reason: "unsupported-page" });
+      expect(extractSignedInObservation(), refused).toEqual({
+        ok: false,
+        reason: "unsupported-page",
+      });
+    }
+    for (const allowed of [
+      "/customer/account/login/",
+      "/ib/login-2fa-step2",
+      "/en-us/internationalization/signin",
+      "/user/12345/login",
+      "/login/%E3%83%AD%E3%82%B0%E3%82%A4%E3%83%B3",
+      "/login/%E3%83",
+      "/campaign-2024-summer-login",
+      "/tenant.onmicrosoft.com/B2C_1_signupsignin1/oauth2",
+    ]) {
+      history.replaceState(null, "", allowed);
+      expect(extractLoginObservation().ok, allowed).toBe(true);
+      expect(extractSignedInObservation().ok, allowed).toBe(true);
+    }
   });
 
   it("detects language without counting redaction placeholders", () => {
