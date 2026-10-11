@@ -51,6 +51,11 @@ When the generated recipe is used, and the service route, are decided in
 Implementation choices that follow from this decision, made on 2026-10-11 without a
 new owner decision:
 
+- A page whose path may carry a session ID or another token, such as `;jsessionid=`,
+  an encoded query or a long letter-and-digit run, is never observed or sent, so the
+  path never reaches the service or the [ADR 0012](0012-inference-request-log.md)
+  request log
+  ([AI evaluation harness progress](../plan.md#ai-evaluation-harness-progress)).
 - Only a page that shows such an input within 10 seconds of loading is sent, the same
   wait a login step gets; a form shown later, for example after a click, is not.
 - The vault match is checked only once the input shows, and only matching items'

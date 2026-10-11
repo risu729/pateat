@@ -16,8 +16,8 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)) are implemented and tested
   in Playwright Chromium only.
 - M3: a password login on a real site, individual MFA methods, other KDFs, V2 keys and
-  organization items on a real account, refresh against a real account, real
-  host-access revocation, and the site-access warning and prompt in installed Chrome
+  organization items on a real account, and the site-access warning and prompt in
+  installed Chrome
   ([remaining M3 integration gaps](#remaining-m3-integration-gaps)).
 - M4: sync against the deployed service, the
   [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing, synced item
@@ -499,8 +499,12 @@ after a full profile reopen, and local forget and permission removal with offlin
 kept. These use synthetic providers.
 An
 [installed-Chrome check](research/2026-10-10-feasibility.md#installed-chrome-provider-session-check-2026-10-10)
-confirmed a password-free Sync after a full browser restart with the synthetic probe.
-Refresh against a real account and real host-access revocation remain unverified.
+confirmed a password-free Sync after a full browser restart with the synthetic probe. On
+2026-10-11 the owner's installed Chrome confirmed, with the real Cloud US account, two
+password-free refreshes separated by a full browser restart, and that changing site
+access to "On click" cleared only the sync session while the local vault and automatic
+unlock stayed
+([evidence](research/2026-10-10-feasibility.md#real-account-refresh-and-host-access-revocation-2026-10-11)).
 
 ## Service sync progress
 
@@ -982,6 +986,11 @@ The second owner-approved run (2026-10-10, main `d105f76`, cap $2) gave:
 must abstain still do. With one sample per case this cannot show that the refusal will
 not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
+- Login routes and second-factor pages chosen per account
+  ([ADR 0027](adr/0027-per-account-login-routes.md)), approved by the owner on
+  2026-10-11: custom-field names and Text shapes in generation, page handlers for a
+  security key and TOTP learned by the judge, start-page routes (password variants,
+  passkey, SSO), in the PR order the ADR lists.
 - Continuing a generated recipe on the page after an `advance` step, through the
   generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
   extension already sends a recipe's first page under the automatic send rule of
@@ -1042,7 +1051,13 @@ segments. The corpus holds 78 plans and 17 abstentions. Two pages are Japanese
 which also marks one Chinese page `ja` and every other non-Japanese page `en`. The owner
 chose on 2026-10-11 to publish the derived page text (titles, headings and labels) as
 is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
-sites appear twice with the same login form.
+sites appear twice with the same login form. It was regenerated on 2026-10-11 with the
+extractor of main `84df607`, which locates links by their text (#184) and observes
+script buttons (#206); the first import used an extractor from before #184. The cases,
+their plans and their abstentions are unchanged. The observations gained 132 links that
+only their text can locate, which the probe now resolves among links as the executor
+does; candidate IDs shifted with them. No observed candidate in a Formasaurus login form
+is a script button. The 132 link texts were reviewed for personal data and hold none.
 `mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
 it; `--from` and `--count` run a slice of the corpus in its fixed order, so it can be
 run in batches. Each case in the report carries the plan in candidate IDs.
@@ -1054,7 +1069,8 @@ password that an identifier may fill and that is not marked as a one-time code, 
 its first button after the password, or else its first button. Without such a form,
 the one form whose only fill field is marked `username` or `email` advances. It reads no
 labels, and its inputs pass the same schema and completeness gate as generation. On
-2026-10-11, with the corpus as merged in `e5b4244`, it scored:
+2026-10-11 it scored the same on the corpus as merged in `e5b4244` and as regenerated
+from `84df607`:
 
 | Corpus | Correct | Correct abstentions | Missed | False submits | Semantic accuracy |
 | --- | --- | --- | --- | --- | --- |
@@ -1069,7 +1085,8 @@ pages where they fail.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
-one, which inference rejects without a call; 126 were complete. In 62 of the 109, the
+one, which inference rejects without a call; 126 were complete. These totals were the
+same on main `84df607`. In 62 of the 109, the
 only shown select, radio button, text area or other unsupported input was outside the
 login form, for example a search form's category select. In 42 none was shown, so a
 control without a unique `id`, `name` or `data-testid` is the likely cause (inferred,
@@ -1081,8 +1098,20 @@ other session IDs in a path, such as Magento's `/referer/<base64>/`.
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
 locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
 title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
-strings, and refuses a path that carries a session ID (matrix parameters such as
-`;jsessionid=`, or ASP.NET segments such as `/(S(...))/`). Label text is rendered text
+strings, and refuses a path that may carry a session ID or another token: a segment,
+percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET part such as
+`(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
+`/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
+contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
+that contains a digit and switches case or between letters and digits often. Each
+segment is checked as it is and percent-decoded up to three times.
+`extractSignedInObservation` refuses the same paths. The rule is a heuristic: it misses
+tokens shorter than 16 characters and some plain-looking ones, and it also refuses paths
+that carry no session, such as Microsoft Entra tenant IDs
+(`/<tenant UUID>/oauth2/v2.0/authorize`), mixed-case Azure AD B2C policy names such as
+`B2C_1A_SignUpOrSignIn`, Okta authorization server IDs and long numeric IDs, so
+generation is not offered there. On the Formasaurus pages of the real-page corpus it
+refused 10 of 954 paths (2026-10-11). Label text is rendered text
 only: scripts, styles, `<noscript>`, SVG, hidden elements and select or text area
 contents never contribute. Only forms that hold a field count, or every control outside
 a form when a field is outside one. There the candidates are visible text, email, tel,

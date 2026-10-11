@@ -725,7 +725,10 @@ Extract an allowlisted observation before filling. The proposed observation cont
 lives in `packages/contracts` and the offline role adapters in `packages/inference`;
 see [AI evaluation harness progress](plan.md#ai-evaluation-harness-progress).
 Exclude values, hidden inputs,
-raw HTML, screenshots, query strings, and unrelated page text by default. Labels
+raw HTML, screenshots, query strings, and unrelated page text by default. A page whose
+path may carry a session ID or another token is not observed, so such a path never
+reaches the service or its request log
+([AI evaluation harness progress](plan.md#ai-evaluation-harness-progress)). Labels
 can contain private data too: sanitize and bound them, with privacy fixtures and
 an abstention path when a useful safe observation cannot be constructed. The owner
 chose on 2026-10-11 to redact observed text before it is sent: email-like strings,

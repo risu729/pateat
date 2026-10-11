@@ -1,8 +1,9 @@
 # ADR 0008: Persist provider sync sessions beside the vault cache
 
 Status: accepted and implemented in the provider-session PR. Native browser acceptance
-uses synthetic providers; real-account refresh behavior is unverified. Amended on
-2026-10-11 by the owner's
+uses synthetic providers; real-account refresh and host-access revocation were confirmed
+in installed Chrome on 2026-10-11 (see the
+[plan](../plan.md#provider-session-progress)). Amended on 2026-10-11 by the owner's
 [compatibility before release](../development.md#compatibility-before-release)
 decision: the version 1 database is no longer upgraded in place. Amended again on
 2026-10-11 by the owner's decision to restore the session after a refresh that got no

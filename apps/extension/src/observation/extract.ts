@@ -369,6 +369,52 @@ function inShadow(shadow: ShadowRoot, selector: string): boolean {
   );
 }
 
+/**
+ * True for a run whose letters and digits, ignoring `-` and `_`, switch between digits,
+ * lower case and upper case at least once every three or so characters, as a random
+ * base64url token does and a slug such as `campaign-2024-summer-login` does not.
+ */
+function scrambled(run: string): boolean {
+  const kinds = [...run.replace(/[-_]/gu, "")].map((character) =>
+    /\d/u.test(character) ? 0 : /[a-z]/u.test(character) ? 1 : 2,
+  );
+  const changes = kinds.filter((kind, at) => at > 0 && kind !== kinds[at - 1]).length;
+  return changes >= run.length * 0.3;
+}
+
+/**
+ * True for a path that may carry a session ID or another token, which the observation
+ * would send to the service and its request log. Any segment counts, as it is and
+ * percent-decoded up to three times, when it holds a matrix parameter such as
+ * `;jsessionid=`, an ASP.NET cookieless part such as `(S(lit3py55t21z5))`, a query
+ * such as Magento's base64-encoded `referer/<URL with ?SID=...>` (`?`, `&` or `=`), a
+ * UUID, a run of 16 or more letters and digits that contains a digit, or a run of 16 or
+ * more letters, digits, `-` and `_` that contains a digit and switches between them as
+ * often as a base64url token does. Short or plain-looking tokens are missed.
+ */
+function tokenPath(pathname: string): boolean {
+  return pathname.split("/").some((raw) => {
+    const forms = [raw];
+    for (let round = 0; round < 3; round += 1) {
+      try {
+        const decoded = decodeURIComponent(forms.at(-1)!);
+        if (decoded === forms.at(-1)) break;
+        forms.push(decoded);
+      } catch {
+        // A malformed escape is checked as it is.
+        break;
+      }
+    }
+    return forms.some(
+      (segment) =>
+        /[;?&=]|\([A-Z]\(/u.test(segment) ||
+        /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/iu.test(segment) ||
+        (segment.match(/[A-Za-z\d]{16,}/gu) ?? []).some((run) => /\d/u.test(run)) ||
+        (segment.match(/[\w-]{16,}/gu) ?? []).some((run) => /\d/u.test(run) && scrambled(run)),
+    );
+  });
+}
+
 function language(texts: readonly string[]): LoginObservation["language"] {
   const joined = texts.join(" ").replace(/\[(?:email|masked|number)\]/gu, " ");
   const japanese = joined.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu);
@@ -438,10 +484,7 @@ export function extractLoginObservation(
   document: Document = globalThis.document,
 ): ObservationResult {
   const location = document.location;
-  // Session IDs in the path: matrix parameters such as `;jsessionid=`, and ASP.NET
-  // cookieless segments such as `/(S(lit3py55t21z5))/`.
-  if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
-    return { ok: false, reason: "unsupported-page" };
+  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
 
   const found = [...document.querySelectorAll(observed)]
     .map(describe)
@@ -574,8 +617,7 @@ export function extractSignedInObservation(
   document: Document = globalThis.document,
 ): ObservationResult {
   const location = document.location;
-  if (!location || /;|\/\([A-Z]\(/u.test(location.pathname))
-    return { ok: false, reason: "unsupported-page" };
+  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
 
   const found = [...document.querySelectorAll(observed)]
     .map(describe)
