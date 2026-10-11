@@ -1,5 +1,3 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { csrf } from "hono/csrf";
@@ -8,13 +6,13 @@ import { requireAccess } from "../access";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
 import {
+  readWifCredential,
   resolveClaudeCredential,
   saveWifCredential,
   wifIdentifiersSchema,
   type WifIdentifiers,
 } from "../claude/credentials";
 import { ASSERTION_AUDIENCE, ownerSubject, readIssuerConfig } from "../claude/issuer";
-import { inferenceCredentials } from "../db/schema";
 import { findOwner } from "../owners";
 import { message, page } from "../pages";
 import { requireFormBody } from "../validation";
@@ -48,20 +46,9 @@ const STATUS_TEXT = {
   failed: "The token exchange did not complete. Try again later.",
 } as const;
 
-async function storedValues(db: D1Database, ownerId: string): Promise<FormValues | null> {
-  const [row] = await drizzle(db)
-    .select()
-    .from(inferenceCredentials)
-    .where(eq(inferenceCredentials.ownerId, ownerId))
-    .limit(1);
-  return row
-    ? {
-        federationRuleId: row.federationRuleId,
-        organizationId: row.organizationId,
-        serviceAccountId: row.serviceAccountId,
-        workspaceId: row.workspaceId,
-      }
-    : null;
+function validFor(milliseconds: number) {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  return seconds < 120 ? `${seconds} seconds` : `${Math.round(seconds / 60)} minutes`;
 }
 
 function settingsPage(
@@ -146,7 +133,7 @@ export const manageClaudeRoutes = new Hono<ApiEnv>()
   .get("/", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     if (!ownerId) return message(c, 404, "Not found", "Pair a device with this account first.");
-    return settingsPage(c, 200, ownerId, await storedValues(c.env.DB, ownerId));
+    return settingsPage(c, 200, ownerId, await readWifCredential(c.env.DB, ownerId));
   })
   .post("/", requireFormBody, async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
@@ -172,8 +159,8 @@ export const manageClaudeRoutes = new Hono<ApiEnv>()
     // The token itself is discarded; only the outcome is shown.
     const notice =
       result.status === "ready"
-        ? `Anthropic issued a token valid for ${Math.round((result.expiresAt - Date.now()) / 60_000)} minutes.`
+        ? `Anthropic issued a token valid for ${validFor(result.expiresAt - Date.now())}.`
         : STATUS_TEXT[result.status] +
           ("httpStatus" in result && result.httpStatus ? ` (HTTP ${result.httpStatus})` : "");
-    return settingsPage(c, 200, ownerId, await storedValues(c.env.DB, ownerId), notice);
+    return settingsPage(c, 200, ownerId, await readWifCredential(c.env.DB, ownerId), notice);
   });

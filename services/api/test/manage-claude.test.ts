@@ -1,7 +1,10 @@
 import { env, exports } from "cloudflare:workers";
+import { Hono } from "hono";
 import { Jwt } from "hono/utils/jwt";
 import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import type { ApiEnv } from "../src/auth";
+import { manageClaudeRoutes } from "../src/routes/manage-claude";
 
 // Synthetic Access key, identities and federation identifiers only. Anthropic's token
 // endpoint is answered locally; no request leaves the test.
@@ -119,6 +122,52 @@ describe("Claude settings page", () => {
     expect(tokenRequests).toHaveLength(0);
   });
 
+  it("guards itself without the app-wide /manage middleware", async () => {
+    const { ownerId, access } = await signedInOwner();
+    const alone = new Hono<ApiEnv>().route("/manage/claude", manageClaudeRoutes);
+    const send = (path: string, init: RequestInit) => alone.request(`${ORIGIN}${path}`, init, env);
+    const form = { "Content-Type": "application/x-www-form-urlencoded" };
+    expect((await send("/manage/claude", {})).status).toBe(401);
+    expect(
+      (
+        await send("/manage/claude/test", {
+          method: "POST",
+          headers: { ...form, Origin: ORIGIN },
+          body: "",
+        })
+      ).status,
+    ).toBe(401);
+    const crossOrigin = await send("/manage/claude", {
+      method: "POST",
+      headers: { ...form, Origin: "https://attacker.example", "Cf-Access-Jwt-Assertion": access },
+      body: new URLSearchParams(ids),
+    });
+    expect(crossOrigin.status).toBe(403);
+    const oversized = await send("/manage/claude", {
+      method: "POST",
+      headers: { ...form, Origin: ORIGIN, "Cf-Access-Jwt-Assertion": access },
+      body: new URLSearchParams({ ...ids, padding: "x".repeat(5_000) }),
+    });
+    expect(oversized.status).toBe(413);
+    expect(await storedRow(ownerId)).toBeNull();
+    expect(tokenRequests).toHaveLength(0);
+  });
+
+  it("answers other methods with 405", async () => {
+    const { access } = await signedInOwner();
+    const test = await request("/manage/claude/test", access);
+    expect(test.status).toBe(405);
+    expect(test.headers.get("Allow")).toBe("POST");
+    const put = await request("/manage/claude", access, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify(ids),
+    });
+    expect(put.status).toBe(405);
+    expect(put.headers.get("Allow")).toBe("GET, POST");
+    expect((await request("/manage/claude", access, { method: "HEAD" })).status).toBe(200);
+  });
+
   it("shows the Console values for the signed-in owner without scripts", async () => {
     const { ownerId, access } = await signedInOwner();
     const response = await request("/manage/claude", access);
@@ -198,6 +247,12 @@ describe("Claude settings page", () => {
     expect(body).not.toContain("sk-ant-oat01");
     const assertion = tokenRequests.at(-1)!["assertion"]!;
     expect(Jwt.decode(assertion).payload["sub"]).toBe(`owner:${ownerId}`);
+
+    tokenResponse = () =>
+      Response.json({ access_token: "sk-ant-oat01-short", token_type: "Bearer", expires_in: 20 });
+    expect(await (await postForm("/manage/claude/test", access, {})).text()).toMatch(
+      /valid for (19|20) seconds\./,
+    );
 
     tokenResponse = () => new Response("{}", { status: 401 });
     expect(await (await postForm("/manage/claude/test", access, {})).text()).toContain(

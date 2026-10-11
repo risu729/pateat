@@ -649,6 +649,10 @@ extension's settings page for the data the service holds
   `PUT /v1/recipes/:recipeId`. Settings that still use device-local IDs (connections,
   item selection and field exclusions) are not shown until their device-independent
   form is decided.
+
+  Claude credentials are entered on `/manage/claude`, a temporary script-free page
+  ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,
+  but its page for Claude credentials is not designed yet.
 - Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
   routes accept only device credentials. The API shares the owner-scoped read and
   write code of `/v1/settings` and `/v1/recipes/:recipeId`. Writes carry the revision

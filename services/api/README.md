@@ -76,9 +76,9 @@ own Claude credentials. `src/claude/` holds the only path from an owner to a cre
   identifiers of the owner's own federation rule: `fdrl_…`, the organization UUID,
   `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on
   `/manage/claude`, a temporary script-free page that the React web UI will replace.
-  It applies its own Access, same-origin and body-size checks instead of relying on
-  the app-wide `/manage/*` middleware. Its test button only exchanges a token, which
-  calls no model and costs nothing.
+  It also applies its own Access, same-origin and body-size checks, so it stays
+  guarded if the app-wide `/manage/*` middleware changes. Its test button only
+  exchanges a token, which calls no model and costs nothing.
 - `resolveClaudeCredential(env, ownerId)` signs a fresh assertion
   `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`
   that lasts five minutes. It exchanges the assertion once at
