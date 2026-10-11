@@ -190,13 +190,15 @@ const maxSavedEntries = 1000;
  * binding's origin and the binding itself, each only when none exists yet. A saved
  * choice therefore keeps winning, and a binding written by the owner or by AI
  * generation is never replaced. When the origin's saved default names another account,
- * or a list is full, nothing is saved. A new default names the binding's provider
- * account and item and copies its display names. Returns the same object when nothing
- * changes, so the caller can skip the write.
+ * nothing is saved unless `replace` is set: an account the user picked to become the
+ * default (ADR 0021) replaces it. When a list is full, nothing is saved. A new default
+ * names the binding's provider account and item and copies its display names. Returns
+ * the same object when nothing changes, so the caller can skip the write.
  */
 export function saveLoginChoice(
   settings: LocalSettings,
   binding: SavedLoginBinding,
+  options: { replace?: boolean } = {},
 ): LocalSettings {
   const saved = settings.siteDefaults.find((site) => site.origin === binding.origin);
   const sameAccount =
@@ -204,10 +206,11 @@ export function saveLoginChoice(
     saved.itemId === binding.itemId &&
     saved.provider === binding.provider &&
     saved.userId === binding.userId;
-  if (saved && !sameAccount) return settings;
+  if (saved && !sameAccount && !options.replace) return settings;
+  const kept = sameAccount ? saved : undefined;
   const { bindings } = settings;
   const hasBinding = bindings.some((entry) => sameLoginBinding(entry, binding));
-  if (saved && hasBinding) return settings;
+  if (kept && hasBinding) return settings;
   if (
     (!saved && settings.siteDefaults.length >= maxSavedEntries) ||
     (!hasBinding && bindings.length >= maxSavedEntries)
@@ -215,10 +218,10 @@ export function saveLoginChoice(
     return settings;
   return {
     ...settings,
-    siteDefaults: saved
+    siteDefaults: kept
       ? settings.siteDefaults
       : [
-          ...settings.siteDefaults,
+          ...settings.siteDefaults.filter((site) => site.origin !== binding.origin),
           {
             origin: binding.origin,
             provider: binding.provider,

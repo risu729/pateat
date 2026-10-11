@@ -355,8 +355,9 @@ a single eligible provider URI match is used and saved only after the login is
 log out the current session. No match or several matches require a choice rather than
 trying accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md)
 the choice is made in the toolbar popup for the refused document and may be one-time.
-Not implemented yet: after a finished login in a tab, the recipe's first step appearing
-again in that tab asks for a choice again instead of logging in. Automatic
+After a finished login in a tab, the recipe's first step appearing again in that tab's
+page asks for a choice again instead of logging in, with the saved default first; the
+passkey half of this is not implemented yet. Automatic
 logout/relogin when the user picks another account while logged in stays later. Cookies
 may be shared across
 tabs even during initial login. The first executor conservatively locks an origin

@@ -212,7 +212,10 @@ export function SiteApp({
           ) ?? { ...entry, uri: true, passkey: false },
       ),
     };
-    const pickOptions = siteAccountOptions(catalog, matches, false, saved.snapshot.settings);
+    // After a logout the saved default is listed first (ADR 0021 D).
+    const pickOptions = siteAccountOptions(catalog, matches, false, saved.snapshot.settings).sort(
+      (a, b) => Number(b.value === currentValue) - Number(a.value === currentValue),
+    );
     const shownPick = pickOptions.some((entry) => entry.value === picked)
       ? picked
       : (pickOptions[0]?.value ?? "");
@@ -268,12 +271,14 @@ export function SiteApp({
 
     body = (
       <>
-        {offered && pickOptions.length > 1 && (
+        {offered && pickOptions.length > (offered.logout ? 0 : 1) && (
           <section aria-labelledby="popup-choice-heading">
             <h2 id="popup-choice-heading">Choose an account</h2>
             <p>
-              {pickOptions.length} vault items match this page, so Pateat did not log in. It logs in
-              with the one you choose, starting again from the first step on this page.
+              {offered.logout
+                ? "You logged out of this site in this tab, so Pateat did not log in again."
+                : `${pickOptions.length} vault items match this page, so Pateat did not log in.`}{" "}
+              It logs in with the one you choose, starting again from the first step on this page.
             </p>
             <fieldset className="popup-pick-list">
               <legend className="visually-hidden">Account to log in with</legend>
@@ -288,6 +293,7 @@ export function SiteApp({
                     onChange={() => setPicked(option.value)}
                   />
                   {option.label} ({option.connectionLabel})
+                  {option.value === currentValue ? " · default" : ""}
                 </label>
               ))}
             </fieldset>

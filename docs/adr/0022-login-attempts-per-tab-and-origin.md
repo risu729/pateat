@@ -31,10 +31,12 @@ fix them now; the SSO policy itself is recorded separately.
   attempt). A tab may hold records for several origins; all are deleted when the tab
   closes.
 - **A page resumes only its own origin's record**, also an ended one. A new attempt
-  starts only when the tab has no record for that origin. Returning to an origin the tab
-  already tried therefore never submits again, which keeps a loop such as site →
-  identity provider error → site → identity provider from resubmitting credentials. The
-  `account-switched` exception of ADR 0016 stays.
+  starts only when the tab has no record for that origin. A finished top-level record
+  whose login form's first step shows again is released by the logout detection of ADR
+  0021 (part D), which then asks for an account instead of submitting. Returning to an
+  origin the tab already tried therefore never submits again, which keeps a loop such as
+  site → identity provider error → site → identity provider from resubmitting
+  credentials. The `account-switched` exception of ADR 0016 stays.
 - **A tab still runs one attempt at a time.** When a new top-level page of another
   origin arrives while the tab's top-level attempt has not ended, that attempt ends
   first (`NAVIGATED`) and keeps its record; then the new top-level page is handled like

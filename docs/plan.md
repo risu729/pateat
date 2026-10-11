@@ -1110,9 +1110,25 @@ the attempt it started, wins over a saved default there, and still has to match 
 page and pass every policy check; a pick that starts nothing is dropped, so the form's
 next appearance asks again. "Make it the default for this site" (on by default,
 off in a private window) saves the pick through the existing choice save after
-`authenticated`. The passkey chooser window is implemented: a request matching several
-passkeys, none of them the site default, opens `passkey-picker.html` to choose one once
-or as the default. Choosing again after a logout (part D) is not built yet.
+`authenticated`; it replaces another saved default only when the user picked it. The
+passkey chooser window is implemented: a request matching several passkeys, none of them
+the site default, opens `passkey-picker.html` to choose one once or as the default.
+
+Choosing again after a logout (part D, passwords) is built. After a login in a tab ended
+as `authenticated`, or `blocked` with `credential-rejected`, `wrong-account`,
+`left-origin` or `interrupted`, a page of that origin in the tab's top frame answers
+`logged-in` with the first steps to watch, and the content script keeps watching, also
+in the document that logged in once its status reports the end; there a form that is
+still showing does not count until it shows again. When a first step then shows, the
+tab's record for that origin is released and the tab asks with reason `logged-out`: the
+badge and popup list the saved default first and every URI match, even a single one. The
+tab and origin are kept in `pateat.login-logouts.v1` in `chrome.storage.session`, so a
+reload or a restarted worker asks again until a pick logs in. Another tab's record still
+blocks the site with `origin-busy`, and the tab's tooltip says so; while the tab asks,
+other tabs of the site are refused `origin-busy` as well. If the URI matches cannot be
+listed, the saved default alone is offered. A login whose result is still `reconciling`
+is resumed, not taken as a logout. Frame logins and sites whose logout page shows only a
+password step are not detected. The passkey half of part D belongs to part C.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

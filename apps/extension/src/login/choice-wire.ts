@@ -25,11 +25,14 @@ export const choiceResponseSchema = v.variant("ok", [
     ok: v.literal(true),
     origin: v.string(),
     documentId: id,
+    /** Several match, or (`logout`) any one after a logout, with the saved default first. */
     candidates: v.pipe(
       v.array(v.strictObject({ connectionId: id, itemId: id })),
-      v.minLength(2),
+      v.minLength(1),
       v.maxLength(100),
     ),
+    /** The tab logged out of the site after a Pateat login (ADR 0021 D). */
+    logout: v.optional(v.literal(true)),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-choice") }),
 ]);

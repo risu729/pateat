@@ -303,6 +303,24 @@ describe("automatic account choice", () => {
     expect(saveLoginChoice(saved, other)).toBe(saved);
     expect(saveLoginChoice(saved, { ...chosen, userId: "other-account" })).toBe(saved);
 
+    // An account picked to become the default replaces another saved default for the
+    // origin only; other sites' defaults and existing bindings stay.
+    const elsewhere = {
+      ...saved,
+      siteDefaults: [
+        ...saved.siteDefaults,
+        { origin: "https://other.example", provider: "bitwarden", userId: "u", itemId: "i" },
+      ],
+    };
+    const replaced = saveLoginChoice(elsewhere, other, { replace: true });
+    expect(replaced.siteDefaults).toEqual([
+      { origin: "https://other.example", provider: "bitwarden", userId: "u", itemId: "i" },
+      expect.objectContaining({ origin, itemId: other.itemId, itemName: other.itemName }),
+    ]);
+    expect(replaced.bindings).toEqual([chosen, other]);
+    expect(v.is(localSettingsSchema, replaced)).toBe(true);
+    expect(saveLoginChoice(saved, chosen, { replace: true })).toBe(saved);
+
     // A saved choice without a binding gains one.
     const unbound = { ...saved, bindings: [] };
     expect(saveLoginChoice(unbound, chosen).bindings).toEqual([chosen]);
