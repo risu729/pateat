@@ -297,16 +297,19 @@ this rule; compatibility from then on needs its own decision.
 
 ## Dependency policy
 
-Renovate inherits the pinned `risu729/renovate-config` preset, matching the other
-owner repositories. Its GitHub App covers this repository; scanning the package
-files starts after `renovate.json` reaches the default branch. Cloudflare build
-and test dependencies are grouped and allow prereleases; `@cloudflare/vite-plugin`
-follows its `beta` dist-tag, because its `2.0.0-beta.sha-<commit>` versions do not
-sort by release date. TypeScript, its shared preset and type packages are grouped so
-peer requirements can be reviewed together. Each Python minor gets its own update:
-mise installs pypi tools such as yamllint without building, and a new Python minor
-can lack wheels for them (3.15.0 had no PyYAML 6.0.3 wheel). Updates still have to
-pass the repository's required checks.
+Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner
+repositories. Its GitHub App covers this repository; scanning the package files starts
+after `renovate.json` reaches the default branch. Cloudflare build and test dependencies
+are grouped and allow prereleases. `@cloudflare/vite-plugin` versions are
+`2.0.0-beta.sha-<commit>`, which semver compares by the hash text, not by release date,
+and Renovate has no release-date ordering. It follows the `beta` dist-tag with
+`rollbackPrs`: `followTag` alone never offers a tagged beta whose hash sorts below the
+current one, while `rollbackPrs` offers it as a rollback update. Rollback updates are
+titled as updates but are not automerged. TypeScript, its shared preset and type
+packages are grouped so peer requirements can be reviewed together. Each Python minor
+gets its own update: mise installs pypi tools such as yamllint without building, and a
+new Python minor can lack wheels for them (3.15.0 had no PyYAML 6.0.3 wheel). Updates
+still have to pass the repository's required checks.
 
 Renovate tracks the release-tagged hk-config imports through the shared preset. The
 typed Cloudflare compatibility date remains reviewed manually: the shared preset's date
