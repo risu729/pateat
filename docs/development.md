@@ -306,9 +306,7 @@ and Renovate has no release-date ordering. It follows the `beta` dist-tag with
 `rollbackPrs`: `followTag` alone never offers a tagged beta whose hash sorts below the
 current one, while `rollbackPrs` offers it as a rollback update. Rollback updates are
 titled as updates but are not automerged. TypeScript, its shared preset and type
-packages are grouped so peer requirements can be reviewed together. Each Python minor
-gets its own update: mise installs pypi tools such as yamllint without building, and a
-new Python minor can lack wheels for them (3.15.0 had no PyYAML 6.0.3 wheel). Updates
+packages are grouped so peer requirements can be reviewed together. Updates
 still have to pass the repository's required checks.
 
 Renovate tracks the release-tagged hk-config imports through the shared preset. The

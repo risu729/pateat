@@ -3,12 +3,6 @@
   "extends": ["github>risu729/renovate-config#3.19.2"],
   "packageRules": [
     {
-      "description": "Offer each Python minor separately: a new minor can lack wheels for the pypi tools mise installs without building.",
-      "matchManagers": ["mise"],
-      "matchDepNames": ["python"],
-      "separateMultipleMinor": true
-    },
-    {
       "description": "Keep the cf build and Workers test runtimes together, including prereleases.",
       "matchPackageNames": ["cf", "miniflare", "@cloudflare/**"],
       "groupName": "cloudflare workers",
