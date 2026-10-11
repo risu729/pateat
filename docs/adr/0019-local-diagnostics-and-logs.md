@@ -137,10 +137,10 @@ implementation.
   carries only a code.
 - An authenticated `GET /v1/device` returns, for the calling device only, when it was
   paired, the owner's live recipe count and settings revision, and whether recipe
-  generation would run now: `credentials-not-configured` without stored Claude
-  credentials, `issuer-unavailable` without the token issuer's configuration,
-  `monthly-limit` or `daily-limit` at a spend stop, otherwise `ok`. It returns no IDs,
+  generation would run now, checked in the order a generation call checks it:
+  `monthly-limit` or `daily-limit` at a spend stop, `credentials-not-configured` without
+  stored Claude credentials, `issuer-unavailable` when the token issuer's configuration
+  is missing or its signing key does not import, otherwise `ok`. It returns no IDs,
   labels, amounts or other devices, and never exchanges a Claude token. The page
   compares the counts with the device's copy and reports a difference as information,
-  since the next sync catches up. A credential the service already rejected is not
-  sent.
+  since the next sync catches up. A credential the service already rejected is not sent.

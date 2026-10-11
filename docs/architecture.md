@@ -539,9 +539,10 @@ that exact page URL and returns a value-free summary
   settings revision, settings hold and recipe cache size;
 - the service's own record from `GET /v1/device` with the device credential: when the
   device was paired, the owner's live recipe count and settings revision, and whether
-  recipe generation would run now (`ok`, `credentials-not-configured`,
-  `issuer-unavailable`, `monthly-limit` or `daily-limit`), or the reason code when it
-  could not be read;
+  recipe generation would run now, in the order a generation call checks it
+  (`monthly-limit` or `daily-limit`, then `credentials-not-configured`, then
+  `issuer-unavailable` when the issuer settings are missing or the signing key does
+  not import, otherwise `ok`), or the reason code when it could not be read;
 - setting counts, `storage.local` usage, the log's size and debug state, and checks
   for site access, the crypto host, each vault cache and sync sign-in
   (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
@@ -557,7 +558,8 @@ that exact page URL and returns a value-free summary
 
 The worker fetches `/health` only for a paired service with site access, and
 `/v1/device` only then and while the service has not rejected the credential, with a 5 s
-timeout; that route reads the database only and never exchanges a Claude token. It
+timeout; that route reads the database and imports the signing key, but signs nothing
+and never exchanges a Claude token. It
 fetches `{api}/config` only for an enabled connection whose provider permission sync
 also requires, with a 5 s timeout and no credentials. It never reads the config's
 `environment` (host URLs) or a third-party server's name other than Vaultwarden.

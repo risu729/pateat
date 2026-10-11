@@ -1,13 +1,23 @@
 import type { SyncDeviceState } from "@pateat/contracts";
-import { and, count, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import type { ApiEnv } from "../auth";
 import { limitReached } from "../claude/calls";
 import { readWifCredential } from "../claude/credentials";
-import { readIssuerConfig } from "../claude/issuer";
-import { devices, recipeHeads, settings } from "../db/schema";
+import { readIssuerConfig, signingKeyImports } from "../claude/issuer";
+import { devices, owners, settings } from "../db/schema";
 import { apiError } from "../http";
+import { activeRecipes } from "../recipe-store";
+
+/** The checks a generation call makes after its spend stop, in the same order. */
+async function generationReady(env: ApiEnv["Bindings"], configured: boolean) {
+  if (!configured) return "credentials-not-configured" as const;
+  const issuer = readIssuerConfig(env);
+  return issuer && (await signingKeyImports(issuer))
+    ? ("ok" as const)
+    : ("issuer-unavailable" as const);
+}
 
 export const deviceRoutes = new Hono<ApiEnv>()
   /**
@@ -23,10 +33,11 @@ export const deviceRoutes = new Hono<ApiEnv>()
         .select({ createdAt: devices.createdAt })
         .from(devices)
         .where(and(eq(devices.id, deviceId), eq(devices.ownerId, ownerId))),
+      // The count the recipe limit uses.
       db
-        .select({ total: count() })
-        .from(recipeHeads)
-        .where(and(eq(recipeHeads.ownerId, ownerId), eq(recipeHeads.state, "active"))),
+        .select({ total: activeRecipes(ownerId) })
+        .from(owners)
+        .where(eq(owners.id, ownerId)),
       db
         .select({ revision: settings.revision })
         .from(settings)
@@ -41,11 +52,7 @@ export const deviceRoutes = new Hono<ApiEnv>()
       pairedAt: device.createdAt,
       recipes: recipes?.total ?? 0,
       settingsRevision: stored?.revision ?? 0,
-      generation: !credential
-        ? "credentials-not-configured"
-        : !readIssuerConfig(c.env)
-          ? "issuer-unavailable"
-          : (limit ?? "ok"),
+      generation: limit ?? (await generationReady(c.env, credential !== null)),
     };
     return c.json(state);
   })
