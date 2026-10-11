@@ -866,7 +866,8 @@
           "password": "c2"
         },
         "action": "c3",
-        "purpose": "submit"
+        "purpose": "submit",
+        "passkeyButton": "c5"
       }
     }
   ]

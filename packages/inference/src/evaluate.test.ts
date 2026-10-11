@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluationCorpus, expectedFields, type EvaluationCase } from "./corpus/cases";
+import { japanesePageCorpus } from "./corpus/real";
 import { customSlotNames } from "./corpus/slots";
 import { evaluateRole, judge, percentile } from "./evaluate";
 import type { InferenceOutcome } from "./outcome";
@@ -141,6 +142,42 @@ describe("evaluation harness", () => {
     expect(judge(entry.expected, { status: "ok", value: result.plan, calls: 1, usage })).toBe(
       "false-submit",
     );
+  });
+
+  it("scores the passkey sign-in button apart from the plan verdict (ADR 0027)", async () => {
+    const myjcb = japanesePageCorpus.find((entry) => entry.id === "ja-myjcb")!;
+    const other = japanesePageCorpus.find(
+      (entry) => entry.id !== "ja-myjcb" && entry.expected.kind === "plan",
+    )!;
+    const truth = (entry: EvaluationCase) => {
+      if (entry.expected.kind !== "plan") throw new Error("expected a plan");
+      const result = validatePagePlan(entry.observation, entry.slots, {
+        fields: expectedFields(entry.expected),
+        action: { candidate: entry.expected.action, purpose: entry.expected.purpose },
+      });
+      if (!result.ok) throw new Error(result.reason);
+      return result.plan;
+    };
+    const answers: (string | undefined)[] = ["c5", undefined, "c3", "c1"];
+    const cases = [myjcb, myjcb, myjcb, other];
+    let index = 0;
+    const report = await evaluateRole({
+      cases,
+      run: async (entry) => {
+        const passkeyButton = answers[index++];
+        return {
+          status: "ok",
+          value: { ...truth(entry), ...(passkeyButton ? { passkeyButton } : {}) },
+          calls: 1,
+          usage,
+        };
+      },
+    });
+    // The verdict ignores the button: every plan is correct.
+    expect(report.verdicts.correct).toBe(4);
+    expect(report.passkeyButtons).toEqual({ expected: 3, correct: 1, missed: 1, wrong: 2 });
+    expect(report.cases[0]!.plan).toMatchObject({ passkeyButton: "c5" });
+    expect(report.cases[1]!.plan).not.toHaveProperty("passkeyButton");
   });
 
   it("uses nearest-rank percentiles", () => {

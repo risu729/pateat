@@ -3,10 +3,12 @@ import {
   recipeHasRoute,
   recipeSlots,
   routeFillTargets,
-  routePaths,
+  routeSignInPaths,
+  routeSignInTargets,
   sameLoginTarget,
   type GenerationUnavailableReason,
   type LoginRecipe,
+  type LoginTarget,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -180,10 +182,11 @@ export async function generateRecipe(
         ),
     ],
     invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots }),
-    logValue: ({ fields, action, accountSwitch, alternatives }) => ({
+    logValue: ({ fields, action, accountSwitch, alternatives, passkeyButton }) => ({
       fields,
       action,
       ...(accountSwitch ? { accountSwitch } : {}),
+      ...(passkeyButton ? { passkeyButton } : {}),
       ...(alternatives?.length
         ? {
             alternatives: alternatives.map((entry) => ({
@@ -214,8 +217,10 @@ export async function generateRecipe(
   // the generic name, and the extension maps it back to the offered field (ADR 0027). A
   // requested slot has one name in every set, so each name appears once. Every variant
   // starts on the start page, so a continuation's alternatives are dropped rather than
-  // failing a call that was already paid for.
+  // failing a call that was already paid for. So is the passkey sign-in button, which
+  // becomes the `passkey` route of a recipe's first page only.
   const alternatives = baseRecipe ? [] : (outcome.value.alternatives ?? []);
+  const passkey = baseRecipe ? undefined : outcome.value.passkeyTarget;
   const customSlots = [
     ...new Map(
       [outcome.value, ...alternatives]
@@ -233,6 +238,7 @@ export async function generateRecipe(
     steps: outcome.value.steps,
     ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
     ...(outcome.value.switchTarget ? { accountSwitch: outcome.value.switchTarget } : {}),
+    ...(passkey ? { passkey } : {}),
   });
   if (!assembled.ok)
     return assembled.reason === "invalid-recipe"
@@ -296,23 +302,30 @@ export async function judgeCompletion(
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
   // The checks use the stored recipe, never the request: a page that still shows one of
-  // the route's fill fields, of any variant and on any path, or the completion marker is
-  // not judged. The request never names the variant the login ran.
+  // the password route's fill fields, of any variant and on any path, or the completion
+  // marker is not judged. The request never names the variant the login ran. The passkey
+  // route starts beside that form, so the form counts for it too; and a page on its
+  // sign-in paths that still shows its button is not judged either: its passkey exchange
+  // may still be running, as the extension holds it.
   const unexplained = [
-    ...routeFillTargets(recipe, route),
+    ...routeFillTargets(recipe, "password"),
     ...(recipe.completion ? [recipe.completion.target] : []),
   ];
-  if (
+  const shown = (targets: readonly LoginTarget[]) =>
     observation.candidates.some((candidate) =>
-      unexplained.some((target) => sameLoginTarget(target, candidate.target)),
-    )
+      targets.some((target) => sameLoginTarget(target, candidate.target)),
+    );
+  if (
+    shown(unexplained) ||
+    (routeSignInPaths(recipe, route).includes(observation.path) &&
+      shown(routeSignInTargets(recipe, route)))
   )
     return unavailable("not-judgeable");
 
   // The login paths come from the stored recipe, never from the request.
   const loginPaths = [
     ...new Set([
-      ...routePaths(recipe, route),
+      ...routeSignInPaths(recipe, route),
       ...(recipe.handlers ?? []).map((handler) => handler.path),
     ]),
   ];

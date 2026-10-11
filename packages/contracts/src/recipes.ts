@@ -189,12 +189,25 @@ export function defaultLoginBinding(
     recipeId: recipe.id,
     origin: recipe.origin,
     ...owner,
-    // The item and account names are for display only.
-    itemName: (account.itemName || account.itemId).slice(0, 200),
-    ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
+    ...loginDisplayNames(account.itemId, account.itemName, accountName),
     slots: slots.map((slot) => ({ slot, field: slot })),
   });
   return binding.success ? binding.output : undefined;
+}
+
+/**
+ * The item and account names a saved binding or site default carries, for display only:
+ * the item's label, else its ID, and the connection's label, each cut to 200 characters.
+ */
+export function loginDisplayNames(
+  itemId: string,
+  itemName: string | undefined,
+  accountName: string | undefined,
+): { itemName: string; accountName?: string } {
+  return {
+    itemName: (itemName || itemId).slice(0, 200),
+    ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
+  };
 }
 
 /** Slot references a binding can be built from: another item's binding, or a generated map. */
@@ -249,9 +262,7 @@ export function templateLoginBinding(
       recipeId: recipe.id,
       origin: recipe.origin,
       ...owner,
-      // The item and account names are for display only.
-      itemName: (account.itemName || account.itemId).slice(0, 200),
-      ...(accountName ? { accountName: accountName.slice(0, 200) } : {}),
+      ...loginDisplayNames(account.itemId, account.itemName, accountName),
       slots: bound,
     });
     if (binding.success) return { ok: true, binding: binding.output };
@@ -273,18 +284,25 @@ export function sameLoginBinding(left: SavedLoginBinding, right: SavedLoginBindi
 const maxSavedEntries = 1000;
 
 /**
+ * An account choice without a binding: the account a login on a route that fills nothing,
+ * such as `passkey`, authenticated with (ADR 0027). Named as a binding names it.
+ */
+export type LoginChoiceAccount = Omit<SavedLoginBinding, "recipeId" | "slots">;
+
+/**
  * Saves an account choice after an `authenticated` outcome: the site default for the
  * binding's origin and the binding itself, each only when none exists yet. A saved
  * choice therefore keeps winning, and a binding written by the owner or by AI
  * generation is never replaced. When the origin's saved default names another account,
  * nothing is saved unless `replace` is set: an account the user picked to become the
  * default (ADR 0021) replaces it. When a list is full, nothing is saved. A new default
- * names the binding's provider account and item and copies its display names. Returns
- * the same object when nothing changes, so the caller can skip the write.
+ * names the binding's provider account and item and copies its display names. A choice
+ * without slots (`LoginChoiceAccount`) saves the site default only. Returns the same
+ * object when nothing changes, so the caller can skip the write.
  */
 export function saveLoginChoice(
   settings: LocalSettings,
-  binding: SavedLoginBinding,
+  binding: SavedLoginBinding | LoginChoiceAccount,
   options: { replace?: boolean } = {},
 ): LocalSettings {
   const saved = settings.siteDefaults.find((site) => site.origin === binding.origin);
@@ -296,7 +314,9 @@ export function saveLoginChoice(
   if (saved && !sameAccount && !options.replace) return settings;
   const kept = sameAccount ? saved : undefined;
   const { bindings } = settings;
-  const hasBinding = bindings.some((entry) => sameLoginBinding(entry, binding));
+  // A choice without slots has no binding to add, as if one were already saved.
+  const hasBinding =
+    !("slots" in binding) || bindings.some((entry) => sameLoginBinding(entry, binding));
   if (kept && hasBinding) return settings;
   if (
     (!saved && settings.siteDefaults.length >= maxSavedEntries) ||
@@ -318,6 +338,6 @@ export function saveLoginChoice(
             ...(binding.accountName ? { accountName: binding.accountName } : {}),
           },
         ],
-    bindings: hasBinding ? bindings : [...bindings, binding],
+    bindings: hasBinding || !("slots" in binding) ? bindings : [...bindings, binding],
   };
 }

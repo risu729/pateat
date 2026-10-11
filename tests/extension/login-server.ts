@@ -205,6 +205,25 @@ export async function startLoginFixture(
         });`,
         ),
       );
+    } else if (path === "/passkey") {
+      // A password form and a passkey sign-in button (ADR 0027). The synthetic button signs
+      // in on its own; `?stay` reloads the page instead, so the button is still shown.
+      const stay = fixtureUrl.searchParams.has("stay");
+      response.end(
+        html(
+          '<h1>Synthetic passkey sign-in</h1><main id="app"><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button><button id="passkey" type="button">Sign in with a passkey</button></main>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          document.getElementById('app').innerHTML = '<p id="authenticated">Authenticated</p>';
+          updateFixtureStatus();
+        });
+        document.getElementById('passkey').addEventListener('click', () => {
+          sessionStorage.setItem('passkeyClicks', String(Number(sessionStorage.getItem('passkeyClicks') || 0) + 1));
+          ${stay ? "location.reload();" : "setTimeout(() => { document.getElementById('app').innerHTML = '<p id=\"authenticated\">Authenticated</p>'; }, 250);"}
+        });`,
+        ),
+      );
     } else if (path === "/password") {
       // `?slow=1` renders the form four seconds after load, past the old three-second budget.
       const slow = fixtureUrl.searchParams.has("slow");

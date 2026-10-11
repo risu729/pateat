@@ -13,6 +13,11 @@ export type ExpectedResult =
        * submitting. Scoring compares the primary set only.
        */
       alternatives?: { fields: Record<string, string>; action: string }[];
+      /**
+       * The button that signs in with a passkey instead (ADR 0027). Scored apart from the
+       * plan verdict.
+       */
+      passkeyButton?: string;
     }
   | { kind: "abstain" };
 

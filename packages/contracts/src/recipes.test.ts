@@ -6,6 +6,7 @@ import {
   defaultLoginBinding,
   findLoginBinding,
   findLoginRecipe,
+  loginDisplayNames,
   loginRecipesForOrigin,
   resolveBindingFields,
   saveLoginChoice,
@@ -255,6 +256,27 @@ describe("synced account bindings", () => {
       expect(v.is(savedLoginBindingSchema, binding({ accountName }))).toBe(false);
   });
 
+  it("never accepts an empty binding where a synced or saved one is parsed (ADR 0027)", () => {
+    // Only a running login on the passkey route has a binding without slots; it is never
+    // stored or synced.
+    const empty = binding({ slots: [] });
+    expect(v.is(savedLoginBindingSchema, empty)).toBe(false);
+    const settings = createDefaultSettings({ connections: [] });
+    expect(v.is(localSettingsSchema, { ...settings, bindings: [empty] })).toBe(false);
+    const account = {
+      provider: "bitwarden",
+      userId: empty.userId,
+      itemId: empty.itemId,
+      itemName: "",
+    };
+    const signin = recipe("bank-signin", "/login");
+    expect(defaultLoginBinding([], signin, account)).toBeUndefined();
+    expect(templateLoginBinding([], signin, account, [[]], fields)).toEqual({
+      ok: false,
+      reason: "binding-not-found",
+    });
+  });
+
   it("keeps settings without bindings valid and rejects duplicate bindings", () => {
     const settings = createDefaultSettings({ connections: [] });
     expect(v.is(localSettingsSchema, settings)).toBe(true);
@@ -370,6 +392,40 @@ describe("automatic account choice", () => {
       slots: [{ slot: "username", field: { custom: "Login ID" } }, chosen.slots[1]!],
     };
     expect(saveLoginChoice({ ...saved, bindings: [manual] }, chosen).bindings).toEqual([manual]);
+  });
+
+  it("saves only the site default for a choice without slots (ADR 0027)", () => {
+    const signin = recipe("bank-signin", "/login");
+    const chosen = defaultLoginBinding(signin.slots, signin, {
+      ...account,
+      accountName: "Personal vault",
+    })!;
+    const { recipeId: _recipeId, slots: _slots, ...owner } = chosen;
+    const settings = createDefaultSettings({ connections: [] });
+    const saved = saveLoginChoice(settings, owner);
+    expect(saved.siteDefaults).toEqual([
+      {
+        origin,
+        provider: "bitwarden",
+        userId: account.userId,
+        itemId: account.itemId,
+        itemName: chosen.itemName,
+        accountName: "Personal vault",
+      },
+    ]);
+    // A login that filled nothing proves no binding, so none is added.
+    expect(saved.bindings).toEqual([]);
+    expect(v.is(localSettingsSchema, saved)).toBe(true);
+    expect(saveLoginChoice(saved, owner)).toBe(saved);
+    // A saved choice of another account wins, unless the account was picked to replace it.
+    const other = { ...owner, itemId: "00000000-0000-4000-8000-000000000003" };
+    expect(saveLoginChoice(saved, other)).toBe(saved);
+    expect(saveLoginChoice(saved, other, { replace: true }).siteDefaults).toEqual([
+      expect.objectContaining({ origin, itemId: other.itemId }),
+    ]);
+    // A synced binding for the account stays as it is.
+    const bound = { ...saved, bindings: [chosen] };
+    expect(saveLoginChoice(bound, owner)).toBe(bound);
   });
 
   it("keys bindings by origin, so a moved recipe can be bound again", () => {
@@ -593,5 +649,19 @@ describe("bindings built from templates (ADR 0027)", () => {
     );
     expect(unnamed.ok && unnamed.binding.itemName).toBe(account.itemId);
     expect(unnamed.ok && "accountName" in unnamed.binding).toBe(false);
+  });
+});
+
+describe("loginDisplayNames", () => {
+  it("names an item by its label, else its ID, and its account by the connection's label", () => {
+    expect(loginDisplayNames("item-1", "Example Bank", "Personal")).toEqual({
+      itemName: "Example Bank",
+      accountName: "Personal",
+    });
+    expect(loginDisplayNames("item-1", "", undefined)).toEqual({ itemName: "item-1" });
+    expect(loginDisplayNames("item-1", "x".repeat(250), "y".repeat(250))).toEqual({
+      itemName: "x".repeat(200),
+      accountName: "y".repeat(200),
+    });
   });
 });

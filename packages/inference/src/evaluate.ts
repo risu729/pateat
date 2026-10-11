@@ -4,6 +4,8 @@ import type { GeneratedPageRejection, ValidatedPagePlan } from "./plan";
 import { checkPlanValues } from "./values";
 
 export type Verdict = "correct" | "correct-abstention" | "missed" | "false-submit" | "failed";
+/** A scored plan; a generated one may also name the passkey sign-in button (ADR 0027). */
+type ScoredPlan = ValidatedPagePlan & { passkeyButton?: string | undefined };
 
 export type CaseResult = {
   id: string;
@@ -21,6 +23,7 @@ export type CaseResult = {
     action: string;
     purpose: "advance" | "submit";
     accountSwitch?: string;
+    passkeyButton?: string;
   };
   latencyMs: number;
   calls: number;
@@ -37,6 +40,13 @@ export type EvaluationReport = {
   errors: Partial<Record<InferenceErrorCode, number>>;
   /** Outputs rejected because slots or the action shared one element or spanned forms. */
   jointMappingRejections: number;
+  /**
+   * The passkey sign-in button (ADR 0027), scored apart from the verdicts over the plans
+   * returned: of the plans for cases whose truth names one (`expected`), how many named it
+   * (`correct`) or none (`missed`); `wrong` counts plans that named another button, or one
+   * where the truth names none.
+   */
+  passkeyButtons: { expected: number; correct: number; missed: number; wrong: number };
   latencyMs: { p50: number; p95: number };
   calls: number;
   /** Known token sums; cases whose usage was not reported are counted, not treated as zero. */
@@ -57,10 +67,7 @@ const matches = (expected: Extract<ExpectedResult, { kind: "plan" }>, plan: Vali
   plan.fields.length === Object.keys(expected.fields).length &&
   plan.fields.every((field) => expected.fields[field.slot] === field.candidate);
 
-export function judge(
-  expected: ExpectedResult,
-  outcome: InferenceOutcome<ValidatedPagePlan>,
-): Verdict {
+export function judge(expected: ExpectedResult, outcome: InferenceOutcome<ScoredPlan>): Verdict {
   if (outcome.status === "failed") return "failed";
   if (outcome.status === "abstained")
     return expected.kind === "abstain" ? "correct-abstention" : "missed";
@@ -76,9 +83,9 @@ export function percentile(values: readonly number[], fraction: number): number 
 
 function withValueCheck(
   testCase: EvaluationCase,
-  outcome: InferenceOutcome<ValidatedPagePlan>,
+  outcome: InferenceOutcome<ScoredPlan>,
   enabled: boolean | undefined,
-): InferenceOutcome<ValidatedPagePlan> {
+): InferenceOutcome<ScoredPlan> {
   // A mismatch on an expected-abstain case would score as a correct abstention; such
   // cases should not carry values unless that is the point of the case.
   if (!enabled || outcome.status !== "ok" || testCase.values === undefined) return outcome;
@@ -98,7 +105,7 @@ function withValueCheck(
  */
 export async function evaluateRole(options: {
   cases: readonly EvaluationCase[];
-  run: (testCase: EvaluationCase) => Promise<InferenceOutcome<ValidatedPagePlan>>;
+  run: (testCase: EvaluationCase) => Promise<InferenceOutcome<ScoredPlan>>;
   now?: () => number;
   /**
    * Apply the local value check to plans for cases that carry synthetic values, as the
@@ -118,6 +125,7 @@ export async function evaluateRole(options: {
     abstentions: {},
     errors: {},
     jointMappingRejections: 0,
+    passkeyButtons: { expected: 0, correct: 0, missed: 0, wrong: 0 },
     latencyMs: { p50: 0, p95: 0 },
     calls: 0,
     usage: { inputTokens: 0, outputTokens: 0, unknownInputCases: 0, unknownOutputCases: 0 },
@@ -141,6 +149,15 @@ export async function evaluateRole(options: {
     else report.usage.inputTokens += inputTokens;
     if (outputTokens === null) report.usage.unknownOutputCases += 1;
     else report.usage.outputTokens += outputTokens;
+    if (outcome.status === "ok" && testCase.expected.kind === "plan") {
+      const truth = testCase.expected.passkeyButton;
+      const named = outcome.value.passkeyButton;
+      const score = report.passkeyButtons;
+      if (truth !== undefined) score.expected += 1;
+      if (named === undefined) score.missed += truth === undefined ? 0 : 1;
+      else if (named === truth) score.correct += 1;
+      else score.wrong += 1;
+    }
     let reason: CaseResult["reason"];
     if (outcome.status === "abstained") {
       reason = outcome.reason;
@@ -179,6 +196,9 @@ export async function evaluateRole(options: {
               ...(outcome.value.accountSwitch === undefined
                 ? {}
                 : { accountSwitch: outcome.value.accountSwitch }),
+              ...(outcome.value.passkeyButton === undefined
+                ? {}
+                : { passkeyButton: outcome.value.passkeyButton }),
             },
           }
         : {}),

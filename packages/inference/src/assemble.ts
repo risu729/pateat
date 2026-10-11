@@ -11,6 +11,7 @@ import {
   type LoginTarget,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import { registersPasskey } from "./plan";
 
 // Generated recipes are built one page at a time (ADR 0018): each validated page plan is
 // appended as steps, and the completion target is added once the first sign-in is judged.
@@ -48,6 +49,17 @@ const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
 const handlerTargets = (recipe: LoginRecipe, path: string) =>
   (recipe.handlers ?? []).filter((handler) => handler.path === path).map(({ target }) => target);
+/**
+ * Every element a route's step uses on `path`: each password variant's, and the passkey
+ * route's button (ADR 0027).
+ */
+const routeTargets = (recipe: LoginRecipe, path: string) => [
+  ...passwordVariants(recipe)
+    .flatMap((variant) => variant.steps)
+    .filter((step) => step.path === path)
+    .flatMap(stepTargets),
+  ...(recipe.passkey?.path === path ? [recipe.passkey.target] : []),
+];
 const filledSlots = (steps: readonly LoginStep[]) =>
   steps.flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.slot) : []));
 
@@ -56,10 +68,11 @@ const filledSlots = (steps: readonly LoginStep[]) =>
  * recipe whose last step advances. Slots are the ones the steps fill, so a binding
  * never has to cover a slot the recipe does not use. A first page may also bring
  * `alternatives`, the steps of its other identifier sets, which become the password
- * route's other variants (ADR 0027); a continuation needs a single-variant recipe and
- * page. The revision is the next one; the caller stores it with a conditional write. The
- * recipe keeps the first account switch a page names that is not also one of its click
- * targets.
+ * route's other variants, and `passkey`, the start page's passkey sign-in button, which
+ * becomes the `passkey` route (ADR 0027); a continuation needs a single-variant recipe and
+ * a page with neither. The revision is the next one; the caller stores it with a
+ * conditional write. The recipe keeps the first account switch a page names that is not
+ * also one of its click targets or its passkey button.
  */
 export function appendPageSteps(
   base: LoginRecipe | undefined,
@@ -69,6 +82,8 @@ export function appendPageSteps(
     steps: readonly LoginStep[];
     alternatives?: readonly (readonly LoginStep[])[];
     accountSwitch?: LoginTarget;
+    /** The start page's passkey sign-in button, the `passkey` route (ADR 0027). */
+    passkey?: LoginTarget;
   },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: AssemblyRejection } {
   const alternatives = page.alternatives ?? [];
@@ -78,15 +93,17 @@ export function appendPageSteps(
     const last = base.steps.at(-1);
     if (base.alternatives || !last || loginStepEffect(last) !== "advance")
       return { ok: false, reason: "not-advancing" };
-    // Variants all start on the start page, so a later page never brings its own.
-    if (alternatives.length) return { ok: false, reason: "invalid-recipe" };
+    // Variants and routes all start on the start page, so a later page never brings its own.
+    if (alternatives.length || page.passkey) return { ok: false, reason: "invalid-recipe" };
   }
   const steps = [...(base?.steps ?? []), ...page.steps];
   const variants = [steps, ...alternatives];
   const { accountSwitch: kept, ...rest } = base ?? {};
+  const passkey = base?.passkey?.target ?? page.passkey;
   const accountSwitch = [kept, page.accountSwitch].find(
     (target) =>
       target !== undefined &&
+      !(passkey && sameTarget(passkey, target)) &&
       !variants.some((variant) =>
         variant.some((step) => step.kind === "click" && sameTarget(step.target, target)),
       ),
@@ -108,6 +125,7 @@ export function appendPageSteps(
           })),
         }
       : {}),
+    ...(page.passkey ? { passkey: { path: steps[0]!.path, target: page.passkey } } : {}),
     maxSubmissions: Math.max(1, ...variants.map(effects)),
   });
   return recipe.success
@@ -133,9 +151,10 @@ export function addCompletion(
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };
-  // Every variant's steps count, whichever one the judged login ran (ADR 0027).
+  // Every variant's steps count, whichever one the judged login ran, and the passkey
+  // route's button (ADR 0027).
   const steps = passwordVariants(base).flatMap((variant) => variant.steps);
-  const used = steps.filter((step) => step.path === page.path).flatMap(stepTargets);
+  const used = routeTargets(base, page.path);
   if ([...used, ...handlerTargets(base, page.path)].some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
   // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not.
@@ -180,19 +199,6 @@ export type HandlerRejection =
   | "invalid-recipe";
 
 /**
- * Words of a button that registers or adds a passkey ("Add a passkey", "Set up security
- * key", "パスキーを登録"). The judge is told not to name one; this local check also
- * refuses it, and can refuse a sign-in button whose text happens to match.
- */
-const registration = /\b(?:add|register|create|set\s*up|new|enrol?l)\b|登録|追加|作成/iu;
-/**
- * A locator value as words: `addPasskey`, `register_key` and `#set-up-key` read as
- * "add Passkey", "register key" and "set up key".
- */
-const words = (value: string) =>
-  value.replaceAll(/([a-z])([A-Z])/gu, "$1 $2").replaceAll(/[^\p{L}\p{N}]+/gu, " ");
-
-/**
  * Adds a `passkey` handler for the judged page's security-key or passkey button to a
  * generated recipe in its next revision (ADR 0027). The route's steps are kept as they
  * are, so a running login can take the result over (`extendsRecipe`). The page may be
@@ -209,17 +215,9 @@ export function addHandler(
   );
   if (!button) return { ok: false, reason: "not-on-page" };
   // The label, the text and an id, name or test ID locator all count.
-  if (
-    [button.label, button.target.value].some(
-      (text) => text !== undefined && registration.test(words(text)),
-    )
-  )
-    return { ok: false, reason: "registration" };
+  if (registersPasskey(button)) return { ok: false, reason: "registration" };
   const used = [
-    ...passwordVariants(base)
-      .flatMap((variant) => variant.steps)
-      .filter((step) => step.path === page.path)
-      .flatMap(stepTargets),
+    ...routeTargets(base, page.path),
     ...(base.accountSwitch ? [base.accountSwitch] : []),
     ...(base.rejection ? [base.rejection] : []),
     ...(base.completion ? [base.completion.target] : []),

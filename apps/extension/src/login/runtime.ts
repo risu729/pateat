@@ -17,17 +17,19 @@ import {
   judgedPages,
   MAX_JUDGED_PAGES,
   loginDocumentSchema,
+  loginDisplayNames,
   loginObservationSchema,
   nextLoginOperation,
   loginStepEffect,
   parseAttemptMetadata,
   passwordVariants,
+  recipeHasRoute,
   recipeStartSteps,
   recoverLoginAttempt,
   resolveBindingFields,
   resolveLoginPlan,
-  routeFillTargets,
-  routePaths,
+  routeSignInPaths,
+  routeSignInTargets,
   routeSlots,
   sameLoginDocument,
   saveLoginChoice,
@@ -41,6 +43,7 @@ import {
   type LoginAccount,
   type LoginBindingTemplate,
   type LoginAccountBinding,
+  type LoginChoiceAccount,
   type LoginAttemptMetadata,
   type LoginDocument,
   type LoginItemFacts,
@@ -75,7 +78,7 @@ import {
   statusSchema,
   probeControlSchema,
   loginReadiness,
-  HANDLER_CLICK_WAIT_MS,
+  HELD_CLICK_WAIT_MS,
   LOGIN_STEP_WAIT_MS,
   type LoginReadiness,
   type LoginSecretKind,
@@ -124,9 +127,14 @@ type SettingsRuntime = {
 };
 /**
  * An account choice used by an attempt but not saved yet (ADR 0013); `connectionId` is the
- * local connection the attempt used, so only that account is saved.
+ * local connection the attempt used, so only that account is saved. A login on the
+ * `passkey` route fills nothing, so it saves the site default without a binding (ADR 0027).
  */
-type UnsavedChoice = { binding: SavedLoginBinding; connectionId: string; replace?: boolean };
+type UnsavedChoice = {
+  binding: SavedLoginBinding | LoginChoiceAccount;
+  connectionId: string;
+  replace?: boolean;
+};
 /**
  * Settings with the choice added where missing, or replacing the site default for an
  * account picked to become it; the same object when nothing changes.
@@ -215,8 +223,11 @@ type Execution = {
   operation?: LoginOperation;
   /** Saved only once this attempt reaches `authenticated`. */
   choice?: UnsavedChoice;
-  /** The step index of a handler click this document performed (ADR 0027). */
-  clickedHandler?: number;
+  /**
+   * The step index of a held click this document performed (ADR 0027): a handler's click
+   * or the `passkey` route's. Its page is not judged while the clicked button still shows.
+   */
+  heldClick?: number;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -511,6 +522,7 @@ export function createLoginRuntime(
   };
   let origin = DEFAULT_PROBE_ORIGIN;
   let account: ProbeAccount = DEMO_PROBE_ACCOUNT;
+  let probePasskey: "discoverable" | "second-factor" | undefined;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
   /** By `recordKey`, in the order they were last written. */
@@ -620,6 +632,7 @@ export function createLoginRuntime(
         });
         origin = parsed.origin;
         account = parsed.account ?? DEMO_PROBE_ACCOUNT;
+        probePasskey = parsed.passkey;
       }
       const stored = storage[STORAGE_KEY];
       if (stored === undefined) return;
@@ -1291,6 +1304,13 @@ export function createLoginRuntime(
     // The synthetic probe item names its password field `password`; it holds a value.
     if (probeMode && owner.origin === origin && owner.fieldIds.includes("password"))
       fieldFacts.password = true;
+    // The synthetic item's configured passkey stands in for the vault search.
+    if (probeMode && owner.origin === origin && probePasskey)
+      return {
+        ...fieldFacts,
+        passkey: true,
+        discoverablePasskey: probePasskey === "discoverable",
+      };
     const held = await Promise.resolve(
       options.passkeys?.({
         origin: owner.origin,
@@ -1315,10 +1335,33 @@ export function createLoginRuntime(
     "no-route",
   ]);
   /**
+   * The chosen item named as a saved default names it, for a login whose route fills
+   * nothing (ADR 0027); undefined when its connection or item cannot name it.
+   */
+  function choiceAccount(
+    catalog: VaultCatalog,
+    choice: Choice,
+    documentOrigin: string,
+  ): LoginChoiceAccount | undefined {
+    const connection = catalog.connections.find((entry) => entry.id === choice.connectionId);
+    const item = connection?.items.find((entry) => entry.id === choice.itemId);
+    if (!connection?.userId || !item) return undefined;
+    return {
+      origin: documentOrigin,
+      provider: connection.provider,
+      userId: connection.userId,
+      itemId: item.id,
+      // Named as a binding built for the item is.
+      ...loginDisplayNames(item.id, item.label, connection.label),
+    };
+  }
+  /**
    * One account must resolve from a usable connection, and its item must not await review.
-   * A new login reads the item's facts once and takes the first password variant whose
-   * binding resolves, whose fields are all allowed and whose bound password or TOTP fields
-   * hold values (ADR 0027); a recipe with one variant keeps that variant's own refusal, and
+   * A new login reads the item's facts once and chooses its route in the owner's order
+   * (ADR 0027): the `passkey` route when the recipe has it and the item holds a
+   * discoverable passkey, whatever its bindings; otherwise the first password variant
+   * whose binding resolves, whose fields are all allowed and whose bound password or TOTP
+   * fields hold values. A recipe with one variant keeps that variant's own refusal, and
    * one with several refuses `no-route` with the first variant's reason as its detail. A
    * running or resumed login passes its recorded `route`, which is checked alone and never
    * reads the facts again.
@@ -1354,42 +1397,47 @@ export function createLoginRuntime(
       if (top) return { ok: false as const, reason: top.reason };
       catalog = scope.catalog;
     }
-    const routes: LoginRouteChoice[] = request.route
-      ? [request.route]
-      : passwordVariants(recipe).map((_, variant) => ({ route: "password", variant }));
     // The generated slot map is read at most once per plan.
     let generated: Promise<LoginBindingTemplate | undefined> | undefined;
     const slotMap = () =>
       (generated ??= Promise.resolve(generation?.slotFields(recipe.id)).catch(() => undefined));
-    let facts: LoginItemFacts | undefined;
-    const fits: boolean[] = [];
-    const refusals: (string | undefined)[] = [];
-    // Variants are tried in recipe order and the first that fits stops the search, so the
-    // facts and the generated map are read once.
-    /* eslint-disable no-await-in-loop */
-    for (const [index, route] of routes.entries()) {
+    /** The plan for one route, or why it does not resolve. */
+    const resolveRoute = async (route: LoginRouteChoice) => {
       const slots = routeSlots(recipe, route);
       let policy = snapshot.snapshot;
       let binding: LoginAccountBinding;
       let choice: UnsavedChoice | undefined;
       if (!chosen) binding = probeBinding(recipe, account, slots);
       else {
-        const bound = await bindingFor(
-          catalog,
-          snapshot.snapshot.settings,
-          recipe,
-          chosen,
-          live.document.origin,
-          slots,
-          slotMap,
-        );
-        if (!bound.ok) {
-          if (!variantRefusals.has(bound.reason))
-            return { ok: false as const, reason: bound.reason };
-          refusals[index] = bound.reason;
-          continue;
+        let named: SavedLoginBinding | LoginChoiceAccount;
+        let unsaved: boolean;
+        if (route.route === "passkey") {
+          // The route fills nothing, so no binding is read, built or saved (ADR 0027).
+          const owner = choiceAccount(catalog, chosen, live.document.origin);
+          if (!owner) return { ok: false as const, reason: "vault-unavailable" };
+          binding = {
+            origin: live.document.origin,
+            connectionId: chosen.connectionId,
+            itemId: chosen.itemId,
+            slots: [],
+          };
+          named = owner;
+          unsaved = !chosen.saved;
+        } else {
+          const bound = await bindingFor(
+            catalog,
+            snapshot.snapshot.settings,
+            recipe,
+            chosen,
+            live.document.origin,
+            slots,
+            slotMap,
+          );
+          if (!bound.ok) return { ok: false as const, reason: bound.reason };
+          binding = bound.binding;
+          named = bound.synced;
+          unsaved = !chosen.saved || !bound.saved;
         }
-        binding = bound.binding;
         if (!chosen.saved) {
           // The automatic choice acts as this document's default in memory only, named by
           // the chosen item's provider account as a saved default would be. An account
@@ -1401,17 +1449,17 @@ export function createLoginRuntime(
           );
           policy.settings.siteDefaults.push({
             origin: live.document.origin,
-            provider: bound.synced.provider,
-            userId: bound.synced.userId,
-            itemId: bound.synced.itemId,
-            itemName: bound.synced.itemName,
-            ...(bound.synced.accountName ? { accountName: bound.synced.accountName } : {}),
+            provider: named.provider,
+            userId: named.userId,
+            itemId: named.itemId,
+            itemName: named.itemName,
+            ...(named.accountName ? { accountName: named.accountName } : {}),
           });
         }
         // A pick made for this login only is never saved.
-        if ((!chosen.saved || !bound.saved) && (!chosen.pick || chosen.pick.makeDefault))
+        if (unsaved && (!chosen.pick || chosen.pick.makeDefault))
           choice = {
-            binding: bound.synced,
+            binding: named,
             connectionId: chosen.connectionId,
             // An account found to become the default replaces another saved one.
             ...(chosen.pick?.makeDefault ? { replace: true } : {}),
@@ -1422,11 +1470,7 @@ export function createLoginRuntime(
       // on another device, is also no matching item.
       if (!plan.ok && plan.reason === "item-origin-mismatch" && savedDefault)
         return { ...plan, noUriMatch: true as const };
-      if (!plan.ok) {
-        if (!variantRefusals.has(plan.reason)) return plan;
-        refusals[index] = plan.reason;
-        continue;
-      }
+      if (!plan.ok) return plan;
       const connection = catalog.connections.find(
         (entry) => entry.id === plan.account.connectionId,
       );
@@ -1439,15 +1483,46 @@ export function createLoginRuntime(
         connection.quarantinedItemIds?.includes(plan.account.itemId)
       )
         return { ok: false as const, reason: "vault-unavailable" as const };
-      const resolved = { ...plan, connection, route, ...(choice ? { choice } : {}) };
-      if (request.route) return resolved;
-      facts ??= await itemFacts(connection, { ...plan.account, origin: live.document.origin });
+      return { ...plan, connection, route, ...(choice ? { choice } : {}) };
+    };
+    // A running or resumed login checks its recorded route alone.
+    if (request.route) return resolveRoute(request.route);
+    let facts: LoginItemFacts | undefined;
+    const factsOf = (resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>) =>
+      itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
+    if (recipeHasRoute(recipe, "passkey")) {
+      const resolved = await resolveRoute({ route: "passkey" });
+      if (resolved.ok) {
+        facts = await factsOf(resolved);
+        // No binding matters on this route, so a password variant that does not fit never
+        // refuses such a login.
+        if (chooseLoginRoute(recipe, facts, [])?.route === "passkey") return { ...resolved, facts };
+      }
+      // Otherwise the password route decides, with its own refusals.
+    }
+    const routes: LoginRouteChoice[] = passwordVariants(recipe).map((_, variant) => ({
+      route: "password",
+      variant,
+    }));
+    const fits: boolean[] = [];
+    const refusals: (string | undefined)[] = [];
+    // Variants are tried in recipe order and the first that fits stops the search, so the
+    // facts and the generated map are read once.
+    /* eslint-disable no-await-in-loop */
+    for (const [index, route] of routes.entries()) {
+      const resolved = await resolveRoute(route);
+      if (!resolved.ok) {
+        if (!variantRefusals.has(resolved.reason)) return resolved;
+        refusals[index] = resolved.reason;
+        continue;
+      }
+      facts ??= await factsOf(resolved);
       // The password route needs every bound password or TOTP field, built in or Linked to
       // one, to hold a value the account may fill.
-      const item = connection.items.find((entry) => entry.id === plan.account.itemId);
+      const item = resolved.connection.items.find((entry) => entry.id === resolved.account.itemId);
       const known = facts;
       if (
-        !plan.binding.slots.every(({ fieldId }) => {
+        !resolved.binding.slots.every(({ fieldId }) => {
           const source = item ? loginFieldSource(item, fieldId) : fieldId;
           return source === "login.password"
             ? known.password
@@ -1461,8 +1536,10 @@ export function createLoginRuntime(
       }
       fits[index] = true;
       const taken = chooseLoginRoute(recipe, known, fits);
-      if (taken?.variant === index) return { ...resolved, facts: known };
+      if (taken?.route === "password" && taken.variant === index)
+        return { ...resolved, facts: known };
       // The first variant that fits decides; without the item's password none is taken.
+      // The passkey route, when the facts choose it here, did not resolve, so nothing is.
       refusals[index] = "no-route";
       break;
     }
@@ -1535,9 +1612,17 @@ export function createLoginRuntime(
     }
   }
   /**
+   * How a page that does not prove the sign-in ends the login: as itself on the `password`
+   * route, and always as `challenge` on the `passkey` route, which never falls back to
+   * typing the password (ADR 0027).
+   */
+  const unproven = (run: Execution, result: "credential-rejected" | "challenge" | "unknown") =>
+    run.metadata.route === "passkey" ? "challenge" : result;
+  /**
    * Checks the page after an effect step: the completion, the rejection, the plan's next
-   * step, then a handler on the page (ADR 0027). Returns `held` while a handler's clicked
-   * button still shows, so the page is neither judged nor settled yet.
+   * step, then a handler on the page (ADR 0027). Returns `held` while a held click's button
+   * still shows in the document that clicked it, so the page is neither judged nor settled
+   * yet.
    */
   async function reconcile(run: Execution, settleUnknown = false): Promise<"held" | undefined> {
     const nextIndex =
@@ -1567,7 +1652,7 @@ export function createLoginRuntime(
     if (rejection && observed.targets[rejectionIndex] === "unique") {
       await change(run, {
         type: "OBSERVED",
-        result: "credential-rejected",
+        result: unproven(run, "credential-rejected"),
         document: run.live.document,
       });
       return undefined;
@@ -1595,24 +1680,42 @@ export function createLoginRuntime(
       }
     }
     if (effectful(run.metadata)) {
-      // A handler's click is not judged while its button still shows in the document that
-      // clicked it: a WebAuthn exchange or a chooser the person answers can take a while.
-      // A new document that shows the button again goes to the person (ADR 0027).
+      // A held click, a handler's or the passkey route's, is not judged while its button
+      // still shows in the document that clicked it, whatever path a same-document URL
+      // change has moved it to: a WebAuthn exchange or a chooser the person answers can
+      // take a while (ADR 0027). A new document that shows a handler's button again goes
+      // to the person through the handler's own check below; one that shows the passkey
+      // route's button again on its path, as after a reload back to the start page, goes
+      // to the person at once: it is never clicked again or judged.
       const inFlight = plan[run.metadata.stepIndex];
-      if (inFlight?.handler !== undefined && run.clickedHandler === run.metadata.stepIndex) {
+      const routeClick =
+        inFlight !== undefined &&
+        inFlight.handler === undefined &&
+        run.metadata.route === "passkey";
+      if (inFlight && (run.heldClick === run.metadata.stepIndex || routeClick)) {
         const clicked = await observe(run, stepTargets(inFlight.step));
         if (!clicked) return undefined;
-        if (
-          clicked.path === inFlight.step.path &&
-          clicked.targets.some((state) => state !== "missing")
-        )
-          return "held";
+        if (clicked.targets.some((state) => state !== "missing")) {
+          if (run.heldClick === run.metadata.stepIndex) return "held";
+          if (clicked.path === inFlight.step.path) {
+            await change(run, {
+              type: "OBSERVED",
+              result: "challenge",
+              document: run.live.document,
+            });
+            return undefined;
+          }
+        }
       }
       if (await enterHandler(run, observed.path)) return undefined;
     }
     if (!settleUnknown) return undefined;
     if (await learn(run)) return undefined;
-    await change(run, { type: "OBSERVED", result: "unknown", document: run.live.document });
+    await change(run, {
+      type: "OBSERVED",
+      result: unproven(run, "unknown"),
+      document: run.live.document,
+    });
     return undefined;
   }
   /**
@@ -1707,10 +1810,11 @@ export function createLoginRuntime(
     )
       return false;
     // Every variant's fill fields and paths count, as on the service, which is never told
-    // the variant (ADR 0027).
-    const paths = routePaths(recipe, metadata.route);
+    // the variant; on the passkey route, its button and the password form, on its path and
+    // the password route's (ADR 0027).
+    const paths = routeSignInPaths(recipe, metadata.route);
     const marker = recipe.completion ? [recipe.completion.target] : [];
-    const fills = routeFillTargets(recipe, metadata.route).slice(0, 24 - marker.length);
+    const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
     const remaining = await observe(run, [...fills, ...marker]);
     if (!remaining) return false;
     if (
@@ -1796,11 +1900,14 @@ export function createLoginRuntime(
       result:
         verdict === "signed-in"
           ? "authenticated"
-          : verdict === "rejected"
-            ? "credential-rejected"
-            : verdict === "challenge"
-              ? "challenge"
-              : "unknown",
+          : unproven(
+              run,
+              verdict === "rejected"
+                ? "credential-rejected"
+                : verdict === "challenge"
+                  ? "challenge"
+                  : "unknown",
+            ),
       document: run.live.document,
     });
     return true;
@@ -1833,8 +1940,8 @@ export function createLoginRuntime(
     // fill or click; other results keep the shorter observation budget.
     let until =
       Date.now() + (run.metadata.operationEffect === "advance" ? LOGIN_STEP_WAIT_MS : 3000);
-    // A handler's clicked button may show this long before the page is left to the person.
-    const holdUntil = Date.now() + HANDLER_CLICK_WAIT_MS;
+    // A held click's button may show this long before the page is left to the person.
+    const holdUntil = Date.now() + HELD_CLICK_WAIT_MS;
     const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
     // Each round re-authorizes against settings, so the longer advance budget polls slower.
     const interval = run.metadata.operationEffect === "advance" ? 200 : 50;
@@ -2093,8 +2200,10 @@ export function createLoginRuntime(
           continue;
         }
         await change(run, { type: "SUBMITTED", operationId: operation.operationId });
-        if (attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler !== undefined)
-          run.clickedHandler = operation.stepIndex;
+        // A handler's click and the passkey route's click are held (ADR 0027).
+        const done = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex];
+        if (done && (done.handler !== undefined || run.metadata.route === "passkey"))
+          run.heldClick = operation.stepIndex;
         // DOM navigation can replace this document. A same-page result is observed with a finite budget.
         await reconcileBounded(run);
         if (run.metadata.state !== "ready") return;
@@ -2871,8 +2980,13 @@ export function createLoginRuntime(
         if (persisted.size) return { ok: false, reason: "attempts-exist" };
         origin = config.output.origin;
         account = config.output.account ?? DEMO_PROBE_ACCOUNT;
+        probePasskey = config.output.passkey;
         await browser.storage.local.set({
-          [CONFIG_KEY]: { origin, ...(config.output.account ? { account } : {}) },
+          [CONFIG_KEY]: {
+            origin,
+            ...(config.output.account ? { account } : {}),
+            ...(probePasskey ? { passkey: probePasskey } : {}),
+          },
         });
         return { ok: true };
       }

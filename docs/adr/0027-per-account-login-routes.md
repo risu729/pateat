@@ -2,17 +2,17 @@
 
 Status: accepted by the owner on 2026-10-11 (13:47 UTC). Deliveries 1 (custom-field
 names and Text shapes in generation) and 2 (handlers with the `passkey` handler) are
-implemented, and so is delivery 3 part A (`password` route variants and start detection
-over them); the `passkey` route is delivery 3 part B, and it and the other deliveries
-are not implemented. Amends [ADR 0007](0007-existing-passkey-assertions.md) and
+implemented, and so is delivery 3: part A (`password` route variants and start detection
+over them) and part B (the start page's `passkey` route); the other deliveries are not
+implemented. Amends [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and
 [ADR 0016](0016-recipe-generation-trigger.md) (custom-field names and Text shapes in
 automatic generation), [ADR 0013](0013-service-held-recipes-and-settings.md) (bindings
 per route), [ADR 0018](0018-recipe-generation-route.md) (when a page is judged and the
 judge's limits) and [ADR 0026](0026-sign-in-through-identity-providers.md) (SSO as a
-route). Each part lands in its own PR (see [Delivery](#delivery)); the ADR 0010 and
-ADR 0016 status notes land with the custom-field part.
+route). Each part lands in its own PR (see [Delivery](#delivery)); the ADR 0010 and ADR
+0016 status notes land with the custom-field part.
 
 Date: 2026-10-11
 
@@ -338,15 +338,107 @@ new owner decision:
   whose alternatives fail validation still fails the call. The prompt does not mention
   continuations. A recipe with alternatives is
   never continued. A generation answer maps the custom slots of every variant, up to 16.
+- **Passkey route shape.** A recipe's `passkey` route is an optional
+  `passkey: { path, target }`, additive like `alternatives`: one `submit` click on the
+  start page's passkey sign-in button, with no slots. Its path must be the start path,
+  and its target may not be a step target of any `password` variant on that path, a
+  handler target on that path, the completion target on its path, the rejection or the
+  account switch; the observation bound counts it, and a newer revision keeps a login
+  only when the route is unchanged. Start detection watches the button first, then the
+  first step of every variant; the button alone being ready starts the login, and a
+  login that chose the route but whose button never shows ends `structural-mismatch`
+  after the usual step wait.
+- **Choosing the passkey route.** The route is chosen only when the recipe has it and
+  the item's facts include a discoverable passkey; a passkey registered only as a second
+  factor leaves the `password` variants to decide as before. The route fills nothing,
+  so it needs no binding, its password variants' bindings are not resolved for it, and
+  a variant that does not fit the item never refuses such a login; the refusal reasons
+  when the route is not chosen are unchanged. The attempt records `passkey` and no
+  variant, a running or resumed login checks only the item and the account scope, and
+  after `authenticated` only the site default (for an automatic choice) is saved: no
+  binding is stored or synced for the route.
+- **Held click.** The hold for a handler's click also covers the `passkey` route's
+  click: while the button still shows in the document that clicked it, whatever path a
+  same-document URL change (`pushState`) has moved that document to, the page is
+  neither judged nor settled for up to two minutes, then the login ends `challenge`.
+  This applies to a handler's click too. A new document of the tab that shows the
+  button again on its path, as after a reload back to the start page, ends `challenge`
+  at once; the button is never clicked again or judged.
+  The hold lives in the service worker's memory, so a worker restart during the hold
+  treats the same document as a new one and ends `challenge`; a click whose delivery
+  failed while the button still shows also ends `challenge`. Both fail closed.
+- **Settlement on the passkey route.** Every result on the route other than
+  `authenticated` ends `challenge`: the rejection marker, a final `unknown`, a
+  judgement of `rejected`, `unclear` or `challenge` without a handler, and a page that
+  could not be judged. A page after the click is still checked for handlers, so a
+  handler the recipe has (or the judge adds) runs as on the `password` route, and the
+  route never changes during the login.
+- **Judging the passkey route.** The judge request names the `passkey` route. The
+  route starts beside the password form, so a page that still shows that form is the
+  sign-in page on this route too: the service answers `not-judgeable` for a page that
+  shows a fill field of any `password` variant, on any path, as on the `password` route,
+  and for a page on the route's path or any `password` route path that still shows the
+  passkey button. The login paths it receives are the route's path and every
+  `password` route path. The extension likewise sends no page that shows the button or
+  a fill field of any variant on those paths. A start page that renders its password
+  form again after the click is therefore never judged, so it cannot spend the start
+  path's one judgement for the revision or add a handler there. The service answers
+  `recipe-conflict` for a recipe without the route, and a judged `completion` or handler
+  may not reuse the route's button.
+- **What the route name tells.** Since only an item with a discoverable passkey takes
+  the `passkey` route, the route name in the judge request, the `login.attempt` report
+  and the attempt record implies that the login's item holds a discoverable passkey for
+  the site. This follows from the accepted rule that the judge request names the
+  login's route; the item's facts themselves are still never sent or logged.
+- **Generating the passkey route.** On a start page, the generation role may name a
+  `passkeyButton` beside its plan. It is kept only when it is a candidate with the
+  button role (not a link or another role) whose label or `id`, `name`, test ID or text
+  locator names a passkey or security key, case-insensitively (passkey, pass key,
+  security key, each also plural, WebAuthn, FIDO, or パスキー, セキュリティキー,
+  セキュリティーキー, 生体認証), that is not named like a registration or a setting
+  (add, register, create, set up, new, enrol, manage, enable, turn on, or 登録, 追加,
+  作成, 設定, 有効, 管理, the words the `passkey` handler check refuses too), and not
+  any set's field or action or the account switch, by candidate or by locator. Latin
+  words match whole words: of a label or text locator as written, and of an `id`, `name`
+  or test ID locator split at camelCase, hyphens and underscores, so
+  `passkeyLoginButtonAD` names a passkey but a label "MyFido" or "Fidor" does not;
+  Japanese words match anywhere, except that 設定済み ("already set up") and 有効な
+  ("valid") describe the passkey of a sign-in button, as in
+  "設定済みのパスキーでログイン", and are not registration words. A label that turns on
+  or manages a passkey, such as "パスキーを設定" or "Manage passkeys", is therefore
+  never a sign-in button or a `passkey` handler. The wording check keeps a mislabelled
+  "Sign in with Google" or SSO button from becoming a passkey click outside ADR 0026; it
+  is a shared helper the judge's `passkey` handler check does not use yet. A button that
+  fails these checks is dropped silently and does not fail the answer. On a continuation
+  the service ignores it. The service stores it as the recipe's `passkey` route on the
+  first page, and the request log records the kept button. The corpus case `ja-myjcb`
+  expects its passkey sign-in button, and the evaluation reports passkey buttons as a
+  separate count (expected, correct, missed, wrong) that does not change a case's
+  result.
+- **Synthetic passkey fact.** The probe build's configure message takes an optional
+  `passkey` (`discoverable` or `second-factor`) that stands in for the vault search for
+  the synthetic item, since the probe vault holds no passkey; no key is created or
+  used.
 - **Known limitation.** Variants come only from identifier sets the start page shows at
   once in one observation. A set behind a tab or a link, as SMBC's contract-number tab
   appears to be, is not observed and so not generated; such a site gets the variant the
   page shows first.
 - **Known limitation: the ready variant is not the chosen one.** The document reports
-  only that a first step on the start path is ready, not which variant's. When another
-  variant's first elements are ready but those of the variant chosen for the item never
-  appear, the login waits the usual step wait and ends `structural-mismatch` before any
-  fill; before variants, the document kept watching. This fails closed.
+  only that a first step on the start path is ready, not which variant's or route's.
+  When another variant's first elements are ready but those of the variant chosen for
+  the item never appear, the login waits the usual step wait and ends
+  `structural-mismatch` before any fill; before variants, the document kept watching.
+  The passkey button alone also starts a login, so an item without a discoverable
+  passkey on a page whose password form is behind a toggle takes the `password` route
+  and ends `structural-mismatch` the same way. This fails closed.
+- **Known limitation: a page that keeps the clicked button.** While no completion has
+  been learned, any page the clicking document shows after a held click, on any path a
+  same-document URL change leads to, that keeps the clicked button in its DOM, hidden or
+  not, is never judged: the login holds for two minutes and ends `challenge`. This
+  applies to the `passkey` route's click and to a handler's click alike, so a site that
+  signs in without leaving the document and keeps the button never learns a completion
+  from such a login. A completion learned another way, such as on the `password` route,
+  still applies, since it is checked before the hold.
 
 ## Consequences
 

@@ -131,9 +131,10 @@ const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
   step.kind === "fill" ? step.fields.length : 1;
 /**
  * Ways a start page offers to sign in (ADR 0027); one is chosen from the item's facts
- * when a login starts. `password` runs the recipe's steps.
+ * when a login starts. `password` runs the recipe's steps; `passkey` clicks the start
+ * page's passkey sign-in button.
  */
-export const loginRouteSchema = v.picklist(["password"]);
+export const loginRouteSchema = v.picklist(["password", "passkey"]);
 /**
  * A branch on the page that appears after an effect step (ADR 0027), entered when its
  * path matches and its element shows, and run only for an item with the handler's fact.
@@ -169,6 +170,16 @@ const variantsOf = (recipe: {
   alternatives?: { slots: string[]; steps: v.InferOutput<typeof loginStepSchema>[] }[] | undefined;
 }) => [{ slots: recipe.slots, steps: recipe.steps }, ...(recipe.alternatives ?? [])];
 const targetKey = (target: v.InferOutput<typeof loginTargetSchema>) => JSON.stringify(target);
+/** The `passkey` route's one step: a click on its button that submits. */
+const passkeyStep = (passkey: {
+  path: string;
+  target: v.InferOutput<typeof loginTargetSchema>;
+}): v.InferOutput<typeof loginStepSchema> => ({
+  kind: "click",
+  path: passkey.path,
+  target: passkey.target,
+  purpose: "submit",
+});
 export const loginRecipeSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
@@ -192,6 +203,13 @@ export const loginRecipeSchema = v.pipe(
         v.maxLength(MAX_PASSWORD_ALTERNATIVES),
       ),
     ),
+    /**
+     * The `passkey` route (ADR 0027): the start page's button that signs in with a
+     * discoverable passkey, such as "Sign in with a passkey". The route clicks it and fills
+     * nothing; the passkey request it causes is answered by the bridge with the login's
+     * own item.
+     */
+    passkey: v.optional(v.strictObject({ path, target: loginTargetSchema })),
     // A generated recipe has no completion until the page after its first sign-in is
     // judged (ADR 0018); until then no attempt with it can end authenticated.
     completion: v.optional(
@@ -334,7 +352,11 @@ export const loginRecipeSchema = v.pipe(
   // observation of at most 24 elements.
   v.check(
     (recipe) =>
-      Math.max(0, ...variantsOf(recipe).flatMap((variant) => variant.steps.map(stepTargetCount))) +
+      Math.max(
+        0,
+        ...variantsOf(recipe).flatMap((variant) => variant.steps.map(stepTargetCount)),
+        ...(recipe.passkey ? [stepTargetCount(passkeyStep(recipe.passkey))] : []),
+      ) +
         (recipe.completion ? 1 + (recipe.completion.absent?.length ?? 0) : 0) +
         (recipe.rejection ? 1 : 0) <=
       24,
@@ -383,17 +405,51 @@ export const loginRecipeSchema = v.pipe(
       ),
     "Completion target is a handler target",
   ),
+  // The passkey route starts on the start page, beside the password route.
+  v.check(
+    (recipe) => !recipe.passkey || recipe.passkey.path === recipe.steps[0]!.path,
+    "The passkey route must start on the start path",
+  ),
+  // Its button is an element of its own: no password variant's step uses it on the start
+  // page, and it never switches the account, proves or refuses the sign-in, or answers a
+  // handler there.
+  v.check((recipe) => {
+    const { passkey } = recipe;
+    if (!passkey) return true;
+    const key = targetKey(passkey.target);
+    const onPath = (entries: { path: string; target: v.InferOutput<typeof loginTargetSchema> }[]) =>
+      entries.some((entry) => entry.path === passkey.path && targetKey(entry.target) === key);
+    return (
+      !onPath(
+        variantsOf(recipe).flatMap((variant) =>
+          variant.steps.flatMap((step) =>
+            (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
+              (target) => ({ path: step.path, target }),
+            ),
+          ),
+        ),
+      ) &&
+      !onPath(recipe.handlers ?? []) &&
+      !onPath(recipe.completion ? [recipe.completion] : []) &&
+      ![recipe.accountSwitch, recipe.rejection].some(
+        (target) => target !== undefined && targetKey(target) === key,
+      )
+    );
+  }, "Passkey target is a step, handler, completion, rejection or account switch target"),
 );
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
   connectionId: identifier,
   itemId: identifier,
 });
+/**
+ * The fields one login reads, resolved on this device. A login on the `passkey` route
+ * fills nothing, so its binding has no slots (ADR 0027); a synced binding always has some.
+ */
 export const loginAccountBindingSchema = v.strictObject({
   ...loginAccountSchema.entries,
   slots: v.pipe(
     v.array(v.strictObject({ slot: identifier, fieldId: identifier })),
-    v.minLength(1),
     v.maxLength(20),
     v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate binding slots"),
   ),
@@ -458,10 +514,10 @@ export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
 /**
  * One way through a route, as the executor records it when a login starts (ADR 0027).
  * `variant` indexes the password route's variants: 0 is the recipe's own `slots` and
- * `steps`, 1 to 3 its `alternatives`.
+ * `steps`, 1 to 3 its `alternatives`. The `passkey` route has no variants.
  */
-// The `passkey` and `sso` routes of ADR 0027 add their own members here.
-export type LoginRouteChoice = { route: "password"; variant: number };
+// The `sso` route of ADR 0027 adds its own member here.
+export type LoginRouteChoice = { route: "password"; variant: number } | { route: "passkey" };
 /** One identifier set of the password route: the slots it fills and its steps. */
 export type PasswordVariant = { slots: string[]; steps: LoginStep[] };
 /** The password route's variants in order: the recipe's own, then its alternatives. */
@@ -470,9 +526,13 @@ export function passwordVariants(recipe: LoginRecipe): PasswordVariant[] {
 }
 /** The chosen route's steps, or none when the recipe lacks it. */
 export function routeSteps(recipe: LoginRecipe, choice: LoginRouteChoice): LoginStep[] {
-  return choice.route === "password" ? (passwordVariants(recipe)[choice.variant]?.steps ?? []) : [];
+  if (choice.route === "passkey") return recipe.passkey ? [passkeyStep(recipe.passkey)] : [];
+  return passwordVariants(recipe)[choice.variant]?.steps ?? [];
 }
-/** The slots the chosen route fills; a binding for a login on it covers exactly these. */
+/**
+ * The slots the chosen route fills; a binding for a login on it covers exactly these. The
+ * `passkey` route fills none.
+ */
 export function routeSlots(recipe: LoginRecipe, choice: LoginRouteChoice): string[] {
   return choice.route === "password" ? (passwordVariants(recipe)[choice.variant]?.slots ?? []) : [];
 }
@@ -497,7 +557,7 @@ export function routeFillTargets(recipe: LoginRecipe, route: LoginRoute): LoginT
 }
 /** Every path a route's steps use, over all its variants, each once. */
 export function routePaths(recipe: LoginRecipe, route: LoginRoute): string[] {
-  if (route !== "password") return [];
+  if (route === "passkey") return recipe.passkey ? [recipe.passkey.path] : [];
   return [
     ...new Set(
       passwordVariants(recipe).flatMap((variant) => variant.steps.map((step) => step.path)),
@@ -505,28 +565,61 @@ export function routePaths(recipe: LoginRecipe, route: LoginRoute): string[] {
   ];
 }
 /**
- * The first step of every route and variant: a new login starts once any of them is
- * ready on the page. All of them are on the recipe's start path.
+ * Elements whose presence on one of {@link routeSignInPaths} shows the page is still a
+ * sign-in page, so it is not judged (ADR 0027): every fill target of the `password` route,
+ * and on the `passkey` route also its button, which stays while its passkey exchange
+ * runs. The `passkey` route counts the password form too: a start page that shows it
+ * again after the click is still the sign-in page, not a page to learn from.
  */
-export function recipeStartSteps(recipe: LoginRecipe): LoginStep[] {
-  return passwordVariants(recipe).map((variant) => variant.steps[0]!);
-}
-/** Whether the recipe offers the route; every recipe has the `password` route. */
-export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean {
-  return route === "password" && passwordVariants(recipe).length > 0;
+export function routeSignInTargets(recipe: LoginRecipe, route: LoginRoute): LoginTarget[] {
+  if (route === "passkey" && !recipe.passkey) return [];
+  const fills = routeFillTargets(recipe, "password");
+  if (route !== "passkey" || !recipe.passkey) return fills;
+  const button = recipe.passkey.target;
+  return [button, ...fills.filter((target) => !sameLoginTarget(target, button))];
 }
 /**
- * The route a new login takes (ADR 0027), from the item's facts and, for each password
- * variant in order, whether the item's binding fills it (`fits[variant]`): the first
- * fitting variant, when the item has a password. Undefined means `no-route`.
+ * The paths on which {@link routeSignInTargets} show a sign-in page and the judge is told
+ * are the login's (ADR 0027): the route's own paths, and on the `passkey` route also every
+ * path of the `password` route, whose form it starts beside.
  */
-// The owner's order is passkey, then SSO, then password; the passkey and SSO routes come
-// before this check when they exist.
+export function routeSignInPaths(recipe: LoginRecipe, route: LoginRoute): string[] {
+  if (route !== "passkey" || !recipe.passkey) return routePaths(recipe, route);
+  return [...new Set([recipe.passkey.path, ...routePaths(recipe, "password")])];
+}
+/**
+ * The first step of every route and variant: a new login starts once any of them is
+ * ready on the page. All of them are on the recipe's start path; the `passkey` route's
+ * click comes first.
+ */
+export function recipeStartSteps(recipe: LoginRecipe): LoginStep[] {
+  return [
+    ...(recipe.passkey ? [passkeyStep(recipe.passkey)] : []),
+    ...passwordVariants(recipe).map((variant) => variant.steps[0]!),
+  ];
+}
+/**
+ * Whether the recipe offers the route; every recipe has the `password` route, since a
+ * start page without a password input is never generated (ADR 0016).
+ */
+export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean {
+  return route === "passkey"
+    ? recipe.passkey !== undefined
+    : route === "password" && passwordVariants(recipe).length > 0;
+}
+/**
+ * The route a new login takes (ADR 0027), in the owner's order: `passkey` when the recipe
+ * has it and the item holds a discoverable passkey; otherwise, from whether the item's
+ * binding fills each password variant in order (`fits[variant]`), the first fitting
+ * variant, when the item has a password. Undefined means `no-route`.
+ */
+// SSO (ADR 0026) comes between the passkey and password routes once it exists.
 export function chooseLoginRoute(
   recipe: LoginRecipe,
-  facts: Pick<LoginItemFacts, "password">,
+  facts: Pick<LoginItemFacts, "password" | "discoverablePasskey">,
   fits: readonly boolean[],
 ): LoginRouteChoice | undefined {
+  if (recipe.passkey && facts.discoverablePasskey) return { route: "passkey" };
   if (!facts.password) return undefined;
   const variant = passwordVariants(recipe).findIndex((_, index) => fits[index] === true);
   return variant === -1 ? undefined : { route: "password", variant };

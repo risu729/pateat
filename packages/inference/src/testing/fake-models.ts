@@ -72,6 +72,7 @@ export const oracleGenerator = () =>
             fields: expectedFields(expected),
             action: { candidate: expected.action, purpose: expected.purpose },
             ...(expected.alternatives ? { alternatives: expectedAlternatives(expected) } : {}),
+            ...(expected.passkeyButton ? { passkeyButton: expected.passkeyButton } : {}),
           };
     return textResult(JSON.stringify({ result }));
   });

@@ -565,3 +565,88 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
     expect(added.recipe.alternatives).toEqual(recipe.alternatives);
   });
 });
+
+describe("the passkey route in generated recipes (ADR 0027)", () => {
+  const button = { by: "text", value: "Sign in with a passkey" } as const;
+  const signIn = page("/login", "username", "submit");
+  const withPasskey = () => {
+    const result = appendPageSteps(undefined, {
+      id: "gen-1",
+      origin,
+      steps: signIn,
+      passkey: button,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    return result.recipe;
+  };
+
+  it("stores the start page's passkey button as the passkey route on a first page", () => {
+    expect(withPasskey()).toEqual({
+      ...built(signIn),
+      passkey: { path: "/login", target: button },
+    });
+  });
+
+  it("refuses a passkey button on a continued page and keeps a recipe's own", () => {
+    const first = page("/login", "username", "advance");
+    const started = appendPageSteps(undefined, {
+      id: "gen-1",
+      origin,
+      steps: first,
+      passkey: button,
+    });
+    if (!started.ok) throw new Error(started.reason);
+    expect(
+      appendPageSteps(started.recipe, {
+        id: "gen-1",
+        origin,
+        steps: page("/pw", "pw", "submit"),
+        passkey: button,
+      }),
+    ).toEqual({ ok: false, reason: "invalid-recipe" });
+    const continued = appendPageSteps(started.recipe, {
+      id: "gen-1",
+      origin,
+      steps: page("/pw", "pw", "submit"),
+      // An account switch that is the passkey button is never kept.
+      accountSwitch: button,
+    });
+    if (!continued.ok) throw new Error(continued.reason);
+    expect(continued.recipe.passkey).toEqual({ path: "/login", target: button });
+    expect(continued.recipe).not.toHaveProperty("accountSwitch");
+  });
+
+  it("learns no completion on the passkey button or a start page that still shows it", () => {
+    const recipe = withPasskey();
+    const login = (...candidates: ReturnType<typeof candidate>[]) => ({
+      origin,
+      path: "/login",
+      candidates: [candidate("passkey", button), ...candidates],
+    });
+    expect(addCompletion(recipe, login(), button)).toEqual({ ok: false, reason: "step-target" });
+    expect(
+      addCompletion(recipe, login(candidate("logout", target("logout"))), target("logout")),
+    ).toEqual({ ok: false, reason: "login-page" });
+    // Elsewhere, its locator is another element.
+    const home = { origin, path: "/home", candidates: [candidate("passkey", button)] };
+    const learned = addCompletion(recipe, home, button);
+    if (!learned.ok) throw new Error(learned.reason);
+    expect(learned.recipe.passkey).toEqual(recipe.passkey);
+  });
+
+  it("adds no handler on the passkey button on the start page", () => {
+    const recipe = withPasskey();
+    const login = { origin, path: "/login", candidates: [candidate("passkey", button)] };
+    expect(addHandler(recipe, login, { kind: "passkey", target: button })).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+    const elsewhere = addHandler(
+      recipe,
+      { ...login, path: "/login/webauthn" },
+      { kind: "passkey", target: button },
+    );
+    if (!elsewhere.ok) throw new Error(elsewhere.reason);
+    expect(extendsRecipe(recipe, elsewhere.recipe)).toBe(true);
+  });
+});

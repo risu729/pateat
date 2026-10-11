@@ -21,12 +21,23 @@ async function send(page: Page, message: unknown): Promise<unknown> {
   }, message);
 }
 
-async function configure(options: Page, extensionId: string, origin: string, selectAccount = true) {
+async function configure(
+  options: Page,
+  extensionId: string,
+  origin: string,
+  selectAccount = true,
+  passkey?: "discoverable" | "second-factor",
+) {
   await options.goto(`chrome-extension://${extensionId}/options.html`);
   await expect(options.locator("#settings-status")).toContainText("Saved settings loaded");
-  expect(await send(options, { version: 1, type: "login.probe.configure", origin })).toMatchObject({
-    ok: true,
-  });
+  expect(
+    await send(options, {
+      version: 1,
+      type: "login.probe.configure",
+      origin,
+      ...(passkey ? { passkey } : {}),
+    }),
+  ).toMatchObject({ ok: true });
   const response = (await send(options, { version: 1, type: "settings.get" })) as SettingsResponse;
   if (!response.ok) throw new Error("Synthetic settings unavailable");
   const settings = response.snapshot.settings;
@@ -679,6 +690,84 @@ test("fills the second identifier set when the account maps only that one (ADR 0
       expect(status).toContain('"recipeId":"demo-variants"');
       expect(status).toContain('"variant":1');
       expect(status).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("signs in with the start page's passkey button for a discoverable passkey (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, "discoverable");
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/passkey`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      await expect.poll(status).toContain('"authenticated"');
+      const evidence = await page.evaluate(() => ({
+        passkeyClicks: Number(sessionStorage.getItem("passkeyClicks") || 0),
+        submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+      }));
+      expect(evidence).toEqual({ passkeyClicks: 1, submitClicks: 0 });
+      const text = await status();
+      expect(text).toContain('"recipeId":"demo-passkey"');
+      expect(text).toContain('"route":"passkey"');
+      expect(text).not.toContain('"variant"');
+      expect(text).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a passkey sign-in that leaves the button on a new page ends as a challenge (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, "discoverable");
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/passkey?stay`);
+      await expect.poll(status).toContain('"challenge"');
+      // The password is never typed after the passkey route ends.
+      await expect(page.locator("#password")).toHaveValue("");
+      const evidence = await page.evaluate(() => ({
+        passkeyClicks: Number(sessionStorage.getItem("passkeyClicks") || 0),
+        submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+      }));
+      expect(evidence).toEqual({ passkeyClicks: 1, submitClicks: 0 });
+      expect(await status()).toContain('"route":"passkey"');
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a passkey that is only a second factor signs in with the password (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, "second-factor");
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/passkey`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      const evidence = await page.evaluate(() => ({
+        passkeyClicks: Number(sessionStorage.getItem("passkeyClicks") || 0),
+        submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+        passwordMatched: sessionStorage.getItem("passwordMatched"),
+      }));
+      expect(evidence).toEqual({ passkeyClicks: 0, submitClicks: 1, passwordMatched: "true" });
+      const status = JSON.stringify(
+        await send(options, { version: 1, type: "login.probe.status" }),
+      );
+      expect(status).toContain('"route":"password"');
     });
   } finally {
     await fixture.close();
