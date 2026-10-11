@@ -369,6 +369,11 @@ attempt for a tab/document; other tabs can progress independently. Revalidate
 origin, account binding, target elements, and document immediately before each
 fill or click. Expire late AI results after navigation and cancel outstanding
 work. Synthetic events and lack of trusted user activation may limit some sites.
+An attempt starts when a recipe's first step is ready on the page, including after a
+same-document URL change, and each later fill or click waits a bounded time for its
+elements ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)).
+The browser-provided `sender.url` keeps a document's load URL, so the executor takes a
+top-level document's current path from the tab's committed URL.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to
 blindly replay a submit. Input and change handlers can submit without a click.

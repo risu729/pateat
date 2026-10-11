@@ -391,6 +391,24 @@ describe("recipe sync", () => {
     expect(cache()).toBeUndefined();
     expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
   });
+
+  it("lists the first step of every cached recipe for an origin", async () => {
+    const stored = {
+      version: 1,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 1,
+      recipes: [recipe("bank-signin", "/login"), recipe("bank-app", "/app/login")],
+    };
+    const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
+    expect((await sync.recipes.firstSteps(SITE)).map((step) => step.path)).toEqual([
+      "/login",
+      "/app/login",
+    ]);
+    expect(await sync.recipes.firstSteps("https://other.example")).toEqual([]);
+    await sync.clear();
+    expect(await sync.recipes.firstSteps(SITE)).toEqual([]);
+  });
 });
 
 describe("settings in the same sync", () => {

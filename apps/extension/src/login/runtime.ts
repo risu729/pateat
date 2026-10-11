@@ -20,6 +20,7 @@ import {
   type LoginDocument,
   type LoginOperation,
   type LoginRecipe,
+  type LoginStep,
   type LoginTarget,
   type SavedLoginBinding,
   type SettingsResponse,
@@ -30,6 +31,7 @@ import {
 import { browser, type Browser } from "wxt/browser";
 import {
   authorizeSchema,
+  awaitResultSchema,
   cancelSchema,
   configureSchema,
   executionResultSchema,
@@ -37,6 +39,9 @@ import {
   observationSchema,
   statusSchema,
   probeControlSchema,
+  loginReadiness,
+  LOGIN_STEP_WAIT_MS,
+  type LoginReadiness,
   type LoginSecretKind,
 } from "./wire";
 import {
@@ -44,6 +49,7 @@ import {
   DEMO_PROBE_ACCOUNT,
   grantProbeOrigin,
   probeBinding,
+  probeFirstSteps,
   probeRecipe,
   type ProbeAccount,
 } from "./dummy";
@@ -112,8 +118,13 @@ const terminal = (metadata: LoginAttemptMetadata) =>
 export interface LoginRecipes {
   /** The recipe for a document, or an attempt's own recipe by ID after navigation. */
   recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
+  /** The first step of every recipe for the origin; a document watches for them to appear. */
+  firstSteps(origin: string): Promise<LoginStep[]>;
 }
-export const noLoginRecipes: LoginRecipes = { recipe: async () => undefined };
+export const noLoginRecipes: LoginRecipes = {
+  recipe: async () => undefined,
+  firstSteps: async () => [],
+};
 const probeMode = import.meta.env.MODE === "probe";
 
 /**
@@ -534,6 +545,27 @@ export function createLoginRuntime(
     const parsed = v.safeParse(observationSchema, response);
     return parsed.success ? parsed.output : undefined;
   }
+  /**
+   * Asks the document to wait for a step's elements. A document that went away or was
+   * cancelled leaves the attempt as it is; its replacement document resumes it.
+   */
+  async function waitFor(
+    run: Execution,
+    readiness: LoginReadiness,
+  ): Promise<"ready" | "timeout" | "gone"> {
+    try {
+      const response = await send(run.live, {
+        type: "login.await",
+        readiness,
+        timeoutMs: LOGIN_STEP_WAIT_MS,
+      });
+      const parsed = v.safeParse(awaitResultSchema, response);
+      if (!parsed.success) return "gone";
+      return parsed.output.ok ? "ready" : parsed.output.reason === "timeout" ? "timeout" : "gone";
+    } catch {
+      return "gone";
+    }
+  }
   async function reconcile(run: Execution, settleUnknown = false): Promise<void> {
     const nextIndex =
       run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance"
@@ -590,7 +622,10 @@ export function createLoginRuntime(
   // Parallel execution would race policy checks or repeat submission side effects.
   /* eslint-disable no-await-in-loop */
   async function reconcileBounded(run: Execution): Promise<void> {
-    const until = Date.now() + 3000;
+    // An advance is confirmed by the next step's elements, which get the same wait as any
+    // fill or click; other results keep the shorter observation budget.
+    const until =
+      Date.now() + (run.metadata.operationEffect === "advance" ? LOGIN_STEP_WAIT_MS : 3000);
     const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
     while (current(run) && observing() && Date.now() < until) {
       await reconcile(run);
@@ -607,6 +642,18 @@ export function createLoginRuntime(
         await reconcileBounded(run);
       while (current(run) && run.metadata.state === "ready") {
         if (!(await allowed(run))) return;
+        // A fill or click waits for its elements before any intent, vault read or value
+        // delivery; a slow render is not a failure until the owner-approved limit passes.
+        const upcoming = run.recipe.steps[run.metadata.stepIndex];
+        if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
+          const waited = await waitFor(run, loginReadiness(upcoming));
+          if (!current(run) || run.metadata.state !== "ready") return;
+          if (waited === "timeout") {
+            await change(run, { type: "FAILED", reason: "structural-mismatch" });
+            return;
+          }
+          if (waited !== "ready" || !(await allowed(run))) return;
+        }
         const operation = nextLoginOperation(
           run.metadata,
           run.recipe,
@@ -742,7 +789,25 @@ export function createLoginRuntime(
     }
   }
   /* eslint-enable no-await-in-loop */
-  async function ready(sender: Sender, token: string): Promise<{ ok: boolean; reason?: string }> {
+  /** First steps a document watches for; deduplicated and bounded for the wire. */
+  async function startsFor(documentOrigin: string): Promise<LoginReadiness[]> {
+    const steps =
+      probeMode && documentOrigin === origin
+        ? probeFirstSteps(origin)
+        : await recipes.firstSteps(documentOrigin).catch(() => []);
+    const unique = new Map(
+      steps.map((step) => {
+        const readiness = loginReadiness(step);
+        return [JSON.stringify(readiness), readiness];
+      }),
+    );
+    return [...unique.values()].slice(0, 32);
+  }
+  async function ready(
+    sender: Sender,
+    token: string,
+    start?: { path: string },
+  ): Promise<{ ok: boolean; reason?: string; starts?: LoginReadiness[] }> {
     // Admission is async; a later hello from the same tab must not be overtaken by an older one.
     const tabId = sender.tab?.id;
     const sequence = (hellos.get(tabId) ?? 0) + 1;
@@ -751,16 +816,25 @@ export function createLoginRuntime(
     const document = await identify(sender);
     if (!document || !sender.url) return { ok: false, reason: "unauthorized-document" };
     if (hellos.get(tabId) !== sequence) return { ok: false, reason: "stale-document" };
+    // `sender.url` keeps the URL the document loaded with; a same-document URL change
+    // (history.pushState) shows only in the tab's committed URL.
+    let url = sender.url;
+    try {
+      const tab = await browser.tabs.get(document.tabId);
+      if (tab.url && new URL(tab.url).origin === document.origin) url = tab.url;
+    } catch {
+      return { ok: false, reason: "closed-tab" };
+    }
+    if (hellos.get(tabId) !== sequence) return { ok: false, reason: "stale-document" };
     const oldLive = documents.get(document.tabId);
-    if (oldLive && sameLoginDocument(oldLive.document, document))
+    const sameDocument = oldLive !== undefined && sameLoginDocument(oldLive.document, document);
+    // A document may announce again when its form appears or its URL changes in place,
+    // but never while it already carries an attempt, terminal or not.
+    if (sameDocument && (oldLive.token !== token || attempts.get(document.tabId)?.live === oldLive))
       return { ok: false, reason: "duplicate-document" };
-    if (oldLive) await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
-    const live: LiveDocument = {
-      document,
-      token,
-      url: sender.url,
-      path: new URL(sender.url).pathname,
-    };
+    if (oldLive && !sameDocument)
+      await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
+    const live: LiveDocument = { document, token, url, path: new URL(url).pathname };
     documents.set(document.tabId, live);
     const refuse = async (reason: string) => {
       live.state = "denied";
@@ -778,6 +852,21 @@ export function createLoginRuntime(
           : probeRecipe(origin, live.path)
         : await recipes.recipe(document.origin, live.path, previous?.recipeId);
     if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
+    // A new attempt starts only once the document reports its recipe's first step ready.
+    // Until then it watches the first steps of every recipe for its origin; this reads
+    // no settings, policy catalog or vault.
+    if (
+      !previous &&
+      (!recipe || (loginReadiness(recipe.steps[0]!).targets.length && start?.path !== live.path))
+    ) {
+      const starts = await startsFor(document.origin);
+      if (documents.get(document.tabId) !== live) return { ok: false, reason: "stale-document" };
+      if (!recipe && !starts.length) return refuse("recipe-not-found");
+      live.state = "watching";
+      delete live.reason;
+      await publish(live);
+      return { ok: false, reason: recipe ? "form-not-ready" : "recipe-not-found", starts };
+    }
     // A resumed attempt keeps its own recipe revision; a replaced or different recipe never takes it over.
     if (
       !recipe ||
@@ -909,7 +998,7 @@ export function createLoginRuntime(
       return undefined;
     }
     const hello = v.safeParse(helloSchema, message);
-    if (hello.success) return ready(sender, hello.output.token);
+    if (hello.success) return ready(sender, hello.output.token, hello.output.start);
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
     const document = await identify(sender);

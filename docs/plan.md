@@ -65,9 +65,12 @@ POST counts independently of the executor. Interruption fixtures distinguish
 intent persistence, delivery, effect and acknowledgement; a missing acknowledgement
 never authorizes another fill or a fallback click.
 [Development](development.md#installed-chrome-synthetic-login-probe)
-describes the early installed-Chrome acceptance procedure. Production activation,
-arbitrary saved recipe configuration, real provider compatibility and broader frame
-and dynamic-page support remain outstanding. The early installed-Chrome run passed
+describes the early installed-Chrome acceptance procedure. Attempts start when a
+recipe's first step appears, also after a same-document URL change or in a dialog
+opened later, and later steps wait up to 10 seconds for their elements
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Production
+activation, arbitrary saved recipe configuration, real provider compatibility and
+login forms inside frames remain outstanding. The early installed-Chrome run passed
 multi-page, background-tab, single-page, rejection, ambiguity, concurrency and
 input/change-triggered advance cases using synthetic values. It does not establish
 current SDK/setup compatibility or official Bitwarden extension coexistence. See the

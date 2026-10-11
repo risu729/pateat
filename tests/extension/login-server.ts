@@ -161,7 +161,7 @@ export async function startLoginFixture(
           sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));
           sessionStorage.setItem('identityMatched', String(document.getElementById('branch').value === '007' && document.getElementById('account').value === '00001234'));
           ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', stage:'identity', branch:document.getElementById('branch').value, account:document.getElementById('account').value})});` : ""}
-          location.href = '/password';
+          location.href = '/password${fixtureUrl.searchParams.has("slow-password") ? "?slow=1" : ""}';
         });
         ${
           fixtureUrl.searchParams.has("replace-on-fill")
@@ -186,15 +186,21 @@ export async function startLoginFixture(
         ),
       );
     } else if (path === "/password") {
+      // `?slow=1` renders the form four seconds after load, past the old three-second budget.
+      const slow = fixtureUrl.searchParams.has("slow");
+      const form =
+        '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
       response.end(
         html(
-          '<h1>Synthetic password step</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
-          `document.getElementById('login').addEventListener('click', () => {
+          `<h1>Synthetic password step</h1><main id="app">${slow ? "" : form}</main>`,
+          `${slow ? `setTimeout(() => { document.getElementById('app').innerHTML = ${JSON.stringify(form)}; bindLogin(); }, 4000);` : ""}
+          function bindLogin() { document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           ${fixtureUrl.searchParams.has("runId") && runs.has(fixtureUrl.searchParams.get("runId")!) ? `void fetch('/effect/${fixtureUrl.searchParams.get("runId")}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});` : ""}
           location.href = '/authenticated';
-        });`,
+        }); }
+          ${slow ? "" : "bindLogin();"}`,
         ),
       );
     } else if (
@@ -236,6 +242,61 @@ export async function startLoginFixture(
           });
         };
       `,
+        ),
+      );
+    } else if (
+      path === "/spa" ||
+      path === "/spa-login" ||
+      path === "/dialog" ||
+      path === "/slow-button"
+    ) {
+      // Forms that appear after load: a same-document URL change, an opened dialog and a
+      // submit button that renders late (`?never` keeps it absent).
+      const form =
+        '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
+      const body = {
+        "/spa":
+          '<h1>Synthetic app home</h1><button id="open-login" type="button">Go to sign-in</button><main id="app"></main>',
+        "/spa-login": `<h1>Synthetic app sign-in</h1><main id="app">${form}</main>`,
+        "/dialog": `<h1>Synthetic dialog login</h1><button id="open-login" type="button">Sign in</button><div id="app" hidden>${form}</div>`,
+        "/slow-button":
+          '<h1>Synthetic slow button</h1><main id="app"><label>Password<input id="password" type="password"></label></main>',
+      }[path];
+      response.end(
+        html(
+          body,
+          `
+        function bindLogin() {
+          document.getElementById('login').addEventListener('click', () => {
+            sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+            sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+            document.body.insertAdjacentHTML('beforeend', sessionStorage.getItem('passwordMatched') === 'true' ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
+            updateFixtureStatus();
+          });
+        }
+        ${
+          path === "/spa"
+            ? `document.getElementById('open-login').addEventListener('click', () => {
+          history.pushState({}, '', '/spa-login');
+          setTimeout(() => {
+            document.getElementById('app').innerHTML = ${JSON.stringify(form)};
+            bindLogin();
+          }, 300);
+        });`
+            : path === "/dialog"
+              ? `bindLogin();
+        document.getElementById('open-login').addEventListener('click', () => {
+          document.getElementById('app').hidden = false;
+        });`
+              : path === "/slow-button"
+                ? fixtureUrl.searchParams.has("never")
+                  ? ""
+                  : `setTimeout(() => {
+          document.getElementById('app').insertAdjacentHTML('beforeend', '<button id="login" type="button">Log in</button>');
+          bindLogin();
+        }, ${Number(fixtureUrl.searchParams.get("delay") ?? 2000)});`
+                : "bindLogin();"
+        }`,
         ),
       );
     } else if (path === "/ambiguous") {
