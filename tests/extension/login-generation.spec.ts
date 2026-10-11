@@ -116,7 +116,7 @@ for (const button of ["button", "anchor"] as const)
             ...entry,
             enabled: entry.connectionId === accepted.connectionId,
           }));
-          await settingsRequest(options, {
+          const saved = await settingsRequest(options, {
             version: 1,
             type: "settings.save",
             expectedRevision: initial.snapshot.revision,
@@ -138,9 +138,16 @@ for (const button of ["button", "anchor"] as const)
               credential: service.credential,
             },
           );
-          expect(await send(options, { version: 1, type: "service.pair.check" })).toMatchObject({
+          expect(await send(options, { version: 1, type: "service.get" })).toMatchObject({
             ok: true,
             state: { kind: "connected" },
+          });
+          // Saving settings syncs at once; the earlier save already scheduled the next one.
+          await settingsRequest(options, {
+            version: 1,
+            type: "settings.save",
+            expectedRevision: saved.snapshot.revision,
+            settings: saved.snapshot.settings,
           });
 
           const runId = fixture.createRun();

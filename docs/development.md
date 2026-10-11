@@ -160,7 +160,7 @@ which is the public key in `apps/extension/manifest-key.ts`
 checks that derivation, and the browser tests check that Chrome loads the production
 build under that ID. Loading an unpacked build needs no private key. A self-hosted build
 may use its own key; it then replaces both files with its own public key and ID, and
-lists that ID on its server once pairing checks the ID. The synthetic probe build has no
+lists that ID in `PAIRING_EXTENSION_IDS` on its server. The synthetic probe build has no
 `key`. It keeps the ID that Chrome derives from its folder, so it never shares storage
 with a production install.
 
@@ -182,9 +182,50 @@ an existing install once:
 2. Remove the old Pateat entry in `chrome://extensions`. Do not press Reload.
 3. Load the new build and check that its ID equals `PATEAT_EXTENSION_ID`.
 4. Set up the vault connection and automatic unlock again.
-5. Pair again. Until direct pairing lands, this uses the typed code.
+5. Pair again (see
+   [installed Chrome service pairing](#installed-chrome-service-pairing)).
 6. Redo item selection and field exclusions.
 7. Optionally remove the old Pateat device from Bitwarden's device list.
+
+### Installed Chrome service pairing
+
+`tests/extension/pairing-service.spec.ts` pairs the production build in bundled Chromium
+with the built Worker behind a synthetic stand-in for Cloudflare Access; it is not
+evidence for installed Chrome or the deployed service. The stand-in does not model
+Access's own `401`, denial page or cookie validation; only the transport unit tests'
+synthetic responses cover those. After a release that contains
+`POST /pair`, check the deployed path once from installed Chrome:
+
+1. Before the [one-time reset](#extension-id), in the console of the old install's
+   service worker, whose path-derived ID is not in `PAIRING_EXTENSION_IDS`, run:
+
+   ```js
+   fetch("https://pateat.takuk.me/pair", {
+     method: "POST",
+     credentials: "include",
+     redirect: "manual",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify({ version: 1, label: "Probe" }),
+   });
+   ```
+
+   While signed in to Access it must answer `403` with `extension_not_allowed` and
+   create no device. This confirms that the session cookie and `Origin` reach the
+   Worker. A production build with the committed ID would pair instead. If the old
+   install is already gone, run the same probe in the service worker of the synthetic
+   probe build (`apps/extension/.output/chrome-mv3-probe/`), whose path-derived ID is
+   not in the list either; running it from the production build would create a device.
+2. With an SDK-containing production build that meets
+   [Corresponding Source](sdk-source.md), pair from the settings page while signed in to
+   Access; the device appears on `/manage` with its label.
+3. Sign out at `https://pateat.takuk.me/cdn-cgi/access/logout` and pair again: one
+   sign-in tab opens on `/manage`, and pairing completes after coming back or after
+   **Try again**. Then confirm that the first sync completes, disconnect, and check
+   that `/manage` shows the device revoked.
+
+Record the date, Chrome version, commit, the Access application's cookie settings and
+the results in the [plan](plan.md#remaining-m4-service-gaps). This is service-pairing
+evidence, not real-account login evidence.
 
 ### Windows notes
 

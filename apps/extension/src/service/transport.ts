@@ -1,12 +1,12 @@
 import {
-  enrollmentRedeemResultSchema,
+  devicePairResultSchema,
   recipeCompletionResultSchema,
   recipeGenerationResultSchema,
   SYNC_PAGE_LIMIT,
   syncDeviceStateSchema,
   syncRecipeChangesSchema,
   syncSettingsStateSchema,
-  type EnrollmentRedeemResult,
+  type DevicePairResult,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -20,11 +20,22 @@ import * as v from "valibot";
 
 export type TransportFailure = "unreachable" | "unexpected-response" | "rate-limited";
 
-export type RedeemResult =
-  | { kind: "issued"; result: EnrollmentRedeemResult }
-  | { kind: "pending" }
-  | { kind: "code-mismatch" }
-  | { kind: "failed"; error: TransportFailure };
+/** `POST /pair`'s answer (ADR 0020). */
+export type PairResult =
+  | { kind: "issued"; result: DevicePairResult }
+  /**
+   * No login session reached the service: a redirect, a `401`, or a body that is not
+   * JSON, such as the Access login page, with any status below 500 except 429.
+   */
+  | { kind: "sign-in-needed" }
+  | {
+      kind: "failed";
+      error:
+        | TransportFailure
+        | "sign-in-rejected"
+        | "extension-not-allowed"
+        | "pairing-unavailable";
+    };
 
 export type RevokeResult = { kind: "revoked" } | { kind: "failed"; error: TransportFailure };
 
@@ -55,7 +66,11 @@ export type InferenceResult<T> =
   | { kind: "failed"; error: TransportFailure | "timeout" };
 
 export interface ServiceTransport {
-  redeem(origin: string, verifier: string): Promise<RedeemResult>;
+  /**
+   * `POST /pair` with the browser's login session to the service. The only call that
+   * sends cookies; it sends no device credential.
+   */
+  pair(origin: string, label: string): Promise<PairResult>;
   revoke(origin: string, credential: string): Promise<RevokeResult>;
   /** `GET /v1/device`: what the service holds for this device's owner. */
   device(origin: string, credential: string): Promise<DeviceStateResult>;
@@ -130,9 +145,29 @@ async function readBounded(response: Response, limit: number): Promise<string | 
 /** The diagnostics page waits for this read, so it gives up sooner than sync does. */
 export const DEVICE_TIMEOUT_MS = 5_000;
 
+/** Per-call options; only pairing sends the browser's login session. */
+type CallOptions = {
+  limit?: number;
+  timeout?: number;
+  /**
+   * Sends the browser's cookies for the service and leaves redirects unfollowed.
+   * A redirect or a body that is not JSON then means the login front-end answered
+   * instead of the Worker, so the caller is told to sign in. A non-JSON 429 or 5xx is
+   * an edge error page, such as Cloudflare's rate-limit or server error pages, and is
+   * reported as rate limiting or an unexpected response instead.
+   */
+  session?: boolean;
+};
+
+function isJson(response: Response) {
+  const type = response.headers.get("Content-Type") ?? "";
+  return type.split(";")[0]!.trim().toLowerCase() === "application/json";
+}
+
 /**
- * Talks only to the configured service origin. Redirects, cookies, caches and
- * referrers are refused; bodies are size-bounded and validated before use.
+ * Talks only to the configured service origin. Redirects, caches and referrers are
+ * refused, and cookies are sent only to `POST /pair`; bodies are size-bounded and
+ * validated before use.
  */
 export function createServiceTransport(
   options: { fetch?: typeof fetch; timeoutMs?: number; inferenceTimeoutMs?: number } = {},
@@ -146,8 +181,7 @@ export function createServiceTransport(
     origin: string,
     path: string,
     init: RequestInit,
-    limit: number = MAX_RESPONSE_BYTES,
-    timeout = timeoutMs,
+    { limit = MAX_RESPONSE_BYTES, timeout = timeoutMs, session = false }: CallOptions = {},
   ) {
     const url = new URL(path, origin).href;
     const controller = new AbortController();
@@ -156,11 +190,22 @@ export function createServiceTransport(
       const response = await fetchResponse(url, {
         ...init,
         signal: controller.signal,
-        redirect: "error",
-        credentials: "omit",
+        redirect: session ? "manual" : "error",
+        credentials: session ? "include" : "omit",
         cache: "no-store",
         referrerPolicy: "no-referrer",
       });
+      // Decided before reading the body: a login or edge error page is never parsed.
+      // Status 0 falls through to "unexpected-response" for any caller that ignores
+      // `signIn`.
+      if (session && (response.type === "opaqueredirect" || !isJson(response))) {
+        void response.body?.cancel().catch(() => undefined);
+        if (response.type !== "opaqueredirect" && response.status === 429)
+          return { failed: "rate-limited" as const };
+        if (response.type !== "opaqueredirect" && response.status >= 500)
+          return { failed: "unexpected-response" as const };
+        return { status: 0, body: undefined, signIn: true as const };
+      }
       if (response.redirected || (response.url && response.url !== url)) {
         void response.body?.cancel().catch(() => undefined);
         return { failed: "unexpected-response" as const };
@@ -198,23 +243,36 @@ export function createServiceTransport(
   }
 
   return {
-    async redeem(origin, verifier) {
-      const response = await call(origin, "/redeem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: 1, verifier }),
-      });
+    async pair(origin, label) {
+      const response = await call(
+        origin,
+        "/pair",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // Asks Access to answer an expired session with a 401 instead of a redirect.
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          body: JSON.stringify({ version: 1, label }),
+        },
+        { session: true },
+      );
+      if ("signIn" in response) return { kind: "sign-in-needed" };
       if ("failed" in response) return { kind: "failed", error: response.failed };
-      if (response.status === 200) {
-        const parsed = v.safeParse(enrollmentRedeemResultSchema, response.body);
+      if (response.status === 201) {
+        const parsed = v.safeParse(devicePairResultSchema, response.body);
         return parsed.success
           ? { kind: "issued", result: parsed.output }
           : { kind: "failed", error: "unexpected-response" };
       }
       const code = errorCode(response.body);
-      if (response.status === 404 && code === "enrollment_not_found") return { kind: "pending" };
-      if (response.status === 409 && code === "enrollment_code_mismatch")
-        return { kind: "code-mismatch" };
+      if (response.status === 401) return { kind: "sign-in-needed" };
+      if (response.status === 403 && code === "forbidden")
+        return { kind: "failed", error: "sign-in-rejected" };
+      if (response.status === 403 && code === "extension_not_allowed")
+        return { kind: "failed", error: "extension-not-allowed" };
+      if (response.status === 503) return { kind: "failed", error: "pairing-unavailable" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };
     },
@@ -234,8 +292,7 @@ export function createServiceTransport(
         origin,
         "/v1/device",
         { method: "GET", headers: { Authorization: `Bearer ${credential}` } },
-        MAX_RESPONSE_BYTES,
-        Math.min(timeoutMs, DEVICE_TIMEOUT_MS),
+        { timeout: Math.min(timeoutMs, DEVICE_TIMEOUT_MS) },
       );
       if ("failed" in response) return { kind: "failed", error: response.failed };
       if (response.status === 200) {
@@ -254,7 +311,7 @@ export function createServiceTransport(
         origin,
         `/v1/recipes?${query}`,
         { method: "GET", headers: { Authorization: `Bearer ${credential}` } },
-        MAX_RECIPE_PAGE_BYTES,
+        { limit: MAX_RECIPE_PAGE_BYTES },
       );
       if ("failed" in response) return { kind: "failed", error: response.failed };
       if (response.status === 200) {
@@ -274,7 +331,7 @@ export function createServiceTransport(
           origin,
           "/v1/settings",
           { method: "GET", headers: { Authorization: `Bearer ${credential}` } },
-          MAX_SETTINGS_BYTES,
+          { limit: MAX_SETTINGS_BYTES },
         ),
       );
     },
@@ -291,7 +348,7 @@ export function createServiceTransport(
             },
             body: JSON.stringify(write),
           },
-          MAX_SETTINGS_BYTES,
+          { limit: MAX_SETTINGS_BYTES },
         ),
       );
     },
@@ -330,8 +387,7 @@ export function createServiceTransport(
         headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       },
-      MAX_INFERENCE_BYTES,
-      inferenceTimeoutMs,
+      { limit: MAX_INFERENCE_BYTES, timeout: inferenceTimeoutMs },
     );
     if ("failed" in response)
       return { kind: "failed", error: "timedOut" in response ? "timeout" : response.failed };

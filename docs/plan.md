@@ -521,37 +521,73 @@ created on 2026-10-11 and the service is deployed at `pateat.takuk.me` (see
 [delivery](delivery.md)).
 
 The second slice adds the service side of
-[device enrollment](architecture.md#device-enrollment). The Worker verifies Cloudflare
+[device pairing](architecture.md#device-enrollment). The Worker verifies Cloudflare
 Access tokens itself (RS256 signature against the team keys, issuer, audience, expiry
-and a user subject) and maps the issuer and subject to an owner. An Access-protected
-page records the owner's approval of a device's SHA-256 challenge with the code they
-typed, an anonymous rate-limited route exchanges the verifier for a device credential
-once and only if that code matches the one derived from the verifier, and the owner can
-list and revoke devices; a device can revoke itself. Local tests use synthetic signing
-keys and cover forged, expired, wrong-audience and service tokens, missing
-configuration, CSRF, code mismatch and retyping, approval by an account that only saw
-the link, replay, concurrent redemption, expiry, cleanup, rate limits and cross-owner
-revocation.
+and a user subject) and maps the issuer and subject to an owner. `POST /pair`
+([ADR 0020](adr/0020-direct-device-pairing.md)) sits behind Access, accepts only an
+`Origin` naming an extension ID in `PAIRING_EXTENSION_IDS`, limits pairing per
+identity, creates the owner on first pairing and answers the device credential once.
+The owner can list and revoke devices; a device can revoke itself. Local Worker tests
+use synthetic signing keys and extension IDs and cover forged, expired, wrong-audience
+and service tokens, missing configuration, refused and missing origins, strict bodies,
+the per-identity limit, concurrent first pairings, the absence of CORS headers, the
+removed `/enroll` and `/redeem` routes and cross-owner revocation. The typed-code
+`/enroll` and `/redeem` flow it replaced, with its `enrollments` table, is removed;
+a D1 migration drops the table.
 
 The extension side of pairing is the third slice. The settings page has an optional sync
-service panel: it accepts only an exact HTTPS origin, asks the background to start
-pairing, and shows the short code with a button that opens the approval page in an
-ordinary tab. The background keeps the verifier and, after redemption, the device
-credential in trusted extension storage; neither crosses the runtime message boundary.
-Pairing asks Chrome for site access to the service host when the user has withheld it,
-and a pending pairing offers to ask again instead of being cancelled. The page polls
-redemption every ten seconds only while it stays open and a pairing is pending; the
-background allows at most one redemption every six seconds and waits a minute after a
-rate limit. A pairing is abandoned on the first request after 15 minutes, and an issued
+service panel: it accepts only an exact HTTPS origin and a device name that passes the
+shared label schema. **Pair this device** asks Chrome for site access to the service
+host inside the click, then asks the background to pair. The background service worker
+sends one `POST /pair` with the browser's cookies, unfollowed redirects and
+`X-Requested-With: XMLHttpRequest`, and writes the credential straight into trusted
+extension storage; it never crosses the runtime message boundary. An Access redirect,
+a `401`, or a response that is not JSON, such as the Access login page, means the user
+must sign in; a non-JSON `429` or `5xx` edge error page counts as rate limiting or an
+unexpected answer instead. On a sign-in the page opens
+`<service>/manage` in a new tab once per click, retries once when it is shown or focused
+again, and offers **Try again** and **Open sign-in page**; a later retry opens no tab by
+itself. Nothing is stored until the service has created the device, and an issued
 credential whose write failed is kept in memory and saved on the next request. An
 unreadable stored connection fails closed until the owner forgets it. Disconnecting
 revokes the device with its own credential and forgets it locally even when the service
-cannot confirm, in which case the page points to the management page. Requests refuse
-redirects, send no cookies and bound response bodies. Unit tests use synthetic responses
-and in-memory storage; component tests cover address validation, polling, code mismatch,
-expiry, cancellation, site access requests, forgetting an unreadable connection and an
-unconfirmed disconnect. The owner paired their Chrome with the deployed service on
-2026-10-11 ([device enrollment](architecture.md#device-enrollment)).
+cannot confirm, in which case the page points to the management page. Only pairing sends
+cookies; the `/v1` requests refuse redirects, send no cookies and bound response bodies.
+
+Unit tests cover the transport with synthetic responses, including a synthetic
+`opaqueredirect`, HTML login, `401` and denial pages, edge error pages, each error code,
+oversized bodies and timeouts; the settings client's sign-in tab URL and its refusal of
+an invalid origin; and the background runtime with in-memory storage. Component tests in
+Vitest Browser Mode cover one-click pairing, the sign-in tab, **Try again**, the focus
+and visibility retry, no second automatic tab, each error message, declined site access
+and the absence of any code. `tests/extension/pairing-service.spec.ts` loads the
+production build in bundled Chromium against the built Worker behind a loopback stand-in
+for Access, which forwards a request carrying a synthetic `CF_Authorization` cookie with
+a synthetic signed assertion and redirects any other to a login page. With the cookie,
+one click paired: the `POST /pair` came from the background with
+`Origin: chrome-extension://ekcnbbomcllhpomkeofikjagmjoibffk` and the cookie, the
+settings page sent no request to the service, and the first `/v1` sync sent no cookie.
+Without it, the page opened `/manage` once and paired after **Try again**, or by itself
+on the `focus` event that the test sends after bringing the page to the front; headless
+Chromium does not reliably send one itself. This shows bundled Chromium behavior only.
+The stand-in does not model Access's own `401`, denial page or cookie validation; only
+the transport unit tests' synthetic responses cover those.
+
+On 2026-10-11 the owner ran this in the console of Pateat's **service worker**
+(production build of main `59a2d12`, console context `background.js`):
+
+```js
+fetch("https://pateat.takuk.me/manage/api/devices", { credentials: "include", redirect: "manual" })
+```
+
+It returned `200`, type `basic`, with the device list. So installed Chrome sends the
+Access session cookie on the background's requests to the service host. The Access
+application's cookie settings at that time (SameSite, HttpOnly, binding cookie) are not
+recorded yet. On 2026-10-11 the post-deploy probe ran from the background of the owner's
+old install, whose path-derived ID is not listed, against revision `ac33781`:
+`POST /pair` returned `403`, type `basic`, with `extension_not_allowed`, and created no
+device. So the Access cookie reaches the Worker and the extension `Origin` arrives
+intact. Installed Chrome has not paired directly with the deployed service yet.
 
 The fourth slice syncs recipes into a last-known-good cache that the login executor
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
@@ -630,11 +666,11 @@ tests cover it.
 
 ### Remaining M4 service gaps
 
-- Direct pairing from the extension ([ADR 0020](adr/0020-direct-device-pairing.md)):
-  the manifest `key` that fixes the production extension ID and the Access-protected
-  `POST /pair` route, beside the typed-code flow, are implemented and covered by local
-  Worker tests; the route is not deployed. The extension switch, with the typed-code
-  flow removed, is not implemented.
+- Pairing in installed Chrome against the deployed service
+  ([ADR 0020](adr/0020-direct-device-pairing.md)): after release, the owner removes
+  `redeem` from the "pateat bypass" Access application, notes its cookie settings, and
+  runs the
+  [installed Chrome pairing check](development.md#installed-chrome-service-pairing).
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, are not synced yet.
   [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
@@ -660,7 +696,7 @@ tests cover it.
   skipped the page's login control: an `<a>` without `href` that submits the form
   from `onclick`.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
-  owner on first approval. Per-owner [service limits](architecture.md#service-limits)
+  owner on first pairing. Per-owner [service limits](architecture.md#service-limits)
   cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
   sized for the owner's own use; a byte quota is still needed before the service is
   offered to other people.
@@ -1176,7 +1212,7 @@ permissions or initial acceptance requirements.
 | M1: Tooling and runtime probes                | WXT skeleton, shared Valibot contracts, mise/hk, mandatory CI                                            | Frozen installation; full checks; packaged extension build; early injection/background execution in isolated Chromium and a small installed-Chrome/Chrome-use dummy-page coexistence probe; compatible cf/Workers test harness |
 | M2: Local login engine and settings           | Dummy vault adapter, settings page, multi-connection policies, saved site defaults, declarative executor | Multi-field/multi-page fixtures; policy precedence, excluded-site pass-through, background, navigation, interruption and concurrency tests; no automatic extension UI                                                          |
 | M3: Bitwarden passwords                       | First real adapter, local sync/crypto, persistent unlock, custom fields and TOTP                         | Synthetic protocol/crypto vectors; supported environment/authentication and TOTP cases below; restart/unlock; no vault writes; explicit unsupported cases; controlled account test only when authorized                        |
-| M4: Private settings/recipe service and AI    | Worker+D1, Access enrollment, settings/recipe/binding sync and web UI, Claude generation adapter (ADR 0014) | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; benchmark report |
+| M4: Private settings/recipe service and AI    | Worker+D1, Access-session pairing, settings/recipe/binding sync and web UI, Claude generation adapter (ADR 0014) | Owner/device isolation, revocation, redaction, offline cache, revision conflicts, malformed AI output, bounded complete inputs, explicit abstention, retry and monthly spend-stop tests; benchmark report |
 | M5: Existing software passkeys                | Request bridge and Bitwarden-backed zero-counter assertion capability                                    | Standards/wire vectors, RP ID and cancellation tests, configured UV/UP policy, controlled interoperability; reject nonzero counters; no registration                                                                             |
 | M6: Integrated acceptance and server delivery | Chrome use coexistence, operational docs, hosted service release                                         | Installed Chrome dummy-account tests plus artifact-verified deployment and hosted synthetic smoke checks; measured limits documented                                                                                           |
 
@@ -1279,7 +1315,7 @@ support for every site or vault format. Keep observed limitations explicit.
   among several URI-matched items. How synced field exclusions move to
   device-independent references, and where custom-field review happens, are decided in
   [ADR 0023](adr/0023-synced-vault-policy.md).
-- Enrollment and device credential lifetime (90 days unused, renewed on use; see
+- Pairing and device credential lifetime (90 days unused, renewed on use; see
   [service sync progress](#service-sync-progress)) are settled, and a lost
   device is replaced by pairing a new one, since the service holds settings and recipes
   ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Pricing (ADR 0014's $4

@@ -24,7 +24,7 @@ const recipeParamSchema = v.strictObject({ recipeId: syncRecipeIdSchema });
 
 /**
  * The web UI's JSON API. Every route acts for the owner the verified Access token
- * names; an identity that never approved a pairing has no owner and sees no data.
+ * names; an identity that never paired a device has no owner and sees no data.
  */
 export const manageApiRoutes = new Hono<ApiEnv>()
   .get("/devices", async (c) => {

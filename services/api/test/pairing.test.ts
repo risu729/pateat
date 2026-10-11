@@ -11,6 +11,7 @@ import { hashDeviceToken, TOKEN_PATTERN } from "../src/auth";
 import {
   deviceApi,
   installAccessKeys,
+  ISSUER,
   ORIGIN,
   owner,
   ownerIdFor,
@@ -113,6 +114,23 @@ describe("direct pairing", () => {
     expect(otherOwnerId).not.toBeNull();
     expect(otherOwnerId).not.toBe(ownerId);
     expect(await devicesOf(other.subject)).toHaveLength(1);
+  });
+
+  it("maps one identity to one owner under concurrent first pairings", async () => {
+    const by = await owner();
+    const responses = await Promise.all([pair(by), pair(by), pair(by)]);
+    expect(responses.map((response) => response.status)).toEqual([201, 201, 201]);
+    const { results } = await env.DB.prepare(
+      "SELECT owner_id FROM owner_identities WHERE issuer = ? AND subject = ?",
+    )
+      .bind(ISSUER, by.subject)
+      .all();
+    expect(results).toHaveLength(1);
+    expect(await devicesOf(by.subject)).toHaveLength(3);
+    const orphans = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM owners WHERE id NOT IN (SELECT owner_id FROM owner_identities) AND id NOT LIKE 'owner-%'",
+    ).first<{ count: number }>();
+    expect(orphans?.count).toBe(0);
   });
 
   it("keeps the credential shape the device routes accept", () => {

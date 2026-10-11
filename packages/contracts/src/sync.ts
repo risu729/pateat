@@ -124,8 +124,6 @@ export const syncErrorCodeSchema = v.picklist([
   "rate_limited",
   /** The write would make the owner hold more active recipes than the service keeps. */
   "recipe_limit",
-  "enrollment_not_found",
-  "enrollment_code_mismatch",
   "internal_error",
 ]);
 export const syncErrorSchema = v.variant("error", [

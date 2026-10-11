@@ -273,7 +273,6 @@ async function service(
     return { kind: "unavailable" };
   }
   if (!state || state.kind === "disconnected") return { kind: "not-configured" };
-  if (state.kind === "pairing") return { kind: "pairing" };
   const result: DiagnosticsStatus["service"] = {
     kind: "connected",
     ...(state.rejected ? { rejected: true } : {}),
@@ -407,8 +406,6 @@ function deviceChecks(value: DiagnosticsStatus["service"]): DiagnosticsCheck[] {
 function serviceChecks(value: DiagnosticsStatus["service"], now: number): DiagnosticsCheck[] {
   if (value.kind === "not-configured")
     return [{ id: "service", level: "info", detail: "Pateat service not paired" }];
-  if (value.kind === "pairing")
-    return [{ id: "service", level: "info", detail: "Pateat service pairing in progress" }];
   if (value.kind === "unavailable")
     return [{ id: "service", level: "error", detail: "service record unreadable" }];
   const checks: DiagnosticsCheck[] = [];
