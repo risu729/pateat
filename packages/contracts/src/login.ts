@@ -34,6 +34,8 @@ const path = v.pipe(
     "Use an exact canonical path",
   ),
 );
+/** An exact canonical URL path, as recipe steps and observations carry it. */
+export const loginPathSchema = path;
 const unique = (values: string[]) => new Set(values).size === values.length;
 
 /**

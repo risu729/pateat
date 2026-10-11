@@ -14,4 +14,9 @@ export {
   type CompletionRequest,
   type SignInJudgement,
 } from "./completion";
-export { addCompletion, appendPageSteps, type AssemblyRejection } from "./assemble";
+export {
+  addCompletion,
+  appendPageSteps,
+  type AssemblyRejection,
+  type CompletionRejection,
+} from "./assemble";

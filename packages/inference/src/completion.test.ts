@@ -35,12 +35,11 @@ describe("sign-in judge", () => {
     expect(await judge(request)).toMatchObject({
       status: "ok",
       calls: 1,
-      value: {
-        decision: "signed-in",
-        completion: { path: "/home", target: { by: "id", value: "logout" } },
-      },
+      value: { decision: "signed-in", target: { by: "id", value: "logout" } },
     });
-    expect(sent).toEqual([{ task: "judge-sign-in", loginPaths: ["/login"], observation: signedIn }]);
+    expect(sent).toEqual([
+      { task: "judge-sign-in", loginPaths: ["/login"], observation: signedIn },
+    ]);
   });
 
   it("passes rejection and challenge through and abstains when unclear", async () => {
@@ -58,16 +57,44 @@ describe("sign-in judge", () => {
     });
   });
 
-  it("fails closed on an unknown, non-clickable or password-page marker", async () => {
-    for (const marker of ["missing", "search"])
-      expect(
-        await judgeReturning({ decision: "signed-in", marker }).judge(request),
-      ).toMatchObject({ status: "failed", error: "invalid-output" });
+  it("accepts a link or text-located marker", async () => {
+    expect(
+      await judgeReturning({ decision: "signed-in", marker: "help" }).judge(request),
+    ).toMatchObject({ status: "ok", value: { target: { by: "id", value: "help" } } });
+    const textMarker = {
+      ...signedIn,
+      candidates: [
+        { id: "out", role: "button", target: { by: "text", value: "Sign out" }, label: "Sign out" },
+      ],
+    };
+    expect(
+      await judgeReturning({ decision: "signed-in", marker: "out" }).judge({
+        ...request,
+        observation: textMarker,
+      }),
+    ).toMatchObject({ status: "ok", value: { target: { by: "text", value: "Sign out" } } });
+  });
+
+  it("fails closed on an unknown or non-clickable marker", async () => {
+    expect(
+      await judgeReturning({ decision: "signed-in", marker: "missing" }).judge(request),
+    ).toMatchObject({ status: "failed", error: "invalid-output" });
+    expect(
+      await judgeReturning({ decision: "signed-in", marker: "search" }).judge(request),
+    ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+
+  it.each([
+    { role: "password" },
+    { role: "text", autocomplete: "username" },
+    { role: "text", autocomplete: "one-time-code" },
+    { role: "text", autocomplete: "current-password" },
+  ])("fails closed when the page still has a sign-in field: %o", async (field) => {
     const stillLogin = {
       ...signedIn,
       candidates: [
         ...signedIn.candidates,
-        { id: "password", role: "password", target: { by: "id", value: "password" } },
+        { id: "field", target: { by: "id", value: "f" }, ...field },
       ],
     };
     expect(
@@ -78,6 +105,27 @@ describe("sign-in judge", () => {
     ).toMatchObject({ status: "failed", error: "invalid-output" });
   });
 
+  it("allows a registration password field on a signed-in page", async () => {
+    const changePassword = {
+      ...signedIn,
+      candidates: [
+        ...signedIn.candidates,
+        {
+          id: "new",
+          role: "password",
+          autocomplete: "new-password",
+          target: { by: "id", value: "new" },
+        },
+      ],
+    };
+    expect(
+      await judgeReturning({ decision: "signed-in", marker: "logout" }).judge({
+        ...request,
+        observation: changePassword,
+      }),
+    ).toMatchObject({ status: "ok", value: { decision: "signed-in" } });
+  });
+
   it("rejects incomplete, invalid and oversized requests before any model call", async () => {
     const { judge, sent } = judgeReturning({ decision: "rejected" });
     expect(await judge({ ...request, observation: { ...signedIn, complete: false } })).toEqual({
@@ -86,10 +134,11 @@ describe("sign-in judge", () => {
       calls: 0,
       usage: { inputTokens: 0, outputTokens: 0 },
     });
-    expect(await judge({ ...request, loginPaths: [] })).toMatchObject({
-      status: "failed",
-      error: "invalid-request",
-    });
+    const invalid = await Promise.all(
+      [[], ["login"], ["/a/../b"]].map((loginPaths) => judge({ ...request, loginPaths })),
+    );
+    for (const outcome of invalid)
+      expect(outcome).toMatchObject({ status: "failed", error: "invalid-request" });
     const small = createCompletionJudge({
       model: textModel(async () => textResult("{}")),
       limits: { timeoutMs: 1_000, maxInputBytes: 256 },

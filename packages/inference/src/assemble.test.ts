@@ -1,31 +1,44 @@
-import type { LoginStep } from "@pateat/contracts";
+import type {
+  LoginAttributeTarget,
+  LoginStep,
+  LoginTarget,
+  ObservedCandidate,
+} from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import { addCompletion, appendPageSteps } from "./assemble";
 
 const origin = "https://bank.example";
-const id = { by: "id" as const, value: "" };
-const target = (value: string) => ({ ...id, value });
+const target = (value: string): LoginAttributeTarget => ({ by: "id", value });
 const page = (path: string, slot: string, purpose: "advance" | "submit"): LoginStep[] => [
   { kind: "fill", path, effect: "prepare", fields: [{ slot, target: target(slot) }] },
   { kind: "click", path, target: target(`${slot}-next`), purpose },
 ];
+const candidate = (
+  id: string,
+  locator: LoginTarget,
+  role: ObservedCandidate["role"] = "button",
+) => ({
+  id,
+  role,
+  target: locator,
+});
+
+function built(steps: LoginStep[]) {
+  const result = appendPageSteps(undefined, { id: "gen-1", origin, steps });
+  if (!result.ok) throw new Error(result.reason);
+  return result.recipe;
+}
 
 describe("generated recipe assembly", () => {
   it("starts a recipe from the first page and appends a later page after an advance", () => {
-    const first = appendPageSteps(undefined, {
-      id: "gen-1",
-      origin,
-      slots: ["username"],
-      steps: page("/login", "username", "advance"),
-    });
-    if (!first.ok) throw new Error(first.reason);
-    expect(first.recipe).toMatchObject({ id: "gen-1", revision: 1, maxSubmissions: 1 });
-    expect(first.recipe.completion).toBeUndefined();
+    const first = built(page("/login", "username", "advance"));
+    expect(first).toMatchObject({ id: "gen-1", revision: 1, slots: ["username"] });
+    expect(first.maxSubmissions).toBe(1);
+    expect(first.completion).toBeUndefined();
 
-    const second = appendPageSteps(first.recipe, {
+    const second = appendPageSteps(first, {
       id: "ignored",
       origin,
-      slots: ["username", "password"],
       steps: page("/password", "password", "submit"),
     });
     if (!second.ok) throw new Error(second.reason);
@@ -38,60 +51,110 @@ describe("generated recipe assembly", () => {
     expect(second.recipe.steps).toHaveLength(4);
   });
 
-  it("refuses to append after a submit, to a learned recipe, across origins or past bounds", () => {
-    const submitted = appendPageSteps(undefined, {
+  it("takes slots from the steps and keeps the base's other fields", () => {
+    const first = { ...built(page("/login", "username", "advance")), rejection: target("error") };
+    const next = appendPageSteps(first, {
       id: "gen-1",
       origin,
-      slots: ["password"],
-      steps: page("/login", "password", "submit"),
+      steps: page("/pw", "pw", "submit"),
     });
-    if (!submitted.ok) throw new Error(submitted.reason);
-    const next = { id: "gen-1", origin, slots: ["otp"], steps: page("/otp", "otp", "submit") };
-    expect(appendPageSteps(submitted.recipe, next)).toEqual({ ok: false, reason: "not-advancing" });
-    expect(
-      appendPageSteps({ ...submitted.recipe, completion: { path: "/home", target: target("x") } }, next),
-    ).toEqual({ ok: false, reason: "already-complete" });
-    expect(
-      appendPageSteps(submitted.recipe, { ...next, origin: "https://other.example" }),
-    ).toEqual({ ok: false, reason: "origin-mismatch" });
+    if (!next.ok) throw new Error(next.reason);
+    expect(next.recipe.slots).toEqual(["username", "pw"]);
+    expect(next.recipe.rejection).toEqual(target("error"));
+  });
+
+  it("refuses to append after a submit, to a learned recipe, across origins or past bounds", () => {
+    const submitted = built(page("/login", "password", "submit"));
+    const next = { id: "gen-1", origin, steps: page("/otp", "otp", "submit") };
+    expect(appendPageSteps(submitted, next)).toEqual({ ok: false, reason: "not-advancing" });
+    const advancing = built(page("/login", "username", "advance"));
+    const learned = { ...advancing, completion: { path: "/home", target: target("x") } };
+    expect(appendPageSteps(learned, next)).toEqual({ ok: false, reason: "already-complete" });
+    expect(appendPageSteps(advancing, { ...next, origin: "https://other.example" })).toEqual({
+      ok: false,
+      reason: "origin-mismatch",
+    });
+    expect(appendPageSteps(advancing, { ...next, steps: [] })).toEqual({
+      ok: true,
+      recipe: expect.objectContaining({ revision: 2 }),
+    });
 
     let recipe = appendPageSteps(undefined, {
       id: "gen-1",
       origin,
-      slots: ["s0"],
       steps: page("/p0", "s0", "advance"),
     });
     for (let index = 1; recipe.ok && index < 9; index += 1)
       recipe = appendPageSteps(recipe.recipe, {
         id: "gen-1",
         origin,
-        slots: [`s${index}`],
         steps: page(`/p${index}`, `s${index}`, "advance"),
       });
     // A ninth effect exceeds the contract's eight submissions.
-    expect(recipe).toEqual({ ok: false, reason: "too-long" });
+    expect(recipe).toEqual({ ok: false, reason: "invalid-recipe" });
   });
+});
 
-  it("adds a judged completion once and never one of the recipe's own targets", () => {
-    const built = appendPageSteps(undefined, {
-      id: "gen-1",
-      origin,
-      slots: ["password"],
-      steps: page("/login", "password", "submit"),
-    });
-    if (!built.ok) throw new Error(built.reason);
-    const learned = addCompletion(built.recipe, { path: "/home", target: target("logout") });
+describe("judged completion", () => {
+  const recipe = built([
+    ...page("/login", "username", "advance"),
+    {
+      kind: "fill",
+      path: "/pw",
+      effect: "prepare",
+      fields: [{ slot: "pw", target: target("pw") }],
+    },
+    { kind: "click", path: "/pw", target: { by: "text", value: "Sign in" }, purpose: "submit" },
+  ]);
+  const home = { origin, path: "/home", candidates: [candidate("logout", target("logout"))] };
+
+  it("adds a completion once, at the judged page's path", () => {
+    const learned = addCompletion(recipe, home, target("logout"));
     if (!learned.ok) throw new Error(learned.reason);
     expect(learned.recipe).toMatchObject({
       revision: 2,
       completion: { path: "/home", target: target("logout") },
     });
-    expect(addCompletion(learned.recipe, { path: "/home", target: target("menu") })).toEqual({
+    expect(addCompletion(learned.recipe, home, target("logout"))).toEqual({
       ok: false,
       reason: "already-complete",
     });
+  });
+
+  it("refuses another origin", () => {
     expect(
-      addCompletion(built.recipe, { path: "/login", target: target("password-next") }),
-    ).toEqual({ ok: false, reason: "step-target" });
+      addCompletion(recipe, { ...home, origin: "https://www.bank.example" }, target("logout")),
+    ).toEqual({ ok: false, reason: "origin-mismatch" });
+  });
+
+  it("refuses a step's own fill, click or text target on the same path, not on another", () => {
+    const at = (path: string, marker: LoginTarget) =>
+      addCompletion(recipe, { origin, path, candidates: [candidate("m", marker)] }, marker);
+    expect(at("/login", target("username"))).toEqual({ ok: false, reason: "step-target" });
+    expect(at("/login", target("username-next"))).toEqual({ ok: false, reason: "step-target" });
+    expect(at("/pw", { by: "text", value: "Sign in" })).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+    expect(at("/home", target("username")).ok).toBe(true);
+  });
+
+  it("refuses a step path that still shows the login form, allows it once the form is gone", () => {
+    // A failed sign-in back on /login shows the username field next to a Help link.
+    const returned = {
+      origin,
+      path: "/login",
+      candidates: [
+        candidate("help", target("help")),
+        candidate("user", target("username"), "text"),
+      ],
+    };
+    expect(addCompletion(recipe, returned, target("help"))).toEqual({
+      ok: false,
+      reason: "login-page",
+    });
+    // A site that signs in in place keeps the path but no longer shows the form.
+    const inPlace = { origin, path: "/login", candidates: [candidate("out", target("logout"))] };
+    expect(addCompletion(recipe, inPlace, target("logout")).ok).toBe(true);
   });
 });

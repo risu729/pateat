@@ -750,13 +750,19 @@ resolve Linked fields and never pass Hidden, password or TOTP values.
 For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a
 later page is appended only after a step that advances, within the contract's bounds.
-`createCompletionJudge` sends the page shown after the final submission, with the
-login paths, and returns `signed-in` with a button or link marker, `rejected` or
-`challenge`, or abstains when unclear. A marker that is not a button or link, or a page
-that still shows a current-password input, fails as `invalid-output`. `addCompletion`
-stores the marker as the recipe's `completion` in the next revision, unless one of the
-recipe's own steps uses that target on the same path. Both roles share
-`runStructuredRole` for metering, timeouts and disabled telemetry.
+The recipe's slots are the ones its steps fill. `createCompletionJudge` sends the page
+shown after the final submission, with the login paths, and returns `signed-in` with a
+button or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown
+marker, one that is not a button or link, or a page that still has a password input
+not marked `new-password` or a field marked `username`, `current-password` or
+`one-time-code` fails as `invalid-output`. `addCompletion` stores the marker as the
+recipe's `completion` in the next revision. It refuses a page on another origin, a
+marker one of the recipe's own steps uses on that path, and a page on a step's path
+that still shows any element those steps use, so a failed sign-in that returns to the
+login page never counts as signed in. A site that signs in on the login page's own path
+learns its completion only once that form is gone. Both roles share
+`runStructuredRole` for metering, timeouts and disabled telemetry. The service route
+and the extension do not call these functions yet.
 
 A 16-page synthetic Japanese/English corpus covers bank branch/account/password
 (including an unlabeled page distinguishable only by length),

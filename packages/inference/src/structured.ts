@@ -94,7 +94,7 @@ export async function runStructuredRole<O, T>(config: {
     if (result.finishReason === "length") return outcome({ status: "failed", error: "truncated" });
     if (result.finishReason === "content-filter")
       return outcome({ status: "failed", error: "refused" });
-    return outcome(config.interpret(result.output as O));
+    return outcome(config.interpret(result.output));
   } catch (error) {
     return outcome({
       status: "failed",

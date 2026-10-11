@@ -1,4 +1,4 @@
-import { loginObservationSchema, type LoginTarget } from "@pateat/contracts";
+import { loginObservationSchema, loginPathSchema, type LoginTarget } from "@pateat/contracts";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { LanguageModel } from "ai";
 import * as v from "valibot";
@@ -25,11 +25,7 @@ export const judgedPageSchema = v.strictObject({
 
 const outputSchemaJson = JSON.stringify(toJsonSchema(judgedPageSchema));
 
-const pathsSchema = v.pipe(
-  v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(300))),
-  v.minLength(1),
-  v.maxLength(32),
-);
+const pathsSchema = v.pipe(v.array(loginPathSchema), v.minLength(1), v.maxLength(32));
 
 export const completionInstructions = [
   "You assist Pateat, a password manager browser extension. The person who owns the",
@@ -46,7 +42,8 @@ export const completionInstructions = [
 
 /** The page after a generated recipe's final submission, judged (ADR 0018). */
 export type SignInJudgement =
-  | { decision: "signed-in"; completion: { path: string; target: LoginTarget } }
+  /** `target` is the marker's locator on the judged page; `addCompletion` stores it. */
+  | { decision: "signed-in"; target: LoginTarget }
   | { decision: "rejected" }
   | { decision: "challenge" };
 
@@ -112,16 +109,18 @@ export function createCompletionJudge(config: {
           return { status: "abstained", reason: "insufficient-evidence" };
         if (draft.decision !== "signed-in") return { status: "ok", value: draft };
         const marker = page.candidates.find((candidate) => candidate.id === draft.marker);
-        // A visible current-password input means the sign-in form is still there.
-        const asksPassword = page.candidates.some(
-          (candidate) => candidate.role === "password" && candidate.autocomplete !== "new-password",
+        // A password input other than a registration one, or a field marked for a
+        // username or a one-time code, means a sign-in form is still there.
+        const signInForm = page.candidates.some(
+          (candidate) =>
+            (candidate.role === "password" && candidate.autocomplete !== "new-password") ||
+            candidate.autocomplete === "username" ||
+            candidate.autocomplete === "current-password" ||
+            candidate.autocomplete === "one-time-code",
         );
-        if (!marker || (marker.role !== "button" && marker.role !== "link") || asksPassword)
+        if (!marker || (marker.role !== "button" && marker.role !== "link") || signInForm)
           return { status: "failed", error: "invalid-output" };
-        return {
-          status: "ok",
-          value: { decision: "signed-in", completion: { path: page.path, target: marker.target } },
-        };
+        return { status: "ok", value: { decision: "signed-in", target: marker.target } };
       },
     });
   };
