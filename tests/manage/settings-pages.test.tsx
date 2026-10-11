@@ -135,6 +135,7 @@ test("lists site defaults by item name and removes one, keeping the rest", async
           userId: USER,
           itemId: "item-1",
           itemName: "Example Bank",
+          accountName: "Personal vault",
         },
         { origin: "https://shop.example", provider: "bitwarden", userId: USER, itemId: "item-2" },
       ],
@@ -143,9 +144,14 @@ test("lists site defaults by item name and removes one, keeping the rest", async
   });
   await mount(client, "/manage/sites");
   const list = page.getByRole("list").filter({ hasText: "https://bank.example" });
-  await expect.element(list).toMatchTextContent(`https://bank.example: Example Bank`);
-  // Without a saved name, the item ID stands in.
-  await expect.element(list).toMatchTextContent(`https://shop.example: item-2`);
+  // The connection's label names the account.
+  await expect
+    .element(list)
+    .toMatchTextContent(`https://bank.example: Example Bank (Personal vault)`);
+  // Without saved names, the item ID and the provider account ID stand in.
+  await expect
+    .element(list)
+    .toMatchTextContent(`https://shop.example: item-2 (bitwarden account ${USER})`);
 
   await page
     .getByRole("button", { name: "Remove default account for https://bank.example" })
@@ -200,7 +206,12 @@ test("refuses an edit that would exceed a list limit before writing", async () =
 });
 
 test("lists account bindings with their fields and removes one", async () => {
-  const other = { ...binding, itemId: "item-3", itemName: "Second account" };
+  const other = {
+    ...binding,
+    itemId: "item-3",
+    itemName: "Second account",
+    accountName: "Work vault",
+  };
   const client = mockClient({
     version: 1,
     revision: 2,
@@ -211,6 +222,15 @@ test("lists account bindings with their fields and removes one", async () => {
   await expect.element(table).toMatchTextContent('branch: Custom field "Branch number"');
   await expect.element(table).toMatchTextContent('pin: Custom field "PIN" (1 of 2)');
   await expect.element(table).toMatchTextContent("password: Password");
+  // A binding made by AI generation has no account name until a device names it.
+  const rows = page.getByRole("row");
+  await expect
+    .element(rows.filter({ hasText: "Example Bank" }))
+    .toMatchTextContent(`bitwarden account ${USER}`);
+  await expect.element(rows.filter({ hasText: "Second account" })).toMatchTextContent("Work vault");
+  await expect
+    .element(rows.filter({ hasText: "Second account" }))
+    .not.toMatchTextContent("bitwarden account");
 
   await page
     .getByRole("button", {

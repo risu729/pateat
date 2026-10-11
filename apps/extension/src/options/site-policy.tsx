@@ -209,6 +209,7 @@ export function SitePolicy({
         userId,
         itemId: selected.itemId,
         itemName: selected.itemName,
+        accountName: selected.connectionLabel,
       };
       // A default names the account, so it must lead back to the chosen connection.
       const mapped = siteDefaultConnection(nextDefault, catalog);
@@ -436,8 +437,9 @@ export function SitePolicy({
               <li key={selected.origin}>
                 <span>
                   {selected.origin} →{" "}
-                  {connection?.label ?? `account ${selected.userId} (not available here)`} /{" "}
-                  {item?.label ?? selected.itemName ?? selected.itemId}
+                  {connection?.label ??
+                    `${selected.accountName ?? `account ${selected.userId}`} (not available here)`}{" "}
+                  / {item?.label ?? selected.itemName ?? selected.itemId}
                   {match?.username ? ` · ${match.username}` : ""}
                   <small>{status}</small>
                 </span>

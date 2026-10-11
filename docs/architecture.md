@@ -762,8 +762,19 @@ the service holds
   no settings to edit and is told to pair one. Devices receive the change on their next
   settings or recipe sync. The device ID columns recording who wrote a settings or
   recipe revision are nullable; null means the web UI wrote it.
-- Display names. A site default stores an optional `itemName` beside its item ID, as
-  bindings already do, so the page can name the item; entries without it show the ID.
+- Display names. Site defaults and bindings keep display-only names beside their IDs, so
+  the page can name them: `itemName`, the item's label (optional on a site default), and
+  an optional `accountName`, the label the owner gave the vault connection the account
+  was chosen from on a device. A device sets both when it saves a default or a binding.
+  Its settings sync also fills in missing names for entries of a provider account
+  connected exactly once there, from the item's label and the connection's label. A name
+  already set is kept, even after the item or connection is renamed: devices can label
+  one account differently, and a device whose vault has not synced yet still holds the
+  old item label, so overwriting would make devices rewrite each other on every sync.
+  Saving the default again on a device renames it. Bindings made by AI generation on the
+  service have no account name until a device syncs. The page shows the item ID or
+  `<provider> account <userId>` where a name is missing. Login usernames are never
+  stored there.
 - Authentication. The host-wide Access application also covers the app's assets and
   `/manage/api/*`. The Worker verifies the Access token
   on each API request as it does for the current pages, finds the owner by issuer and

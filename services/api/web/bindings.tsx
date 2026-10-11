@@ -1,7 +1,7 @@
 import type { SavedLoginBinding } from "@pateat/contracts";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
-import { useSettings, useSettingsEdit } from "./settings";
+import { useSettings, useSettingsEdit, vaultAccountLabel } from "./settings";
 
 type FieldReference = SavedLoginBinding["slots"][number]["field"];
 
@@ -89,9 +89,7 @@ export function BindingsPage({ client }: { client: ManageClient }) {
                 <td className="py-2 pr-4">
                   {binding.itemName}
                   <br />
-                  <span className="text-slate-600">
-                    {binding.provider} account {binding.userId}
-                  </span>
+                  <span className="text-slate-600">{vaultAccountLabel(binding)}</span>
                 </td>
                 <td className="py-2 pr-4">
                   <ul>

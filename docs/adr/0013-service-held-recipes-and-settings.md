@@ -42,7 +42,9 @@ stores its position among them and how many there are; if that count changes, th
 binding is not used until it is reviewed again. Swapping two same-name fields in the
 vault keeps the count, so the binding then fills the other field; this is a known
 limitation. Item and field names are stored for display and logging; a site default
-keeps its optional `itemName` for the same reason (owner decision, 2026-10-11). Still
+keeps its optional `itemName` for the same reason (owner decision, 2026-10-11). Site
+defaults and bindings saved on a device also keep that vault connection's label as an
+optional, display-only `accountName` (2026-10-11). Still
 open: how the other synced settings that use local IDs today, such as field exclusions,
 are converted, and where custom-field review happens and keeps its state now that the
 extension page no longer edits settings.
@@ -165,9 +167,9 @@ for personal data, such as user IDs in paths, before they are shared.
 
 Real logins depend on a deployed service, device pairing and the extension sync client,
 and provisioning the service needs the owner's approval. The service now holds provider
-account IDs and item and field names, in addition to the site origins it already held
-through site defaults and recipes. A device the service rejects with a 401 keeps using
-its cached recipes but receives no further changes, revocations included, until it is
-disconnected and paired again; disconnecting clears the cache. A device whose cache
-is full keeps using the recipes it has in the same way until recipes are removed on the
-service.
+account IDs, vault connection labels and item and field names, in addition to the site
+origins it already held through site defaults and recipes. A device the service rejects
+with a 401 keeps using its cached recipes but receives no further changes, revocations
+included, until it is disconnected and paired again; disconnecting clears the cache. A
+device whose cache is full keeps using the recipes it has in the same way until recipes
+are removed on the service.
