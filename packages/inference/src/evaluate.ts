@@ -13,6 +13,8 @@ export type CaseResult = {
   reason?: AbstentionReason | InferenceErrorCode;
   /** The provider's refusal category code for a `refused` case, when reported. */
   refusalCategory?: string;
+  /** The executable plan in candidate IDs, so a wrong answer can be read against the truth. */
+  plan?: { fields: Record<string, string>; action: string; purpose: "advance" | "submit" };
   latencyMs: number;
   calls: number;
 };
@@ -155,6 +157,17 @@ export async function evaluateRole(options: {
       ...(reason === undefined ? {} : { reason }),
       ...(outcome.status === "failed" && outcome.refusalCategory !== undefined
         ? { refusalCategory: outcome.refusalCategory }
+        : {}),
+      ...(outcome.status === "ok"
+        ? {
+            plan: {
+              fields: Object.fromEntries(
+                outcome.value.fields.map((field) => [field.slot, field.candidate]),
+              ),
+              action: outcome.value.action.candidate,
+              purpose: outcome.value.action.purpose,
+            },
+          }
         : {}),
       latencyMs,
       calls: outcome.calls,
