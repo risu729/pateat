@@ -3,14 +3,32 @@
   "extends": ["github>risu729/renovate-config#3.19.2"],
   "packageRules": [
     {
+      "description": "Update mise tools in one branch so each run regenerates mise.lock once. Later rules regroup TypeScript.",
+      "matchManagers": ["mise"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "excludeDepNames": ["python"],
+      "groupName": "mise tools"
+    },
+    {
+      "description": "Offer each Python minor separately: a new minor can lack wheels for the pypi tools mise installs without building.",
+      "matchManagers": ["mise"],
+      "matchDepNames": ["python"],
+      "separateMultipleMinor": true
+    },
+    {
       "description": "Keep the cf build and Workers test runtimes together, including prereleases.",
       "matchPackageNames": ["cf", "miniflare", "@cloudflare/**"],
       "groupName": "cloudflare workers",
       "ignoreUnstable": false
     },
     {
+      "description": "Vite plugin betas are versioned by commit hash, which does not sort by release date; follow the beta dist-tag instead.",
+      "matchPackageNames": ["@cloudflare/vite-plugin"],
+      "followTag": "beta"
+    },
+    {
       "description": "Review compiler upgrades alongside the shared preset's peer requirements.",
-      "matchPackageNames": ["typescript", "@risu729/tsconfigs", "@types/**"],
+      "matchPackageNames": ["typescript", "npm:typescript", "@risu729/tsconfigs", "@types/**"],
       "groupName": "typescript"
     }
   ]
