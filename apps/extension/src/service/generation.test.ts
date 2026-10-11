@@ -105,6 +105,8 @@ describe("recipe generation requests", () => {
       request,
     );
     expect(h.sync).toHaveBeenCalledTimes(1);
+    // A generated recipe takes a full sync; only a judged page pulls recipes alone.
+    expect(h.refresh).not.toHaveBeenCalled();
 
     // The same page is not sent again within a day, whatever came of it; another path is.
     expect(await h.generation.available(observation.origin, "/login")).toBe(false);
@@ -318,6 +320,33 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       recipe: handled.recipe,
     });
   });
+
+  const completed = {
+    ...handled,
+    recipe: {
+      ...handled.recipe,
+      completion: { path: "/home", target: { by: "id" as const, value: "logout" } },
+    },
+  };
+  it.each([
+    ["signed-in", completed],
+    ["challenge", handled],
+  ] as const)(
+    "pulls only recipes after a %s judgement with a change, never a full sync",
+    async (status, change) => {
+      const h = setup();
+      h.transport.judgeCompletion.mockResolvedValueOnce({
+        kind: "result",
+        result: { version: 1, status, change },
+      });
+      // A settings write would stop the login this page belongs to as a policy change.
+      expect(
+        (await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).verdict,
+      ).toBe(status);
+      await vi.waitFor(() => expect(h.refresh).toHaveBeenCalledOnce());
+      expect(h.sync).not.toHaveBeenCalled();
+    },
+  );
 
   it("answers signed-in without a change and does not wait for the cache", async () => {
     const h = setup();

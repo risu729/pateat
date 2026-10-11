@@ -10,6 +10,7 @@ import type { UriCandidates } from "../crypto/wire";
 import { vaultFailure } from "../vault/record";
 import type { LiveUriMatcher } from "../vault/site-candidates";
 import { createLoginGeneration } from "../service/generation";
+import { createRecipeSync } from "../service/recipes";
 import type { ServiceTransport } from "../service/transport";
 import type { LoginGeneration } from "./runtime";
 import type { LoginFieldSource } from "./vault";
@@ -3316,6 +3317,75 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         // The page after the handler is judged for the new revision.
         [plain.id, 2, "password", homePage.observation],
       ]);
+    });
+
+    it("pulls only recipes after the takeover, so a settings change does not stop the login", async () => {
+      vi.useFakeTimers();
+      onClick({ login: toWebauthn, "Use security key": toHome });
+      const connection = {
+        origin: "https://pateat.example.com",
+        deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
+        credential: `pateat_device_${"C".repeat(43)}`,
+        rejected: false,
+      };
+      const change = { recipeId: taken.id, revision: 2, state: "active" as const, recipe: taken };
+      let h: ReturnType<typeof harness> | undefined;
+      // The settings half of a full sync applies a synced change, as the background wires it.
+      const settings = {
+        run: vi.fn(async () => {
+          h!.login.settingsChanged();
+          return "synced" as const;
+        }),
+        clear: vi.fn(async () => undefined),
+      };
+      const recipeSync = createRecipeSync({
+        service: { connection: async () => connection, recordSync: async () => undefined },
+        transport: {
+          recipeChanges: async () => ({
+            kind: "page",
+            page: { version: 1, changes: [change], cursor: 1, complete: true },
+          }),
+        },
+        storage: {
+          read: async () => undefined,
+          write: async () => undefined,
+          clear: async () => undefined,
+        },
+        schedule: { read: async () => undefined, write: async () => undefined },
+        settings,
+      });
+      const judgeCompletion = vi
+        .fn<ServiceTransport["judgeCompletion"]>()
+        .mockResolvedValueOnce({
+          kind: "result",
+          result: { version: 1, status: "challenge", change },
+        })
+        .mockResolvedValueOnce({ kind: "result", result: { version: 1, status: "signed-in" } });
+      const refresh = vi.fn(() => recipeSync.sync({ settings: false }));
+      const sync = vi.fn(() => recipeSync.sync());
+      const service = createLoginGeneration({
+        service: { connection: async () => connection },
+        transport: { generateRecipe: vi.fn(), judgeCompletion },
+        storage: { read: async () => undefined, write: async () => undefined },
+        sync,
+        refresh,
+      });
+      h = harness({}, { passkeys: withPasskey, generation: service });
+      h.recipes.recipe.mockResolvedValue(plain);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => settled("authenticated")() || settled("blocked")());
+      // A full sync here ended the login as blocked/policy-changed in the owner's Chrome.
+      expect(status()![0]).toMatchObject({ state: "authenticated" });
+      expect(clicks("Use security key")).toBe(1);
+      expect(
+        judgeCompletion.mock.calls.map((call) => [call[3].revision, call[3].observation]),
+      ).toEqual([
+        [1, webauthnPage.observation],
+        [2, homePage.observation],
+      ]);
+      expect(refresh).toHaveBeenCalled();
+      expect(sync).not.toHaveBeenCalled();
+      expect(settings.run).not.toHaveBeenCalled();
     });
 
     it.each([
