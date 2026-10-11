@@ -109,10 +109,6 @@ export function publicKeySet(config: IssuerConfig) {
   };
 }
 
-/**
- * Signs a fresh single-use assertion for one owner. Call it only with the owner of
- * the authenticated request; the subject is what the owner's federation rule trusts.
- */
 /** Whether the signing key imports, as signing needs; nothing is signed or sent. */
 export async function signingKeyImports(config: IssuerConfig): Promise<boolean> {
   const { kty, crv, x, y, d } = config.signingKey;
@@ -130,6 +126,10 @@ export async function signingKeyImports(config: IssuerConfig): Promise<boolean> 
   }
 }
 
+/**
+ * Signs a fresh single-use assertion for one owner. Call it only with the owner of
+ * the authenticated request; the subject is what the owner's federation rule trusts.
+ */
 export function signOwnerAssertion(config: IssuerConfig, ownerId: string, now = Date.now()) {
   const iat = Math.floor(now / 1000);
   return Jwt.sign(
