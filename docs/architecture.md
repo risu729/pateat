@@ -19,7 +19,7 @@ account bindings live on the owner's self-hosted Pateat service and are edited o
 web UI ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension
 keeps a last-known-good cache, so login keeps working while the service is offline,
 and a reinstalled extension restores the data by syncing. A mode without the service
-is later scope. Missing recipes produce an explicit result rather than guessing.
+is planned for [phase 3](plan.md#phase-3-public-release). Missing recipes produce an explicit result rather than guessing.
 Bitwarden sync still needs its own service. The same Worker provides the initial
 inference path. Direct extension-to-AI calls with user-owned keys are a later option,
 not the recommended initial setup.
