@@ -374,6 +374,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       )
       .finally(() => {
         for (const entry of command.values) entry.value = "";
+        if (command.account) command.account.username = "";
       });
     return true;
   };

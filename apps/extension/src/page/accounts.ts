@@ -33,18 +33,23 @@ export function shownAccounts(text: string): string[] {
  * characters, ignoring case. A linear wildcard match: a page cannot make it backtrack.
  */
 function fits(shown: string, username: string): boolean {
-  // "?" is one character and "*" any number; shown values never contain "?".
-  const pattern = [...shown.toLowerCase().replace(/\*+/gu, "?*")];
+  // `one` is any one character and `many` any number; a `*` in the username is literal.
+  const one = Symbol("one");
+  const many = Symbol("many");
+  const pattern = shown
+    .toLowerCase()
+    .split(/(\*+)/u)
+    .flatMap((part, index): (string | symbol)[] => (index % 2 ? [one, many] : [...part]));
   const text = [...username.toLowerCase()];
   let p = 0;
   let t = 0;
   let star = -1;
   let resume = 0;
   while (t < text.length) {
-    if (p < pattern.length && (pattern[p] === "?" || pattern[p] === text[t])) {
+    if (p < pattern.length && (pattern[p] === one || pattern[p] === text[t])) {
       p += 1;
       t += 1;
-    } else if (pattern[p] === "*") {
+    } else if (pattern[p] === many) {
       star = p;
       p += 1;
       resume = t;
@@ -54,7 +59,7 @@ function fits(shown: string, username: string): boolean {
       t = resume;
     } else return false;
   }
-  while (pattern[p] === "*") p += 1;
+  while (pattern[p] === many) p += 1;
   return p === pattern.length;
 }
 
@@ -89,6 +94,7 @@ export function accountText(document: Document, form: HTMLFormElement | null): s
     (renderedText(root, limit, options) ?? "").slice(0, limit);
   const scope = form ?? document.body;
   const headings = [...document.querySelectorAll("h1, h2, h3")]
+    .filter((heading) => !heading.closest(options.skip))
     .slice(0, headingLimit)
     .map((heading) => read(heading, headingReadLimit));
   return [scope ? read(scope, readLimit) : "", ...headings].join(" ");

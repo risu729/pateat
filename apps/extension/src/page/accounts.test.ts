@@ -79,6 +79,10 @@ describe("showsOtherAccount", () => {
     expect(showsOtherAccount(["a*b*c@example.com"], "abc@example.com", password)).toBe(true);
   });
 
+  it("treats a * in the username as a character", () => {
+    expect(showsOtherAccount(["a***@example.com"], "ab*c@example.com", password)).toBe(false);
+  });
+
   it("treats regular-expression characters in a shown value literally", () => {
     expect(showsOtherAccount(["a.b***@example.com"], "axb1@example.com", password)).toBe(true);
     expect(showsOtherAccount(["a.b***@example.com"], "a.b1@example.com", password)).toBe(false);
@@ -111,7 +115,8 @@ describe("accountText", () => {
   });
 
   it("skips contact addresses and bounds what it reads", () => {
-    document.body.innerHTML = `${"<h3>x</h3>".repeat(8)}<h3>late@example.com</h3>
+    document.body.innerHTML = `<footer><h3>footer-heading@example.com</h3></footer>
+      ${"<h3>x</h3>".repeat(8)}<h3>late@example.com</h3>
       <form><p>Contact <a href="MAILTO:support@example.com">support@example.com</a></p>
       <address>help@example.com</address><footer>footer@example.com</footer></form>`;
     expect(shownAccounts(accountText(document, document.forms[0]!))).toEqual([]);
