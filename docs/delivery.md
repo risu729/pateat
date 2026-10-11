@@ -73,11 +73,12 @@ the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owne
 on 2026-10-11 to use this one token for both the migrations and the deployment, as in
 kogane, because both run in the same job. It is an Account API token, not a user API
 token, so it does not depend on one person's login, and its scope is as narrow as
-Cloudflare allows (owner decision, 2026-10-11): `Workers Scripts: Edit` on the
-`pateat-api` Worker only and `D1: Edit` on the `pateat` database only, falling back to
-the whole account only where the dashboard offers no resource-level choice. The release
-limits itself to the recorded database ID either way. This repository does not supply
-or provision them.
+Cloudflare allows (owner decision, 2026-10-11). The token created on 2026-10-11 is
+"pateat-github-actions-production" with Individual Workers Editor on `pateat-api` only
+and D1 Write for the whole account, because the dashboard offers no per-database D1
+scope. The release limits itself to the recorded database ID, and routine releases do
+not touch the Custom Domain, so the token needs no zone permission. This repository
+does not supply or provision them.
 
 The workflow takes the CI run that triggered it, or the `ci_run_id` of a manual
 dispatch, and fails before any change when the token is empty or the account ID is not a
