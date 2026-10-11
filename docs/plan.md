@@ -667,10 +667,14 @@ tests cover it.
 ### Remaining M4 service gaps
 
 - Pairing in installed Chrome against the deployed service
-  ([ADR 0020](adr/0020-direct-device-pairing.md)): after release, the owner removes
-  `redeem` from the "pateat bypass" Access application, notes its cookie settings, and
-  runs the
+  ([ADR 0020](adr/0020-direct-device-pairing.md)): note the Access application's cookie
+  settings and run the
   [installed Chrome pairing check](development.md#installed-chrome-service-pairing).
+  After `79a1424` was released, `redeem` was removed from the "pateat bypass" Access
+  application on 2026-10-11 at about 14:00 UTC; it now lists only `/v1/*`, `/health`
+  and the two `/.well-known` issuer paths. An anonymous `GET` or `POST /redeem` then
+  got Access's `403` instead of the Worker's `404`, while `/health`, `/v1/settings`
+  (`401`) and both `/.well-known` paths still reached the Worker.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, are not synced yet.
   [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
