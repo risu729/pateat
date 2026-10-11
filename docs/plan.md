@@ -160,13 +160,16 @@ still open on 2026-10-11.
 - Personal data autofill beyond logins: names, addresses, email addresses and password
   generation. The owner asked on 2026-10-11 to research its scope and the existing
   extensions; the [research note](research/2026-10-11-personal-data-autofill.md)
-  recommends deferring it, relying on Chrome's autofill and the official Bitwarden
-  extension, with password generation coming with Bitwarden writes. Reconsider identity
-  and card filling if browser agents stall on sign-up or checkout forms, or Japanese
-  forms keep failing. The owner sees Japanese forms as a good fit for Pateat rather than
+  recommends keeping it out of the current work, with password generation coming with
+  Bitwarden writes. The owner sees Japanese forms as a good fit for Pateat rather than
   Bitwarden or Chrome: furigana fields and addresses split across several inputs
-  (2026-10-11 18:55 UTC). A follow-up compares how well Chrome's and Bitwarden's
-  autofill handle them today, their bug reports, and other extensions.
+  (2026-10-11 18:55 UTC). The note's
+  [Japanese forms](research/2026-10-11-personal-data-autofill.md#japanese-forms)
+  follow-up supports that: the official Bitwarden extension's heuristics match no
+  Japanese label and it fills split inputs with whole values, Chrome fills readings but
+  has no Japanese address model, and no widely used extension covers them. It recommends
+  Japanese forms as the first candidate if identity filling is designed later (not
+  decided).
 
 ### To consider, not planned
 
