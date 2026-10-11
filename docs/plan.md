@@ -1079,8 +1079,6 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   generation that abstained (`insufficient-evidence`) on an observation from before
   #206 with no login control, so it adds no case. The finite-choice provider waited
   for a Claude baseline, which now exists for both page sets.
-- Re-observe SMBC Direct and MyJCB and relabel their cases (below), now that their
-  login links are observed as script buttons (#226; owner decision, 2026-10-11).
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -1105,18 +1103,26 @@ Before publishing, every case was reviewed for personal data (2026-10-11, by an
 independent review agent and the importer's author). Held back: a private person's
 homepage, a forum for cashing out stolen funds, and a page whose path carried an encoded
 session ID (Magento's `/referer/<base64>/`); the importer now skips long opaque path
-segments. The corpus holds 78 plans and 17 abstentions. Two pages are Japanese
-(`buyee.jp`, `zeiri4.com`); `language` comes from the extractor's script heuristic,
-which also marks one Chinese page `ja` and every other non-Japanese page `en`. The owner
-chose on 2026-10-11 to publish the derived page text (titles, headings and labels) as
-is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
-sites appear twice with the same login form. It was regenerated on 2026-10-11 with the
-extractor of main `84df607`, which locates links by their text (#184) and observes
-script buttons (#206); the first import used an extractor from before #184. The cases,
-their plans and their abstentions are unchanged. The observations gained 132 links that
-only their text can locate, which the probe now resolves among links as the executor
-does; candidate IDs shifted with them. No observed candidate in a Formasaurus login form
-is a script button. The 132 link texts were reviewed for personal data and hold none.
+segments. The corpus holds 113 plans and 18 abstentions. Three cases are Japanese (two
+from `buyee.jp`, one from `zeiri4.com`); `language` comes from the extractor's script
+heuristic, which also marks one Chinese page `ja` and every other non-Japanese page
+`en`. The owner chose on 2026-10-11 to publish the derived page text (titles, headings
+and labels) as is, with the attribution in
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some sites appear twice with the
+same login form. It was regenerated on 2026-10-11 with the extractor of main `84df607`,
+which locates links by their text (#184) and observes script buttons (#206); the first
+import used an extractor from before #184. The cases, their plans and their abstentions
+are unchanged. The observations gained 132 links that only their text can locate, which
+the probe now resolves among links as the executor does; candidate IDs shifted with
+them. The 132 link texts were reviewed for personal data and hold none. It was
+regenerated again on 2026-10-11 with main `e48b4e7`: judging completeness by the login
+form (#211) made 36 more pages complete cases, observing script links as buttons (#226)
+gave one more login form (formasaurus-33) its submit control, and the stricter path rule
+(#214) now refuses formasaurus-836, whose path carries a base64 segment. In 11 earlier
+cases links became buttons; in formasaurus-799 and -848 newly observed script buttons
+shifted candidate IDs, and 848's label was renumbered to the same controls. No earlier
+label changed its meaning. The 37 new cases and the changed observations were reviewed
+for personal data by an independent review agent and hold none.
 `mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
 it; `--from` and `--count` run a slice of the corpus in its fixed order, so it can be
 run in batches. Each case in the report carries the plan in candidate IDs.
@@ -1128,41 +1134,44 @@ password that an identifier may fill and that is not marked as a one-time code, 
 its first button after the password, or else its first button. Without such a form,
 the one form whose only fill field is marked `username` or `email` advances. It reads no
 labels, and its inputs pass the same schema and completeness gate as generation. On
-2026-10-11 it scored the same on the corpus as merged in `e5b4244` and as regenerated
-from `84df607`:
+2026-10-11 it scored 0.958 on the 95 cases before the `e48b4e7` regeneration and, on the
+current corpus:
 
 | Corpus | Correct | Correct abstentions | Missed | False submits | Semantic accuracy |
 | --- | --- | --- | --- | --- | --- |
-| Real pages (95) | 76 | 15 | 0 | 4 | 0.958 |
+| Real pages (131) | 109 | 14 | 1 | 7 | 0.939 |
 | Synthetic (16) | 7 | 2 | 2 | 5 | 0.5625 |
 
-Its real-page false submits are two sign-up pages with a single password field, which it
-takes for a login, and two login forms where a "create account" button follows the
-password. The real-page corpus is mostly plain username and password forms, which form
-heuristics already handle; the synthetic corpus holds the bank, decoy and multi-step
-pages where they fail.
+Its real-page false submits are four sign-up pages with a single password field, which
+it takes for a login (formasaurus-35, -62, -140 and -407), and three login forms where
+it presses the wrong button: "create account" (formasaurus-216 and -739) or "Mégsem"
+(cancel, formasaurus-254). It misses formasaurus-275, whose sign-in and registration
+forms each hold one password. The real-page corpus is mostly plain username and password
+forms, which form heuristics already handle; the synthetic corpus holds the bank, decoy
+and multi-step pages where they fail.
 
 The owner approved the Claude baseline on this corpus on 2026-10-11, to run about five
 cases at a time with fixes between batches, once the MyJCB generation fix (#206) was in.
-It ran on main `c409d0a` in 19 batches of five (`--from 0 --count 5` through
-`--from 90`, cap $0.50 each). No batch had a wrong case, so nothing was changed between
-batches:
+It first ran on main `c409d0a` in 19 batches of five and scored 95/95 ($0.808). After
+the `e48b4e7` regeneration it ran again on the 131 cases in 27 batches (26 of five and
+one of one, `--from 0 --count 5` through `--from 130`, cap $0.50 each). No batch had a
+wrong case, so nothing was changed between batches:
 
 | Measure | Result |
 | --- | --- |
 | Served models | `claude-opus-5-5` only (effort `low`) |
-| Verdicts (95 cases) | 78 correct, 17 correct abstentions, 0 missed, 0 false submits, 0 failed |
-| Semantic accuracy | 1.0 (95/95) |
-| Abstentions | `no-login-form` 17 |
+| Verdicts (131 cases) | 113 correct, 18 correct abstentions, 0 missed, 0 false submits, 0 failed |
+| Semantic accuracy | 1.0 (131/131) |
+| Abstentions | `no-login-form` 18 |
 | Errors | none |
-| Latency | p50 2,017 ms, p95 3,543 ms (one call per case, no retries) |
-| Usage | 169,256 input and 6,560 output tokens over 95 calls |
-| Estimated cost | $0.808 at $4/$20 per million (about $0.0085 per call) |
+| Latency | p50 2,011 ms, p95 3,751 ms (one call per case, no retries) |
+| Usage | 232,382 input and 9,494 output tokens over 131 calls |
+| Estimated cost | $1.119 at $4/$20 per million (about $0.0085 per call) |
 
-Claude gets right the four pages where the heuristic submits wrongly: it abstains on
-the two single-password sign-up pages (formasaurus-62 and -140) and picks the sign-in
-button over "create account" (formasaurus-216 and -739). On this corpus the model's
-margin over the heuristic is those four pages (accuracy 1.0 against 0.958); on the
+Claude gets right the eight pages the heuristic gets wrong: it abstains on the four
+single-password sign-up pages, picks the sign-in button on the three wrong-button pages
+and maps formasaurus-275. On this corpus the model's margin over the heuristic is those
+eight pages (accuracy 1.0 against 0.939); on the
 synthetic corpus it is 16 against 9 of 16. A page set like this one, mostly plain
 forms, cannot tell a finite-choice model apart from Claude; the synthetic and Japanese
 pages carry that comparison.
@@ -1171,7 +1180,8 @@ Japanese pages are in `packages/inference/src/corpus/japanese.json`
 (`--corpus japanese`). On 2026-10-11 a session on the owner's PC loaded 18 public
 Japanese login pages with Playwright in the installed Chrome, one empty browser context
 per page (no profile, cookies or account, locale `ja-JP`), and observed each with the
-probe from main `9ac17c4`. Nothing was typed or clicked. Nine gave no observation: MUFG
+probe from main `9ac17c4`; the six usable pages were observed again with main `e48b4e7`.
+Nothing was typed or clicked. Nine gave no observation: MUFG
 rendered no field, Japan Post Bank showed a service-unavailable page, Monex, SMBC Card
 and Eki-net answered 403, Yahoo! JAPAN redirected to a captcha, Yodobashi failed with an
 HTTP/2 error, au ID landed on a 404 page and Mercari showed only a reCAPTCHA frame.
@@ -1180,27 +1190,25 @@ Securities (its top page, not a login form), niconico and pixiv. The six complet
 are the cases. Each keeps the observation, its label and the page's origin and path,
 with no query; the page text holds no account or personal data (reviewed 2026-10-11).
 PayPay Bank and SMBC send branch and account number custom fields and a password, as the
-synthetic bank case does; the others send the username and password slots. SMBC and
-MyJCB are labelled abstain because, when they were observed, the extractor saw their
-login control as a link, and the plan check accepts only a button. SMBC's is
-`<a href="javascript:;" onclick=...>`, and MyJCB's script sets `href="#"` on its
-`onclick` link at load, so the script-button rule of #206 did not reach either; #226
-observes both as script buttons, so the labels and results below predate it.
+synthetic bank case does; the others send the username and password slots. SMBC's
+login control is `<a href="javascript:;" onclick=...>`, and MyJCB's script sets
+`href="#"` on its `onclick` link at load. The first observation saw both as links, so
+both were labelled abstain; Claude then named the link, which the plan check rejects as
+`incompatible-role` (4 of 6, $0.089 with a rerun that recorded the reason, which each
+failed case now reports as `detail`). Since #226 both are script buttons and both pages
+are labelled plans:
 
 | Case | Expected | Heuristic | Claude |
 | --- | --- | --- | --- |
-| SMBC Direct (bank fields) | abstain | false submit (modal button) | failed (`incompatible-role`) |
+| SMBC Direct (bank fields) | submit with "ログイン" | false submit (branch number in the account number field, software keyboard button) | correct |
 | Mizuho Direct | `advance` after the customer number | missed | correct |
 | docomo SMTB Net Bank | submit | correct | correct |
-| PayPay Bank (bank fields) | submit | false submit (branch number in the account number field) | correct |
+| PayPay Bank (bank fields) | submit | false submit (branch number in the account number field, password-reset button) | correct |
 | Rakuten Securities | submit, not "クリア" | correct | correct |
-| MyJCB | abstain | false submit (passkey button) | failed (`incompatible-role`) |
+| MyJCB | submit, not the passkey button | correct | correct |
 
-The heuristic scored 2 of 6 with 3 false submits. Claude (`claude-opus-5-5`, effort
-`low`, this corpus on main `c2cc684`, one batch, $0.063 for 6 calls) scored 4 of 6
-with no false submit. On SMBC and MyJCB it named the login link as the action, which the
-plan check rejects as `incompatible-role`, so no recipe would be saved; a rerun of those
-two cases ($0.026) recorded that reason, which each failed case now reports as `detail`.
+The heuristic scored 3 of 6 with 2 false submits. Claude (`claude-opus-5-5`, effort
+`low`, this corpus on main `e48b4e7`, one batch, $0.061 for 6 calls) scored 6 of 6.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
@@ -1210,8 +1218,9 @@ only shown select, radio button, text area or other unsupported input was outsid
 login form, for example a search form's category select. In 42 none was shown, so a
 control without a unique `id`, `name` or `data-testid` is the likely cause (inferred,
 not measured). The saved pages have no stylesheets, so elements a live page hides may
-count here. The extractor refuses `;jsessionid=` and ASP.NET session segments but not
-other session IDs in a path, such as Magento's `/referer/<base64>/`.
+count here. At `9cf8356` the extractor refused only `;jsessionid=` and ASP.NET session
+segments, not other session IDs in a path such as Magento's `/referer/<base64>/`; #214
+added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,

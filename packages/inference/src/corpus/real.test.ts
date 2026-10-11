@@ -9,7 +9,6 @@ import { japanesePageCorpus, realPageCorpus } from "./real";
 
 const expectCompleteWithValidTruth = (corpus: EvaluationCase[]) => {
   expect(new Set(corpus.map((entry) => entry.id)).size).toBe(corpus.length);
-  expect(corpus.some((entry) => entry.expected.kind === "abstain")).toBe(true);
   for (const entry of corpus) {
     // Inference rejects an incomplete observation before any call, so none is scored.
     const observation = v.parse(loginObservationSchema, entry.observation);
@@ -31,6 +30,7 @@ describe("real-page corpus", () => {
   it("records its source and holds complete observations with valid ground truth", () => {
     expect(formasaurus.source.repository).toBe("https://github.com/scrapinghub/Formasaurus");
     expect(formasaurus.source.commit).toMatch(/^[0-9a-f]{40}$/u);
+    expect(realPageCorpus.some((entry) => entry.expected.kind === "abstain")).toBe(true);
     expectCompleteWithValidTruth(realPageCorpus);
   });
 });

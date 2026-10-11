@@ -87,6 +87,95 @@
       }
     },
     {
+      "id": "formasaurus-4",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/4.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://allnokia.ru",
+        "path": "/",
+        "language": "en",
+        "title": "Клуб любителей девайсов Nokia и Microsoft / Скачать бесплатно для Microsoft и Nokia на AllNokia!",
+        "headings": [
+          "Фан-клуб Nokia и Microsoft",
+          "В Индонезии прошли сертификацию два телефона Microsoft",
+          "Nokia"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "uname"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "upass"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "uok"
+            },
+            "label": "Войти!",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "top-auth-save"
+            },
+            "label": "Запомнить",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Регистрация"
+            },
+            "label": "Регистрация",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забыли пароль?"
+            },
+            "label": "Забыли пароль?",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-11",
       "source": {
         "dataset": "formasaurus",
@@ -595,6 +684,99 @@
       }
     },
     {
+      "id": "formasaurus-33",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/33.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://buyee.jp",
+        "path": "/signup/login",
+        "language": "ja",
+        "title": "ログイン /【Buyee】 \"Buyee\" 日本の通販商品・オークションの代理入札・代理購入",
+        "headings": ["\"Buyee\" 日本の通販商品・オークションの代理入札・代理購入", "ログイン"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "×"
+            },
+            "label": "×"
+          },
+          {
+            "id": "c2",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "search_textarea"
+            },
+            "maxLength": 1000
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "search_bt"
+            }
+          },
+          {
+            "id": "c4",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "login_mailAddress"
+            },
+            "label": "メールアドレス",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "login_password"
+            },
+            "label": "パスワード",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "パスワードをお忘れの方"
+            },
+            "label": "パスワードをお忘れの方",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "login_submit"
+            },
+            "label": "ログイン",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c4",
+          "password": "c5"
+        },
+        "action": "c7",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-35",
       "source": {
         "dataset": "formasaurus",
@@ -621,7 +803,7 @@
           },
           {
             "id": "c2",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "signup_submit"
@@ -660,7 +842,7 @@
           },
           {
             "id": "c6",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "tenso_signup_submit"
@@ -971,6 +1153,62 @@
       }
     },
     {
+      "id": "formasaurus-96",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/96.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://forum.astral-guild.net",
+        "path": "/user/login.php",
+        "language": "en",
+        "title": "Astral Guild",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "userId"
+            },
+            "label": "ID",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "userPassword"
+            },
+            "label": "PASS",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "LOGIN"
+            },
+            "label": "LOGIN",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-103",
       "source": {
         "dataset": "formasaurus",
@@ -1250,6 +1488,72 @@
           "password": "c5"
         },
         "action": "c7",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-117",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/117.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://forums.macrumors.com",
+        "path": "/",
+        "language": "en",
+        "title": "MacRumors Forums - Mac News and Rumor Discussion",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "navbar_username"
+            },
+            "label": "User Name",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "cb_cookieuser_navbar"
+            },
+            "label": "Remember Me?",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "navbar_password"
+            },
+            "label": "Password",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log in"
+            },
+            "label": "Log in",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c3"
+        },
+        "action": "c4",
         "purpose": "submit"
       }
     },
@@ -2002,6 +2306,72 @@
       }
     },
     {
+      "id": "formasaurus-207",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/207.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://motoride.sk",
+        "path": "/",
+        "language": "en",
+        "title": "Najnovšie Články: motoride.sk",
+        "headings": [
+          "Anketa:",
+          "Pre vás:",
+          "Najnovšie Články",
+          "Mikulášska jazda Bratislava [number]",
+          "MV Agusta Brutale 800 Dragster RR [number] - Nielen najkrajšia brutka?",
+          "Mikulášska jazda Košice [number]",
+          "Výstava BRNO NA DVOU KOLECH [number] - História Grand Prix Brno",
+          "Na Mikulášsku kvapku krvi pozývajú harlejáci aj novinári"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "login"
+            },
+            "label": "login:",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "passwd"
+            },
+            "label": "heslo:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Prihlásiť"
+            },
+            "label": "Prihlásiť",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-215",
       "source": {
         "dataset": "formasaurus",
@@ -2220,6 +2590,128 @@
           "password": "c4"
         },
         "action": "c7",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-219",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/219.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://naviny.by",
+        "path": "/",
+        "language": "en",
+        "title": "БЕЛОРУССКИЕ НОВОСТИ | Беларусь | Минск | мировые новости | последние новости | горячие новости",
+        "headings": [
+          "Тема Интерактивная карта новостей",
+          "Бюджет-[number]: где власти найдут деньги и куда они пойдут?",
+          "В Беларуси открывается корпункт рупора Кремля",
+          "За хобби пинчанина, обменявшего машину 27 раз, налоговая требует $220 тысяч",
+          "Форум предпринимателей: «Нас десятки тысяч, можем миллион подписей собрать»",
+          "Дело Мальцева. Новое обвинение — гендиректор «Борисовдрева» теперь не «паразит»",
+          "Страховая медицина в Беларуси. Стоит ли торопить процесс?",
+          "Алименты из прошлого. Белорус задолжал гражданской жене миллион российских рублей"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "calendar"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "formArchiveSubmit"
+            },
+            "label": "Все материалы за эту дату",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "formLoginLogin"
+            },
+            "group": "f2"
+          },
+          {
+            "id": "c4",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "formLoginPassword"
+            },
+            "group": "f2"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Login"
+            },
+            "label": "Login",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Регистрация"
+            },
+            "label": "Регистрация",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забыли пароль?"
+            },
+            "label": "Забыли пароль?",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "subscrforminput"
+            },
+            "group": "f3"
+          },
+          {
+            "id": "c9",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Подписаться"
+            },
+            "label": "Подписаться",
+            "group": "f3"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c3",
+          "password": "c4"
+        },
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -2543,7 +3035,7 @@
           },
           {
             "id": "c6",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "Mégsem"
@@ -2769,6 +3261,278 @@
           "password": "c3"
         },
         "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-274",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/274.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://secure.firemountaingems.com",
+        "path": "/Account/Create",
+        "language": "en",
+        "title": "Your Cart - Fire Mountain Gems & Beads Jewelry Supply",
+        "headings": [
+          "Beads",
+          "Jewelry Supplies",
+          "Stringing Material",
+          "Wire-Wrapping Wire",
+          "Jewelry and Gifts",
+          "Specials",
+          "Jewelry Maker's Library",
+          "Your Shopping Cart"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "EMAIL"
+            },
+            "label": "Email:",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "PASSWORD"
+            },
+            "label": "Password:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "ddloginsbmt"
+            },
+            "label": "Login",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "rememberme"
+            },
+            "label": "Remember Me",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot Your Password?"
+            },
+            "label": "Forgot Your Password?",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Need Help?"
+            },
+            "label": "Need Help?",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "click here"
+            },
+            "label": "click here",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-275",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/275.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://selfservice.dstv.com",
+        "path": "/",
+        "language": "en",
+        "title": "DStv Self Service | Self Service",
+        "headings": [
+          "Clear Error Codes South African customers only",
+          "COMMON FAQ'S",
+          "COMMON ERROR CODES",
+          "HOW TO ...",
+          "Packages",
+          "Services",
+          "Decoders",
+          "DStv Explora for R99pm*"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "login_email"
+            },
+            "label": "Please enter your Email Address",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "login_password"
+            },
+            "label": "Enter your password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "jumpToForgetPassword"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "login_submitNew"
+            },
+            "label": "Login",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "jumpToRegister"
+            },
+            "label": "Don't have an account? >> Register",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "email_forgotPassword"
+            },
+            "label": "Enter your registered email address",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "butForgotPassword"
+            },
+            "label": "Submit",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "reg_email"
+            },
+            "label": "Enter your email address",
+            "group": "f3"
+          },
+          {
+            "id": "c9",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "reg_password"
+            },
+            "label": "Please enter a Password with a minimum 8 characters",
+            "group": "f3"
+          },
+          {
+            "id": "c10",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "show"
+            },
+            "label": "See password",
+            "group": "f3"
+          },
+          {
+            "id": "c11",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "reg_toc"
+            },
+            "label": "I accept the terms & conditions",
+            "group": "f3"
+          },
+          {
+            "id": "c12",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "terms & conditions"
+            },
+            "label": "terms & conditions",
+            "group": "f3"
+          },
+          {
+            "id": "c13",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "butRegisterModal"
+            },
+            "label": "Register",
+            "group": "f3"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
         "purpose": "submit"
       }
     },
@@ -3123,7 +3887,7 @@
           },
           {
             "id": "c6",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "fpass"
@@ -3144,7 +3908,7 @@
           },
           {
             "id": "c8",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "popUp"
@@ -3428,7 +4192,7 @@
         "candidates": [
           {
             "id": "c1",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "leftloginsubscribeboxlogintab"
@@ -3486,7 +4250,7 @@
           },
           {
             "id": "c7",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "SEARCH"
@@ -3532,7 +4296,7 @@
         "candidates": [
           {
             "id": "c1",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "leftloginsubscribeboxlogintab"
@@ -3590,7 +4354,7 @@
           },
           {
             "id": "c7",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "SEARCH"
@@ -3722,6 +4486,150 @@
           "password": "c4"
         },
         "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-314",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/314.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://tagcome.com",
+        "path": "/register.php",
+        "language": "en",
+        "title": "Register | TAG COME",
+        "headings": ["Join Us"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Username/Email",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "remember"
+            },
+            "label": "Remember",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "signin_submit"
+            },
+            "label": "Sign In",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "forgot_password_link"
+            },
+            "label": "Forgotten Password?",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-326",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/326.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://trendo.bg",
+        "path": "/user/signin",
+        "language": "en",
+        "title": "Вход - Trendo.bg",
+        "headings": ["Вход в Trendo.bg"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "signin_email"
+            },
+            "label": "Email",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "signin_password"
+            },
+            "label": "Парола",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забравена парола?"
+            },
+            "label": "Забравена парола?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Вход"
+            },
+            "label": "Вход",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
         "purpose": "submit"
       }
     },
@@ -3983,6 +4891,64 @@
           "password": "c2"
         },
         "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-349",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/349.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://webstore.northfieldlines.com",
+        "path": "/ticketing/create-account.asp",
+        "language": "en",
+        "title": "Create Account - Online Ticket Sales",
+        "headings": ["Your Current Purchase Information", "Create Account"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "loginemail"
+            },
+            "label": "Returning user login",
+            "group": "f1",
+            "maxLength": 127
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "loginpass"
+            },
+            "group": "f1",
+            "maxLength": 63
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log In"
+            },
+            "label": "Log In",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
         "purpose": "submit"
       }
     },
@@ -4637,7 +5603,7 @@
           },
           {
             "id": "c13",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "Lire cet extrait"
@@ -4697,7 +5663,7 @@
           },
           {
             "id": "c19",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "Traduire cet extrait"
@@ -4885,6 +5851,244 @@
       }
     },
     {
+      "id": "formasaurus-406",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/406.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.bilbasen.dk",
+        "path": "/bruger/log-ind",
+        "language": "en",
+        "title": "Log ind",
+        "headings": ["Log ind"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "loginEmailAddress"
+            },
+            "placeholder": "Din e-mailadresse",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "loginPassword"
+            },
+            "placeholder": "Adgangskode",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "userlogin"
+            },
+            "label": "Log ind",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "rememberMe"
+            },
+            "label": "Husk mig",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-407",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/407.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.bilbasen.dk",
+        "path": "/bruger/opret",
+        "language": "en",
+        "title": "Opret ny bruger",
+        "headings": ["Opret ny bruger"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "createUserFirstName"
+            },
+            "placeholder": "Fornavn",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "createUserLastName"
+            },
+            "placeholder": "Efternavn",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "createUserEmailAddress"
+            },
+            "placeholder": "Din e-mailadresse",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "createUserPassword"
+            },
+            "placeholder": "Adgangskode (min. 6 tegn)",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Opret bruger"
+            },
+            "label": "Opret bruger",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "BtnCreateUserFacebook"
+            },
+            "label": "Opret med Facebook",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "tosAcceptCheck"
+            },
+            "label": "Jeg accepterer Bil Markedets brugervilkår og fortrolighedspolitik for Bilbasen.dk.",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "brugervilkår"
+            },
+            "label": "brugervilkår",
+            "group": "f1"
+          },
+          {
+            "id": "c9",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "fortrolighedspolitik"
+            },
+            "label": "fortrolighedspolitik",
+            "group": "f1"
+          },
+          {
+            "id": "c10",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "her"
+            },
+            "label": "her",
+            "group": "f1"
+          },
+          {
+            "id": "c11",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "acceptListingMails"
+            },
+            "label": "E-mails med tilbud vedrørende dine annoncer på BilBasen (fx tilbud specifikt relateret til dine annoncer på BilBasen, he",
+            "group": "f1"
+          },
+          {
+            "id": "c12",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "acceptInformationMails"
+            },
+            "label": "E-mails om nye eller forbedrede funktioner, muligheder for annoncering, oplysning, tilbud eller kampagner vedrørende ann",
+            "group": "f1"
+          },
+          {
+            "id": "c13",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "acceptThirdPartyAdvertisingMails"
+            },
+            "label": "E-mails fra BilBasens fordelsklub med markedsføring fra vores særlige samarbejdspartnere vedrørende eksempelvis køb og s",
+            "group": "f1"
+          },
+          {
+            "id": "c14",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "samarbejdspartnere"
+            },
+            "label": "samarbejdspartnere",
+            "group": "f1"
+          },
+          {
+            "id": "c15",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Log ind her"
+            },
+            "label": "Log ind her",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "abstain"
+      }
+    },
+    {
       "id": "formasaurus-411",
       "source": {
         "dataset": "formasaurus",
@@ -4925,6 +6129,99 @@
             },
             "label": "Password*",
             "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "name",
+              "value": "remember"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Login"
+            },
+            "label": "Login",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot your password?"
+            },
+            "label": "Forgot your password?",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Let us know »"
+            },
+            "label": "Let us know »",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-413",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/413.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.boston.com",
+        "path": "/eom/SysConfig/WebPortal/BDC/Framework/regi/regi-login-register.jsp",
+        "language": "en",
+        "title": "Boston.com / Member Center",
+        "headings": [
+          "Not signed up yet? Not to worry - it's still FREE!",
+          "Benefits of registering for membership",
+          "Already a member?",
+          "Log in with Facebook",
+          "Log in with your account",
+          "Login issue?"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "E-mail*",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password*",
             "group": "f1"
           },
           {
@@ -5306,7 +6603,7 @@
           },
           {
             "id": "c6",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "Click here."
@@ -5323,6 +6620,102 @@
           "password": "c4"
         },
         "action": "c5",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-494",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/494.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.cotemig.com.br",
+        "path": "/",
+        "language": "en",
+        "title": "COTEMIG - Faculdade de TI e Colégio de Informática",
+        "headings": [
+          "Cotemig",
+          "Comemoração",
+          "Laboratórios",
+          "Tecnofeira",
+          "Acontece no COTEMIG",
+          "Trabalho de construção dos sólidos geométricos",
+          "COTEMIG apresenta nova coleção de uniformes em diversas cores e modelos",
+          "COTEMIG apoia I Workshop de Desenvolvimento de Apps Xamarin do Brasil"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "s"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "searchsubmit"
+            },
+            "label": "Buscar",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "user"
+            },
+            "label": "Usuário:",
+            "group": "f2",
+            "maxLength": 20
+          },
+          {
+            "id": "c4",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "pwd"
+            },
+            "label": "Senha:",
+            "group": "f2",
+            "maxLength": 20
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Esqueceu sua senha?"
+            },
+            "label": "Esqueceu sua senha?",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "enviar-login"
+            },
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c3",
+          "password": "c4"
+        },
+        "action": "c6",
         "purpose": "submit"
       }
     },
@@ -5527,7 +6920,7 @@
           },
           {
             "id": "c2",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "bouton_texte_recherche_style"
@@ -5546,7 +6939,7 @@
           },
           {
             "id": "c4",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "bouton_texte_recherche_avancee_style"
@@ -5825,6 +7218,324 @@
       }
     },
     {
+      "id": "formasaurus-550",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/550.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.escmid.org",
+        "path": "/membership_organization/membership/online_registration_form/personal_data/",
+        "language": "en",
+        "title": "ESCMID: Personal data",
+        "headings": [
+          "Membership & Organisation",
+          "Membership application",
+          "How to sign up for a new membership",
+          "How to renew you membership",
+          "Becoming an ESCMID member or renewing"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "user"
+            },
+            "label": "Login",
+            "placeholder": "Member ID / email address:",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "pass_box"
+            },
+            "placeholder": "Password:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "input_login"
+            },
+            "label": "Login",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "href_forgot"
+            },
+            "label": "Forgot password",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "href_register"
+            },
+            "label": "Registration",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "sword"
+            },
+            "label": "search term",
+            "group": "f2",
+            "maxLength": 60
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "btn_search"
+            },
+            "label": "Search",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "newsletter-email"
+            },
+            "label": "ESCMID Newsletter Sign Up",
+            "placeholder": "Email:",
+            "group": "f3"
+          },
+          {
+            "id": "c9",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign Up"
+            },
+            "label": "Sign Up",
+            "group": "f3"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-560",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/560.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.familjeliv.se",
+        "path": "/",
+        "language": "en",
+        "title": "FamiljeLiv.se",
+        "headings": [
+          "GOD JUL",
+          "Upptakt till årets största helg. Boosta dig med skön julkänsla",
+          "Slut på trassel",
+          "Ingen mer gråt eller bråk när håret ska tvättas på kvällen",
+          "LEKAR",
+          "Pepparkaksrull för barn med spring i benen",
+          "VACCINATION",
+          "Pernilla Wahlgren delar med sig av sitt första ögonblick med Bianca"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "placeholder": "E-post",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "placeholder": "Lösenord",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Logga in"
+            },
+            "label": "Logga in",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "remember_me"
+            },
+            "label": "Kom ihåg mig",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Glömt ditt lösenord?"
+            },
+            "label": "Glömt ditt lösenord?",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-562",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/562.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.familjeliv.se",
+        "path": "/password",
+        "language": "en",
+        "title": "Återställ lösenord",
+        "headings": [
+          "Annat innehåll",
+          "BLOGG",
+          "Så gör du godaste adventstårtan med smak av saffran & lingon",
+          "Tv",
+          "Serie-maraton: TV-serierna du verkligen inte vill missa i december",
+          "JULKALENDER",
+          "Vinn fina & lyxiga priser varje dag ända fram till jul i kalendern",
+          "shopping"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "placeholder": "E-post",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "placeholder": "Lösenord",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Logga in"
+            },
+            "label": "Logga in",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "remember_me"
+            },
+            "label": "Kom ihåg mig",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Glömt ditt lösenord?"
+            },
+            "label": "Glömt ditt lösenord?",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "security_reset_password_email"
+            },
+            "label": "Fyll i din e-postadress",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "reset"
+            },
+            "label": "Återställ lösenord",
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-582",
       "source": {
         "dataset": "formasaurus",
@@ -5906,7 +7617,7 @@
           },
           {
             "id": "c7",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "Forgotten your password?"
@@ -6059,6 +7770,91 @@
         "fields": {
           "username": "c3",
           "password": "c4"
+        },
+        "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-593",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/593.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.globalsugarart.com",
+        "path": "/login.html",
+        "language": "en",
+        "title": "Global Sugar Art.com",
+        "headings": ["Already Registered?", "Not Registered Yet?", "Your Cart"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "email1"
+            },
+            "placeholder": "Enter Email Address",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "submit"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "email_address"
+            },
+            "label": "(Your Email Address is your Username)",
+            "group": "f2"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Forgot Password?"
+            },
+            "label": "Forgot Password?",
+            "group": "f2"
+          },
+          {
+            "id": "c5",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "password"
+            },
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log In »"
+            },
+            "label": "Log In »",
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c3",
+          "password": "c5"
         },
         "action": "c6",
         "purpose": "submit"
@@ -6537,6 +8333,277 @@
       }
     },
     {
+      "id": "formasaurus-678",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/678.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.livelib.ru",
+        "path": "/",
+        "language": "en",
+        "title": "LiveLib (Живая библиотека) — социальная сеть читателей книг",
+        "headings": [
+          "Что почитать",
+          "Дневник читателя онлайн",
+          "Сообщество читателей книг",
+          "Вы можете зайти на Лайвлиб, используя свой аккаунт в других социальных сетях:",
+          "В данный момент проходят игры",
+          "Новогодний конкурс сказок",
+          "Долгая прогулка [number]. Флудилка. Идет формирование команд",
+          "Рецензия на книгу «И пели птицы...»"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "user[login]"
+            },
+            "placeholder": "Логин или email",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "user[password]"
+            },
+            "placeholder": "Пароль",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забыли пароль?"
+            },
+            "label": "Забыли пароль?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "remember"
+            },
+            "label": "запомнить меня",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "user[submit]"
+            },
+            "label": "Войти",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c5",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-679",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/679.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.livelib.ru",
+        "path": "/forgot",
+        "language": "en",
+        "title": "Восстановление пароля",
+        "headings": ["Восстановление пароля", "Войти через соц. сеть"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "email"
+            },
+            "label": "E-mail или логин",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Восстановить пароль"
+            },
+            "label": "Восстановить пароль",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "user[login]"
+            },
+            "placeholder": "Логин или email",
+            "group": "f2"
+          },
+          {
+            "id": "c4",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "user[password]"
+            },
+            "placeholder": "Пароль",
+            "group": "f2"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забыли пароль?"
+            },
+            "label": "Забыли пароль?",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "remember"
+            },
+            "label": "запомнить меня",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "user[submit]"
+            },
+            "label": "Войти",
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c3",
+          "password": "c4"
+        },
+        "action": "c7",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-683",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/683.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.luckybrand.com",
+        "path": "/",
+        "language": "en",
+        "title": "Luckybrand.com - Cyber Sale - 40% Off",
+        "headings": [
+          "sign in with your lucky account",
+          "REGISTER WITH LUCKY",
+          "Style Advice",
+          "Men",
+          "Women",
+          "Kids",
+          "Plus",
+          "Featured Shops"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "search-bar"
+            },
+            "placeholder": "Search",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "dwfrm_login_username_d0ajfhqdmnul"
+            },
+            "label": "Email Address *",
+            "placeholder": "EMAIL ADDRESS",
+            "group": "f2"
+          },
+          {
+            "id": "c3",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "dwfrm_login_password"
+            },
+            "label": "Password *",
+            "placeholder": "PASSWORD",
+            "group": "f2"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Sign In"
+            },
+            "label": "Sign In",
+            "group": "f2"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "password-reset"
+            },
+            "label": "Forgot Password?",
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c2",
+          "password": "c3"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-688",
       "source": {
         "dataset": "formasaurus",
@@ -6665,6 +8732,71 @@
           "password": "c6"
         },
         "action": "c8",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-691",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/691.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.ma-reduc.com",
+        "path": "/",
+        "language": "en",
+        "title": "Codes promo et bons de réduction sur le site communautaire ma-reduc",
+        "headings": [
+          "Rechercher un code promo sur ma-reduc.com",
+          "Codes Promo à la une",
+          "Offre promo du moment",
+          "Jeux-concours",
+          "ODR à la une",
+          "Rejoignez la communauté",
+          "Top des membres actifs"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "signin-overlay-InputEmail"
+            },
+            "placeholder": "Identifiant",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "signin-overlay-InputPassword"
+            },
+            "placeholder": "Mot de passe",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "signin-overlay-submit"
+            },
+            "label": "Je me connecte",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
         "purpose": "submit"
       }
     },
@@ -7243,6 +9375,190 @@
       }
     },
     {
+      "id": "formasaurus-727",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/727.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.mons.be",
+        "path": "/login_form",
+        "language": "en",
+        "title": "Site officiel de la Ville de Mons",
+        "headings": ["Mot de passe oublié ?"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "__ac_name"
+            },
+            "label": "Identifiant",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "__ac_password"
+            },
+            "label": "Mot de passe",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "submit"
+            },
+            "label": "Se connecter",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-733",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/733.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.musichousebari.it",
+        "path": "/login.asp",
+        "language": "en",
+        "title": "Music House Bari - Negozio di strumenti musicali - Log-in",
+        "headings": ["Log-in"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Cerca:"
+            },
+            "label": "Cerca:",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "search"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "cercavai"
+            },
+            "label": "Vai",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Username:",
+            "group": "f2",
+            "maxLength": 20
+          },
+          {
+            "id": "c5",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Password:",
+            "group": "f2",
+            "maxLength": 20
+          },
+          {
+            "id": "c6",
+            "role": "checkbox",
+            "target": {
+              "by": "name",
+              "value": "salpass"
+            },
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "loginge"
+            },
+            "label": "Identificami",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Newsletter gratuita"
+            },
+            "label": "Newsletter gratuita",
+            "group": "f3"
+          },
+          {
+            "id": "c9",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "inputnews"
+            },
+            "label": "Newsletter gratuita",
+            "group": "f3"
+          },
+          {
+            "id": "c10",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Iscriviti ora"
+            },
+            "label": "Iscriviti ora",
+            "group": "f3"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c4",
+          "password": "c5"
+        },
+        "action": "c7",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-739",
       "source": {
         "dataset": "formasaurus",
@@ -7337,6 +9653,141 @@
           "password": "c4"
         },
         "action": "c7",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-750",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/750.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.mypapershop.com",
+        "path": "/mm5/merchant.mvc",
+        "language": "en",
+        "title": "Discount Party Supplies - Free Shipping: Customer Log In",
+        "headings": [
+          "Shopping Cart",
+          "Customer Login",
+          "Create an Account",
+          "Register Now",
+          "Registered Customers",
+          "Welcome Back",
+          "User Name Lookup:",
+          "Password Lookup:"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "Customer_Login"
+            },
+            "label": "User Name:",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "Customer_Password"
+            },
+            "label": "Password:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "name",
+              "value": "nbRememberMeFlag"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log In"
+            },
+            "label": "Log In",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "logn-customer-email"
+            },
+            "label": "Email Address:",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Retrieve User Name"
+            },
+            "label": "Retrieve User Name",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "Customer_Pass_Lookup"
+            },
+            "label": "User Name:",
+            "group": "f3"
+          },
+          {
+            "id": "c8",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Retrieve Password"
+            },
+            "label": "Retrieve Password",
+            "group": "f3"
+          },
+          {
+            "id": "c9",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "signup-email"
+            },
+            "placeholder": "Enter your e-mail address",
+            "group": "f4"
+          },
+          {
+            "id": "c10",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Receive Free Newsletter"
+            },
+            "label": "Receive Free Newsletter",
+            "group": "f4"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
         "purpose": "submit"
       }
     },
@@ -7650,6 +10101,171 @@
       }
     },
     {
+      "id": "formasaurus-776",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/776.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.origami-shop.com",
+        "path": "/en/origami-xsl-206_517_279.html",
+        "language": "en",
+        "title": "origami DVD",
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "account-tooltip-email"
+            },
+            "label": "E-mail address :",
+            "placeholder": "Email",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "account-tooltip-password"
+            },
+            "label": "Password:",
+            "placeholder": "Password",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Login"
+            },
+            "label": "Login",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "sendto"
+            },
+            "group": "f2",
+            "maxLength": 80
+          },
+          {
+            "id": "c5",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "lastname"
+            },
+            "group": "f2",
+            "maxLength": 35
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-777",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/777.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.origami-shop.com",
+        "path": "/",
+        "language": "en",
+        "title": "Origami-shop - Livres, papiers et accessoires pour l'origami - E-books gratuits",
+        "headings": [
+          "Papiers et livres pour l'origami",
+          "Livres pour l'origami",
+          "pliage de papier"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "account-tooltip-email"
+            },
+            "label": "Adresse email :",
+            "placeholder": "Email",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "account-tooltip-password"
+            },
+            "label": "Mot de passe :",
+            "placeholder": "Mot de passe",
+            "autocomplete": "off",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Accéder à mon compte"
+            },
+            "label": "Accéder à mon compte",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "sendto"
+            },
+            "group": "f2",
+            "maxLength": 80
+          },
+          {
+            "id": "c5",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "lastname"
+            },
+            "group": "f2",
+            "maxLength": 35
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-783",
       "source": {
         "dataset": "formasaurus",
@@ -7903,7 +10519,7 @@
           },
           {
             "id": "c7",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "id",
               "value": "ForgotPasswordLink"
@@ -8056,6 +10672,15 @@
           },
           {
             "id": "c12",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Atgal"
+            },
+            "label": "Atgal"
+          },
+          {
+            "id": "c13",
             "role": "text",
             "target": {
               "by": "id",
@@ -8066,7 +10691,7 @@
             "group": "f3"
           },
           {
-            "id": "c13",
+            "id": "c14",
             "role": "button",
             "target": {
               "by": "name",
@@ -8244,6 +10869,92 @@
       }
     },
     {
+      "id": "formasaurus-820",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/820.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.riemurasia.net",
+        "path": "/login.php",
+        "language": "en",
+        "title": "Riemurasia | Tervetuloa Riemurasiaan!",
+        "headings": ["KIRJAUDU SISÄÄN"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "nickname"
+            },
+            "label": "Nimimerkki",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Salasana",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "loginsslsubmit"
+            },
+            "label": "KIRJAUDU SISÄÄN",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "remember"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Rekisteröidy!"
+            },
+            "label": "Rekisteröidy!",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Unohditko salasanasi?"
+            },
+            "label": "Unohditko salasanasi?",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-833",
       "source": {
         "dataset": "formasaurus",
@@ -8329,103 +11040,6 @@
           "password": "c3"
         },
         "action": "c4",
-        "purpose": "submit"
-      }
-    },
-    {
-      "id": "formasaurus-836",
-      "source": {
-        "dataset": "formasaurus",
-        "page": "html/836.html"
-      },
-      "observation": {
-        "version": 1,
-        "origin": "http://www.scienceboard.net",
-        "path": "/login/return_url/64-L3NpZ251cA%3D%3D",
-        "language": "en",
-        "title": "The Science Advisory Board - Sign-in",
-        "headings": ["Member Sign In"],
-        "complete": true,
-        "candidates": [
-          {
-            "id": "c1",
-            "role": "text",
-            "target": {
-              "by": "id",
-              "value": "query"
-            },
-            "placeholder": "Search",
-            "group": "f1"
-          },
-          {
-            "id": "c2",
-            "role": "link",
-            "target": {
-              "by": "text",
-              "value": "sign up"
-            },
-            "label": "sign up",
-            "group": "f2"
-          },
-          {
-            "id": "c3",
-            "role": "email",
-            "target": {
-              "by": "id",
-              "value": "ouYAQmYo0v"
-            },
-            "label": "Email Address",
-            "group": "f2"
-          },
-          {
-            "id": "c4",
-            "role": "password",
-            "target": {
-              "by": "id",
-              "value": "password"
-            },
-            "label": "Password",
-            "group": "f2"
-          },
-          {
-            "id": "c5",
-            "role": "button",
-            "target": {
-              "by": "id",
-              "value": "submit"
-            },
-            "label": "Sign In",
-            "group": "f2"
-          },
-          {
-            "id": "c6",
-            "role": "checkbox",
-            "target": {
-              "by": "id",
-              "value": "remember"
-            },
-            "label": "Remember Me",
-            "group": "f2"
-          },
-          {
-            "id": "c7",
-            "role": "link",
-            "target": {
-              "by": "text",
-              "value": "Forgot Password?"
-            },
-            "label": "Forgot Password?",
-            "group": "f2"
-          }
-        ]
-      },
-      "expected": {
-        "kind": "plan",
-        "fields": {
-          "username": "c3",
-          "password": "c4"
-        },
-        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -8535,6 +11149,15 @@
         "candidates": [
           {
             "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Aceito."
+            },
+            "label": "Aceito."
+          },
+          {
+            "id": "c2",
             "role": "text",
             "target": {
               "by": "id",
@@ -8545,7 +11168,7 @@
             "group": "f1"
           },
           {
-            "id": "c2",
+            "id": "c3",
             "role": "button",
             "target": {
               "by": "id",
@@ -8554,7 +11177,7 @@
             "group": "f1"
           },
           {
-            "id": "c3",
+            "id": "c4",
             "role": "text",
             "target": {
               "by": "id",
@@ -8565,7 +11188,7 @@
             "maxLength": 128
           },
           {
-            "id": "c4",
+            "id": "c5",
             "role": "password",
             "target": {
               "by": "name",
@@ -8576,7 +11199,7 @@
             "maxLength": 128
           },
           {
-            "id": "c5",
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "text",
@@ -8586,7 +11209,7 @@
             "group": "f2"
           },
           {
-            "id": "c6",
+            "id": "c7",
             "role": "text",
             "target": {
               "by": "id",
@@ -8597,7 +11220,7 @@
             "maxLength": 128
           },
           {
-            "id": "c7",
+            "id": "c8",
             "role": "button",
             "target": {
               "by": "id",
@@ -8607,13 +11230,361 @@
             "group": "f3"
           },
           {
-            "id": "c8",
+            "id": "c9",
             "role": "text",
             "target": {
               "by": "id",
               "value": "mail"
             },
             "label": "NEWSLETTER"
+          },
+          {
+            "id": "c10",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Mulher"
+            },
+            "label": "Mulher"
+          },
+          {
+            "id": "c11",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Homem"
+            },
+            "label": "Homem"
+          },
+          {
+            "id": "c12",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "*Condições das ofertas em curso"
+            },
+            "label": "*Condições das ofertas em curso"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c4",
+          "password": "c5"
+        },
+        "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-850",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/850.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.spinkat.ru",
+        "path": "/",
+        "language": "en",
+        "title": "Интернет магазин спиннингов и катушек, рыболовные снасти с доставкой, продажа удилищ: спиннинги, кастинг и нахлыст / spi",
+        "headings": [
+          "Интернет магазин по продаже рыболовных спиннингов и катушек",
+          "Отзывы",
+          "???? ??? ????????",
+          "?????? ??????"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "logn"
+            },
+            "label": "Email:",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "passw"
+            },
+            "label": "??????:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "?????"
+            },
+            "label": "?????",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-855",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/855.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.spinkat.ru",
+        "path": "/forum/index.php",
+        "language": "en",
+        "title": "Форум spinkat.ru • Главная страница",
+        "headings": ["Вход • Регистрация", "Кто сейчас на конференции", "Статистика"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Имя пользователя:",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Пароль:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "autologin"
+            },
+            "label": "Автоматически входить при каждом посещении",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "login"
+            },
+            "label": "Вход",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-858",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/858.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.spinkat.ru",
+        "path": "/forum/ucp.php",
+        "language": "en",
+        "title": "Форум spinkat.ru • Личный раздел • Вход",
+        "headings": ["Вход", "Регистрация"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "username"
+            },
+            "label": "Имя пользователя:",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
+            "label": "Пароль:",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Забыли пароль?"
+            },
+            "label": "Забыли пароль?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "autologin"
+            },
+            "label": "Автоматически входить при каждом посещении",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "viewonline"
+            },
+            "label": "Скрыть моё пребывание на конференции в этот раз",
+            "group": "f1"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "login"
+            },
+            "label": "Вход",
+            "group": "f1"
+          },
+          {
+            "id": "c7",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Общие правила"
+            },
+            "label": "Общие правила",
+            "group": "f1"
+          },
+          {
+            "id": "c8",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Соглашение о конфиденциальности"
+            },
+            "label": "Соглашение о конфиденциальности",
+            "group": "f1"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c6",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-877",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/877.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.thebookpeople.co.uk",
+        "path": "/webapp/wcs/stores/servlet/LogonForm",
+        "language": "en",
+        "title": "Sign in",
+        "headings": [
+          "Existing customerSign in / Register",
+          "New customer",
+          "UK schools and educational organisationsUK schools"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "searchTerm"
+            },
+            "placeholder": "Search our great titles",
+            "group": "f1",
+            "maxLength": 338
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Go"
+            },
+            "label": "Go",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "logonId"
+            },
+            "label": "Email address",
+            "autocomplete": "off",
+            "group": "f2"
+          },
+          {
+            "id": "c4",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "logonPassword"
+            },
+            "label": "Password",
+            "placeholder": "Required",
+            "autocomplete": "off",
+            "group": "f2"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "sign-in-button"
+            },
+            "label": "Sign in",
+            "group": "f2"
           }
         ]
       },
@@ -8624,6 +11595,211 @@
           "password": "c4"
         },
         "action": "c5",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-891",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/891.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.tyreleader.co.uk",
+        "path": "/my-account/",
+        "language": "en",
+        "title": "Tyreleader.co.uk - My account",
+        "headings": ["Already have an account ?", "New user ?"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "lemail"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "pwd"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log-in"
+            },
+            "label": "Log-in",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Password forgotten ?"
+            },
+            "label": "Password forgotten ?",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "cemail"
+            },
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "cemailc"
+            },
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Register"
+            },
+            "label": "Register",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "email"
+            },
+            "placeholder": "Enter your email address",
+            "group": "f3"
+          },
+          {
+            "id": "c9",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Confirm"
+            },
+            "label": "Confirm",
+            "group": "f3"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
+    },
+    {
+      "id": "formasaurus-893",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/893.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.tyreleader.co.uk",
+        "path": "/pro/",
+        "language": "en",
+        "title": "Tyre supplier, tyre wholesaler for garages - Tyre Leader",
+        "headings": [
+          "Tyre Leader : Tyre supplier for professionals",
+          "Log-in",
+          "Create your professional account",
+          "Access full database",
+          "Track incoming parcels",
+          "Manage your garage information"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "log"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "name",
+              "value": "pw"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "forgot"
+            },
+            "label": "Password forgotten?",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Log-in"
+            },
+            "label": "Log-in",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "text",
+            "target": {
+              "by": "name",
+              "value": "email"
+            },
+            "placeholder": "Enter your email address",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Confirm"
+            },
+            "label": "Confirm",
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
         "purpose": "submit"
       }
     },
@@ -9095,6 +12271,159 @@
       }
     },
     {
+      "id": "formasaurus-924",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/924.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "https://www.zalando.de",
+        "path": "/login/",
+        "language": "en",
+        "title": "Anmelden",
+        "headings": [
+          "Ich bin bereits Zalando-Kunde",
+          "Kunden von anderen Zalando-Shops (z.B. Lounge) können sich direkt einloggen.",
+          "Passwort vergessen?",
+          "Zahlungsmethoden",
+          "Ich bin Neukunde",
+          "Social Media aktivieren"
+        ],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "searchContent"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "searchButtonTopSubmit"
+            },
+            "label": "m",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "loginEmail"
+            },
+            "label": "E-Mail-Adresse",
+            "group": "f2"
+          },
+          {
+            "id": "c4",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "loginPassword"
+            },
+            "label": "Passwort",
+            "group": "f2"
+          },
+          {
+            "id": "c5",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "softLogin"
+            },
+            "label": "Angemeldet bleiben",
+            "group": "f2"
+          },
+          {
+            "id": "c6",
+            "role": "link",
+            "target": {
+              "by": "id",
+              "value": "forgotPassword"
+            },
+            "label": "Passwort vergessen?",
+            "group": "f2"
+          },
+          {
+            "id": "c7",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "login"
+            },
+            "label": "Anmelden",
+            "group": "f2"
+          },
+          {
+            "id": "c8",
+            "role": "email",
+            "target": {
+              "by": "id",
+              "value": "emailNew"
+            },
+            "label": "E-Mail-Adresse",
+            "group": "f3"
+          },
+          {
+            "id": "c9",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "remindPassword"
+            },
+            "label": "Absenden",
+            "group": "f3"
+          },
+          {
+            "id": "c10",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "newsletter"
+            },
+            "autocomplete": "off",
+            "group": "f4"
+          },
+          {
+            "id": "c11",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "subscribeFemale"
+            },
+            "label": "Für Frauen",
+            "group": "f4"
+          },
+          {
+            "id": "c12",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "subscribeMale"
+            },
+            "label": "Für Männer",
+            "group": "f4"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c3",
+          "password": "c4"
+        },
+        "action": "c7",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-926",
       "source": {
         "dataset": "formasaurus",
@@ -9278,6 +12607,92 @@
       }
     },
     {
+      "id": "formasaurus-930",
+      "source": {
+        "dataset": "formasaurus",
+        "page": "html/930.html"
+      },
+      "observation": {
+        "version": 1,
+        "origin": "http://www.zone-concours.com",
+        "path": "/",
+        "language": "en",
+        "title": "Jeux concours gratuits en ligne avec réponses",
+        "headings": ["Découvrez les meilleurs jeux concours gratuits"],
+        "complete": true,
+        "candidates": [
+          {
+            "id": "c1",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "pseudo"
+            },
+            "group": "f1",
+            "maxLength": 40
+          },
+          {
+            "id": "c2",
+            "role": "password",
+            "target": {
+              "by": "id",
+              "value": "mdp"
+            },
+            "group": "f1",
+            "maxLength": 40
+          },
+          {
+            "id": "c3",
+            "role": "checkbox",
+            "target": {
+              "by": "id",
+              "value": "souvenir"
+            },
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "Ok"
+            },
+            "label": "Ok",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "text",
+            "target": {
+              "by": "id",
+              "value": "popupEmail"
+            },
+            "group": "f2",
+            "maxLength": 100
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "name",
+              "value": "Submit"
+            },
+            "label": "Je m'inscris",
+            "group": "f2"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c4",
+        "purpose": "submit"
+      }
+    },
+    {
       "id": "formasaurus-938",
       "source": {
         "dataset": "formasaurus",
@@ -9312,7 +12727,7 @@
           },
           {
             "id": "c2",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "Go"
@@ -9365,7 +12780,7 @@
           },
           {
             "id": "c7",
-            "role": "link",
+            "role": "button",
             "target": {
               "by": "text",
               "value": "Forgot Password?"

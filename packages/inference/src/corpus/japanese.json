@@ -1,12 +1,15 @@
 {
   "source": {
     "observed": "2026-10-11",
-    "method": "Public login pages loaded with Playwright in Chrome, one empty browser context per page (no profile, cookies or account), locale ja-JP, and observed with the probe bundled from main 9ac17c4"
+    "method": "Public login pages loaded with Playwright in Chrome, one empty browser context per page (no profile, cookies or account), locale ja-JP, and observed with the probe bundled from main e48b4e7"
   },
   "cases": [
     {
       "id": "ja-smbc-direct",
-      "source": { "dataset": "japanese", "url": "https://direct.smbc.co.jp/aib/aibgsjsw5001.jsp" },
+      "source": {
+        "dataset": "japanese",
+        "url": "https://direct.smbc.co.jp/aib/aibgsjsw5001.jsp"
+      },
       "slots": "bank",
       "observation": {
         "version": 1,
@@ -20,7 +23,10 @@
           {
             "id": "c1",
             "role": "tel",
-            "target": { "by": "name", "value": "branchNo" },
+            "target": {
+              "by": "name",
+              "value": "branchNo"
+            },
             "label": "店番号・口座番号（普通預金）",
             "placeholder": "店番号",
             "group": "f1",
@@ -30,7 +36,10 @@
           {
             "id": "c2",
             "role": "tel",
-            "target": { "by": "name", "value": "accountNo" },
+            "target": {
+              "by": "name",
+              "value": "accountNo"
+            },
             "label": "店番号・口座番号（普通預金）",
             "placeholder": "口座番号",
             "group": "f1",
@@ -40,7 +49,10 @@
           {
             "id": "c3",
             "role": "password",
-            "target": { "by": "id", "value": "inputpassword" },
+            "target": {
+              "by": "id",
+              "value": "inputpassword"
+            },
             "placeholder": "ログイン暗証",
             "autocomplete": "off",
             "group": "f1",
@@ -49,8 +61,11 @@
           },
           {
             "id": "c4",
-            "role": "link",
-            "target": { "by": "text", "value": "ソフトウェア キーボード" },
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "ソフトウェア キーボード"
+            },
             "label": "ソフトウェア キーボード",
             "group": "f1"
           },
@@ -67,7 +82,10 @@
           {
             "id": "c6",
             "role": "link",
-            "target": { "by": "text", "value": "ログイン暗証がお分かりにならないお客さまはこちら" },
+            "target": {
+              "by": "text",
+              "value": "ログイン暗証がお分かりにならないお客さまはこちら"
+            },
             "label": "ログイン暗証がお分かりにならないお客さまはこちら",
             "group": "f1"
           },
@@ -84,28 +102,40 @@
           {
             "id": "c8",
             "role": "link",
-            "target": { "by": "text", "value": "ログインでお困りのお客さまはこちら" },
+            "target": {
+              "by": "text",
+              "value": "ログインでお困りのお客さまはこちら"
+            },
             "label": "ログインでお困りのお客さまはこちら",
             "group": "f1"
           },
           {
             "id": "c9",
             "role": "link",
-            "target": { "by": "text", "value": "日曜21:00～月曜7:00にご利用いただけるサービス" },
+            "target": {
+              "by": "text",
+              "value": "日曜21:00～月曜7:00にご利用いただけるサービス"
+            },
             "label": "日曜21:00～月曜7:00にご利用いただけるサービス",
             "group": "f1"
           },
           {
             "id": "c10",
-            "role": "link",
-            "target": { "by": "text", "value": "ログイン" },
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "ログイン"
+            },
             "label": "ログイン",
             "group": "f1"
           },
           {
             "id": "c11",
             "role": "link",
-            "target": { "by": "text", "value": "SMBCダイレクトのサービス時間" },
+            "target": {
+              "by": "text",
+              "value": "SMBCダイレクトのサービス時間"
+            },
             "label": "SMBCダイレクトのサービス時間",
             "group": "f1"
           },
@@ -122,21 +152,30 @@
           {
             "id": "c13",
             "role": "link",
-            "target": { "by": "text", "value": "ご利用推奨環境" },
+            "target": {
+              "by": "text",
+              "value": "ご利用推奨環境"
+            },
             "label": "ご利用推奨環境",
             "group": "f1"
           },
           {
             "id": "c14",
             "role": "link",
-            "target": { "by": "text", "value": "普通預金規定" },
+            "target": {
+              "by": "text",
+              "value": "普通預金規定"
+            },
             "label": "普通預金規定",
             "group": "f1"
           },
           {
             "id": "c15",
             "role": "link",
-            "target": { "by": "text", "value": "カードローン規定" },
+            "target": {
+              "by": "text",
+              "value": "カードローン規定"
+            },
             "label": "カードローン規定",
             "group": "f1"
           },
@@ -153,62 +192,95 @@
           {
             "id": "c17",
             "role": "link",
-            "target": { "by": "text", "value": "暗証番号管理のポイント" },
+            "target": {
+              "by": "text",
+              "value": "暗証番号管理のポイント"
+            },
             "label": "暗証番号管理のポイント",
             "group": "f1"
           },
           {
             "id": "c18",
             "role": "link",
-            "target": { "by": "text", "value": "簡単！やさしいセキュリティ教室" },
+            "target": {
+              "by": "text",
+              "value": "簡単！やさしいセキュリティ教室"
+            },
             "label": "簡単！やさしいセキュリティ教室",
             "group": "f1"
           },
           {
             "id": "c19",
             "role": "link",
-            "target": { "by": "text", "value": "各種お問い合わせ" },
+            "target": {
+              "by": "text",
+              "value": "各種お問い合わせ"
+            },
             "label": "各種お問い合わせ",
             "group": "f1"
           },
           {
             "id": "c20",
             "role": "link",
-            "target": { "by": "text", "value": "ページトップへ" },
+            "target": {
+              "by": "text",
+              "value": "ページトップへ"
+            },
             "label": "ページトップへ",
             "group": "f1"
           },
           {
             "id": "c21",
             "role": "link",
-            "target": { "by": "text", "value": "操作ヘルプ" },
+            "target": {
+              "by": "text",
+              "value": "操作ヘルプ"
+            },
             "label": "操作ヘルプ",
             "group": "f1"
           },
           {
             "id": "c22",
             "role": "link",
-            "target": { "by": "text", "value": "よくある質問" },
+            "target": {
+              "by": "text",
+              "value": "よくある質問"
+            },
             "label": "よくある質問",
             "group": "f1"
           },
           {
             "id": "c23",
             "role": "link",
-            "target": { "by": "text", "value": "プライバシーポリシー" },
+            "target": {
+              "by": "text",
+              "value": "プライバシーポリシー"
+            },
             "label": "プライバシーポリシー",
             "group": "f1"
           },
           {
             "id": "c24",
             "role": "link",
-            "target": { "by": "text", "value": "三井住友銀行勧誘方針" },
+            "target": {
+              "by": "text",
+              "value": "三井住友銀行勧誘方針"
+            },
             "label": "三井住友銀行勧誘方針",
             "group": "f1"
           }
         ]
       },
-      "expected": { "kind": "abstain" }
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "branch-number": "c1",
+          "account-number": "c2",
+          "password": "c3"
+        },
+        "action": "c10",
+        "purpose": "submit"
+      }
     },
     {
       "id": "ja-mizuho-direct",
@@ -229,7 +301,10 @@
           {
             "id": "c1",
             "role": "text",
-            "target": { "by": "id", "value": "txbCustNo" },
+            "target": {
+              "by": "id",
+              "value": "txbCustNo"
+            },
             "label": "お客さま番号",
             "autocomplete": "off",
             "group": "f1",
@@ -240,7 +315,10 @@
           {
             "id": "c2",
             "role": "button",
-            "target": { "by": "text", "value": "次へ" },
+            "target": {
+              "by": "text",
+              "value": "次へ"
+            },
             "label": "次へ",
             "group": "f1"
           },
@@ -256,50 +334,71 @@
           },
           {
             "id": "c4",
-            "role": "link",
-            "target": { "by": "text", "value": "ログインパスワードをお忘れの場合" },
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "ログインパスワードをお忘れの場合"
+            },
             "label": "ログインパスワードをお忘れの場合",
             "group": "f1"
           },
           {
             "id": "c5",
             "role": "link",
-            "target": { "by": "text", "value": "ご利用時間" },
+            "target": {
+              "by": "text",
+              "value": "ご利用時間"
+            },
             "label": "ご利用時間",
             "group": "f1"
           },
           {
             "id": "c6",
             "role": "link",
-            "target": { "by": "text", "value": "お問い合わせ(入力フォーム)" },
+            "target": {
+              "by": "text",
+              "value": "お問い合わせ(入力フォーム)"
+            },
             "label": "お問い合わせ(入力フォーム)",
             "group": "f1"
           },
           {
             "id": "c7",
             "role": "link",
-            "target": { "by": "text", "value": "みずほダイレクト規定" },
+            "target": {
+              "by": "text",
+              "value": "みずほダイレクト規定"
+            },
             "label": "みずほダイレクト規定",
             "group": "f1"
           },
           {
             "id": "c8",
-            "role": "link",
-            "target": { "by": "text", "value": "個人情報の利用目的に関する事項" },
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "個人情報の利用目的に関する事項"
+            },
             "label": "個人情報の利用目的に関する事項",
             "group": "f1"
           },
           {
             "id": "c9",
             "role": "link",
-            "target": { "by": "text", "value": "みずほダイレクトトップ" },
+            "target": {
+              "by": "text",
+              "value": "みずほダイレクトトップ"
+            },
             "label": "みずほダイレクトトップ",
             "group": "f1"
           },
           {
             "id": "c10",
             "role": "link",
-            "target": { "by": "text", "value": "ご利用ガイド" },
+            "target": {
+              "by": "text",
+              "value": "ご利用ガイド"
+            },
             "label": "ご利用ガイド",
             "group": "f1"
           }
@@ -307,7 +406,9 @@
       },
       "expected": {
         "kind": "plan",
-        "fields": { "username": "c1" },
+        "fields": {
+          "username": "c1"
+        },
         "action": "c2",
         "purpose": "advance"
       }
@@ -330,14 +431,20 @@
           {
             "id": "c1",
             "role": "link",
-            "target": { "by": "text", "value": "検索" },
+            "target": {
+              "by": "text",
+              "value": "検索"
+            },
             "label": "検索",
             "group": "f1"
           },
           {
             "id": "c2",
             "role": "text",
-            "target": { "by": "id", "value": "SS_searchQuery" },
+            "target": {
+              "by": "id",
+              "value": "SS_searchQuery"
+            },
             "autocomplete": "off",
             "group": "f1",
             "maxLength": 100
@@ -345,29 +452,41 @@
           {
             "id": "c3",
             "role": "link",
-            "target": { "by": "text", "value": "新しいログイン画面を利用する" },
+            "target": {
+              "by": "text",
+              "value": "新しいログイン画面を利用する"
+            },
             "label": "新しいログイン画面を利用する",
             "group": "f2"
           },
           {
             "id": "c4",
             "role": "text",
-            "target": { "by": "id", "value": "userNameNewLogin" },
+            "target": {
+              "by": "id",
+              "value": "userNameNewLogin"
+            },
             "autocomplete": "off",
             "group": "f2",
             "maxLength": 128
           },
           {
             "id": "c5",
-            "role": "link",
-            "target": { "by": "text", "value": "キーボード" },
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "キーボード"
+            },
             "label": "キーボード",
             "group": "f2"
           },
           {
             "id": "c6",
             "role": "password",
-            "target": { "by": "id", "value": "loginPwdSet" },
+            "target": {
+              "by": "id",
+              "value": "loginPwdSet"
+            },
             "label": "WEBログインパスワード キーボード",
             "group": "f2",
             "maxLength": 32
@@ -375,21 +494,30 @@
           {
             "id": "c7",
             "role": "button",
-            "target": { "by": "text", "value": "ログイン" },
+            "target": {
+              "by": "text",
+              "value": "ログイン"
+            },
             "label": "ログイン",
             "group": "f2"
           },
           {
             "id": "c8",
             "role": "link",
-            "target": { "by": "text", "value": "ログインできない場合" },
+            "target": {
+              "by": "text",
+              "value": "ログインできない場合"
+            },
             "label": "ログインできない場合",
             "group": "f2"
           },
           {
             "id": "c9",
             "role": "link",
-            "target": { "by": "id", "value": "create-account-button" },
+            "target": {
+              "by": "id",
+              "value": "create-account-button"
+            },
             "label": "今すぐ口座開設",
             "group": "f2"
           }
@@ -397,7 +525,10 @@
       },
       "expected": {
         "kind": "plan",
-        "fields": { "username": "c4", "password": "c6" },
+        "fields": {
+          "username": "c4",
+          "password": "c6"
+        },
         "action": "c7",
         "purpose": "submit"
       }
@@ -421,7 +552,10 @@
           {
             "id": "c1",
             "role": "tel",
-            "target": { "by": "id", "value": "idTenNo" },
+            "target": {
+              "by": "id",
+              "value": "idTenNo"
+            },
             "label": "店番号",
             "group": "f1",
             "maxLength": 3
@@ -429,7 +563,10 @@
           {
             "id": "c2",
             "role": "tel",
-            "target": { "by": "id", "value": "idKozaNo" },
+            "target": {
+              "by": "id",
+              "value": "idKozaNo"
+            },
             "label": "口座番号",
             "group": "f1",
             "maxLength": 7
@@ -437,57 +574,81 @@
           {
             "id": "c3",
             "role": "password",
-            "target": { "by": "id", "value": "idPw" },
+            "target": {
+              "by": "id",
+              "value": "idPw"
+            },
             "label": "ログインパスワード",
             "group": "f1",
             "maxLength": 32
           },
           {
             "id": "c4",
-            "role": "link",
-            "target": { "by": "text", "value": "わからない場合（再設定）" },
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "わからない場合（再設定）"
+            },
             "label": "わからない場合（再設定）",
             "group": "f1"
           },
           {
             "id": "c5",
             "role": "button",
-            "target": { "by": "name", "value": "login" },
+            "target": {
+              "by": "name",
+              "value": "login"
+            },
             "label": "ログイン",
             "group": "f1"
           },
           {
             "id": "c6",
             "role": "link",
-            "target": { "by": "text", "value": "ログインできません" },
+            "target": {
+              "by": "text",
+              "value": "ログインできません"
+            },
             "label": "ログインできません",
             "group": "f1"
           },
           {
             "id": "c7",
             "role": "link",
-            "target": { "by": "text", "value": "チャットでお問い合わせ" },
+            "target": {
+              "by": "text",
+              "value": "チャットでお問い合わせ"
+            },
             "label": "チャットでお問い合わせ",
             "group": "f1"
           },
           {
             "id": "c8",
             "role": "link",
-            "target": { "by": "text", "value": "お問い合わせフォーム" },
+            "target": {
+              "by": "text",
+              "value": "お問い合わせフォーム"
+            },
             "label": "お問い合わせフォーム",
             "group": "f1"
           },
           {
             "id": "c9",
             "role": "link",
-            "target": { "by": "text", "value": "初期設定" },
+            "target": {
+              "by": "text",
+              "value": "初期設定"
+            },
             "label": "初期設定",
             "group": "f1"
           },
           {
             "id": "c10",
             "role": "link",
-            "target": { "by": "text", "value": "BA-PLUS専用ログイン" },
+            "target": {
+              "by": "text",
+              "value": "BA-PLUS専用ログイン"
+            },
             "label": "BA-PLUS専用ログイン",
             "group": "f1"
           }
@@ -495,7 +656,11 @@
       },
       "expected": {
         "kind": "plan",
-        "fields": { "branch-number": "c1", "account-number": "c2", "password": "c3" },
+        "fields": {
+          "branch-number": "c1",
+          "account-number": "c2",
+          "password": "c3"
+        },
         "action": "c5",
         "purpose": "submit"
       }
@@ -519,7 +684,10 @@
           {
             "id": "c1",
             "role": "text",
-            "target": { "by": "id", "value": "form-login-id" },
+            "target": {
+              "by": "id",
+              "value": "form-login-id"
+            },
             "label": "ログインID",
             "group": "f1",
             "maxLength": 8
@@ -527,7 +695,10 @@
           {
             "id": "c2",
             "role": "password",
-            "target": { "by": "id", "value": "form-login-pass" },
+            "target": {
+              "by": "id",
+              "value": "form-login-pass"
+            },
             "label": "パスワード",
             "group": "f1",
             "maxLength": 20
@@ -535,35 +706,50 @@
           {
             "id": "c3",
             "role": "checkbox",
-            "target": { "by": "id", "value": "pass-chk" },
+            "target": {
+              "by": "id",
+              "value": "pass-chk"
+            },
             "label": "隠れているパスワードを表示して確認する",
             "group": "f1"
           },
           {
             "id": "c4",
             "role": "link",
-            "target": { "by": "id", "value": "keyboard_opener" },
+            "target": {
+              "by": "id",
+              "value": "keyboard_opener"
+            },
             "label": "画面キーボードを使う",
             "group": "f1"
           },
           {
             "id": "c5",
             "role": "link",
-            "target": { "by": "text", "value": "ログインにお困りの方" },
+            "target": {
+              "by": "text",
+              "value": "ログインにお困りの方"
+            },
             "label": "ログインにお困りの方",
             "group": "f1"
           },
           {
             "id": "c6",
             "role": "button",
-            "target": { "by": "id", "value": "login-btn" },
+            "target": {
+              "by": "id",
+              "value": "login-btn"
+            },
             "label": "ID･パスワードでログインする",
             "group": "f1"
           },
           {
             "id": "c7",
             "role": "button",
-            "target": { "by": "id", "value": "reset-btn" },
+            "target": {
+              "by": "id",
+              "value": "reset-btn"
+            },
             "label": "クリア",
             "group": "f1"
           }
@@ -571,14 +757,20 @@
       },
       "expected": {
         "kind": "plan",
-        "fields": { "username": "c1", "password": "c2" },
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
         "action": "c6",
         "purpose": "submit"
       }
     },
     {
       "id": "ja-myjcb",
-      "source": { "dataset": "japanese", "url": "https://my.jcb.co.jp/Login" },
+      "source": {
+        "dataset": "japanese",
+        "url": "https://my.jcb.co.jp/Login"
+      },
       "slots": "login",
       "observation": {
         "version": 1,
@@ -600,7 +792,10 @@
           {
             "id": "c1",
             "role": "text",
-            "target": { "by": "id", "value": "userId" },
+            "target": {
+              "by": "id",
+              "value": "userId"
+            },
             "label": "MyJCB ID",
             "group": "f1",
             "maxLength": 30
@@ -608,49 +803,75 @@
           {
             "id": "c2",
             "role": "password",
-            "target": { "by": "id", "value": "password" },
+            "target": {
+              "by": "id",
+              "value": "password"
+            },
             "label": "MyJCB パスワード",
             "group": "f1",
             "maxLength": 30
           },
           {
             "id": "c3",
-            "role": "link",
-            "target": { "by": "id", "value": "loginButtonAD" },
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "loginButtonAD"
+            },
             "label": "ID・パスワードでログイン",
             "group": "f1"
           },
           {
             "id": "c4",
             "role": "link",
-            "target": { "by": "text", "value": "ID・パスワードをお忘れの方はこちら" },
+            "target": {
+              "by": "text",
+              "value": "ID・パスワードをお忘れの方はこちら"
+            },
             "label": "ID・パスワードをお忘れの方はこちら",
             "group": "f1"
           },
           {
             "id": "c5",
             "role": "button",
-            "target": { "by": "id", "value": "passkeyLoginButtonAD" },
+            "target": {
+              "by": "id",
+              "value": "passkeyLoginButtonAD"
+            },
             "label": "パスキーでログイン",
             "group": "f1"
           },
           {
             "id": "c6",
             "role": "link",
-            "target": { "by": "text", "value": "パスキーの利用環境はこちら" },
+            "target": {
+              "by": "text",
+              "value": "パスキーの利用環境はこちら"
+            },
             "label": "パスキーの利用環境はこちら",
             "group": "f1"
           },
           {
             "id": "c7",
             "role": "link",
-            "target": { "by": "text", "value": "パスキーについてよくあるご質問はこちら" },
+            "target": {
+              "by": "text",
+              "value": "パスキーについてよくあるご質問はこちら"
+            },
             "label": "パスキーについてよくあるご質問はこちら",
             "group": "f1"
           }
         ]
       },
-      "expected": { "kind": "abstain" }
+      "expected": {
+        "kind": "plan",
+        "fields": {
+          "username": "c1",
+          "password": "c2"
+        },
+        "action": "c3",
+        "purpose": "submit"
+      }
     }
   ]
 }
