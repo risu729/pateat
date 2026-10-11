@@ -106,11 +106,11 @@ runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runti
 
 Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs `mise run test:browser`
 on a GitHub-hosted Windows runner as well as on Linux, so the packaged-extension
-tests are expected to pass on Windows with the Playwright-downloaded Chromium. If
-Chromium fails before launch with a missing SideBySide assembly ("side-by-side
-configuration is incorrect"), as on one local host on 2026-10-10, it did not
-reproduce on the CI runner (see the
-[foundation progress](plan.md#foundation-progress)); rely on CI for those runs. The
+tests are expected to pass on Windows with the Playwright-downloaded Chromium. One
+local host on 2026-10-10 hit a missing SideBySide assembly ("side-by-side
+configuration is incorrect") before launch; it did not reproduce on the CI runner
+(see the [foundation progress](plan.md#foundation-progress)), so rely on CI for
+those runs. The
 Windows job points `TEMP` and `TMP` at the runner's work drive: browser profiles in
 the default temp directory on the system drive hit 5-25 s I/O stalls that timed out
 random tests. If browser tests time out on a slow local Windows disk, do the same.
