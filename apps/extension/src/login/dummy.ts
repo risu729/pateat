@@ -3,6 +3,7 @@ import {
   parseLoginRecipe,
   type LoginAccountBinding,
   type LoginRecipe,
+  type LoginStep,
   type VaultCatalog,
 } from "@pateat/contracts";
 
@@ -13,23 +14,28 @@ export function createProbeCatalog(): VaultCatalog {
 }
 
 const target = (value: string) => ({ by: "id" as const, value });
+const PROBE_PATHS = [
+  "/identity",
+  "/single",
+  "/delayed-result",
+  "/rejection",
+  "/unknown",
+  "/ambiguous",
+  "/delayed",
+  "/input-submit",
+  "/change-submit",
+  "/input-advance",
+  "/spa-login",
+  "/dialog",
+  "/slow-button",
+  "/text-submit",
+];
+/** The first step of every synthetic recipe, which a fixture document watches for. */
+export function probeFirstSteps(origin: string): LoginStep[] {
+  return PROBE_PATHS.map((path) => probeRecipe(origin, path)!.steps[0]!);
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
-  if (
-    ![
-      "/identity",
-      "/single",
-      "/delayed-result",
-      "/rejection",
-      "/unknown",
-      "/ambiguous",
-      "/delayed",
-      "/input-submit",
-      "/change-submit",
-      "/input-advance",
-      "/text-submit",
-    ].includes(path)
-  )
-    return undefined;
+  if (!PROBE_PATHS.includes(path)) return undefined;
   const multi = path === "/identity";
   const inputAdvance = path === "/input-advance";
   const inputSubmit = path === "/input-submit" || path === "/change-submit";

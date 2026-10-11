@@ -24,8 +24,8 @@ installed shell status, and document-start/inactive-tab identity probe;
 [CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
 downloaded Windows Chromium still fails before launch with a missing SideBySide
 assembly. The later installed-Chrome synthetic probe passed the early login gate;
-broader coexistence remains a separate M1 gate. Code Quality setup remains
-unavailable after language detection; see [merging](delivery.md#merging).
+broader coexistence remains a separate M1 gate. Code Quality is not used, and normal
+merges need no bypass; see [merging](delivery.md#merging).
 
 ## Local settings progress
 
@@ -65,9 +65,12 @@ POST counts independently of the executor. Interruption fixtures distinguish
 intent persistence, delivery, effect and acknowledgement; a missing acknowledgement
 never authorizes another fill or a fallback click.
 [Development](development.md#installed-chrome-synthetic-login-probe)
-describes the early installed-Chrome acceptance procedure. Production activation,
-arbitrary saved recipe configuration, real provider compatibility and broader frame
-and dynamic-page support remain outstanding. The early installed-Chrome run passed
+describes the early installed-Chrome acceptance procedure. Attempts start when a
+recipe's first step appears, also after a same-document URL change or in a dialog
+opened later, and later steps wait up to 10 seconds for their elements
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Production
+activation, arbitrary saved recipe configuration, real provider compatibility and
+login forms inside frames remain outstanding. The early installed-Chrome run passed
 multi-page, background-tab, single-page, rejection, ambiguity, concurrency and
 input/change-triggered advance cases using synthetic values. It does not establish
 current SDK/setup compatibility or official Bitwarden extension coexistence. See the
@@ -304,8 +307,10 @@ combined commit. Catalog bounds are validated before unlock-key export and cache
 The settings page can delete a connection locally, as
 [Development](development.md#manual-bitwarden-setup-preview) describes. Unit, options
 component and isolated Chromium tests cover deletion with synthetic providers, including
-removed native records after a full profile reopen; it has not been exercised in the
-owner's Chrome.
+removed native records after a full profile reopen. The owner also deleted leftover
+connections in the installed Chrome on 2026-10-11, then completed first setup against
+a real Bitwarden Cloud account
+([evidence](research/2026-10-10-feasibility.md#first-real-account-sign-in-2026-10-11)).
 
 [PR #20](https://github.com/risu729/pateat/pull/20) passed
 [full Linux CI](https://github.com/risu729/pateat/actions/runs/38047201686) with 766
