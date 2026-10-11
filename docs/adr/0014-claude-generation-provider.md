@@ -39,7 +39,8 @@ monthly Claude API credit and chose the model. The offline harness in
   automatic switch to another model, as ADR 0003 requires.
 - Jev and Clef are not required. The finite-choice role has no provider for now; its
   adapter contract stays, and those models may be evaluated later against the same
-  corpus.
+  corpus. On 2026-10-11 the owner chose to implement the role with Clef in
+  [phase 3](../plan.md#phase-3-public-release) of the roadmap.
 - The owner approved one paid benchmark run of the synthetic corpus with this
   configuration. Further paid runs and the service route need their own approval
   (the route was approved in [ADR 0018](0018-recipe-generation-route.md)).
