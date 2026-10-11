@@ -24,6 +24,9 @@ const fake = vi.hoisted(() => {
     tabUrls: {} as Record<number, string>,
     /** Completion, then rejection target states reported by observation. */
     observed: ["unique", "missing"],
+    observedPath: "/signin",
+    /** When set, each requested target is reported unique only if its value is listed. */
+    present: undefined as Set<string> | undefined,
     /** The document's answer while it waits for a step's elements. */
     awaited: { ok: true } as { ok: boolean; reason?: string },
     /** Runs while the document waits for a step's elements. */
@@ -65,7 +68,14 @@ const fake = vi.hoisted(() => {
           return state.awaited;
         }
         if (message["type"] === "login.observe")
-          return { path: "/signin", targets: [...state.observed] };
+          return {
+            path: state.observedPath,
+            targets: state.present
+              ? (message["targets"] as { value: string }[]).map((entry) =>
+                  state.present!.has(entry.value) ? "unique" : "missing",
+                )
+              : [...state.observed],
+          };
         if (message["type"] === "login.execute") {
           await state.onExecute?.(message, _tabId);
           const operation = message["operation"] as {
@@ -276,6 +286,8 @@ describe("production login document admission", () => {
     fake.state.onExecute = undefined;
     fake.state.tabUrls = {};
     fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    fake.state.present = undefined;
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.gone = new Set();
@@ -831,6 +843,80 @@ describe("production login document admission", () => {
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
       // One query per document while every connection's snapshot is unchanged.
       expect(uris).toHaveBeenCalledTimes(1);
+    });
+    describe("with a generated recipe that has no completion yet", () => {
+      const { completion: _unlearned, ...generated } = recipe;
+      const start = async (withRecipe: typeof generated) => {
+        const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+        const h = harness(unsaved, { allowedOrigins: [], uris });
+        h.recipes.recipe.mockResolvedValue(withRecipe);
+        expect(await h.hello()).toEqual({ ok: true });
+        return h;
+      };
+      const published = () => JSON.stringify(fake.state.messages);
+      it("never reports authenticated or saves a choice after submitting", async () => {
+        const h = await start(generated);
+        // Nothing settles the submission until the observation budget runs out.
+        await vi.waitFor(() => expect(published()).toContain('"outcome":"unknown-submit"'), {
+          timeout: 6_000,
+        });
+        // After the last step there is nothing to look for: no completion, rejection or step.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({ type: "login.observe", targets: [] }),
+        );
+        expect(published()).not.toContain("authenticated");
+        expect(h.store.update).not.toHaveBeenCalled();
+      }, 10_000);
+      it("still reports a rejection target, observed first", async () => {
+        fake.state.observed = ["unique"];
+        const h = await start({ ...generated, rejection: target("error") });
+        await vi.waitFor(() => expect(published()).toContain("credential-rejected"));
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({ type: "login.observe", targets: [target("error")] }),
+        );
+        expect(h.store.update).not.toHaveBeenCalled();
+      });
+      const twoPages = (rejection?: string) =>
+        parseLoginRecipe({
+          ...generated,
+          ...(rejection ? { rejection: target(rejection) } : {}),
+          steps: [
+            { kind: "click", path: "/signin", target: target("continue"), purpose: "advance" },
+            {
+              kind: "fill",
+              path: "/next",
+              fields: [{ slot: "password", target: target("password") }],
+            },
+            { kind: "click", path: "/next", target: target("login"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+      it("waits for the next page's field behind a rejection target", async () => {
+        fake.state.observedPath = "/next";
+        fake.state.present = new Set();
+        await start(twoPages("error"));
+        await vi.waitFor(() =>
+          expect(
+            fake.state.messages.filter((entry) => entry.type === "login.observe").length,
+          ).toBeGreaterThanOrEqual(3),
+        );
+        // Neither the rejection nor the field is there, so only the advance click ran.
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(
+          1,
+        );
+      });
+      it("continues to the next page's step", async () => {
+        fake.state.observedPath = "/next";
+        fake.state.present = new Set(["password", "login"]);
+        await start(twoPages());
+        // The next step's field is the only target, so it is observed at index 0.
+        await vi.waitFor(() =>
+          expect(fake.state.messages).toContainEqual(
+            expect.objectContaining({ type: "login.observe", targets: [target("password")] }),
+          ),
+        );
+        await vi.waitFor(() => expect(published()).toContain('"stepIndex":2'), { timeout: 6_000 });
+      }, 10_000);
     });
     it("saves nothing while another login is still running", async () => {
       const second = "https://second.example";

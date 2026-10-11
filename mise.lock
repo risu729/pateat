@@ -3,33 +3,33 @@
 lockfile_version = 3
 
 [[tools.bun]]
-version = "1.4.2"
+version = "1.4.3"
 backend = "core:bun"
-specifiers = ["1.4.2"]
+specifiers = ["1.4.3"]
 
 [tools.bun."platforms.linux-x64"]
-checksum = "sha256:36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64.zip"
+checksum = "sha256:3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64.zip"
 
 [tools.bun."platforms.linux-x64-baseline"]
-checksum = "sha256:c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64-baseline.zip"
+checksum = "sha256:1fc2edac843102909e3a1be1d8d9802cc6071cf074e67e88231f4ffe0f8b397b"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64-baseline.zip"
 
 [tools.bun."platforms.linux-x64-musl"]
-checksum = "sha256:4835eca59d6da70f4674f5642f6e459dcadab773695b2ed9922d131057989742"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64-musl.zip"
+checksum = "sha256:6e9ea98554ea0d05efda5840ae292618aaa3adefd66b0853520c5c86a37eac9c"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64-musl.zip"
 
 [tools.bun."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:76e1db84e98f22f78de0a87e309bfbbf297732847f9720db36750646c85c8c18"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64-musl-baseline.zip"
+checksum = "sha256:4b5b0b5503f6ebf15161e8c56eb5a263134c05cd98a86dc11ee43ac5bda9862e"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64-musl-baseline.zip"
 
 [tools.bun."platforms.windows-x64"]
-checksum = "sha256:ce4c17497b2f29712a99d3d53f028de28cd42e3bacb8589599e7f000e49b6405"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-windows-x64.zip"
+checksum = "sha256:0bf84e808552beea67bf1202a287a35c6c825d837b287b3f8e9dd513dba35d3d"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-windows-x64.zip"
 
 [tools.bun."platforms.windows-x64-baseline"]
-checksum = "sha256:78c221c2376f79731ccf4e4af0b3bb46d81fefa3296c5abee09ad8a1b21e68c6"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-windows-x64-baseline.zip"
+checksum = "sha256:d7a7d3eb216614544aab0cde2d8d9f2e4e87839bf5a30a1cd11d077f02d84e0c"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-windows-x64-baseline.zip"
 
 [[tools.ghalint]]
 version = "1.5.6"
@@ -340,44 +340,20 @@ url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellche
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056944"
 
 [[tools.tombi]]
-version = "1.7.3"
+version = "1.8.1"
 backend = "aqua:tombi-toml/tombi"
-specifiers = ["1.7.3"]
+specifiers = ["1.8.1"]
 
 [tools.tombi."platforms.linux-x64"]
-checksum = "sha256:90aa18e34c5133879942272fda31677d78dd4221ce8eb06e991c487893aaaba4"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.7.3/tombi-cli-1.7.3-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/615901928"
-provenance = "github-attestations"
-
-[tools.tombi."platforms.linux-x64-baseline"]
-checksum = "sha256:90aa18e34c5133879942272fda31677d78dd4221ce8eb06e991c487893aaaba4"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.7.3/tombi-cli-1.7.3-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/615901928"
-provenance = "github-attestations"
-
-[tools.tombi."platforms.linux-x64-musl"]
-checksum = "sha256:90aa18e34c5133879942272fda31677d78dd4221ce8eb06e991c487893aaaba4"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.7.3/tombi-cli-1.7.3-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/615901928"
-provenance = "github-attestations"
-
-[tools.tombi."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:90aa18e34c5133879942272fda31677d78dd4221ce8eb06e991c487893aaaba4"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.7.3/tombi-cli-1.7.3-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/615901928"
+checksum = "sha256:593875e0454dfb58afa3d3c7728d8fcfae25ba2c0dde85b75b4f84a84ba3224e"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.8.1/tombi-cli-1.8.1-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/629888726"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.windows-x64"]
-checksum = "sha256:6f72039120a4b0b2821a032a1ea6c98b502d2568a650b5cdb106abd67a187478"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.7.3/tombi-cli-1.7.3-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/615901924"
-provenance = "github-attestations"
-
-[tools.tombi."platforms.windows-x64-baseline"]
-checksum = "sha256:6f72039120a4b0b2821a032a1ea6c98b502d2568a650b5cdb106abd67a187478"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.7.3/tombi-cli-1.7.3-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/615901924"
+checksum = "sha256:bd968e24a271ead008fde44263aecb3fded6669ce518d3ef4c33148e024013d2"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.8.1/tombi-cli-1.8.1-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/629888721"
 provenance = "github-attestations"
 
 [[tools.typos]]
@@ -416,44 +392,20 @@ url = "https://github.com/crate-ci/typos/releases/download/v1.51.1/typos-v1.51.1
 url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/616657506"
 
 [[tools.uv]]
-version = "0.12.24"
+version = "0.13.0"
 backend = "aqua:astral-sh/uv"
-specifiers = ["0.12.24"]
+specifiers = ["0.13.0"]
 
 [tools.uv."platforms.linux-x64"]
-checksum = "sha256:b4dfaef47d491a7296981f8374a4595f55dbf84e8937c8ecd2983574d8bb3da6"
-url = "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/622873043"
-provenance = "github-attestations"
-
-[tools.uv."platforms.linux-x64-baseline"]
-checksum = "sha256:b4dfaef47d491a7296981f8374a4595f55dbf84e8937c8ecd2983574d8bb3da6"
-url = "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/622873043"
-provenance = "github-attestations"
-
-[tools.uv."platforms.linux-x64-musl"]
-checksum = "sha256:48170bd200a5430298c18f3b264485a1f3a8605f01088277daf6e37633edf0f5"
-url = "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/622873060"
-provenance = "github-attestations"
-
-[tools.uv."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:48170bd200a5430298c18f3b264485a1f3a8605f01088277daf6e37633edf0f5"
-url = "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/622873060"
+checksum = "sha256:1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
+url = "https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/626003332"
 provenance = "github-attestations"
 
 [tools.uv."platforms.windows-x64"]
-checksum = "sha256:7c38608c8a18ee137d748a1773053b07ec8f3a30fab49aebaa6f4e4efeceb019"
-url = "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/622873038"
-provenance = "github-attestations"
-
-[tools.uv."platforms.windows-x64-baseline"]
-checksum = "sha256:7c38608c8a18ee137d748a1773053b07ec8f3a30fab49aebaa6f4e4efeceb019"
-url = "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/622873038"
+checksum = "sha256:088962f9e7b7bd9ea740c04c650b2a21c8928c345bd99ac24350dc924dba656c"
+url = "https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/626003295"
 provenance = "github-attestations"
 
 [[tools.yamlfmt]]

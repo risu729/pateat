@@ -7,9 +7,10 @@ remains optional for the eventual local login core.
 ## Current foundation workflows
 
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
-and main push. `CI Check` requires successful verification, including when an upstream
-job failed, skipped or was cancelled. `codeql.yml` analyzes TypeScript/JavaScript and
-Actions separately. GitHub Code Quality is not used: since its
+and main push, and repeats the packaged-extension browser tests on Windows. `CI Check`
+requires both jobs to succeed, including when an upstream job failed, skipped or was
+cancelled. `codeql.yml` analyzes TypeScript/JavaScript and Actions separately. GitHub
+Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
@@ -46,6 +47,11 @@ The owner decided these on 2026-10-11, following the kogane repository:
   verifies the Access token itself on the owner pages.
 - Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
   `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
+  cf refuses to create a Worker without its declared secrets, so the first deploy
+  passes all four at once with `cf deploy --prebuilt --mode production --secrets-file
+  <file>` (JSON) and deletes the file afterwards; later changes use
+  `cf workers secrets update`. With several accounts visible to the login, cf also
+  needs `CLOUDFLARE_ACCOUNT_ID`. Versions created by routine releases keep the secrets.
 - Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
   as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
 - Preview: there is no preview deployment for now. Without the owner web UI there is
@@ -71,22 +77,22 @@ the release limits itself to the recorded database ID. This repository does not 
 or provision them.
 
 The workflow takes the CI run that triggered it, or the `ci_run_id` of a manual
-dispatch, and fails before any change when the token is empty or the account ID is
-not a 32-character hex ID. It verifies
-the run's identity, event and conclusion, restores only its hashed artifact, rechecks
-main within a non-cancelling release lock, applies the released migrations, deploys
-through the pinned action without rebuilding, and verifies returned deployment IDs and
-the hosted revision. Before `cf d1 migrations apply`, it reads the database by the
-recorded ID and requires the name `pateat`; afterwards no migration may remain
-unapplied. A failed migration stops the release before activation. Migrations must be
-additive so the serving Worker keeps running on the new schema; nothing checks this
-automatically, and cf compares applied migrations by name only, so an applied migration
-file is never edited. `cf d1 migrations` is a preview command of the pinned beta cf;
-recheck this step when cf is updated. Failed delivery stays failed; a retry requires an
-explicit dispatch, and the next merge starts a new release. Routine releases never
-change the Custom Domain or other triggers; the bootstrap applies them once. The
-complete service release gates below remain planned, including automatic
-promotion/failure acknowledgement.
+dispatch, and fails before any change when the token is empty or the account ID is not a
+32-character hex ID. It verifies the run's identity, event and conclusion, restores only
+its hashed artifact, rechecks main within a non-cancelling release lock, applies the
+released migrations, deploys through the pinned action without rebuilding, and verifies
+returned deployment IDs and the hosted revision. Before `cf d1 migrations apply`, it
+reads the database by the recorded ID and requires the name `pateat`; afterwards no
+migration may remain unapplied. A failed migration stops the release before activation.
+Before the first public release, migrations need not be additive and the previously
+serving Worker need not keep running on the new schema
+([compatibility before release](development.md#compatibility-before-release)); cf
+compares applied migrations by name only, so an applied migration file is never edited.
+`cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
+is updated. Failed delivery stays failed; a retry requires an explicit dispatch, and the
+next merge starts a new release. Routine releases never change the Custom Domain or
+other triggers; the bootstrap applies them once. The complete service release gates
+below remain planned, including automatic promotion/failure acknowledgement.
 
 ## Repository configuration
 
@@ -173,10 +179,12 @@ for the typed-config/test-harness compatibility gate.
    verified device enrollment/revocation flow. Do not distribute a universal
    service credential with the extension. D1 initially stores private settings
    in server-readable form; vault credentials and decryption keys remain local.
-3. Apply additive, backward-compatible D1 migrations using the caller's task and
-   the production token above. cf migrations take a database ID and default
-   to remote execution; use explicit local mode in tests. Verify target identity
-   before execution. The previous Worker must still run against the new schema.
+3. Apply D1 migrations using the caller's task and the production token above. cf
+   migrations take a database ID and default to remote execution; use explicit local
+   mode in tests. Verify target identity before execution. After the first public
+   release, migrations must be additive and backward-compatible, and the previous Worker
+   must still run against the new schema; before it, neither is required
+   ([compatibility before release](development.md#compatibility-before-release)).
 4. Use the owner's deployment action, pinned to a reviewed full commit SHA, with
    prebuilt output, matching production build/mode, exact Worker/account identity,
    and the normal versions strategy. Routine releases do not update routing or

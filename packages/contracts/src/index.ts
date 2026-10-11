@@ -6,6 +6,7 @@ export * from "./settings-store";
 export * from "./site-accounts";
 export * from "./login";
 export * from "./login-attempt";
+export * from "./manage";
 export * from "./observation";
 export * from "./recipes";
 export * from "./service-connection";

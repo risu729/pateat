@@ -57,12 +57,23 @@ call with the same `mediation` as a request Pateat is still delegating, and eith
 same options object or the same `publicKey` object, is treated as such a fallback and
 goes straight to the function present when Pateat installed itself, normally the
 browser's original. The `publicKey` match covers shallow copies such as
-`{ ...options, signal }`, which Bitwarden passes for conditional requests. A provider
-that copies deeper is cut off once four delegations with the same `mediation` and
-challenge are in flight. Other calls are handled normally, including a new modal request
-while a provider holds a conditional or unclaimed one. If a provider injected before
-Pateat, the install-time function is that provider's wrapper, even after it restores the
-browser's own.
+`{ ...options, signal }`, which Bitwarden passes for conditional requests. A call made
+synchronously while Pateat is calling the function it delegates to also goes to the
+install-time function, so a page shim that rebuilds the options (for example with a new
+challenge) before calling its saved `get` runs once. A call that arrives while four
+delegations with the same `mediation` are already in flight may still be claimed, but if
+Pateat does not claim it, it goes to the install-time function instead of the next
+wrapper. This stops a wrapper that rebuilds the options asynchronously after at most
+four rounds. Pateat only ever sees the options such a shim received, so on a page whose
+shim converts unreadable options (for example base64 strings into buffers) Pateat never
+claims. Delegations count against the limit until the wrapper settles them, so a
+provider that never settles abandoned requests makes later unclaimed requests of that
+mediation skip it. The owner chose both rules on 2026-10-11 after such a wrapper was
+shown to loop
+([wrapper detectability](../research/2026-10-11-passkey-wrapper-detectability.md#page-side-wrappers)).
+Other calls are handled normally, including a new modal request while a provider holds a
+conditional or unclaimed one. If a provider injected before Pateat, the install-time
+function is that provider's wrapper, even after it restores the browser's own.
 
 The page and MAIN world are untrusted. The isolated script independently checks
 `window.top === window`, `isSecureContext` and the `publickey-credentials-get`
