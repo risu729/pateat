@@ -58,7 +58,7 @@ Focused tasks are available for diagnosis:
 | `mise run prepare:extension` | Generate WXT types |
 | `mise run build:extension` | Package the Chrome extension shell |
 | `mise run build:probe` | Build the isolated synthetic browser-test variant |
-| `mise run render:icons` | Render `apps/extension/icons/icon.svg` into the committed PNG icons (needs `browser:install`) |
+| `mise run render:icons` | Render `apps/extension/icons/*.svg` (listed in `scripts/render-icons.mjs`) into the committed PNG icons (needs `browser:install`) |
 | `mise run probe:login` | Serve the synthetic login site on loopback port 3847 |
 | `mise run probe:passkeys` | Serve the synthetic passkey relying party on loopback port 3848 |
 | `mise run typecheck:extension` | Check extension source after WXT preparation |

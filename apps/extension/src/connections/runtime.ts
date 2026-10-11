@@ -13,6 +13,7 @@ import { createLocalSettingsRuntime } from "../settings";
 import { createIndexedDbVaultStore } from "../vault/storage";
 import { createLocalVaultManager } from "../vault/manager";
 import { vaultFailure } from "../vault/record";
+import type { VaultRecordState } from "./action-icon";
 import { createBrowserConnectionRegistry } from "./registry";
 import { createConnectionPolicy, quarantinedItems } from "./policy";
 import { providerPermissionOrigins } from "./permissions";
@@ -29,6 +30,8 @@ export function createConnectionRuntime(
     transportOptions?: BitwardenTransportOptions;
     containsPermission?: (profile: BitwardenProfile) => Promise<boolean>;
     baseCatalog?: VaultCatalog;
+    /** Called after each setup request settles; vault records may have changed. */
+    onSetupSettled?: () => void;
   } = {},
 ) {
   const registry = options.registry ?? createBrowserConnectionRegistry();
@@ -219,6 +222,7 @@ export function createConnectionRuntime(
         .catch(() => ({ ok: false as const, error: { code: "setup-unavailable" as const } }))
         .then((reply) => {
           pending -= 1;
+          options.onSetupSettled?.();
           if (connected) {
             try {
               port.postMessage({ requestId: request.requestId, result: reply });
@@ -232,11 +236,22 @@ export function createConnectionRuntime(
     });
     return true;
   }
+  async function vaultStates(): Promise<VaultRecordState[]> {
+    const configurations = await registry.list();
+    return Promise.all(
+      configurations.map(async (configuration) => {
+        const record = await vaultFor(configuration.profile).store.read();
+        if (!record.ok) return "unreadable";
+        return record.data?.state ?? "absent";
+      }),
+    );
+  }
   return {
     settings,
     service,
     registry,
     vaultFor,
+    vaultStates,
     current,
     attach,
     /** Internal only. No page/options API returns vault field values. */
