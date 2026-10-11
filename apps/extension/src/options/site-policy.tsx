@@ -1,4 +1,5 @@
 import {
+  getItemEligibility,
   normalizeHostname,
   parseSiteUrl,
   resolveSiteAccount,
@@ -61,14 +62,33 @@ type SiteAccountOption = {
   label: string;
 };
 
+/** Whether the draft lets an item be used at all; a passkey-only item has no fields. */
+function draftAllows(
+  draft: LocalSettings,
+  catalog: VaultCatalog,
+  connectionId: string,
+  itemId: string,
+) {
+  const connection = catalog.connections.find((entry) => entry.id === connectionId);
+  if (connection?.quarantinedItemIds?.includes(itemId)) return false;
+  const eligibility = getItemEligibility(draft, catalog, connectionId, itemId);
+  return (
+    eligibility.eligible ||
+    (eligibility.reason === "fields-excluded" &&
+      connection?.items.find((entry) => entry.id === itemId)?.fields.length === 0)
+  );
+}
+
 /**
- * Matched items that are still in the catalog, grouped in catalog order. With `all`, every
- * item is listed, for a URI rule on a deeper path that `origin/` does not match.
+ * Matched items that are still in the catalog, matched ones first, each group in catalog
+ * order. With `all`, every other item the draft allows is listed too, for a URI rule on a
+ * deeper path that `origin/` does not match.
  */
 export function siteAccountOptions(
   catalog: VaultCatalog,
   found: Extract<SiteAccountsResponse, { ok: true }> | undefined,
   all: boolean,
+  draft: LocalSettings,
 ): SiteAccountOption[] {
   if (!found) return [];
   const options = catalog.connections.flatMap((connection) =>
@@ -76,7 +96,7 @@ export function siteAccountOptions(
       const match = found.accounts.find(
         (entry) => entry.connectionId === connection.id && entry.itemId === item.id,
       );
-      return match || all
+      return match || (all && draftAllows(draft, catalog, connection.id, item.id))
         ? [
             {
               connectionId: connection.id,
@@ -93,6 +113,9 @@ export function siteAccountOptions(
           ]
         : [];
     }),
+  );
+  options.sort(
+    (left, right) => Number(right.uri || right.passkey) - Number(left.uri || left.passkey),
   );
   const seen = new Map<string, number>();
   for (const option of options) {
@@ -113,6 +136,7 @@ function matchedBy(option: SiteAccountOption): string {
 }
 
 const SITE_ACCOUNTS_DELAY_MS = 300;
+const WAIT_FOR_ACCOUNTS = "Wait until the matching accounts are listed.";
 
 export function SitePolicy({
   draft,
@@ -164,7 +188,7 @@ export function SitePolicy({
         return;
       }
       if (accountsPending) {
-        setDefaultError("Wait until the matching accounts are listed.");
+        setDefaultError(WAIT_FOR_ACCOUNTS);
         return;
       }
       // Only an item listed for the origin entered can be chosen.
@@ -224,11 +248,13 @@ export function SitePolicy({
   });
   const accountsPending =
     accountOrigin !== undefined && (queriedOrigin !== accountOrigin || accounts.isPending);
+  // The wait message no longer applies once the accounts are listed.
+  const defaultMessage = defaultError === WAIT_FOR_ACCOUNTS && !accountsPending ? "" : defaultError;
   const found =
     !accountsPending && accounts.data?.ok && accounts.data.origin === accountOrigin
       ? accounts.data
       : undefined;
-  const accountOptions = siteAccountOptions(catalog, found, showAllAccounts);
+  const accountOptions = siteAccountOptions(catalog, found, showAllAccounts, draft);
   const matchedCount = accountOptions.filter((entry) => entry.uri || entry.passkey).length;
   const selectedAccount = useStore(defaultForm.store, (state) => state.values.account);
   const shownAccount = accountOptions.some((entry) => entry.value === selectedAccount)
@@ -248,7 +274,7 @@ export function SitePolicy({
       "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.";
   else accountNote = `${matchedCount} matching ${matchedCount === 1 ? "item" : "items"}.`;
   if (found && !found.complete)
-    accountNote += " Some vaults could not be searched because they are locked or unavailable.";
+    accountNote += " Some vaults or items could not be checked, so this list may be incomplete.";
 
   return (
     <>
@@ -416,8 +442,8 @@ export function SitePolicy({
                   type="text"
                   placeholder="https://bank.example"
                   autoComplete="off"
-                  aria-describedby={`default-help${defaultError ? " default-error" : ""}`}
-                  aria-invalid={Boolean(defaultError)}
+                  aria-describedby={`default-help${defaultMessage ? " default-error" : ""}`}
+                  aria-invalid={Boolean(defaultMessage)}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => {
@@ -470,9 +496,9 @@ export function SitePolicy({
               </>
             )}
           </defaultForm.Field>
-          {defaultError && (
+          {defaultMessage && (
             <p id="default-error" className="validation-error" role="alert">
-              {defaultError}
+              {defaultMessage}
             </p>
           )}
           <Button id="add-default" type="submit">

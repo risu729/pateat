@@ -160,6 +160,25 @@ describe("findSiteAccounts", () => {
     ]);
   });
 
+  it("does not read a username the draft excludes", async () => {
+    const settings = draft();
+    settings.connections
+      .find((entry) => entry.connectionId === "live")!
+      .excludedFields.push({ itemId: uriItem, fieldId: "login.username" });
+    const readField = vi.fn<LoginFieldSource>(async () => "alice@example.test");
+    const result = await findSiteAccounts({
+      saved: saved(),
+      settings,
+      origin,
+      matchUris: async () => ({ ok: true, data: uris() }),
+      findPasskeys: passkeys(),
+      readField,
+    });
+    expect(result).toMatchObject({ ok: true, accounts: [{ itemId: uriItem }] });
+    expect(result.ok && result.accounts[0]).not.toHaveProperty("username");
+    expect(readField).not.toHaveBeenCalled();
+  });
+
   it("searches what the draft enables, not only the saved settings", async () => {
     const value = saved();
     const matchUris = vi.fn<LiveUriMatcher>().mockResolvedValue({ ok: true, data: uris() });

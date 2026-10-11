@@ -34,7 +34,10 @@ export function rpIdsFor(origin: string): string[] {
  */
 export async function findSiteAccounts(input: {
   saved: Settings;
-  /** The settings page's draft; it only narrows which connections and items are searched. */
+  /**
+   * The settings page's draft decides which connections and items are searched; it grants
+   * nothing, and a username is read only under the saved settings.
+   */
   settings: LocalSettings;
   origin: string;
   matchUris: LiveUriMatcher;
@@ -112,7 +115,12 @@ export async function findSiteAccounts(input: {
   if (input.readField)
     for (const account of accounts.values()) {
       const connection = live.connections.find((entry) => entry.id === account.connectionId);
-      if (!connection) continue;
+      const excluded = settings.connections
+        .find((entry) => entry.connectionId === account.connectionId)
+        ?.excludedFields.some(
+          (ref) => ref.itemId === account.itemId && ref.fieldId === "login.username",
+        );
+      if (!connection || excluded) continue;
       // eslint-disable-next-line no-await-in-loop
       const username = await input
         .readField({

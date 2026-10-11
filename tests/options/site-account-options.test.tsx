@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { VaultCatalog } from "../../packages/contracts/src/index";
+import { createDefaultSettings, type VaultCatalog } from "../../packages/contracts/src/index";
 import { siteAccountOptions } from "../../apps/extension/src/options/site-policy";
 
 const item = (id: string, label = "Same name") => ({
@@ -27,6 +27,8 @@ const catalog: VaultCatalog = {
     },
   ],
 };
+const draft = createDefaultSettings(catalog);
+draft.connections[0]!.enabled = true;
 const found = (accounts: { itemId: string; username?: string }[]) => ({
   version: 1 as const,
   ok: true as const,
@@ -49,6 +51,7 @@ it("labels same-named items by login username, then by an item ID prefix", () =>
       { itemId: "66666666-6666-4666-8666-666666666666" },
     ]),
     false,
+    draft,
   ).map((option) => option.label);
   expect(labels).toEqual(["Same name · alice", "Same name · bob", "Same name"]);
 
@@ -61,6 +64,7 @@ it("labels same-named items by login username, then by an item ID prefix", () =>
         { itemId: "55555555-5555-4555-8555-555555555555" },
       ]),
       true,
+      draft,
     ).map((option) => option.label),
   ).toEqual([
     "Same name · ID 44444444",
@@ -68,4 +72,24 @@ it("labels same-named items by login username, then by an item ID prefix", () =>
     "Same name · ID 66666666",
     "Other",
   ]);
+});
+
+it("lists unmatched items only when asked, after the matches, and only those the draft allows", () => {
+  const limited = structuredClone(draft);
+  limited.connections[0]!.excludedItemIds.push("66666666-6666-4666-8666-666666666666");
+  const quarantined = structuredClone(catalog);
+  quarantined.connections[0]!.quarantinedItemIds = ["44444444-4444-4444-8444-444444444444"];
+  const options = siteAccountOptions(
+    quarantined,
+    found([{ itemId: "77777777-7777-4777-8777-777777777777" }]),
+    true,
+    limited,
+  );
+  expect(options.map((option) => [option.itemId.slice(0, 8), option.uri])).toEqual([
+    ["77777777", true],
+    ["55555555", false],
+  ]);
+  const disabled = structuredClone(draft);
+  disabled.connections[0]!.enabled = false;
+  expect(siteAccountOptions(catalog, found([]), true, disabled)).toEqual([]);
 });

@@ -125,10 +125,6 @@ export async function findVaultPasskeys(input: {
   return { candidates, complete };
 }
 
-/**
- * Vault-backed passkey source. Signing happens in the crypto Worker and only while the settings
- * revision, snapshot and item eligibility that produced the candidate still hold.
- */
 /** The unlocked vault of one registered connection, if it has a live handle. */
 function vaultManagerFor(connections: Pick<ConnectionRuntime, "registry" | "vaultFor">) {
   return async (connectionId: string) => {
@@ -151,6 +147,10 @@ export function createVaultPasskeyFinder(
   };
 }
 
+/**
+ * Vault-backed passkey source. Signing happens in the crypto Worker and only while the settings
+ * revision, snapshot and item eligibility that produced the candidate still hold.
+ */
 export function createVaultPasskeySource(
   connections: Pick<ConnectionRuntime, "settings" | "registry" | "vaultFor">,
 ): PasskeySource<VaultPasskeyCandidate> {
