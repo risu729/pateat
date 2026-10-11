@@ -15,7 +15,7 @@ import { createLoginGeneration } from "../service/generation";
 import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
-import type { LoginGeneration } from "./runtime";
+import type { LoginGeneration, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 
 const fake = vi.hoisted(() => {
@@ -238,6 +238,8 @@ function harness(
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** Automatic vault sync (ADR 0025). */
     vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
+    /** Receives the runtime's reports for the local log. */
+    report?: (report: LoginReport) => void;
     /** Replaces the item's custom fields. */
     custom?: {
       name: string | null;
@@ -373,6 +375,7 @@ function harness(
     ...(live.generation ? { generation: live.generation } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
+    ...(live.report ? { report: live.report } : {}),
   });
   // By default the document reports its first step ready, as the content script does
   // once the form appears; `start: false` sends the initial announcement instead.
@@ -720,7 +723,8 @@ describe("production login document admission", () => {
     ).toEqual({ ok: false, reason: "duplicate-document" });
   });
   it("a policy change while waiting for elements stops before any intent or vault read", async () => {
-    const h = harness();
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
     fake.state.onAwait = () => {
       h.settings.revision += 1;
     };
@@ -730,8 +734,30 @@ describe("production login document admission", () => {
         { state: "blocked", outcome: "policy-changed", usedOperationIds: [] },
       ]),
     );
+    // The log names what withdrew the login.
+    expect(report.mock.calls.at(-1)![0]).toMatchObject({
+      type: "attempt",
+      state: "blocked",
+      outcome: "policy-changed",
+      cause: "settings-revision",
+    });
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
+  });
+  it("names the plan's refusal when the vault is turned off while waiting for elements", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    fake.state.onAwait = () => {
+      h.settings.settings.connections[0]!.enabled = false;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: "blocked", outcome: "policy-changed", cause: "plan" }),
+      ),
+    );
+    expect(report.mock.calls.at(-1)![0]).toMatchObject({ reason: "connection-disabled" });
+    expect(h.fields).not.toHaveBeenCalled();
   });
   it("stops before any vault read or page change when a step's elements never appear", async () => {
     fake.state.awaited = { ok: false, reason: "timeout" };
@@ -2736,12 +2762,16 @@ describe("production login document admission", () => {
       "settles a %s judgement without saving the account",
       async (verdict, expected) => {
         fake.state.extracted = { "signed-in": homePage };
-        const service = generation({ judge: async () => ({ verdict }) });
+        const service = generation({
+          judge: async () => ({ verdict, ...(verdict === "unclear" ? { reason: "timeout" } : {}) }),
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
         const h = harness(unsaved, {
           allowedOrigins: [],
           uris,
           username: true,
           generation: service,
+          report,
         });
         h.recipes.recipe.mockResolvedValue(generated);
         fake.state.present = new Set(["user", "password", "login"]);
@@ -2754,6 +2784,29 @@ describe("production login document admission", () => {
         await vi.waitFor(() => expect(status()).toMatchObject([expected]), { timeout: 6_000 });
         expect(service.judge).toHaveBeenCalledTimes(1);
         expect(h.store.update).not.toHaveBeenCalled();
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "judge" ? [value] : [])),
+        ).toEqual([
+          {
+            type: "judge",
+            tabId: 1,
+            origin,
+            recipeId: generated.id,
+            recipeRevision: generated.revision,
+            route: "password",
+            verdict: "sent",
+          },
+          {
+            type: "judge",
+            tabId: 1,
+            origin,
+            recipeId: generated.id,
+            recipeRevision: generated.revision,
+            route: "password",
+            verdict,
+            ...(verdict === "unclear" ? { reason: "timeout" } : {}),
+          },
+        ]);
       },
       10_000,
     );
@@ -3018,7 +3071,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ["cannot be asked about passkeys", undefined],
     ])("ends as a challenge without a click when the item %s", async (_label, passkeys) => {
       onClick({ login: toWebauthn, "Use security key": toHome });
-      const h = harness({}, passkeys ? { passkeys } : {});
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, passkeys ? { passkeys, report } : { report });
       h.recipes.recipe.mockResolvedValue(handled);
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
@@ -3026,6 +3080,16 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
       expect(clicks("Use security key")).toBe(0);
       expect(status()![0]).toMatchObject({ handlers: [] });
+      expect(report).toHaveBeenCalledWith({
+        type: "handler",
+        tabId: 1,
+        origin,
+        recipeId: handled.id,
+        handler: 0,
+        kind: "passkey",
+        outcome: "missing-fact",
+        steps: 1,
+      });
     });
 
     it("leaves a handler page shown again after its handler ran to the person", async () => {
@@ -3042,13 +3106,23 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         "Use passkey": toWebauthn,
       });
       const service = generation(async () => ({ verdict: "signed-in" }));
-      const h = harness({}, { passkeys: withPasskey, generation: service });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: withPasskey, generation: service, report });
       h.recipes.recipe.mockResolvedValue(twice);
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("blocked", "challenge"));
       expect(clicks("Use security key")).toBe(1);
       expect(clicks("Use passkey")).toBe(1);
       expect(service.judge).not.toHaveBeenCalled();
+      expect(
+        report.mock.calls.flatMap(([value]) =>
+          value.type === "handler" ? [[value.handler, value.outcome]] : [],
+        ),
+      ).toEqual([
+        [0, "entered"],
+        [1, "entered"],
+        [0, "shown-again"],
+      ]);
     });
 
     it("judges the page only once the clicked button is gone", async () => {
@@ -3395,6 +3469,51 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(executed()).toHaveLength(1);
     });
 
+    it("logs a handler entered mid-route only for its own steps", async () => {
+      vi.useFakeTimers();
+      const midway = parseLoginRecipe({
+        ...unlearned,
+        steps: [
+          { kind: "click", path: "/signin", target: target("continue"), purpose: "advance" },
+          {
+            kind: "fill",
+            path: "/next",
+            fields: [{ slot: "password", target: target("password") }],
+          },
+          { kind: "click", path: "/next", target: target("login"), purpose: "submit" },
+        ],
+        handlers: [{ kind: "passkey", path: "/verify", target: securityKey }],
+        maxSubmissions: 2,
+      });
+      fake.state.present = new Set(["continue"]);
+      onClick({
+        continue: { path: "/verify", present: ["Use security key"] },
+        "Use security key": { path: "/next", present: ["password", "login"] },
+        login: toHome,
+      });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const h = harness({}, { passkeys: withPasskey, generation: service, report });
+      h.recipes.recipe.mockResolvedValue(midway);
+      h.recipes.firstSteps.mockResolvedValue([midway.steps[0]!]);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(status()![0]).toMatchObject({ handlers: [{ index: 0, start: 1 }] });
+      // The route's steps after the handler's click belong to no handler.
+      expect(
+        report.mock.calls.flatMap(([value]) =>
+          value.type === "attempt" && value.state === "executing"
+            ? [[value.stepIndex, value.operation, value.handler]]
+            : [],
+        ),
+      ).toEqual([
+        [0, "click", undefined],
+        [1, "click", 0],
+        [2, "fill", undefined],
+        [3, "click", undefined],
+      ]);
+    });
+
     it("sends a page without the marker even when the recipe has a completion", async () => {
       vi.useFakeTimers();
       const learned = parseLoginRecipe({ ...unlearned, completion: home });
@@ -3445,7 +3564,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       service.judge
         .mockResolvedValueOnce({ verdict: "challenge", recipe: taken })
         .mockResolvedValueOnce({ verdict: "signed-in" });
-      const h = harness({}, { passkeys: withPasskey, generation: service });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: withPasskey, generation: service, report });
       h.recipes.recipe.mockResolvedValue(plain);
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("authenticated"));
@@ -3465,6 +3585,30 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         // The page after the handler is judged for the new revision.
         [plain.id, 2, "password", homePage.observation],
       ]);
+      // The log shows each judgement, the takeover and the handler's click, in order.
+      const reports = report.mock.calls.map(([value]) => value);
+      expect(
+        reports.flatMap((value) =>
+          value.type === "judge"
+            ? [`judge ${value.recipeRevision} ${value.verdict} ${value.takenOver ?? "-"}`]
+            : value.type === "handler"
+              ? [`handler ${value.handler} ${value.outcome}`]
+              : value.type === "attempt" && value.handler !== undefined
+                ? [`attempt ${value.state} ${value.operation ?? "-"} ${value.effect ?? "-"}`]
+                : [],
+        ),
+      ).toEqual([
+        "judge 1 sent -",
+        "judge 1 challenge true",
+        "handler 0 entered",
+        "attempt ready - -",
+        "attempt executing click submit",
+        "attempt submit-intent click submit",
+        "attempt awaiting-result click submit",
+        "judge 2 sent -",
+        "judge 2 signed-in -",
+        "attempt authenticated click submit",
+      ]);
     });
 
     it("pulls only recipes after the takeover, so a settings change does not stop the login", async () => {
@@ -3481,7 +3625,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       // The settings half of a full sync applies a synced change, as the background wires it.
       const settings = {
         run: vi.fn(async () => {
-          h!.login.settingsChanged();
+          h!.login.settingsChanged("synced");
           return "synced" as const;
         }),
         clear: vi.fn(async () => undefined),
@@ -3547,12 +3691,17 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         verdict: "challenge",
         recipe: parseLoginRecipe(next),
       }));
-      const h = harness({}, { passkeys: withPasskey, generation: service });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: withPasskey, generation: service, report });
       h.recipes.recipe.mockResolvedValue(plain);
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("blocked", "challenge"));
       expect(clicks("Use security key")).toBe(0);
       expect(status()![0]).toMatchObject({ recipeRevision: 1, handlers: [] });
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "judge", verdict: "challenge", takenOver: false }),
+      );
+      expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "handler" }));
     });
 
     it.each([
