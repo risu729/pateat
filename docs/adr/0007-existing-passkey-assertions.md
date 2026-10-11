@@ -64,8 +64,12 @@ challenge) before calling its saved `get` runs once. A call that arrives while f
 delegations with the same `mediation` are already in flight may still be claimed, but if
 Pateat does not claim it, it goes to the install-time function instead of the next
 wrapper. This stops a wrapper that rebuilds the options asynchronously after at most
-four rounds; the owner chose both rules on 2026-10-11 after such a wrapper was shown to
-loop
+four rounds. Pateat only ever sees the options such a shim received, so on a page whose
+shim converts unreadable options (for example base64 strings into buffers) Pateat never
+claims. Delegations count against the limit until the wrapper settles them, so a
+provider that never settles abandoned requests makes later unclaimed requests of that
+mediation skip it. The owner chose both rules on 2026-10-11 after such a wrapper was
+shown to loop
 ([wrapper detectability](../research/2026-10-11-passkey-wrapper-detectability.md#page-side-wrappers)).
 Other calls are handled normally, including a new modal request while a provider holds a
 conditional or unclaimed one. If a provider injected before Pateat, the install-time

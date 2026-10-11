@@ -352,6 +352,37 @@ describe("coexistence with a later passkey provider", () => {
     expect(page.nativeGet).not.toHaveBeenCalled();
   });
 
+  it("sends an unclaimed call to the browser once four delegations are held", async () => {
+    const page = fakePage(answer({ kind: "delegate" }));
+    const provider = vi.fn(() => new Promise<never>(() => {}));
+    page.container.get = provider;
+    for (let index = 1; index <= 4; index++) {
+      void page.container.get({
+        publicKey: { ...publicKey, challenge: crypto.getRandomValues(new Uint8Array(16)) },
+      });
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(index));
+    }
+    await expect(page.container.get({ publicKey })).resolves.toBe("native");
+    expect(provider).toHaveBeenCalledTimes(4);
+    // Another mediation has its own limit.
+    void page.container.get({ publicKey, mediation: "conditional" });
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(5));
+  });
+
+  it("recovers after the delegated function throws synchronously", async () => {
+    const page = fakePage(answer({ kind: "delegate" }));
+    const provider = vi.fn(() => {
+      throw new Error("synchronous");
+    });
+    page.container.get = provider;
+    await expect(page.container.get({ publicKey })).rejects.toThrow("synchronous");
+    await expect(page.container.get({ publicKey: { ...publicKey } })).rejects.toThrow(
+      "synchronous",
+    );
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(page.nativeGet).not.toHaveBeenCalled();
+  });
+
   it("ignores assigning a non-function or itself", async () => {
     const page = fakePage(answer({ kind: "delegate" }));
     const wrapper = page.container.get;
