@@ -42,7 +42,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await page.goto(`chrome-extension://${id}/diagnostics.html`);
     await expect(page.getByRole("heading", { name: "Diagnostics", exact: true })).toBeVisible();
     await expect(page.locator("#diagnostics-version")).toHaveText(
-      /^0\.1\.0 \(([0-9a-f]{7}|development), production\)$/u,
+      /^0\.1\.0 \(([0-9a-f]{7}|development)\) · production build$/u,
     );
     await expect(page.locator("#diagnostics-browser")).toHaveText(/^(Chrome|Chromium) \d+\./u);
     await expect(page.locator("#diagnostics-sdk")).toHaveText(/^0\.2\.0-main\.\d+$/u);
@@ -53,7 +53,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await expect(page.locator("#diagnostics-service")).toHaveText("not-configured");
     const report = await preview(page);
     expect(report).toMatch(
-      /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development), production, development\)\n/u,
+      /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development)\) · production build · unpacked install\n/u,
     );
     expect(report).toContain("Permissions: storage, offscreen, https://*/*");
     expect(report).toContain("Pateat service: not-configured");

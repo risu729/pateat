@@ -1,7 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "../options/button";
-import { formatReport, shortRevision, utcMinute, type BrowserInfo } from "./report";
+import {
+  formatReport,
+  installLabel,
+  shortRevision,
+  syncSignIn,
+  utcMinute,
+  type BrowserInfo,
+} from "./report";
 import type {
   DiagnosticsCheck,
   DiagnosticsResponse,
@@ -49,9 +56,11 @@ function Version({ status, browser }: { status: DiagnosticsStatus; browser: Brow
       <h2 id="version-heading">Version</h2>
       <dl>
         <Row term="Pateat" id="diagnostics-version">
-          {build.version} ({shortRevision(build.revision)}, {build.mode})
+          {build.version} ({shortRevision(build.revision)}) · {build.mode} build
         </Row>
-        <Row term="Install type">{browser.installType}</Row>
+        <Row term="Install type">
+          {installLabel(browser.installType)} ({browser.installType})
+        </Row>
         <Row term="Browser" id="diagnostics-browser">
           {browser.name} {browser.version}
         </Row>
@@ -102,7 +111,7 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
             {entry.storageError && ` (${entry.storageError})`}
           </Row>
           <Row term="Automatic unlock">{entry.autoUnlock}</Row>
-          <Row term="Sync sign-in">{entry.providerSession}</Row>
+          <Row term="Sync sign-in">{syncSignIn(entry.providerSession)}</Row>
           <Row term="Last vault sync">{time(entry.acceptedAt)}</Row>
           {entry.items && (
             <Row term="Items">

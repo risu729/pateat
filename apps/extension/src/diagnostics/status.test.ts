@@ -164,6 +164,11 @@ describe("diagnostics status", () => {
     });
     expect(status.logs).toEqual({ entries: 120, bytes: 18_000, recentErrors: 2 });
     expect(status.checks).toContainEqual({
+      id: `vault-age:${connection!.id}`,
+      level: "info",
+      detail: `${connection!.id} vault synced 25 min ago (Sync from settings only)`,
+    });
+    expect(status.checks).toContainEqual({
       id: "logs",
       level: "warn",
       detail: "2 errors logged in the last 24 h",
@@ -206,12 +211,35 @@ describe("diagnostics status", () => {
       version: "154.0.7712.45",
       installType: "normal",
     });
-    expect(report).toContain("Pateat 0.1.0 (1c42ad3, production, normal)");
+    expect(report).toContain("Pateat 0.1.0 (1c42ad3) · production build · Web Store install");
+    expect(report).toContain("· sync sign-in active ·");
     expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted sites");
     expect(report).toContain("warn clock 95 s behind the service");
     expect(report).toContain("3 items (login 2, TOTP 1, passkey 1) + 1 unsupported");
     expect(report).not.toContain("PBKDF2");
     expect(report).not.toContain("600000");
+  });
+
+  it("explains an expired sync token that the next Sync refreshes", async () => {
+    const status = await collectDiagnostics(
+      dependencies({
+        connections: {
+          status: async () => setupStatus({ providerSession: "refresh-required" }),
+          read: async () => record(),
+        },
+      }),
+    );
+    const id = status.connections[0]!.id;
+    expect(status.checks).toContainEqual({
+      id: `sync:${id}`,
+      level: "ok",
+      detail: `${id} sync sign-in kept (token refreshes at next Sync)`,
+    });
+    expect(
+      formatReport(status, { name: "Chrome", version: "156", installType: "development" }),
+    ).toMatch(
+      /^Pateat .* · unpacked install\n[\s\S]*sync sign-in kept \(token refreshes at next Sync\)/u,
+    );
   });
 
   it("checks the service only with site access and reports failures by code", async () => {
@@ -258,7 +286,7 @@ describe("diagnostics status", () => {
     expect(status.checks).toContainEqual({
       id: `sync:${id}`,
       level: "warn",
-      detail: `${id} sync sign-in reauthentication-required`,
+      detail: `${id} sync sign-in needs the password`,
     });
     expect(status.connections[0]?.items).toBeUndefined();
   });

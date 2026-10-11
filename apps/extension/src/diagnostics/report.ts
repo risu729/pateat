@@ -13,12 +13,39 @@ export function shortRevision(revision: string): string {
   return /^[0-9a-f]{40}$/u.test(revision) ? revision.slice(0, 7) : revision;
 }
 
+/** Chrome's `installType`: `development` means loaded unpacked. */
+export function installLabel(installType: string): string {
+  const labels: Record<string, string> = {
+    development: "unpacked install",
+    normal: "Web Store install",
+    admin: "policy install",
+    sideload: "sideloaded install",
+  };
+  return labels[installType] ?? `${installType} install`;
+}
+
+/** What the provider session means for the next Sync. */
+export function syncSignIn(state: DiagnosticsConnection["providerSession"]): string {
+  switch (state) {
+    case "active":
+      return "sync sign-in active";
+    case "refresh-required":
+      return "sync sign-in kept (token refreshes at next Sync)";
+    case "reauthentication-required":
+      return "sync sign-in needs the password";
+    case "none":
+      return "no sync sign-in";
+    default:
+      return "sync sign-in unreadable";
+  }
+}
+
 function connectionLine(entry: DiagnosticsConnection): string {
   const parts = [
     entry.environment,
     entry.state,
     `auto-unlock ${entry.autoUnlock}`,
-    `session ${entry.providerSession}`,
+    syncSignIn(entry.providerSession),
   ];
   if (entry.storageError) parts.push(`storage ${entry.storageError}`);
   if (entry.acceptedAt !== undefined) parts.push(`synced ${utcMinute(entry.acceptedAt)}`);
@@ -50,7 +77,7 @@ function serviceLine(service: DiagnosticsStatus["service"]): string {
 export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): string {
   const { build } = status;
   const lines = [
-    `Pateat ${build.version} (${shortRevision(build.revision)}, ${build.mode}, ${browser.installType})`,
+    `Pateat ${build.version} (${shortRevision(build.revision)}) · ${build.mode} build · ${installLabel(browser.installType)}`,
     `${browser.name} ${browser.version} · ${status.platform.os} ${status.platform.arch}`,
     `Permissions: ${[...status.permissions.permissions, ...status.permissions.origins].join(", ")}${status.permissions.otherOrigins ? ` + ${status.permissions.otherOrigins} granted sites` : ""}`,
     `Bitwarden SDK ${build.bitwardenSdk} · protocol ${build.bitwardenProtocol}`,

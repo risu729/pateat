@@ -512,7 +512,8 @@ that exact page URL and returns a value-free summary
 
 - the manifest version with the build revision (`PATEAT_REVISION` in CI, otherwise the
   checkout's `git rev-parse HEAD`), build mode, the pinned Bitwarden SDK version and the
-  Bitwarden protocol label; the page adds the Chrome version and install type;
+  Bitwarden protocol label; the page adds the Chrome version and install type
+  (`development` is shown as `unpacked install`);
 - the platform, granted API permissions, the manifest's host patterns (other granted
   origins are only counted) and the toolbar icon state;
 - per Bitwarden connection, an HMAC pseudonym of its ID (`bitwarden:5c1e9a`, keyed by a
@@ -524,9 +525,11 @@ that exact page URL and returns a value-free summary
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
   settings revision, settings hold and recipe cache size;
 - setting counts, `storage.local` usage, the log's size and debug state, and checks
-  for site access, the crypto host, each vault cache and sync sign-in, service
-  reachability, clock skew over 30 s against the service `Date` header, a recipe sync
-  older than 24 hours and errors logged in the last 24 hours.
+  for site access, the crypto host, each vault cache and sync sign-in
+  (`refresh-required` is ok: the next Sync refreshes the token), the vault copy's age
+  (info, since the vault syncs only from the settings page), service reachability,
+  clock skew over 30 s against the service `Date` header, a recipe sync older than 24
+  hours and errors logged in the last 24 hours.
 
 The worker fetches `/health` only for a paired service with site access. **Copy for bug
 report** shows the exact text before copying it; that text leaves out the unlock KDF.
