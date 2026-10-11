@@ -521,7 +521,7 @@ describe("production login document admission", () => {
         ok: true,
         data: uriMatch({
           targetOrigin: new URL(url).origin,
-          ...(url.startsWith(origin) ? {} : { candidates: [] }),
+          ...(new URL(url).origin === origin ? {} : { candidates: [] }),
         }),
       }));
       const h = harness({}, { allowedOrigins: [], uris });
@@ -538,12 +538,13 @@ describe("production login document admission", () => {
         ok: true,
         data: uriMatch({
           targetOrigin: new URL(url).origin,
-          candidates: url.startsWith(origin)
-            ? [
-                { itemId, matches: [{ uriIndex: 0, match: 0 }] },
-                { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
-              ]
-            : [{ itemId, matches: [{ uriIndex: 0, match: 0 }] }],
+          candidates:
+            new URL(url).origin === origin
+              ? [
+                  { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+                  { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+                ]
+              : [{ itemId, matches: [{ uriIndex: 0, match: 0 }] }],
         }),
       }));
       const h = harness({ siteDefaults: [] }, { allowedOrigins: [], uris });
