@@ -722,14 +722,14 @@ no check explains to be judged, which settles such attempts
 
 A login in progress holds off the writes that would stop it: saving a passkey chosen in
 the chooser as a site default, the vault replacement
-([ADR 0025](adr/0025-automatic-vault-sync.md)) and the settings sync's local write, which
-waits at most two minutes, counted from the first deferred write until a sync runs with
-no login in progress. An attempt counts until it ends or its result settles as unknown,
-also between pages and after a worker restart, and a settled one counts again only while
-the extension checks or judges one of its pages. A settled attempt stays until its tab
-closes, so counting it would use up the two minutes for every later login. A policy
-write while an attempt is settled stops it as `POLICY_CHANGED`, so its later pages are
-no longer judged ([ADR 0027](adr/0027-per-account-login-routes.md)).
+([ADR 0025](adr/0025-automatic-vault-sync.md)) and the settings sync's local write,
+which waits at most two minutes, counted from the first deferred write until a sync runs
+with no login in progress. An attempt counts until it ends or its result settles as
+unknown, also between pages and after a worker restart, and a settled one counts again
+only while the extension checks or judges one of its pages. A settled attempt stays
+until its tab closes, so counting it would use up the two minutes for every later login.
+A policy write while an attempt is settled stops it as `POLICY_CHANGED`, so its later
+pages are no longer judged ([ADR 0027](adr/0027-per-account-login-routes.md)).
 
 A completion may also list up to four `absent` elements. The executor reports
 `authenticated` only when the completion target is unique on its path and every
