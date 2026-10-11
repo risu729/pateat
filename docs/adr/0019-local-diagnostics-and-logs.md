@@ -2,7 +2,8 @@
 
 Status: accepted by the owner on 2026-10-11 and amended the same day (see
 [Amendment: server information](#amendment-server-information)). The diagnostics page,
-the logs and the Bitwarden server information are implemented.
+the logs, the Bitwarden server information, recent log lines and the Pateat service's
+record for the device are implemented.
 
 Date: 2026-10-11
 
@@ -134,5 +135,12 @@ implementation.
   `warn` for a failure, with the outcome code and, for an account mismatch, the check.
   The HTTP status the proposal mentioned is not recorded, because the Sync reply
   carries only a code.
-- Also approved and recorded with its own change: an authenticated Pateat service
-  endpoint for this device's server-side state.
+- An authenticated `GET /v1/device` returns, for the calling device only, when it was
+  paired, the owner's live recipe count and settings revision, and whether recipe
+  generation would run now, checked in the order a generation call checks it:
+  `monthly-limit` or `daily-limit` at a spend stop, `credentials-not-configured` without
+  stored Claude credentials, `issuer-unavailable` when the token issuer's configuration
+  is missing or its signing key does not import, otherwise `ok`. It returns no IDs,
+  labels, amounts or other devices, and never exchanges a Claude token. The page
+  compares the counts with the device's copy and reports a difference as information,
+  since the next sync catches up. A credential the service already rejected is not sent.

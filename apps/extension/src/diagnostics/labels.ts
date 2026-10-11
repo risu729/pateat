@@ -1,6 +1,6 @@
 // Plain-language labels shared by the diagnostics page, its checks and the copied report.
 // Each label that rewords a raw code keeps that code in parentheses.
-import type { DiagnosticsConnection } from "./wire";
+import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -58,4 +58,29 @@ export function serverLabel(server: NonNullable<DiagnosticsConnection["server"]>
     default:
       return `third-party server, compatible with Bitwarden ${server.version}`;
   }
+}
+
+type ServiceDevice = NonNullable<DiagnosticsStatus["service"]["device"]>;
+
+/** Whether the service would try recipe generation now; no request reached Claude. */
+export function generationLabel(state: Extract<ServiceDevice, { ok: true }>["generation"]): string {
+  switch (state) {
+    case "ok":
+      return "recipe generation available (ok)";
+    case "credentials-not-configured":
+      return "recipe generation off, no Claude credentials on the service (credentials-not-configured)";
+    case "issuer-unavailable":
+      return "recipe generation unavailable, the service cannot sign in to Claude (issuer-unavailable)";
+    case "monthly-limit":
+      return "recipe generation stopped for this month (monthly-limit)";
+    case "daily-limit":
+      return "recipe generation stopped for today (daily-limit)";
+  }
+}
+
+/** Why the service's own record for this device could not be read. */
+export function deviceFailureLabel(error: Extract<ServiceDevice, { ok: false }>["error"]): string {
+  return error === "rejected"
+    ? "service rejected this device (rejected)"
+    : `service record not read (${error})`;
 }
