@@ -23,10 +23,10 @@ database ID recorded in the build. The `pateat` database was bootstrapped on
 `cloudflare.config.ts`; packing and restore refuse a build whose `DB` binding has no ID,
 because cf deploy would provision a new database. Restore also checks that the
 migrations match both the manifest and the checked-out revision. Enrollment has not
-been verified against a real Access application, so the sync API cannot be released
-yet. A deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets;
-the owner pages answer 503 without them. Artifact tests reject tampering and mismatched
-provenance.
+been verified against a real Access application yet; the setup order below therefore
+sets the release credentials last. A deployment also needs the `ACCESS_TEAM_DOMAIN`
+and `ACCESS_AUD` Worker secrets; the owner pages answer 503 without them. Artifact
+tests reject tampering and mismatched provenance.
 
 ### Production settings
 
@@ -55,9 +55,11 @@ The owner decided these on 2026-10-11, following the kogane repository:
 
 `deploy-server.yml` has no enable switch: the owner decided on 2026-10-11 that every
 successful main-push CI run deploys. Until the production credentials exist, each run
-fails at its first step without changing anything. Bootstrap the Worker and its Custom
-Domain first, then set the `production` environment variables
-`CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
+fails at its first step without changing anything. Set the release credentials last:
+first bootstrap the Worker and its Custom Domain, the two Access applications and the
+Worker secrets, and verify enrollment through Access; otherwise a release would apply
+migrations and then fail to activate a missing Worker. Then set the `production`
+environment variables `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api` and
 `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret. Put
 the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner chose
 on 2026-10-11 to use this one token for both the migrations and the deployment, as in
@@ -67,7 +69,8 @@ the release limits itself to the recorded database ID. This repository does not 
 or provision them.
 
 The workflow takes the CI run that triggered it, or the `ci_run_id` of a manual
-dispatch, and fails before any change when the token or account ID is empty. It verifies
+dispatch, and fails before any change when the token is empty or the account ID is
+not a 32-character hex ID. It verifies
 the run's identity, event and conclusion, restores only its hashed artifact, rechecks
 main within a non-cancelling release lock, applies the released migrations, deploys
 through the pinned action without rebuilding, and verifies returned deployment IDs and

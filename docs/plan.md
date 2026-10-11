@@ -13,7 +13,7 @@ Implemented: WXT production shell with no site permissions, human-operated statu
 page, strict Valibot status contracts, isolated localhost-only probe build,
 health-only Worker with typed cf configuration, shared mise/hk checks, CI/CodeQL,
 and delivery of a verified main-build artifact after main CI (it fails until the
-production credentials exist).
+production credentials and deployment variables exist).
 Mise and Bun dependencies are locked; no native helper or production secrets are
 required to build or test.
 
