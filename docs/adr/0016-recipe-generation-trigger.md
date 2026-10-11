@@ -109,9 +109,12 @@ classes and email form:
 
 Two items with `00001234` and `0000123456` send the slot without `valueShape`. An item
 without a username, or with an empty one, does not count, and one whose
-`login.username` the user excluded from filling is never read. When an enabled
-connection could not answer, an item's URI rules could not be evaluated, or a username
-read fails, no shape is sent. The username itself never leaves the extension.
+`login.username` the user excluded from filling is never read. Items Pateat does not
+fill from (an excluded or quarantined item, or one awaiting custom-field review) are not
+matching items here either. When an enabled connection could not answer, an item's URI
+rules could not be evaluated, a username read fails, or a username is too long to shape
+(over 1,024 characters), no shape is sent. The username itself never leaves the
+extension.
 
 ## Consequences
 

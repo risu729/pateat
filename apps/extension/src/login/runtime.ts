@@ -1638,9 +1638,11 @@ export function createLoginRuntime(
         value = undefined;
       }
       if (value === undefined) return undefined;
-      const itemShape = value ? valueShapeOf({ source: "username", value }) : undefined;
+      if (!value) continue;
+      const itemShape = valueShapeOf({ source: "username", value });
       value = "";
-      if (!itemShape) continue;
+      // A username too long to shape cannot be compared.
+      if (!itemShape) return undefined;
       if (shape && JSON.stringify(shape) !== JSON.stringify(itemShape)) return undefined;
       shape = itemShape;
     }

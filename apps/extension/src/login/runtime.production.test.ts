@@ -2257,8 +2257,9 @@ describe("production login document admission", () => {
           })),
         }),
       });
+      const read: string[] = [];
       const sentShape = async (
-        usernames: Record<string, string | undefined>,
+        usernames: Record<string, string | Error | undefined>,
         options: { overrides?: Partial<LocalSettings>; uris?: LiveUriMatcher } = {},
       ) => {
         const service = generation();
@@ -2272,7 +2273,13 @@ describe("production login document admission", () => {
             generation: service,
           },
         );
-        h.fields.mockImplementation(async ({ account }) => usernames[account.itemId]);
+        read.length = 0;
+        h.fields.mockImplementation(async ({ account }) => {
+          read.push(account.itemId);
+          const value = usernames[account.itemId];
+          if (value instanceof Error) throw value;
+          return value;
+        });
         h.recipes.recipe.mockResolvedValue(undefined);
         h.recipes.firstSteps.mockResolvedValue([]);
         expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
@@ -2289,6 +2296,16 @@ describe("production login document admission", () => {
         undefined,
       );
       expect(await sentShape({ [itemId]: "00001234", [otherItemId]: undefined })).toBe(undefined);
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: new Error("locked") })).toBe(
+        undefined,
+      );
+      // Same length but other characters, or an email, is a different shape.
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "abcd1234" })).toBe(undefined);
+      expect(await sentShape({ [itemId]: "a@b.test", [otherItemId]: "ab.cdefg" })).toBe(undefined);
+      // A username too long to shape cannot be compared, so nothing is sent.
+      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "1".repeat(1025) })).toBe(
+        undefined,
+      );
       expect(
         await sentShape(
           { [itemId]: "00001234", [otherItemId]: "00005678" },
@@ -2319,6 +2336,7 @@ describe("production login document admission", () => {
           { overrides: excluded },
         ),
       ).toEqual(digits(8));
+      expect(read).toEqual([itemId]);
     });
 
     it("sends nothing when no vault item matches the page", async () => {
