@@ -653,8 +653,9 @@ Site recipes contain meanings such as branch-number/account-number/password. Kee
 account-specific bindings separate from recipes. They are stored in the synced settings
 document as references, never credential values, and resolved to values locally. AI
 input may name the allowed vault fields but never carries bindings, item or account IDs
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Multi-origin SSO needs an
-explicit configured transition policy.
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Signing in to a site
+through Google or Microsoft follows the policy in
+[ADR 0023](adr/0023-sign-in-through-identity-providers.md) (not implemented).
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
