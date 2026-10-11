@@ -21,10 +21,14 @@ checks have passed. At head `c24d82a`,
 [Linux CI](https://github.com/risu729/pateat/actions/runs/37969704501) passed the
 complete check graph, including all three Playwright tests for the production package,
 installed shell status, and document-start/inactive-tab identity probe;
-[CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
-downloaded Windows Chromium still fails before launch with a missing SideBySide
-assembly. The later installed-Chrome synthetic probe passed the early login gate;
-broader coexistence remains a separate M1 gate. Code Quality setup remains
+[CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. On
+2026-10-10 the downloaded Windows Chromium failed before launch with a missing
+SideBySide assembly on one local Windows host. On 2026-10-11 a clean `windows-2025`
+runner launched the Playwright-downloaded Chromium and
+[passed all 92 packaged-extension tests](https://github.com/risu729/pateat/actions/runs/38118250919/job/114407461875),
+so the failure is specific to that host, not to Windows; CI now runs these tests on
+Windows on every PR. The later installed-Chrome synthetic probe passed the early login
+gate; broader coexistence remains a separate M1 gate. Code Quality setup remains
 unavailable after language detection; see [merging](delivery.md#merging).
 
 ## Local settings progress

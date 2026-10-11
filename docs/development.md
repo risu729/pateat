@@ -102,10 +102,13 @@ runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runti
 
 ### Windows notes
 
-Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. The downloaded Windows Chromium
-does not launch packaged-extension tests (see the
-[foundation progress](plan.md#foundation-progress)); Linux CI is the runtime
-acceptance environment for them. The options component tests do run on Windows.
+Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs `mise run test:browser`
+on a GitHub-hosted Windows runner as well as on Linux, so the packaged-extension
+tests are expected to pass on Windows with the Playwright-downloaded Chromium. If
+Chromium fails before launch with a missing SideBySide assembly ("side-by-side
+configuration is incorrect"), the problem is in that host's environment, not in
+the tests (see the [foundation progress](plan.md#foundation-progress)); rely on
+CI for those runs.
 
 ### Installed Chrome synthetic login probe
 

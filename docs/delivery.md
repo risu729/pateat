@@ -7,8 +7,9 @@ are excluded. The server remains optional for the eventual local login core.
 ## Current foundation workflows
 
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on
-every PR and main push. `CI Check` requires successful verification, including
-when an upstream job failed, skipped or was cancelled. `codeql.yml` analyzes
+every PR and main push, and repeats the packaged-extension browser tests on
+Windows. `CI Check` requires both jobs to succeed, including when an upstream job
+failed, skipped or was cancelled. `codeql.yml` analyzes
 TypeScript/JavaScript and Actions separately. GitHub now detects the repository
 languages, but native Code Quality setup still reports the feature as unavailable;
 preserve its required rule rather than treating that as permanent ineligibility.
