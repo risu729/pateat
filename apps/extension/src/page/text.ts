@@ -101,13 +101,15 @@ export function isButton(element: Element): element is HTMLButtonElement | HTMLI
 
 /**
  * True for an `<a href>` that runs a script instead of following the link: a
- * `javascript:` URL (SMBC Direct's login is `<a href="javascript:;" onclick="...">`), or
+ * `javascript:` (or `data:` or `vbscript:`) URL (SMBC Direct's login is `<a href="javascript:;" onclick="...">`), or
  * an empty or fragment-only `href` on a link with an `onclick` attribute or
  * `role="button"` (MyJCB's login script sets `href="#"` on
  * `<a id="loginButtonAD" onclick="document.loginForm.submit()">`).
  */
 function scriptHref(link: HTMLAnchorElement): boolean {
-  if (link.protocol === "javascript:") return true;
+  // A `data:` or `vbscript:` link does not navigate either: Chrome blocks top-level
+  // `data:` navigations and has no `vbscript:`, so a click runs only the page's script.
+  if (["javascript:", "data:", "vbscript:"].includes(link.protocol)) return true;
   // As URL parsing does: tabs and newlines go anywhere, C0 controls and spaces at the
   // ends. A `<base href>` naming another document would make `#` navigate; that is rare.
   const href = link

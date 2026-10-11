@@ -697,7 +697,8 @@ no locator. A script button is a control only scripts make clickable: a script l
 another element with `role="button"`, but never a form control or anything inside an
 `<a href>`. A script link is an `<a>` without `href` that has an `onclick` attribute or
 `role="button"`, such as `<a id="login" onclick="document.loginForm.submit()">`, or an
-`<a href>` that runs a script instead of following the link: a `javascript:` URL, such
+`<a href>` that runs a script instead of following the link: a `javascript:` URL (or a
+`data:` or `vbscript:` one, which Chrome never follows from a page), such
 as `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or
 fragment-only `href` on a link with an `onclick` attribute or `role="button"`, such as
 `<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts
