@@ -649,7 +649,7 @@ Evidence, 2026-10-10, synthetic relying party only:
 ## AI evaluation harness progress
 
 `packages/inference` holds the first offline M4 slice. A proposed sanitized observation
-contract (`packages/contracts/src/observation.ts`, shared with the extension) carries
+contract (`packages/contracts/src/observation.ts`, for the extension extractor) carries
 bounded, value-free element roles, locators and labels; incomplete observations are
 rejected before inference. The generation/repair role uses AI SDK
 structured output and the finite-choice role uses the SDK decision contract with an
