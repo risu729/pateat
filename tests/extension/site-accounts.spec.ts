@@ -61,10 +61,39 @@ for (const [variant, matched] of [
       ]);
       await options.locator("#add-default").click();
       await expect(options.locator("#site-defaults")).toContainText(site);
-      // The saved line no longer reports a live item as an origin mismatch.
+      // The saved line shows how the item matches, and as whom, instead of a mismatch.
       await expect(options.locator("#site-defaults")).toContainText(
-        "checked against the vault's URI rules or passkeys on each login",
+        `My test login · test_username`,
       );
+      await expect(options.locator("#site-defaults")).toContainText(
+        `Matches this origin by ${matched}; checked again on each login`,
+      );
+      // The same item saved for an origin it does not match gets no username.
+      await options.locator("#default-origin").fill("https://other.example");
+      await expect(options.locator("#default-account-note")).toContainText("No vault item matches");
+      await options.locator("#default-account-all").check();
+      await options.locator("#default-account").selectOption(value);
+      await options.locator("#add-default").click();
+
+      // The matches are looked up again from the vault, never saved with the defaults.
+      await options.locator("#save-settings").click();
+      await expect(options.locator("#settings-status")).toContainText("Settings saved");
+      const stored = await settingsRequest(options);
+      expect(stored.snapshot.settings.siteDefaults).toMatchObject([
+        { origin: site },
+        { origin: "https://other.example" },
+      ]);
+      expect(JSON.stringify(stored.snapshot.settings)).not.toContain("test_username");
+      await options.reload();
+      // Both rows look up their origin at once against the one vault.
+      const row = (origin: string) =>
+        options.locator("#site-defaults li").filter({ hasText: `${origin} →` });
+      await expect(row(site)).toContainText("My test login · test_username");
+      await expect(row(site)).toContainText(`Matches this origin by ${matched}`);
+      await expect(row("https://other.example")).toContainText(
+        "No URI rule or passkey of this item matches this origin",
+      );
+      await expect(row("https://other.example")).not.toContainText("test_username");
     });
   });
 }
