@@ -132,6 +132,8 @@ describe("extractLoginObservation", () => {
         <button id="reset" type="reset">Clear</button>
         <button id="go" disabled>Log in</button></form>`,
     );
+    // The radio and file inputs are visible controls the executor cannot fill.
+    expect(observe().complete).toBe(false);
     expect(summary(observe()).map((candidate) => [candidate.target.value, candidate])).toEqual([
       [
         "user",
@@ -268,10 +270,9 @@ describe("extractLoginObservation", () => {
     expect(
       observation.candidates.map((candidate) => [candidate.target.value, candidate.group]),
     ).toEqual([
-      ["s", "f1"],
-      ["user", "f2"],
-      ["reset", "f2"],
-      ["go", "f2"],
+      ["user", "f1"],
+      ["reset", "f1"],
+      ["go", "f1"],
     ]);
   });
 
@@ -316,5 +317,158 @@ describe("extractLoginObservation", () => {
       );
       expect(found).toHaveLength(1);
     }
+  });
+
+  it("never takes label text from scripts, styles, markup, hidden text or control contents", () => {
+    page(
+      `<form id="f">
+        <div><span>ユーザーID</span><script>var token = "synthetic-script-secret";</script>
+          <style>.a{background:url(/p?token=synthetic-style)}</style>
+          <noscript><img src="https://t.example/?uid=synthetic-noscript"></noscript>
+          <div style="display:none">synthetic-hidden-div</div>
+          <svg width="4" height="4"><title>synthetic-svg-title</title></svg>
+          <input id="u"></div>
+        <span id="json-ref"></span><script id="json" type="application/json">{"user":"synthetic-json"}</script>
+        <div id="hidden-ref" hidden>synthetic-hidden-ref</div>
+        <select id="sel"><option>synthetic-option</option></select>
+        <input id="a" aria-labelledby="json hidden-ref sel">
+        <button id="go">Go <select><option>synthetic-button-option</option></select></button>
+      </form>`,
+    );
+    const result = extractLoginObservation();
+    const serialized = JSON.stringify(result);
+    for (const leaked of [
+      "synthetic-script-secret",
+      "synthetic-style",
+      "synthetic-noscript",
+      "synthetic-hidden-div",
+      "synthetic-svg-title",
+      "synthetic-json",
+      "synthetic-hidden-ref",
+      "synthetic-option",
+      "synthetic-button-option",
+    ])
+      expect(serialized).not.toContain(leaked);
+    expect(result.ok && result.observation.candidates.map((candidate) => candidate.label)).toEqual([
+      "ユーザーID",
+      undefined,
+      "Go",
+    ]);
+  });
+
+  it("redacts email addresses, masked text and long numbers", () => {
+    page(
+      `<h1>t***@gmail.com でログイン</h1>
+      <form id="f"><label for="acct">口座番号 ****1234</label><input id="acct">
+        <label for="pw">パスワード（４桁）</label><input id="pw" type="password">
+        <input id="mail" placeholder="例: someone＠example.jp">
+        <button id="go">●●●● taro@example.com 0120１２３４</button></form>`,
+      "Taro Yamada taro.yamada@example.com",
+    );
+    const observation = observe();
+    expect(observation.title).toBe("Taro Yamada [email]");
+    expect(observation.headings).toEqual(["[email] でログイン"]);
+    expect(summary(observation).map(({ label, placeholder }) => label ?? placeholder)).toEqual([
+      "口座番号 [masked][number]",
+      "パスワード（４桁）",
+      "例: [email]",
+      "[masked] [email] [number]",
+    ]);
+  });
+
+  it("refuses paths with matrix parameters and documents without a location", () => {
+    page(`<input id="u">`);
+    history.replaceState(null, "", "/login.do;jsessionid=SYNTHETIC123");
+    expect(extractLoginObservation()).toEqual({ ok: false, reason: "unsupported-page" });
+    const detached = document.implementation.createHTMLDocument();
+    expect(extractLoginObservation(detached)).toEqual({ ok: false, reason: "unsupported-page" });
+  });
+
+  it("skips hidden inputs and other controls' labels when reading adjacent text", () => {
+    page(
+      `<form id="f"><table>
+        <tr><th>ユーザーID</th><td><input type="hidden" name="csrf"><input id="u"></td></tr>
+      </table>
+      <input type="checkbox" id="c"><label for="c">保存する</label><input id="v"></form>`,
+    );
+    expect(summary(observe()).map(({ target, label }) => [target.value, label])).toEqual([
+      ["u", "ユーザーID"],
+      ["c", "保存する"],
+      ["v", undefined],
+    ]);
+  });
+
+  it("treats selects, radios, text areas and other input types in a login form as unsupported", () => {
+    for (const control of [
+      `<select id="kind"><option>個人</option></select>`,
+      `<input type="radio" id="r" name="kind">`,
+      `<textarea id="t"></textarea>`,
+      `<input type="url" id="w">`,
+      `<input type="search" id="q">`,
+      `<input type="date" id="d">`,
+    ]) {
+      page(`<form id="f"><input id="u"><input id="p" type="password">${control}</form>`);
+      expect(observe().complete, control).toBe(false);
+    }
+    // The same controls elsewhere on the page do not matter.
+    page(
+      `<form id="lang"><select id="l"><option>日本語</option></select><button>Go</button></form>
+      <form id="f"><input id="u"><input id="p" type="password"><button id="go">Log in</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "go",
+    ]);
+  });
+
+  it("ignores unlocatable controls outside the login form but not inside it", () => {
+    page(
+      `<header><button>☰</button><input type="image" src="data:," alt="検索" width="20" height="20"></header>
+      <form id="f"><input id="u"><button id="go">Log in</button></form>`,
+    );
+    expect(observe().complete).toBe(true);
+    page(
+      `<form id="f"><input id="u"><input type="checkbox"><button id="go">Log in</button></form>`,
+    );
+    expect(observe().complete).toBe(false);
+  });
+
+  it("treats every control outside a form as part of a formless login", () => {
+    page(`<input id="u"><input id="p" type="password"><button>Sign in</button>`);
+    expect(observe().complete).toBe(false);
+  });
+
+  it("groups by the form owner, including the form attribute", () => {
+    page(`<form id="f"></form><input id="u" form="f"><button id="go" form="f">Go</button>`);
+    expect(observe().candidates.map((candidate) => candidate.group)).toEqual(["f1", "f1"]);
+  });
+
+  it("keeps the first fields in document order and never lets links displace them", () => {
+    page(
+      `<form id="f">${Array.from(
+        { length: 50 },
+        (_, index) => `<a id="l${index}" href="/${index}">Link</a><input id="i${index}">`,
+      ).join("")}</form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(false);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual(
+      Array.from({ length: 48 }, (_, index) => `i${index}`),
+    );
+  });
+
+  it("skips trap inputs that are transparent, tiny, far off the page or in a closed details", () => {
+    page(
+      `<form id="f"><input id="u">
+        <input id="clear" style="opacity:0">
+        <input id="tiny" style="width:1px;height:1px;padding:0;border:0">
+        <input id="far" style="position:absolute;left:99999px">
+        <details><summary>More</summary><input id="inside"></details>
+        <button id="go">Go</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["u", "go"]);
   });
 });

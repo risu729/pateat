@@ -32,19 +32,54 @@ const fillTypes: Record<string, ObservedCandidate["role"]> = {
   number: "number",
   password: "password",
 };
-const controls = "input, select, textarea, button";
+const actionTypes = new Set(["submit", "button"]);
+const ignoredTypes = new Set(["hidden", "reset"]);
+/** Elements whose text is never page text: code, styles, raw markup and control contents. */
+const textless = new Set([
+  "SCRIPT",
+  "STYLE",
+  "NOSCRIPT",
+  "TEMPLATE",
+  "SELECT",
+  "OPTION",
+  "OPTGROUP",
+  "DATALIST",
+  "TEXTAREA",
+  "INPUT",
+  "IFRAME",
+  "OBJECT",
+  "CANVAS",
+]);
+const controls = "input:not([type='hidden']), select, textarea, button";
+const fields = "input:not([type='hidden']), select, textarea";
+const locators = [
+  ["id", "id"],
+  ["name", "name"],
+  ["test-id", "data-testid"],
+] as const;
+
+/**
+ * Text that can reveal an account or a number is replaced before it is observed
+ * (owner decision, 2026-10-11): email-like strings, including masked ones, become
+ * `[email]`; runs of three or more mask characters become `[masked]`; runs of four or
+ * more digits, ASCII or fullwidth, become `[number]`.
+ */
+const redactions: readonly (readonly [RegExp, string])[] = [
+  [/[A-Za-z0-9._%+\-*●•＊]+[@＠][A-Za-z0-9.\-*●•＊]+/gu, "[email]"],
+  [/[*●•＊]{3,}/gu, "[masked]"],
+  [/[0-9０-９]{4,}/gu, "[number]"],
+];
 
 /**
  * Normalizes untrusted page text to the observed-text contract: whitespace collapsed,
- * control/format/separator characters removed, and at most 120 UTF-16 code units
- * without splitting a surrogate pair.
+ * control/format/separator characters removed, private-looking parts redacted, and at
+ * most 120 UTF-16 code units without splitting a surrogate pair.
  */
 function observedText(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
-  let text = raw
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
+  let text = raw.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ");
+  for (const [pattern, replacement] of redactions) text = text.replace(pattern, replacement);
+  text = text.replace(/\s+/gu, " ").trim();
   if (text.length > maxText) {
     text = text.slice(0, maxText);
     if (/[\uD800-\uDBFF]$/u.test(text)) text = text.slice(0, -1);
@@ -53,43 +88,82 @@ function observedText(raw: string | null | undefined): string | undefined {
   return text || undefined;
 }
 
-function rendered(element: Element): string | undefined {
-  return observedText(element instanceof HTMLElement ? element.innerText : element.textContent);
-}
-
-/** The same visibility test the executor applies, plus off-page and hidden-subtree checks. */
-function visible(element: HTMLElement): boolean {
-  if (!element.isConnected || element.closest("[hidden], [inert], [aria-hidden='true']"))
-    return false;
-  const view = element.ownerDocument.defaultView;
-  if (!view) return false;
-  const style = view.getComputedStyle(element);
-  if (style.display === "none" || style.visibility !== "visible") return false;
-  const rect = element.getBoundingClientRect();
-  // Trap fields are often moved off the page rather than hidden.
+/** Rendered on screen: not hidden by CSS, opacity, a closed `<details>` or an attribute. */
+function shown(element: Element): element is HTMLElement {
   return (
-    rect.width > 0 &&
-    rect.height > 0 &&
-    rect.right + view.scrollX > 0 &&
-    rect.bottom + view.scrollY > 0
+    element instanceof HTMLElement &&
+    element.isConnected &&
+    !element.closest("[hidden], [inert], [aria-hidden='true']") &&
+    element.checkVisibility({
+      contentVisibilityAuto: true,
+      opacityProperty: true,
+      visibilityProperty: true,
+    })
   );
 }
 
+/** A candidate the user could see. Trap inputs are usually tiny or moved off the page. */
+function visible(element: HTMLElement): boolean {
+  if (!shown(element)) return false;
+  const view = element.ownerDocument.defaultView;
+  if (!view) return false;
+  const rect = element.getBoundingClientRect();
+  // Login pages do not scroll sideways, so anything outside the viewport's width is a trap.
+  const left = rect.left + view.scrollX;
+  return (
+    rect.width >= 2 &&
+    rect.height >= 2 &&
+    rect.right + view.scrollX > 0 &&
+    rect.bottom + view.scrollY > 0 &&
+    left < view.innerWidth
+  );
+}
+
+/**
+ * The rendered text inside an element, read from text nodes of shown elements only.
+ * Scripts, styles, raw markup, SVG and form-control contents never contribute.
+ */
+function visibleText(root: Element): string | undefined {
+  if (!shown(root) || textless.has(root.tagName)) return undefined;
+  const walker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (node) =>
+        node instanceof Text
+          ? NodeFilter.FILTER_ACCEPT
+          : node instanceof Element && !textless.has(node.tagName) && shown(node)
+            ? NodeFilter.FILTER_SKIP
+            : NodeFilter.FILTER_REJECT,
+    },
+  );
+  let text = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) text += node.nodeValue ?? "";
+  return observedText(text);
+}
+
+type LocatorIndex = Map<string, Map<string, number>>;
+
+/** Counts every locator value once, as the executor's whole-document lookup sees them. */
+function locatorIndex(document: Document): LocatorIndex {
+  const index: LocatorIndex = new Map(locators.map(([, attribute]) => [attribute, new Map()]));
+  for (const element of document.querySelectorAll("[id], [name], [data-testid]"))
+    for (const [, attribute] of locators) {
+      const value = element.getAttribute(attribute);
+      if (value === null) continue;
+      const counts = index.get(attribute)!;
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+  return index;
+}
+
 /** Mirrors the executor's lookup: an attribute value must match exactly one element. */
-function locate(element: Element): LoginTarget | undefined {
-  for (const [by, attribute] of [
-    ["id", "id"],
-    ["name", "name"],
-    ["test-id", "data-testid"],
-  ] as const) {
+function locate(element: Element, index: LocatorIndex): LoginTarget | undefined {
+  for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
-    if (value === null) continue;
+    if (value === null || index.get(attribute)!.get(value) !== 1) continue;
     const target = { by, value };
-    if (!v.is(loginTargetSchema, target)) continue;
-    const matches = [...element.ownerDocument.querySelectorAll(`[${attribute}]`)].filter(
-      (other) => other.getAttribute(attribute) === value,
-    );
-    if (matches.length === 1) return target;
+    if (v.is(loginTargetSchema, target)) return target;
   }
   return undefined;
 }
@@ -98,22 +172,37 @@ function referencedText(element: Element): string | undefined {
   const ids = element.getAttribute("aria-labelledby")?.split(/\s+/u).filter(Boolean) ?? [];
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
-    const text = referenced && rendered(referenced);
+    const text = referenced && visibleText(referenced);
     return text ? [text] : [];
   });
   return observedText(parts.join(" "));
 }
 
-/** Text of a nearby element that labels a control by layout, as table and form rows do. */
+/** True for an element that belongs to another control: a control or its `<label for>`. */
+function otherControl(node: Element, element: Element): boolean {
+  const labelsOther = (label: Element) =>
+    label instanceof HTMLLabelElement && label.htmlFor !== "" && label.control !== element;
+  return (
+    node.matches(controls) ||
+    labelsOther(node) ||
+    node.querySelector(controls) !== null ||
+    [...node.querySelectorAll("label[for]")].some(labelsOther)
+  );
+}
+
+/**
+ * Text of a nearby element that labels a field by layout, as table and form rows do:
+ * the nearest preceding sibling with rendered text, at most three levels up, never
+ * across another control's area or out of the field's form.
+ */
 function adjacentText(element: Element): string | undefined {
   let node: Element | null = element;
   for (let depth = 0; node && depth <= labelDepth; depth += 1) {
-    // Stop before a container that also holds another control's area.
-    if (depth > 0 && node.querySelectorAll("input, select, textarea").length > 1) return undefined;
+    if (depth > 0 && node.querySelectorAll(fields).length > 1) return undefined;
     if (node instanceof HTMLFormElement || node === node.ownerDocument.body) return undefined;
     for (let sibling = node.previousElementSibling; sibling;) {
-      if (sibling.matches(controls) || sibling.querySelector(controls)) return undefined;
-      const text = rendered(sibling);
+      if (otherControl(sibling, element)) return undefined;
+      const text = visibleText(sibling);
       if (text) return text;
       sibling = sibling.previousElementSibling;
     }
@@ -124,7 +213,7 @@ function adjacentText(element: Element): string | undefined {
 
 function fieldLabel(input: HTMLInputElement): string | undefined {
   const labels = [...(input.labels ?? [])].flatMap((label) => {
-    const text = rendered(label);
+    const text = visibleText(label);
     return text ? [text] : [];
   });
   return (
@@ -137,13 +226,13 @@ function fieldLabel(input: HTMLInputElement): string | undefined {
 }
 
 function actionLabel(element: HTMLElement): string | undefined {
-  const images = [...element.querySelectorAll("img[alt]")].map((image) =>
-    image.getAttribute("alt"),
+  const images = [...element.querySelectorAll("img[alt]")].flatMap((image) =>
+    shown(image) ? [image.getAttribute("alt")] : [],
   );
   return (
     referencedText(element) ??
     observedText(element.getAttribute("aria-label")) ??
-    (element instanceof HTMLInputElement ? observedText(element.value) : rendered(element)) ??
+    (element instanceof HTMLInputElement ? observedText(element.value) : visibleText(element)) ??
     observedText(images.join(" ")) ??
     observedText(element.title)
   );
@@ -171,74 +260,84 @@ function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
   return { ...lengths, ...(inputMode ? { inputMode } : {}) };
 }
 
-type Draft = Omit<ObservedCandidate, "id" | "target" | "group"> & {
-  element: HTMLElement;
-  form: HTMLFormElement | null;
-};
+type Draft = Omit<ObservedCandidate, "id" | "target" | "group"> & { element: HTMLElement };
+type Found =
+  | { kind: "candidate"; form: HTMLFormElement | null; draft: Draft }
+  /** A visible control the executor cannot act on, such as a select or an image button. */
+  | { kind: "unsupported"; form: HTMLFormElement | null };
 
-/** Classifies one element; `unsupported` is a visible control the executor cannot act on. */
-function describe(element: Element): Draft | "unsupported" | undefined {
+function describe(element: Element): Found | undefined {
+  if (!(element instanceof HTMLElement) || !visible(element)) return undefined;
   if (element instanceof HTMLInputElement) {
     const type = element.type;
-    if (type === "hidden" || !visible(element)) return undefined;
+    if (ignoredTypes.has(type) || element.disabled) return undefined;
     const fillRole = fillTypes[type];
     if (fillRole) {
-      if (element.disabled || element.readOnly) return undefined;
+      if (element.readOnly) return undefined;
       const label = fieldLabel(element);
       const placeholder = observedText(element.placeholder);
       const hint = autocomplete(element);
       return {
-        element,
+        kind: "candidate",
         form: element.form,
-        role: fillRole,
-        ...(label ? { label } : {}),
-        ...(placeholder ? { placeholder } : {}),
-        ...(hint ? { autocomplete: hint } : {}),
-        ...constraints(element, fillRole),
+        draft: {
+          element,
+          role: fillRole,
+          ...(label ? { label } : {}),
+          ...(placeholder ? { placeholder } : {}),
+          ...(hint ? { autocomplete: hint } : {}),
+          ...constraints(element, fillRole),
+        },
       };
     }
-    if (type === "checkbox" || type === "submit" || type === "button") {
+    if (type === "checkbox" || actionTypes.has(type)) {
       const label = type === "checkbox" ? fieldLabel(element) : actionLabel(element);
       return {
-        element,
+        kind: "candidate",
         form: element.form,
-        role: type === "checkbox" ? "checkbox" : "button",
-        ...(label ? { label } : {}),
+        draft: {
+          element,
+          role: type === "checkbox" ? "checkbox" : "button",
+          ...(label ? { label } : {}),
+        },
       };
     }
-    // Image buttons are common on Japanese bank pages but the executor cannot click them yet.
-    if (type === "image") return "unsupported";
-    return undefined;
+    // Image buttons, radio groups and other input types have no executor support yet.
+    return { kind: "unsupported", form: element.form };
   }
+  if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)
+    return element.disabled ? undefined : { kind: "unsupported", form: element.form };
   if (element instanceof HTMLButtonElement) {
-    if (element.type === "reset" || !visible(element)) return undefined;
+    if (element.type === "reset") return undefined;
     const label = actionLabel(element);
     // A disabled button often enables once fields are filled, so it stays a candidate.
-    return { element, form: element.form, role: "button", ...(label ? { label } : {}) };
+    return {
+      kind: "candidate",
+      form: element.form,
+      draft: { element, role: "button", ...(label ? { label } : {}) },
+    };
   }
   if (element instanceof HTMLAnchorElement && element.hasAttribute("href")) {
-    if (!visible(element)) return undefined;
     const label = actionLabel(element);
     return {
-      element,
+      kind: "candidate",
       form: element.closest("form"),
-      role: "link",
-      ...(label ? { label } : {}),
+      draft: { element, role: "link", ...(label ? { label } : {}) },
     };
   }
   return undefined;
 }
 
-/** True when an open shadow root holds an input the executor's document lookup cannot reach. */
-function shadowInputs(root: Document | ShadowRoot): boolean {
+/** True when an open shadow root holds a control the executor's document lookup cannot reach. */
+function shadowControls(root: Document | ShadowRoot): boolean {
   for (const host of root.querySelectorAll("*")) {
     const shadow = host.shadowRoot;
     if (!shadow) continue;
     if (
-      [...shadow.querySelectorAll("input, button")].some(
+      [...shadow.querySelectorAll(controls)].some(
         (element) => element instanceof HTMLElement && visible(element),
       ) ||
-      shadowInputs(shadow)
+      shadowControls(shadow)
     )
       return true;
   }
@@ -257,82 +356,85 @@ function language(texts: readonly string[]): LoginObservation["language"] {
 }
 
 /**
- * Builds the value-free observation of a top-level page that recipe
- * generation receives. It reads element types, locators, labels, placeholders and
- * declared input constraints; never input values, hidden inputs, query strings or
- * page body text.
+ * Builds the value-free observation of a top-level page that recipe generation
+ * receives. It reads element types, locators, labels, placeholders and declared input
+ * constraints, plus the title and visible headings; never input values, hidden inputs,
+ * query strings, scripts or markup. Label text comes from label elements, ARIA, or the
+ * rendered text next to a field, with private-looking parts redacted.
  *
- * Links matter only as context, so only links inside a form that holds a field are
- * kept, after every field and button. When a field or button cannot be located or
- * acted on, or the candidates exceed the contract limit, the observation is marked
- * incomplete and inference rejects it.
+ * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
+ * links (or, for fields outside any form, every control outside a form). A field or
+ * button there that cannot be located, a control the executor cannot act on, a
+ * control in a shadow root, or more than 48 candidates marks the observation
+ * incomplete, and inference rejects it. A page without a field is refused.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
 ): ObservationResult {
-  const { origin, pathname } = document.location;
+  const location = document.location;
+  // Matrix parameters such as `;jsessionid=` carry session tokens in the path.
+  if (!location || location.pathname.includes(";"))
+    return { ok: false, reason: "unsupported-page" };
 
-  let complete = !shadowInputs(document);
-  const primary: Draft[] = [];
-  const links: Draft[] = [];
-  for (const element of document.querySelectorAll("input, button, a[href]")) {
-    const draft = describe(element);
-    if (draft === undefined) continue;
-    if (draft === "unsupported") {
-      complete = false;
-      continue;
-    }
-    (draft.role === "link" ? links : primary).push(draft);
+  const found = [...document.querySelectorAll("input, select, textarea, button, a[href]")]
+    .map(describe)
+    .filter((entry) => entry !== undefined);
+  const fieldForms = new Set(
+    found.flatMap((entry) =>
+      entry.kind === "candidate" && fillTypes[entry.draft.role] ? [entry.form] : [],
+    ),
+  );
+  if (fieldForms.size === 0) return { ok: false, reason: "no-candidates" };
+
+  let complete = !shadowControls(document);
+  const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
+  const links: { form: HTMLFormElement | null; draft: Draft }[] = [];
+  for (const entry of found) {
+    if (!fieldForms.has(entry.form)) continue;
+    if (entry.kind === "unsupported") complete = false;
+    else if (entry.draft.role === "link") {
+      if (entry.form) links.push(entry);
+    } else required.push(entry);
   }
 
-  const located = (drafts: Draft[], required: boolean) =>
-    drafts.flatMap((draft) => {
-      const target = locate(draft.element);
-      if (!target && required) complete = false;
-      return target ? [{ draft, target }] : [];
+  const index = locatorIndex(document);
+  const located = (entries: typeof required) =>
+    entries.flatMap((entry) => {
+      const target = locate(entry.draft.element, index);
+      return target ? [{ ...entry, target }] : [];
     });
-  const fields = located(primary, true);
-  if (fields.length > maxCandidates) complete = false;
-  const fieldForms = new Set(
-    fields
-      .filter(({ draft }) => draft.role !== "button" && draft.role !== "checkbox")
-      .map(({ draft }) => draft.form),
+  const kept = located(required);
+  if (kept.length < required.length || kept.length > maxCandidates) complete = false;
+  const chosen = [
+    ...kept.slice(0, maxCandidates),
+    ...located(links).slice(0, Math.max(0, maxCandidates - kept.length)),
+  ].sort((left, right) =>
+    left.draft.element.compareDocumentPosition(right.draft.element) &
+    Node.DOCUMENT_POSITION_FOLLOWING
+      ? -1
+      : 1,
   );
-  const contextLinks = located(
-    links.filter((draft) => draft.form && fieldForms.has(draft.form)),
-    false,
-  );
-  const chosen = [...fields, ...contextLinks]
-    .slice(0, maxCandidates)
-    .sort((left, right) =>
-      left.draft.element.compareDocumentPosition(right.draft.element) &
-      Node.DOCUMENT_POSITION_FOLLOWING
-        ? -1
-        : 1,
-    );
 
   const groups = new Map<HTMLFormElement, string>();
-  const candidates = chosen.map(({ draft: { element: _element, form, ...rest }, target }, index) => {
+  const candidates = chosen.map(({ form, draft: { element: _element, ...rest }, target }, at) => {
     if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
     return {
-      id: `c${index + 1}`,
+      id: `c${at + 1}`,
       ...rest,
       target,
       ...(form ? { group: groups.get(form)! } : {}),
     } satisfies ObservedCandidate;
   });
-  if (candidates.length === 0) return { ok: false, reason: "no-candidates" };
 
   const title = observedText(document.title);
   const headings = [
     ...new Set(
-      [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) =>
-        heading instanceof HTMLElement && visible(heading) ? [rendered(heading) ?? ""] : [],
-      ),
+      [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) => {
+        const text = visibleText(heading);
+        return text ? [text] : [];
+      }),
     ),
-  ]
-    .filter(Boolean)
-    .slice(0, maxHeadings);
+  ].slice(0, maxHeadings);
   const texts = [
     title ?? "",
     ...headings,
@@ -340,8 +442,8 @@ export function extractLoginObservation(
   ];
   const parsed = v.safeParse(loginObservationSchema, {
     version: 1,
-    origin,
-    path: pathname,
+    origin: location.origin,
+    path: location.pathname,
     language: language(texts),
     ...(title ? { title } : {}),
     ...(headings.length ? { headings } : {}),

@@ -464,7 +464,12 @@ see [AI evaluation harness progress](plan.md#ai-evaluation-harness-progress).
 Exclude values, hidden inputs,
 raw HTML, screenshots, query strings, and unrelated page text by default. Labels
 can contain private data too: sanitize and bound them, with privacy fixtures and
-an abstention path when a useful safe observation cannot be constructed. Model
+an abstention path when a useful safe observation cannot be constructed. The owner
+chose on 2026-10-11 to redact observed text before it is sent: email-like strings,
+including masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊`
+become `[masked]`; and runs of four or more ASCII or fullwidth digits become
+`[number]` (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be
+detected and stay. Model
 output must pass structural and semantic checks on the server and again locally.
 Screenshot, audio and video collection are deferred. A provider's multimodal
 support does not enable these inputs without a separate privacy/evaluation gate.
