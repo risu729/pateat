@@ -51,7 +51,7 @@ compatibility claim or an alternative cloud-browser implementation.
 | Isolated content script | Extract sanitized form structure, validate document identity, execute fixed DOM operations | Only the specific values being filled, briefly                  |
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
 | Settings page           | Vault connection, re-authentication, unlock and service pairing                            | Deliberate user setup only; no auto-opening during login        |
-| Toolbar popup           | Current site's default account and exclusion; choosing among several matches (ADR 0020) | No vault values; opened only by the user                         |
+| Toolbar popup           | Current site's default account and exclusion; choosing among several matches (ADR 0020) | Item names and login usernames only; opened only by the user    |
 | Passkey chooser window  | Choosing among several passkeys for one pending request (ADR 0020)                       | Item names and passkey user names only                           |
 | Worker API + D1         | Settings, recipes and account bindings, owner web UI, device authorization, inference, request log | Service credentials only; no vault values or keys               |
 | AI provider             | Match observed elements and propose declarative steps                                      | No vault values, account bindings, cookies, or assertions       |
