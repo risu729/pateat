@@ -1,5 +1,6 @@
 import {
   genericSlotIdSchema,
+  recipeSlots,
   slotsForPage,
   syncRecipeIdSchema,
   vaultFieldReferenceSchema,
@@ -275,7 +276,7 @@ export function createLoginGeneration(options: {
           },
           // A continuation answers with only its own page's slots (ADR 0027).
           request.base?.recipeId === change.recipeId && change.revision > 1
-            ? change.recipe.slots
+            ? recipeSlots(change.recipe)
             : undefined,
         );
       await sync().catch(() => undefined);

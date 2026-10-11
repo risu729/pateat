@@ -2,7 +2,7 @@ import { APICallError } from "ai";
 import { describe, expect, it } from "vitest";
 import { evaluationCorpus } from "./corpus/cases";
 import { evaluateRole } from "./evaluate";
-import { createRecipeGenerator } from "./generation";
+import { createRecipeGenerator, generationInstructions } from "./generation";
 import {
   generationRequest,
   oracleGenerator,
@@ -214,6 +214,68 @@ describe("recipe generation role", () => {
     );
   });
 
+  it("returns the other identifier sets a page shows as validated alternatives", async () => {
+    const twoSets = evaluationCorpus.find((entry) => entry.id === "ja-bank-two-identifier-sets")!;
+    const twoRequest = { observation: twoSets.observation, slots: twoSets.slots };
+    const answer = (alternative: Record<string, unknown>) => {
+      const model = textModel(async () =>
+        textResult(
+          JSON.stringify({
+            result: {
+              decision: "plan",
+              fields: [
+                { slot: "custom-1", candidate: "branch", name: "branch-number" },
+                { slot: "custom-2", candidate: "account", name: "account-number" },
+                { slot: "password", candidate: "pin" },
+              ],
+              action: { candidate: "login", purpose: "submit" },
+              alternatives: [alternative],
+            },
+          }),
+        ),
+      );
+      return createRecipeGenerator({ model, limits, maxOutputTokens: 512 })(twoRequest);
+    };
+    const byContract = {
+      fields: [
+        { slot: "custom-3", candidate: "contract", name: "contract-number" },
+        { slot: "password", candidate: "pin" },
+      ],
+      action: { candidate: "login", purpose: "submit" },
+    };
+    const outcome = await answer(byContract);
+    if (outcome.status !== "ok") throw new Error("expected a plan");
+    expect(outcome.value.alternatives?.map((entry) => entry.steps)).toEqual([
+      [
+        {
+          kind: "fill",
+          path: "/login",
+          effect: "prepare",
+          fields: [
+            { slot: "contract-number", target: { by: "id", value: "contract" } },
+            { slot: "password", target: { by: "id", value: "pin" } },
+          ],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "login" }, purpose: "submit" },
+      ],
+    ]);
+    // An alternative that fails a check refuses the whole plan.
+    expect(
+      await answer({ ...byContract, action: { candidate: "login", purpose: "advance" } }),
+    ).toMatchObject({ status: "failed", error: "invalid-output", detail: "variant-advance" });
+    expect(
+      await answer({
+        ...byContract,
+        fields: [{ slot: "custom-3", candidate: "first-time", name: "contract-number" }],
+      }),
+    ).toMatchObject({ status: "failed", error: "invalid-output", detail: "incompatible-role" });
+  });
+
+  it("asks for alternatives only for identifier sets the page shows now", () => {
+    expect(generationInstructions).toContain("alternatives");
+    expect(generationInstructions).toContain("never a sign-up, recovery, registration or");
+  });
+
   it.each([
     ["malformed JSON", '{"result":', undefined, "invalid-output"],
     [
@@ -225,6 +287,22 @@ describe("recipe generation role", () => {
     [
       "extra properties",
       JSON.stringify({ result: { decision: "abstain", reason: "ambiguous", note: "x" } }),
+      undefined,
+      "invalid-output",
+    ],
+    [
+      "four alternatives",
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "password", candidate: "password" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+          alternatives: Array.from({ length: 4 }, () => ({
+            fields: [{ slot: "email", candidate: "email" }],
+            action: { candidate: "sign-in", purpose: "submit" },
+          })),
+        },
+      }),
       undefined,
       "invalid-output",
     ],

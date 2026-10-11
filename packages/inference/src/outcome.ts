@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import type { PlanRejection } from "./plan";
+import type { GeneratedPageRejection } from "./plan";
 
 /** Token usage for one role invocation. `null` means the provider did not report it: unknown, not free. */
 export type InferenceUsage = {
@@ -41,7 +41,7 @@ export type InferenceOutcome<T> = { calls: number; usage: InferenceUsage } & (
   | {
       status: "failed";
       error: InferenceErrorCode;
-      detail?: PlanRejection;
+      detail?: GeneratedPageRejection;
       /** For `refused`: the provider's refusal category code when it reports one. */
       refusalCategory?: string;
     }

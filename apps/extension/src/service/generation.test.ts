@@ -673,6 +673,46 @@ describe("generated slot maps (ADR 0027)", () => {
     expect((h.stored() as { maps: unknown[] }).maps).toHaveLength(2);
   });
 
+  it("keeps the slots of every password variant of the recipe it answers (ADR 0027)", async () => {
+    const varied = {
+      ...continued,
+      recipe: {
+        ...recipeChange.recipe,
+        revision: 2,
+        alternatives: [
+          {
+            slots: ["branch-number", "pin-code"],
+            steps: [
+              {
+                kind: "fill" as const,
+                path: "/login",
+                effect: "prepare" as const,
+                fields: [
+                  { slot: "branch-number", target: { by: "id" as const, value: "branch" } },
+                  { slot: "pin-code", target: { by: "id" as const, value: "pin" } },
+                ],
+              },
+              {
+                kind: "click" as const,
+                path: "/login",
+                target: { by: "id" as const, value: "login" },
+                purpose: "submit" as const,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const h = slotSetup({
+      stored: { version: 1, maps: [ownMap(recipeId, [mapped[0]!])] },
+      customSlots: [customSlots[1]!],
+      change: varied,
+    });
+    expect(await h.generation.generate(continuation)).toBe("recipe");
+    // The branch slot belongs to an alternative, not to the recipe's own slots.
+    expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
+  });
+
   it("keeps only the continued recipe's slots and no other device's map", async () => {
     const h = slotSetup({
       stored: {

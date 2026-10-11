@@ -96,6 +96,8 @@ export const LOG_EVENTS = {
     fields: {
       origin: "origin",
       recipe: "recipe",
+      route: "code",
+      variant: "count",
       state: "code",
       step: "count",
       steps: "count",
@@ -118,7 +120,10 @@ export const LOG_EVENTS = {
       steps: "count",
     },
   },
-  "login.refused": { level: "info", fields: { origin: "origin", reason: "code" } },
+  "login.refused": {
+    level: "info",
+    fields: { origin: "origin", reason: "code", detail: "code" },
+  },
   "recipe.generate": { level: "info", fields: { origin: "origin", outcome: "code" } },
   "recipe.judge": {
     level: "info",

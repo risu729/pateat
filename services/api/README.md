@@ -188,14 +188,21 @@ a code, or `unavailable` with a reason when no model was called.
   steps store instead of the request's slot ID. The answer that wrote the recipe adds
   `customSlots: [{ slot, offered }]` for those slots; an answer with a recipe another
   request stored has none. On a continuation, a generic ID the `base` recipe already
-  uses answers `failed` with `recipe-invalid`.
-- `POST /v1/recipes/:recipeId/completion` takes `{ version: 1, revision, route,
-  observation }` for a page an effect step of that revision led to, on the recipe's
-  origin
+  uses answers `failed` with `recipe-invalid`. A start page that offers several
+  identifier sets (such as branch and account numbers, or a contract number) may get up
+  to 3 `alternatives`, each with its own `slots` and `steps`, stored as further variants
+  of the recipe's `password` route; the top-level `slots` and `steps` are its first
+  variant. Each variant fills exactly its slots on the start path and submits, so a
+  recipe with alternatives is never continued. `customSlots` covers the custom slots of
+  every variant, and the request log records the alternatives with the plan.
+- `POST /v1/recipes/:recipeId/completion` takes
+  `{ version: 1, revision, route, observation }` for a page an effect step of that
+  revision led to, on the recipe's origin
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Another revision, or a
-  route the stored recipe lacks, answers `recipe-conflict`. A page that shows one of the
-  route's fill fields (on any path) or the completion marker answers `not-judgeable`
-  before any model call. The login paths are the route's step paths and the recipe's
+  route the stored recipe lacks, answers `recipe-conflict`. The request never names a
+  `password` variant. A page that shows one of the route's fill fields, of any variant
+  (on any path), or the completion marker answers `not-judgeable` before any model call.
+  The login paths are the step paths of every variant of the route and the recipe's
   handler paths, from the stored recipe. A `signed-in` marker passes `addCompletion` and
   is stored as `completion` in the next revision; with a completion already stored, the
   answer is `signed-in` without a change. A `challenge` verdict that names a

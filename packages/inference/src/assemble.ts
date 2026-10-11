@@ -2,6 +2,8 @@ import {
   extendsRecipe,
   loginRecipeSchema,
   loginStepEffect,
+  passwordVariants,
+  routeFillTargets,
   sameLoginTarget as sameTarget,
   type LoginObservation,
   type LoginRecipe,
@@ -52,9 +54,12 @@ const filledSlots = (steps: readonly LoginStep[]) =>
 /**
  * Starts a recipe from the first page's steps, or appends a later page's steps to a
  * recipe whose last step advances. Slots are the ones the steps fill, so a binding
- * never has to cover a slot the recipe does not use. The revision is the next one; the
- * caller stores it with a conditional write. The recipe keeps the first account switch a
- * page names that is not also one of its click targets.
+ * never has to cover a slot the recipe does not use. A first page may also bring
+ * `alternatives`, the steps of its other identifier sets, which become the password
+ * route's other variants (ADR 0027); a continuation needs a single-variant recipe and
+ * page. The revision is the next one; the caller stores it with a conditional write. The
+ * recipe keeps the first account switch a page names that is not also one of its click
+ * targets.
  */
 export function appendPageSteps(
   base: LoginRecipe | undefined,
@@ -62,21 +67,29 @@ export function appendPageSteps(
     id: string;
     origin: string;
     steps: readonly LoginStep[];
+    alternatives?: readonly (readonly LoginStep[])[];
     accountSwitch?: LoginTarget;
   },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: AssemblyRejection } {
+  const alternatives = page.alternatives ?? [];
   if (base) {
     if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
     if (base.completion) return { ok: false, reason: "already-complete" };
     const last = base.steps.at(-1);
-    if (!last || loginStepEffect(last) !== "advance") return { ok: false, reason: "not-advancing" };
+    if (base.alternatives || !last || loginStepEffect(last) !== "advance")
+      return { ok: false, reason: "not-advancing" };
+    // Variants all start on the start page, so a later page never brings its own.
+    if (alternatives.length) return { ok: false, reason: "invalid-recipe" };
   }
   const steps = [...(base?.steps ?? []), ...page.steps];
+  const variants = [steps, ...alternatives];
   const { accountSwitch: kept, ...rest } = base ?? {};
   const accountSwitch = [kept, page.accountSwitch].find(
     (target) =>
       target !== undefined &&
-      !steps.some((step) => step.kind === "click" && sameTarget(step.target, target)),
+      !variants.some((variant) =>
+        variant.some((step) => step.kind === "click" && sameTarget(step.target, target)),
+      ),
   );
   const recipe = v.safeParse(loginRecipeSchema, {
     ...rest,
@@ -87,7 +100,15 @@ export function appendPageSteps(
     origin: page.origin,
     slots: [...new Set(filledSlots(steps))],
     steps,
-    maxSubmissions: Math.max(1, effects(steps)),
+    ...(alternatives.length
+      ? {
+          alternatives: alternatives.map((variant) => ({
+            slots: [...new Set(filledSlots(variant))],
+            steps: [...variant],
+          })),
+        }
+      : {}),
+    maxSubmissions: Math.max(1, ...variants.map(effects)),
   });
   return recipe.success
     ? { ok: true, recipe: recipe.output }
@@ -112,24 +133,26 @@ export function addCompletion(
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };
-  const used = base.steps.filter((step) => step.path === page.path).flatMap(stepTargets);
+  // Every variant's steps count, whichever one the judged login ran (ADR 0027).
+  const steps = passwordVariants(base).flatMap((variant) => variant.steps);
+  const used = steps.filter((step) => step.path === page.path).flatMap(stepTargets);
   if ([...used, ...handlerTargets(base, page.path)].some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
   // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not.
-  const fields = base.steps.flatMap((step) =>
-    step.kind === "fill" ? step.fields.map((field) => field.target) : [],
-  );
-  const loginElements = [...used, ...fields];
+  const loginElements = [...used, ...routeFillTargets(base, "password")];
   if (
     page.candidates.some((candidate) =>
       loginElements.some((element) => sameTarget(element, candidate.target)),
     )
   )
     return { ok: false, reason: "login-page" };
-  const absent = base.steps
+  const absent = steps
     .filter((step) => step.path === page.path && step.kind === "fill")
     .flatMap(stepTargets)
     .filter((field, index, all) => all.findIndex((other) => sameTarget(other, field)) === index);
+  // A completion lists at most 4 absent elements; with more, nothing is learned rather than
+  // a completion that a sign-in page could satisfy.
+  if (absent.length > 4) return { ok: false, reason: "invalid-recipe" };
   const recipe = v.safeParse(loginRecipeSchema, {
     ...base,
     revision: base.revision + 1,
@@ -193,7 +216,10 @@ export function addHandler(
   )
     return { ok: false, reason: "registration" };
   const used = [
-    ...base.steps.filter((step) => step.path === page.path).flatMap(stepTargets),
+    ...passwordVariants(base)
+      .flatMap((variant) => variant.steps)
+      .filter((step) => step.path === page.path)
+      .flatMap(stepTargets),
     ...(base.accountSwitch ? [base.accountSwitch] : []),
     ...(base.rejection ? [base.rejection] : []),
     ...(base.completion ? [base.completion.target] : []),

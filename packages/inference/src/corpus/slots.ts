@@ -19,6 +19,11 @@ export const slots = {
     kind: "identifier",
     description: customFieldSlotDescriptions.identifier,
   },
+  contract: {
+    id: "custom-3",
+    kind: "identifier",
+    description: customFieldSlotDescriptions.identifier,
+  },
   code: { id: "one-time-code", kind: "one-time-code", description: "one-time authentication code" },
 } as const satisfies Record<string, SemanticSlot>;
 
@@ -26,4 +31,5 @@ export const slots = {
 export const customSlotNames: Readonly<Record<string, string>> = {
   "custom-1": "branch-number",
   "custom-2": "account-number",
+  "custom-3": "contract-number",
 };

@@ -635,6 +635,8 @@ describe("unhandled errors", () => {
     log.login({
       type: "attempt",
       ...page,
+      route: "password",
+      variant: 1,
       state: "blocked",
       stepIndex: 2,
       stepCount: 3,
@@ -644,7 +646,15 @@ describe("unhandled errors", () => {
       outcome: "policy-changed",
       cause: "settings-synced",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(8));
+    // A recipe with several password variants names its first variant's refusal (ADR 0027).
+    log.login({
+      type: "refused",
+      tabId: 3,
+      origin: recipeOrigin,
+      reason: "no-route",
+      detail: "binding-not-found",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -692,6 +702,8 @@ describe("unhandled errors", () => {
         {
           origin: recipeOrigin,
           recipe: expect.any(String),
+          route: "password",
+          variant: 1,
           state: "blocked",
           step: 2,
           steps: 3,
@@ -701,6 +713,11 @@ describe("unhandled errors", () => {
           outcome: "policy-changed",
           cause: "settings-synced",
         },
+      ],
+      [
+        "login.refused",
+        "info",
+        { origin: recipeOrigin, reason: "no-route", detail: "binding-not-found" },
       ],
     ]);
     vi.restoreAllMocks();

@@ -1,7 +1,9 @@
 import {
   loginStepEffect,
   recipeHasRoute,
-  routeSteps,
+  recipeSlots,
+  routeFillTargets,
+  routePaths,
   sameLoginTarget,
   type GenerationUnavailableReason,
   type LoginRecipe,
@@ -178,10 +180,18 @@ export async function generateRecipe(
         ),
     ],
     invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots }),
-    logValue: ({ fields, action, accountSwitch }) => ({
+    logValue: ({ fields, action, accountSwitch, alternatives }) => ({
       fields,
       action,
       ...(accountSwitch ? { accountSwitch } : {}),
+      ...(alternatives?.length
+        ? {
+            alternatives: alternatives.map((entry) => ({
+              fields: entry.fields,
+              action: entry.action,
+            })),
+          }
+        : {}),
     }),
   });
   if (call.status === "unavailable") return raced ?? unavailable(call.reason);
@@ -200,19 +210,26 @@ export async function generateRecipe(
           : "insufficient-evidence",
     };
 
-  // Each custom-field slot the model named: the recipe stores only the generic name, and
-  // the extension maps it back to the offered field (ADR 0027).
-  const customSlots = outcome.value.fields.flatMap(({ slot, name }) =>
-    name === undefined ? [] : [{ slot: name, offered: slot }],
-  );
+  // Each custom-field slot the model named, in any identifier set: the recipe stores only
+  // the generic name, and the extension maps it back to the offered field (ADR 0027). A
+  // requested slot has one name in every set, so each name appears once.
+  const alternatives = outcome.value.alternatives ?? [];
+  const customSlots = [
+    ...new Map(
+      [outcome.value, ...alternatives]
+        .flatMap((plan) => plan.fields)
+        .flatMap(({ slot, name }) => (name === undefined ? [] : [[name, slot] as const])),
+    ),
+  ].map(([slot, offered]) => ({ slot, offered }));
   // Appending unites slot IDs, so a name the recipe already uses could silently merge two
   // different fields.
-  if (customSlots.some(({ slot }) => baseRecipe?.slots.includes(slot)))
+  if (baseRecipe && customSlots.some(({ slot }) => recipeSlots(baseRecipe).includes(slot)))
     return failed("recipe-invalid");
   const assembled = appendPageSteps(baseRecipe, {
     id: recipeId,
     origin,
     steps: outcome.value.steps,
+    ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
     ...(outcome.value.switchTarget ? { accountSwitch: outcome.value.switchTarget } : {}),
   });
   if (!assembled.ok)
@@ -277,12 +294,10 @@ export async function judgeCompletion(
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
   // The checks use the stored recipe, never the request: a page that still shows one of
-  // the route's fill fields, on any path, or the completion marker is not judged.
-  const steps = routeSteps(recipe, route);
+  // the route's fill fields, of any variant and on any path, or the completion marker is
+  // not judged. The request never names the variant the login ran.
   const unexplained = [
-    ...steps.flatMap((step) =>
-      step.kind === "fill" ? step.fields.map(({ target }) => target) : [],
-    ),
+    ...routeFillTargets(recipe, route),
     ...(recipe.completion ? [recipe.completion.target] : []),
   ];
   if (
@@ -295,7 +310,7 @@ export async function judgeCompletion(
   // The login paths come from the stored recipe, never from the request.
   const loginPaths = [
     ...new Set([
-      ...steps.map((step) => step.path),
+      ...routePaths(recipe, route),
       ...(recipe.handlers ?? []).map((handler) => handler.path),
     ]),
   ];

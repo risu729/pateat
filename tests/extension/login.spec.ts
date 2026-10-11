@@ -468,7 +468,7 @@ test("worker startup prunes persisted ownership for a closed tab", async () => {
       };
       const journal = before.attempts[0]!;
       await owner.close();
-      const storageKey = "pateat.login-attempts.v2";
+      const storageKey = "pateat.login-attempts.v3";
       await expect
         .poll(
           async () =>
@@ -641,6 +641,44 @@ test("executes branch, account and password across documents in an inactive tab"
       expect(JSON.stringify(status)).not.toContain("00001234");
       expect(JSON.stringify(status)).toContain('"authenticated"');
       expect(JSON.stringify(status)).toContain(`"tabId":${tab.id}`);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("fills the second identifier set when the account maps only that one (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/variants`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      const evidence = await page.evaluate(() => ({
+        identity: JSON.parse(sessionStorage.getItem("identity") || "null"),
+        contractFilled: sessionStorage.getItem("contractFilled"),
+        submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+        passwordMatched: sessionStorage.getItem("passwordMatched"),
+      }));
+      expect(evidence).toEqual({
+        identity: ["007", "00001234"],
+        contractFilled: "false",
+        submitClicks: 1,
+        passwordMatched: "true",
+      });
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain('"authenticated"');
+      const status = JSON.stringify(
+        await send(options, { version: 1, type: "login.probe.status" }),
+      );
+      expect(status).toContain('"recipeId":"demo-variants"');
+      expect(status).toContain('"variant":1');
+      expect(status).not.toContain("Pateat-synthetic-only!");
     });
   } finally {
     await fixture.close();

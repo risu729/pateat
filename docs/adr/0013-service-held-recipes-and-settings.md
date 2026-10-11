@@ -14,9 +14,11 @@ account references gain the provider server (not implemented yet). Amended on 20
 by [ADR 0027](0027-per-account-login-routes.md): recipes carry routes and second-factor
 handlers chosen per account, a binding covers the slots of the route it uses, and
 generation maps slots to custom fields by name (handlers and custom-field names are
-implemented, with a `hidden` slot kind that follows the Hidden fill rule below; routes
-are not yet). A generated mapping becomes an item's binding after its first
-`authenticated` login, and another item's saved binding of the recipe is reused by name
+implemented, with a `hidden` slot kind that follows the Hidden fill rule below, and so
+are `password` route variants, where a binding covers the slots of the variant the login
+uses; the `passkey` and `sso` routes are not yet). A generated mapping becomes an item's
+binding after its first `authenticated` login, and another item's saved binding of the
+recipe is reused by name
 ([ADR 0027](0027-per-account-login-routes.md#implementation-choices)).
 
 Date: 2026-10-10

@@ -1,7 +1,9 @@
 import * as v from "valibot";
 import {
   attemptPlan,
+  attemptRouteChoice,
   builtInLoginSlots,
+  chooseLoginRoute,
   createAttemptMetadata,
   defaultLoginBinding,
   extendsRecipe,
@@ -19,10 +21,14 @@ import {
   nextLoginOperation,
   loginStepEffect,
   parseAttemptMetadata,
+  passwordVariants,
+  recipeStartSteps,
   recoverLoginAttempt,
   resolveBindingFields,
   resolveLoginPlan,
-  routeSteps,
+  routeFillTargets,
+  routePaths,
+  routeSlots,
   sameLoginDocument,
   saveLoginChoice,
   siteDefaultConnection,
@@ -42,6 +48,7 @@ import {
   type LoginOperation,
   type LoginRecipe,
   type LoginRoute,
+  type LoginRouteChoice,
   type LoginStep,
   type LoginTarget,
   type LocalSettings,
@@ -78,8 +85,8 @@ import {
   DEMO_PROBE_ACCOUNT,
   grantProbeOrigin,
   probeBinding,
-  probeFirstSteps,
   probeRecipe,
+  probeStarts,
   type ProbeAccount,
 } from "./dummy";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
@@ -98,9 +105,9 @@ import {
   type LoginFieldSource,
 } from "./vault";
 
-const STORAGE_KEY = "pateat.login-attempts.v2";
+const STORAGE_KEY = "pateat.login-attempts.v3";
 /** The previous attempt store, removed on load; its records are not read. */
-const RETIRED_STORAGE_KEY = "pateat.login-attempts.v1";
+const RETIRED_STORAGE_KEY = "pateat.login-attempts.v2";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
 const PICKS_KEY = "pateat.login-picks.v1";
 const CHOICES_KEY = "pateat.login-choices.v1";
@@ -228,18 +235,23 @@ const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);
 
 /**
+ * Where one recipe starts: its start path and the first step of each of its routes and
+ * variants, all on that path (ADR 0027).
+ */
+export type LoginRecipeStart = { path: string; steps: LoginStep[] };
+/**
  * Cached recipes. Account bindings come from synced settings (`settings.bindings`,
  * ADR 0013); neither carries values.
  */
 export interface LoginRecipes {
   /** The recipe for a document, or an attempt's own recipe by ID after navigation. */
   recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
-  /** The first step of every recipe for the origin; a document watches for them to appear. */
-  firstSteps(origin: string): Promise<LoginStep[]>;
+  /** Where every recipe for the origin starts; a document watches for its first steps. */
+  starts(origin: string): Promise<LoginRecipeStart[]>;
 }
 export const noLoginRecipes: LoginRecipes = {
   recipe: async () => undefined,
-  firstSteps: async () => [],
+  starts: async () => [],
 };
 
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
@@ -355,6 +367,9 @@ export type LoginReport =
       tabId: number;
       origin: string;
       recipeId: string;
+      /** The route and password variant the login took when it started (ADR 0027). */
+      route: LoginRoute;
+      variant?: number;
       state: LoginAttemptMetadata["state"];
       stepIndex: number;
       stepCount: number;
@@ -367,7 +382,17 @@ export type LoginReport =
       cause?: PolicyChangeCause;
       reason?: string;
     }
-  | { type: "refused"; tabId: number; origin: string; reason: string }
+  | {
+      type: "refused";
+      tabId: number;
+      origin: string;
+      reason: string;
+      /**
+       * For `no-route` on a recipe with several password variants: why its first variant
+       * did not fit, such as `binding-not-found` (ADR 0027).
+       */
+      detail?: string;
+    }
   | { type: "generation"; tabId: number; origin: string; outcome: "recipe" | "none" }
   | {
       type: "judge";
@@ -470,6 +495,8 @@ export function createLoginRuntime(
       tabId: metadata.document.tabId,
       origin: metadata.document.origin,
       recipeId: metadata.recipeId,
+      route: metadata.route,
+      ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
       state: metadata.state,
       stepIndex: metadata.stepIndex,
       stepCount: metadata.stepCount,
@@ -1155,10 +1182,12 @@ export function createLoginRuntime(
     return { reason: "frame-top-mismatch" };
   }
   /**
-   * The synced binding of the chosen item, else the automatic one for built-in slots, else
-   * one built from a template (ADR 0027): another item's saved binding of the recipe, then
-   * the slot map of a recipe generated from this device. It is mapped to this device's
-   * field IDs by the catalog's raw field names.
+   * The chosen item's binding for one route's `slots` (ADR 0027): the synced binding, else
+   * the automatic one for built-in slots, else one built from a template: another item's
+   * saved binding of the recipe, then the slot map of a recipe generated from this device.
+   * A synced binding is never bypassed: it must hold every one of `slots` itself, and its
+   * entries for other slots are ignored. It is mapped to this device's field IDs by the
+   * catalog's raw field names.
    */
   async function bindingFor(
     catalog: VaultCatalog,
@@ -1166,6 +1195,8 @@ export function createLoginRuntime(
     recipe: LoginRecipe,
     choice: Choice,
     documentOrigin: string,
+    slots: readonly string[],
+    slotMap: () => Promise<LoginBindingTemplate | undefined>,
   ): Promise<
     | { ok: true; binding: LoginAccountBinding; synced: SavedLoginBinding; saved: boolean }
     | { ok: false; reason: string }
@@ -1177,19 +1208,19 @@ export function createLoginRuntime(
     const named = { ...owner, itemName: item.label, accountName: connection.label };
     const fieldNames = item.fields.map((field) => ({ id: field.id, name: field.name }));
     const saved = findLoginBinding(settingsValue.bindings, recipe, owner);
-    let binding = saved ?? defaultLoginBinding(recipe, named);
+    let binding = saved ?? defaultLoginBinding(slots, recipe, named);
     if (!binding) {
       // Sibling bindings were proven by an authenticated login, so they go first.
       const templates: LoginBindingTemplate[] = settingsValue.bindings
         .filter((entry) => entry.recipeId === recipe.id && entry.origin === recipe.origin)
         .map((entry) => entry.slots);
-      const generated = await generation?.slotFields(recipe.id).catch(() => undefined);
+      const generated = await slotMap();
       if (generated) templates.push(generated);
-      const built = templateLoginBinding(recipe.slots, recipe, named, templates, fieldNames);
+      const built = templateLoginBinding(slots, recipe, named, templates, fieldNames);
       if (!built.ok) return { ok: false, reason: built.reason };
       binding = built.binding;
     }
-    const resolved = resolveBindingFields(binding, recipe, fieldNames);
+    const resolved = resolveBindingFields(binding, slots, fieldNames);
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
     return {
       ok: true,
@@ -1205,92 +1236,202 @@ export function createLoginRuntime(
       saved: saved !== undefined,
     };
   }
-  /** One account must resolve from a usable connection, and its item must not await review. */
+  /**
+   * The item's facts for a new login (ADR 0027): its password and TOTP fields from the
+   * catalog's value-free flags and the account's allowed fields, and its passkeys from one
+   * vault search. Read once per login; never sent anywhere.
+   */
+  async function itemFacts(
+    connection: VaultConnectionMetadata,
+    owner: { origin: string; connectionId: string; itemId: string; fieldIds: string[] },
+  ): Promise<LoginItemFacts> {
+    const item = connection.items.find((entry) => entry.id === owner.itemId);
+    const fieldFacts = item
+      ? loginFieldFacts(item, owner.fieldIds)
+      : { password: false, totp: false };
+    // The synthetic probe item names its password field `password`; it holds a value.
+    if (probeMode && owner.origin === origin && owner.fieldIds.includes("password"))
+      fieldFacts.password = true;
+    const held = await Promise.resolve(
+      options.passkeys?.({
+        origin: owner.origin,
+        connectionId: owner.connectionId,
+        itemId: owner.itemId,
+      }),
+    ).catch(() => undefined);
+    return {
+      ...fieldFacts,
+      passkey: held?.passkey === true,
+      discoverablePasskey: held?.passkey === true && held.discoverable,
+    };
+  }
+  /** Reasons a password variant does not fit the item; any other refusal stops the plan. */
+  const variantRefusals = new Set([
+    "binding-not-found",
+    "binding-slots-mismatch",
+    "binding-field-excluded",
+    "field-missing",
+    "field-ambiguous",
+    "field-count-changed",
+    "no-route",
+  ]);
+  /**
+   * One account must resolve from a usable connection, and its item must not await review.
+   * A new login reads the item's facts once and takes the first password variant whose
+   * binding resolves, whose fields are all allowed and whose bound password or TOTP fields
+   * hold values (ADR 0027); a recipe with one variant keeps that variant's own refusal, and
+   * one with several refuses `no-route` with the first variant's reason as its detail. A
+   * running or resumed login passes its recorded `route`, which is checked alone and never
+   * reads the facts again.
+   */
   async function planFor(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     recipe: LoginRecipe,
-    asking = false,
+    request: { asking?: boolean; route?: LoginRouteChoice } = {},
   ) {
     let catalog: VaultCatalog;
-    let policy = snapshot.snapshot;
-    let binding: LoginAccountBinding | undefined;
-    let choice: UnsavedChoice | undefined;
+    let chosen: Choice | undefined;
     let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
-      binding = probeBinding(recipe, account);
       const top = await topScope(snapshot, live, account, catalog);
       if (top) return { ok: false as const, reason: top.reason };
     } else {
-      const chosen = await choose(snapshot, live, asking);
-      if ("reason" in chosen)
+      const found = await choose(snapshot, live, request.asking === true);
+      if ("reason" in found)
         return {
           ok: false as const,
-          reason: chosen.reason,
-          ...(chosen.candidates ? { candidates: chosen.candidates } : {}),
-          ...(chosen.logout ? { logout: true as const } : {}),
-          ...(chosen.noUriMatch ? { noUriMatch: true as const } : {}),
+          reason: found.reason,
+          ...(found.candidates ? { candidates: found.candidates } : {}),
+          ...(found.logout ? { logout: true as const } : {}),
+          ...(found.noUriMatch ? { noUriMatch: true as const } : {}),
         };
-      savedDefault = chosen.saved;
-      const scope = await liveScope(snapshot, live, chosen);
+      chosen = found;
+      savedDefault = found.saved;
+      const scope = await liveScope(snapshot, live, found);
       if ("reason" in scope) return { ok: false as const, reason: scope.reason };
-      const top = await topScope(snapshot, live, chosen, snapshot.catalog);
+      const top = await topScope(snapshot, live, found, snapshot.catalog);
       if (top) return { ok: false as const, reason: top.reason };
       catalog = scope.catalog;
-      const bound = await bindingFor(
-        catalog,
-        snapshot.snapshot.settings,
-        recipe,
-        chosen,
-        live.document.origin,
-      );
-      if (!bound.ok) return { ok: false as const, reason: bound.reason };
-      binding = bound.binding;
-      if (!chosen.saved) {
-        // The automatic choice acts as this document's default in memory only, named by
-        // the chosen item's provider account as a saved default would be. An account
-        // connected more than once therefore stays ambiguous, as it would once saved.
-        policy = structuredClone(policy);
-        // A picked account replaces a saved default for this document.
-        policy.settings.siteDefaults = policy.settings.siteDefaults.filter(
-          (entry) => entry.origin !== live.document.origin,
-        );
-        policy.settings.siteDefaults.push({
-          origin: live.document.origin,
-          provider: bound.synced.provider,
-          userId: bound.synced.userId,
-          itemId: bound.synced.itemId,
-          itemName: bound.synced.itemName,
-          ...(bound.synced.accountName ? { accountName: bound.synced.accountName } : {}),
-        });
-      }
-      // A pick made for this login only is never saved.
-      if ((!chosen.saved || !bound.saved) && (!chosen.pick || chosen.pick.makeDefault))
-        choice = {
-          binding: bound.synced,
-          connectionId: chosen.connectionId,
-          // An account picked to become the default replaces another saved one.
-          ...(chosen.pick?.makeDefault ? { replace: true } : {}),
-        };
     }
-    const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding);
-    // A saved default's item that no longer matches the page, as after its URI was edited
-    // on another device, is also no matching item.
-    if (!plan.ok && plan.reason === "item-origin-mismatch" && savedDefault)
-      return { ...plan, noUriMatch: true as const };
-    if (!plan.ok) return plan;
-    const connection = catalog.connections.find((entry) => entry.id === plan.account.connectionId);
-    if (
-      !connection ||
-      // Review blocks only the affected items; unrelated items in the connection stay usable.
-      (connection.state !== undefined &&
-        connection.state !== "ready" &&
-        connection.state !== "review-required") ||
-      connection.quarantinedItemIds?.includes(plan.account.itemId)
-    )
-      return { ok: false as const, reason: "vault-unavailable" as const };
-    return { ...plan, connection, ...(choice ? { choice } : {}) };
+    const routes: LoginRouteChoice[] = request.route
+      ? [request.route]
+      : passwordVariants(recipe).map((_, variant) => ({ route: "password", variant }));
+    // The generated slot map is read at most once per plan.
+    let generated: Promise<LoginBindingTemplate | undefined> | undefined;
+    const slotMap = () =>
+      (generated ??= Promise.resolve(generation?.slotFields(recipe.id)).catch(() => undefined));
+    let facts: LoginItemFacts | undefined;
+    const fits: boolean[] = [];
+    const refusals: (string | undefined)[] = [];
+    // Variants are tried in recipe order and the first that fits stops the search, so the
+    // facts and the generated map are read once.
+    /* eslint-disable no-await-in-loop */
+    for (const [index, route] of routes.entries()) {
+      const slots = routeSlots(recipe, route);
+      let policy = snapshot.snapshot;
+      let binding: LoginAccountBinding;
+      let choice: UnsavedChoice | undefined;
+      if (!chosen) binding = probeBinding(recipe, account, slots);
+      else {
+        const bound = await bindingFor(
+          catalog,
+          snapshot.snapshot.settings,
+          recipe,
+          chosen,
+          live.document.origin,
+          slots,
+          slotMap,
+        );
+        if (!bound.ok) {
+          if (!variantRefusals.has(bound.reason))
+            return { ok: false as const, reason: bound.reason };
+          refusals[index] = bound.reason;
+          continue;
+        }
+        binding = bound.binding;
+        if (!chosen.saved) {
+          // The automatic choice acts as this document's default in memory only, named by
+          // the chosen item's provider account as a saved default would be. An account
+          // connected more than once therefore stays ambiguous, as it would once saved.
+          policy = structuredClone(policy);
+          // A found account replaces a saved default for this document.
+          policy.settings.siteDefaults = policy.settings.siteDefaults.filter(
+            (entry) => entry.origin !== live.document.origin,
+          );
+          policy.settings.siteDefaults.push({
+            origin: live.document.origin,
+            provider: bound.synced.provider,
+            userId: bound.synced.userId,
+            itemId: bound.synced.itemId,
+            itemName: bound.synced.itemName,
+            ...(bound.synced.accountName ? { accountName: bound.synced.accountName } : {}),
+          });
+        }
+        // A pick made for this login only is never saved.
+        if ((!chosen.saved || !bound.saved) && (!chosen.pick || chosen.pick.makeDefault))
+          choice = {
+            binding: bound.synced,
+            connectionId: chosen.connectionId,
+            // An account found to become the default replaces another saved one.
+            ...(chosen.pick?.makeDefault ? { replace: true } : {}),
+          };
+      }
+      const plan = resolveLoginPlan(policy, catalog, live.url, recipe, binding, slots);
+      // A saved default's item that no longer matches the page, as after its URI was edited
+      // on another device, is also no matching item.
+      if (!plan.ok && plan.reason === "item-origin-mismatch" && savedDefault)
+        return { ...plan, noUriMatch: true as const };
+      if (!plan.ok) {
+        if (!variantRefusals.has(plan.reason)) return plan;
+        refusals[index] = plan.reason;
+        continue;
+      }
+      const connection = catalog.connections.find(
+        (entry) => entry.id === plan.account.connectionId,
+      );
+      if (
+        !connection ||
+        // Review blocks only the affected items; unrelated items in the connection stay usable.
+        (connection.state !== undefined &&
+          connection.state !== "ready" &&
+          connection.state !== "review-required") ||
+        connection.quarantinedItemIds?.includes(plan.account.itemId)
+      )
+        return { ok: false as const, reason: "vault-unavailable" as const };
+      const resolved = { ...plan, connection, route, ...(choice ? { choice } : {}) };
+      if (request.route) return resolved;
+      facts ??= await itemFacts(connection, { ...plan.account, origin: live.document.origin });
+      // The password route needs every bound password or TOTP field, built in or Linked to
+      // one, to hold a value the account may fill.
+      const item = connection.items.find((entry) => entry.id === plan.account.itemId);
+      const known = facts;
+      if (
+        !plan.binding.slots.every(({ fieldId }) => {
+          const source = item ? loginFieldSource(item, fieldId) : fieldId;
+          return source === "login.password"
+            ? known.password
+            : source === "login.totp-code"
+              ? known.totp
+              : true;
+        })
+      ) {
+        refusals[index] = "no-route";
+        continue;
+      }
+      fits[index] = true;
+      const taken = chooseLoginRoute(recipe, known, fits);
+      if (taken?.variant === index) return { ...resolved, facts: known };
+      // The first variant that fits decides; without the item's password none is taken.
+      refusals[index] = "no-route";
+      break;
+    }
+    /* eslint-enable no-await-in-loop */
+    const first = refusals[0] ?? "no-route";
+    return routes.length === 1
+      ? { ok: false as const, reason: first }
+      : { ok: false as const, reason: "no-route" as const, detail: first };
   }
   type Authorized = { connection: VaultConnectionMetadata; binding: LoginAccountBinding };
   /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
@@ -1306,7 +1447,11 @@ export function createLoginRuntime(
       );
       return undefined;
     }
-    const plan = await planFor(snapshot, run.live, run.recipe);
+    // The recorded route alone is checked, so an excluded field of another variant never
+    // stops this login (ADR 0027).
+    const plan = await planFor(snapshot, run.live, run.recipe, {
+      route: attemptRouteChoice(run.metadata),
+    });
     if (
       !plan.ok ||
       plan.account.connectionId !== run.metadata.account.connectionId ||
@@ -1522,15 +1667,15 @@ export function createLoginRuntime(
       judgedPages(metadata, operationId) >= MAX_JUDGED_PAGES
     )
       return false;
-    const steps = routeSteps(recipe, metadata.route);
+    // Every variant's fill fields and paths count, as on the service, which is never told
+    // the variant (ADR 0027).
+    const paths = routePaths(recipe, metadata.route);
     const marker = recipe.completion ? [recipe.completion.target] : [];
-    const fills = steps
-      .flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.target) : []))
-      .slice(0, 24 - marker.length);
+    const fills = routeFillTargets(recipe, metadata.route).slice(0, 24 - marker.length);
     const remaining = await observe(run, [...fills, ...marker]);
     if (!remaining) return false;
     if (
-      (steps.some((step) => step.path === remaining.path) &&
+      (paths.includes(remaining.path) &&
         remaining.targets.slice(0, fills.length).some((state) => state !== "missing")) ||
       (marker.length > 0 && remaining.targets[fills.length] !== "missing")
     )
@@ -1927,17 +2072,19 @@ export function createLoginRuntime(
   }
   /* eslint-enable no-await-in-loop */
   /**
-   * First steps a document watches for; deduplicated and bounded for the wire. A path
-   * where several recipes start is left out, because such a page cannot start (ADR 0013).
+   * First steps a document watches for: every route's and variant's of each recipe,
+   * deduplicated and bounded for the wire. A path where several recipes start is left out,
+   * because such a page cannot start (ADR 0013); several variants of one recipe starting
+   * there do not (ADR 0027).
    */
   async function startsFor(documentOrigin: string): Promise<LoginReadiness[]> {
     const all =
       probeMode && documentOrigin === origin
-        ? probeFirstSteps(origin)
-        : await recipes.firstSteps(documentOrigin).catch(() => []);
-    const steps = all.filter(
-      (step) => all.filter((other) => other.path === step.path).length === 1,
-    );
+        ? probeStarts(origin)
+        : await recipes.starts(documentOrigin).catch(() => []);
+    const steps = all
+      .filter((start) => all.filter((other) => other.path === start.path).length === 1)
+      .flatMap((start) => start.steps);
     const unique = new Map(
       steps.map((step) => {
         const readiness = loginReadiness(step);
@@ -1954,8 +2101,8 @@ export function createLoginRuntime(
   async function offersGeneration(live: LiveDocument): Promise<boolean> {
     if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return false;
     if (probeMode && live.document.origin === origin) return false;
-    const steps = await recipes.firstSteps(live.document.origin).catch(() => undefined);
-    if (steps === undefined || steps.some((step) => step.path === live.path)) return false;
+    const starts = await recipes.starts(live.document.origin).catch(() => undefined);
+    if (starts === undefined || starts.some((start) => start.path === live.path)) return false;
     return generation.available(live.document.origin, live.path).catch(() => false);
   }
   /**
@@ -2333,8 +2480,14 @@ export function createLoginRuntime(
       ...(topUrl ? { topUrl } : {}),
     };
     documents.set(key, live);
-    const refuse = async (reason: string) => {
-      report({ type: "refused", tabId: document.tabId, origin: document.origin, reason });
+    const refuse = async (reason: string, detail?: string) => {
+      report({
+        type: "refused",
+        tabId: document.tabId,
+        origin: document.origin,
+        reason,
+        ...(detail ? { detail } : {}),
+      });
       live.state = "denied";
       live.reason = reason;
       await publish(live);
@@ -2420,12 +2573,15 @@ export function createLoginRuntime(
           : probeRecipe(origin, live.path)
         : await recipes.recipe(document.origin, live.path, previous?.recipeId);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-    // A new attempt starts only once the document reports its recipe's first step ready.
-    // Until then it watches the first steps of every recipe for its origin; this reads
-    // no settings, policy catalog or vault.
+    // A new attempt starts only once the document reports a first step of its recipe ready:
+    // any route's or variant's, or the path alone when one of them needs no element. Until
+    // then it watches the first steps of every recipe for its origin; this reads no
+    // settings, policy catalog or vault.
     if (
       !previous &&
-      (!recipe || (loginReadiness(recipe.steps[0]!).targets.length && start?.path !== live.path))
+      (!recipe ||
+        (recipeStartSteps(recipe).every((step) => loginReadiness(step).targets.length) &&
+          start?.path !== live.path))
     ) {
       const starts = await startsFor(document.origin);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
@@ -2511,55 +2667,24 @@ export function createLoginRuntime(
       );
       return refuse("origin-busy");
     }
-    const plan = await planFor(snapshot, live, recipe, asking);
+    // A new login reads its item's facts once and chooses its route from them (ADR 0027);
+    // a resumed one keeps those in its record, so a sync cannot change its route.
+    const plan = await planFor(snapshot, live, recipe, {
+      asking,
+      ...(previous ? { route: attemptRouteChoice(previous) } : {}),
+    });
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     if (!plan.ok) {
       // Only a fresh start can be restarted with a picked account (ADR 0021). The page
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates)
         offerChoice(document, plan.candidates, "logout" in plan && plan.logout === true);
-      const refused = await refuse(plan.reason);
+      const refused = await refuse(plan.reason, "detail" in plan ? plan.detail : undefined);
       // Asked while the page still holds vault replacement off, so a check started by
       // this page's announcement cannot apply before the miss is registered.
       if (!previous && !switched && "noUriMatch" in plan && plan.noUriMatch)
         retryAfterSync(live, plan.reason);
       return refused;
-    }
-    // A new login reads its item's facts once and chooses its route from them (ADR 0027);
-    // a resumed one keeps those in its record, so a sync cannot change its route.
-    let facts: LoginItemFacts | undefined;
-    if (!previous) {
-      const item = plan.connection.items.find((entry) => entry.id === plan.account.itemId);
-      const fieldFacts = item
-        ? loginFieldFacts(item, plan.account.fieldIds)
-        : { password: false, totp: false };
-      const held = await Promise.resolve(
-        options.passkeys?.({
-          origin: document.origin,
-          connectionId: plan.account.connectionId,
-          itemId: plan.account.itemId,
-        }),
-      ).catch(() => undefined);
-      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      const read: LoginItemFacts = {
-        ...fieldFacts,
-        passkey: held?.passkey === true,
-        discoverablePasskey: held?.passkey === true && held.discoverable,
-      };
-      // The password route needs every bound password or TOTP field, built in or Linked to
-      // one, to hold a value the account may fill.
-      if (
-        !plan.binding.slots.every(({ fieldId }) => {
-          const source = item ? loginFieldSource(item, fieldId) : fieldId;
-          return source === "login.password"
-            ? read.password
-            : source === "login.totp-code"
-              ? read.totp
-              : true;
-        })
-      )
-        return refuse("no-route");
-      facts = read;
     }
     // Cookies can be shared across tabs. Preserve this conservative origin owner even at
     // terminal state until tab closure, and while a tab that logged out of it still asks.
@@ -2591,6 +2716,8 @@ export function createLoginRuntime(
         resumedPolicy = { cause: "settings-revision" };
       }
     } else {
+      // A new login's plan carries the facts it chose its route with.
+      if (!("facts" in plan)) return refuse("no-route");
       metadata = transitionLoginAttempt(
         createAttemptMetadata({
           id: crypto.randomUUID(),
@@ -2601,8 +2728,8 @@ export function createLoginRuntime(
             connectionId: plan.account.connectionId,
             itemId: plan.account.itemId,
           },
-          route: "password",
-          facts: facts!,
+          choice: plan.route,
+          facts: plan.facts,
           document,
           accountSwitched: switched,
         }),

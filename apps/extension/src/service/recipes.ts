@@ -2,6 +2,7 @@ import {
   deviceIdSchema,
   loginRecipeSchema,
   loginRecipesForOrigin,
+  recipeStartSteps,
   selectLoginRecipe,
   serviceOriginSchema,
   type LoginRecipe,
@@ -338,14 +339,16 @@ export function createRecipeSync(options: {
       const selection = selectLoginRecipe(cache.recipes, origin, path);
       return selection.ok ? selection.recipe : undefined;
     },
-    async firstSteps(origin: string) {
+    async starts(origin: string) {
       const connection = await service.connection().catch(() => undefined);
       if (!connection) return [];
       const cache = await load(connection);
       if (!cache) return [];
-      return loginRecipesForOrigin(cache.recipes, origin).flatMap((recipe) =>
-        recipe.steps[0] ? [recipe.steps[0]] : [],
-      );
+      // Every variant starts on the recipe's start path (ADR 0027).
+      return loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
+        path: recipe.steps[0]!.path,
+        steps: recipeStartSteps(recipe),
+      }));
     },
   };
 

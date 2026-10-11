@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
+  chooseLoginRoute,
   extendsRecipe,
   handlerSteps,
+  passwordVariants,
+  recipeSlots,
+  recipeStartSteps,
+  routeFillTargets,
+  routePaths,
+  routeSlots,
+  routeSteps,
   loginFieldFacts,
   loginFieldSource,
+  loginRecipeSchema,
   loginTargetSchema,
   parseLoginAccountBinding,
   parseLoginOperation,
@@ -342,6 +351,7 @@ describe("saved login plan authorization", () => {
         "https://bank.example/identity",
         recipe(),
         binding(),
+        recipe().slots,
       ),
     ).toMatchObject({
       ok: true,
@@ -359,6 +369,7 @@ describe("saved login plan authorization", () => {
         "https://bank.example/identity",
         recipe(),
         binding(),
+        recipe().slots,
       ),
     ).toMatchObject({ ok: false });
     const disabled = snapshot();
@@ -370,6 +381,7 @@ describe("saved login plan authorization", () => {
         "https://bank.example/identity",
         recipe(),
         binding(),
+        recipe().slots,
       ),
     ).toMatchObject({ ok: false });
     const another = snapshot();
@@ -381,6 +393,7 @@ describe("saved login plan authorization", () => {
         "https://bank.example/identity",
         recipe(),
         binding(),
+        recipe().slots,
       ),
     ).toMatchObject({ ok: false });
   });
@@ -395,6 +408,7 @@ describe("saved login plan authorization", () => {
         "https://bank.example/identity",
         recipe(),
         binding(),
+        recipe().slots,
       ),
     ).toMatchObject({ ok: false });
     const fieldExcluded = snapshot();
@@ -408,6 +422,7 @@ describe("saved login plan authorization", () => {
         "https://bank.example/identity",
         recipe(),
         binding(),
+        recipe().slots,
       ),
     ).toMatchObject({ ok: false });
   });
@@ -427,6 +442,7 @@ describe("saved login plan authorization", () => {
           "https://bank.example/identity",
           recipe(),
           candidate,
+          recipe().slots,
         ),
       ).toMatchObject({ ok: false });
     }
@@ -437,6 +453,7 @@ describe("saved login plan authorization", () => {
         "https://evil.example/identity",
         recipe(),
         binding(),
+        recipe().slots,
       ),
     ).toMatchObject({ ok: false });
   });
@@ -719,6 +736,243 @@ describe("second-factor page handlers (ADR 0027)", () => {
           password: false,
           totp: true,
         });
+    });
+  });
+});
+
+describe("password route variants (ADR 0027)", () => {
+  const id = (value: string) => ({ by: "id" as const, value });
+  const fill = (slots: string[], path = "/login") => ({
+    kind: "fill" as const,
+    effect: "prepare" as const,
+    path,
+    fields: slots.map((slot) => ({ slot, target: id(slot) })),
+  });
+  const submit = (path = "/login", value = "login") => ({
+    kind: "click" as const,
+    path,
+    target: id(value),
+    purpose: "submit" as const,
+  });
+  const variant = (slots: string[], path = "/login") => ({
+    slots,
+    steps: [fill(slots, path), submit(path)],
+  });
+  /** Branch and account numbers, or a contract number, with the same password and button. */
+  const varied = (change: Record<string, unknown> = {}) => ({
+    version: 1,
+    id: "bank-variants",
+    revision: 1,
+    origin: "https://bank.example",
+    slots: ["branch", "account", "password"],
+    steps: [fill(["branch", "account", "password"]), submit()],
+    alternatives: [variant(["contract", "password"])],
+    completion: { path: "/home", target: id("welcome") },
+    rejection: id("rejected"),
+    maxSubmissions: 1,
+    ...change,
+  });
+  const valid = (change: Record<string, unknown> = {}) => v.is(loginRecipeSchema, varied(change));
+
+  it("keeps the recipe's own slots and steps as variant 0 and adds up to 3 alternatives", () => {
+    const parsed = parseLoginRecipe(varied());
+    expect(passwordVariants(parsed).map((entry) => entry.slots)).toEqual([
+      ["branch", "account", "password"],
+      ["contract", "password"],
+    ]);
+    expect(routeSteps(parsed, { route: "password", variant: 1 })).toEqual(
+      variant(["contract", "password"]).steps,
+    );
+    expect(routeSlots(parsed, { route: "password", variant: 0 })).toEqual(parsed.slots);
+    expect(routeSlots(parsed, { route: "password", variant: 1 })).toEqual(["contract", "password"]);
+    // An unknown variant has no steps, so no attempt can be created on it.
+    expect(routeSteps(parsed, { route: "password", variant: 2 })).toEqual([]);
+    expect(recipeSlots(parsed)).toEqual(["branch", "account", "password", "contract"]);
+    expect(routeFillTargets(parsed, "password")).toEqual(
+      ["branch", "account", "password", "contract"].map(id),
+    );
+    expect(routePaths(parsed, "password")).toEqual(["/login"]);
+    expect(recipeStartSteps(parsed)).toEqual([
+      fill(["branch", "account", "password"]),
+      fill(["contract", "password"]),
+    ]);
+    const four = [variant(["contract", "password"]), variant(["card", "password"])];
+    expect(valid({ alternatives: [...four, variant(["member", "password"])] })).toBe(true);
+    expect(
+      valid({ alternatives: [...four, variant(["member", "password"]), variant(["id"])] }),
+    ).toBe(false);
+    expect(valid({ alternatives: [] })).toBe(false);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    [
+      "an alternative's unknown slot",
+      { alternatives: [{ slots: ["contract"], steps: [fill(["contract", "pin"]), submit()] }] },
+    ],
+    [
+      "slots its fill steps do not use",
+      { alternatives: [{ slots: ["contract", "pin"], steps: [fill(["contract"]), submit()] }] },
+    ],
+    [
+      "unused top-level slots once alternatives exist",
+      { slots: ["branch", "account", "password", "pin"] },
+    ],
+    ["another start path", { alternatives: [variant(["contract", "password"], "/contract")] }],
+    ["the same slots", { alternatives: [variant(["password", "account", "branch"])] }],
+    ["a subset of another variant's slots", { alternatives: [variant(["branch", "password"])] }],
+    [
+      "a variant that advances",
+      {
+        alternatives: [
+          {
+            slots: ["contract"],
+            steps: [fill(["contract"]), { ...submit(), purpose: "advance" }],
+          },
+        ],
+      },
+    ],
+    [
+      "a first variant that advances",
+      { steps: [fill(["branch", "account", "password"]), { ...submit(), purpose: "advance" }] },
+    ],
+    [
+      "an alternative beyond the effect budget",
+      {
+        alternatives: [
+          {
+            slots: ["contract", "password"],
+            steps: [
+              fill(["contract"]),
+              { ...submit("/login", "next"), purpose: "advance" },
+              fill(["password"], "/password"),
+              submit("/password"),
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      "an alternative's fallback click after an input-triggered effect",
+      {
+        maxSubmissions: 2,
+        alternatives: [
+          {
+            slots: ["contract"],
+            steps: [{ ...fill(["contract"]), effect: "submit", event: "input" }, submit()],
+          },
+        ],
+      },
+    ],
+    ["an account switch that is an alternative's button", { accountSwitch: id("login") }],
+    [
+      "a completion marker that is a variant's element on its path",
+      { completion: { path: "/login", target: id("contract") } },
+    ],
+    ["a rejection that is a variant's element", { rejection: id("password") }],
+    [
+      "more elements than one observation holds",
+      {
+        completion: {
+          path: "/home",
+          target: id("welcome"),
+          absent: ["a", "b", "c", "d"].map(id),
+        },
+        alternatives: [variant(Array.from({ length: 19 }, (_, index) => `slot-${index}`))],
+      },
+    ],
+    [
+      "more than 20 slots over all variants",
+      {
+        alternatives: [
+          variant(Array.from({ length: 10 }, (_, index) => `first-${index}`)),
+          variant(Array.from({ length: 10 }, (_, index) => `second-${index}`)),
+        ],
+      },
+    ],
+  ])("refuses %s", (_label, change) => {
+    expect(valid()).toBe(true);
+    expect(valid(change)).toBe(false);
+  });
+
+  it("chooses the first variant the binding fills, and only for an item with a password", () => {
+    const parsed = parseLoginRecipe(varied());
+    expect(chooseLoginRoute(parsed, { password: true }, [true, true])).toEqual({
+      route: "password",
+      variant: 0,
+    });
+    expect(chooseLoginRoute(parsed, { password: true }, [false, true])).toEqual({
+      route: "password",
+      variant: 1,
+    });
+    expect(chooseLoginRoute(parsed, { password: true }, [false, false])).toBeUndefined();
+    expect(chooseLoginRoute(parsed, { password: false }, [true, true])).toBeUndefined();
+    // A fit reported for a variant the parsed lacks chooses nothing.
+    expect(chooseLoginRoute(parsed, { password: true }, [false, false, true])).toBeUndefined();
+  });
+
+  it("keeps the alternatives fixed when a revision is taken over", () => {
+    const base = parseLoginRecipe(varied({ completion: undefined }));
+    const next = (change: Record<string, unknown>) =>
+      parseLoginRecipe({ ...base, revision: 2, ...change });
+    expect(
+      extendsRecipe(
+        base,
+        next({ handlers: [{ kind: "passkey", path: "/webauthn", target: id("key") }] }),
+      ),
+    ).toBe(true);
+    expect(
+      extendsRecipe(base, next({ completion: { path: "/home", target: id("welcome") } })),
+    ).toBe(true);
+    expect(extendsRecipe(base, next({ alternatives: undefined }))).toBe(false);
+    expect(
+      extendsRecipe(
+        base,
+        next({ alternatives: [variant(["contract", "password"]), variant(["card", "password"])] }),
+      ),
+    ).toBe(false);
+    expect(extendsRecipe(base, next({ alternatives: [variant(["card", "password"])] }))).toBe(
+      false,
+    );
+    const single = parseLoginRecipe(varied({ alternatives: undefined, completion: undefined }));
+    expect(
+      extendsRecipe(
+        single,
+        parseLoginRecipe({
+          ...single,
+          revision: 2,
+          alternatives: [variant(["contract", "password"])],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("authorizes a binding that covers exactly the chosen variant's slots", () => {
+    const parsed = varied({ origin: "https://bank.example" });
+    const contract = {
+      ...binding(),
+      slots: [
+        { slot: "contract", fieldId: "username" },
+        { slot: "password", fieldId: "password" },
+      ],
+    };
+    const resolve = (value: LoginAccountBinding, slots: string[]) =>
+      resolveLoginPlan(
+        snapshot(),
+        DUMMY_VAULT_CATALOG,
+        "https://bank.example/login",
+        parsed,
+        value,
+        slots,
+      );
+    expect(resolve(contract, ["contract", "password"])).toMatchObject({ ok: true });
+    expect(resolve(contract, ["branch", "account", "password"])).toMatchObject({
+      ok: false,
+      reason: "binding-slots-mismatch",
+    });
+    expect(resolve(binding(), ["branch", "account", "password"])).toMatchObject({ ok: true });
+    expect(resolve(binding(), ["contract", "password"])).toMatchObject({
+      ok: false,
+      reason: "binding-slots-mismatch",
     });
   });
 });

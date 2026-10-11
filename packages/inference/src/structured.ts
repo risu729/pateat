@@ -12,13 +12,13 @@ import {
   type InferenceErrorCode,
   type InferenceOutcome,
 } from "./outcome";
-import type { PlanRejection } from "./plan";
+import type { GeneratedPageRejection } from "./plan";
 
 /** What a role makes of the model's structured output, before usage is attached. */
 export type Interpreted<T> =
   | { status: "ok"; value: T }
   | { status: "abstained"; reason: AbstentionReason }
-  | { status: "failed"; error: InferenceErrorCode; detail?: PlanRejection };
+  | { status: "failed"; error: InferenceErrorCode; detail?: GeneratedPageRejection };
 
 /**
  * One structured-output call with the configured model only: usage is metered across

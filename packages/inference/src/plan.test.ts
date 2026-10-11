@@ -5,7 +5,13 @@ import {
   type SemanticSlot,
 } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
-import { slotAccepts, validatePagePlan, type PagePlan } from "./plan";
+import {
+  slotAccepts,
+  validateGeneratedPage,
+  validatePagePlan,
+  type GeneratedPagePlan,
+  type PagePlan,
+} from "./plan";
 
 // Synthetic page only: custom-field slot names and the Hidden fill rule (ADR 0027).
 
@@ -162,5 +168,146 @@ describe("the Hidden fill rule in plan validation (ADR 0027)", () => {
     expect(slotAccepts("identifier", input("x", { role: "number" }))).toBe(true);
     expect(slotAccepts("secret", input("x", { role: "tel", maxLength: 4 }))).toBe(false);
     expect(slotAccepts("one-time-code", input("x", { role: "number" }))).toBe(true);
+  });
+});
+
+describe("several identifier sets on one page (ADR 0027)", () => {
+  const contract: SemanticSlot = {
+    id: "custom-4",
+    kind: "identifier",
+    description: customFieldSlotDescriptions.identifier,
+    fieldName: "契約者番号",
+  };
+  const page: LoginObservation = {
+    ...observation,
+    candidates: [...observation.candidates, input("contract"), input("switch", { role: "link" })],
+  };
+  const all = [...slots, contract];
+  const primary: GeneratedPagePlan = {
+    fields: [
+      { slot: "custom-1", candidate: "branch", name: "branch-number" },
+      { slot: "custom-2", candidate: "account", name: "account-number" },
+      { slot: "password", candidate: "password" },
+    ],
+    action,
+  };
+  const byContract = {
+    fields: [
+      { slot: "custom-4", candidate: "contract", name: "contract-number" },
+      { slot: "password", candidate: "password" },
+    ],
+    action,
+  };
+  const check = (alternatives: GeneratedPagePlan["alternatives"], change: Partial<PagePlan> = {}) =>
+    validateGeneratedPage(page, all, { ...primary, ...change, alternatives });
+
+  it("validates each set and returns the alternatives' steps", () => {
+    const result = check([byContract]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan.fields).toEqual(primary.fields);
+    expect(result.plan.alternatives).toHaveLength(1);
+    expect(result.plan.alternatives![0]!.steps[0]).toMatchObject({
+      kind: "fill",
+      fields: [
+        { slot: "contract-number", target: { by: "id", value: "contract" } },
+        { slot: "password", target: { by: "id", value: "password" } },
+      ],
+    });
+    // Without alternatives the plan is the single page plan.
+    expect(check(undefined)).toEqual(validatePagePlan(page, all, primary));
+    expect(check([])).toEqual(validatePagePlan(page, all, primary));
+  });
+
+  it.each<[string, GeneratedPagePlan["alternatives"], string]>([
+    [
+      "an alternative that fails plan validation",
+      [
+        {
+          ...byContract,
+          fields: [{ slot: "custom-4", candidate: "nowhere", name: "contract-number" }],
+        },
+      ],
+      "unknown-candidate",
+    ],
+    [
+      "another name for the same requested slot",
+      [
+        {
+          fields: [
+            { slot: "custom-1", candidate: "branch", name: "branch-code" },
+            { slot: "custom-4", candidate: "contract", name: "contract-number" },
+          ],
+          action,
+        },
+      ],
+      "inconsistent-slot-name",
+    ],
+    [
+      "one name for two requested slots",
+      [
+        {
+          fields: [
+            { slot: "custom-4", candidate: "contract", name: "branch-number" },
+            { slot: "password", candidate: "password" },
+          ],
+          action,
+        },
+      ],
+      "duplicate-slot",
+    ],
+    [
+      "the same slots again",
+      [{ ...primary, fields: [...primary.fields].reverse() }],
+      "duplicate-variant",
+    ],
+    [
+      "a subset of the first set",
+      [{ fields: [{ slot: "password", candidate: "pin" }], action }],
+      "duplicate-variant",
+    ],
+    [
+      "an action that advances",
+      [{ ...byContract, action: { candidate: "login", purpose: "advance" as const } }],
+      "variant-advance",
+    ],
+    [
+      "more than 3 alternatives",
+      [
+        byContract,
+        { fields: [{ slot: "username", candidate: "user" }], action },
+        { fields: [{ slot: "custom-3", candidate: "pin", name: "pin-code" }], action },
+        { fields: [{ slot: "custom-4", candidate: "contract", name: "contract-number" }], action },
+      ],
+      "duplicate-variant",
+    ],
+  ])("refuses %s", (_label, alternatives, reason) => {
+    expect(check(alternatives)).toEqual({ ok: false, reason });
+  });
+
+  it("refuses a first set that advances once alternatives exist", () => {
+    expect(check([byContract], { action: { candidate: "login", purpose: "advance" } })).toEqual({
+      ok: false,
+      reason: "variant-advance",
+    });
+  });
+
+  it("refuses an account switch that an alternative fills or clicks", () => {
+    expect(check([byContract], { accountSwitch: "switch" })).toMatchObject({ ok: true });
+    const switching = {
+      fields: [{ slot: "username", candidate: "user" }],
+      action: { candidate: "switch", purpose: "submit" as const },
+    };
+    expect(
+      validateGeneratedPage(
+        {
+          ...page,
+          candidates: page.candidates.map((entry) =>
+            entry.id === "switch" ? { ...entry, role: "button" } : entry,
+          ),
+        },
+        all,
+        { ...primary, accountSwitch: "switch", alternatives: [switching] },
+      ),
+    ).toEqual({ ok: false, reason: "duplicate-candidate" });
   });
 });

@@ -2,8 +2,9 @@
 
 Status: accepted by the owner on 2026-10-11 (13:47 UTC). Deliveries 1 (custom-field
 names and Text shapes in generation) and 2 (handlers with the `passkey` handler) are
-implemented; the other deliveries are not. Amends
-[ADR 0007](0007-existing-passkey-assertions.md) and
+implemented, and so is delivery 3 part A (`password` route variants and start detection
+over them); the `passkey` route is delivery 3 part B, and it and the other deliveries
+are not implemented. Amends [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and
 [ADR 0016](0016-recipe-generation-trigger.md) (custom-field names and Text shapes in
@@ -279,6 +280,55 @@ new owner decision:
   template covers every slot, `binding-not-found`; a field excluded later stops with
   `binding-field-excluded`. The binding review of
   [ADR 0023](0023-synced-vault-policy.md#binding-review) is later work.
+- **Variant shape.** A recipe's top-level `slots` and `steps` are its first `password`
+  variant; an optional `alternatives` list adds one to three more, each with its own
+  `slots` and `steps`. The shape is additive, so recipes with one variant, the D1 table
+  and the recipe cache keep their form. `recipeSlots` is the union of every variant's
+  slots (the service's slot checks and the generation answer's `customSlots` use it);
+  `routeSlots` names the slots of the chosen variant only. A newer revision keeps a
+  login only when its alternatives are unchanged, like its other route steps.
+- **Variant validity.** Each variant is checked as a recipe is: known slots, the effect
+  budget and the fallback-click rule. A recipe with alternatives also needs every
+  variant to fill exactly its own slots, to start on the first variant's start path and
+  to end in a `submit` step; no variant's slot set may equal or contain another's; the
+  union stays within 20 slots; the completion target on its path and the rejection may
+  not be any variant's step target, nor the account switch any variant's click target;
+  and the observation bound counts every variant's targets.
+- **Choosing a variant.** A new login reads the item's facts once and takes the first
+  variant, in recipe order, whose binding resolves, whose fields are all allowed and
+  whose bound password or TOTP fields hold values; the `password` route also needs the
+  item's `password` fact. The binding source is decided as for one variant: a saved
+  binding for the item is the only source, so a saved binding that does not hold a
+  variant's slots skips that variant and is never bypassed by a template; otherwise the
+  automatic binding for built-in slots, then the templates, with the generated slot map
+  read at most once per login. The attempt records the variant (attempt store
+  `pateat.login-attempts.v3`; the v2 store is removed on load), and a running or resumed
+  login checks only that variant's binding, so a field of another variant that is
+  excluded later does not stop it.
+- **Refusals.** A recipe with one variant refuses with that variant's own reason
+  (`binding-not-found`, `field-missing`, `no-route` and the like), as before. A recipe
+  with several refuses `no-route` when none fits, and the diagnostics log records the
+  first variant's reason as the refusal's `detail`. `login.attempt` records the route
+  and variant. The facts are never logged.
+- **Judging.** The judge request does not name the variant. The extension does not send
+  a page that shows a fill field of any variant on a path of the route, and the service
+  answers `not-judgeable` for a page that shows one on any path. The login paths the
+  judge receives are every variant's step paths and the handlers' paths.
+- **Start detection.** A document watches the first step of every variant of each
+  recipe for its origin. A start path is left out only when several recipes start
+  there; several variants of one recipe on it are watched together, and any of them
+  being ready starts the login.
+- **Generation.** The model may name up to 3 `alternatives` for a start page, each a set
+  of fields and the action that submits it. They must use the same slot names as the
+  main plan for the same slot meaning, differ from it and from each other, and submit;
+  an alternative that only advances is refused, so a variant is always one page. A
+  continuation page with alternatives is refused, and a recipe with alternatives is
+  never continued. A generation answer maps the custom slots of every variant, up to
+  16.
+- **Known limitation.** Variants come only from identifier sets the start page shows at
+  once in one observation. A set behind a tab or a link, as SMBC's contract-number tab
+  appears to be, is not observed and so not generated; such a site gets the variant the
+  page shows first.
 
 ## Consequences
 

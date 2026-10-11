@@ -1,11 +1,12 @@
 import {
   DUMMY_VAULT_CATALOG,
   parseLoginRecipe,
+  recipeStartSteps,
   type LoginAccountBinding,
   type LoginRecipe,
-  type LoginStep,
   type VaultCatalog,
 } from "@pateat/contracts";
+import type { LoginRecipeStart } from "./runtime";
 
 export const DEFAULT_PROBE_ORIGIN = "http://127.0.0.1:3847";
 /** Bundled synthetic adapter. This is not a Bitwarden connection or a production grant. */
@@ -29,13 +30,47 @@ const PROBE_PATHS = [
   "/dialog",
   "/slow-button",
   "/text-submit",
+  "/variants",
 ];
-/** The first step of every synthetic recipe, which a fixture document watches for. */
-export function probeFirstSteps(origin: string): LoginStep[] {
-  return PROBE_PATHS.map((path) => probeRecipe(origin, path)!.steps[0]!);
+/** Where every synthetic recipe starts, which a fixture document watches for. */
+export function probeStarts(origin: string): LoginRecipeStart[] {
+  return PROBE_PATHS.map((path) => {
+    const recipe = probeRecipe(origin, path)!;
+    return { path: recipe.steps[0]!.path, steps: recipeStartSteps(recipe) };
+  });
+}
+/**
+ * Two identifier sets on one page (ADR 0027): a contract number, which the demo account
+ * has no mapping for, or a branch and account number. Only the second variant fits it.
+ */
+function variantsRecipe(origin: string, path: string): LoginRecipe {
+  const set = (slots: string[]) => ({
+    slots,
+    steps: [
+      {
+        kind: "fill" as const,
+        path,
+        fields: slots.map((slot) => ({ slot, target: target(slot) })),
+      },
+      { kind: "click" as const, path, target: target("login"), purpose: "submit" as const },
+    ],
+  });
+  const contract = set(["contract", "password"]);
+  return parseLoginRecipe({
+    version: 1,
+    id: "demo-variants",
+    revision: 1,
+    origin,
+    ...contract,
+    alternatives: [set(["branch", "account", "password"])],
+    completion: { path: "/authenticated", target: target("authenticated") },
+    rejection: target("rejected"),
+    maxSubmissions: 1,
+  });
 }
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
+  if (path === "/variants") return variantsRecipe(origin, path);
   const multi = path === "/identity";
   const inputAdvance = path === "/input-advance";
   const inputSubmit = path === "/input-submit" || path === "/change-submit";
@@ -164,16 +199,18 @@ export const DEMO_PROBE_ACCOUNT: ProbeAccount = {
     { slot: "password", fieldId: "password" },
   ],
 };
+/** The account's mappings for `slots`, the slots of the route a login tries. */
 export function probeBinding(
   recipe: LoginRecipe,
-  account: ProbeAccount = DEMO_PROBE_ACCOUNT,
+  account: ProbeAccount,
+  slots: readonly string[],
 ): LoginAccountBinding {
   return {
     origin: recipe.origin,
     connectionId: account.connectionId,
     itemId: account.itemId,
-    // A recipe slot without an explicit mapping fails plan resolution; nothing is guessed.
-    slots: account.slots.filter((entry) => recipe.slots.includes(entry.slot)),
+    // A route slot without an explicit mapping fails plan resolution; nothing is guessed.
+    slots: account.slots.filter((entry) => slots.includes(entry.slot)),
   };
 }
 /**

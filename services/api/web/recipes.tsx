@@ -1,4 +1,9 @@
-import type { LoginRecipe, ManageRecipe } from "@pateat/contracts";
+import {
+  passwordVariants,
+  recipeSlots,
+  type LoginRecipe,
+  type ManageRecipe,
+} from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { describeError, ManageApiError, type ManageClient } from "./api";
@@ -34,6 +39,8 @@ function describeStep(step: Step): string {
 }
 
 function RecipeDetails({ recipe }: { recipe: LoginRecipe }) {
+  // A password route with several identifier sets lists each with its own steps (ADR 0027).
+  const variants = passwordVariants(recipe);
   return (
     <details className="space-y-2">
       <summary className="cursor-pointer text-teal-800">
@@ -41,7 +48,7 @@ function RecipeDetails({ recipe }: { recipe: LoginRecipe }) {
       </summary>
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
         <dt className="font-medium">Slots</dt>
-        <dd>{recipe.slots.join(", ")}</dd>
+        <dd>{recipeSlots(recipe).join(", ")}</dd>
         <dt className="font-medium">Completion</dt>
         <dd>
           {recipe.completion
@@ -64,15 +71,26 @@ function RecipeDetails({ recipe }: { recipe: LoginRecipe }) {
         <dt className="font-medium">Submissions</dt>
         <dd>At most {recipe.maxSubmissions}</dd>
       </dl>
-      <ol className="list-decimal space-y-1 pl-6">
-        {recipe.steps.map((step, index) => (
-          // Steps have no identity of their own; their order is the recipe.
-          // oxlint-disable-next-line no-array-index-key
-          <li key={index}>
-            <span className="text-slate-600">{step.path}</span> {describeStep(step)}
-          </li>
-        ))}
-      </ol>
+      {variants.map((variant, variantIndex) => (
+        // Variants have no identity of their own; the executor tries them in this order.
+        // oxlint-disable-next-line no-array-index-key
+        <section key={variantIndex} className="space-y-1">
+          {variants.length > 1 ? (
+            <h4 className="font-medium">
+              Identifier set {variantIndex + 1}: {variant.slots.join(", ")}
+            </h4>
+          ) : null}
+          <ol className="list-decimal space-y-1 pl-6">
+            {variant.steps.map((step, index) => (
+              // Steps have no identity of their own; their order is the recipe.
+              // oxlint-disable-next-line no-array-index-key
+              <li key={index}>
+                <span className="text-slate-600">{step.path}</span> {describeStep(step)}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))}
       <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-sm">
         {JSON.stringify(recipe, null, 2)}
       </pre>

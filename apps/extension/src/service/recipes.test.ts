@@ -425,22 +425,55 @@ describe("recipe sync", () => {
     expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
   });
 
-  it("lists the first step of every cached recipe for an origin", async () => {
+  it("lists where every cached recipe for an origin starts, with each variant's first step", async () => {
+    const contract = {
+      slots: ["contract"],
+      steps: [
+        {
+          kind: "fill" as const,
+          path: "/login",
+          effect: "prepare" as const,
+          fields: [{ slot: "contract", target: target("contract") }],
+        },
+        {
+          kind: "click" as const,
+          path: "/login",
+          target: target("go"),
+          purpose: "submit" as const,
+        },
+      ],
+    };
+    const single = recipe("bank-signin", "/login");
+    const varied = parseLoginRecipe({
+      ...recipe("bank-app", "/app/login"),
+      slots: ["username"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/app/login",
+          fields: [{ slot: "username", target: target("user") }],
+        },
+        { kind: "click", path: "/app/login", target: target("go"), purpose: "submit" },
+      ],
+      alternatives: [
+        { ...contract, steps: contract.steps.map((step) => ({ ...step, path: "/app/login" })) },
+      ],
+    });
     const stored = {
       version: 1,
       origin: SERVICE,
       deviceId: DEVICE,
       cursor: 1,
-      recipes: [recipe("bank-signin", "/login"), recipe("bank-app", "/app/login")],
+      recipes: [single, varied],
     };
     const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
-    expect((await sync.recipes.firstSteps(SITE)).map((step) => step.path)).toEqual([
-      "/login",
-      "/app/login",
+    expect(await sync.recipes.starts(SITE)).toEqual([
+      { path: "/login", steps: [single.steps[0]] },
+      { path: "/app/login", steps: [varied.steps[0], varied.alternatives![0]!.steps[0]] },
     ]);
-    expect(await sync.recipes.firstSteps("https://other.example")).toEqual([]);
+    expect(await sync.recipes.starts("https://other.example")).toEqual([]);
     await sync.clear();
-    expect(await sync.recipes.firstSteps(SITE)).toEqual([]);
+    expect(await sync.recipes.starts(SITE)).toEqual([]);
   });
 });
 

@@ -189,6 +189,22 @@ export async function startLoginFixture(
         }`,
         ),
       );
+    } else if (path === "/variants") {
+      // Two identifier sets for one sign-in (ADR 0027): a contract number, or a branch and
+      // account number, each with the password. The demo account maps only the second.
+      response.end(
+        html(
+          '<h1>Synthetic identifier sets</h1><label>Contract number<input id="contract" inputmode="numeric" maxlength="10"></label><label>Branch<input id="branch"></label><label>Account<input id="account" inputmode="numeric" maxlength="8"></label><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));
+          sessionStorage.setItem('contractFilled', String(document.getElementById('contract').value !== ''));
+          sessionStorage.setItem('identityMatched', String(document.getElementById('branch').value === '007' && document.getElementById('account').value === '00001234'));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          location.href = '/authenticated';
+        });`,
+        ),
+      );
     } else if (path === "/password") {
       // `?slow=1` renders the form four seconds after load, past the old three-second budget.
       const slow = fixtureUrl.searchParams.has("slow");

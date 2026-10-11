@@ -1,6 +1,6 @@
 import type { EvaluationCase, ExpectedResult } from "./corpus/cases";
 import type { AbstentionReason, InferenceErrorCode, InferenceOutcome } from "./outcome";
-import type { PlanRejection, ValidatedPagePlan } from "./plan";
+import type { GeneratedPageRejection, ValidatedPagePlan } from "./plan";
 import { checkPlanValues } from "./values";
 
 export type Verdict = "correct" | "correct-abstention" | "missed" | "false-submit" | "failed";
@@ -12,7 +12,7 @@ export type CaseResult = {
   status: InferenceOutcome<ValidatedPagePlan>["status"];
   reason?: AbstentionReason | InferenceErrorCode;
   /** Why the plan check rejected an `invalid-output` plan, so a failure can be read. */
-  detail?: PlanRejection;
+  detail?: GeneratedPageRejection;
   /** The provider's refusal category code for a `refused` case, when reported. */
   refusalCategory?: string;
   /** The executable plan in candidate IDs, so a wrong answer can be read against the truth. */
