@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
 import tailwindcss from "@tailwindcss/vite";
+import { MANIFEST_KEY } from "./manifest-key";
 
 /** CI sets PATEAT_REVISION, as for the service; a local build reads its own checkout. */
 function buildRevision(): string {
@@ -62,7 +63,9 @@ export default defineConfig({
       ? {
           host_permissions: ["https://*/*", "http://127.0.0.1/*"],
         }
-      : {}),
+      : // Fixed production ID for pairing (ADR 0020). The probe build keeps its
+        // path-derived ID so it never shares storage with the owner's production install.
+        { key: MANIFEST_KEY }),
   }),
   hooks: {
     "entrypoints:found"(wxt, entrypoints) {
