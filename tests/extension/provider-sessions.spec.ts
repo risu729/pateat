@@ -179,3 +179,79 @@ test("the native session store guards on the cache record and its own revision",
     });
   });
 });
+
+/** The service-worker APIs the alarm test drives; `chrome` exists only inside the worker. */
+type WorkerChrome = {
+  alarms: {
+    get(name: string): Promise<{ periodInMinutes?: number } | undefined>;
+    create(name: string, info: { when: number }): Promise<void>;
+  };
+  storage: {
+    local: {
+      get(key: string): Promise<Record<string, unknown>>;
+      set(items: Record<string, unknown>): Promise<void>;
+    };
+  };
+};
+
+test("the vault alarm checks the revision date and syncs only a changed vault", async () => {
+  await withVaultProfile(async (open, requests) => {
+    const browser = await open();
+    // Each worker start keeps a five-minute alarm (ADR 0025).
+    await expect
+      .poll(() =>
+        browser.background.evaluate(() =>
+          (globalThis as unknown as { chrome: WorkerChrome }).chrome.alarms
+            .get("pateat.vault-sync")
+            .then((alarm) => alarm?.periodInMinutes),
+        ),
+      )
+      .toBe(5);
+    const options = await browser.context.newPage();
+    await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
+    const accepted = await setupRequest(options, {
+      type: "connection.begin",
+      input: beginInput(),
+    });
+    if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
+    const before = await setupProbe(browser.page, { action: "status" });
+    expect(before).toMatchObject({ revisionCalls: 1, syncCalls: 1 });
+    const fire = () =>
+      browser.background.evaluate(async () => {
+        // Moves the last check out of the one-minute window, then fires the alarm now.
+        const { chrome } = globalThis as unknown as { chrome: WorkerChrome };
+        const key = "pateat.vault-sync-schedule.v1";
+        const record = (await chrome.storage.local.get(key))[key] as
+          | { connections: Record<string, { checkedAt?: number }> }
+          | undefined;
+        for (const entry of Object.values(record?.connections ?? {})) delete entry.checkedAt;
+        if (record) await chrome.storage.local.set({ [key]: record });
+        await chrome.alarms.create("pateat.vault-sync", { when: Date.now() });
+      });
+    const outcome = () =>
+      browser.background.evaluate(async (id) => {
+        const { chrome } = globalThis as unknown as { chrome: WorkerChrome };
+        const key = "pateat.vault-sync-schedule.v1";
+        const record = (await chrome.storage.local.get(key))[key] as
+          | { connections: Record<string, { outcome?: string }> }
+          | undefined;
+        return record?.connections[id]?.outcome;
+      }, accepted.connectionId);
+    await fire();
+    await expect.poll(outcome).toBe("unchanged");
+    expect(await setupProbe(browser.page, { action: "status" })).toMatchObject({
+      revisionCalls: 2,
+      syncCalls: 1,
+      tokenCalls: before.tokenCalls,
+    });
+    const snapshot = (await setupProbe(browser.page, { action: "inspect" })).catalogs[0]
+      ?.snapshotId;
+    await setupProbe(browser.page, { action: "configure", variant: "builtin-changed" });
+    await fire();
+    await expect.poll(outcome).toBe("synced");
+    const after = await setupProbe(browser.page, { action: "inspect" });
+    expect(after).toMatchObject({ revisionCalls: 3, syncCalls: 2, preloginCalls: 1 });
+    expect(after.catalogs[0]?.snapshotId).not.toBe(snapshot);
+    expect(requests).toEqual([]);
+  });
+});

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBitwardenTransport, type BitwardenProfile } from "@pateat/bitwarden";
+import { createVaultSyncRecords, type VaultApplyHold } from "./auto-sync";
 import { createConnectionSetupService } from "./setup";
 import { parseSetupReply } from "./wire";
 import type {
@@ -207,9 +208,31 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
       return { policyReviewItemIds: [] };
     }),
   };
+  // The revision-date check is answered here and counted apart, so `fetch` counts only
+  // the prelogin, token and sync requests.
+  const revisionResponses: { body: unknown; status: number }[] = [];
+  const revisionDate = vi.fn(async (_url: string, _init: RequestInit) => {
+    events.push("revision");
+    const next = revisionResponses.shift();
+    return new Response(JSON.stringify(next ? next.body : 1_792_152_000_000), {
+      status: next?.status ?? 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  const providerFetch = (url: string, init: RequestInit) =>
+    new URL(url).pathname.endsWith("/accounts/revision-date")
+      ? revisionDate(url, init)
+      : fetch(url, init);
   const transportFor = vi.fn((profile: BitwardenProfile) =>
-    createBitwardenTransport(profile, { fetch }),
+    createBitwardenTransport(profile, { fetch: providerFetch }),
   );
+  let revisionRecord: unknown;
+  const revisions = createVaultSyncRecords({
+    read: async () => structuredClone(revisionRecord),
+    write: async (record) => {
+      revisionRecord = structuredClone(record);
+    },
+  });
   const sessionMemory = memorySessionStore({
     profile: accountProfile,
     cacheRevision: () => (durable?.state === "active" ? durable.revision : null),
@@ -227,6 +250,7 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
       policy,
       vaultFor: () =>
         ({ store, manager }) as unknown as ReturnType<ConnectionSetupDependencies["vaultFor"]>,
+      revisions,
       nowMs: () => clock,
     });
   const service = build();
@@ -242,6 +266,9 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
     policy,
     store,
     fetch,
+    revisionDate,
+    revisionResponses,
+    revisions,
     transportFor,
     permissions,
     events,
@@ -826,6 +853,161 @@ describe("durable provider sessions", () => {
     // A second consecutive sync still works against the newly accepted cache revision.
     expect((await fresh.caller.sync(accountProfile.connectionId)).ok).toBe(true);
     expect(h.manager.accept).toHaveBeenCalledTimes(3);
+  });
+  const hold = (ready = true, take = true): VaultApplyHold & { released: () => boolean } => {
+    let released = false;
+    return {
+      ready: async () => ready,
+      take: async () =>
+        take
+          ? () => {
+              released = true;
+            }
+          : undefined,
+      released: () => released,
+    };
+  };
+  it("a password sign-in stores the revision date, and an unchanged vault is not synced again", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBe(1_792_152_000_000);
+    const fetches = h.fetch.mock.calls.length;
+    const accepts = h.manager.accept.mock.calls.length;
+    const fresh = h.restart();
+    expect(await fresh.service.autoSync(accountProfile.connectionId, hold())).toBe("unchanged");
+    expect(h.fetch).toHaveBeenCalledTimes(fetches);
+    expect(h.manager.accept).toHaveBeenCalledTimes(accepts);
+  });
+  it("a moved revision date syncs, accepts under the hold and stores the new date", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const accepts = h.manager.accept.mock.calls.length;
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    const held = hold();
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, held)).toBe("synced");
+    expect(h.manager.accept).toHaveBeenCalledTimes(accepts + 1);
+    expect(held.released()).toBe(true);
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBe(1_792_152_060_000);
+  });
+  it("a login in progress defers before the full sync, or after it without accepting", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const fetches = h.fetch.mock.calls.length;
+    const accepts = h.manager.accept.mock.calls.length;
+    const fresh = h.restart();
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    expect(await fresh.service.autoSync(accountProfile.connectionId, hold(false))).toBe("deferred");
+    expect(h.fetch).toHaveBeenCalledTimes(fetches);
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    expect(await fresh.service.autoSync(accountProfile.connectionId, hold(true, false))).toBe(
+      "deferred",
+    );
+    expect(h.fetch).toHaveBeenCalledTimes(fetches + 1);
+    expect(h.manager.accept).toHaveBeenCalledTimes(accepts);
+    // Nothing was applied, so the next check still sees a change.
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBe(1_792_152_000_000);
+  });
+  it.each([
+    { label: "null", response: { status: 200, body: null }, outcome: "synced" },
+    { label: "negative", response: { status: 200, body: -1 }, outcome: "account-deleted" },
+    { label: "429", response: { status: 429, body: {} }, outcome: "rate-limited" },
+    { label: "503", response: { status: 503, body: {} }, outcome: "failed" },
+  ] as const)("a $label revision date answers $outcome", async ({ response, outcome }) => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.revisionResponses.push(response);
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toBe(outcome);
+  });
+  it("a 401 on the revision date discards the session it used", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.revisionResponses.push({ status: 401, body: {} });
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toBe(
+      "reauthentication-required",
+    );
+    expect(h.sessionMemory.raw()).toBeUndefined();
+  });
+  it("a manual Sync still sends a full sync for an unchanged vault", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const fetches = h.fetch.mock.calls.length;
+    expect((await h.restart().caller.sync(accountProfile.connectionId)).ok).toBe(true);
+    expect(h.fetch).toHaveBeenCalledTimes(fetches + 1);
+  });
+  it("a manual Sync started with an automatic check waits for it and still syncs", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const fresh = h.restart();
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    let answer!: (ready: boolean) => void;
+    const auto = fresh.service.autoSync(accountProfile.connectionId, {
+      ready: () => new Promise<boolean>((resolve) => (answer = resolve)),
+      take: async () => undefined,
+    });
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    const before = h.fetch.mock.calls.length;
+    let finished = false;
+    const manual = fresh.caller.sync(accountProfile.connectionId).finally(() => {
+      finished = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(finished).toBe(false);
+    answer(false);
+    expect(await auto).toBe("deferred");
+    expect((await manual).ok).toBe(true);
+    expect(h.fetch).toHaveBeenCalledTimes(before + 1);
+  });
+  it("an automatic check that has not claimed anything yields to a manual Sync", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const fresh = h.restart();
+    const before = h.fetch.mock.calls.length;
+    const auto = fresh.service.autoSync(accountProfile.connectionId, hold());
+    const manual = fresh.caller.sync(accountProfile.connectionId);
+    expect(await auto).toBe("skipped");
+    expect((await manual).ok).toBe(true);
+    expect(h.fetch).toHaveBeenCalledTimes(before + 1);
+  });
+  it("a password sign-in stops an automatic check and waits for it", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    let answer!: (ready: boolean) => void;
+    const auto = h.service.autoSync(accountProfile.connectionId, {
+      ready: () => new Promise<boolean>((resolve) => (answer = resolve)),
+      take: async () => undefined,
+    });
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    let finished = false;
+    const signIn = h.caller
+      .begin({
+        kind: "existing",
+        connectionId: accountProfile.connectionId,
+        password: v1Password,
+        autoUnlock: "preserve",
+      })
+      .finally(() => {
+        finished = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(finished).toBe(false);
+    answer(true);
+    expect(await auto).toBe("skipped");
+    expect((await signIn).ok).toBe(true);
+  });
+  it("permission removal clears the stored revision date", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.permission(false);
+    await h.service.permissionsRemoved();
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBeUndefined();
+  });
+  it("forget clears the stored revision date", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    expect((await h.caller.forget(accountProfile.connectionId)).ok).toBe(true);
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBeUndefined();
+    expect(await h.service.autoSync(accountProfile.connectionId, hold())).toBe("skipped");
   });
   it("a sync failure after a committed rotation keeps the rotated token", async () => {
     const h = harness({ existing: true });

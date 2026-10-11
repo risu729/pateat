@@ -1,3 +1,4 @@
+import type { VaultSyncRecords } from "./auto-sync";
 import type {
   BitwardenMismatchCheck,
   BitwardenProfile,
@@ -138,6 +139,8 @@ export type ConnectionSetupDependencies = {
   registry: ConnectionRegistry;
   policy: ConnectionPolicy;
   sessions: Pick<ProviderSessions, "status" | "retain" | "acquire" | "forget" | "discard">;
+  /** Revision dates of applied syncs, so an automatic check can skip an unchanged vault. */
+  revisions?: Pick<VaultSyncRecords, "revision" | "setRevision" | "clear">;
   nowMs?: () => number;
   randomId?: () => string;
 };

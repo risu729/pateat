@@ -283,8 +283,9 @@ visible identifier values may ([ADR 0010](adr/0010-inference-field-hints.md)), a
 plan is checked against the real values locally before filling. After filling and before
 the click, the executor stops when the page marks a filled element invalid or shows a
 new alert. The executor runs both checks
-([Background execution](#background-execution)); the vault adapter does not supply the
-hints yet.
+([Background execution](#background-execution)). Automatic generation sends the
+username's shape when every matching item agrees
+([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)).
 
 Local field snapshots detach supported decrypted items from caller mutation.
 References bind connection, user, item and snapshot identity; custom fields use
@@ -393,7 +394,9 @@ generation: a tab's own page on whose path no recipe starts that shows a login f
 within 10 seconds and has a vault URI match is observed and sent at most once a day per
 origin and path, unless the tab holds an attempt record other than an account switch on
 that origin
-([ADR 0016](adr/0016-recipe-generation-trigger.md)). The returned recipe enters the
+([ADR 0016](adr/0016-recipe-generation-trigger.md)). Just before sending, it reads the
+matching items' usernames for their shape, sent only when all agree. The returned
+recipe enters the
 recipe cache and starts at once; after its final submission the resulting page is sent
 once to learn its completion ([ADR 0018](adr/0018-recipe-generation-route.md)).
 Inactive, frozen, discarded, and navigated documents are different states; only live
@@ -569,7 +572,8 @@ that exact page URL and returns a value-free summary
   for site access, the crypto host, each vault cache and sync sign-in
   (`refresh-required` is ok with automatic unlock, since the next Sync tries to renew
   the token, and info without it, since Sync needs the stored unlock key), the vault
-  copy's age (info, since the vault syncs only from the settings page), each
+  copy's age with the last automatic check and its outcome (info; warn when that check
+  failed, was rate limited, needs sign-in again or found the account deleted), each
   Bitwarden server's `/config` (warn when it fails or is not checked), service
   reachability, clock skew over 30 s against the service `Date` header, recipe
   generation (info without Claude credentials, warn when the issuer is missing or a

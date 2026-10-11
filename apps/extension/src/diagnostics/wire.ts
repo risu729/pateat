@@ -44,6 +44,21 @@ const connectionSchema = v.strictObject({
   /** The vault record's read failure, when it could not be read. */
   storageError: v.optional(code),
   acceptedAt: v.optional(time),
+  /** The last automatic revision check, its result and, after a 429, the next allowed one. */
+  checkedAt: v.optional(time),
+  checkOutcome: v.optional(
+    v.picklist([
+      "unchanged",
+      "synced",
+      "deferred",
+      "rate-limited",
+      "failed",
+      "reauthentication-required",
+      "account-deleted",
+      "skipped",
+    ]),
+  ),
+  nextCheckAt: v.optional(time),
   items: v.optional(
     v.strictObject({
       total: count,

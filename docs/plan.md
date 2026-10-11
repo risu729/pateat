@@ -16,16 +16,16 @@ has not yet called Anthropic from the deployed service. Open gates per milestone
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)), with tests over several
   tabs on one origin, are not implemented.
 - M3: a password login on a real site, individual MFA methods, other KDFs, V2 keys and
-  organization items on a real account, refresh against a real account, real
-  host-access revocation, and the site-access warning and prompt in installed Chrome
+  organization items on a real account, and the site-access warning and prompt in
+  installed Chrome
   ([remaining M3 integration gaps](#remaining-m3-integration-gaps)).
 - M4: sync against the deployed service, the
   [remaining M4 service gaps](#remaining-m4-service-gaps) (direct pairing, synced item
   selection and field exclusions ([ADR 0023](adr/0023-synced-vault-policy.md)), a WIF
   token exchange against Anthropic) and the remaining M4 AI work under
   [AI evaluation harness progress](#ai-evaluation-harness-progress) (continuing after an
-  `advance` step, naming `accountSwitch`, ADR 0010 hints, `checkPlanValues` and the
-  post-fill check in the executor, the real-page corpus) and the finite-choice role.
+  `advance` step, a Claude baseline on the real-page corpus) and the finite-choice
+  role.
 - M5: the passkey chooser window
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)) in installed Chrome (it is
   implemented and tested in Playwright Chromium only), real sites that wrap `get`
@@ -492,6 +492,14 @@ that provider, a rejected refresh or access token, and a mismatched account cont
 clear only the sync session. Startup only reads state; the settings page shows sync
 sign-in and automatic unlock separately and labels forget as local.
 
+Automatic sync is implemented as [ADR 0025](adr/0025-automatic-vault-sync.md) describes:
+page and passkey events and a five-minute alarm check the revision date at most once a
+minute, and a full sync runs only when it moved and no login is in progress. Unit tests
+cover the schedule, the replacement hold, the revision outcomes and manual Sync; an
+isolated Chromium test fires the alarm against the synthetic probe. The trigger after a
+missing item and the custom-field comparison are not implemented, and automatic sync is
+not yet verified in installed Chrome or against a real account.
+
 Unit tests cover claims, rotation, concurrent writers, forget and permission races,
 expiry from the token's own claims, and per-provider permission loss. Isolated Chromium
 tests cover the native session store's guards and readback, two password-free syncs
@@ -499,8 +507,12 @@ after a full profile reopen, and local forget and permission removal with offlin
 kept. These use synthetic providers.
 An
 [installed-Chrome check](research/2026-10-10-feasibility.md#installed-chrome-provider-session-check-2026-10-10)
-confirmed a password-free Sync after a full browser restart with the synthetic probe.
-Refresh against a real account and real host-access revocation remain unverified.
+confirmed a password-free Sync after a full browser restart with the synthetic probe. On
+2026-10-11 the owner's installed Chrome confirmed, with the real Cloud US account, two
+password-free refreshes separated by a full browser restart, and that changing site
+access to "On click" cleared only the sync session while the local vault and automatic
+unlock stayed
+([evidence](research/2026-10-10-feasibility.md#real-account-refresh-and-host-access-revocation-2026-10-11)).
 
 ## Service sync progress
 
@@ -667,10 +679,19 @@ tests cover it.
 ### Remaining M4 service gaps
 
 - Pairing in installed Chrome against the deployed service
-  ([ADR 0020](adr/0020-direct-device-pairing.md)): after release, the owner removes
-  `redeem` from the "pateat bypass" Access application, notes its cookie settings, and
-  runs the
+  ([ADR 0020](adr/0020-direct-device-pairing.md)): note the Access application's cookie
+  settings and run the
   [installed Chrome pairing check](development.md#installed-chrome-service-pairing).
+  After `79a1424` was released, `redeem` was removed from the "pateat bypass" Access
+  application on 2026-10-11 at about 14:00 UTC; it now lists only `/v1/*`, `/health`
+  and the two `/.well-known` issuer paths. An anonymous `GET` or `POST /redeem` then
+  got Access's `403` instead of the Worker's `404`, while `/health`, `/v1/settings`
+  (`401`) and both `/.well-known` paths still reached the Worker.
+  On 2026-10-11 the production build of `e7c7014` was installed in the owner's Chrome
+  156.0.8078.16 with ID `ekcnbbomcllhpomkeofikjagmjoibffk`. Pairing from the settings
+  page while signed in to Access finished in one click with "This device is paired.",
+  and `/manage` listed the new device "risu-thinkpad Chrome" as paired at 14:00 UTC
+  (check step 2). Step 3 (signed out) and the cookie settings are not recorded yet.
 - Settings that use device-local connection IDs, such as item selection and field
   exclusions, are not synced yet.
   [ADR 0023](adr/0023-synced-vault-policy.md) decides their synced form and custom-field
@@ -886,9 +907,11 @@ username or Text field value, and observations carry page `maxLength`, `minLengt
 `inputMode`. `checkPlanValues` checks a plan against the real values before filling and
 turns a mismatch into a `value-mismatch` abstention; the harness applies it when a case
 carries synthetic values. The executor applies the same check to the real inputs before
-filling. The vault adapter and runtime do not supply these hints yet.
-`valueShapeOf` takes `{ source: "username" | "text", value }`, so the adapter must
-resolve Linked fields and never pass Hidden, password or TOTP values.
+filling. Automatic generation sends the username's shape when every matching item
+agrees ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)); `fieldName`
+waits for custom-field slots. `valueShapeOf` (`packages/contracts/src/values.ts`) takes
+`{ source: "username" | "text", value }`, so a caller must resolve Linked fields and
+never pass Hidden, password or TOTP values.
 
 For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a later
@@ -982,6 +1005,11 @@ The second owner-approved run (2026-10-10, main `d105f76`, cap $2) gave:
 must abstain still do. With one sample per case this cannot show that the refusal will
 not recur; no refusal occurred, so no category was observed. Remaining M4 AI work:
 
+- Login routes and second-factor pages chosen per account
+  ([ADR 0027](adr/0027-per-account-login-routes.md)), approved by the owner on
+  2026-10-11: custom-field names and Text shapes in generation, page handlers for a
+  security key and TOTP learned by the judge, start-page routes (password variants,
+  passkey, SSO), in the PR order the ADR lists.
 - Continuing a generated recipe on the page after an `advance` step, through the
   generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
   extension already sends a recipe's first page under the automatic send rule of
@@ -1004,9 +1032,6 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   recipe starts is offered for generation (the service keeps one generated recipe per
   start path). The extractor locates a link by its text and the generation role may
   name the page's `accountSwitch`, so a generated recipe carries it
-  ([Background execution](architecture.md#background-execution)).
-- Supplying ADR 0010 hints from the vault adapter. The executor runs the local value
-  check before filling and the post-fill check before the click
   ([Background execution](architecture.md#background-execution)).
 - Japanese pages for the real-page corpus. The owner chose on 2026-10-11 to take them
   from both public login pages opened in the owner's Chrome and the request log. The
