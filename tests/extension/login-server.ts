@@ -192,8 +192,10 @@ export async function startLoginFixture(
         '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
       response.end(
         html(
-          `<h1>Synthetic password step</h1><main id="app">${slow ? "" : form}</main>`,
-          `${slow ? `setTimeout(() => { document.getElementById('app').innerHTML = ${JSON.stringify(form)}; bindLogin(); }, 4000);` : ""}
+          slow
+            ? `<h1>Synthetic password step</h1><main id="app"></main><template id="login-form">${form}</template>`
+            : `<h1>Synthetic password step</h1><main id="app">${form}</main>`,
+          `${slow ? "setTimeout(() => { document.getElementById('app').append(document.getElementById('login-form').content.cloneNode(true)); bindLogin(); }, 4000);" : ""}
           function bindLogin() { document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
@@ -255,8 +257,7 @@ export async function startLoginFixture(
       const form =
         '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
       const body = {
-        "/spa":
-          '<h1>Synthetic app home</h1><button id="open-login" type="button">Go to sign-in</button><main id="app"></main>',
+        "/spa": `<h1>Synthetic app home</h1><button id="open-login" type="button">Go to sign-in</button><main id="app"></main><template id="login-form">${form}</template>`,
         "/spa-login": `<h1>Synthetic app sign-in</h1><main id="app">${form}</main>`,
         "/dialog": `<h1>Synthetic dialog login</h1><button id="open-login" type="button">Sign in</button><div id="app" hidden>${form}</div>`,
         "/slow-button":
@@ -279,7 +280,7 @@ export async function startLoginFixture(
             ? `document.getElementById('open-login').addEventListener('click', () => {
           history.pushState({}, '', '/spa-login');
           setTimeout(() => {
-            document.getElementById('app').innerHTML = ${JSON.stringify(form)};
+            document.getElementById('app').append(document.getElementById('login-form').content.cloneNode(true));
             bindLogin();
           }, 300);
         });`
