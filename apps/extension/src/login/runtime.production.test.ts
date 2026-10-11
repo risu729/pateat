@@ -14,7 +14,13 @@ import type { LoginFieldSource } from "./vault";
 const fake = vi.hoisted(() => {
   const state = {
     storage: {} as Record<string, unknown>,
-    messages: [] as { type: string; values?: { slot: string; value: string }[] }[],
+    messages: [] as {
+      type: string;
+      values?: { slot: string; value: string }[];
+      account?: { username: string };
+    }[],
+    /** Overrides the document's answer to an execution, such as a wrong-account refusal. */
+    executeReply: undefined as undefined | { ok: boolean; reason?: string },
     granted: true,
     pageUrl: "https://login.example/signin",
     onExecute: undefined as
@@ -86,7 +92,8 @@ const fake = vi.hoisted(() => {
             ok: true,
             operationId: operation.operationId,
             documentId: operation.document.documentId,
-            mutation: "possible",
+            mutation: state.executeReply && !state.executeReply.ok ? "none" : "possible",
+            ...state.executeReply,
           };
         }
         return { ok: true };
@@ -163,6 +170,8 @@ function harness(
     quarantined?: boolean;
     /** Adds a second, not enabled connection of the same provider account. */
     duplicateAccount?: boolean;
+    /** Adds a login username field to the item. */
+    username?: boolean;
     /** Replaces the item's custom fields. */
     custom?: {
       name: string | null;
@@ -224,6 +233,16 @@ function harness(
                 allowedOrigins: live.allowedOrigins ?? [origin],
                 groupIds: [],
                 fields: [
+                  ...(live.username
+                    ? [
+                        {
+                          id: "login.username",
+                          label: "Username",
+                          name: null,
+                          kind: "text" as const,
+                        },
+                      ]
+                    : []),
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
                   ...(live.custom ?? [{ name: "Branch", kind: "text" as const }]).map(
                     (field, index) => ({
@@ -306,6 +325,7 @@ describe("production login document admission", () => {
     fake.state.present = undefined;
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
     fake.state.gone = new Set();
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
@@ -328,6 +348,37 @@ describe("production login document admission", () => {
       account: { origin, connectionId, itemId },
       fieldId: "login.password",
     });
+  });
+  it("sends the username with a password-only fill and stops on a wrong displayed account", async () => {
+    fake.state.executeReply = { ok: false, reason: "wrong-account" };
+    const h = harness({}, { username: true });
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
+        { state: "blocked", outcome: "wrong-account", submissions: 0, retries: 0 },
+      ]),
+    );
+    const executes = fake.state.messages.filter((entry) => entry.type === "login.execute");
+    // The fill is refused once and never retried; the click never runs.
+    expect(executes).toHaveLength(1);
+    expect(executes[0]!.account).toEqual({ username: "my2@example.com" });
+    expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual([
+      "login.password",
+      "login.username",
+    ]);
+  });
+  it("does not compare the page when the item has no username", async () => {
+    const h = harness();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
+    );
+    expect(
+      fake.state.messages.filter((entry) => entry.type === "login.execute" && entry.account),
+    ).toEqual([]);
   });
   it.each([
     ["an origin without a saved default", "https://other.example/signin"],
@@ -1125,6 +1176,31 @@ describe("production login document admission", () => {
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
     });
+    it.each<[string, Parameters<typeof harness>[1], boolean]>([
+      ["a text custom field", { username: true, custom: [{ name: "Branch", kind: "text" }] }, true],
+      [
+        "a custom field Linked to the username",
+        {
+          username: true,
+          custom: [{ name: "Branch", kind: "linked", linkedFieldId: "login.username" }],
+        },
+        false,
+      ],
+    ])(
+      "compares the page on a password step with %s only when it fills no username",
+      async (_name, live, compared) => {
+        const h = harness({ bindings: [branchBinding] }, live);
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(branchRecipe);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).not.toEqual([]));
+        expect(executes()[0]!.account).toEqual(
+          compared ? { username: "my2@example.com" } : undefined,
+        );
+      },
+    );
     it.each<[string, Parameters<typeof harness>[1], Partial<LocalSettings>, string]>([
       [
         "two custom fields share the bound name",

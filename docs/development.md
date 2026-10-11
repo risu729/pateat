@@ -33,6 +33,16 @@ the task graph. Bun manages dependencies; pinned supported Node executes tools
 that require it, notably cf. Commit mise and Bun lockfiles after resolving them,
 never hand-author a purported installed dependency graph.
 
+A development tool used only as a command is a mise tool, not a devDependency: the
+TypeScript compiler is `npm:typescript` in `mise.toml`, so `tsc` comes from mise. A
+package that code or configuration imports stays in `package.json` even when it also has
+a command, as cf (`cloudflare.config.ts`), drizzle-kit (`drizzle.config.ts`), WXT,
+Vitest and Playwright do. Each version is pinned in one place only; Bun's version is the
+`bun` tool in `mise.toml`, with no `packageManager` field. Bun still installs TypeScript
+into its store as a peer of `@risu729/tsconfigs` and an optional peer of WXT and
+Valibot; no task uses that copy, and it can lag the mise pin until the Bun lock is
+refreshed.
+
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
 release tag. hk provides the single complete check entrypoint,
 delegating work to mise. Avoid recursion between hk check and mise checks.
@@ -257,9 +267,15 @@ this rule; compatibility from then on needs its own decision.
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other
 owner repositories. Its GitHub App covers this repository; scanning the package
 files starts after `renovate.json` reaches the default branch. Cloudflare build
-and test dependencies are grouped and allow prereleases. TypeScript, its shared
-preset and type packages are grouped so peer requirements can be reviewed
-together. Updates still have to pass the repository's required checks.
+and test dependencies are grouped and allow prereleases; `@cloudflare/vite-plugin`
+follows its `beta` dist-tag, because its `2.0.0-beta.sha-<commit>` versions do not
+sort by release date. TypeScript, its shared preset and type packages are grouped so
+peer requirements can be reviewed together. Minor and patch updates of mise tools
+share one branch, so each Renovate run regenerates `mise.lock` once. Python is
+excluded from that group and each Python minor gets its own update: mise installs
+pypi tools such as yamllint without building, and a new Python minor can lack
+wheels for them (3.15.0 had no PyYAML 6.0.3 wheel). Updates still have to pass the
+repository's required checks.
 
 Renovate tracks the release-tagged hk-config imports through the shared preset. The
 typed Cloudflare compatibility date remains reviewed manually: the shared preset's date

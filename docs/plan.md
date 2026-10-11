@@ -828,7 +828,10 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   they differ (`myaccount@example.com` shown while `my2@example.com` is selected), it
   fills nothing, clicks the recipe's optional `accountSwitch` target and restarts from
   the first step; without one it stops with `wrong-account`. A masked value consistent
-  with the username (`m***@example.com`) cannot be told apart and proceeds.
+  with the username (`m***@example.com`) cannot be told apart and proceeds. The
+  comparison and the `wrong-account` stop are implemented
+  ([Background execution](architecture.md#background-execution)); `accountSwitch` and
+  the restart are not yet.
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
 - A real-page corpus per ADR 0012.

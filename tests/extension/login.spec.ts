@@ -665,6 +665,32 @@ test("abstains without a saved account and does not try another eligible item", 
   }
 });
 
+test("a password-only page that shows another account is not filled", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      // The demo account's username is 00001234.
+      const other = await context.newPage();
+      await other.goto(`${fixture.origin}/single?shown=****9999`);
+      await expect.poll(status).toContain("wrong-account");
+      await expect(other.locator("#password")).toHaveValue("");
+      expect(await clicks(other)).toBe(0);
+      await other.close();
+      await expect.poll(status).not.toContain("wrong-account");
+      const same = await context.newPage();
+      await same.goto(`${fixture.origin}/single?shown=****1234`);
+      await expect(same.locator("#authenticated")).toBeVisible();
+      expect(await clicks(same)).toBe(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("clicks a submit button or image button named by its text, and refuses a duplicate", async () => {
   const fixture = await startLoginFixture();
   try {
