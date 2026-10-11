@@ -955,8 +955,9 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   switch click and the new attempt on the next page are implemented
   ([Background execution](architecture.md#background-execution)), and a page where no
   recipe starts is offered for generation (the service keeps one generated recipe per
-  start path). Still to do: naming `accountSwitch`
-  (including link text) in the extractor and the generator.
+  start path). The extractor locates a link by its text and the generation role may
+  name the page's `accountSwitch`, so a generated recipe carries it
+  ([Background execution](architecture.md#background-execution)).
 - Supplying ADR 0010 hints from the vault adapter, and running `checkPlanValues` and
   the post-fill check before the click in the executor.
 - A real-page corpus per ADR 0012.
@@ -1038,10 +1039,24 @@ current site's default and exclusion, choosing among several password matches th
 the same tab. They land as separate PRs in that order. The toolbar popup is implemented:
 clicking the icon opens `popup.html` for the active HTTPS tab, which shows whether the
 site is excluded and lists the vault items that match its origin as the default account.
-A rule for a parent domain that includes subdomains is shown but changed only in
-settings. The passkey chooser window is implemented: a request matching several
+A rule that includes subdomains is shown but changed only in settings, because it also
+covers other sites.
+
+When several items match a page and no default is saved, the refused document is
+recorded and the tab's icon shows the count as a badge. The popup then lists only those
+candidates. The waiting choice and a pick are kept in `chrome.storage.session`
+(`pateat.login-choices.v1`, `pateat.login-picks.v1`), so a restarted service worker asks
+the refused document to announce again and offers the same choice, or clears the badge
+when the document is gone. A default saved for the site meanwhile ends the choice. The
+background sends `login.reconnect` to the refused document only and answers the popup
+once that document's announce is handled. A pick applies to that document and then to
+the attempt it started, wins over a saved default there, and still has to match the
+page and pass every policy check; a pick that starts nothing is dropped, so the form's
+next appearance asks again. "Make it the default for this site" (on by default,
+off in a private window) saves the pick through the existing choice save after
+`authenticated`. The passkey chooser window is implemented: a request matching several
 passkeys, none of them the site default, opens `passkey-picker.html` to choose one once
-or as the default. Choosing among several matches for a refused login is not built yet.
+or as the default. Choosing again after a logout (part D) is not built yet.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
@@ -1049,9 +1064,9 @@ API keys, SSO or device approval; external email/SMS OTP and magic links; and se
 authorized post-login actions, including transactions and approvals. UI extensions,
 automatic account switching (logging out and in again when another account is picked
 while logged in, recorded in ADR 0021), a mode without the service, direct AI, recipe
-sharing, additional service auth, E2EE settings sync, MCP and Vaultwarden support are
-also deferred. They are extension points, not implicit permissions or initial acceptance
-requirements.
+sharing, additional service auth, E2EE settings sync, MCP, Vaultwarden support and
+vaults other than Bitwarden are also deferred. They are extension points, not implicit
+permissions or initial acceptance requirements.
 
 ## Ordered milestones
 

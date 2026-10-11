@@ -192,6 +192,29 @@ artifact smoke test executes that bundle in workerd. None of this demonstrates a
 deployed service or the service acceptance gates in
 [the delivery plan](../../docs/delivery.md).
 
+## Hosted smoke checks
+
+After each release activates and `/health` reports its revision, the deploy job runs
+`smoke/hosted.ts` against the hosted server. It checks that `/manage` and
+`/manage/api/devices` are answered by Access even with a forged
+`Cf-Access-Jwt-Assertion`. It then seeds two synthetic owners with IDs starting
+`smoke-`, each with one device whose credential it generates and stores only as a
+SHA-256 digest, through the D1 REST API with the deploy token. Pairing a device needs
+an owner's Access sign-in, so the job writes the device itself; synthetic owners get no
+`owner_identities` row, so no sign-in can reach them. Over HTTPS the checks cover
+missing and unknown credentials, settings and recipe round trips, owners neither seeing
+nor changing each other's data, and `DELETE /v1/device` followed by `device_revoked`.
+Every row of every `smoke-` owner is deleted before and after the checks, also after a
+failed check. A run killed by its timeout or a cancel leaves its rows until the next
+release removes them; their device credentials were never stored or printed. Cleanup
+removes every `smoke-` owner, so the checks run only inside the deploy job's
+`server-production` lock. A failed check fails the release. The checks never call
+inference.
+
+`test/hosted-smoke.test.ts` runs the same checks against the local Worker, so a
+contract or schema change that would break them fails CI first; it also requires
+`OWNER_TABLES` to list every table with an `owner_id` column, which cleanup depends on.
+
 The Worker bundles `packages/contracts` and `packages/inference`, which are
 GPL-3.0-only, and the Apache-2.0 AI SDK. Running it is not
 conveying it, but assess that combination as [LICENSING.md](../../LICENSING.md)
