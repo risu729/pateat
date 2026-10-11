@@ -4,7 +4,9 @@ Status: accepted by the owner on 2026-10-10. The adapter and the benchmark runne
 implemented in `packages/inference`. The first approved benchmark run on 2026-10-10
 had semantic accuracy 0.9375, no false submits and one refusal; after the instruction
 change below, the second run had 1.0 with no refusal. Results are in
-[the plan](../plan.md#ai-evaluation-harness-progress).
+[the plan](../plan.md#ai-evaluation-harness-progress). Amended by
+[ADR 0015](0015-per-owner-claude-credentials.md): the service uses per-owner
+credentials instead of one operator key.
 
 Date: 2026-10-10
 
@@ -26,7 +28,9 @@ monthly Claude API credit and chose the model. The offline harness in
 - The adapter uses the official AI SDK provider `@ai-sdk/anthropic`, version-matched
   to the pinned `ai` package.
 - The API key stays on the server as a Worker secret, as ADR 0003 requires. The
-  extension never holds it.
+  extension never holds it. [ADR 0015](0015-per-owner-claude-credentials.md) replaces
+  this operator key with credentials each owner brings, starting with Workload
+  Identity Federation.
 - The default monthly spending limit is $150 against the $200 credit, leaving room
   for the overshoot ADR 0003 allows from in-flight and concurrent requests.
 - Anthropic's server-side `fallbacks` parameter is not used. A refusal, overload or
