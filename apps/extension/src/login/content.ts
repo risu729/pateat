@@ -86,6 +86,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       observer.observe(document, {
         subtree: true,
         childList: true,
+        // Button text locators also depend on text, `value`, `alt` and hidden subtrees.
+        characterData: true,
         attributes: true,
         attributeFilter: [
           "id",
@@ -98,6 +100,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "open",
           "disabled",
           "readonly",
+          "value",
+          "alt",
+          "aria-hidden",
+          "inert",
         ],
       });
       addEventListener("popstate", schedule);
