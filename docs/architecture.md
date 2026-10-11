@@ -325,7 +325,9 @@ service's owner-authenticated web UI
 page handles vault connection, re-authentication, unlock and service pairing, and still
 edits local policy, exclusions and account defaults. The toolbar popup edits only the
 active tab's site default account and exclusion, through the same worker-owned store
-([ADR 0021](adr/0021-account-choice-outside-settings.md)). Chrome
+([ADR 0021](adr/0021-account-choice-outside-settings.md)). Item selection, field
+exclusions and custom-field review stay on the extension's settings page once synced
+([ADR 0023](adr/0023-synced-vault-policy.md)). Chrome
 use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
@@ -873,7 +875,9 @@ Status: design approved by the owner on 2026-10-11. The app, its Access-checked 
 and API, and the devices, sites, account bindings and recipes pages are implemented,
 tested locally and deployed with the service. It replaces the extension's settings page
 for the data the service holds
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)), except item selection,
+field exclusions and custom-field review, which need the device's vault catalog
+([ADR 0023](adr/0023-synced-vault-policy.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the

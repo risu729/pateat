@@ -74,16 +74,20 @@ The settings document gains two lists, so that a merge works per account and per
 - Keys are `provider` + `server` + `userId` for an account and the same plus `itemId`
   for an item. The existing three-way settings merge uses them; a whole entry wins.
 - `server` is `"cloud-us"`, `"cloud-eu"` or a self-hosted server's normalized origin
-  (`normalizeBitwardenProfile`'s `url.origin`). It is added to the keys of `bindings`
-  and `siteDefaults` too, and to catalog connections, because a self-hosted server can
-  return any user ID. A connection whose `provider` and `userId` match an entry but
-  whose `server` differs is refused like `account-ambiguous`, so its exclusions are
-  never silently dropped. Self-hosted server origins are therefore stored on the
-  service.
+  (`normalizeBitwardenProfile`'s `url.origin`), because a self-hosted server can return
+  any user ID. It is also added to catalog connections, to the account reference of
+  `bindings` and `siteDefaults`, and to the binding merge key; site defaults stay keyed
+  by origin. A connection whose `provider` and `userId` match an entry but whose
+  `server` differs is refused like `account-ambiguous`, so its exclusions are never
+  silently dropped. Self-hosted server origins are therefore stored on the service.
+- The same account connected twice on one device is refused as `account-ambiguous`, as
+  for site defaults. A locked connection whose `userId` is unknown stays
+  `vault-unavailable`.
 - `enabled` is synced in `accountPolicies`; an account with no entry is not used, as a
   new connection is disabled today. Disabled connections stay unlocked and can be synced
-  by hand, but are not used for login or passkeys. A device that should differ will use
-  another settings profile, which the owner asked to design for (recorded separately).
+  by hand, but are not used for login or passkeys and are left out of automatic vault
+  sync. A device that should differ will use another settings profile, which the owner
+  asked to design for (recorded separately).
 - Built-in fields keep their IDs. A custom field is named like a binding reference, by
   name with `position` (from 1) and `count` among fields of that name, but it is a
   separate type: `count` may be 1, and unnamed fields (catalog `name: null`, including
@@ -92,7 +96,8 @@ The settings document gains two lists, so that a merge works per account and per
   `position` now ambiguous) blocks the item until it is reviewed; an exclusion never
   silently stops applying.
 - Names (`accountName`, `groups[].name`, `itemName`) are for display only.
-- Local `connections[]` keeps only `connectionId`. The device applies the synced lists
+- Local `connections[]` keeps only `connectionId`, plus `enabled` for the unsynced
+  `dummy` provider of the preview and probe builds. The device applies the synced lists
   to its live catalog at each eligibility check, as bindings are resolved today.
   `fieldPolicies` is removed.
 - Limits: 100 `accountPolicies`, 1,000 `itemPolicies` and 1,000 `customFieldReviews`, 50
@@ -102,9 +107,10 @@ The settings document gains two lists, so that a merge works per account and per
 ### First settings sync
 
 A paired device records whether a settings sync has completed since pairing and does not
-log in, with any item, until one has. This covers a reinstall that connects its vault
-before or after pairing. A sync whose merge does not fit is not a completed sync, and a
-device rejected with 401 stays blocked. A device that was never paired is unaffected.
+use any vault item, for login or passkey assertions, until one has. This covers a
+reinstall that connects its vault before or after pairing. A sync whose merge does not
+fit is not a completed sync, and a device rejected with 401 stays blocked. A device that
+was never paired is unaffected.
 
 ### Editing and trust
 
@@ -136,9 +142,11 @@ Review state is synced per item:
 
 - `evidence` is the SHA-256 of the encrypted custom-field evidence the device already
   compares (`customEvidence`: the cipher's sealed `data` or encrypted `fields`, its
-  `key` and `organizationId`), serialized in a fixed order. Pateat passes the server's
-  ciphertext through unchanged, so every device computes the same value for the same
-  item revision. Only this hash reaches the service, never names or values.
+  `key` and `organizationId`), serialized in a fixed order. The `bitwarden-v1:` prefix
+  names the provider and that serialization, so another provider or a later format uses
+  its own prefix. Pateat passes the server's ciphertext through unchanged, so every
+  device computes the same value for the same item revision. Only this hash reaches the
+  service, never names or values.
 - `revisionDate` is the cipher's raw `revisionDate`, compared as an instant.
 - An item with custom-field exclusions (or a review record) is usable when its current
   evidence matches. Otherwise:
@@ -149,10 +157,14 @@ Review state is synced per item:
 - When the evidence changed but the custom fields themselves did not (Bitwarden
   re-encrypts the whole item on every save), the device compares the old and new
   decrypted custom fields inside the crypto host and, if they are equal, writes the new
-  evidence as reviewed without asking. That comparison belongs to the automatic vault
+  evidence as reviewed without asking. This also covers a Bitwarden key rotation, which
+  changes the evidence of every item. That comparison belongs to the automatic vault
   sync design; a device without the old snapshot relies on the synced record.
 - Adding the first custom-field exclusion records the current evidence. A review starts
   with every current custom field excluded, as today.
+- An item waiting for review is reported on the settings page and in the toolbar popup.
+  A review made on one device takes effect on another at that device's next settings
+  sync, so its first login there may still be refused.
 - Records are not deleted because an item is missing locally, since a stale vault cannot
   tell a new item from a deleted one.
 - Reviews from different devices merge per item; when two devices change the same item
