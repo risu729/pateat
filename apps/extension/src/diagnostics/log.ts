@@ -672,7 +672,8 @@ export function formatLogExport(
 
 export const RECENT_PROBLEMS = 10;
 export const RECENT_WINDOW_MS = 24 * HOUR_MS;
-const RECENT_LINE_LENGTH = 2048;
+export const RECENT_LINE_LENGTH = 2048;
+export const RECENT_DELEGATION_REASONS = 32;
 
 /** The log's part of "Copy for bug report"; sites are always numbered. */
 export type RecentLog = {
@@ -689,7 +690,13 @@ export function recentLog(entries: readonly LogEntry[], now: number): RecentLog 
   const substitute = siteSubstitution();
   const newest = [...entries].sort((a, b) => b.time - a.time);
   const problems = newest
-    .filter((entry) => (entry.level === "warn" || entry.level === "error") && entry.time >= since)
+    // A far-future time (a wrong clock) is left out rather than listed first.
+    .filter(
+      (entry) =>
+        (entry.level === "warn" || entry.level === "error") &&
+        entry.time >= since &&
+        entry.time <= now + RECENT_WINDOW_MS,
+    )
     .slice(0, RECENT_PROBLEMS)
     .map((entry) =>
       [
@@ -722,7 +729,7 @@ export function recentLog(entries: readonly LogEntry[], now: number): RecentLog 
       : {}),
     passkeyDelegations: [...delegations]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 32)
+      .slice(0, RECENT_DELEGATION_REASONS)
       .map(([reason, count]) => ({ reason, count })),
   };
 }

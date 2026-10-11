@@ -99,6 +99,26 @@ const serviceSchema = v.strictObject({
   health: v.optional(healthSchema),
 });
 
+/**
+ * `recentLog` in `log.ts`: lines of at most `RECENT_LINE_LENGTH`, `RECENT_PROBLEMS` lines,
+ * `RECENT_DELEGATION_REASONS` reasons, and its revision and code checks.
+ */
+export const recentLogSchema = v.strictObject({
+  problems: v.pipe(v.array(v.pipe(v.string(), v.maxLength(2048))), v.maxLength(10)),
+  updated: v.optional(
+    v.strictObject({ time, from: v.pipe(v.string(), v.regex(/^[0-9A-Za-z._-]{1,64}$/u)) }),
+  ),
+  passkeyDelegations: v.pipe(
+    v.array(
+      v.strictObject({
+        reason: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
+        count,
+      }),
+    ),
+    v.maxLength(32),
+  ),
+});
+
 export const diagnosticsStatusSchema = v.strictObject({
   version: v.literal(1),
   collectedAt: time,
@@ -133,23 +153,7 @@ export const diagnosticsStatusSchema = v.strictObject({
     }),
   ),
   /** The log's lines for a bug report; sites are numbered apart from the download. */
-  recent: v.optional(
-    v.strictObject({
-      problems: v.pipe(v.array(v.pipe(v.string(), v.maxLength(2048))), v.maxLength(10)),
-      updated: v.optional(
-        v.strictObject({ time, from: v.pipe(v.string(), v.regex(/^[0-9A-Za-z._-]{1,64}$/u)) }),
-      ),
-      passkeyDelegations: v.pipe(
-        v.array(
-          v.strictObject({
-            reason: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
-            count,
-          }),
-        ),
-        v.maxLength(32),
-      ),
-    }),
-  ),
+  recent: v.optional(recentLogSchema),
   /** Up to four per connection plus the build, service, recipe and log checks. */
   checks: v.pipe(v.array(checkSchema), v.maxLength(320)),
 });

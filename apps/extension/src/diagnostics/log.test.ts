@@ -14,6 +14,8 @@ import {
   type LoggerDependencies,
 } from "./log";
 import { createPseudonyms } from "./pseudonym";
+import { recentLogSchema } from "./wire";
+import * as v from "valibot";
 
 // Runs in Chromium (vitest browser mode) for IndexedDB and WebCrypto.
 const NOW = Date.UTC(2026, 9, 11, 10, 35);
@@ -397,6 +399,37 @@ describe("recent log for a bug report", () => {
     const text = JSON.stringify(all);
     for (const secret of ["bank.example", "bank-signin", "owner@example.com", "Secret"])
       expect(text).not.toContain(secret);
+    expect(v.is(recentLogSchema, recent)).toBe(true);
+    expect(v.is(recentLogSchema, all)).toBe(true);
+  });
+
+  it("stays within what the page accepts at every limit", () => {
+    const long = `https://${"a".repeat(500)}.example`;
+    const entries = [
+      ...Array.from({ length: 12 }, (_, index) =>
+        entry(NOW - index, "warn", "log.dropped", { origin: TRUNCATED, count: index }),
+      ),
+      entry(NOW, "warn", "login.attempt", {
+        origin: long,
+        recipe: "r".repeat(120),
+        state: TRUNCATED,
+        outcome: TRUNCATED,
+      }),
+      ...Array.from({ length: 40 }, (_, index) =>
+        entry(NOW - 1_000, "info", "passkey.request", {
+          outcome: "delegate",
+          reason: `reason-${index}`,
+        }),
+      ),
+      entry(NOW - 1_000, "info", "passkey.request", { outcome: "delegate", reason: TRUNCATED }),
+      // A wrong clock far in the future is left out.
+      entry(8.64e15 + 1, "error", "error.unhandled", { source: "error", name: "Error" }),
+    ];
+    const recent = recentLog(entries, NOW);
+    expect(recent.problems).toHaveLength(10);
+    expect(recent.passkeyDelegations).toHaveLength(32);
+    expect(recent.passkeyDelegations.map((item) => item.reason)).not.toContain(TRUNCATED);
+    expect(v.is(recentLogSchema, recent)).toBe(true);
   });
 });
 
@@ -521,7 +554,8 @@ describe("unhandled errors", () => {
       ok: false,
       error: { code: "account-mismatch", check: "token-email" },
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    log.vaultSync("connection-secret-id", { ok: false, error: { code: "cancelled" } });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       [
@@ -537,6 +571,11 @@ describe("unhandled errors", () => {
           outcome: "account-mismatch",
           check: "token-email",
         },
+      ],
+      [
+        "vault.sync",
+        "info",
+        { connection: entries[0]?.fields["connection"], outcome: "cancelled" },
       ],
     ]);
     expect(JSON.stringify(entries)).not.toContain("connection-secret-id");

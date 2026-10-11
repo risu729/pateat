@@ -237,7 +237,13 @@ export function createConnectionRuntime(
         .then((reply) => {
           pending -= 1;
           options.onVaultStateMayChange?.();
-          if (request.type === "connection.sync") options.onSync?.(request.connectionId, reply);
+          if (request.type === "connection.sync") {
+            try {
+              options.onSync?.(request.connectionId, reply);
+            } catch {
+              // Logging never holds back the reply.
+            }
+          }
           if (connected) {
             try {
               port.postMessage({ requestId: request.requestId, result: reply });
