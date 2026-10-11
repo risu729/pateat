@@ -10,9 +10,10 @@ import { ManageApp } from "../../services/api/web/app";
 
 const LAPTOP = "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41";
 const PHONE = "7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52";
-const PAIRED = Date.UTC(2026, 9, 10, 12, 30);
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Relative to the real clock, so these devices never age into expiry.
+// Relative to the real clock, so these devices never age into expiry, and days apart, so
+// no two shown times fall in the same minute whenever the test runs.
+const PAIRED = Math.floor((Date.now() - 30 * DAY_MS) / 60_000) * 60_000;
 const LAPTOP_USED = Date.now() - DAY_MS;
 const PHONE_USED = Date.now() - 2 * DAY_MS;
 
@@ -80,16 +81,14 @@ test("lists devices and revokes one", async () => {
     .toHaveAttribute("aria-current", "page");
   await expect.element(page.getByRole("cell", { name: "Work laptop" })).toBeVisible();
   await expect.element(page.getByRole("cell", { name: "Unnamed device" })).toBeVisible();
-  await expect
-    .element(page.getByRole("cell", { name: "2026-10-10 12:30 UTC" }).first())
-    .toBeVisible();
+  await expect.element(page.getByRole("cell", { name: formatted(PAIRED) }).first()).toBeVisible();
   await expect.element(page.getByRole("columnheader", { name: "Last used" })).toBeVisible();
   await expect.element(page.getByRole("cell", { name: formatted(LAPTOP_USED) })).toBeVisible();
   await expect.element(page.getByRole("cell", { name: formatted(PHONE_USED) })).toBeVisible();
 
   await page.getByRole("button", { name: /^Revoke Unnamed device, paired / }).click();
   expect(client.revokeDevice).toHaveBeenCalledWith(PHONE);
-  await expect.element(page.getByText("Revoked 2026-10-10 12:31 UTC")).toBeVisible();
+  await expect.element(page.getByText(`Revoked ${formatted(PAIRED + 60_000)}`)).toBeVisible();
   await expect.element(page.getByRole("status")).toHaveTextContent("Unnamed device was revoked.");
   await expect
     .element(page.getByRole("button", { name: /^Revoke Work laptop, paired / }))

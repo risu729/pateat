@@ -1,3 +1,7 @@
+[files]
+# Page text copied from real sites as evaluation data; correcting it would change the data.
+extend-exclude = ["packages/inference/src/corpus/formasaurus.json"]
+
 [default]
 # Abbreviated commit hashes.
 extend-ignore-re = ["\\b[0-9a-f]{7,12}\\b"]
@@ -7,5 +11,7 @@ OTPs = "OTPs"
 
 [default.extend-words]
 COSE = "COSE"
+# Formasaurus field code for "username or email".
+ue = "ue"
 # Base64 DER prefix fixture.
 MIGH = "MIGH"

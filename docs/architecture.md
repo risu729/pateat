@@ -331,7 +331,9 @@ edits local policy, exclusions and account defaults. The toolbar popup edits onl
 active tab's site default account and exclusion, through the same worker-owned store
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)). Item selection, field
 exclusions and custom-field review stay on the extension's settings page once synced
-([ADR 0023](adr/0023-synced-vault-policy.md)). Chrome
+([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
+per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
+settings profile that each device will choose later or to the owner. Chrome
 use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 

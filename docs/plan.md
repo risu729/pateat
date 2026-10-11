@@ -972,7 +972,53 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
 - Supplying ADR 0010 hints from the vault adapter. The executor runs the local value
   check before filling and the post-fill check before the click
   ([Background execution](architecture.md#background-execution)).
-- A real-page corpus per ADR 0012.
+- A Claude baseline on the real-page corpus, then Japanese pages for it. The
+  finite-choice provider is chosen only after that baseline exists. The owner chose on
+  2026-10-11 to run the baseline after the MyJCB generation fix, about five cases at a
+  time with fixes between batches, and to take Japanese pages from both public login
+  pages opened in the owner's Chrome and the request log.
+
+The real-page corpus per ADR 0012 starts with
+[Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
+`mise run //packages/inference:corpus:formasaurus <absolute checkout path>` renders each
+of its 954 annotated pages in Chromium with scripts off, meta refreshes removed, every
+request but the saved document aborted and no host resolvable, observes it with
+`extractLoginObservation` and labels the observation from the Formasaurus annotations.
+`packages/inference/src/corpus/formasaurus.json` keeps only the derived observations,
+labels and the source page name. Each case sends the slots the extension sends for an
+item with a username and a password (`builtInLoginSlots` in `packages/contracts`). The
+ground truth is the page's single login form: its username, email or "username or email"
+field, its password field and its one submit control. A page the extension would send
+(it has a password field, or a field marked `username` or `one-time-code`) without a
+login form, such as a sign-up page, must abstain. A page is left out when its truth is
+unclear: several login forms, a password field in an unannotated form or outside any
+form, any field in an unannotated form or outside a form on a page without a login form,
+another field in the login form (a captcha or a security code), a password-only form, a
+form without one clear submit control, or annotations that do not line up with the
+parsed forms.
+
+Before publishing, every case was reviewed for personal data (2026-10-11, by an
+independent review agent and the importer's author). Held back: a private person's
+homepage, a forum for cashing out stolen funds, and a page whose path carried an encoded
+session ID (Magento's `/referer/<base64>/`); the importer now skips long opaque path
+segments. The corpus holds 78 plans and 17 abstentions. Two pages are Japanese
+(`buyee.jp`, `zeiri4.com`); `language` comes from the extractor's script heuristic,
+which also marks one Chinese page `ja` and every other non-Japanese page `en`. The owner
+chose on 2026-10-11 to publish the derived page text (titles, headings and labels) as
+is, with the attribution in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). Some
+sites appear twice with the same login form.
+`mise run //packages/inference:bench --paid --corpus real` runs the Claude benchmark on
+it.
+
+The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
+the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
+one, which inference rejects without a call; 126 were complete. In 62 of the 109, the
+only shown select, radio button, text area or other unsupported input was outside the
+login form, for example a search form's category select. In 42 none was shown, so a
+control without a unique `id`, `name` or `data-testid` is the likely cause (inferred,
+not measured). The saved pages have no stylesheets, so elements a live page hides may
+count here. The extractor refuses `;jsessionid=` and ASP.NET session segments but not
+other session IDs in a path, such as Magento's `/referer/<base64>/`.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
