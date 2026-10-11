@@ -118,7 +118,7 @@ Focused tasks are available for diagnosis:
 | `mise run //packages/inference:typecheck` | Check AI adapter, corpus and harness types |
 | `mise run //packages/inference:corpus:formasaurus <checkout>` | Regenerate the real-page corpus from a local Formasaurus checkout ([plan](plan.md#ai-evaluation-harness-progress)) |
 | `mise run //packages/inference:bench --paid [--corpus real] [--from n --count n]` | Run the paid Claude benchmark on the synthetic corpus, or the real-page corpus, whole or one batch; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
-| `mise run //packages/inference:bench --provider heuristic [--corpus real]` | Score the free model-free comparator on the same cases |
+| `mise run //packages/inference:bench --provider heuristic [--corpus real] [--from n --count n]` | Score the free model-free comparator on the same cases, whole or one batch |
 | `mise run test:tools` | Test artifact/provenance helpers |
 | `mise run //services/api:generate:migrations` | Generate D1 migration SQL from the Drizzle schema |
 | `mise run generate:oidc-key [kid]` | Print a new ES256 key set for the `OIDC_SIGNING_KEYS` Worker secret ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) |

@@ -22,14 +22,22 @@ if (!Object.hasOwn(corpora, values.corpus)) {
   console.error(`Choose a corpus: ${Object.keys(corpora).join(", ")}.`);
   process.exit(2);
 }
+const corpus = corpora[values.corpus as keyof typeof corpora];
 const from = Number(values.from);
 const count = values.count === undefined ? undefined : Number(values.count);
-if (!Number.isSafeInteger(from) || from < 0 || (count !== undefined && !(count > 0))) {
-  console.error("Use a non-negative --from and a positive --count.");
+if (
+  !Number.isSafeInteger(from) ||
+  from < 0 ||
+  from >= corpus.length ||
+  (count !== undefined && (!Number.isSafeInteger(count) || count <= 0))
+) {
+  console.error(
+    `Use an integer --from from 0 to ${corpus.length - 1} and a positive integer --count.`,
+  );
   process.exit(2);
 }
 // A batch is a slice of the corpus in its fixed order, so batches can be run in turn.
-const cases = corpora[values.corpus as keyof typeof corpora].slice(
+const cases = corpus.slice(
   from,
   count === undefined ? undefined : from + count,
 );

@@ -14,7 +14,12 @@ export type CaseResult = {
   /** The provider's refusal category code for a `refused` case, when reported. */
   refusalCategory?: string;
   /** The executable plan in candidate IDs, so a wrong answer can be read against the truth. */
-  plan?: { fields: Record<string, string>; action: string; purpose: "advance" | "submit" };
+  plan?: {
+    fields: Record<string, string>;
+    action: string;
+    purpose: "advance" | "submit";
+    accountSwitch?: string;
+  };
   latencyMs: number;
   calls: number;
 };
@@ -166,6 +171,9 @@ export async function evaluateRole(options: {
               ),
               action: outcome.value.action.candidate,
               purpose: outcome.value.action.purpose,
+              ...(outcome.value.accountSwitch === undefined
+                ? {}
+                : { accountSwitch: outcome.value.accountSwitch }),
             },
           }
         : {}),

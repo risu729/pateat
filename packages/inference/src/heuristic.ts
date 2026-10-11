@@ -1,28 +1,57 @@
-import type { LoginObservation, ObservedCandidate, SemanticSlot } from "@pateat/contracts";
+import {
+  fillRoles,
+  loginObservationSchema,
+  semanticSlotsSchema,
+  type LoginObservation,
+  type ObservedCandidate,
+  type SemanticSlot,
+} from "@pateat/contracts";
+import * as v from "valibot";
 import { noUsage, type InferenceOutcome } from "./outcome";
-import { slotAccepts, validatePagePlan, type PagePlan, type ValidatedPagePlan } from "./plan";
+import {
+  slotAccepts,
+  validatePagePlan,
+  type PagePlan,
+  type PlanRejection,
+  type ValidatedPagePlan,
+} from "./plan";
 
 const identifierRoles = new Set<ObservedCandidate["role"]>(["text", "email", "tel"]);
 const identifierHints = new Set(["username", "email"]);
+const fillable = new Set<ObservedCandidate["role"]>(fillRoles);
+// Fields whose autocomplete names another purpose are never taken as the identifier.
+const otherPurposes = new Set(["one-time-code", "new-password", "current-password"]);
 
 const local = (
   outcome:
     | { status: "ok"; value: ValidatedPagePlan }
     | { status: "abstained"; reason: "no-login-form" | "ambiguous" | "no-action" }
-    | { status: "failed"; error: "invalid-output" },
+    | {
+        status: "failed";
+        error: "invalid-request" | "incomplete-observation" | "invalid-output";
+        detail?: PlanRejection;
+      },
 ): InferenceOutcome<ValidatedPagePlan> => ({ calls: 0, usage: noUsage, ...outcome });
 
 /**
  * A model-free comparator for the benchmark, in the manner of a password manager's form
  * heuristics: the one form with a single sign-in password, its `username` or `email`
- * field or else the nearest text field before the password, and its button after the
- * password. A form with only an identifier marked `username` or `email` advances. It
- * reads no labels, so it shows what the model adds beyond structure. Not used at runtime.
+ * field or else the nearest identifier-like field before the password, and its first
+ * button after the password, or else its first button. Without such a form, the one form
+ * whose only fill field is marked `username` or `email` advances. It reads no labels, so
+ * it shows what the model adds beyond structure. Not used at runtime. Its inputs pass the
+ * same gate as generation's, so both providers fail the same cases before any mapping.
  */
 export function heuristicPlan(
   observation: LoginObservation,
   slots: readonly SemanticSlot[],
 ): InferenceOutcome<ValidatedPagePlan> {
+  if (
+    !v.safeParse(loginObservationSchema, observation).success ||
+    !v.safeParse(semanticSlotsSchema, slots).success
+  )
+    return local({ status: "failed", error: "invalid-request" });
+  if (!observation.complete) return local({ status: "failed", error: "incomplete-observation" });
   const identifier = slots.find((slot) => slot.kind === "identifier");
   const secret = slots.find((slot) => slot.kind === "secret");
   const forms = new Map<string, ObservedCandidate[]>();
@@ -58,7 +87,12 @@ export function heuristicPlan(
         : form
             .slice(0, at)
             .reverse()
-            .find((candidate) => identifierRoles.has(candidate.role));
+            .find(
+              (candidate) =>
+                identifier !== undefined &&
+                slotAccepts(identifier.kind, candidate) &&
+                !otherPurposes.has(candidate.autocomplete ?? ""),
+            );
     const action =
       form.slice(at + 1).find((candidate) => candidate.role === "button") ??
       form.find((candidate) => candidate.role === "button");
@@ -71,8 +105,12 @@ export function heuristicPlan(
       action: { candidate: action.id, purpose: "submit" },
     };
   } else {
+    // A form whose only fill field is the identifier; a newsletter form with a name field
+    // does not qualify, but one with only an email field still does.
     const firsts = [...forms.values()].filter(
-      (form) => passwordsIn(form).length === 0 && hinted(form).length === 1,
+      (form) =>
+        hinted(form).length === 1 &&
+        form.filter((candidate) => fillable.has(candidate.role)).length === 1,
     );
     if (firsts.length !== 1 || !identifier)
       return local({ status: "abstained", reason: "no-login-form" });
@@ -90,5 +128,5 @@ export function heuristicPlan(
   const validated = validatePagePlan(observation, slots, plan);
   return validated.ok
     ? local({ status: "ok", value: validated.plan })
-    : local({ status: "failed", error: "invalid-output" });
+    : local({ status: "failed", error: "invalid-output", detail: validated.reason });
 }
