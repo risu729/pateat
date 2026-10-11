@@ -1111,7 +1111,7 @@ support for every site or vault format. Keep observed limitations explicit.
   control aggregates usage and stops later inference after the limit is reached;
   in-flight/concurrent requests can overshoot. Atomic maximum-cost reservation is
   not required. The owner confirmed $200 of monthly Claude API credit; ADR 0014 sets
-  the default limit to $150.
+  the default limit to $100.
 - Benchmark generation/repair and finite-choice roles separately on the same
   Japanese/English synthetic login corpus. Measure the ADR 0014 Claude configuration for
   generation; Clef-flash, Clef and Jev for decisions are optional later candidates.

@@ -142,7 +142,7 @@ a code, or `unavailable` with a reason when no model was called.
   `addCompletion` and is stored as `completion` in the next revision.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
-(`busy` otherwise), refuses past $150 of estimated spend a month or $5 a day (UTC, both
+(`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both
 roles counted), and only then resolves credentials: missing, refused or failed
 credentials answer `credentials-not-configured`, `credentials-rejected`,
 `issuer-unavailable` or `token-exchange-failed`. Generation also re-reads the recipe

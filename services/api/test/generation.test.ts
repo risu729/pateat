@@ -342,7 +342,7 @@ describe("recipe generation", () => {
     await env.DB.prepare(
       "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 1, ?)",
     )
-      .bind(monthly.ownerId, month(), 150_000_000)
+      .bind(monthly.ownerId, month(), 100_000_000)
       .run();
     expect(await generate(monthly, emailPage)).toMatchObject({ reason: "monthly-limit" });
 
