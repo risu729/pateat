@@ -28,6 +28,8 @@ const fake = vi.hoisted(() => {
     awaited: { ok: true } as { ok: boolean; reason?: string },
     /** Runs while the document waits for a step's elements. */
     onAwait: undefined as undefined | (() => void),
+    /** Documents that went away with their page; messages to them fail. */
+    gone: new Set<string>(),
   };
   const browser = {
     runtime: {
@@ -50,7 +52,13 @@ const fake = vi.hoisted(() => {
     tabs: {
       query: async () => [],
       get: async (id: number) => ({ id, url: state.tabUrls[id] ?? state.pageUrl }),
-      sendMessage: async (_tabId: number, message: Record<string, unknown>) => {
+      sendMessage: async (
+        _tabId: number,
+        message: Record<string, unknown>,
+        options?: { documentId?: string },
+      ) => {
+        if (options?.documentId && state.gone.has(options.documentId))
+          throw new Error("Could not establish connection. Receiving end does not exist.");
         state.messages.push(structuredClone(message) as (typeof state.messages)[number]);
         if (message["type"] === "login.await") {
           state.onAwait?.();
@@ -270,6 +278,7 @@ describe("production login document admission", () => {
     fake.state.observed = ["unique", "missing"];
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
+    fake.state.gone = new Set();
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -570,16 +579,93 @@ describe("production login document admission", () => {
         reason: "tab-busy",
       });
       expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).toEqual([]);
+      // While the frame is still there, a new top document is its own page announcing.
+      fake.state.gone = new Set(["page-document"]);
+      expect(await h.hello({ documentId: "late-page-document", url: top })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
+      expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).toEqual([]);
       // A new page in the tab ends the frame's attempt without a fill on the new page.
+      fake.state.gone = new Set(["frame-document", "widget-document"]);
       fake.state.tabUrls[1] = "https://login.example/signin";
       await h.hello({ documentId: "next-page" });
-      expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).not.toEqual([]);
       await vi.waitFor(() =>
         expect(fake.state.storage["pateat.login-attempts.v1"]).toMatchObject([
           { state: "blocked", outcome: "cancelled" },
         ]),
       );
       expect(executes()).toHaveLength(1);
+    });
+  });
+  describe("a frame's attempt when the tab changes page", () => {
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    const framed = (top: string, overrides: Record<string, unknown> = {}) => {
+      fake.state.tabUrls[1] = top;
+      return { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top }, ...overrides };
+    };
+    const stored = () =>
+      fake.state.storage["pateat.login-attempts.v1"] as { state: string; outcome?: string }[];
+    it("lets a new page's frame that announced first keep its document", async () => {
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const h = harness();
+      // The previous page of the tab, without a login form.
+      fake.state.tabUrls[1] = "https://login.example/home";
+      expect(
+        await h.hello({ documentId: "home-document", url: "https://login.example/home" }),
+      ).toMatchObject({ ok: false });
+      // The next page's login frame announces and starts before its own page does.
+      const top = "https://login.example/account";
+      expect(await h.hello(framed(top))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(1));
+      fake.state.gone = new Set(["home-document"]);
+      expect(await h.hello({ documentId: "account-document", url: top })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
+      expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).toEqual([]);
+      expect(stored()).toMatchObject([{ state: "executing" }]);
+    });
+    it("ends the attempt when the tab moves to a page on another origin", async () => {
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const uris = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+        ok: true,
+        data: uriMatch({ targetOrigin: new URL(url).origin }),
+      }));
+      const h = harness({}, { allowedOrigins: [], uris });
+      const top = "https://portal.example/account";
+      fake.state.tabUrls[1] = top;
+      expect(await h.hello({ documentId: "portal-document", url: top })).toMatchObject({
+        ok: false,
+      });
+      expect(await h.hello(framed(top))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(1));
+      // The login navigates the whole tab; the frame goes with the old page.
+      fake.state.gone = new Set(["frame-document", "portal-document"]);
+      fake.state.tabUrls[1] = "https://portal.example/dashboard";
+      await h.hello({ documentId: "dashboard-document", url: "https://portal.example/dashboard" });
+      expect(stored()).toMatchObject([{ state: "blocked", outcome: "cancelled" }]);
+      expect(executes()).toHaveLength(1);
+    });
+    it("refuses an operation once the tab shows another site", async () => {
+      let authorized: unknown;
+      const h = harness();
+      fake.state.onExecute = async (message) => {
+        fake.state.tabUrls[1] = "https://elsewhere.example/";
+        const operation = message["operation"] as { attemptId: string; operationId: string };
+        authorized = await h.login.handle(
+          {
+            version: 1,
+            type: "login.operation.authorize",
+            token: "synthetic-token",
+            attemptId: operation.attemptId,
+            operationId: operation.operationId,
+          },
+          sender(framed("https://elsewhere.example/")),
+        );
+      };
+      expect(await h.hello(framed("https://login.example/home"))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(authorized).toBe(false));
     });
   });
   describe("live provider URI matches", () => {

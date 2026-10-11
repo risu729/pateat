@@ -66,15 +66,16 @@ intent persistence, delivery, effect and acknowledgement; a missing acknowledgem
 never authorizes another fill or a fallback click.
 [Development](development.md#installed-chrome-synthetic-login-probe)
 describes the early installed-Chrome acceptance procedure. Attempts start when a
-recipe's first step appears, also after a same-document URL change or in a dialog
-opened later, and later steps wait up to 10 seconds for their elements
+recipe's first step appears, also after a same-document URL change or in a dialog opened
+later, and later steps wait up to 10 seconds for their elements
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)). Login forms
 inside frames fill only when the frame's URL and the tab's URL both match the item
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). Production activation, arbitrary saved
-recipe configuration and real provider compatibility remain outstanding. The early installed-Chrome run passed
-multi-page, background-tab, single-page, rejection, ambiguity, concurrency and
-input/change-triggered advance cases using synthetic values. It does not establish
-current SDK/setup compatibility or official Bitwarden extension coexistence. See the
+recipe configuration and real provider compatibility remain outstanding. The early
+installed-Chrome run passed multi-page, background-tab, single-page, rejection,
+ambiguity, concurrency and input/change-triggered advance cases using synthetic values.
+It does not establish current SDK/setup compatibility or official Bitwarden extension
+coexistence. See the
 [dated acceptance evidence](research/2026-10-10-feasibility.md#early-installed-chrome-acceptance-2026-10-10).
 Neither M1 nor M2 is complete.
 

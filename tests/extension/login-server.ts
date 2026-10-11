@@ -317,12 +317,12 @@ export async function startLoginFixture(
       // The single-page login inside a frame. `?port` embeds another fixture server's page,
       // so the frame is on another origin than the tab's page.
       const address = server.address();
-      const port =
+      const framePort =
         Number(fixtureUrl.searchParams.get("port")) ||
         (address && typeof address !== "string" ? address.port : 0);
       response.end(
         html(
-          `<h1>Synthetic frame host</h1><iframe id="login-frame" title="Synthetic sign-in" src="http://127.0.0.1:${port}/single" width="600" height="300"></iframe>`,
+          `<h1>Synthetic frame host</h1><iframe id="login-frame" title="Synthetic sign-in" src="http://127.0.0.1:${framePort}/single" width="600" height="300"></iframe>`,
         ),
       );
     } else if (path === "/ambiguous") {

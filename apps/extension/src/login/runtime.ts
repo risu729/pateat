@@ -237,6 +237,8 @@ export function createLoginRuntime(
       sender.tab?.id === undefined ||
       sender.frameId === undefined ||
       !sender.documentId ||
+      // A prerendered page also has a nonzero frame ID; it is not a frame of the tab.
+      (sender as { documentLifecycle?: string }).documentLifecycle === "prerender" ||
       !sender.url
     )
       return undefined;
@@ -268,7 +270,10 @@ export function createLoginRuntime(
     );
   }
   async function save(run: Execution): Promise<void> {
-    persisted.set(run.metadata.document.tabId, parseAttemptMetadata(run.metadata));
+    await keep(run.metadata);
+  }
+  async function keep(metadata: LoginAttemptMetadata): Promise<void> {
+    persisted.set(metadata.document.tabId, parseAttemptMetadata(metadata));
     const snapshot = [...persisted.values()];
     storageQueue = storageQueue.then(async () => {
       if (!storageHealthy) throw new Error("Attempt storage unavailable");
@@ -471,19 +476,19 @@ export function createLoginRuntime(
   /**
    * For a document in a frame inside the page, the chosen item must also match the tab's
    * URL, as the official Bitwarden client requires before it fills a frame (ADR 0017).
-   * `allowed` is the catalog whose static `allowedOrigins` count; a live provider URI
+   * `granted` is the catalog whose static `allowedOrigins` count; a live provider URI
    * match is reused while that connection's snapshot is unchanged.
    */
   async function topScope(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     selected: { connectionId: string; itemId: string },
-    allowed: VaultCatalog,
+    granted: VaultCatalog,
   ): Promise<{ reason: string } | undefined> {
     if (!live.topUrl) return undefined;
     const top = new URL(live.topUrl).origin;
     if (isSiteExcluded(snapshot.snapshot.settings, top)) return { reason: "site-excluded" };
-    const item = allowed.connections
+    const item = granted.connections
       .find((entry) => entry.id === selected.connectionId)
       ?.items.find((entry) => entry.id === selected.itemId);
     if (item?.allowedOrigins.includes(top)) return undefined;
@@ -947,22 +952,55 @@ export function createLoginRuntime(
     if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     // A tab runs one attempt. Another frame of the tab, such as an embedded widget or the
     // page around a framed login, never takes it over or disturbs it. Only a new page in
-    // the tab (another top document) resumes or ends an attempt held by a frame.
-    const owner = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+    // the tab (another top document) ends an attempt held by a frame of the old page.
+    let owner = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
     const page = documents.get(frameKey({ tabId: document.tabId, frameId: 0 }));
-    const newPage =
+    let newPage =
       document.frameId === 0 &&
       page !== undefined &&
       page.document.documentId !== document.documentId;
+    if (newPage) {
+      // Frames of this page may have announced before it did. Only documents that no
+      // longer answer went away with the old page.
+      for (const [other, entry] of [...documents])
+        if (
+          entry.document.tabId === document.tabId &&
+          entry.document.frameId !== 0 &&
+          // A tab has few frames; each is asked in turn.
+          // eslint-disable-next-line no-await-in-loop
+          !(await send(entry, { type: "login.observe", path: entry.path, targets: [] }).then(
+            () => true,
+            () => false,
+          ))
+        )
+          documents.delete(other);
+      if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+      owner = attempts.get(document.tabId)?.metadata ?? persisted.get(document.tabId);
+      const holder = owner && documents.get(frameKey(owner.document));
+      if (owner && owner.document.frameId !== 0) {
+        if (holder && sameLoginDocument(holder.document, owner.document)) {
+          // The frame holding the attempt is still there, so this page is its parent.
+          newPage = false;
+        } else if (!terminal(owner)) {
+          // The frame's page is gone: its attempt ends without resubmitting, whatever
+          // origin the new page has.
+          const run = attempts.get(document.tabId);
+          const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(owner), {
+            type: "NAVIGATED",
+            document,
+          });
+          if (run) run.metadata = ended;
+          try {
+            await keep(ended);
+          } catch {
+            return { ok: false, reason: "storage-unavailable" };
+          }
+          owner = ended;
+        }
+      }
+    }
     // A busy document is still recorded, so a later new page in the tab is recognized.
     const busy = owner !== undefined && owner.document.frameId !== document.frameId && !newPage;
-    // The documents of the old page's frames are gone with it.
-    if (newPage)
-      for (const [other, entry] of documents)
-        if (entry.document.tabId === document.tabId && entry.document.frameId !== 0) {
-          documents.delete(other);
-          void send(entry, { type: "login.cancel" }).catch(() => undefined);
-        }
     const oldLive = documents.get(key);
     const sameDocument = oldLive !== undefined && sameLoginDocument(oldLive.document, document);
     // A document may announce again when its form appears or its URL changes in place,
@@ -1155,7 +1193,10 @@ export function createLoginRuntime(
       run.live.token !== authorization.output.token ||
       run.metadata.id !== authorization.output.attemptId ||
       run.operation?.operationId !== authorization.output.operationId ||
-      !sameLoginDocument(run.live.document, document)
+      !sameLoginDocument(run.live.document, document) ||
+      // A frame's attempt holds only while the tab still shows the page it matched.
+      (run.live.topUrl !== undefined &&
+        (!sender.tab?.url || new URL(sender.tab.url).origin !== new URL(run.live.topUrl).origin))
     )
       return false;
     if (!(await allowed(run))) return false;

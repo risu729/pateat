@@ -43,17 +43,25 @@ the frame's URL and the tab's URL match the chosen vault item:
 - The recipe's `origin` and step `path`s are the frame's own. The recipe format does
   not change. A saved site default (`siteDefaults[].origin`) is also the frame's origin.
 - The chosen item must match the tab's URL as well, either by its static allowed origins
-  or by a live provider URI match of the tab's full URL. Otherwise the attempt is refused
-  with `frame-top-mismatch` before any field is read. Without a saved choice, the single
-  automatic choice is made only among items matching both URLs.
+  or by a live provider URI match of the tab's full URL. Otherwise the attempt is
+  refused with `frame-top-mismatch` before any field is read. Each fill or click is
+  authorized only while the tab still shows the origin the attempt matched. Without a
+  saved choice, the single automatic choice is made only among items matching both
+  URLs. As for any automatic choice, it is saved as the frame origin's site default
+  after `authenticated` (ADR 0013), so a later visit to that origin uses it even where
+  the frame's URL alone matches several items.
 - A tab still runs one attempt at a time. While a frame holds it, the page around the
   frame and any other frame (an advertisement, a widget) are refused with `tab-busy`.
-  The same applies to frames while the top-level page holds the attempt. Only a new
-  page in the tab ends an attempt held by a frame.
+  The same applies to frames while the top-level page holds the attempt. A new
+  top-level document ends an attempt held by a frame only when that frame no longer
+  answers, because a frame of the new page may announce before its own page does. A
+  prerendered page, which Chrome also reports with a nonzero frame ID, is not treated
+  as a frame.
 - Completion and rejection are judged inside the same frame. When the whole tab
   navigates after a login inside a frame, the attempt ends `blocked` with outcome
-  `cancelled`. It is neither resubmitted nor counted as `authenticated`, so the account
-  choice is not saved. Recognizing such a navigation as success is later work.
+  `cancelled`, whatever origin the new page has. It is neither resubmitted nor counted
+  as `authenticated`, so the account choice is not saved. Recognizing such a navigation
+  as success is later work.
 - A frame keeps the URL it loaded with. A same-document URL change inside a frame
   (`history.pushState`) does not change the path the executor sees; a form that
   appears later in the frame on the same path still starts an attempt.
