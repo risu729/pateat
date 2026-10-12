@@ -1,7 +1,11 @@
 import type { LoginObservation } from "@pateat/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findTargets } from "../page/targets";
-import { extractLoginObservation, extractSignedInObservation } from "./extract";
+import {
+  extractAccountListObservation,
+  extractLoginObservation,
+  extractSignedInObservation,
+} from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
 const page = (html: string, title = "") => {
@@ -1287,5 +1291,78 @@ describe("extractSignedInObservation", () => {
   it("refuses a page with nothing to describe", () => {
     page(`<p>Loading</p>`);
     expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+});
+
+describe("extractAccountListObservation", () => {
+  it("describes a saved-profile list without its addresses", () => {
+    page(
+      `<header><button>me@example.com</button></header>
+      <h1>Sign in to Example</h1>
+      <div role="list">
+        <div role="link" tabindex="0"><span>Taro</span><span>taro@example.com</span><span>Last used</span></div>
+        <div role="link" tabindex="0"><span>r***@example.com</span></div>
+      </div>
+      <div style="cursor: pointer"><span>Sign in with another profile</span></div>
+      <a href="/signup">Sign up</a>`,
+      "Sign in | Example",
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    const { observation } = result;
+    expect(observation.accounts).toEqual(["Taro [email] Last used", "[email]"]);
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      {
+        role: "button",
+        target: { by: "text", value: "Sign in with another profile" },
+        label: "Sign in with another profile",
+      },
+      { role: "button", target: { by: "text", value: "Sign up" }, label: "Sign up" },
+    ]);
+    expect(JSON.stringify(observation)).not.toContain("example.com");
+  });
+
+  it("refuses a page with a field or without an account entry", () => {
+    page(`<button>taro@example.com</button><input type="password">`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    page(`<button>Sign in</button><p>Contact help@example.com</p>`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    page(`<nav><a href="/me">taro@example.com</a></nav>`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("leaves out controls whose text repeats", () => {
+    page(
+      `<button>a@example.com</button><button>Remove</button><button>Remove</button>
+      <button>Continue</button>`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(summary(result.observation).map((candidate) => candidate.label)).toEqual(["Continue"]);
+  });
+
+  it("never sends a fullwidth address", () => {
+    page(
+      `<button>ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ</button><button>ｔａｒｏ@example.com</button>
+      <button>Not ｈａｎａ＠ｅｘａｍｐｌｅ．ｃｏｍ?</button>`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["[email]", "[email]", "Not [email]?"]);
+    expect(JSON.stringify(result.observation)).not.toMatch(/[@＠]|ｅｘａｍｐｌｅ|example/u);
+  });
+
+  it("is incomplete when list controls are left out", () => {
+    page(
+      `<button>a@example.com</button>${Array.from(
+        { length: 9 },
+        (_, index) => `<button>Option ${index}</button>`,
+      ).join("")}`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.candidates).toHaveLength(8);
+    expect(result.observation.complete).toBe(false);
   });
 });

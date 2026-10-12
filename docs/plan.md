@@ -47,9 +47,13 @@ Chrome, on a production build of main.
   [#246](https://github.com/risu729/pateat/pull/246)) are merged, and so is the rest of
   delivery 4.
 - Log in on pages that list accounts and show no form until one is chosen, such as
-  Cloudflare's saved profiles at `https://dash.cloudflare.com/login`
-  ([ADR 0028](adr/0028-account-chooser-login-pages.md), accepted 2026-10-12). It builds
-  on the `advance` continuation below.
+  Cloudflare's saved profiles at `https://dash.cloudflare.com/login`, Wise's "Welcome
+  back" page and Instagram's saved profiles
+  ([ADR 0028](adr/0028-account-chooser-login-pages.md), accepted 2026-10-12). The owner
+  asked for it at 07:44 UTC 2026-10-12. Finding entries and the observation are in
+  [#314](https://github.com/risu729/pateat/pull/314); the trigger, answer, recipe and
+  execution build on the `advance` continuation below and the start-only recipe of
+  [ADR 0031](adr/0031-sign-in-entry-pages.md).
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads

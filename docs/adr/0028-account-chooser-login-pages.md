@@ -1,6 +1,7 @@
 # ADR 0028: Login pages that list accounts to choose from
 
-Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC). Not implemented.
+Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC), and extended to a
+single shown account and to usernames that are not emails at 08:36 UTC. Not implemented.
 Delivery depends on the extension's `advance` continuation of
 [ADR 0018](0018-recipe-generation-route.md), which is not implemented yet. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can be
@@ -59,8 +60,11 @@ An entry is the innermost visible, enabled element whose rendered text holds the
 token and that is one of: a `<button>` or button-type `<input>`; an `<a>`, whose `href`,
 if any, stays on the page's origin; an element with `role` `button`, `link`, `option`,
 `menuitem` or `radio`; an element with `tabindex` 0 or more; or an element whose
-computed `cursor` is `pointer`. This deliberately wider rule applies only to list
-entries and the `other` button, not to the executor's other click steps.
+computed `cursor` is `pointer`. A link, button or element with one of those roles around
+the text that fails the rule (another origin, disabled) means the text has no entry,
+since a click on an element around it would land on that control. This deliberately
+wider rule applies only to list entries and the `other` button, not to the executor's
+other click steps.
 
 ### Which pages are sent
 
@@ -81,8 +85,14 @@ input is submitted in a tab, the next page of that origin in the tab (a new docu
 a same-document URL change) is skipped. The submission is used only for this skip and is
 not recorded anywhere else.
 
-The observation lists the page's entries as candidates. Email-like text is redacted to
-`[email]` as in every observation, so the AI never sees the profiles' addresses.
+The observation lists the page's entries apart from its candidates: up to 8 entry texts
+as `accounts`, and the page's other controls outside page chrome, by their text, as
+candidates the AI may name as the other-account button. An entry is never a candidate,
+since its redacted text cannot name it and the AI does not pick an account. Email-like
+text, fullwidth included, is redacted to `[email]` as in every observation, so the AI
+never sees the profiles' addresses; a text in which an `@` survives is left out. Until
+the generator can answer that a page is an account list, the service refuses such an
+observation as `invalid-request` without a model call.
 
 ### What the AI answers
 
@@ -163,6 +173,48 @@ is not a signed-in state for the logout check of
 run, or are generated first. The existing check before a password fill still stops the
 login when the form then shows a different full email.
 
+### A shown account with a separate button, and usernames that are not emails
+
+On 2026-10-12 around 08:40 UTC the owner's Chrome showed two more pages without a field,
+neither with a password field (structure only, in the project notes):
+
+- `https://wise.com/login` ("Welcome back"): one container holds, as siblings, the
+  initials, the display name in an `<h3>`, the masked email (`w***@…`, one visible
+  character before `@`) in a `<p>`, a "Log back in" `<button>` and a "Use another
+  account" `<button>`. No button holds the account text.
+- Instagram after a logout (`https://www.instagram.com/`): the saved profile shows its
+  Instagram username, not an email, in a `<span>` beside a `div[role=button]` whose
+  visible text is "Continue" and whose `aria-label` starts with "Continue" (likely
+  "Continue as" and the username), then "Use another profile" and "Create new account".
+
+Neither has an entry whose text holds an email, so neither is sent. The owner decided
+at 08:36 UTC, from descriptions of these pages given before the capture:
+
+- **A shown account with a separate button (Wise).** Besides a page with an entry that
+  holds an email, a page is sent when an email-shaped token outside page chrome, a
+  footer and `mailto:` links sits in a container that also holds at most three elements
+  meeting the [list entry](#list-entries) rule apart from its email requirement, none of
+  which holds the token; the container is the token's nearest ancestor that holds such
+  an element. The AI's account-list answer may then also name the button that continues
+  with the shown account, by meaning as for `other`. Pateat clicks it only when the page
+  shows exactly one account and that account fits the chosen item's username by the
+  [execution](#execution) rule; otherwise it clicks `other`, or ends
+  `account-not-listed` without one. With Wise's `w***@…`, fewer than 3 characters are
+  visible, so Pateat continues through "Use another account".
+- **Usernames that are not emails (Instagram).** When the chosen item's username is not
+  email-shaped, a shown account fits when its whole text equals the username, ignoring
+  case and a leading `@`; masked text never fits such a username. A shown account is an
+  entry's text, or a text beside a separate continue button as in the previous point,
+  which on Instagram is the `<span>` beside "Continue". To decide whether to send a page
+  without an email-shaped token, the content script hands the background those texts
+  outside page chrome, at most 64 characters each, and the background compares them with
+  the usernames of the items that match the origin. The usernames never reach the page,
+  and the AI sees each such text as `[account]`, so neither the matched username nor
+  other listed names reach it. This reads the vault before any recipe exists, which
+  ADR 0016 otherwise avoids. The check before a password fill compares only email and
+  all-digit usernames, so for these usernames the exact match is the only check; one
+  username names one account on a site.
+
 ## Consequences
 
 - Cloudflare logs in with the site default's profile and no action from the owner after
@@ -174,6 +226,10 @@ login when the form then shows a different full email.
 - A profile that resumes SSO or social sign-in leads to the identity provider, where
   Pateat does not act before [ADR 0026](0026-sign-in-through-identity-providers.md) is
   delivered (phase 4).
+- With the 08:36 UTC extension, a page that shows an email next to at most three
+  buttons, such as a signed-in settings page, can also be sent once a day per path, and
+  on sites whose usernames are not emails the vault is read on pages without a field to
+  compare the shown texts.
 - Google's "Choose an account" list is expected to qualify through the entry rule, but
   its page and DOM are unverified.
 
