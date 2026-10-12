@@ -126,17 +126,24 @@ test("the site default is chosen from the items that match the tab's origin, the
   const { client, current } = store();
   await mount(client, "https://bank.example/login");
   await expect.element(page.getByRole("heading", { name: "bank.example" })).toBeVisible();
-  await expect.element(page.getByText("No default account.", { exact: false })).toBeVisible();
-  const select = page.getByRole("combobox", { name: "Account for https://bank.example" });
-  await expect.element(select).toBeVisible();
+  const accounts = page.getByRole("group", { name: "Default account" }).getByRole("radio");
+  await expect.element(accounts).toHaveLength(3);
+  // No account is the default yet, so none carries the badge.
+  expect(page.getByText("Default", { exact: true }).query()).toBeNull();
+  await expect.element(page.getByText("Takes effect at the next login")).toBeVisible();
   expect(client.findSiteAccounts).toHaveBeenCalledWith(
     "https://bank.example",
     current().snapshot.settings,
   );
-  await userEvent.selectOptions(select, JSON.stringify(["demo-work", "primary"]));
+  const team = page.getByRole("radio", { name: "Demo team account, Demo work vault" });
+  await userEvent.click(page.getByText("Demo work vault"));
+  await expect.element(team).toBeChecked();
   await userEvent.click(page.getByRole("button", { name: "Use as default" }));
   await expect
-    .element(page.getByText("Default: Demo team account (Demo work vault)"))
+    .element(page.getByRole("radio", { name: "Demo team account, Demo work vault, default" }))
+    .toBeChecked();
+  await expect
+    .element(page.getByText("Demo team account is now the default for this site"))
     .toBeVisible();
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     expect.objectContaining({ type: "settings.save", expectedRevision: 0 }),
@@ -156,28 +163,39 @@ test("the site default is chosen from the items that match the tab's origin, the
   await expect.element(page.getByRole("button", { name: "Use as default" })).toBeDisabled();
 
   await userEvent.click(page.getByRole("button", { name: "Remove default" }));
-  await expect.element(page.getByText("No default account.", { exact: false })).toBeVisible();
+  await expect
+    .element(page.getByText("The default account for this site was removed"))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Remove default" }))
+    .not.toBeInTheDocument();
   expect(current().snapshot).toMatchObject({ revision: 2, settings: createDefaultSettings() });
 });
 
-test("the site is excluded by its exact hostname, and a covering rule can be removed", async () => {
+test("the switch excludes the site by its exact hostname, and turns it back on", async () => {
   const { client, current } = store();
   await mount(client, "https://login.bank.example/");
-  await expect.element(page.getByText("Allowed:", { exact: false })).toBeVisible();
-  await userEvent.click(page.getByRole("button", { name: "Exclude login.bank.example" }));
-  await expect.element(page.getByText("Excluded:", { exact: false })).toBeVisible();
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).toBeChecked();
+  await expect.element(toggle).toBeEnabled();
+  await userEvent.click(toggle);
+  await expect.element(page.getByText("login.bank.example is now excluded")).toBeVisible();
+  await expect.element(toggle).not.toBeChecked();
+  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
   expect(current().snapshot.settings.excludedSites).toEqual([
     { hostname: "login.bank.example", includeSubdomains: false },
   ]);
   // An excluded site is not searched and offers no default.
   await expect
-    .element(page.getByRole("heading", { name: "Default account" }))
+    .element(page.getByRole("group", { name: "Default account" }))
     .not.toBeInTheDocument();
-  await userEvent.click(
-    page.getByRole("button", { name: "Remove excluded site login.bank.example" }),
-  );
-  await expect.element(page.getByText("Allowed:", { exact: false })).toBeVisible();
+  await expect.element(toggle).toBeEnabled();
+  await expect.element(toggle).not.toHaveAttribute("aria-describedby");
+  await userEvent.click(toggle);
+  await expect.element(page.getByText("login.bank.example is no longer excluded")).toBeVisible();
+  await expect.element(toggle).toBeChecked();
   expect(current().snapshot.settings.excludedSites).toEqual([]);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
 });
 
 test("a parent rule that includes subdomains is shown but changed only in settings", async () => {
@@ -187,27 +205,63 @@ test("a parent rule that includes subdomains is shown but changed only in settin
     { hostname: "login.bank.example", includeSubdomains: false },
     { hostname: "mail.example", includeSubdomains: false },
   );
-  const { client, current } = store(saved(4, settings));
-  await mount(client, "https://login.bank.example/");
-  await expect.element(page.getByText("bank.example · Including subdomains")).toBeVisible();
+  const { client } = store(saved(4, settings));
+  const host = await mount(client, "https://login.bank.example/");
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).not.toBeChecked();
+  // The site's own exact rule is not removed here either: the parent rule would still
+  // exclude the site.
+  await expect.element(toggle).toBeDisabled();
   await expect
-    .element(page.getByText("Covers other sites too; change it in settings."))
-    .toBeVisible();
-  await expect
-    .element(page.getByRole("button", { name: "Remove excluded site bank.example" }))
-    .not.toBeInTheDocument();
+    .element(toggle)
+    .toHaveAccessibleDescription("Excluded by a rule for other sites too");
+  await expect.element(page.getByText("bank.example", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("and its subdomains")).toBeVisible();
   await expect.element(page.getByText("mail.example", { exact: false })).not.toBeInTheDocument();
-  await userEvent.click(
-    page.getByRole("button", { name: "Remove excluded site login.bank.example" }),
-  );
-  await expect.element(page.getByText("login.bank.example is no longer excluded.")).toBeVisible();
-  // The parent rule still excludes the site, so no account is searched.
-  await expect.element(page.getByText("Excluded:", { exact: false })).toBeVisible();
-  expect(current().snapshot.settings.excludedSites).toEqual([
-    { hostname: "bank.example", includeSubdomains: true },
-    { hostname: "mail.example", includeSubdomains: false },
-  ]);
+  await userEvent.click(page.getByRole("link", { name: "Change in settings for bank.example" }));
+  expect(host.openSettings).toHaveBeenCalledOnce();
+  expect(client.saveSettings).not.toHaveBeenCalled();
+  // The site is excluded, so no account is searched.
   expect(client.findSiteAccounts).not.toHaveBeenCalled();
+});
+
+test("an exact rule that includes subdomains is changed only in settings", async () => {
+  const settings = createDefaultSettings();
+  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: true });
+  const { client } = store(saved(2, settings));
+  await mount(client, "https://bank.example/");
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).not.toBeChecked();
+  await expect.element(toggle).toBeDisabled();
+  await expect
+    .element(toggle)
+    .toHaveAccessibleDescription("Excluded by a rule for other sites too");
+  await expect
+    .element(page.getByRole("link", { name: "Change in settings for bank.example" }))
+    .toBeVisible();
+});
+
+test("a switch change that is not saved returns to the saved state", async () => {
+  const { client, current } = store();
+  client.saveSettings.mockResolvedValueOnce({
+    version: 1,
+    ok: false,
+    error: { code: "storage-unavailable", message: "Unavailable." },
+  });
+  await mount(client, "https://bank.example/");
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).toBeEnabled();
+  await userEvent.click(toggle);
+  await expect.element(page.getByText("The change could not be saved")).toBeVisible();
+  await expect.element(toggle).toBeChecked();
+  expect(current().snapshot.settings.excludedSites).toEqual([]);
+  // A save lost in transit may still have been saved.
+  client.saveSettings.mockRejectedValueOnce(new Error("Port closed"));
+  await userEvent.click(toggle);
+  await expect
+    .element(page.getByText("The change may not have been saved.", { exact: false }))
+    .toBeVisible();
+  await expect.element(toggle).toBeChecked();
 });
 
 test("a tab whose address Pateat cannot read says so", async () => {
@@ -228,6 +282,40 @@ test("an HTTP page is not a site Pateat runs on", async () => {
   expect(client.findSiteAccounts).not.toHaveBeenCalled();
 });
 
+test("the saved default is selected and marked, and an incomplete search is flagged", async () => {
+  const settings = createDefaultSettings();
+  settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "secondary",
+  });
+  const { client } = store(saved(1, settings));
+  client.findSiteAccounts.mockImplementation(async (origin) => ({
+    ...(await demoSiteAccounts(origin)),
+    complete: false,
+  }));
+  await mount(client, "https://bank.example/");
+  const current = page.getByRole("radio", {
+    name: "Demo secondary account, Demo personal vault, default",
+  });
+  await expect.element(current).toBeChecked();
+  await expect
+    .element(page.getByText("Some vaults or items could not be checked", { exact: false }))
+    .toBeVisible();
+  const use = page.getByRole("button", { name: "Use as default" });
+  // The saved default is already the default.
+  await expect.element(use).toBeDisabled();
+  await userEvent.click(page.getByText("Demo work vault"));
+  await expect.element(use).toBeEnabled();
+  await userEvent.click(use);
+  // The result is announced in the popup's live region.
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("Demo team account is now the default for this site");
+  await expect.element(use).toBeDisabled();
+});
+
 test("a saved default missing from the site's matches keeps its vault labels", async () => {
   const settings = createDefaultSettings();
   // Saved elsewhere without display names; the site's matches are reported empty.
@@ -243,9 +331,11 @@ test("a saved default missing from the site's matches keeps its vault labels", a
     accounts: [],
   }));
   await mount(client, "https://bank.example/");
-  await expect
-    .element(page.getByText("Default: Demo secondary account (Demo personal vault)"))
-    .toBeVisible();
+  await expect.element(page.getByText("Demo secondary account")).toBeVisible();
+  await expect.element(page.getByText("Demo personal vault")).toBeVisible();
+  await expect.element(page.getByText("Default", { exact: true })).toBeVisible();
+  // Nothing matches, so there is no account to choose.
+  expect(page.getByRole("radio").elements()).toHaveLength(0);
   await expect
     .element(page.getByText("No vault item matches this site.", { exact: false }))
     .toBeVisible();
@@ -255,17 +345,21 @@ test("a saved default missing from the site's matches keeps its vault labels", a
 test("a change saved elsewhere first is reloaded instead of overwritten", async () => {
   const state = store();
   await mount(state.client, "https://bank.example/");
-  await expect.element(page.getByRole("button", { name: "Exclude bank.example" })).toBeVisible();
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).toBeEnabled();
   const elsewhere = createDefaultSettings();
   elsewhere.excludedSites.push({ hostname: "mail.example", includeSubdomains: false });
   state.replace(saved(7, elsewhere));
-  await userEvent.click(page.getByRole("button", { name: "Exclude bank.example" }));
+  await userEvent.click(toggle);
   await expect
-    .element(page.getByText("Settings changed elsewhere and were reloaded.", { exact: false }))
+    .element(page.getByText("Changed elsewhere and reloaded. Nothing was changed."))
     .toBeVisible();
+  // The switch returns to the reloaded state.
+  await expect.element(toggle).toBeChecked();
   expect(state.current().snapshot).toMatchObject({ revision: 7, settings: elsewhere });
-  await userEvent.click(page.getByRole("button", { name: "Exclude bank.example" }));
-  await expect.element(page.getByText("Excluded:", { exact: false })).toBeVisible();
+  await userEvent.click(toggle);
+  await expect.element(page.getByText("bank.example is now excluded")).toBeVisible();
+  await expect.element(toggle).not.toBeChecked();
   expect(state.current().snapshot.settings.excludedSites).toEqual([
     { hostname: "mail.example", includeSubdomains: false },
     { hostname: "bank.example", includeSubdomains: false },
@@ -280,7 +374,8 @@ test("settings that cannot be loaded change nothing", async () => {
     error: { code: "storage-unavailable", message: "Unavailable." },
   });
   await mount(client, "https://bank.example/");
-  await expect.element(page.getByText("Pateat settings could not be loaded.")).toBeVisible();
+  await expect.element(page.getByText("Pateat settings could not be loaded")).toBeVisible();
+  expect(page.getByRole("switch").query()).toBeNull();
   await expect.element(page.getByRole("button", { name: "Open settings" })).toBeVisible();
   expect(client.saveSettings).not.toHaveBeenCalled();
 });
@@ -302,12 +397,15 @@ test("a login refused for several matches is restarted with the account picked h
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
   expect(choices.get).toHaveBeenCalledWith(7);
   // Only the refused login's candidates are offered, not every matching item.
-  await expect.element(page.getByRole("radio")).toHaveLength(2);
   await expect
-    .element(page.getByRole("checkbox", { name: "Make it the default for this site" }))
-    .toBeChecked();
-  await userEvent.click(page.getByRole("radio", { name: "Demo team account (Demo work vault)" }));
-  await userEvent.click(page.getByRole("checkbox", { name: "Make it the default for this site" }));
+    .element(page.getByRole("group", { name: "Account to log in with" }).getByRole("radio"))
+    .toHaveLength(2);
+  await expect.element(page.getByText("2 accounts match this page")).toBeVisible();
+  const asDefault = page.getByRole("checkbox", { name: "Make it the default for bank.example" });
+  await expect.element(asDefault).toBeChecked();
+  const offered = page.getByRole("group", { name: "Account to log in with" });
+  await userEvent.click(offered.getByRole("radio", { name: "Demo team account, Demo work vault" }));
+  await userEvent.click(asDefault);
   choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
   await userEvent.click(page.getByRole("button", { name: "Log in" }));
   await expect.element(page.getByText("Logging in with Demo team account.")).toBeVisible();
@@ -409,6 +507,11 @@ test("a site another tab's login holds says so until that tab lets it go", async
     .element(page.getByText(/^Another tab's login to this site is running or did not succeed\./))
     .toBeVisible();
   await expect.element(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+  await expect
+    .element(page.getByRole("button", { name: "Log in" }))
+    .toHaveAccessibleDescription(
+      "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.",
+    );
   // Closing that tab lets the site go; the open popup asks again and enables the pick.
   choices.get.mockResolvedValue(offer);
   await expect.element(page.getByRole("button", { name: "Log in" })).toBeEnabled();
@@ -439,7 +542,7 @@ test("a pick in a private window is not made the default unless asked", async ()
   });
   choices.pick.mockResolvedValue({ ok: false, reason: "document-gone" });
   await mount(client, "https://bank.example/", choices, true);
-  const asDefault = page.getByRole("checkbox", { name: "Make it the default for this site" });
+  const asDefault = page.getByRole("checkbox", { name: "Make it the default for bank.example" });
   await expect.element(asDefault).not.toBeChecked();
   await userEvent.click(page.getByRole("button", { name: "Log in" }));
   expect(choices.pick).toHaveBeenCalledWith(
@@ -477,7 +580,7 @@ test("a pick that starts nothing says so, and a default set here ends the choice
   const calls = choices.get.mock.calls.length;
   await userEvent.click(page.getByRole("button", { name: "Use as default" }));
   await expect
-    .element(page.getByText("is now the default for this site.", { exact: false }))
+    .element(page.getByText("is now the default for this site", { exact: false }))
     .toBeVisible();
   expect(current().snapshot.settings.siteDefaults).toHaveLength(1);
   await expect.poll(() => choices.get.mock.calls.length).toBeGreaterThan(calls);
@@ -510,10 +613,13 @@ test("after a logout, the popup lists the saved default first, even alone", asyn
   await expect
     .element(page.getByText("You logged out of this site in this tab", { exact: false }))
     .toBeVisible();
-  const radios = page.getByRole("radio");
+  await expect
+    .element(page.getByText("You logged out of this site in this tab", { exact: true }))
+    .toBeVisible();
+  const radios = page.getByRole("group", { name: "Account to log in with" }).getByRole("radio");
   await expect
     .element(radios.first())
-    .toHaveAccessibleName("Demo team account (Demo work vault) · default");
+    .toHaveAccessibleName("Demo team account, Demo work vault, default");
   await expect.element(radios.first()).toBeChecked();
   await userEvent.click(page.getByRole("button", { name: "Log in" }));
   expect(choices.pick).toHaveBeenCalledWith(

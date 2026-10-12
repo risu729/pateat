@@ -8,10 +8,24 @@ import {
   type SiteAccountsResponse,
 } from "@pateat/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import {
+  Ban,
+  CircleCheck,
+  CircleX,
+  Clock,
+  Info,
+  LoaderCircle,
+  LogIn,
+  Settings2,
+  Star,
+  TriangleAlert,
+  UserRound,
+} from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
+import { Logo } from "../logo";
 import type { ChoiceClient } from "../login/choice-wire";
 
 /** What the toolbar popup needs from the browser besides the settings messages. */
@@ -26,6 +40,8 @@ export interface PopupHost {
 }
 
 type Saved = Extract<SettingsResponse, { ok: true }>;
+type ExcludedSite = LocalSettings["excludedSites"][number];
+type Tone = "progress" | "success" | "error";
 
 /** The tab's origin when Pateat can run there: an HTTPS page with a valid hostname. */
 export function popupOrigin(url: string | undefined): string | undefined {
@@ -37,6 +53,192 @@ export function popupOrigin(url: string | undefined): string | undefined {
 
 function hostnameOf(origin: string): string {
   return normalizeHostname(new URL(origin).hostname) ?? new URL(origin).hostname;
+}
+
+/**
+ * The "Pateat on this site" switch. It is on unless an exclusion rule covers the
+ * hostname, and the popup changes only the hostname's own exact rule: a rule for a parent
+ * domain, or one that includes subdomains, also covers other sites, so only the settings
+ * page changes it.
+ */
+export function siteSwitch(settings: LocalSettings, hostname: string) {
+  const rules = settings.excludedSites.filter(
+    (site) =>
+      hostname === site.hostname ||
+      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+  );
+  const own = (site: ExcludedSite) => site.hostname === hostname && !site.includeSubdomains;
+  return {
+    on: rules.length === 0,
+    editable: rules.every(own),
+    /** The covering rules the popup cannot change; each includes subdomains. */
+    shared: rules.filter((site) => !own(site)),
+    /** Turns Pateat on or off for the hostname in a copy of the settings. */
+    set(value: LocalSettings, on: boolean) {
+      if (on) value.excludedSites = value.excludedSites.filter((site) => !own(site));
+      else value.excludedSites.push({ hostname, includeSubdomains: false });
+    },
+  };
+}
+
+/** The header switch; a rule it cannot change disables it and names the reason. */
+function SiteSwitch({
+  site,
+  pending,
+  busy,
+  onChange,
+}: {
+  site: ReturnType<typeof siteSwitch>;
+  /** The position being saved, shown until the save ends. */
+  pending: boolean | undefined;
+  busy: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  const checked = pending ?? site.on;
+  return (
+    <label className="popup-switch">
+      <input
+        id="popup-site-switch"
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        aria-checked={checked}
+        disabled={busy || !site.editable}
+        aria-describedby={site.editable ? undefined : "popup-site-shared"}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      Pateat on this site
+    </label>
+  );
+}
+
+const NOTICE_ICON = { progress: LoaderCircle, success: CircleCheck, error: CircleX } as const;
+
+/** One account as a card: the username as the title, the item and its vault below. */
+type AccountCard = {
+  value: string;
+  title: string;
+  sub: string;
+  isDefault: boolean;
+};
+
+type AccountOption = ReturnType<typeof siteAccountOptions>[number];
+type MatchedAccounts = Extract<SiteAccountsResponse, { ok: true }>["accounts"] | undefined;
+
+function usernameOf(option: AccountOption, accounts: MatchedAccounts): string | undefined {
+  return accounts?.find(
+    (account) => account.connectionId === option.connectionId && account.itemId === option.itemId,
+  )?.username;
+}
+
+/** How a result message names an account: its username, else its item name. */
+function accountName(option: AccountOption, accounts: MatchedAccounts): string {
+  return usernameOf(option, accounts) || option.itemName;
+}
+
+function accountCards(
+  options: AccountOption[],
+  accounts: MatchedAccounts,
+  currentValue: string | undefined,
+): AccountCard[] {
+  const cards = options.map((option) => {
+    const username = usernameOf(option, accounts);
+    return {
+      option,
+      value: option.value,
+      title: username || option.itemName,
+      sub: username ? `${option.itemName} in ${option.connectionLabel}` : option.connectionLabel,
+      isDefault: option.value === currentValue,
+    };
+  });
+  const seen = new Map<string, number>();
+  for (const card of cards) {
+    const key = JSON.stringify([card.title, card.sub]);
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+  // Cards that would read the same add the item ID's first 8 characters.
+  return cards.map(({ option, ...card }) =>
+    (seen.get(JSON.stringify([card.title, card.sub])) ?? 0) > 1
+      ? { ...card, sub: `${card.sub}, ID ${option.itemId.slice(0, 8)}` }
+      : card,
+  );
+}
+
+function DefaultBadge() {
+  return (
+    <span className="popup-badge">
+      <Star size={12} strokeWidth={2} aria-hidden="true" />
+      Default
+    </span>
+  );
+}
+
+function CardBody({ card }: { card: Omit<AccountCard, "value"> }) {
+  return (
+    <>
+      <span className="popup-avatar">
+        <UserRound size={16} strokeWidth={2} aria-hidden="true" />
+      </span>
+      <span className="popup-choice-main">
+        <span className="popup-choice-title">{card.title}</span>
+        <span className="popup-choice-sub">{card.sub}</span>
+      </span>
+      {card.isDefault && <DefaultBadge />}
+    </>
+  );
+}
+
+/** Native radios styled as cards. */
+function AccountChoices({
+  name,
+  cards,
+  checked,
+  disabled,
+  onChange,
+}: {
+  name: string;
+  cards: AccountCard[];
+  checked: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="popup-choices">
+      {cards.map((card) => (
+        <label key={card.value} className="popup-choice">
+          <input
+            type="radio"
+            name={name}
+            value={card.value}
+            checked={checked === card.value}
+            disabled={disabled}
+            aria-label={`${card.title}, ${card.sub}${card.isDefault ? ", default" : ""}`}
+            onChange={() => onChange(card.value)}
+          />
+          <CardBody card={card} />
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/** An icon-led status line. */
+function Line({
+  tone,
+  id,
+  children,
+}: {
+  tone: "idle" | "warn" | "err";
+  id?: string;
+  children: ReactNode;
+}) {
+  const Icon = { idle: Info, warn: TriangleAlert, err: CircleX }[tone];
+  return (
+    <li id={id} className={`popup-line popup-line--${tone}`}>
+      <Icon size={16} strokeWidth={2} aria-hidden="true" />
+      <span>{children}</span>
+    </li>
+  );
 }
 
 /**
@@ -54,10 +256,13 @@ export function SiteApp({
 }) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState<{ text: string; tone: Tone }>({ text: "", tone: "success" });
   const [chosen, setChosen] = useState("");
   const [picked, setPicked] = useState("");
   const [makeDefault, setMakeDefault] = useState<boolean>();
+  // The switch shows its new position while that change is saved.
+  const [switching, setSwitching] = useState<boolean>();
+  const say = (text: string, tone: Tone) => setNotice({ text, tone });
   const tab = useQuery({
     queryKey: ["popup", "tab"],
     queryFn: async () => (await host.currentTab()) ?? null,
@@ -98,7 +303,7 @@ export function SiteApp({
     const next = structuredClone(saved.snapshot.settings);
     update(next);
     setBusy(true);
-    setMessage("Saving…");
+    say("Saving…", "progress");
     try {
       const response = await client.saveSettings({
         version: 1,
@@ -108,31 +313,33 @@ export function SiteApp({
       });
       if (response.ok) {
         queryClient.setQueryData<Saved>(SETTINGS_QUERY_KEY, response);
-        setMessage(done);
+        say(done, "success");
         // A default saved for the site ends a waiting choice; the background clears it.
         if (choice.isEnabled) void choice.refetch();
       } else if (response.error.code === "revision-conflict") {
         await settings.refetch();
-        setMessage("Settings changed elsewhere and were reloaded. Nothing was changed; try again.");
-      } else setMessage("The change could not be saved.");
+        say("Changed elsewhere and reloaded. Nothing was changed.", "error");
+      } else say("The change could not be saved", "error");
     } catch {
       // The store may still have saved it; reopening shows the saved settings.
-      setMessage(
+      say(
         "The change may not have been saved. Reopen this popup to see the saved settings.",
+        "error",
       );
     } finally {
       setBusy(false);
+      setSwitching(undefined);
     }
   }
 
   async function pick(
     offered: Extract<Awaited<ReturnType<ChoiceClient["get"]>>, { ok: true }>,
-    selected: { connectionId: string; itemId: string; label: string },
+    selected: { connectionId: string; itemId: string; name: string },
     asDefault: boolean,
   ) {
     if (tabId === undefined || busy) return;
     setBusy(true);
-    setMessage("Starting the login…");
+    say("Starting the login…", "progress");
     try {
       const response = await choices.pick({
         tabId,
@@ -142,38 +349,41 @@ export function SiteApp({
         makeDefault: asDefault,
       });
       if (response.ok) {
-        setMessage(
-          `Logging in with ${selected.label}.${asDefault ? " It becomes the default once the login succeeds." : ""}`,
+        say(
+          `Logging in with ${selected.name}.${asDefault ? " It becomes the default once the login succeeds." : ""}`,
+          "success",
         );
         // The login runs in the page from here; the popup has nothing left to show.
         host.close();
         return;
       } else if (response.reason === "document-gone")
-        setMessage("The page changed, so nothing was started. Reload it to choose again.");
+        say("The page changed, so nothing was started. Reload it to choose again.", "error");
       else if (response.reason === "origin-busy")
-        setMessage(
+        say(
           "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+          "error",
         );
       else if (response.reason === "not-started")
-        setMessage(
-          `Pateat could not log in with ${selected.label} on this page. Reload the page to choose again.`,
+        say(
+          `Pateat could not log in with ${selected.name} on this page. Reload the page to choose again.`,
+          "error",
         );
-      else setMessage("This page is no longer waiting for a choice.");
+      else say("This page is no longer waiting for a choice", "error");
       await choice.refetch();
     } catch {
-      setMessage("The login could not be started. Reopen this popup and try again.");
+      say("The login could not be started. Reopen this popup and try again.", "error");
     } finally {
       setBusy(false);
     }
   }
 
-  const settingsButton = (
-    <Button id="popup-open-settings" type="button" variant="outline" onClick={host.openSettings}>
-      Open settings
-    </Button>
-  );
+  const openSettings = (event?: { preventDefault(): void }) => {
+    event?.preventDefault();
+    host.openSettings();
+  };
+  let switchControl;
   let body;
-  if (tab.isPending || settings.isPending) body = <p>Loading…</p>;
+  if (tab.isPending || settings.isPending) body = <p className="popup-muted">Loading…</p>;
   else if (!origin)
     body = (
       <p id="popup-unsupported">
@@ -184,16 +394,27 @@ export function SiteApp({
     );
   else if (!saved)
     body = (
-      <p id="popup-error" role="alert">
-        Pateat settings could not be loaded.
+      <p id="popup-error" className="popup-notice popup-notice--error" role="alert">
+        <CircleX size={16} strokeWidth={2} aria-hidden="true" />
+        <span>Pateat settings could not be loaded</span>
       </p>
     );
   else {
     const hostname = hostnameOf(origin);
-    const rules = saved.snapshot.settings.excludedSites.filter(
-      (site) =>
-        hostname === site.hostname ||
-        (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+    const site = siteSwitch(saved.snapshot.settings, hostname);
+    switchControl = (
+      <SiteSwitch
+        site={site}
+        pending={switching}
+        busy={busy}
+        onChange={(on) => {
+          setSwitching(on);
+          void change(
+            (value) => site.set(value, on),
+            on ? `${hostname} is no longer excluded` : `${hostname} is now excluded`,
+          );
+        }}
+      />
     );
     const { catalog } = saved;
     const current = saved.snapshot.settings.siteDefaults.find((entry) => entry.origin === origin);
@@ -235,32 +456,40 @@ export function SiteApp({
     const shownPick = pickOptions.some((entry) => entry.value === picked)
       ? picked
       : (pickOptions[0]?.value ?? "");
+    const showChoice = Boolean(
+      offered && labelled && pickOptions.length > (offered.logout ? 0 : 1),
+    );
     // A pick in a private window is used for this login only unless the user says otherwise.
     const asDefault = makeDefault ?? !tab.data?.incognito;
-    let currentLabel = "No default account. With exactly one matching item, Pateat uses that item.";
-    if (current)
-      currentLabel = `Default: ${
-        currentOption
-          ? `${currentOption.label} (${currentOption.connectionLabel})`
-          : `${
+    // A saved default missing from the site's matches is shown with its saved labels.
+    const missingDefault: Omit<AccountCard, "value"> | undefined =
+      current && !currentOption
+        ? {
+            title:
               currentConnection?.items.find((item) => item.id === current.itemId)?.label ??
               current.itemName ??
-              current.itemId
-            } (${currentConnection?.label ?? `${current.accountName ?? "vault account"}, not available here`})`
-      }`;
-    let accountsNote = "";
-    if (accounts.isPending) accountsNote = "Finding the vault items that match this site…";
-    else if (!found) accountsNote = "The matching accounts could not be listed.";
+              current.itemId,
+            sub:
+              currentConnection?.label ??
+              `${current.accountName ?? "Vault account"}, not available here`,
+            isDefault: true,
+          }
+        : undefined;
+    let accountsNote: { tone: "idle" | "warn" | "err"; text: string } | undefined;
+    if (accounts.isPending)
+      accountsNote = { tone: "idle", text: "Finding the vault items that match this site…" };
+    else if (!found)
+      accountsNote = { tone: "err", text: "The matching accounts could not be listed" };
     else if (!options.length)
-      accountsNote =
-        "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync.";
-    if (found && !found.complete)
-      accountsNote += `${accountsNote ? " " : ""}Some vaults or items could not be checked, so this list may be incomplete.`;
+      accountsNote = {
+        tone: "idle",
+        text: "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync",
+      };
 
     const setDefault = () => {
       const selected = options.find((entry) => entry.value === shown);
       if (!selected?.userId) {
-        setMessage("This account is unavailable. Choose another one or use the settings page.");
+        say("This account is unavailable. Choose another one or use the settings page.", "error");
         return;
       }
       const entry = {
@@ -274,52 +503,62 @@ export function SiteApp({
       // A default names the vault account, so it must lead back to the chosen connection.
       const target = siteDefaultConnection(entry, catalog);
       if (!target.ok || target.connectionId !== selected.connectionId) {
-        setMessage(
+        say(
           "This vault account is connected more than once. Choose the default in the settings page.",
+          "error",
         );
         return;
       }
-      void change((value) => {
-        value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
-        value.siteDefaults.push(entry);
-      }, `${selected.label} is now the default for this site.`);
+      void change(
+        (value) => {
+          value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
+          value.siteDefaults.push(entry);
+        },
+        `${accountName(selected, found?.accounts)} is now the default for this site`,
+      );
     };
 
     body = (
       <>
         {choice.isPending && choice.isEnabled && (
-          <p id="popup-choice-checking">Checking whether this page waits for an account choice…</p>
+          <p id="popup-choice-checking" className="popup-muted">
+            Checking whether this page waits for an account choice…
+          </p>
         )}
         {offered && !labelled && (
-          <p id="popup-choice-checking">Listing the accounts that match this page…</p>
+          <p id="popup-choice-checking" className="popup-muted">
+            Listing the accounts that match this page…
+          </p>
         )}
-        {offered && labelled && pickOptions.length > (offered.logout ? 0 : 1) && (
-          <section aria-labelledby="popup-choice-heading">
+        {offered && showChoice && (
+          <section className="popup-section" aria-labelledby="popup-choice-heading">
             <h2 id="popup-choice-heading">Choose an account</h2>
-            <p>
+            <p id="popup-choice-reason" className="popup-muted popup-reason">
               {offered.logout
-                ? "You logged out of this site in this tab, so Pateat did not log in again."
-                : `${pickOptions.length} vault items match this page, so Pateat did not log in.`}{" "}
-              It logs in with the one you choose, starting again from the first step on this page.
+                ? "You logged out of this site in this tab"
+                : `${pickOptions.length} accounts match this page`}
             </p>
-            <fieldset className="popup-pick-list">
+            {offered.held && (
+              <p id="popup-pick-held" className="popup-notice popup-notice--warning">
+                <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
+                <span>
+                  {
+                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes."
+                  }
+                </span>
+              </p>
+            )}
+            <fieldset className="popup-fieldset">
               <legend className="visually-hidden">Account to log in with</legend>
-              {pickOptions.map((option) => (
-                <label key={option.value} className="checkbox-row">
-                  <input
-                    type="radio"
-                    name="popup-pick"
-                    value={option.value}
-                    checked={shownPick === option.value}
-                    disabled={busy}
-                    onChange={() => setPicked(option.value)}
-                  />
-                  {option.label} ({option.connectionLabel})
-                  {option.value === currentValue ? " · default" : ""}
-                </label>
-              ))}
+              <AccountChoices
+                name="popup-pick"
+                cards={accountCards(pickOptions, found?.accounts, currentValue)}
+                checked={shownPick}
+                disabled={busy}
+                onChange={setPicked}
+              />
             </fieldset>
-            <label className="checkbox-row">
+            <label className="checkbox-row popup-check">
               <input
                 id="popup-pick-default"
                 type="checkbox"
@@ -327,161 +566,165 @@ export function SiteApp({
                 disabled={busy}
                 onChange={(event) => setMakeDefault(event.target.checked)}
               />
-              Make it the default for this site
+              Make it the default for {hostname}
             </label>
-            {offered.held && (
-              <p id="popup-pick-held">
-                {
-                  "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes, to log in here."
-                }
-              </p>
-            )}
             <Button
               id="popup-pick"
               type="button"
+              className="w-full gap-2"
               disabled={busy || offered.held}
+              aria-describedby={offered.held ? "popup-pick-held" : undefined}
               onClick={() => {
                 const selected = pickOptions.find((entry) => entry.value === shownPick);
-                if (selected) void pick(offered, selected, asDefault);
+                if (selected)
+                  void pick(
+                    offered,
+                    { ...selected, name: accountName(selected, found?.accounts) },
+                    asDefault,
+                  );
               }}
             >
+              <LogIn size={16} strokeWidth={2} aria-hidden="true" />
               Log in
             </Button>
           </section>
         )}
-        <section aria-labelledby="popup-site-heading">
-          <h2 id="popup-site-heading">Pateat on this site</h2>
-          {rules.length ? (
-            <>
-              <p id="popup-site-status">
-                Excluded: Pateat does not log in or answer passkeys here.
-              </p>
-              <ul className="saved-list">
-                {rules.map((rule) => (
-                  <li key={rule.hostname}>
-                    <span>
-                      {rule.hostname} ·{" "}
-                      {rule.includeSubdomains ? "Including subdomains" : "Exact hostname only"}
-                    </span>
-                    {/* A rule that includes subdomains also covers other sites; settings change it. */}
-                    {rule.hostname === hostname && !rule.includeSubdomains ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={busy}
-                        aria-label={`Remove excluded site ${rule.hostname}`}
-                        onClick={() =>
-                          void change((value) => {
-                            value.excludedSites = value.excludedSites.filter(
-                              (site) => site.hostname !== rule.hostname,
-                            );
-                          }, `${rule.hostname} is no longer excluded.`)
-                        }
-                      >
-                        Remove
-                      </Button>
-                    ) : (
-                      <small>Covers other sites too; change it in settings.</small>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <>
-              <p id="popup-site-status">
-                Allowed: Pateat logs in and answers passkey sign-ins here.
-              </p>
-              <Button
-                id="popup-exclude"
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  void change((value) => {
-                    value.excludedSites.push({ hostname, includeSubdomains: false });
-                  }, `${hostname} is now excluded.`)
-                }
-              >
-                Exclude {hostname}
-              </Button>
-            </>
-          )}
-        </section>
-        {!rules.length && (
-          <section aria-labelledby="popup-default-heading">
-            <h2 id="popup-default-heading">Default account</h2>
-            <p id="popup-default">{currentLabel}</p>
+        {site.on ? (
+          <fieldset className="popup-fieldset popup-section">
+            <legend id="popup-default-heading" className="popup-legend">
+              Default account
+            </legend>
+            {missingDefault && (
+              <div id="popup-default" className="popup-choice popup-choice--static">
+                <CardBody card={missingDefault} />
+              </div>
+            )}
             {options.length > 0 && (
-              <label>
-                Account for {origin}
-                <select
-                  id="popup-account"
-                  value={shown}
-                  disabled={busy}
-                  onChange={(event) => setChosen(event.target.value)}
-                >
-                  {options.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label} ({option.connectionLabel})
-                    </option>
+              <AccountChoices
+                name="popup-default"
+                cards={accountCards(options, found?.accounts, currentValue)}
+                checked={shown}
+                disabled={busy}
+                onChange={setChosen}
+              />
+            )}
+            <ul className="popup-lines" aria-live="polite">
+              {accountsNote && (
+                <Line tone={accountsNote.tone} id="popup-accounts-note">
+                  {accountsNote.text}
+                </Line>
+              )}
+              {found && !found.complete && (
+                <Line tone="warn" id="popup-accounts-incomplete">
+                  Some vaults or items could not be checked, so this list may be incomplete
+                </Line>
+              )}
+              <li className="popup-line popup-line--idle">
+                <Clock size={16} strokeWidth={2} aria-hidden="true" />
+                <span>Takes effect at the next login</span>
+              </li>
+            </ul>
+            {(options.length > 0 || current) && (
+              <div className="popup-actions">
+                {options.length > 0 && (
+                  <Button
+                    id="popup-set-default"
+                    type="button"
+                    // The account choice above has the view's primary button.
+                    variant={showChoice ? "outline" : "default"}
+                    disabled={busy || shown === currentValue}
+                    onClick={setDefault}
+                  >
+                    Use as default
+                  </Button>
+                )}
+                {current && (
+                  <Button
+                    id="popup-remove-default"
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      void change((value) => {
+                        value.siteDefaults = value.siteDefaults.filter(
+                          (item) => item.origin !== origin,
+                        );
+                      }, "The default account for this site was removed")
+                    }
+                  >
+                    Remove default
+                  </Button>
+                )}
+              </div>
+            )}
+          </fieldset>
+        ) : (
+          <div className="popup-section">
+            {!site.editable && (
+              <>
+                <p id="popup-site-shared">Excluded by a rule for other sites too</p>
+                <ul className="popup-rules">
+                  {site.shared.map((rule) => (
+                    <li key={`${rule.hostname} ${rule.includeSubdomains}`}>
+                      <span className="popup-choice-main">
+                        <span className="popup-choice-title">{rule.hostname}</span>
+                        <span className="popup-choice-sub">and its subdomains</span>
+                      </span>
+                      <a
+                        href="options.html"
+                        className="popup-link"
+                        aria-label={`Change in settings for ${rule.hostname}`}
+                        onClick={openSettings}
+                      >
+                        Change in settings
+                      </a>
+                    </li>
                   ))}
-                </select>
-              </label>
+                </ul>
+              </>
             )}
-            {accountsNote && (
-              <p id="popup-accounts-note" className="note" aria-live="polite">
-                {accountsNote}
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              {options.length > 0 && (
-                <Button
-                  id="popup-set-default"
-                  type="button"
-                  disabled={busy || shown === currentValue}
-                  onClick={setDefault}
-                >
-                  Use as default
-                </Button>
-              )}
-              {current && (
-                <Button
-                  id="popup-remove-default"
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    void change((value) => {
-                      value.siteDefaults = value.siteDefaults.filter(
-                        (item) => item.origin !== origin,
-                      );
-                    }, "The default account for this site was removed.")
-                  }
-                >
-                  Remove default
-                </Button>
-              )}
-            </div>
-            <p className="note">
-              A default applies to the next login; it does not log out or switch the current
-              session.
+            <p id="popup-site-status" className="popup-muted popup-status">
+              <Ban size={16} strokeWidth={2} aria-hidden="true" />
+              No logins or passkey answers on this site
             </p>
-          </section>
+          </div>
         )}
       </>
     );
   }
 
+  const NoticeIcon = NOTICE_ICON[notice.tone];
   return (
     <main className="popup">
-      <p className="eyebrow">Pateat</p>
-      <h1 id="popup-origin">{origin ? hostnameOf(origin) : "This tab"}</h1>
-      {body}
-      <output id="popup-message" className="my-2 block" aria-live="polite">
-        {message}
+      <header className="popup-header">
+        <Logo />
+        <div className="popup-heading">
+          <h1 id="popup-origin">{origin ? hostnameOf(origin) : "This tab"}</h1>
+          {switchControl}
+        </div>
+        <button
+          id="popup-open-settings"
+          type="button"
+          className="popup-icon-button"
+          aria-label="Open settings"
+          onClick={() => openSettings()}
+        >
+          <Settings2 size={20} strokeWidth={2} aria-hidden="true" />
+        </button>
+      </header>
+      <output
+        id="popup-message"
+        className={notice.text ? `popup-notice popup-notice--${notice.tone}` : "popup-message"}
+        aria-live="polite"
+      >
+        {notice.text && (
+          <>
+            <NoticeIcon size={16} strokeWidth={2} aria-hidden="true" />
+            <span>{notice.text}</span>
+          </>
+        )}
       </output>
-      <div className="popup-footer">{settingsButton}</div>
+      {body}
     </main>
   );
 }

@@ -261,11 +261,13 @@ test("the toolbar popup edits the active tab's site through the settings store",
     await popup.goto(`chrome-extension://${id}/popup.html`);
     // Opened as a tab, the active tab is the popup's own extension page, not a website.
     await expect(popup.locator("#popup-unsupported")).toBeVisible();
-    // Chrome shrinks text on extension pages to 75%; the shared stylesheet keeps it at 1rem.
+    // Chrome shrinks text on extension pages to 75%; the shared stylesheet keeps the body at
+    // 1rem, and the popup's text is 15px rather than 12px.
     const rootSize = await popup.evaluate(
       () => getComputedStyle(document.documentElement).fontSize,
     );
-    await expect(popup.locator("#popup-unsupported")).toHaveCSS("font-size", rootSize);
+    await expect(popup.locator("body")).toHaveCSS("font-size", rootSize);
+    await expect(popup.locator("#popup-unsupported")).toHaveCSS("font-size", "15px");
     const send = (page: Page, message: unknown) =>
       page.evaluate(
         (request) =>
@@ -345,8 +347,13 @@ test("the toolbar popup edits the active tab's site through the settings store",
       reason: "no-choice",
     });
     await expect(site.locator("#popup-choice-heading")).toHaveCount(0);
-    await site.getByRole("button", { name: "Exclude bank.example" }).click();
-    await expect(site.locator("#popup-site-status")).toContainText("Excluded");
+    const toggle = site.getByRole("switch", { name: "Pateat on this site" });
+    await expect(toggle).toBeChecked();
+    await toggle.click();
+    await expect(toggle).not.toBeChecked();
+    await expect(site.locator("#popup-site-status")).toHaveText(
+      "No logins or passkey answers on this site",
+    );
     expect(await get(site)).toMatchObject({
       ok: true,
       snapshot: {
