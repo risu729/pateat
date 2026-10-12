@@ -73,8 +73,11 @@ password when the item has one. The proposal reviewed with the owner is
    hands it on (`no-login`), unless the tab asks it for an account after a logout
    (ADR 0021 D): a document so asked, or filled by a login that only fills, keeps its
    request while the tab asks, and the login the popup pick starts answers it as in
-   rule 3 when the picked item holds a discoverable passkey. That request is also
-   withheld after four minutes.
+   rule 3 when the picked item holds a discoverable passkey. A pick that starts no
+   login hands it on, unless the choice is offered again. That request is also withheld
+   four minutes after it came, since the browser ends the message that carries it after
+   five: a pick after that signs in with the password, and an item with only a passkey
+   does not sign in until the page is loaded again.
 6. **Back to the password when the site refuses.** If no request comes within three
    seconds of the step, the item's passkey cannot answer it, the recipe's rejection
    shows after the answer, or the start page's sign-in form still shows on the start
@@ -142,7 +145,7 @@ password when the item has one. The proposal reviewed with the owner is
 - A conditional request on a page where Pateat logs in no longer reaches another
   provider while the login runs; after a failed login it does. While the tab asks for an
   account after a logout, the Bitwarden extension's suggestions do not show on that
-  page, and the account picked in the popup signs in with its passkey.
+  page, and an account picked in the popup that holds a passkey signs in with it.
 - If the RC check finds Wise's request is `immediate`, not `conditional`, this ADR is
   revised before the work is called done.
 - Verified with unit tests of the attempt machine, the route helpers, the bridge and the

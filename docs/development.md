@@ -398,7 +398,8 @@ holds:
 
 - `origin`, `outcome` (`assertion`, `delegate`, `cancelled`, `not-allowed` when the
   chooser window was still open as the wait ran out, or `withheld` for a conditional
-  request kept unanswered after a Pateat login of its page signed in) and the delegate
+  request kept unanswered after a Pateat login of its page signed in or after four
+  minutes of waiting) and the delegate
   `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
   `no-login` (no login of its page started) or `login-ended` (the login did not sign
   in) ([ADR 0034](adr/0034-answer-page-passkey-requests.md));

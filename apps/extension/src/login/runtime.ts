@@ -1757,6 +1757,11 @@ export function createLoginRuntime(
       picked.delete(request.tabId);
       await quietly(saveSession);
     }
+    // Nothing answers the document's passkey request then, unless its choice is offered
+    // again (ADR 0034).
+    for (const parked of parkedRequests)
+      if (parked.tabId === request.tabId && parked.documentId === waiting.document.documentId)
+        delete parked.asked;
     if (gone) return { ok: false, reason: "document-gone" };
     // Another tab's login started holding the site after the choice was offered. The page
     // does not announce again once that hold ends, so its choice waits for a later pick.
@@ -7232,9 +7237,12 @@ export function createLoginRuntime(
       const running = own !== undefined && !ended;
       if (running) parked.during = true;
       if (running ? own.fillOnly : askedFor(parked)) parked.asked = true;
+      // A choice still offered decides alone: another tab's login can end the logout this
+      // tab asks for, while its choice stays.
       const asks = running
         ? own.fillOnly === true
-        : parked.asked === true && asksAfterLogout(parked.tabId, parked.origin);
+        : askedFor(parked) ||
+          (parked.asked === true && asksAfterLogout(parked.tabId, parked.origin));
       if (asks) {
         if (now - parked.since >= REQUEST_PARK_MS) parked.settle({ kind: "withhold" });
       } else if (!own || (ended && !parked.during)) {
