@@ -15,6 +15,14 @@ export default defineConfig({
   test: {
     include: ["apps/extension/src/{diagnostics,observation,page}/*.test.ts"],
     retry: 0,
+    // Set by CI's Verify job; `mise run coverage:summary` reports the result.
+    coverage: {
+      enabled: Boolean(process.env["PATEAT_COVERAGE"]),
+      include: ["apps/extension/src/**/*.{ts,tsx}"],
+      exclude: ["**/*.test.{ts,tsx}", "**/*.d.ts", "**/__fixtures__/**", "**/vitest.*.ts"],
+      reporter: ["json"],
+      reportsDirectory: "coverage/extension-dom",
+    },
     browser: {
       enabled: true,
       headless: true,

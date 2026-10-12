@@ -13,6 +13,14 @@ export default defineConfig({
     include: ["tests/manage/*.test.tsx"],
     fileParallelism: false,
     retry: 0,
+    // Set by CI's Verify job; `mise run coverage:summary` reports the result.
+    coverage: {
+      enabled: Boolean(process.env["PATEAT_COVERAGE"]),
+      include: ["services/api/web/**/*.{ts,tsx}"],
+      exclude: ["**/*.test.{ts,tsx}", "**/*.d.ts", "**/__fixtures__/**", "**/vitest.*.ts"],
+      reporter: ["json"],
+      reportsDirectory: "coverage/manage",
+    },
     browser: {
       enabled: true,
       headless: true,

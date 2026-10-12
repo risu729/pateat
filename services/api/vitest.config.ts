@@ -54,5 +54,16 @@ export default defineConfig({
     }),
   ],
   define: { PATEAT_BUILD_REVISION: JSON.stringify("test-revision") },
-  test: { include: ["test/**/*.test.ts"], setupFiles: ["./test/apply-migrations.ts"] },
+  test: {
+    include: ["test/**/*.test.ts"],
+    setupFiles: ["./test/apply-migrations.ts"],
+    // Set by CI's Verify job; `mise run coverage:summary` reports the result.
+    coverage: {
+      enabled: Boolean(process.env["PATEAT_COVERAGE"]),
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["**/*.test.{ts,tsx}", "**/*.d.ts", "**/__fixtures__/**", "**/vitest.*.ts"],
+      reporter: ["json"],
+      reportsDirectory: "../../coverage/api",
+    },
+  },
 });

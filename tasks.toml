@@ -32,6 +32,10 @@ run = "node scripts/check-sdk-source.mjs"
 ["test:tools"]
 run = "node --test .github/scripts/*.test.mjs"
 
+["coverage:summary"]
+description = "Merge the coverage written by PATEAT_COVERAGE=1 test runs into one row per project."
+run = "node scripts/coverage-summary.mjs"
+
 ["browser:install"]
 usage = 'flag "--with-deps" help="Install Linux system dependencies as well."'
 run = "node node_modules/@playwright/test/cli.js install {% if usage.with_deps %}--with-deps{% endif %} chromium"

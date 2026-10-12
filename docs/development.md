@@ -49,9 +49,9 @@ packages that depend on them. A change outside a workspace package, such as `doc
 `scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every package, and
 the `tests/*` suites are not workspace packages, so `--affected` never selects them.
 Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`,
-`check:sdk-source`, `test:tools`, `browser:install`, the probe servers, `render:icons`
-and `generate:oidc-key`) stay in the root `tasks.toml`. Run them by their plain names
-from the root, or as `//:check:runtime` from inside a project.
+`check:sdk-source`, `test:tools`, `coverage:summary`, `browser:install`, the probe
+servers, `render:icons` and `generate:oidc-key`) stay in the root `tasks.toml`. Run them
+by their plain names from the root, or as `//:check:runtime` from inside a project.
 
 `check:runtime` is one dependency graph rather than a list of separate `mise run` calls:
 it depends on `//...:typecheck`, `//...:test`, `//services/api:check:*` and
@@ -122,6 +122,7 @@ Focused tasks are available for diagnosis:
 | `mise run //packages/inference:bench --paid [--corpus real\|japanese] [--from n --count n]` | Run the paid Claude benchmark on the synthetic corpus, the Formasaurus real-page corpus or the Japanese pages, whole or one batch; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run //packages/inference:bench --provider heuristic [--corpus real\|japanese] [--from n --count n]` | Score the free model-free comparator on the same cases, whole or one batch |
 | `mise run test:tools` | Test artifact/provenance helpers |
+| `mise run coverage:summary` | Merge the coverage that test runs with `PATEAT_COVERAGE=1` wrote and print one row per project ([test coverage](#test-coverage)) |
 | `mise run //services/api:generate:migrations` | Generate D1 migration SQL from the Drizzle schema |
 | `mise run generate:oidc-key [kid]` | Print a new ES256 key set for the `OIDC_SIGNING_KEYS` Worker secret ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) |
 | `mise run //services/api:check:migrations` | Fail when committed migrations differ from the schema |
@@ -153,6 +154,29 @@ acceptance results are recorded in [dated research](research/2026-10-10-feasibil
 Pass one task to each `mise run` invocation; listing several task names turns the
 later names into arguments of the first. To run every static check without the
 runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runtime`.
+
+### Test coverage
+
+CI measures test coverage and reports it without failing on it (owner decision,
+2026-10-12). The Verify job runs `mise run check` with `PATEAT_COVERAGE=1`, so every
+Vitest run writes `coverage/<run>/coverage-final.json` with `@vitest/coverage-v8`; each
+`test:<area>` task of the extension names its own `<run>` directory. The next step,
+`mise run coverage:summary`, merges those files with `istanbul-lib-coverage` and writes
+line, branch, function and statement coverage per project (`apps/extension/src`,
+`packages/*/src`, `services/api/src`, `services/api/web`) to the job summary; the step
+runs even after a failed check and never fails the job. A file reached by several runs,
+such as extension code tested by a unit area and a Browser Mode suite, counts once. No
+threshold fails CI. The packaged-extension Playwright suite (`tests/extension`) is not
+measured, so code that runs only there, such as `apps/extension/src/login/content.ts`,
+`crypto/worker.ts` and the `probe.ts` files, shows as uncovered. For the same table
+locally, delete `coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE` set to
+any non-empty value, then `mise run coverage:summary`.
+
+Not adopted: Codecov, which adds an external service and an upload token, and GitHub
+Code Quality's pull-request coverage, which requires Code Quality; GitHub offers Code
+Quality only on GitHub Team and GitHub Enterprise Cloud plans
+([GA changelog](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026/),
+checked 2026-10-12), and this repository belongs to a personal account.
 
 ### Extension ID
 
@@ -512,7 +536,7 @@ use.
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
 | Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)); per-owner Workload Identity Federation with `hono/utils/jwt` signing, a Valibot-checked `fetch` exchange and `authToken`, no added dependency ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) | M4 service route |
-| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants | M2 onward |
+| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants; **implemented:** `@vitest/coverage-v8` with `istanbul-lib-coverage` for the CI coverage summary ([test coverage](#test-coverage)) | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
