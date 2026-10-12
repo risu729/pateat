@@ -79,6 +79,13 @@ Chrome, on a production build of main.
   showed). Still to do: the other rows of the ADR's outcome table (a failure next to the
   fields rejects; no sign and no evidence asks the judge once and completes when it
   cannot decide).
+- Redact the account's own username from every page observation sent to the service
+  (generation, its continuation after an `advance` step, and the judge): text that
+  matches a matching item's username exactly, ignoring case, becomes a placeholder. The
+  username is read locally as for the username shape
+  ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)) and never sent. The
+  page after an `advance` step, like any judged page, can show the identifier just
+  entered (continuation review, 2026-10-12). Not implemented yet.
 - Installed-Chrome checks still open:
   - Continuing a generated recipe on the page after an `advance` step (email, then
     Next, then password), which the owner rated high priority: implemented with
@@ -1452,11 +1459,11 @@ Remaining M4 AI work:
   Next and one Log in, sending the identifier page, the password page with its base and
   the signed-in page, never an input value (a page is sent as observed, so one that
   shows the identifier just entered sends it as page text; redacting the account's own
-  username is planned), ending at revision 3 with a completion, and a
-  second visit running all four steps with no model call; and an identifier form shown
-  again where it posted, which is never continued. None of this has run in installed
-  Chrome, with a paid generation call or on a real site; that check is listed with the
-  phase 1 installed-Chrome checks.
+  username is planned in [phase 1](#phase-1-usable)), ending at revision 3 with a
+  completion, and a second visit running all four steps with no model call; and an
+  identifier form shown again where it posted, which is never continued. None of this
+  has run in installed Chrome, with a paid generation call or on a real site; that check
+  is listed with the phase 1 installed-Chrome checks.
 - A different remembered account, approved by the owner on 2026-10-11: on a step that
   fills a secret but no username, the executor compares the account shown in that
   form and the page headings with the selected account's username, locally only. If

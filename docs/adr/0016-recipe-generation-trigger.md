@@ -95,7 +95,8 @@ new owner decision:
   under its origin, path and the recipe revision it continues, as on the service; when
   its claim is freed, or it was not sent because no service is paired, storage could not
   be written or the same request is still `sending`, the login gives its request back
-  for a later document to send
+  for a later document to send, except after `recipe-revoked` or `recipe-conflict`,
+  which any later document would get too
   ([ADR 0018](0018-recipe-generation-route.md#continuing-after-an-advance)).
 - Each page offered for generation is logged as `recipe.generate` with its outcome
   (`recipe`, `abstained`, `failed`, `unavailable` or `skipped`) and reason, including a

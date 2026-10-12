@@ -9929,17 +9929,52 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
   it("never sends an incomplete description and never judges the page", async () => {
     inPlace(() => (fake.state.extracted = { login: passwordPage("/signin", false) }));
     const service = generation();
-    const h = start(service);
+    const reports: LoginReport[] = [];
+    const h = start(service, { report: reports });
     expect(await h.hello()).toEqual({ ok: true });
     await until(settled("reconciling", "unknown-submit"));
     expect(service.generate).not.toHaveBeenCalled();
     expect(service.judge).not.toHaveBeenCalled();
     expect(status()![0]!["continuation"]).toBeUndefined();
+    // Logged once for the document, and the skipped judge with why.
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      {
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "incomplete-observation",
+        recipeId: emailFirst.id,
+        baseRevision: 1,
+      },
+    ]);
+    expect(reports.filter((entry) => entry.type === "judge")).toEqual([
+      expect.objectContaining({ verdict: "not-sent", reason: "continuation", recipeRevision: 1 }),
+    ]);
+  });
+
+  it("logs the content script's own refusal of the continuation page", async () => {
+    inPlace(() => (fake.state.extracted = { login: { ok: false, reason: "no-locator" } }));
+    const service = generation();
+    const reports: LoginReport[] = [];
+    const h = start(service, { report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    expect(service.generate).not.toHaveBeenCalled();
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      expect.objectContaining({ outcome: "skipped", reason: "no-locator", baseRevision: 1 }),
+    ]);
   });
 
   it.each([
     ["an abstention", { outcome: "abstained", reason: "ambiguous" }],
     ["a page sent within the retry window", { outcome: "skipped", reason: "sent" }],
+    ["a revoked recipe", { outcome: "unavailable", reason: "recipe-revoked" }],
+    [
+      "refused model output",
+      { outcome: "failed", reason: "invalid-output", check: "plan", detail: "incompatible-role" },
+    ],
   ] as const)("settles as unknown after %s, with no judge call", async (_label, answer) => {
     inPlace();
     const service = generation(async () => answer);
@@ -9952,8 +9987,13 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(service.judge).not.toHaveBeenCalled();
     expect(executed()).toEqual(allSteps.slice(0, 2));
     expect(status()![0]).toMatchObject({ continuation: { operationId: expect.any(String) } });
+    // The refused output's check and code are logged with the continuation too.
+    const { outcome: answered, ...fields } = answer;
     expect(reports.filter((entry) => entry.type === "generation")).toEqual([
-      expect.objectContaining({ outcome: answer.outcome, reason: answer.reason, baseRevision: 1 }),
+      expect.objectContaining({ outcome: answered, ...fields, baseRevision: 1 }),
+    ]);
+    expect(reports.filter((entry) => entry.type === "judge")).toEqual([
+      expect.objectContaining({ verdict: "not-sent", reason: "continuation" }),
     ]);
     // A later document of the same step sends nothing again.
     fake.state.extracted = { login: passwordPage("/signin") };
@@ -10141,7 +10181,8 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     inPlace();
     let h!: ReturnType<typeof harness>;
     const service = generation(answering(() => h, continuedOn("/signin")));
-    h = start(service);
+    const reports: LoginReport[] = [];
+    h = start(service, { report: reports });
     let incomplete = 0;
     uris.mockImplementation(async () => {
       // Once the password form shows, the item's URIs cannot be evaluated for a moment.
@@ -10162,6 +10203,15 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(incomplete).toBe(3);
       expect(service.generate).toHaveBeenCalledTimes(1);
       expect(executed()).toEqual(allSteps);
+      // Each round logs nothing new while the reason stays the same.
+      expect(
+        reports
+          .filter((entry) => entry.type === "generation")
+          .map((entry) => [entry.outcome, "reason" in entry ? entry.reason : undefined]),
+      ).toEqual([
+        ["skipped", "scope-incomplete"],
+        ["recipe", undefined],
+      ]);
     } finally {
       uris.mockImplementation(async () => ({ ok: true as const, data: uriMatch() }));
     }

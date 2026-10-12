@@ -212,16 +212,22 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   disabled field that the recipe already fills on that path, such as an identifier the
   page shows again, is left out instead of making the description incomplete. The
   request is recorded in the attempt before it is sent, so a worker restart cannot send
-  that step's page again. The request is given back for a later document of the tab by
+  that step's page again, and the login makes one model call per final advance within
+  the 10-minute retry window ([ADR 0016](0016-recipe-generation-trigger.md)). The
+  request is given back for a later document of the tab by
   the generation claim's own rule ([ADR 0016](0016-recipe-generation-trigger.md)): when
   its claim is freed because the request did not reach the model, or it was not sent
   because no service is paired, storage could not be written or the same request is
-  still `sending`. The same document does not send it again, even after a path change or
+  still `sending`. A continuation answered `recipe-revoked` or `recipe-conflict` is
+  spent instead, since a later document would get the same answer. The same document
+  does not send it again, even after a path change or
   a moment in which the page stopped qualifying. A document left while the request was
   being recorded may leave it recorded with nothing sent; that fails closed, as a spent
   request. A qualifying page whose request is spent or whose answer cannot be used
   settles `unknown` without a judge call: it still asks for credentials, so the judge
-  could not learn anything from it.
+  could not learn anything from it. The log says why such a page was not sent
+  (`recipe.generate` `skipped`, once per document) and that the judge was skipped
+  (`recipe.judge` `not-sent`, `continuation`).
 - **Recipes-only refresh.** A returned revision is pulled with recipes only, as after a
   judgement, so a settings change from the service does not stop the login that asked
   for it.
@@ -267,10 +273,10 @@ first sign-in. That page can carry the owner's name or balances in its title and
 headings, within the extractor's label redaction (`[email]`, `[masked]`, and
 `[number]` for every number on that page since 2026-10-12). The page after an `advance`
 step, like any judged page, may show the identifier just entered and is sent as
-observed; redacting the account's own username from the description is planned. A new
-site costs about two Claude calls, roughly $0.015. A post-login page the extractor
-cannot describe completely is not sent, and that attempt ends `unknown`; the next run
-tries again.
+observed; redacting the account's own username from every description is planned in
+[phase 1](../plan.md#phase-1-usable). A new site costs about two Claude calls, roughly
+$0.015. A post-login page the extractor cannot describe completely is not sent, and that
+attempt ends `unknown`; the next run tries again.
 
 Real calls to the owner's Anthropic organization start only after deployment and the
 owner's approval. Tests use a fake token endpoint and fake models.

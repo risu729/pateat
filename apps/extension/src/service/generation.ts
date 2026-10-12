@@ -140,6 +140,9 @@ function refused(rejection: GenerationOutputRejection) {
   } as const;
 }
 
+/** Unavailable codes a continuation's later document would get again (ADR 0018). */
+const continuationSpent = new Set(["recipe-revoked", "recipe-conflict"]);
+
 /**
  * The extension side of the recipe generation routes (ADR 0018). Requests go only to the
  * paired service with the device credential; a returned recipe reaches the login runtime
@@ -350,8 +353,14 @@ export function createLoginGeneration(options: {
           return result.rejection
             ? { outcome: "failed", reason: "invalid-output", ...refused(result.rejection) }
             : { outcome: "failed", reason: result.error, ...freed };
+        // A continuation of a revoked or since-changed recipe would get the same answer from
+        // any later document, so the login spends it (ADR 0018).
         if (result.status === "unavailable")
-          return { outcome: "unavailable", reason: result.reason, ...freed };
+          return {
+            outcome: "unavailable",
+            reason: result.reason,
+            ...(base && continuationSpent.has(result.reason) ? {} : freed),
+          };
         // The mapping arrives only with the answer that wrote the recipe; the login binds
         // the custom slots from it until a binding is saved (ADR 0027).
         const { customSlots, change } = result;

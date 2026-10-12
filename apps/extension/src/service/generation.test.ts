@@ -729,6 +729,49 @@ describe("continuing a recipe after its final advance (ADR 0018)", () => {
     expect(h.refresh).not.toHaveBeenCalled();
   });
 
+  it.each(["recipe-revoked", "recipe-conflict"] as const)(
+    "spends a continuation answered %s, which a later document would get again",
+    async (reason) => {
+      const h = setup({
+        kind: "result",
+        result: { version: 1, status: "unavailable", reason },
+      });
+      expect(await h.generation.generate(continuation)).toEqual({
+        outcome: "unavailable",
+        reason,
+      });
+      // A recipe's first page with the same answer stays free to send again.
+      expect(await h.generation.generate(request)).toEqual({
+        outcome: "unavailable",
+        reason,
+        retry: true,
+      });
+    },
+  );
+
+  it("names the check that refused a continuation's output and spends it", async () => {
+    const h = setup({
+      kind: "result",
+      result: {
+        version: 1,
+        status: "failed",
+        error: "invalid-output",
+        rejection: { check: "schema", issue: "max-length", path: "result.steps" },
+      },
+    });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "failed",
+      reason: "invalid-output",
+      check: "schema",
+      detail: "max-length",
+      path: "result.steps",
+    });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      reason: "sent",
+    });
+  });
+
   it("asks for a retry without a paired service and sends nothing", async () => {
     const h = setup();
     h.service.connection.mockResolvedValueOnce(undefined);

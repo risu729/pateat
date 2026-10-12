@@ -378,19 +378,20 @@ export const noLoginRecipes: LoginRecipes = {
 };
 
 /**
-/**
  * Why a page is not sent now: no paired service, its request is in flight, or a request
  * for it reached the model within the retry window (ADR 0016).
  */
 export type GenerationHold = "not-connected" | "sending" | "sent";
 /**
- * What came of one page offered for generation: the model's recipe, already in the recipe
- * cache with the fields its custom slots name remembered for `slotFields`, or its
- * abstention, a failure or refusal with its code, or why nothing was sent, for the local
- * log. `retry` marks a page left free to send again: its request did not reach the model,
- * or it was not sent because no service is paired, storage could not be written or a
- * request for it is still in flight (ADR 0016); a continuation's login then gives its
- * request back for a later document to send (ADR 0018).
+ * What came of one page offered for generation: the model's recipe, with the fields its
+ * custom slots name remembered for `slotFields` and the recipe cache pulled once (a failed
+ * pull is not reported, so the cache may not hold it yet: a continuation's login takes the
+ * returned recipe itself), or its abstention, a failure or refusal with its code, or why
+ * nothing was sent, for the local log. `retry` marks a page left free to send again: its
+ * request did not reach the model, or it was not sent because no service is paired,
+ * storage could not be written or a request for it is still in flight (ADR 0016); a
+ * continuation's login then gives its request back for a later document to send (ADR
+ * 0018). A continuation of a revoked or since-changed recipe is not marked.
  */
 export type GenerationOutcome =
   | { outcome: "recipe"; recipe: LoginRecipe }
@@ -2484,7 +2485,8 @@ export function createLoginRuntime(
     }
     // A sign-in page after the final advance is never judged: the judge cannot learn
     // anything from it (ADR 0018).
-    if (continued !== "qualified" && (await learn(run))) return undefined;
+    if (continued === "qualified") notJudged(run, "continuation");
+    else if (await learn(run)) return undefined;
     await change(run, {
       type: "OBSERVED",
       result: unproven(run, "unknown"),
@@ -2835,24 +2837,25 @@ export function createLoginRuntime(
    * complete description is in hand, before the request, so a restart cannot resend
    * without bound, and is given back only for a temporary refusal before any model call.
    */
+  /** Logs why the page was not sent to the judge, as a code: never page text. */
+  function notJudged(run: Execution, reason: string): false {
+    report(run.live.document, {
+      type: "judge",
+      tabId: run.live.document.tabId,
+      origin: run.live.document.origin,
+      recipeId: run.recipe.id,
+      recipeRevision: run.recipe.revision,
+      route: run.metadata.route,
+      verdict: "not-sent",
+      reason,
+    });
+    return false;
+  }
   async function learn(run: Execution): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
     if (!generation || !effectful(metadata) || !operationId) return false;
-    // Why the page was not sent, as a code for diagnostics: never page text.
-    const notSent = (reason: string) => {
-      report(run.live.document, {
-        type: "judge",
-        tabId: run.live.document.tabId,
-        origin: run.live.document.origin,
-        recipeId: recipe.id,
-        recipeRevision: recipe.revision,
-        route: metadata.route,
-        verdict: "not-sent",
-        reason,
-      });
-      return false;
-    };
+    const notSent = (reason: string) => notJudged(run, reason);
     if (judgedPages(metadata, operationId) >= MAX_JUDGED_PAGES) return notSent("page-limit");
     // Every variant's fill fields and paths count, as on the service, which is never told
     // the variant; on the passkey route, its button and the password form, on its path and
@@ -3085,6 +3088,22 @@ export function createLoginRuntime(
       run.continuationRefused = operationId;
       return "qualified" as const;
     };
+    /** Logs once per document why the qualifying page is not sent (yet). */
+    const unsent = (reason: string) => {
+      if (run.live.generationSkip !== reason) {
+        run.live.generationSkip = reason;
+        report({
+          type: "generation",
+          tabId: run.live.document.tabId,
+          origin: run.live.document.origin,
+          outcome: "skipped",
+          reason,
+          recipeId: recipe.id,
+          baseRevision: recipe.revision,
+        });
+      }
+      return "qualified" as const;
+    };
     if (run.continuationRefused === operationId) return "qualified";
     // Spent for this step. A revision that continues the recipe and reached the cache, as
     // after a restart during the request, is taken over; so is an answer an earlier
@@ -3135,6 +3154,7 @@ export function createLoginRuntime(
       .flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.target) : []))
       .slice(0, 24);
     let observation: LoginObservation | undefined;
+    let missing = "extract-failed";
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -3148,6 +3168,10 @@ export function createLoginRuntime(
         extracted.success && extracted.output.ok
           ? v.safeParse(loginObservationSchema, extracted.output.observation)
           : undefined;
+      // The content script's refusal, such as `no-locator` or `extract-error`, as for a
+      // first page; `extract-failed` for an answer that fails its check or never came.
+      if (extracted.success && !extracted.output.ok) missing = extracted.output.reason;
+      else if (parsed) missing = "incomplete-observation";
       if (
         parsed?.success &&
         parsed.output.complete &&
@@ -3160,21 +3184,24 @@ export function createLoginRuntime(
     }
     if (!current(run)) return "moved";
     // An incomplete description is not sent and does not count; a later round tries again.
-    if (!observation) return "qualified";
+    if (!observation) return unsent(missing);
     // The login's own item must match the page, as for a recipe's first page (ADR 0016).
     const scope = await generationSlotsFor(run.live).catch(() => undefined);
     if (!current(run)) return "moved";
-    // The tab or the vault could not answer now; a later round asks again.
-    if (!scope) return "qualified";
+    // The tab or the vault could not answer now, or no item matches; a later round asks again.
+    if (!scope) return unsent("no-vault-match");
     if (
       !scope.items.some(
         ({ connection, item }) =>
           connection.id === metadata.account.connectionId && item.id === metadata.account.itemId,
       )
-    )
+    ) {
       // A connection that did not answer or an item whose URI rules were not evaluated may
       // still hold it: a later round asks again.
-      return scope.complete ? refuse() : "qualified";
+      if (!scope.complete) return unsent("scope-incomplete");
+      unsent("no-vault-match");
+      return refuse();
+    }
     const pageOrigin = run.live.document.origin;
     // A slot the recipe already fills is not offered again, so the model cannot map it to a
     // field the page still shows (the service refuses such a page too).
@@ -3194,7 +3221,10 @@ export function createLoginRuntime(
     const shape = await usernameShape(pageOrigin, scope);
     const custom = await customSlots(pageOrigin, { ...scope, offers });
     if (!current(run)) return "moved";
-    if (!slots.length && !custom.length) return refuse();
+    if (!slots.length && !custom.length) {
+      unsent("no-slots");
+      return refuse();
+    }
     // Recorded before the request, so a restart never sends this step's page again.
     await change(run, { type: "CONTINUING", operationId });
     // Left during the write, the record may hold `CONTINUING` with nothing sent: fail-closed,
