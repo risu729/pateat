@@ -43,12 +43,55 @@ describe("recipe generation contracts", () => {
     expect(v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, base })).toBe(
       true,
     );
+    // A chooser branch's page (ADR 0028) names its chooser as the base.
+    expect(
+      v.is(recipeGenerationRequestSchema, {
+        version: 1,
+        observation,
+        slots,
+        base,
+        branch: "other",
+      }),
+    ).toBe(true);
     for (const invalid of [
       { version: 1, observation, slots, base: { recipeId: "gen-1", revision: 0 } },
       { version: 1, observation, slots: [] },
       { version: 1, observation, slots, item: "vault-item" },
+      { version: 1, observation, slots, branch: "account" },
+      { version: 1, observation, slots, base, branch: "entry" },
     ])
       expect(v.is(recipeGenerationRequestSchema, invalid)).toBe(false);
+  });
+
+  it("answers a chooser recipe for an account list or one of its branches (ADR 0028)", () => {
+    const chooser = {
+      version: 1,
+      id: "gen-1",
+      revision: 2,
+      origin: recipe.origin,
+      chooser: { path: "/login", afterAccount: recipe },
+    };
+    const change = { recipeId: "gen-1", revision: 2, state: "active", recipe: chooser };
+    expect(v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change })).toBe(true);
+    expect(v.is(recipeCompletionResultSchema, { version: 1, status: "signed-in", change })).toBe(
+      true,
+    );
+    // Its branches' slots are the ones a custom slot may name.
+    const customSlots = [{ slot: "email", offered: "custom-1" }];
+    expect(
+      v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change, customSlots }),
+    ).toBe(true);
+    expect(
+      v.is(recipeGenerationResultSchema, {
+        version: 1,
+        status: "recipe",
+        change: { ...change, recipe: { ...chooser, chooser: { path: "/login" } } },
+        customSlots,
+      }),
+    ).toBe(false);
+    const judged = { version: 1, revision: 2, route: "password", observation };
+    expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "account" })).toBe(true);
+    expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "list" })).toBe(false);
   });
 
   it("answers recipes only as active changes whose identity matches", () => {

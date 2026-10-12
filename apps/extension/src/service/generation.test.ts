@@ -125,6 +125,26 @@ describe("recipe generation requests", () => {
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
   });
 
+  it("takes no chooser recipe (ADR 0028) as the answer to a form page", async () => {
+    const chooser = {
+      ...recipeChange,
+      recipe: {
+        version: 1 as const,
+        id: recipeChange.recipeId,
+        revision: 1,
+        origin: observation.origin,
+        chooser: { path: "/login" },
+      },
+    };
+    const h = setup({ kind: "result", result: { version: 1, status: "recipe", change: chooser } });
+    expect(await h.generation.generate(request)).toEqual({
+      outcome: "unavailable",
+      reason: "recipe-conflict",
+    });
+    // The request reached the model, so the page is not sent again in the window.
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+  });
+
   it("claims the page before sending, so two tabs send it once", async () => {
     const h = setup({
       kind: "result",

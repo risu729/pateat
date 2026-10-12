@@ -2,6 +2,7 @@ export * from "./outcome";
 export * from "./plan";
 export { classifyInferenceError } from "./errors";
 export {
+  asPagePlan,
   createRecipeGenerator,
   generatedPlanSchema,
   generationInstructions,

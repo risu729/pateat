@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
   chooseLoginRoute,
+  chooserBranch,
   continuesRecipe,
   extendsRecipe,
   refillsLoginSlot,
@@ -23,7 +24,9 @@ import {
   routeSlots,
   routeSteps,
   storedLoginRecipeSchema,
+  storedRecipeSlots,
   storedRecipeStartPath,
+  withChooserBranch,
   loginFieldFacts,
   loginFieldSource,
   loginRecipeSchema,
@@ -2117,5 +2120,32 @@ describe("chooser recipes (ADR 0028)", () => {
       }),
     ).toBe(false);
     expect(v.is(storedLoginRecipeSchema, { ...recipe(), chooser: chooser().chooser })).toBe(false);
+  });
+
+  it("reads and replaces a branch, moving the other one to the new revision", () => {
+    const stored = v.parse(loginChooserRecipeSchema, chooser());
+    expect(chooserBranch(stored, "account")).toBeUndefined();
+    expect(storedRecipeSlots(stored)).toEqual([]);
+    const account = { ...recipe(), revision: recipe().revision + 1 };
+    const first = withChooserBranch(stored, "account", account);
+    expect(first).toEqual({
+      ...stored,
+      revision: account.revision,
+      chooser: { ...stored.chooser, afterAccount: account },
+    });
+    expect(v.is(loginChooserRecipeSchema, first)).toBe(true);
+    const other = {
+      ...recipe(),
+      revision: account.revision + 1,
+      slots: [...recipe().slots, "pin"],
+    };
+    const both = withChooserBranch(first, "other", { ...other, steps: [...other.steps] });
+    expect(both.revision).toBe(other.revision);
+    expect(chooserBranch(both, "account")).toEqual({ ...account, revision: other.revision });
+    expect(chooserBranch(both, "other")?.revision).toBe(other.revision);
+    expect(v.is(loginChooserRecipeSchema, both)).toBe(true);
+    // A chooser's slots are its branches' together; a route recipe's are its own.
+    expect(storedRecipeSlots(both)).toEqual(["branch", "account", "password", "pin"]);
+    expect(storedRecipeSlots(recipe())).toEqual(recipeSlots(recipe()));
   });
 });

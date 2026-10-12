@@ -1,9 +1,12 @@
-import type {
-  LoginObservation,
-  ObservedCandidate,
-  RecipeCompletionResult,
-  RecipeGenerationResult,
-  SemanticSlot,
+import {
+  isLoginRouteRecipe,
+  type LoginObservation,
+  type LoginRecipe,
+  type ObservedCandidate,
+  type RecipeCompletionResult,
+  type RecipeGenerationResult,
+  type SemanticSlot,
+  type StoredLoginRecipe,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
 import { completionPromptVersion, generationPromptVersion } from "@pateat/inference";
@@ -58,6 +61,11 @@ const homePage = observation("/home", [
   element("help", "link", "Help"),
 ]);
 
+/** A stored recipe that must be a route recipe, as every form page's answer is. */
+const route = (recipe: StoredLoginRecipe): LoginRecipe => {
+  if (!isLoginRouteRecipe(recipe)) throw new Error("Expected a route recipe");
+  return recipe;
+};
 const plan = (fields: [string, string][], action: string, purpose: "advance" | "submit") =>
   JSON.stringify({
     result: {
@@ -224,7 +232,7 @@ describe("recipe generation", () => {
       },
     });
     if (first.status !== "recipe") return;
-    expect(first.change.recipe.completion).toBeUndefined();
+    expect(route(first.change.recipe).completion).toBeUndefined();
     // The access token from the exchange is the credential; no API key is sent.
     expect(sent[0]).toMatchObject({ authorization: "Bearer synthetic-access-token", apiKey: null });
 
@@ -776,7 +784,7 @@ describe("recipe generation", () => {
     ).toEqual([]);
   });
 
-  it("never generates, continues or judges a chooser recipe stored under the page's ID", async () => {
+  it("never answers a form page, a route's next page or its judgement with a chooser recipe", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");
     // ADR 0028: a recipe whose only member is `chooser`, written by a device for now.
@@ -855,19 +863,6 @@ describe("recipe generation", () => {
       version: 1,
       status: "failed",
       error: "incomplete-observation",
-    });
-    expect(sent).toEqual([]);
-    expect(
-      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
-    ).toEqual([]);
-  });
-
-  it("refuses a page that lists accounts without a model call or an attempt", async () => {
-    const device = await owner();
-    expect(await generate(device, { ...emailPage, accounts: ["[email]"] })).toEqual({
-      version: 1,
-      status: "failed",
-      error: "invalid-request",
     });
     expect(sent).toEqual([]);
     expect(
@@ -1166,7 +1161,7 @@ describe("custom-field slots (ADR 0027)", () => {
     if (first.status !== "recipe") return;
     // The recipe never carries the vault field names.
     expect(JSON.stringify(first.change)).not.toContain("Synthetic");
-    expect(first.change.recipe.steps[0]).toMatchObject({
+    expect(route(first.change.recipe).steps[0]).toMatchObject({
       fields: [
         { slot: "email", target: { by: "id", value: "email" } },
         { slot: "branch-number", target: { by: "id", value: "branch" } },
@@ -1702,7 +1697,7 @@ describe("page judgement (ADR 0027)", () => {
           state: "active",
           recipe: {
             revision: 3,
-            steps: change.recipe.steps,
+            steps: route(change.recipe).steps,
             handlers: [
               { kind: "passkey", path: "/login/webauthn", target: { by: "id", value: "key" } },
             ],
@@ -1780,7 +1775,7 @@ describe("page judgement (ADR 0027)", () => {
         revision: 3,
         recipe: {
           revision: 3,
-          steps: change.recipe.steps,
+          steps: route(change.recipe).steps,
           handlers: [
             { kind: "passkey", path: "/login/mfa", target: { by: "id", value: "key" } },
             {
@@ -1936,7 +1931,7 @@ describe("page judgement (ADR 0027)", () => {
       const second = await complete(device, change.recipeId, 3, plain);
       expect(second.body).toMatchObject({ change: { revision: 4 } });
       if (!("change" in second.body) || !second.body.change) throw new Error("no change");
-      expect(second.body.change.recipe.handlers?.map((handler) => handler.kind)).toEqual([
+      expect(route(second.body.change.recipe).handlers?.map((handler) => handler.kind)).toEqual([
         "totp",
         "passkey",
       ]);
@@ -1967,7 +1962,7 @@ describe("page judgement (ADR 0027)", () => {
         change: {
           revision: 3,
           recipe: {
-            steps: change.recipe.steps,
+            steps: route(change.recipe).steps,
             handlers: [
               {
                 kind: "totp",
@@ -2376,7 +2371,7 @@ describe("the passkey route (ADR 0027)", () => {
     const result = await generate(device, signInPage);
     if (result.status !== "recipe") throw new Error(result.status);
     expect(result.change.recipe).not.toHaveProperty("passkey");
-    expect(result.change.recipe.slots).toEqual(["email", "password"]);
+    expect(route(result.change.recipe).slots).toEqual(["email", "password"]);
     // The log keeps nothing the plan check dropped.
     const [logged] = await rows(
       "SELECT result FROM inference_log WHERE owner_id = ? AND role = 'generate'",
@@ -2547,7 +2542,10 @@ describe("the passkey route (ADR 0027)", () => {
     if (second.status !== "recipe") throw new Error(second.status);
     const { recipeId, revision } = second.change;
     // The continuation keeps the start page's route.
-    expect(second.change.recipe.passkey).toEqual({ path: "/login", target: passkeyButton.target });
+    expect(route(second.change.recipe).passkey).toEqual({
+      path: "/login",
+      target: passkeyButton.target,
+    });
     const rejected = JSON.stringify({ result: { decision: "rejected" } });
     replies.push({ text: rejected });
     expect(await judge(device, recipeId, revision, homePage)).toEqual({
@@ -2570,5 +2568,339 @@ describe("the passkey route (ADR 0027)", () => {
       // `/home`, on the passkey route
       { route: "passkey", loginPaths: ["/login", "/password"] },
     ]);
+  });
+});
+
+describe("account lists and chooser branches (ADR 0028)", () => {
+  const listPage: LoginObservation = {
+    ...observation("/login", [
+      element("other", "button", "Sign in with another profile"),
+      element("help", "link", "Help"),
+    ]),
+    accounts: ["[email] Last used", "[email]"],
+  };
+  const listAnswer = (controls: { other?: string; continue?: string }) =>
+    JSON.stringify({ result: { decision: "account-list", ...controls } });
+  const judgeReply = (result: unknown) => ({ text: JSON.stringify({ result }) });
+  async function branchGenerate(
+    device: Device,
+    page: LoginObservation,
+    base: { recipeId: string; revision: number },
+    branch: string,
+  ) {
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: page,
+      slots,
+      base,
+      branch,
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()) as RecipeGenerationResult;
+  }
+  /** Stores the list as a chooser with an `other` button and returns its change. */
+  async function chooser(device: Device) {
+    replies.push({ text: listAnswer({ other: "other" }) });
+    const answer = await generate(device, listPage);
+    if (answer.status !== "recipe") throw new Error(answer.status);
+    return answer.change;
+  }
+
+  it("stores a list of accounts as a chooser recipe and logs its controls by reference", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    const change = await chooser(device);
+    expect(change).toEqual({
+      recipeId,
+      revision: 1,
+      state: "active",
+      recipe: {
+        version: 1,
+        id: recipeId,
+        revision: 1,
+        origin: ORIGIN,
+        chooser: { path: "/login", other: { by: "id", value: "other" } },
+      },
+    });
+    // The page went to the model with its accounts as the observation redacted them.
+    expect(JSON.stringify(sent[0]!.body)).toContain(
+      String.raw`\"accounts\":[\"[email] Last used\",\"[email]\"]`,
+    );
+    const [logged] = await rows(
+      "SELECT outcome, result FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(logged!.outcome).toBe("ok");
+    expect(JSON.parse(String(logged!.result))).toEqual({ accountList: true, other: "other" });
+    expect(
+      await rows(
+        "SELECT recipe_id, branch, path, base_revision FROM generation_attempts WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ recipe_id: recipeId, branch: "", path: "/login", base_revision: 0 }]);
+    // Another device sending the list gets the chooser without a call; a form page on the
+    // same path gets no recipe from it.
+    expect(await generate(device, listPage)).toEqual({ version: 1, status: "recipe", change });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-conflict",
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("stores a shown account's continue button beside the other one", async () => {
+    const device = await owner();
+    const wise = {
+      ...observation("/login", [
+        element("log-back-in", "button", "Log back in"),
+        element("another", "button", "Use another account"),
+      ]),
+      accounts: ["[masked]"],
+    };
+    replies.push({ text: listAnswer({ other: "another", continue: "log-back-in" }) });
+    expect(await generate(device, wise)).toMatchObject({
+      status: "recipe",
+      change: {
+        recipe: {
+          chooser: {
+            path: "/login",
+            other: { by: "id", value: "another" },
+            continue: { by: "id", value: "log-back-in" },
+          },
+        },
+      },
+    });
+  });
+
+  it("refuses a plan for a list, a list for a form and controls that may be accounts", async () => {
+    const expectRefused = async (page: LoginObservation, text: string, reason: string) => {
+      const device = await owner();
+      replies.push({ text });
+      expect(await generate(device, page)).toEqual({
+        version: 1,
+        status: "failed",
+        error: "invalid-output",
+        rejection: { check: "plan", reason },
+      });
+      expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", device.ownerId)).toEqual(
+        [],
+      );
+    };
+    await expectRefused(
+      { ...listPage, candidates: [...listPage.candidates, element("email", "email", "Email")] },
+      plan([["email", "email"]], "other", "advance"),
+      "unexpected-plan",
+    );
+    await expectRefused(emailPage, listAnswer({ other: "next" }), "unexpected-account-list");
+    await expectRefused(listPage, listAnswer({ other: "missing" }), "unknown-candidate");
+    await expectRefused(
+      listPage,
+      listAnswer({ other: "other", continue: "other" }),
+      "duplicate-candidate",
+    );
+    await expectRefused(
+      {
+        ...listPage,
+        candidates: [...listPage.candidates, element("profile", "button", "[email] Last used")],
+      },
+      listAnswer({ other: "profile" }),
+      "account-text",
+    );
+  });
+
+  it("generates each branch's pages into the chooser, with attempts kept apart", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    // The page after a listed profile: the password alone.
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const account = await branchGenerate(
+      device,
+      passwordPage,
+      { recipeId, revision: 1 },
+      "account",
+    );
+    const afterAccount = {
+      version: 1,
+      id: recipeId,
+      revision: 2,
+      origin: ORIGIN,
+      slots: ["password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/password",
+          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+          effect: "prepare",
+        },
+        {
+          kind: "click",
+          path: "/password",
+          target: { by: "id", value: "sign-in" },
+          purpose: "submit",
+        },
+      ],
+      maxSubmissions: 1,
+    };
+    expect(account).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { revision: 2, chooser: { afterAccount } } },
+    });
+    // The other button's branch starts with the email form, and continues after it.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const other = await branchGenerate(device, emailPage, { recipeId, revision: 2 }, "other");
+    expect(other).toMatchObject({
+      status: "recipe",
+      change: {
+        revision: 3,
+        recipe: {
+          chooser: {
+            afterAccount: { ...afterAccount, revision: 3 },
+            afterOther: { revision: 3, slots: ["email"], maxSubmissions: 1 },
+          },
+        },
+      },
+    });
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const next = await branchGenerate(device, passwordPage, { recipeId, revision: 3 }, "other");
+    expect(next).toMatchObject({
+      status: "recipe",
+      change: {
+        revision: 4,
+        recipe: {
+          chooser: {
+            afterOther: { revision: 4, slots: ["email", "password"], maxSubmissions: 2 },
+          },
+        },
+      },
+    });
+    // The account branch has submitted, so nothing continues it.
+    expect(await branchGenerate(device, homePage, { recipeId, revision: 4 }, "account")).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-conflict",
+    });
+    expect(
+      await rows(
+        "SELECT branch, path, base_revision FROM generation_attempts WHERE owner_id = ? ORDER BY base_revision",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { branch: "", path: "/login", base_revision: 0 },
+      { branch: "account", path: "/password", base_revision: 1 },
+      { branch: "other", path: "/login", base_revision: 2 },
+      { branch: "other", path: "/password", base_revision: 3 },
+    ]);
+    expect(sent).toHaveLength(4);
+  });
+
+  it("tries each branch's page on its own within the retry window", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    replies.push({
+      text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+    });
+    expect(
+      await branchGenerate(device, emailPage, { recipeId, revision: 1 }, "account"),
+    ).toMatchObject({ status: "abstained" });
+    // The same path and revision on the other branch is another page.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(
+      await branchGenerate(device, emailPage, { recipeId, revision: 1 }, "other"),
+    ).toMatchObject({ status: "recipe", change: { revision: 2 } });
+    expect(sent).toHaveLength(3);
+  });
+
+  it("refuses a branch the chooser cannot take, without a model call", async () => {
+    const device = await owner();
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    // A chooser without an `other` button has no other branch.
+    replies.push({ text: listAnswer({}) });
+    const bare = await generate(device, listPage);
+    if (bare.status !== "recipe") throw new Error(bare.status);
+    const { recipeId } = bare.change;
+    expect(await branchGenerate(device, emailPage, { recipeId, revision: 1 }, "other")).toEqual(
+      conflict,
+    );
+    // A route recipe has no branches.
+    const routeOwner = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(
+      routeOwner,
+      observation("/start", [
+        element("email", "email", "Email"),
+        element("next", "button", "Next"),
+      ]),
+    );
+    if (first.status !== "recipe") throw new Error(first.status);
+    expect(
+      await branchGenerate(
+        routeOwner,
+        passwordPage,
+        { recipeId: first.change.recipeId, revision: 1 },
+        "account",
+      ),
+    ).toEqual(conflict);
+    // A list is only ever a first page, and a branch needs a base.
+    expect(await generate(device, listPage, { recipeId, revision: 1 })).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-request",
+    });
+    const unbased = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: emailPage,
+      slots,
+      branch: "account",
+    });
+    expect(unbased.status).toBe(400);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("judges a branch's pages and learns into that branch only", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    await branchGenerate(device, passwordPage, { recipeId, revision: 1 }, "account");
+    const judge = (branch?: string) =>
+      post(device, `/v1/recipes/${recipeId}/completion`, {
+        version: 1,
+        revision: 2,
+        route: "password",
+        ...(branch ? { branch } : {}),
+        observation: homePage,
+      }).then(async (response) => response.json());
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    // The chooser has no route of its own, and the other branch has none yet.
+    expect(await judge()).toEqual(conflict);
+    expect(await judge("other")).toEqual(conflict);
+    const calls = sent.length;
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    expect(await judge("account")).toMatchObject({
+      status: "signed-in",
+      change: {
+        revision: 3,
+        recipe: {
+          chooser: {
+            path: "/login",
+            afterAccount: {
+              revision: 3,
+              completion: { path: "/home", target: { by: "id", value: "logout" } },
+            },
+          },
+        },
+      },
+    });
+    expect(sent).toHaveLength(calls + 1);
+    // The judge is told the list's path as a login path too.
+    expect(JSON.stringify(sent.at(-1)!.body)).toContain(
+      String.raw`\"loginPaths\":[\"/login\",\"/password\"]`,
+    );
+    expect(
+      await rows(
+        "SELECT branch, revision, path FROM page_judgements WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ branch: "account", revision: 2, path: "/home" }]);
   });
 });

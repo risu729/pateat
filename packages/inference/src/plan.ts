@@ -362,7 +362,9 @@ export type GeneratedPageRejection =
   /** More alternatives than {@link MAX_PAGE_ALTERNATIVES}. */
   | "too-many-variants"
   /** A page with several sets has a set whose action advances instead of submitting. */
-  | "variant-advance";
+  | "variant-advance"
+  /** An account-list answer that failed {@link validateAccountList} (ADR 0028). */
+  | AccountListRejection;
 
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks
@@ -536,4 +538,99 @@ function validateGeneratedSets(
   )
     return { ok: false, reason: "duplicate-candidate" };
   return { ok: true, plan: { ...primary.plan, alternatives: validated } };
+}
+
+/**
+ * The generation role's answer that a page lists accounts to choose from (ADR 0028):
+ * the control that continues without a listed account (`other`) and the one that
+ * continues with the one account shown beside it (`continue`), as candidate IDs. The
+ * model never picks an account.
+ */
+export type GeneratedAccountList = {
+  other?: string | undefined;
+  continue?: string | undefined;
+};
+/** A list control the extension clicks, with the locator the chooser recipe stores. */
+type ListControl = { candidate: string; target: Exclude<LoginTarget, { by: "autocomplete" }> };
+/** An account list whose named controls passed {@link validateAccountList}. */
+export type ValidatedAccountList = {
+  accountList: true;
+  other?: ListControl;
+  continue?: ListControl;
+};
+export type AccountListRejection =
+  /** The page lists no accounts, or lists some and the answer is a form plan. */
+  | "unexpected-account-list"
+  | "unexpected-plan"
+  | "unknown-candidate"
+  | "duplicate-candidate"
+  | "incompatible-role"
+  /** A control's text holds an email address, a masked value or a long number. */
+  | "account-text";
+
+/**
+ * Text the observation shows in place of an address, a masked value or a run of four or
+ * more digits; a control holding one may be an account, which is never clicked as `other`
+ * or `continue`.
+ */
+const accountText = /\[(?:email|masked|number)\]|@|\d{4}/u;
+
+/**
+ * Validates an account-list answer (ADR 0028): the page must list accounts, and each named
+ * control must be a button or link of the page, not hold account text and not be the
+ * other control. Its locator is never `autocomplete`, which names only inputs.
+ */
+export function validateAccountList(
+  observation: LoginObservation,
+  draft: GeneratedAccountList,
+): { ok: true; list: ValidatedAccountList } | { ok: false; reason: AccountListRejection } {
+  if (!observation.accounts) return { ok: false, reason: "unexpected-account-list" };
+  const control = (id: string | undefined): ListControl | AccountListRejection | undefined => {
+    if (id === undefined) return undefined;
+    const candidate = observation.candidates.find((entry) => entry.id === id);
+    if (!candidate) return "unknown-candidate";
+    const { target } = candidate;
+    if (
+      (!isActionRole(candidate.role) && candidate.role !== "link") ||
+      target.by === "autocomplete"
+    )
+      return "incompatible-role";
+    if (
+      [candidate.label, target.value].some((text) => text !== undefined && accountText.test(text))
+    )
+      return "account-text";
+    return { candidate: candidate.id, target };
+  };
+  const other = control(draft.other);
+  const shown = control(draft.continue);
+  for (const result of [other, shown])
+    if (typeof result === "string") return { ok: false, reason: result };
+  const named = [other, shown].filter((entry): entry is ListControl => typeof entry === "object");
+  if (
+    named.length === 2 &&
+    (named[0]!.candidate === named[1]!.candidate ||
+      sameLoginTarget(named[0]!.target, named[1]!.target))
+  )
+    return { ok: false, reason: "duplicate-candidate" };
+  return {
+    ok: true,
+    list: {
+      accountList: true,
+      ...(typeof other === "object" ? { other } : {}),
+      ...(typeof shown === "object" ? { continue: shown } : {}),
+    },
+  };
+}
+
+/** An account-list answer reduced to references the request holds, for the request log. */
+export function redactAccountList(
+  observation: Pick<LoginObservation, "candidates">,
+  draft: GeneratedAccountList,
+): GeneratedAccountList {
+  const candidate = (id: string) =>
+    observation.candidates.some((entry) => entry.id === id) ? id : "?";
+  return {
+    ...(draft.other === undefined ? {} : { other: candidate(draft.other) }),
+    ...(draft.continue === undefined ? {} : { continue: candidate(draft.continue) }),
+  };
 }

@@ -684,6 +684,60 @@ export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   const unknown: never = recipe;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(unknown)}`);
 }
+/**
+ * A branch of a chooser recipe (ADR 0028): the page after a listed or shown account
+ * (`account`), or after the `other` button (`other`).
+ */
+export const chooserBranchSchema = v.picklist(["account", "other"]);
+export type ChooserBranch = v.InferOutput<typeof chooserBranchSchema>;
+const branchMember = { account: "afterAccount", other: "afterOther" } as const;
+/** A chooser's route recipe for one branch, if a login generated it already. */
+export function chooserBranch(
+  recipe: LoginChooserRecipe,
+  branch: ChooserBranch,
+): LoginRecipe | undefined {
+  return recipe.chooser[branchMember[branch]];
+}
+/**
+ * The chooser with one branch replaced by `next`, as the revision `next` carries: the
+ * other branch, if any, moves to that revision unchanged, since every branch has its
+ * chooser's revision.
+ */
+export function withChooserBranch(
+  recipe: LoginChooserRecipe,
+  branch: ChooserBranch,
+  next: LoginRecipe,
+): LoginChooserRecipe {
+  const other = chooserBranch(recipe, branch === "account" ? "other" : "account");
+  return {
+    ...recipe,
+    revision: next.revision,
+    chooser: {
+      ...recipe.chooser,
+      ...(other
+        ? {
+            [branchMember[branch === "account" ? "other" : "account"]]: {
+              ...other,
+              revision: next.revision,
+            },
+          }
+        : {}),
+      [branchMember[branch]]: next,
+    },
+  };
+}
+/** The slots a stored recipe's routes fill: none for an entry, its branches' for a chooser. */
+export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
+  if ("steps" in recipe) return recipeSlots(recipe);
+  if ("entry" in recipe) return [];
+  return [
+    ...new Set(
+      [recipe.chooser.afterAccount, recipe.chooser.afterOther].flatMap((branch) =>
+        branch ? recipeSlots(branch) : [],
+      ),
+    ),
+  ];
+}
 export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
 

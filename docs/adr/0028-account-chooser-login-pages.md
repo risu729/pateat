@@ -2,10 +2,11 @@
 
 Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC), and extended to a
 single shown account and to usernames that are not emails at 08:36 UTC. Partly
-implemented: finding entries and shown accounts, the observation, and the stored chooser
-recipe; nothing sends a list page or starts a chooser yet.
-Delivery depends on the extension's `advance` continuation of
-[ADR 0018](0018-recipe-generation-route.md), which is not implemented yet. Amends
+implemented: finding entries and shown accounts, the observation, the stored chooser
+recipe, and the service's account-list answer with branch-aware generation and
+judgement; the extension sends no list page and starts no chooser yet. It builds on the
+extension's `advance` continuation of [ADR 0018](0018-recipe-generation-route.md)
+([#332](https://github.com/risu729/pateat/pull/332)). Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can be
 sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
 form plan) and the recipe contract in `packages/contracts/src/login.ts`.
@@ -92,9 +93,9 @@ as `accounts`, and the page's other controls outside page chrome, by their text,
 candidates the AI may name as the other-account button. An entry is never a candidate,
 since its redacted text cannot name it and the AI does not pick an account. Email-like
 text, fullwidth included, is redacted to `[email]` as in every observation, so the AI
-never sees the profiles' addresses; a text in which an `@` survives is left out. Until
-the generator can answer that a page is an account list, the service refuses such an
-observation as `invalid-request` without a model call.
+never sees the profiles' addresses; a text in which an `@` survives is left out. Such
+an observation is only ever a recipe's first page: sent with a `base`, the service
+refuses it as `invalid-request` without a model call.
 
 ### What the AI answers
 
@@ -108,6 +109,17 @@ refuses it when its text holds an email address,
 `[masked]` or a run of four or more digits, or when it is inside a form with fields.
 The prompt gains one short, language-neutral sentence for this, which describes the
 other-account button by its meaning only, with no example text in any language.
+
+As implemented, the answer is `{"decision":"account-list","other":"c1","continue":"c2"}`
+with optional candidate IDs, and the instructions say: "An observation with accounts
+lists saved accounts and has no fields: answer account-list when choosing one of them
+leads on to signing in, else abstain. Never choose an account." The service checks the
+answer before writing anything: the page must have `accounts` (and a form page's answer
+must be a plan), and each named control must be a button or link of the page, not the
+other control, with no `[email]`, `[masked]`, `[number]`, `@` or run of four digits in
+its text or label. A refused answer fails as `invalid-output` with its check's code,
+such as `unexpected-plan` or `account-text`. The extension's own check of the control
+on the page comes with execution.
 
 ### Recipe shape
 
@@ -139,8 +151,19 @@ click is never stored. [ADR 0027](0027-per-account-login-routes.md)
 password-only set is a subset of the email and password set, and the executor picks a
 variant from the item's binding, not from the page. The continuation contract
 (`continuesRecipe` in `packages/contracts/src/login.ts`, the service's `appendPageSteps`
-and the extension's `continuable`) accepts only a linear append today, so it gains
+and the extension's `continuable`) accepts only a linear append, so it gains
 branch-aware appends for this recipe.
+
+As implemented in the service: a generation request names the branch the login took
+beside its `base`, which is the chooser (`"branch":"account"` or `"other"`). Without the
+branch's recipe, the page is the branch's first page, assembled as a recipe's first
+page but without alternatives or a passkey route, since the page follows the click on
+the list; with it, the page is appended after the branch's final `advance` as any
+continuation. The judgement request names the branch too, and its completion or handler
+is learned into that branch, with the list's path among the login paths the judge is
+told. Each write is the whole chooser at its next revision, so the other branch, if any,
+moves to that revision unchanged. The service's retry window and its once-per-revision
+judgement are kept per branch as well.
 
 ### Execution
 
