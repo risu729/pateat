@@ -232,17 +232,15 @@ evidence, not real-account login evidence.
 
 ### Windows notes
 
-Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs
-`mise run //tests/extension:test` on a GitHub-hosted Windows runner as well as on Linux
-(on main pushes and manual runs; run the workflow manually on a branch to get it before
-merging), so the packaged-extension tests are expected to pass on Windows with the
-Playwright-downloaded Chromium. One local host on 2026-10-10 hit a missing SideBySide
-assembly ("side-by-side configuration is incorrect") before launch; it did not reproduce
-on the CI runner (see the [foundation progress](plan.md#foundation-progress)), so rely
-on CI for those runs. The Windows job points `TEMP` and `TMP` at the runner's work
-drive: browser profiles in the default temp directory on the system drive hit 5-25 s I/O
-stalls that timed out random tests. If browser tests time out on a slow local Windows
-disk, do the same.
+Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs no Windows job (the owner's
+decision on 2026-10-12, see [delivery](delivery.md#current-foundation-workflows)). One
+local host on 2026-10-10 hit a missing SideBySide assembly ("side-by-side configuration
+is incorrect") before the downloaded Chromium launched; a clean `windows-2025` runner on
+2026-10-11 launched it and passed all 92 packaged-extension tests (see the
+[foundation progress](plan.md#foundation-progress)). If browser tests time out on a slow
+local Windows disk, point `TEMP` and `TMP` at a faster drive: on GitHub's `windows-2025`
+runners in 2026-10, profiles in the default temp directory on the system drive hit
+5-25 s I/O stalls that timed out random tests.
 
 ### Installed Chrome synthetic login probe
 

@@ -304,9 +304,10 @@ installed shell status, and document-start/inactive-tab identity probe;
 SideBySide assembly on one local Windows host. On 2026-10-11 a clean `windows-2025`
 runner launched the Playwright-downloaded Chromium and
 [passed all 92 packaged-extension tests at that head](https://github.com/risu729/pateat/actions/runs/38118250919/job/114407461875),
-so the failure did not reproduce on a clean Windows host; CI now runs these tests on
-Windows on main pushes and manual runs (not on PRs since 2026-10-12), with browser
-profiles on the runner's work drive to avoid system-drive I/O stalls. The later
+so the failure did not reproduce on a clean Windows host. CI ran these tests on
+Windows on every PR and main push from 2026-10-11, then only on main pushes and manual
+runs, until the owner dropped Windows from CI later on 2026-10-12 (no Windows-only
+Pateat defect was found). The later
 installed-Chrome synthetic probe passed the early login gate; broader coexistence
 remains a separate M1 gate. Code Quality is not used, and normal merges need no bypass;
 see [merging](delivery.md#merging).
