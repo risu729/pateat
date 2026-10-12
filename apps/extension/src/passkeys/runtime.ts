@@ -110,7 +110,25 @@ export interface PasskeyRequestReport {
   readonly chooser?: PasskeyChoice["kind"] | "timeout" | "cancelled";
   /** Pateat signed for this RP ID in this tab before, so the request asks again. */
   readonly signedBefore?: boolean;
+  /**
+   * Why a request was `cancelled` (the page cancelled it, or settings changed) or which step
+   * threw for an `assertion-failed` delegation (ADR 0019).
+   */
+  readonly cause?: PasskeyStopCause;
 }
+/**
+ * Who cancelled a request (`page-cancelled`, `settings-changed`), or the step that threw:
+ * the login's account lookup, the passkey lookup, the check for an earlier signing in the
+ * tab, the chooser window, or signing.
+ */
+export type PasskeyStopCause =
+  | "page-cancelled"
+  | "settings-changed"
+  | "account-lookup"
+  | "passkey-lookup"
+  | "signed-before-lookup"
+  | "chooser"
+  | "signing";
 type ReportDetail = {
   -readonly [
     K in Exclude<keyof PasskeyRequestReport, "tabId" | "origin" | "outcome" | "reason">
@@ -198,12 +216,15 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     asked: boolean;
     /** The window is open, waiting for that person. */
     choosing: boolean;
+    /** Who cancelled the operation, for its report. */
+    cancelledBy?: "page-cancelled" | "settings-changed";
   };
   const operations = new Map<string, Operation>();
   const settingsChanged = () => {
     for (const [id, operation] of operations) {
       // A person deciding is not interrupted; their choice is checked against the new settings.
       if (operation.asked) continue;
+      operation.cancelledBy ??= "settings-changed";
       operation.controller.abort();
       operations.delete(id);
     }
@@ -242,10 +263,13 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     const expire = () =>
       controller.abort(new DOMException("Passkey bridge timed out", "TimeoutError"));
     let timer = setTimeout(expire, options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
+    // The step running when something threw, for the report.
+    let step: PasskeyStopCause = "account-lookup";
     try {
       const signal = controller.signal;
       // A failed lookup fails closed: the catch below delegates.
       const login = await options.loginAccount?.(context.tabId, origin);
+      step = "passkey-lookup";
       const candidates = await abortable(
         login
           ? source.candidates(origin, admission.request.rpId, signal, login)
@@ -261,6 +285,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
       const selection = selectPasskey(admission.request, candidates);
+      step = "signed-before-lookup";
       // ADR 0021 D: a username-less request in a tab Pateat already signed in from may follow
       // a logout, so it asks even for one match or a site default. Named credentials, as in a
       // re-authentication, still sign silently. A running login never asks (ADR 0027).
@@ -273,13 +298,15 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           signal,
         ));
       if (again) detail.signedBefore = true;
-      const signWith = (candidate: TCandidate) =>
-        abortable(
+      const signWith = (candidate: TCandidate) => {
+        step = "signing";
+        return abortable(
           createPasskeyAssertion(admission.request, candidate, (data, hash) =>
             source.sign(candidate, data, hash, signal),
           ),
           signal,
         );
+      };
       type Signed = { credential: TCandidate; assertion: Awaited<ReturnType<typeof signWith>> };
       // Looks the chosen passkey up under the current settings and signs with it. A lookup or
       // signing that throws, as when settings change meanwhile, gets one more try.
@@ -288,6 +315,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         retry: boolean,
       ): Promise<Signed | { reason: string }> => {
         try {
+          step = "passkey-lookup";
           const current = await abortable(
             source.candidates(origin, admission.request.rpId, signal),
             signal,
@@ -351,6 +379,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         timer = setTimeout(expire, remaining);
         operation.asked = true;
         operation.choosing = true;
+        step = "chooser";
         const choice = await abortable(
           options.chooser.choose({
             tabId: context.tabId,
@@ -385,7 +414,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         makeDefault = choice.makeDefault && credential.preferred !== true;
       }
       assertion ??= await signWith(credential);
-      if (signal.aborted) return { kind: "cancelled" };
+      if (signal.aborted) {
+        if (operation.cancelledBy) detail.cause = operation.cancelledBy;
+        return { kind: "cancelled" };
+      }
       if (makeDefault) after.remember = credential;
       return { kind: "assertion", assertion };
     } catch {
@@ -398,9 +430,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         if (timedOut) return { kind: "not-allowed" };
       }
       if (timedOut) return { kind: "delegate", reason: "timeout" };
-      return controller.signal.aborted
-        ? { kind: "cancelled" }
-        : { kind: "delegate", reason: "assertion-failed" };
+      if (controller.signal.aborted) {
+        if (operation.cancelledBy) detail.cause = operation.cancelledBy;
+        return { kind: "cancelled" };
+      }
+      detail.cause = step;
+      return { kind: "delegate", reason: "assertion-failed" };
     } finally {
       clearTimeout(timer);
       operations.delete(message.operationId);
@@ -422,6 +457,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (command.type === "passkey.cancel") {
         const operation = operations.get(command.operationId);
         if (!operation || operation.documentId !== sender.documentId) return { ok: false };
+        operation.cancelledBy ??= "page-cancelled";
         operation.controller.abort();
         return { ok: true };
       }

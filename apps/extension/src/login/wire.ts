@@ -202,6 +202,7 @@ export const commandSchema = v.variant("type", [
     outcome: v.optional(v.string()),
   }),
 ]);
+export type ExecutionDetail = NonNullable<v.InferOutput<typeof executionResultSchema>["detail"]>;
 export const executionResultSchema = v.strictObject({
   ok: v.boolean(),
   operationId: id,
@@ -223,6 +224,35 @@ export const executionResultSchema = v.strictObject({
       "value-mismatch",
       "fill-rejected",
       "submitted",
+    ]),
+  ),
+  /**
+   * Why a step was `cancelled` or failed, for the local log only (ADR 0019): the worker did
+   * not authorize it, this document was cancelled, the operation was used or expired, the
+   * page moved to another path, a field changed under the fill, the step threw; or, for a
+   * failure, the form was replaced, the target is missing or not writable, the form
+   * changed before a click, an `assert` did not hold, the step was sent values it does not
+   * fill, its fields are in different forms, an input refused its secret, the page's inputs
+   * have no value setter, or a code field's submission watch could not start.
+   */
+  detail: v.optional(
+    v.picklist([
+      "not-authorized",
+      "document-cancelled",
+      "operation-used",
+      "operation-expired",
+      "page-changed",
+      "field-changed",
+      "threw",
+      "form-replaced",
+      "target-missing",
+      "form-changed",
+      "assert-failed",
+      "unexpected-values",
+      "fields-split",
+      "secret-refused",
+      "unsupported-input",
+      "code-watch-failed",
     ]),
   ),
   /**

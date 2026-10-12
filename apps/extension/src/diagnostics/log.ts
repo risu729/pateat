@@ -154,7 +154,14 @@ export const LOG_EVENTS = {
   },
   "login.refused": {
     level: "info",
-    fields: { origin: "origin", reason: "code", detail: "code", frame: "flag", url: "url" },
+    fields: {
+      origin: "origin",
+      reason: "code",
+      detail: "code",
+      candidates: "count",
+      frame: "flag",
+      url: "url",
+    },
   },
   "login.start": {
     level: "info",
@@ -226,6 +233,7 @@ export const LOG_EVENTS = {
       complete: "flag",
       chooser: "code",
       signedBefore: "flag",
+      cause: "code",
     },
   },
   "error.unhandled": {
