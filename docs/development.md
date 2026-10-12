@@ -161,16 +161,17 @@ CI measures test coverage and reports it without failing on it (owner decision,
 2026-10-12). The Verify job runs `mise run check` with `PATEAT_COVERAGE=1`, so every
 Vitest run writes `coverage/<run>/coverage-final.json` with `@vitest/coverage-v8`; each
 `test:<area>` task of the extension names its own `<run>` directory. The next step,
-`mise run coverage:summary`, merges those files with `istanbul-lib-coverage` and writes
-line, branch, function and statement coverage per project (`apps/extension/src`,
-`packages/*/src`, `services/api/src`, `services/api/web`) to the job summary; the step
-runs even after a failed check and never fails the job. A file reached by several runs,
-such as extension code tested by a unit area and a Browser Mode suite, counts once. No
-threshold fails CI. The packaged-extension Playwright suite (`tests/extension`) is not
-measured, so code that runs only there, such as `apps/extension/src/login/content.ts`,
-`crypto/worker.ts` and the `probe.ts` files, shows as uncovered. For the same table
-locally, delete `coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE` set to
-any non-empty value, then `mise run coverage:summary`.
+`mise run coverage:summary`, merges those files with `@vitest/istanbul-lib-coverage`
+(Vitest's maintained fork of Istanbul's) and writes line, branch, function and statement
+coverage per project (`apps/extension/src`, `packages/*/src`, `services/api/src`,
+`services/api/web`) to the job summary; the step runs even after a failed check and
+never fails the job. A file reached by several runs, such as extension code tested by a
+unit area and a Browser Mode suite, counts once. No threshold fails CI. The
+packaged-extension Playwright suite (`tests/extension`) is not measured, so code that
+runs only there, such as `apps/extension/src/login/content.ts`, `crypto/worker.ts` and
+the connections, crypto and vault `probe.ts` files, shows as uncovered. For the same
+table locally, delete `coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE`
+set to any non-empty value, then `mise run coverage:summary`.
 
 Not adopted: Codecov, which adds an external service and an upload token, and GitHub
 Code Quality's pull-request coverage, which requires Code Quality; GitHub offers Code
@@ -536,7 +537,7 @@ use.
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
 | Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)); per-owner Workload Identity Federation with `hono/utils/jwt` signing, a Valibot-checked `fetch` exchange and `authToken`, no added dependency ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) | M4 service route |
-| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants; **implemented:** `@vitest/coverage-v8` with `istanbul-lib-coverage` for the CI coverage summary ([test coverage](#test-coverage)) | M2 onward |
+| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants; **approved and implemented (2026-10-12):** `@vitest/coverage-v8` with `@vitest/istanbul-lib-coverage` for the CI coverage summary ([test coverage](#test-coverage)) | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
