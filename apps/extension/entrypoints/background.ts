@@ -28,6 +28,7 @@ import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
   itemPasskeyFacts,
+  originPasskeyItems,
   rememberVaultPasskey,
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
@@ -208,6 +209,8 @@ export default defineBackground(() => {
     }),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
+    // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.
+    passkeyItems: (origin) => originPasskeyItems(vaultPasskeys, origin),
     report: diagnosticsLog.login,
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
   });
@@ -243,6 +246,8 @@ export default defineBackground(() => {
   const rememberPasskey = async (origin: string, candidate: VaultPasskeyCandidate) => {
     if (await login.active()) return;
     await rememberVaultPasskey({ settings: loginSettings, origin, candidate });
+    // ADR 0034: the saved default ends a popup choice of that origin in another tab.
+    login.siteDefaultSaved();
   };
   const passkeyProbe =
     import.meta.env.MODE === "probe"

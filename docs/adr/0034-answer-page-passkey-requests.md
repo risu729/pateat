@@ -27,6 +27,18 @@ and one at 20:42 UTC showed it on the start path with only a loader for more tha
 seconds: the hold of rule 6 also keeps a page on the start path from being judged, and
 a page there that shows nothing to describe waits up to two minutes.
 
+Amended on 2026-10-12 by the owner's choice at 22:04 UTC (implemented, local tests
+only): outside a logout too, while the tab offers a page a choice of accounts in the
+popup and an offered item holds a discoverable passkey, that page's request waits for
+the pick on a recipe without a passkey button, so a picked item with a passkey signs in
+with it. It is handed on three seconds after the choice goes away, and four minutes
+after it came instead of being withheld (rule 5). Evidence from the owner's Chrome on
+build `cdfa420`: at 21:12:36 UTC GitHub's sign-in page matched three items without a
+site default and asked in the popup (`account-ambiguous`); at 21:12:38 its conditional
+request was handed on (`no-login`); the pick at 21:16:51 started the login on the
+`password` route; after a reload at 21:17:15, the saved default's login took the
+`passkey` route and Pateat answered the page's request.
+
 Date: 2026-10-12
 
 ## Context
@@ -85,15 +97,38 @@ password when the item has one. The proposal reviewed with the owner is
    waiting request is not cancelled when settings are saved and does not hold the vault
    replacement of ADR 0025; the item it is answered with is looked up under the settings
    current at that time. A document whose login does not start within three seconds
-   hands it on (`no-login`), unless the tab asks it for an account after a logout
-   (ADR 0021 D): a document so asked, or filled by a login that only fills, keeps its
-   request while the tab asks, and the login the popup pick starts answers it as in
-   rule 3 when the picked item holds a discoverable passkey. A pick that starts no
-   login hands it on three seconds later, unless the choice is offered again by then.
-   That request is also withheld
-   four minutes after it came, since the browser ends the message that carries it after
-   five: a pick after that signs in with the password, and an item with only a passkey
-   does not sign in until the page is loaded again.
+   hands it on (`no-login`), unless the tab asks it for an account: after a logout (ADR
+   0021 D), or, on a recipe without a passkey button, in a popup choice (ADR 0021 B) in
+   which an offered item holds a discoverable passkey. A document so asked, or filled by
+   a login that only fills, keeps its request while the tab asks, and the login the
+   popup pick starts answers it as in rule 3 when the picked item holds a discoverable
+   passkey; with any other item that login takes the password, and the request follows
+   its end as above. Pateat answers only through the login the person's pick starts and
+   never signs in on its own. A pick that starts no login hands it on three seconds
+   later, unless the choice is offered again by then. After a logout, that request is
+   also withheld four minutes after it came, since the browser ends the message that
+   carries it after five: a pick after that signs in with the password, and an item with
+   only a passkey does not sign in until the page is loaded again. In a popup choice
+   outside a logout:
+   - Whether an offered item holds a passkey is read as at a login's start (a
+     discoverable passkey that can sign), with one vault search per RP ID the site may
+     use, matched against the offered items; no secret value is read. An item the search
+     could not reach, as in a locked vault, counts as holding none; when no offered item
+     holds one, the request is handed on as without a choice. While the search runs,
+     whether the request or the choice came first, the request is not handed on.
+   - The request is handed on three seconds after the choice goes away, unless it is
+     offered again by then: the document navigates, a site default is saved for the
+     origin (in the settings, by sync, by a pick in another tab or by Pateat's passkey
+     chooser), another frame's
+     choice replaces it, or the choice could not be restored after a worker restart.
+     When the document announces again and that starts a login instead of being
+     refused, the login decides the request as above, as for any login of its document.
+   - Four minutes after it came, unless a login of its document runs by then, it is
+     handed on (`no-pick`), not withheld: the browser
+     ends the message after five, so there is still time to. A pick after that signs in
+     with the password, and an item with only a passkey does not sign in until the page
+     is loaded again. A worker restart hands it on as well, and a later pick signs in
+     with the password, as after a logout.
 6. **Back to the password when the site refuses.** If no request comes within three
    seconds of the step, the item's passkey cannot answer it, the recipe's rejection
    shows after the answer, or the start page's sign-in form still shows on the start
@@ -115,7 +150,8 @@ password when the item has one. The proposal reviewed with the owner is
    make an `optional` one that Pateat answers the same way, and the RP ID and origin
    checks are unchanged.
 8. **Logs.** `passkey.request` names the request's `mediation` on every outcome, a new
-   outcome `withheld`, the reasons `no-recipe`, `no-login` and `login-ended`, the cause
+   outcome `withheld`, the reasons `no-recipe`, `no-login`, `login-ended` and `no-pick`
+   (no pick within four minutes in a popup choice outside a logout), the cause
    `login-wait` when waiting for the login failed (a page that cancels a waiting request
    logs the `cancelled` outcome and `page-cancelled`), and
    `answerFailed` when the item could not answer. `login.attempt` names a route change
@@ -146,6 +182,13 @@ password when the item has one. The proposal reviewed with the owner is
   whole login; an answer has the usual budget once the login gives it.
 - The background's vault hold for passkey requests moved into the passkey runtime, which
   takes it while it reads the vault and signs, not while a request waits for a login.
+- Whether a popup choice offers an item with a passkey (rule 5) is checked once per
+  choice, and only while a request of its document waits: the login runtime asks the
+  passkey source for each RP ID the origin may use, holding vault replacement off only
+  during that search, and keeps the result in the service worker's memory; a choice
+  offered again is searched again unless a passkey was found. A site default saved,
+  synced, saved by a pick or saved by the passkey chooser since the choice was offered
+  ends it for this.
 
 ## Alternatives
 
@@ -158,6 +201,14 @@ password when the item has one. The proposal reviewed with the owner is
 - **Keep delegating and only log.** Against the owner's policy.
 - **Answer pages without a recipe when one item matches or a default exists.** Offered
   to the owner as the second choice; the recommended default, delegating, was taken.
+- **Keep the request during every popup choice, without checking for a passkey.**
+  Offered to the owner on 2026-10-12 with the amendment of rule 5
+  (`designs/github-passkey-pick-proposal.md` in the project files, option B); simpler,
+  but a site whose accounts hold no passkey would lose other providers' suggestions too,
+  so the owner chose the check.
+- **Hand on during an ordinary popup choice, as before.** A pick then signed in with the
+  password even when the picked item held a passkey, as on GitHub. Rejected by the
+  owner's choice at 22:04 UTC.
 
 ## Consequences
 
@@ -170,7 +221,17 @@ password when the item has one. The proposal reviewed with the owner is
   provider while the login runs; after a failed login it does. While the tab asks for an
   account after a logout, the Bitwarden extension's suggestions do not show on that
   page, and an account picked in the popup that holds a passkey signs in with it.
+- Since the amendment of 2026-10-12 (22:04 UTC), the same holds while the tab offers a
+  page a popup choice in which an item holds a passkey, on a recipe without a passkey
+  button: on a site with several accounts and no site default, the Bitwarden
+  extension's and Chrome's passkey suggestions do not show on that page until the person
+  picks, the choice goes away, or four minutes pass, also for a person who does not use
+  the popup. A pick after those four minutes signs in with the password. A choice whose
+  items hold no passkey, or whose vault could not be searched, hands the request on as
+  before.
 - If the RC check finds Wise's request is `immediate`, not `conditional`, this ADR is
   revised before the work is called done.
 - Verified with unit tests of the attempt machine, the route helpers, the bridge and the
-  login runtime. Real-site checks on Wise run in the owner's Chrome.
+  login runtime. Real-site checks on Wise run in the owner's Chrome. The wait for a pick
+  outside a logout has local tests only; it is next checked on GitHub in the owner's
+  Chrome.

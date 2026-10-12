@@ -24,7 +24,7 @@ import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
 import type { LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
-import type { ConditionalDecision } from "../passkeys/runtime";
+import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 
 const fake = vi.hoisted(() => {
   const state = {
@@ -335,6 +335,8 @@ function harness(
     generation?: LoginGeneration;
     /** The item's passkey facts, read when a login starts (ADR 0027). */
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
+    /** The items holding a discoverable passkey for an origin (ADR 0034). */
+    passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
     /** Automatic vault sync (ADR 0025). */
     vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
     /** Receives the runtime's reports for the local log, without page URLs unless `urls`. */
@@ -494,6 +496,7 @@ function harness(
     ...(live.uris ? { uris: live.uris } : {}),
     ...(live.generation ? { generation: live.generation } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
+    ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
     ...(live.report
@@ -16464,6 +16467,673 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       } finally {
         fake.browser.tabs.query = query;
       }
+    });
+
+    it("still withholds after four minutes with an item lookup given, and never looks items up", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = vi.fn(async () => [{ connectionId, itemId: otherItemId }]);
+      const { h } = await loggedOut({ passkeyItems });
+      const sent = executed().length;
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(235_000);
+      expect(request.decided()).toBeUndefined();
+      await until(() => request.decided() !== undefined, 10_000);
+      expect(request.decided()).toEqual({ kind: "withhold" });
+      expect(executed()).toHaveLength(sent);
+      expect(passkeyItems).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("while the tab offers a popup choice outside a logout (ADR 0034 rule 5)", () => {
+    const thirdItemId = "80000000-0000-4000-8000-000000000003";
+    const both = uriMatch({
+      candidates: [
+        { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+        { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+      ],
+    });
+    const popup = {
+      id: "synthetic-extension",
+      url: "chrome-extension://synthetic-extension/popup.html",
+    } as never;
+    const choice = (h: ReturnType<typeof harness>, tabId = 1) =>
+      h.login.handle({ version: 1, type: "login.choice.get", tabId }, popup);
+    /** The person picks an account in the popup for the page's document. */
+    const pick = (
+      h: ReturnType<typeof harness>,
+      overrides: Partial<{ documentId: string; itemId: string; makeDefault: boolean }> = {},
+    ) =>
+      h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: false,
+          ...overrides,
+        },
+        popup,
+      );
+    /** Only `itemId` holds a discoverable passkey among the offered items. */
+    const holding = () =>
+      vi.fn<(origin: string) => Promise<readonly PasskeyItem[]>>(async () => [
+        { connectionId, itemId },
+      ]);
+    /** A lookup that answers when the test says so. */
+    function deferred() {
+      let answer!: (items: readonly PasskeyItem[]) => void;
+      const lookup = vi.fn<(origin: string) => Promise<readonly PasskeyItem[]>>(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+      return { lookup, answer: (items: readonly PasskeyItem[]) => answer(items) };
+    }
+    /**
+     * Several accounts match the page and none is the site default, so the popup asks
+     * without a logout; the offered accounts are `itemId` and `otherItemId`.
+     */
+    function choosing(
+      live: Parameters<typeof harness>[1] = {},
+      used: LoginRecipe = recipe,
+      data: () => UriCandidates = () => both,
+    ) {
+      return start(
+        used,
+        { allowedOrigins: [], uris: async () => ({ ok: true as const, data: data() }), ...live },
+        { siteDefaults: [], bindings: [] },
+      );
+    }
+    async function offered(h: ReturnType<typeof harness>, documentId = "synthetic-document") {
+      expect(await h.hello({ documentId })).toEqual({ ok: false, reason: "account-ambiguous" });
+      expect(await choice(h)).toMatchObject({ ok: true, documentId });
+      expect(await choice(h)).not.toHaveProperty("logout");
+    }
+    /** The picked account's login answers the request on the passkey route and signs in. */
+    async function answeredWithPick(
+      h: ReturnType<typeof harness>,
+      request: ReturnType<typeof ask>,
+      report: ReturnType<typeof start>["report"],
+    ) {
+      fake.state.onReconnect = () => h.hello();
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId },
+      });
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        state: "submit-intent",
+        submissions: 1,
+        account: { connectionId, itemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({ route: "passkey", account: { connectionId, itemId } });
+      expect(executed()).toEqual([]);
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(
+        report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "start"),
+      ).toEqual([expect.objectContaining({ route: "passkey", account: "pick" })]);
+      expect(routeChanges(report)).toEqual([]);
+    }
+    /** Whether a request waits past the three seconds without a login, then is still open. */
+    async function stillWaits(request: ReturnType<typeof ask>, ms = 10_000) {
+      await vi.advanceTimersByTimeAsync(ms);
+      expect(request.decided()).toBeUndefined();
+    }
+    /** The request is handed on three to four seconds from now, as without a login. */
+    async function handedOnSoon(request: ReturnType<typeof ask>) {
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(request.decided()).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1_600);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+    }
+
+    it("keeps a request that comes after the choice, and answers it with a picked item's passkey", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h, report } = choosing({ passkeyItems });
+      await offered(h);
+      // Nothing is looked up before a request of the document waits.
+      expect(passkeyItems).not.toHaveBeenCalled();
+      const request = ask(h);
+      await flush();
+      expect(passkeyItems.mock.calls).toEqual([[origin]]);
+      await stillWaits(request);
+      await answeredWithPick(h, request, report);
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a request that came first once the choice is offered within three seconds", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h, report } = choosing({ passkeyItems });
+      const request = ask(h);
+      await flush();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(request.decided()).toBeUndefined();
+      await offered(h);
+      await flush();
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      await stillWaits(request);
+      await answeredWithPick(h, request, report);
+    });
+
+    it.each<[string, readonly PasskeyItem[]]>([
+      ["no item", []],
+      [
+        "only items not offered",
+        [
+          { connectionId, itemId: thirdItemId },
+          { connectionId: "another-connection", itemId },
+        ],
+      ],
+    ])("hands a request on after three seconds when %s holds a passkey", async (_label, held) => {
+      vi.useFakeTimers();
+      const passkeyItems = vi.fn(async () => held);
+      const { h } = choosing({ passkeyItems });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      await handedOnSoon(request);
+      expect(executed()).toEqual([]);
+    });
+
+    it("hands a request on after three seconds when the lookup fails", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = vi.fn(async (): Promise<readonly PasskeyItem[]> => {
+        throw new Error("synthetic lookup failure");
+      });
+      const { h } = choosing({ passkeyItems });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      await handedOnSoon(request);
+    });
+
+    it("hands a request on after three seconds without an item lookup", async () => {
+      vi.useFakeTimers();
+      const { h } = choosing();
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await handedOnSoon(request);
+    });
+
+    it("keeps a request while the lookup runs past three seconds, and hands it on once it finds none", async () => {
+      vi.useFakeTimers();
+      const { lookup, answer } = deferred();
+      const { h } = choosing({ passkeyItems: lookup });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      expect(lookup).toHaveBeenCalledTimes(1);
+      answer([]);
+      // Handed on at once: the three seconds have long passed.
+      await flush();
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+    });
+
+    it("keeps a request whose slow lookup finds an offered item with a passkey", async () => {
+      vi.useFakeTimers();
+      const { lookup, answer } = deferred();
+      const { h, report } = choosing({ passkeyItems: lookup });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      answer([{ connectionId, itemId }]);
+      await flush();
+      await stillWaits(request);
+      await answeredWithPick(h, request, report);
+    });
+
+    it("logs a picked item without a passkey in with the password, then withholds", async () => {
+      vi.useFakeTimers();
+      const passkeys = vi.fn(async (account: unknown) =>
+        (account as { itemId: string }).itemId === otherItemId
+          ? { passkey: false, discoverable: false }
+          : { passkey: true, discoverable: true },
+      );
+      const { h, report } = choosing({ passkeyItems: holding(), passkeys });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      signsInOnClick();
+      fake.state.onReconnect = () => h.hello();
+      expect(await pick(h, { itemId: otherItemId })).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "password",
+        account: { connectionId, itemId: otherItemId },
+      });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toEqual({ kind: "withhold" });
+      expect(fills()).toBe(1);
+      expect(clicks("login")).toBe(1);
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("hands a request on once a picked item's password login ended without signing in", async () => {
+      vi.useFakeTimers();
+      const passkeys = vi.fn(async () => ({ passkey: false, discoverable: false }));
+      const { h } = choosing(
+        { passkeyItems: holding(), passkeys },
+        parseLoginRecipe({ ...recipe, rejection: target("rejected") }),
+      );
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind === "click") fake.state.present = new Set(["password", "login", "rejected"]);
+      };
+      fake.state.onReconnect = () => h.hello();
+      expect(await pick(h, { itemId: otherItemId })).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["state"] === "blocked", 20_000);
+      expect(status()![0]).toMatchObject({ route: "password" });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "login-ended" });
+    });
+
+    it("hands a request on four minutes after it came without a pick, instead of withholding it", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h } = choosing({ passkeyItems });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await vi.advanceTimersByTimeAsync(239_000);
+      expect(request.decided()).toBeUndefined();
+      await until(() => request.decided() !== undefined, 10_000);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-pick" });
+      expect(executed()).toEqual([]);
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      // A pick afterwards signs in with the password.
+      signsInOnClick();
+      fake.state.onReconnect = () => h.hello();
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({ route: "password", account: { connectionId, itemId } });
+    });
+
+    it("hands a request on three seconds after a new top document replaces the choice", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h } = choosing({ passkeyItems });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      // The tab navigated: the new page is offered a choice of its own.
+      await offered(h, "next-page");
+      await handedOnSoon(request);
+      // Without a request of the new page, its choice is not looked up.
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["saved", "synced"] as const)(
+      "hands a request on three seconds after a site default is %s for the origin",
+      async (source) => {
+        vi.useFakeTimers();
+        const { h } = choosing({ passkeyItems: holding() });
+        await offered(h);
+        const request = ask(h);
+        await flush();
+        await stillWaits(request);
+        // A change of settings that saves no default for the origin keeps the request.
+        h.login.settingsChanged(source);
+        await flush();
+        await stillWaits(request, 5_000);
+        h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+        h.login.settingsChanged(source);
+        await flush();
+        await handedOnSoon(request);
+        expect(executed()).toEqual([]);
+      },
+    );
+
+    it("hands a request on three seconds after the passkey chooser saves a site default", async () => {
+      vi.useFakeTimers();
+      const { h } = choosing({ passkeyItems: holding() });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      // Nothing saved yet: the request keeps waiting.
+      h.login.siteDefaultSaved();
+      await flush();
+      await stillWaits(request, 5_000);
+      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+      h.login.siteDefaultSaved();
+      await flush();
+      await handedOnSoon(request);
+      expect(executed()).toEqual([]);
+    });
+
+    it("hands a request on three seconds after another tab's pick saves a site default", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h } = choosing({ passkeyItems });
+      await offered(h);
+      // Another tab of the site is offered the same accounts, and its page asks for a passkey.
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+        ok: false,
+        reason: "account-ambiguous",
+      });
+      expect(await choice(h, 2)).toMatchObject({ ok: true, documentId: "other-tab" });
+      const request = ask(h, { tabId: 2, documentId: "other-tab" });
+      await flush();
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      await stillWaits(request);
+      // The first tab's pick signs in with the password and saves its account as the default.
+      signsInOnClick();
+      fake.state.onReconnect = () => h.hello();
+      expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
+      await until(() => h.settings.settings.siteDefaults.some((entry) => entry.origin === origin));
+      expect(request.decided()).toBeUndefined();
+      await handedOnSoon(request);
+    });
+
+    it("hands a request on after three seconds when a site default was saved before its check", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h } = choosing({ passkeyItems });
+      await offered(h);
+      // Saved without the runtime being told, as when the save raced the refusal.
+      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+      const request = ask(h);
+      await flush();
+      await handedOnSoon(request);
+      expect(executed()).toEqual([]);
+    });
+
+    it("checks the same choice again once a check found no passkey", async () => {
+      vi.useFakeTimers();
+      // The first check finds none, as with a locked vault; the next one finds the item.
+      const passkeyItems = vi.fn(async (): Promise<readonly PasskeyItem[]> => []);
+      const { h, report } = choosing({ passkeyItems });
+      await offered(h);
+      const first = ask(h);
+      await flush();
+      await handedOnSoon(first);
+      passkeyItems.mockResolvedValue([{ connectionId, itemId }]);
+      const request = ask(h);
+      await flush();
+      // A new request alone does not check the same choice again.
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      await offered(h);
+      await flush();
+      expect(passkeyItems).toHaveBeenCalledTimes(2);
+      await stillWaits(request);
+      await answeredWithPick(h, request, report);
+    });
+
+    it("hands a request on three seconds after a frame's choice replaces the page's", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h } = choosing({ passkeyItems });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      fake.state.tabUrls[1] = fake.state.pageUrl;
+      expect(
+        await h.hello({
+          frameId: 3,
+          documentId: "frame-document",
+          tab: { id: 1, url: fake.state.pageUrl },
+        }),
+      ).toEqual({
+        ok: false,
+        reason: "account-ambiguous",
+      });
+      expect(await choice(h)).toMatchObject({ ok: true, documentId: "frame-document" });
+      await handedOnSoon(request);
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a request whose page's choice is offered again within three seconds of a frame's", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h, report } = choosing({ passkeyItems });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      fake.state.tabUrls[1] = fake.state.pageUrl;
+      expect(
+        await h.hello({
+          frameId: 3,
+          documentId: "frame-document",
+          tab: { id: 1, url: fake.state.pageUrl },
+        }),
+      ).toEqual({
+        ok: false,
+        reason: "account-ambiguous",
+      });
+      await vi.advanceTimersByTimeAsync(1_500);
+      await offered(h);
+      await flush();
+      await stillWaits(request);
+      // The frame's choice dropped the page's check, so it is looked up again.
+      expect(passkeyItems).toHaveBeenCalledTimes(2);
+      await answeredWithPick(h, request, report);
+    });
+
+    describe("after a worker restart", () => {
+      /** The first worker offered the choice; a restarted worker only has it from storage. */
+      async function restarted(passkeyItems: ReturnType<typeof holding>) {
+        const first = choosing({ passkeyItems });
+        await offered(first.h);
+        const again = choosing({ passkeyItems });
+        const request = ask(again.h);
+        await flush();
+        return { ...again, request };
+      }
+
+      it("keeps a request once the popup brings the choice back", async () => {
+        vi.useFakeTimers();
+        const passkeyItems = holding();
+        const { h, report, request } = await restarted(passkeyItems);
+        expect(passkeyItems).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1_000);
+        fake.state.onReconnect = () => h.hello();
+        expect(await choice(h)).toMatchObject({ ok: true, documentId: "synthetic-document" });
+        await flush();
+        expect(passkeyItems).toHaveBeenCalledTimes(1);
+        await stillWaits(request);
+        await answeredWithPick(h, request, report);
+      });
+
+      it("hands a request on after three seconds when the choice cannot be brought back", async () => {
+        vi.useFakeTimers();
+        const passkeyItems = holding();
+        const { h, request } = await restarted(passkeyItems);
+        await vi.advanceTimersByTimeAsync(1_000);
+        fake.state.onReconnect = async () => ({ ok: false });
+        expect(await choice(h)).toMatchObject({ ok: false, reason: "no-choice" });
+        await until(() => request.decided() !== undefined, 3_000);
+        expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+        expect(passkeyItems).not.toHaveBeenCalled();
+      });
+    });
+
+    it("hands a request on soon after a pick that starts no login", async () => {
+      vi.useFakeTimers();
+      const { h } = choosing({ passkeyItems: holding() });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      fake.state.onReconnect = async () => ({ ok: false });
+      expect(await pick(h)).toEqual({ ok: false, reason: "not-started" });
+      await handedOnSoon(request);
+      expect(executed()).toEqual([]);
+    });
+
+    it("keeps a request whose choice is offered again soon after a pick that started no login", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h, report } = choosing({ passkeyItems });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      fake.state.onReconnect = async () => ({ ok: false });
+      expect(await pick(h)).toEqual({ ok: false, reason: "not-started" });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await offered(h);
+      await flush();
+      await stillWaits(request);
+      // The same choice offered again keeps its check.
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      await answeredWithPick(h, request, report);
+    });
+
+    it("hands a request on after three seconds on a recipe with a passkey button", async () => {
+      vi.useFakeTimers();
+      const { completion: _unlearned, ...unlearned } = recipe;
+      const routed = parseLoginRecipe({
+        ...unlearned,
+        id: "synthetic-passkey-route",
+        passkey: { path: "/signin", target: { by: "text", value: "Sign in with a passkey" } },
+      });
+      fake.state.present = new Set(["password", "login", "Sign in with a passkey"]);
+      const passkeyItems = holding();
+      const { h } = choosing({ passkeyItems }, routed);
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await handedOnSoon(request);
+      expect(passkeyItems).not.toHaveBeenCalled();
+    });
+
+    it("hands on a request of another document of the tab while the choice is offered", async () => {
+      vi.useFakeTimers();
+      const passkeyItems = holding();
+      const { h } = choosing({ passkeyItems });
+      await offered(h);
+      const request = ask(h, { documentId: "other-document" });
+      await flush();
+      await handedOnSoon(request);
+      expect(passkeyItems).not.toHaveBeenCalled();
+    });
+
+    it("looks up a choice once, again for other accounts, and only inside a vault hold", async () => {
+      vi.useFakeTimers();
+      // Holds without waiting for a vault check, as the lookup takes; an announcement
+      // takes its own.
+      let held = 0;
+      const vault = {
+        refreshIfStale: vi.fn(),
+        enter: vi.fn(async (waitForCheck: boolean) => {
+          if (!waitForCheck) held += 1;
+          let left = false;
+          return () => {
+            if (left || waitForCheck) return;
+            left = true;
+            held -= 1;
+          };
+        }),
+      };
+      const insideHold: number[] = [];
+      const passkeyItems = vi.fn(async (): Promise<readonly PasskeyItem[]> => {
+        insideHold.push(held);
+        return [{ connectionId, itemId }];
+      });
+      let data = both;
+      const { h } = choosing(
+        { passkeyItems, vault, extraItems: [{ id: thirdItemId, custom: [] }] },
+        recipe,
+        () => data,
+      );
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      expect(insideHold).toEqual([1]);
+      expect(vault.enter).toHaveBeenLastCalledWith(false);
+      expect(held).toBe(0);
+      // The same choice offered again is not looked up again.
+      await offered(h);
+      await flush();
+      await stillWaits(request);
+      expect(passkeyItems).toHaveBeenCalledTimes(1);
+      // A choice of other accounts is.
+      data = uriMatch({
+        candidates: [
+          { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+          { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+          { itemId: thirdItemId, matches: [{ uriIndex: 0, match: 0 }] },
+        ],
+      });
+      await offered(h);
+      await flush();
+      expect(passkeyItems).toHaveBeenCalledTimes(2);
+      expect(insideHold).toEqual([1, 1]);
+      expect(held).toBe(0);
+      await stillWaits(request);
+    });
+
+    it("keeps a request picked for while the lookup runs, and answers it once the item is found", async () => {
+      vi.useFakeTimers();
+      const { lookup, answer } = deferred();
+      const { h, report } = choosing({ passkeyItems: lookup });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      // The page announces again only five seconds after the pick.
+      fake.state.onReconnect = () =>
+        new Promise((resolve) => setTimeout(() => resolve(h.hello()), 5_000));
+      const picking = pick(h);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(request.decided()).toBeUndefined();
+      answer([{ connectionId, itemId }]);
+      await flush();
+      expect(request.decided()).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(await picking).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({ kind: "answer", item: { connectionId, itemId } });
+      expect(status()![0]).toMatchObject({ route: "passkey", account: { connectionId, itemId } });
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("hands a request picked for on once the running lookup finds no passkey", async () => {
+      vi.useFakeTimers();
+      const { lookup, answer } = deferred();
+      const { h } = choosing({ passkeyItems: lookup });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      fake.state.onReconnect = () =>
+        new Promise((resolve) => setTimeout(() => resolve(h.hello()), 5_000));
+      signsInOnClick();
+      const picking = pick(h);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(request.decided()).toBeUndefined();
+      answer([]);
+      await flush();
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(await picking).toEqual({ ok: true });
+      // The pick's login, finding no request, takes the password.
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({ route: "password", account: { connectionId, itemId } });
     });
   });
 

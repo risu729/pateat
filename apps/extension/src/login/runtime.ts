@@ -144,7 +144,7 @@ import {
 } from "./sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
-import type { ConditionalDecision } from "../passkeys/runtime";
+import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 import {
   loginFillsUsername,
   loginSecretKind,
@@ -289,8 +289,9 @@ const sameSiteAs =
  */
 const REQUEST_START_WAIT_MS = 3000;
 /**
- * Longest a conditional request waits for its login to end; it is then withheld, so a
- * login that runs that long never meets another provider's prompt (ADR 0034).
+ * Longest a conditional request waits for its login to end, or for a pick after a logout;
+ * it is then withheld, so a login that runs that long never meets another provider's prompt
+ * (ADR 0034). One that waits this long for a pick in an ordinary popup choice is handed on.
  */
 const REQUEST_PARK_MS = 4 * 60_000;
 /** How long the `passkey` route waits for its page's own request before it falls back. */
@@ -536,10 +537,44 @@ type ParkedRequest = {
    * the pick while the tab asks.
    */
   asked?: true;
-  /** When a pick for its document started no login; it waits briefly for the choice again. */
+  /**
+   * Its document was offered a popup choice outside a logout in which an item holds a
+   * discoverable passkey, so it waits for the pick while that choice is offered (ADR 0034).
+   */
+  picking?: true;
+  /**
+   * When a pick for its document started no login, or the choice it waited for went away;
+   * it waits briefly for the choice again.
+   */
   dropped?: number;
   settle(decision: ConditionalDecision): boolean;
 };
+/**
+ * A popup choice offered to a tab's top document outside a logout, on a recipe without a
+ * passkey button (ADR 0034): whether one of its items holds a discoverable passkey, checked
+ * once while a conditional request of that document waits. Kept in memory only.
+ */
+type ChoicePasskeys = {
+  /** The choice it describes, as `choiceKey` names it. */
+  key: string;
+  /** The document the choice was offered to. */
+  documentId: string;
+  /** Unset until the check ends. */
+  holds?: boolean;
+  checking?: true;
+  /** A site default was saved for the origin since, which ends the choice. */
+  defaulted?: true;
+};
+/** Names a popup choice by its document and the accounts it offers. */
+const choiceKey = (choice: {
+  document: { documentId: string; origin: string };
+  candidates: readonly { connectionId: string; itemId: string }[];
+}) =>
+  JSON.stringify([
+    choice.document.documentId,
+    choice.document.origin,
+    choice.candidates.map((entry) => `${entry.connectionId} ${entry.itemId}`).sort(),
+  ]);
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
   catalog: VaultCatalog,
@@ -1298,6 +1333,12 @@ export function createLoginRuntime(
      * it the item counts as holding no passkey, so a `passkey` handler is never run.
      */
     passkeys?: (account: LoginAccount) => Promise<{ passkey: boolean; discoverable: boolean }>;
+    /**
+     * The items holding a discoverable, usable passkey for the origin, by the criterion of
+     * `passkeys`, from one vault search per RP ID (ADR 0034). Without it no popup choice
+     * keeps a page's own conditional request waiting.
+     */
+    passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
@@ -1403,6 +1444,8 @@ export function createLoginRuntime(
   const siteMoves = new Map<number, Promise<boolean>>();
   /** Top documents' own conditional passkey requests, waiting for their login (ADR 0034). */
   const parkedRequests = new Set<ParkedRequest>();
+  /** By tab: its popup choice outside a logout and whether it offers a passkey (ADR 0034). */
+  const choicePasskeys = new Map<number, ChoicePasskeys>();
   let reviewTimer: ReturnType<typeof setInterval> | undefined;
   /**
    * The continuation each attempt asked for and the step it was asked for, by attempt ID
@@ -2116,17 +2159,18 @@ export function createLoginRuntime(
         return;
       }
       writing = true;
-      outcome(
-        await settings
-          .update(run.metadata.policyRevision, (snapshot) => ({
-            ...snapshot,
-            settings: withChoice(snapshot.settings, choice),
-          }))
-          .then(
-            () => "saved" as const,
-            () => "write-failed" as const,
-          ),
-      );
+      const written = await settings
+        .update(run.metadata.policyRevision, (snapshot) => ({
+          ...snapshot,
+          settings: withChoice(snapshot.settings, choice),
+        }))
+        .then(
+          () => "saved" as const,
+          () => "write-failed" as const,
+        );
+      outcome(written);
+      // The saved default ends another tab's choice of the same origin (ADR 0034).
+      if (written === "saved") void choiceDefaults();
     } finally {
       if (writing) remembered += 1;
       savingChoices.delete(saving);
@@ -6381,8 +6425,17 @@ export function createLoginRuntime(
     if (!plan.ok) {
       // Only a fresh start can be restarted with a picked account (ADR 0021). The page
       // after an account switch belongs to that login, so it offers none.
-      if (!previous && !switched && "candidates" in plan && plan.candidates)
-        offerChoice(document, plan.candidates, "logout" in plan && plan.logout === true);
+      if (!previous && !switched && "candidates" in plan && plan.candidates) {
+        const logout = "logout" in plan && plan.logout === true;
+        offerChoice(document, plan.candidates, logout);
+        // Outside a logout, the page's own conditional request may wait for the pick, on a
+        // recipe without a passkey button (ADR 0034).
+        noteChoice(
+          document,
+          plan.candidates,
+          !logout && document.frameId === 0 && passkeyAnswersRequest(recipe),
+        );
+      }
       const refused = await refuse(
         plan.reason,
         "detail" in plan && typeof plan.detail === "string"
@@ -7315,6 +7368,36 @@ export function createLoginRuntime(
         { cause: source === "synced" ? "settings-synced" : "settings-saved" },
       ).catch(() => undefined);
     }
+    // A site default saved for a page's origin ends its popup choice (ADR 0034).
+    void choiceDefaults();
+  }
+  /**
+   * Ends each popup choice whose origin has a site default by now, so the page's own
+   * conditional request no longer waits for a pick (ADR 0034): after settings are saved or
+   * synced, after a pick saves its account, and before a choice is checked.
+   */
+  async function choiceDefaults(): Promise<void> {
+    if (!choicePasskeys.size) return;
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (!snapshot?.ok) return;
+    let ended = false;
+    for (const [tabId, entry] of choicePasskeys) {
+      const waiting = pending.get(tabId);
+      if (
+        waiting &&
+        !entry.defaulted &&
+        entry.key === choiceKey(waiting) &&
+        snapshot.snapshot.settings.siteDefaults.some(
+          (saved) => saved.origin === waiting.document.origin,
+        )
+      ) {
+        entry.defaulted = true;
+        ended = true;
+      }
+    }
+    if (ended) reviewRequests();
   }
   browser.tabs.onRemoved.addListener((tabId) => {
     passwordSubmits.delete(tabId);
@@ -7326,6 +7409,7 @@ export function createLoginRuntime(
     attempts.delete(tabId);
     effects.delete(tabId);
     signInUrls.delete(tabId);
+    choicePasskeys.delete(tabId);
     clearTimeout(entryTimers.get(tabId));
     entryTimers.delete(tabId);
     for (const key of entryRefused) if (key.startsWith(`${tabId} `)) entryRefused.delete(key);
@@ -7572,7 +7656,8 @@ export function createLoginRuntime(
    * A top document's own `conditional` passkey request (ADR 0034). It waits for the login
    * of its document: that login's `passkey` route answers it; once the login ends, it is
    * withheld if the login signed in and handed on otherwise. While the tab asks for an
-   * account after a logout, the login the pick starts answers it. A request of an origin
+   * account after a logout, or offers its document a popup choice in which an item holds a
+   * discoverable passkey, the login the pick starts answers it. A request of an origin
    * without a recipe is handed on at once, and one whose document starts no login within
    * `REQUEST_START_WAIT_MS` then.
    */
@@ -7637,10 +7722,113 @@ export function createLoginRuntime(
     );
   }
   /**
+   * Records the popup choice a refused top document was offered, and whether the page's own
+   * conditional request may wait for its pick: only outside a logout, on a recipe without a
+   * passkey button (ADR 0034). The same choice offered again keeps its check.
+   */
+  function noteChoice(
+    document: LoginDocument,
+    candidates: PendingChoice["candidates"],
+    applies: boolean,
+  ): void {
+    if (!applies) {
+      choicePasskeys.delete(document.tabId);
+      return;
+    }
+    const key = choiceKey({ document, candidates });
+    const known = choicePasskeys.get(document.tabId);
+    // The same choice offered again keeps a passkey found or a check running; one that found
+    // none, as with a locked vault, or that a default ended, is checked again.
+    if (known?.key !== key || known.defaulted || (!known.checking && known.holds !== true))
+      choicePasskeys.set(document.tabId, { key, documentId: document.documentId });
+    // A request already waiting has its choice checked at once.
+    if (parkedFor(document)) reviewRequests();
+  }
+  /**
+   * Looks up once whether an item of a popup choice holds a discoverable, usable passkey
+   * (ADR 0034), holding vault replacement off meanwhile. A locked vault, a search that
+   * could not finish or a failed lookup count as none.
+   */
+  function checkChoice(entry: ChoicePasskeys, waiting: PendingChoice): void {
+    if (entry.checking || entry.holds !== undefined) return;
+    const lookup = options.passkeyItems;
+    if (!lookup) {
+      entry.holds = false;
+      return;
+    }
+    entry.checking = true;
+    void (async () => {
+      // A default saved before the choice was noted ends it too.
+      await choiceDefaults();
+      let held: readonly PasskeyItem[] = [];
+      const leave = await options.vault?.enter(false).catch(() => undefined);
+      try {
+        held = await lookup(waiting.document.origin);
+      } catch {
+        held = [];
+      } finally {
+        leave?.();
+      }
+      entry.holds = waiting.candidates.some((candidate) =>
+        held.some(
+          (item) =>
+            item.connectionId === candidate.connectionId && item.itemId === candidate.itemId,
+        ),
+      );
+      delete entry.checking;
+      reviewRequests();
+    })();
+  }
+  /**
+   * Whether the request's document waits for a pick in a popup choice outside a logout
+   * (ADR 0034): `waits` while that choice is offered and one of its items holds a
+   * discoverable passkey, or while its pick has not started a login yet; `checking` while
+   * the choice's items are looked up, which starts the lookup once per choice.
+   */
+  function choiceWaits(parked: ParkedRequest): "waits" | "checking" | "none" {
+    const waiting = pending.get(parked.tabId);
+    const entry = choicePasskeys.get(parked.tabId);
+    // As the popup sees it: a document that announced again and started a login, or
+    // another document of the frame, no longer offers it.
+    const live = waiting && documents.get(frameKey(waiting.document));
+    if (
+      waiting &&
+      entry &&
+      !waiting.logout &&
+      !entry.defaulted &&
+      waiting.document.frameId === 0 &&
+      waiting.document.documentId === parked.documentId &&
+      waiting.document.origin === parked.origin &&
+      entry.key === choiceKey(waiting) &&
+      (!live || sameLoginDocument(live.document, waiting.document)) &&
+      recordFor(parked.tabId, parked.origin) === undefined
+    ) {
+      checkChoice(entry, waiting);
+      if (entry.holds === undefined) return "checking";
+      if (entry.holds) return "waits";
+    }
+    // The pick clears the choice; until its login starts, the request waits for it too.
+    const pick = picked.get(parked.tabId);
+    if (
+      pick === undefined ||
+      pick.attemptId !== undefined ||
+      pick.origin !== parked.origin ||
+      pick.documentId !== parked.documentId
+    )
+      return "none";
+    if (parked.picking) return "waits";
+    // Picked while its choice was still being checked.
+    if (entry?.documentId !== parked.documentId || entry.defaulted) return "none";
+    if (entry.checking) return "checking";
+    return entry.holds ? "waits" : "none";
+  }
+  /**
    * Decides every waiting conditional request whose login ended or never started, and
    * checks again each second while one waits (ADR 0034). The `passkey` route answers its
    * own page's request itself. A request whose document the tab asks for an account after
-   * a logout, or fills only, waits for the login the pick starts.
+   * a logout, or fills only, waits for the login the pick starts; so does one whose
+   * document is offered a popup choice in which an item holds a passkey, for up to four
+   * minutes.
    */
   function reviewRequests(): void {
     const now = Date.now();
@@ -7668,8 +7856,28 @@ export function createLoginRuntime(
           (parked.asked === true &&
             asksAfterLogout(parked.tabId, parked.origin) &&
             (parked.dropped === undefined || now - parked.dropped < REQUEST_START_WAIT_MS));
+      // A popup choice outside a logout keeps the request while it offers an item with a
+      // passkey, or while that is being checked. Once the choice goes, the request waits a
+      // moment for it to be offered again. A login of its document, once seen, decides.
+      const free = !parked.during && !asks;
+      const choice = free ? choiceWaits(parked) : "none";
+      if (choice === "waits") {
+        parked.picking = true;
+        delete parked.dropped;
+      } else if (free && parked.picking && parked.dropped === undefined) parked.dropped = now;
+      const choosing =
+        free &&
+        (choice !== "none" ||
+          (parked.picking === true &&
+            parked.dropped !== undefined &&
+            now - parked.dropped < REQUEST_START_WAIT_MS));
       if (asks) {
         if (now - parked.since >= REQUEST_PARK_MS) parked.settle({ kind: "withhold" });
+      } else if (choosing) {
+        // Handed on, not withheld: the browser ends the message that carries it after five
+        // minutes, so there is time to.
+        if (now - parked.since >= REQUEST_PARK_MS)
+          parked.settle({ kind: "delegate", reason: "no-pick" });
       } else if (!own || (ended && !parked.during)) {
         // A login of another document, or one that ended before the request came, does
         // not decide it.
@@ -7852,6 +8060,8 @@ export function createLoginRuntime(
   return {
     handle,
     settingsChanged,
+    /** A site default was saved outside the settings page, as by the passkey chooser. */
+    siteDefaultSaved: () => void choiceDefaults(),
     active,
     loginAccount,
     passkeyRequested,

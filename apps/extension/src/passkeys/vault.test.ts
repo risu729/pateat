@@ -13,6 +13,7 @@ import {
   createVaultPasskeySource,
   findVaultPasskeys,
   itemPasskeyFacts,
+  originPasskeyItems,
   rememberVaultPasskey,
   type PasskeyFinder,
   type VaultPasskeyCandidate,
@@ -527,6 +528,87 @@ describe("a login item's passkeys (ADR 0027)", () => {
     expect(
       await itemPasskeyFacts({ candidates: vi.fn(async () => answer) }, { origin, ...only }),
     ).toEqual({ passkey: false, discoverable: false });
+  });
+});
+
+describe("the items holding a passkey for an origin (ADR 0034)", () => {
+  /** A passkey the vault search found, as the vault source answers it. */
+  const found = (id: string, connectionId = "live"): VaultPasskeyCandidate => ({
+    ...stored(id, connectionId),
+    settingsRevision: 1,
+  });
+
+  it("searches once per RP ID the origin may use, across every connection", async () => {
+    const candidates = vi.fn<PasskeySource<VaultPasskeyCandidate>["candidates"]>(
+      async (_origin, candidateRpId) => ({
+        complete: true,
+        candidates:
+          candidateRpId === "github.com"
+            ? [found(first), found(first, "other"), found(second)]
+            : [found(first)],
+      }),
+    );
+    expect(await originPasskeyItems({ candidates }, "https://login.github.com")).toEqual([
+      { connectionId: "live", itemId: first },
+      // The same item ID in another connection is another item.
+      { connectionId: "other", itemId: first },
+      { connectionId: "live", itemId: second },
+    ]);
+    expect(candidates.mock.calls.map(([at, candidateRpId]) => [at, candidateRpId])).toEqual([
+      ["https://login.github.com", "login.github.com"],
+      ["https://login.github.com", "github.com"],
+    ]);
+    // Not limited to one item.
+    for (const call of candidates.mock.calls) expect(call[3]).toBeUndefined();
+  });
+
+  it("keeps only discoverable passkeys with a user handle and a zero counter", async () => {
+    const candidates = vi.fn<PasskeySource<VaultPasskeyCandidate>["candidates"]>(async () => ({
+      complete: true,
+      candidates: [
+        { ...found(first), counter: 3 },
+        { ...found(second), discoverable: false },
+        { ...found(excluded), userHandle: null },
+        found(passkeyOnly),
+      ],
+    }));
+    expect(await originPasskeyItems({ candidates }, origin)).toEqual([
+      { connectionId: "live", itemId: passkeyOnly },
+    ]);
+  });
+
+  it("takes nothing from a search without an answer", async () => {
+    const answers: Awaited<ReturnType<PasskeySource<VaultPasskeyCandidate>["candidates"]>>[] = [
+      undefined,
+      { complete: true, candidates: [found(second)] },
+    ];
+    const candidates = vi.fn<PasskeySource<VaultPasskeyCandidate>["candidates"]>(async () =>
+      answers.shift(),
+    );
+    // The other RP ID's answer still counts.
+    expect(await originPasskeyItems({ candidates }, "https://login.github.com")).toEqual([
+      { connectionId: "live", itemId: second },
+    ]);
+    expect(candidates).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the passkeys a search found when it could not reach every item", async () => {
+    // Another connection or item could not be searched, as in a locked vault.
+    const candidates = vi.fn<PasskeySource<VaultPasskeyCandidate>["candidates"]>(async () => ({
+      complete: false,
+      candidates: [found(first), { ...found(second), userHandle: null }],
+    }));
+    expect(await originPasskeyItems({ candidates }, origin)).toEqual([
+      { connectionId: "live", itemId: first },
+    ]);
+    candidates.mockResolvedValue({ complete: false, candidates: [] });
+    expect(await originPasskeyItems({ candidates }, origin)).toEqual([]);
+  });
+
+  it("searches nothing for an origin without an RP ID", async () => {
+    const candidates = vi.fn<PasskeySource<VaultPasskeyCandidate>["candidates"]>();
+    expect(await originPasskeyItems({ candidates }, "http://login.github.com")).toEqual([]);
+    expect(candidates).not.toHaveBeenCalled();
   });
 });
 

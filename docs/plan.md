@@ -57,7 +57,7 @@ on 2026-10-12 (20:50 UTC):
 | A CAPTCHA the person solves, then the signed-in page | Q-move | Recheck after this change's merge: a disabled field kept the signed-in page from the judge ([ADR 0029](adr/0029-local-sign-in-state.md)) |
 | A signed-in page on another host of the same site | JAL (`jallogin.jal.co.jp` to `www.jal.co.jp`, after a passkey), モッピー (`ssl.pc.moppy.jp` to `pc.moppy.jp`, after a password) | Both records ended `left-origin`. JAL: fix in progress. モッピー: a password login now completes when the new host's page shows the account's username (synthetic tests only; recheck); next, the judge decides once when it does not ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | Google's own sign-in (email first, account choice) | Google | Not checked |
-| Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site |
+| Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site, and that a pick of an item with a passkey signs in with it ([ADR 0034](adr/0034-answer-page-passkey-requests.md), local tests only) |
 | Fill only after a logout | アパホテル | Done |
 | Nothing on a site without a password or passkey sign-in | ABEMA | Done (judged from the code and the Grok Bot's log) |
 | Pages that stopped before generation | モッピー, LinkedIn | Recheck after [#261](https://github.com/risu729/pateat/pull/261) and [#271](https://github.com/risu729/pateat/pull/271); LinkedIn's remembered-account page was incomplete again after #403 (2026-10-12 21:44 UTC): recheck once its shown password field is located by `webauthn` |
@@ -220,6 +220,20 @@ own accounts, so they stay in the project's files rather than in this repository
   logout now keeps the page's request until the popup pick, whose login answers it with
   the picked item's passkey, as the owner chose on 2026-10-12 (17:56 UTC). Still to
   check in the owner's Chrome: a logout and a pick on Wise.
+- A popup pick of an item with a passkey on a page that asks for one by itself. Evidence
+  from the owner's Chrome on build `cdfa420` (2026-10-12, UTC): at 21:12:36 GitHub's
+  sign-in page matched three items without a site default and asked in the popup
+  (`account-ambiguous`); at 21:12:38 the page's conditional request was handed on
+  (`no-login`); the pick at 21:16:51 started the login on the `password` route; after
+  a reload at 21:17:15, the saved default's login took the `passkey` route and Pateat
+  answered the page's request. As the owner chose at 22:04 UTC
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md) rule 5, amended), on a recipe
+  without a passkey button the request now waits while the popup offers its page a
+  choice in which an item holds a discoverable passkey, and the pick's login answers it;
+  it is handed on three seconds after the choice goes away, or as `no-pick` four minutes
+  after it came. Implemented (local tests only). Next, in the owner's Chrome: on GitHub
+  without a site default, a pick of an item with a passkey signs in with it
+  (`passkey.request` `assertion`, `login.attempt` on the `passkey` route).
 - Installed-Chrome checks still open in this phase (the others moved to
   [phase 2](#phase-2-use-it-and-fix-what-comes-up)):
   - Watching a login after a step left to the person
