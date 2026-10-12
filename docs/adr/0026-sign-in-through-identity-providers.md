@@ -4,8 +4,11 @@ Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implement
 owner set it as low priority: this record fixes the direction, and implementation waits.
 Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
 by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
-routes, chosen after a passkey route and before a password route. Researched from public
-documentation only; no real site or account has been used.
+routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
+by [ADR 0033](0033-no-site-specific-features.md) (owner, 13:46 UTC): no fixed list of
+identity providers or of their pages; the IdP's origin comes from the item and its pages
+are handled as any site's. Researched from public documentation only; no real site or
+account has been used.
 
 Date: 2026-10-11
 
@@ -62,10 +65,9 @@ The owner chose, on 2026-10-11:
   into a page or sent to the service or a model. An excluded `SSO` field means no SSO.
   An item with `SSO` is never a candidate on the IdP's pages and never used by a
   password recipe or by recipe generation, even when it has a password.
-- **First IdPs: Google and Microsoft**, including personal Microsoft accounts. Pateat
-  knows each IdP's origins (`https://accounts.google.com`;
-  `https://login.microsoftonline.com` and `https://login.live.com`) and the pages it may
-  act on there.
+- **Any IdP the item names** (ADR 0033 amendment). Pateat keeps no list of IdP origins;
+  the IdP's origin is the item's `SSO` value. Before the amendment, the first IdPs were
+  Google and Microsoft, with their origins fixed in Pateat.
 - **On the site.** The site's recipe lists its SSO buttons or links per IdP. Pateat
   presses one only when the chosen item has `SSO` for that IdP, exactly one element
   matches, on the same path, within 10 seconds, and it navigates the same tab. A link is
@@ -74,14 +76,18 @@ The owner chose, on 2026-10-11:
   open a new window are never pressed. SSO that first asks for a work email or company
   domain on the site is out of scope.
 - **On the IdP.** After the press, Pateat remembers the tab, the site and IdP origins
-  and the username while the tab's top-level page stays on the IdP's origins. There it
-  acts only on pages it recognises by origin, path and heading, never by a button id
-  alone:
-  - the login form, filled from the IdP item above with the IdP's recipe;
-  - the account chooser entry whose email equals the username exactly (no partial
-    match); a chooser that says the account's details will be shared with the site stops
-    until it has been checked in Chrome;
-  - "Stay signed in?" and LINE's "次のアカウントでログイン", which are pressed.
+  and the username while the tab's top-level page stays on the IdP's origin. There it
+  handles the IdP's pages as any site's, through the recipe generated for the IdP's
+  origin and the AI's judgment, with no fixed per-IdP page list (ADR 0033 amendment):
+  - the login form, filled from the IdP item above;
+  - an account list ([ADR 0028](0028-account-chooser-login-pages.md)), where only the
+    entry whose email equals the username exactly (no partial match, stricter than ADR
+    0028's masked addresses) is chosen; a list
+    that says the account's details will be shared with the site stops until it has
+    been checked in Chrome;
+  - a page that only asks whether to stay signed in or to continue as that account,
+    such as Microsoft's "Stay signed in?" or LINE's "次のアカウントでログイン", which is
+    pressed through.
 - **Everything else stops**: any permission page, including one forced by
   `prompt=consent`; Apple's "Share My Email / Hide My Email"; account creation pages on
   either side; chains where the IdP itself signs in through another IdP.
@@ -104,8 +110,12 @@ The owner chose, on 2026-10-11:
 - A site that creates accounts without asking still does so if the item's username is
   not an account the site already knows.
 - Left to implementation: the recipe shape for SSO-only sites (no slots), generating SSO
-  entries (ADR 0016's input condition replaced by an item with `SSO`), the per-IdP page
-  list, how long the remembered press stays valid, and `origin-busy` on IdP pages.
-- Google and Microsoft password pages also need recipe continuation after an `advance`
-  step ([ADR 0018](0018-recipe-generation-route.md)) or hand-written IdP recipes.
+  entries (ADR 0016's input condition replaced by an item with `SSO`), how a generated
+  recipe or the judge tells a stay-signed-in page apart, how long the remembered press
+  stays valid, and `origin-busy` on IdP pages.
+- IdP password pages that ask for the email first need recipe continuation after an
+  `advance` step ([ADR 0018](0018-recipe-generation-route.md)).
+- An IdP whose sign-in moves across several origins, as personal Microsoft accounts move
+  from `login.microsoftonline.com` to `login.live.com`, is followed only on the item's
+  origin since the ADR 0033 amendment; following such a move is left to implementation.
 - Real-site checks need real accounts and therefore separate owner approval.

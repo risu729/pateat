@@ -32,6 +32,9 @@
   scripts or download-on-demand tool commands.
 - Follow the [merge procedure](docs/delivery.md#merging) and the
   [Windows notes](docs/development.md#windows-notes).
+- Implement no site-specific features unless strictly necessary, and tell the owner
+  about any that exist; fix a problem seen on one site as a general page rule
+  ([ADR 0033](docs/adr/0033-no-site-specific-features.md)).
 - Keep vault secrets local, recipes declarative, and login execution scoped to
   the configured account, origin, tab, frame, and document.
 - Preserve the roadmap's phase boundaries and independently granted provider
