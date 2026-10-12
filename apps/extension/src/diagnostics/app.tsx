@@ -482,8 +482,8 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
         <section aria-labelledby="preview-heading" className="panel">
           <h2 id="preview-heading">Bug report text</h2>
           <p className="note">
-            This exact text is copied. Check it before posting. Sites are numbered here separately
-            from <strong>Download logs</strong>, so <code>site-1</code> may differ.
+            This exact text is copied. Check it before posting. Sites are numbered here, separately
+            from a hidden <strong>Download logs</strong>, so <code>site-1</code> may differ.
           </p>
           <pre id="report-preview" className="overflow-x-auto text-sm whitespace-pre-wrap">
             {preview}
