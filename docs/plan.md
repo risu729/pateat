@@ -174,9 +174,10 @@ Chrome, on a production build of main.
   loaded the unpacked build on 2026-10-12, and it stayed after the computer slept and
   after a computer update. Pairing there is refused by the service's WARP-only Access
   policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair" Access
-  application without WARP for pairing only. After the owner sets it up and the
-  owner's Chrome still pairs, the next check is pairing and a login on a real site on
-  the Grok Bot computer with the owner's existing Bitwarden account.
+  application without WARP for pairing only. With it, the Grok Bot computer paired on
+  2026-10-12 and Pateat logged in to Vpass there with the owner's existing Bitwarden
+  account, once the connection's policy was enabled by hand. Next: the Bot repeats the
+  logins itself, and ChatGPT Dots once the owner has ChatGPT Pro again.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
@@ -263,10 +264,12 @@ still open on 2026-10-11.
     [Research](#research)): it fills only a page of a login, not a sign-up or checkout.
   - Which part of the guess runs locally, and whether the AI may see the names of card
     or identity items, is left to the design; their values never leave the device.
-- GitHub's optional "Verify your two-factor authentication (2FA) settings" page after a
-  login: Pateat should complete it itself (owner, 2026-10-12 04:08 UTC). Until then,
-  [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there and
-  leaves the page to the person.
+- Optional confirmation pages after a login, such as
+  GitHub's "Verify your two-factor authentication (2FA) settings": Pateat should
+  complete them itself (owner, 2026-10-12 04:08 UTC), as a general rule rather than for
+  one site ([ADR 0033](adr/0033-no-site-specific-features.md), owner 13:46 UTC). Until
+  then, [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there
+  and leaves the page to the person.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
@@ -311,8 +314,8 @@ still open on 2026-10-11.
   [phase 1](#phase-1-usable).
 - Moving from Bun to aube for monorepo support (owner, 2026-10-12 07:58 UTC): the
   [research note](research/2026-10-12-package-manager-aube.md) compares Bun 1.4.3, pnpm
-  12 and aube 2.7.0 and records trial installs; it proposes staying on Bun, with pnpm as
-  the fallback if a pnpm-only feature is needed (not decided).
+  12 and aube 2.7.0 and records trial installs. The owner chose aube (08:25 UTC);
+  [ADR 0032](adr/0032-aube-package-manager.md) records the migration.
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -337,8 +340,8 @@ Implemented: WXT production shell, strict Valibot status contracts, isolated
 localhost-only probe build, a Worker with typed cf configuration, shared mise/hk checks,
 CI/CodeQL, and automatic release of the newest tested main build after main CI
 ([delivery](delivery.md)). Tool versions are pinned in `mise.toml` and `mise.lock`, and
-Bun dependencies in `bun.lock`; no native helper or production secrets are required to
-build or test.
+dependencies, installed by aube, in `bun.lock`; no native helper or production secrets
+are required to build or test.
 
 Local source/Worker tests, typechecks, builds, prebuilt dry-run and emitted-bundle smoke
 checks have passed. At head `c24d82a`,

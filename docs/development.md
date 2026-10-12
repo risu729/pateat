@@ -1,16 +1,17 @@
 # Development workflow
 
-The foundation has a Bun workspace, pinned tools, local policy settings, shared
-contracts, and a settings/recipe sync Worker skeleton. A separate localhost probe
+The foundation has an aube-installed workspace, pinned tools, local policy settings,
+shared contracts, and a settings/recipe sync Worker skeleton. A separate localhost probe
 exercises the declarative login executor with synthetic values. Manual Bitwarden setup
 and local vault caching are implemented, and the settings page can pair with a sync
-service; production login activation, settings/recipe sync in the extension and
-provider inference remain unimplemented; AI roles are evaluated offline only. M1
-is not complete until its required checks and acceptance gates pass.
+service; production login activation, settings/recipe sync in the extension and provider
+inference remain unimplemented; AI roles are evaluated offline only. M1 is not complete
+until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
-The workspace uses one Bun lockfile:
+The workspace uses one lockfile, `bun.lock`, which aube installs from
+([ADR 0032](adr/0032-aube-package-manager.md)):
 
 ```text
 apps/extension/       WXT entrypoints and extension shell
@@ -31,9 +32,20 @@ without contacting a database, and the check graph fails if committed migrations
 the root `tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
 (owner decision, 2026-10-12); each project's tasks stay in its own `mise.toml`. Use
 native workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
-the task graph. Bun manages dependencies; pinned supported Node executes tools that
-require it, notably cf. Commit mise and Bun lockfiles after resolving them, never
-hand-author a purported installed dependency graph.
+the task graph. aube installs dependencies; pinned supported Node executes tools that
+require it, notably cf, and Bun writes the lockfile and runs the two inference scripts
+that use it. aube's settings are in `aube-workspace.yaml`: its `packages` list must
+match the `workspaces` globs in `package.json`, which Bun and Renovate read, and
+`paranoid: true` makes an install fail on a dependency build script missing from
+`allowBuilds`, on a version newer than 24 hours when it resolves one, and on an OSV
+malicious-package hit. Commit `mise.lock`, the aube tool locks under `.mise/locks/` and
+`bun.lock` after resolving them, never hand-author a purported installed dependency
+graph. Bun writes `bun.lock`: change dependencies with `bun add --exact`, `bun remove`
+or `bun update`, each with `--lockfile-only` so that only aube installs packages and
+runs their build scripts, then `mise run install`, because aube 2.7.0 rewrites
+`bun.lock` into a form its own frozen install refuses
+([ADR 0032](adr/0032-aube-package-manager.md)). Renovate updates `bun.lock` with Bun
+too.
 
 The repository is a mise monorepo (owner decision, 2026-10-11). The root `mise.toml`
 sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `packages/*` and
@@ -43,7 +55,7 @@ root. A task's full name is its path and name, such as `//services/api:build`; i
 that directory `mise run :build` also works. Each project has a `test` task (the
 extension's `test` runs its `test:<area>` tasks) and each except `packages/contracts`
 has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. mise
-reads the Bun workspace graph, so `mise run --affected '//...:test'` tests the workspace
+reads the workspace graph, so `mise run --affected '//...:test'` tests the workspace
 packages with changes since `HEAD~1` (including uncommitted and untracked files) and the
 packages that depend on them. A change outside a workspace package, such as `docs/`,
 `scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every package, and
@@ -69,11 +81,21 @@ A development tool used only as a command is a mise tool, not a devDependency: t
 TypeScript compiler is `npm:typescript` in `mise.toml`, so `tsc` comes from mise. A
 package that code or configuration imports stays in `package.json` even when it also has
 a command, as cf (`cloudflare.config.ts`), drizzle-kit (`drizzle.config.ts`), WXT,
-Vitest and Playwright do. Each version is pinned in one place only; Bun's version is the
-`bun` tool in `mise.toml`, with no `packageManager` field. Bun still installs TypeScript
-into its store as a peer of `@risu729/tsconfigs` and an optional peer of WXT and
-Valibot; no task uses that copy, and it can lag the mise pin until the Bun lock is
-refreshed.
+Vitest and Playwright do. Each version is pinned in one place only; aube's version is
+the `aube` tool in `mise.toml`, with no `packageManager` field, and mise
+installs its `npm:` tools with aube because `npm.package_manager` is left unset. aube
+also installs TypeScript as a peer of `@risu729/tsconfigs` (and an optional peer of WXT
+and Valibot) and, unlike Bun, links that copy at the root as `node_modules/.bin/tsc`.
+`node_modules/.bin` comes before the mise tools on `PATH`, so the `typecheck` tasks run
+the `bun.lock` copy: keep its version equal to the `npm:typescript` pin when either
+moves.
+
+`mise.toml` names each tool by its short name in mise's registry, with mise's default
+backend for it (owner decision, 2026-10-12 13:06 UTC); Renovate resolves short names
+through the same registry. A tool keeps a `backend:name` form only when no short name
+installs it: `npm:typescript` has none, and the registry's `oxlint` (the aqua backend)
+expects `apps_v` release tags, which oxc stopped using after 1.84.0, so
+`npm:oxlint` stays.
 
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
 release tag. hk provides the single complete check entrypoint,
@@ -161,16 +183,17 @@ CI measures test coverage and reports it without failing on it (owner decision,
 2026-10-12). The Verify job runs `mise run check` with `PATEAT_COVERAGE=1`, so every
 Vitest run writes `coverage/<run>/coverage-final.json` with `@vitest/coverage-v8`; each
 `test:<area>` task of the extension names its own `<run>` directory. The next step,
-`mise run coverage:summary`, merges those files with `istanbul-lib-coverage` and writes
-line, branch, function and statement coverage per project (`apps/extension/src`,
-`packages/*/src`, `services/api/src`, `services/api/web`) to the job summary; the step
-runs even after a failed check and never fails the job. A file reached by several runs,
-such as extension code tested by a unit area and a Browser Mode suite, counts once. No
-threshold fails CI. The packaged-extension Playwright suite (`tests/extension`) is not
-measured, so code that runs only there, such as `apps/extension/src/login/content.ts`,
-`crypto/worker.ts` and the `probe.ts` files, shows as uncovered. For the same table
-locally, delete `coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE` set to
-any non-empty value, then `mise run coverage:summary`.
+`mise run coverage:summary`, merges those files with `@vitest/istanbul-lib-coverage`
+(Vitest's maintained fork of `istanbul-lib-coverage`) and writes line, branch, function
+and statement coverage per project (`apps/extension/src`, `packages/*/src`,
+`services/api/src`, `services/api/web`) to the job summary; the step runs even after a
+failed check and never fails the job. A file reached by several runs, such as extension
+code tested by a unit area and a Browser Mode suite, counts once. No threshold fails CI.
+The packaged-extension Playwright suite (`tests/extension`) is not measured, so code
+that runs only there, such as `apps/extension/src/login/content.ts`, `crypto/worker.ts`
+and the connections, crypto and vault `probe.ts` files, shows as uncovered. For the same
+table locally, delete `coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE`
+set to any non-empty value, then `mise run coverage:summary`.
 
 Not adopted: Codecov, which adds an external service and an upload token, and GitHub
 Code Quality's pull-request coverage, which requires Code Quality; GitHub offers Code
@@ -536,7 +559,7 @@ use.
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
 | Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)); per-owner Workload Identity Federation with `hono/utils/jwt` signing, a Valibot-checked `fetch` exchange and `authToken`, no added dependency ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) | M4 service route |
-| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants; **implemented:** `@vitest/coverage-v8` with `istanbul-lib-coverage` for the CI coverage summary ([test coverage](#test-coverage)) | M2 onward |
+| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants; **approved (2026-10-12) and implemented:** `@vitest/coverage-v8` for the CI coverage summary, merged with `@vitest/istanbul-lib-coverage`, a dependency of that provider ([test coverage](#test-coverage)) | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
