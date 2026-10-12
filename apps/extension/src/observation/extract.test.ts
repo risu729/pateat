@@ -208,6 +208,8 @@ describe("extractLoginObservation", () => {
         aria-errormessage="id-error">
       <p id="id-hint">6-12 letters</p><p id="id-error">taro_y is taken</p>
       <div role="alert"><p id="id-alert">taro_y is locked</p></div>
+      <input id="nested" aria-label="PIN" aria-describedby="pin-desc">
+      <div id="pin-desc"><p>4 digits</p><p aria-live="polite">taro_y is locked</p></div>
       <button id="go" aria-describedby="branch-hint">ログイン</button>`,
     );
     expect(summary(observe())).toEqual([
@@ -231,6 +233,12 @@ describe("extractLoginObservation", () => {
         target: { by: "id", value: "errors" },
         label: "ID",
         description: "6-12 letters",
+      },
+      {
+        role: "text",
+        target: { by: "id", value: "nested" },
+        label: "PIN",
+        description: "4 digits",
       },
       { role: "button", target: { by: "id", value: "go" }, label: "ログイン" },
     ]);

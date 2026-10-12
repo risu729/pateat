@@ -214,27 +214,35 @@ function locate(
 const idList = (element: Element, attribute: string) =>
   element.getAttribute(attribute)?.split(/\s+/u).filter(Boolean) ?? [];
 
-/** Visible text of the elements `ids` name, skipping those `skip` rejects. */
+/**
+ * Visible text of the elements `ids` name. With `skip`, an element matching it, inside
+ * one or holding one contributes nothing of that part.
+ */
 function referencedText(
   element: Element,
   ids: readonly string[],
-  skip: (referenced: Element) => boolean = () => false,
+  skip?: string,
 ): string | undefined {
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
-    const text = referenced && !skip(referenced) && visibleText(referenced);
+    if (!referenced || (skip && referenced.closest(skip))) return [];
+    const text = observedText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
     return text ? [text] : [];
   });
   return observedText(parts.join(" "));
 }
 
 /** Regions that announce changes, such as a failed sign-in's message. */
-const liveRegions = "[role='alert'], [role='status'], [aria-live]:not([aria-live='off'])";
+const liveRegions = [
+  ...["alert", "status", "log", "marquee", "timer"].map((role) => `[role='${role}']`),
+  "[aria-live]:not([aria-live='off'])",
+].join(", ");
 
 /**
  * A field's `aria-describedby` text, such as a hint that it takes three digits. Error
  * messages can echo the value the user typed, so a field marked `aria-invalid="true"`
- * gets none, and an element its `aria-errormessage` names or a live region never counts.
+ * gets none, and an element its `aria-errormessage` names or a live region, around the
+ * description or inside it, never counts.
  * Text that repeats the label is left out.
  */
 function fieldDescription(input: HTMLInputElement, label: string | undefined) {
@@ -243,7 +251,7 @@ function fieldDescription(input: HTMLInputElement, label: string | undefined) {
   const text = referencedText(
     input,
     idList(input, "aria-describedby").filter((id) => !errors.has(id)),
-    (referenced) => referenced.closest(liveRegions) !== null,
+    liveRegions,
   );
   return text === label ? undefined : text;
 }
