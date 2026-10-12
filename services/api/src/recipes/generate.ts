@@ -396,16 +396,29 @@ export async function judgeCompletion(
     // A page may offer both a security key and an authenticator app code; each handler
     // that passes its checks is kept, in one revision (ADR 0027).
     let changed: LoginRecipe | undefined;
+    // Kinds and refusal reasons only: never an element, label or value.
+    const handlers: { kind: "passkey" | "totp"; kept: boolean; reason?: string }[] = [];
     if (judgement.passkey) {
       const added = addHandler(recipe, observation, { kind: "passkey", target: judgement.passkey });
       if (added.ok) changed = added.recipe;
+      handlers.push({
+        kind: "passkey",
+        kept: added.ok,
+        ...(added.ok ? {} : { reason: added.reason }),
+      });
     }
     if (judgement.totp) {
       const base = changed ?? recipe;
       const added = addHandler(base, observation, { kind: "totp", ...judgement.totp });
       // Both handlers land in the revision after the judged one.
       if (added.ok) changed = changed ? { ...added.recipe, revision: base.revision } : added.recipe;
+      handlers.push({
+        kind: "totp",
+        kept: added.ok,
+        ...(added.ok ? {} : { reason: added.reason }),
+      });
     }
+    if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
     if (!changed) return { version: 1, status: "challenge" };
     const written = await writeRecipe(
       env.DB,

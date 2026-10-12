@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { fillBaseline, inputValueMismatch, rejectsFill } from "./fill-checks";
+import { fillBaseline, inputValueMismatch, rejectsFill, showsNewStatus } from "./fill-checks";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -78,5 +78,23 @@ describe("rejectsFill", () => {
     field.setCustomValidity("Left from the last sign-in");
     document.querySelector<HTMLElement>("[hidden]")!.hidden = false;
     expect(rejectsFill([field], before)).toBe(true);
+  });
+});
+
+describe("a code fill's status messages (ADR 0027)", () => {
+  it("reads a new status of the form as the page's own submission, not a rejection", () => {
+    document.body.innerHTML =
+      '<form><input id="code" autocomplete="one-time-code"><p role="status" id="state"></p></form>';
+    const code = document.querySelector<HTMLInputElement>("#code")!;
+    const before = fillBaseline([code]);
+    code.value = "012345";
+    expect(showsNewStatus([code], before)).toBe(false);
+    document.querySelector("#state")!.textContent = "Verifying…";
+    expect(showsNewStatus([code], before)).toBe(true);
+    expect(rejectsFill([code], before, { statuses: false })).toBe(false);
+    // A fill whose statuses count still reads it as a rejection, and alerts always count.
+    expect(rejectsFill([code], before)).toBe(true);
+    document.body.insertAdjacentHTML("beforeend", '<p role="alert">Wrong code</p>');
+    expect(rejectsFill([code], before, { statuses: false })).toBe(true);
   });
 });

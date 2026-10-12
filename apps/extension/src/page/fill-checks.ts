@@ -29,7 +29,9 @@ const statusSelector = '[role="status"], [aria-live="polite"]';
 
 /** What the page showed before a fill, to compare with once its handlers ran. */
 export interface FillBaseline {
+  /** Alert texts, then relevant status and polite live region texts. */
   readonly texts: ReadonlySet<string>;
+  readonly statuses: ReadonlySet<string>;
   /** Per filled input: whether it was marked invalid, and its custom validity message. */
   readonly inputs: readonly { ariaInvalid: boolean; customError: string }[];
 }
@@ -49,7 +51,10 @@ const validityFlags = [
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
-function feedbackTexts(inputs: readonly HTMLInputElement[]): Set<string> {
+function feedbackTexts(
+  inputs: readonly HTMLInputElement[],
+  regions: "all" | "alert" | "status" = "all",
+): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
   const form = inputs[0]?.form;
   const named = new Set(
@@ -59,14 +64,14 @@ function feedbackTexts(inputs: readonly HTMLInputElement[]): Set<string> {
       ),
     ),
   );
-  const regions = [
-    ...root.querySelectorAll(alertSelector),
-    ...[...root.querySelectorAll(statusSelector)].filter(
+  const shown = [
+    ...(regions === "status" ? [] : root.querySelectorAll(alertSelector)),
+    ...(regions === "alert" ? [] : [...root.querySelectorAll(statusSelector)]).filter(
       (element) => form?.contains(element) || named.has(element.id),
     ),
   ];
   const texts = new Set<string>();
-  for (const element of regions) {
+  for (const element of shown) {
     // A region around the inputs changes with any text of the form, such as a password
     // visibility toggle; visually hidden announcements still count as rendered.
     if (
@@ -84,6 +89,7 @@ function feedbackTexts(inputs: readonly HTMLInputElement[]): Set<string> {
 export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline {
   return {
     texts: feedbackTexts(inputs),
+    statuses: feedbackTexts(inputs, "status"),
     inputs: inputs.map((input) => ({
       ariaInvalid: ariaInvalid(input),
       customError: input.validity.customError ? input.validationMessage : "",
@@ -97,9 +103,15 @@ export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline 
  * or an alert or relevant live region shows text that none showed before the fill. A
  * mark the input already had before the fill, such as one left by an earlier failed
  * sign-in that no script clears, is not the page's answer. The caller handles a filled
- * input that is no longer connected first.
+ * input that is no longer connected first. Without `statuses`, only alerts and the inputs'
+ * own marks count, for a fill whose status regions may announce the page's own
+ * submission.
  */
-export function rejectsFill(inputs: readonly HTMLInputElement[], before: FillBaseline): boolean {
+export function rejectsFill(
+  inputs: readonly HTMLInputElement[],
+  before: FillBaseline,
+  { statuses = true }: { statuses?: boolean } = {},
+): boolean {
   const rejected = inputs.some((input, index) => {
     const previous = before.inputs[index]!;
     if (ariaInvalid(input) && !previous.ariaInvalid) return true;
@@ -115,5 +127,15 @@ export function rejectsFill(inputs: readonly HTMLInputElement[], before: FillBas
   });
   // Compared by text, so a page that re-renders a message it already showed is not a
   // new message.
-  return rejected || [...feedbackTexts(inputs)].some((text) => !before.texts.has(text));
+  const texts = feedbackTexts(inputs, statuses ? "all" : "alert");
+  return rejected || [...texts].some((text) => !before.texts.has(text));
+}
+
+/**
+ * Whether a status or polite live region of the filled form, or one a filled input names,
+ * shows text that none showed before the fill, such as "Verifying…" once a code input
+ * submitted by itself (ADR 0027).
+ */
+export function showsNewStatus(inputs: readonly HTMLInputElement[], before: FillBaseline): boolean {
+  return [...feedbackTexts(inputs, "status")].some((text) => !before.statuses.has(text));
 }

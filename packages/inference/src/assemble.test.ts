@@ -476,6 +476,20 @@ describe("judged totp handler (ADR 0027)", () => {
       candidates: [candidate("otp", target("otp"), "text"), candidate("verify", verify)],
     };
     expect(addHandler(recipe, plain, totp())).toEqual({ ok: false, reason: "not-code-field" });
+    // The judge's checks hold here too: at least 6 characters, one code input per form,
+    // and a button of its form.
+    for (const page of [
+      {
+        ...codePage(),
+        candidates: [codeInput("otp", { maxLength: 1 }), candidate("verify", verify)],
+      },
+      codePage("/two-factor", codeInput("otp-2")),
+      {
+        ...codePage(),
+        candidates: [codeInput("otp", { group: "code" }), candidate("verify", verify)],
+      },
+    ])
+      expect(addHandler(recipe, page, totp())).toEqual({ ok: false, reason: "not-code-field" });
     expect(addHandler(recipe, codePage(), totp(target("missing")))).toEqual({
       ok: false,
       reason: "not-on-page",
@@ -536,15 +550,17 @@ describe("judged totp handler (ADR 0027)", () => {
   it("learns no completion on a page that still shows the code field", () => {
     const added = addHandler(recipe, codePage(), totp());
     if (!added.ok) throw new Error(added.reason);
-    const shown = {
+    const shown = (path: string) => ({
       origin,
-      path: "/home",
+      path,
       candidates: [codeInput(), candidate("logout", target("logout"))],
-    };
-    expect(addCompletion(added.recipe, shown, target("logout"))).toEqual({
+    });
+    expect(addCompletion(added.recipe, shown("/two-factor"), target("logout"))).toEqual({
       ok: false,
       reason: "login-page",
     });
+    // An input of the same ID on another path is another element.
+    expect(addCompletion(added.recipe, shown("/home"), target("logout")).ok).toBe(true);
     expect(addCompletion(added.recipe, codePage(), verify)).toEqual({
       ok: false,
       reason: "step-target",

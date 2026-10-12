@@ -35,6 +35,7 @@ import {
   routeSignInTargets,
   routeSlots,
   sameLoginDocument,
+  sameLoginTarget,
   saveLoginChoice,
   siteDefaultConnection,
   templateLoginBinding,
@@ -1691,10 +1692,19 @@ export function createLoginRuntime(
       bindings: snapshot.snapshot.settings.bindings,
     };
   }
-  async function observe(run: Execution, targets: LoginTarget[]) {
+  async function observe(
+    run: Execution,
+    targets: LoginTarget[],
+    require?: ("writable" | "clickable" | "present")[],
+  ) {
     // Exclusion/default/policy checks precede even metadata observation.
     if (!(await allowed(run))) return undefined;
-    const response = await send(run.live, { type: "login.observe", path: run.live.path, targets });
+    const response = await send(run.live, {
+      type: "login.observe",
+      path: run.live.path,
+      targets,
+      ...(require ? { require } : {}),
+    });
     if (!current(run)) return undefined;
     const parsed = v.safeParse(observationSchema, response);
     return parsed.success ? parsed.output : undefined;
@@ -1837,23 +1847,68 @@ export function createLoginRuntime(
    * no room for it.
    */
   async function enterHandler(run: Execution, path: string): Promise<boolean> {
-    const entries = (run.recipe.handlers ?? []).flatMap((handler, index) =>
-      handler.path === path ? [{ handler, index, targets: handlerTargets(handler) }] : [],
-    );
+    // A handler's elements must be usable: its code field a shown writable input and its
+    // button a shown enabled one, so a hidden code input rendered with the sign-in form
+    // never stands for a code page. A `totp` handler whose button is also a route step's on
+    // this path, as in a form that asks for the code after the password, needs every fill
+    // field of the route there gone: while one shows, the page is still the sign-in page.
+    const routeFields = passwordVariants(run.recipe)
+      .flatMap((variant) => variant.steps)
+      .filter((step) => step.path === path)
+      .flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.target) : []))
+      .filter(
+        (target, index, all) => all.findIndex((other) => sameLoginTarget(other, target)) === index,
+      );
+    const routeClicks = passwordVariants(run.recipe)
+      .flatMap((variant) => variant.steps)
+      .filter((step) => step.path === path)
+      .flatMap((step) => (step.kind === "click" ? [step.target] : []));
+    const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
+      if (handler.path !== path) return [];
+      const sameForm =
+        handler.kind === "totp" &&
+        routeClicks.some((target) => sameLoginTarget(target, handler.target));
+      const targets = handlerTargets(handler);
+      return [
+        {
+          handler,
+          index,
+          targets: [...targets, ...(sameForm ? routeFields : [])],
+          require: [
+            ...(handler.kind === "totp"
+              ? (["writable", "clickable"] as const)
+              : (["clickable"] as const)),
+            ...(sameForm ? routeFields.map(() => "writable" as const) : []),
+          ],
+          own: targets.length,
+        },
+      ];
+    });
     if (!entries.length) return false;
-    // A separate observation, so the recipe's own bound of 24 elements still holds.
+    // A separate observation, so the recipe's own bound of 24 elements still holds; past it,
+    // the handlers that do not fit are not entered.
+    let room = 24;
+    const observable = entries.filter((entry) => {
+      if (entry.targets.length > room) return false;
+      room -= entry.targets.length;
+      return true;
+    });
+    if (!observable.length) return false;
     const observed = await observe(
       run,
-      entries.flatMap((entry) => entry.targets),
+      observable.flatMap((entry) => entry.targets),
+      observable.flatMap((entry) => entry.require),
     );
     if (!observed || observed.path !== path) return false;
     let offset = 0;
-    const shown = entries
+    const shown = observable
       .filter((entry) => {
         const states = observed.targets.slice(offset, offset + entry.targets.length);
         offset += entry.targets.length;
         return (
-          states.length === entry.targets.length && states.every((state) => state === "unique")
+          states.length === entry.targets.length &&
+          states.slice(0, entry.own).every((state) => state === "unique") &&
+          states.slice(entry.own).every((state) => state !== "unique")
         );
       })
       .sort((left, right) => handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind]);
@@ -1965,6 +2020,9 @@ export function createLoginRuntime(
       run.metadata.operationKind !== "click"
     )
       return false;
+    // Held as after the click: a page that shows "Verifying" with the button still there
+    // is neither judged nor settled while it verifies.
+    run.heldClick = run.metadata.stepIndex;
     await reconcileBounded(run);
     return true;
   }
@@ -2304,6 +2362,12 @@ export function createLoginRuntime(
             await change(run, { type: "POLICY_CHANGED" }, { cause: "vault-replaced" });
             return;
           }
+          const after = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex + 1]?.step;
+          const codeSubmit =
+            codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+            after?.kind === "click"
+              ? after.target
+              : undefined;
           response = await send(run.live, {
             type: "login.execute",
             operation,
@@ -2313,6 +2377,8 @@ export function createLoginRuntime(
             ...(expected && run.recipe.accountSwitch && !run.metadata.accountSwitched
               ? { accountSwitch: run.recipe.accountSwitch }
               : {}),
+            // A `totp` handler's code fill watches for the page submitting the code itself.
+            ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
           });
         } finally {
           for (const entry of values) entry.value = "";
@@ -2377,11 +2443,13 @@ export function createLoginRuntime(
           });
           return;
         }
-        // The code page replaced its form once the code was in: it submitted by itself.
+        // The code page showed that it submits the code by itself, or replaced its form
+        // once the code was in.
         if (
           matchedResult &&
           !result.output.ok &&
-          result.output.reason === "structural-mismatch" &&
+          (result.output.reason === "submitted" ||
+            result.output.reason === "structural-mismatch") &&
           result.output.mutation === "possible" &&
           codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
           (await codeSubmitted(run))

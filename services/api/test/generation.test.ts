@@ -1523,7 +1523,7 @@ describe("page judgement (ADR 0027)", () => {
           device,
           change.recipeId,
           3,
-          observation("/account", [code, element("help", "link", "Help")]),
+          observation("/login/mfa", [code, element("help", "link", "Help")]),
         )
       ).body,
     ).toEqual({ version: 1, status: "failed", error: "invalid-output" });

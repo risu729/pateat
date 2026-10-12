@@ -431,6 +431,25 @@ export const loginRecipeSchema = v.pipe(
       ),
     "Completion target is a handler target",
   ),
+  // A `totp` handler types a code into a field of its own: never one a route step uses on
+  // its path, such as the password input of a form that asks for the code after it.
+  v.check(
+    (recipe) =>
+      !(recipe.handlers ?? []).some(
+        (handler) =>
+          handler.kind === "totp" &&
+          variantsOf(recipe).some((variant) =>
+            variant.steps.some(
+              (step) =>
+                step.path === handler.path &&
+                (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target])
+                  .map(targetKey)
+                  .includes(targetKey(handler.field)),
+            ),
+          ),
+      ),
+    "The code field is a route step target",
+  ),
   // The passkey route starts on the start page, beside the password route.
   v.check(
     (recipe) => !recipe.passkey || recipe.passkey.path === recipe.steps[0]!.path,

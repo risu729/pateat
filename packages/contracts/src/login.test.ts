@@ -552,6 +552,20 @@ describe("second-factor page handlers (ADR 0027)", () => {
       expect(() =>
         parseLoginRecipe(withHandlers([code(), code({ field: { by: "id", value: "other" } })])),
       ).toThrow();
+      // Nor a field a route step uses on its path; on another path it is another element.
+      const login = { by: "id", value: "login" } as const;
+      expect(() =>
+        parseLoginRecipe(
+          withHandlers([
+            code({ path: "/password", field: { by: "id", value: "password" }, target: login }),
+          ]),
+        ),
+      ).toThrow();
+      expect(
+        parseLoginRecipe(
+          withHandlers([code({ path: "/two-factor", field: { by: "id", value: "password" } })]),
+        ).handlers,
+      ).toHaveLength(1);
     });
 
     it("refuses an account switch, marker or passkey button that is one of its elements", () => {

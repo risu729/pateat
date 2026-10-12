@@ -62,6 +62,8 @@ const fake = vi.hoisted(() => {
     extracted: {} as Record<string, unknown>,
     /** `chrome.storage.session`. */
     session: {} as Record<string, unknown>,
+    /** Present elements that are hidden or disabled, for an observation that asks. */
+    unusable: new Set<string>(),
     /** Tab-specific toolbar badge text and title. */
     badges: {} as Record<number, { text?: string; title?: string }>,
     /** Each `login.reconnect` and the document it was sent to. */
@@ -130,8 +132,13 @@ const fake = vi.hoisted(() => {
           return {
             path: state.observedPath,
             targets: state.present
-              ? (message["targets"] as { value: string }[]).map((entry) =>
-                  state.present!.has(entry.value) ? "unique" : "missing",
+              ? (message["targets"] as { value: string }[]).map((entry, index) =>
+                  !state.present!.has(entry.value)
+                    ? "missing"
+                    : (message["require"] as string[] | undefined)?.[index] !== undefined &&
+                        state.unusable.has(entry.value)
+                      ? "unusable"
+                      : "unique",
                 )
               : [...state.observed],
           };
@@ -448,6 +455,7 @@ describe("production login document admission", () => {
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = undefined;
+    fake.state.unusable = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -3368,6 +3376,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["password", "login"]);
+    fake.state.unusable = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -4416,6 +4425,29 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(handlerReports(report)).toEqual([]);
     }, 10_000);
 
+    it("is not entered while its field is hidden or disabled", async () => {
+      onClick({ login: toCode });
+      fake.state.unusable = new Set(["app-code"]);
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      withTotp(h);
+      h.recipes.recipe.mockResolvedValue(coded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () => expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+        { timeout: 6_000 },
+      );
+      expect(fake.state.messages).toContainEqual(
+        expect.objectContaining({
+          type: "login.observe",
+          targets: [target("app-code"), target("verify")],
+          require: ["writable", "clickable"],
+        }),
+      );
+      expect(codeFills()).toEqual([]);
+      expect(handlerReports(report)).toEqual([]);
+    }, 10_000);
+
     it("enters a passkey handler before a totp handler shown with it", async () => {
       const key = { kind: "passkey" as const, path: "/two-factor", target: securityKey };
       // The recipe lists the code first; the passkey still goes first.
@@ -4532,6 +4564,32 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         // The page's own submission took the click's place in the budget.
         expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2, maxSubmissions: 2 });
       }, 10_000);
+
+      it("holds a page that reports its own submission while the button still shows", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          // The content script saw the page submit the code; the form now says "Verifying".
+          fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(codeFills()).toHaveLength(1), { timeout: 6_000 });
+        // The fill named the button, so the page's own submission is watched for.
+        expect(codeFills()[0]).toMatchObject({ code: { submit: target("verify") } });
+        await new Promise((done) => setTimeout(done, 1_500));
+        expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 3 }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(clicks("verify")).toBe(0);
+      }, 15_000);
 
       it("settles a page that moved to another path before the click", async () => {
         onClick({ login: toCode, verify: toHome });

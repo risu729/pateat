@@ -4,7 +4,9 @@ Status: accepted by the owner on 2026-10-11 (13:47 UTC). Deliveries 1 (custom-fi
 names and Text shapes in generation) and 2 (handlers with the `passkey` handler) are
 implemented, and so are delivery 3: part A (`password` route variants and start
 detection over them) and part B (the start page's `passkey` route), and delivery 4 (the
-`totp` handler); delivery 5 (the `sso` route) is not implemented. Amends
+`totp` handler) except a binding that names another field for its code, which is
+deferred and ends `challenge` ([Implementation choices](#implementation-choices));
+delivery 5 (the `sso` route) is not implemented. Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and
@@ -425,7 +427,8 @@ new owner decision:
   it, which may not be the same element. Its steps are one `prepare` fill of the
   `totp` slot into the field, then one `submit` click on the button. A recipe keeps one
   handler per kind and path, and both elements count wherever a handler target counts:
-  the account switch, the completion and the `passkey` route may not reuse either.
+  the account switch, the completion and the `passkey` route may not reuse either. Its
+  field is never an element a route step uses on its path.
 - **Learning a `totp` handler.** The judge answers a code page with an optional `code`
   (`field`, `submit`, `source`: `authenticator-app`, `sms`, `email` or `unknown`); it
   says `authenticator-app` only when the page says the code comes from an authenticator
@@ -433,23 +436,33 @@ new owner decision:
   is a fill-role candidate with an attribute locator that the TOTP fill rule of ADR 0013
   accepts and whose `maxlength`, when set, is at least 6, no other such input is in its
   form, and the button is a button of the same form; any other code answer is dropped
-  silently, so the page ends `challenge` and stores nothing. The service then checks
-  the field and button against the stored recipe: the field may be no field a route
+  silently, so the page ends `challenge` and stores nothing. The service checks the
+  field and button again with the same rule (`not-code-field`), then against the stored
+  recipe: the field may be no field a route
   fills, no route step target on the path and no other handler's element there, and the
   button no route fill field, the `passkey` route's button, the switch, rejection,
   completion or another handler's element. The button may be the `password` route's
   submit button on that path, as on a page that asks for the code in the sign-in form
   after the password. A page that offers both a security key and an authenticator code
-  gets both handlers in the same next revision. A judged completion is refused on a page
-  that shows a `totp` handler's code field, as on the sign-in page, and generation maps
-  a one-time-code slot only to an input the TOTP fill rule accepts.
-- **Entering handlers.** A handler is entered when all its elements are unique on its
-  path, so a `totp` handler needs both its field and its button. When several shown
+  gets both handlers in the same next revision. The service logs which handler kinds it
+  kept or dropped and why, without elements or values. A judged completion is refused
+  on a page of a `totp` handler's path that shows its code field, as on the sign-in
+  page, and generation maps a one-time-code slot only to an input the TOTP fill rule
+  accepts.
+- **Entering handlers.** A handler is entered when all its elements are unique and
+  usable on its path: a `totp` handler's field a shown writable input and its button,
+  like a `passkey` handler's, a shown enabled one. A code input rendered hidden with the
+  sign-in form therefore never stands for a code page. A `totp` handler whose button is
+  also a route step's click target on that path is entered only while none of the
+  route's fill fields there shows, since the page is still the sign-in page while one
+  does. When several shown
   handlers qualify, a `passkey` handler goes first, as the routes put the passkey first
   and it types nothing. A handler is passed over when it already ran (`shown-again`),
   the item lacks its fact (`missing-fact`), or, for a `totp` handler, the login already
   types a TOTP code (`code-used`); when every shown handler is passed over, the login
-  ends `challenge` and the first one's reason is logged.
+  ends `challenge` and the first one's reason is logged. A new document that shows a
+  `passkey` handler that already ran beside a `totp` handler the item can use therefore
+  enters the `totp` handler.
 - **One code per login.** A login types at most one TOTP code: a `totp` handler is never
   entered by a login whose route fills a `totp` slot or that entered a `totp` handler,
   so a wrong code is never followed by another, which ADR 0013 and the lockout rule
@@ -463,15 +476,26 @@ new owner decision:
   the binding saved after `authenticated` still covers the route's slots. A field
   excluded or removed after the handler was entered stops the login as a policy change.
 - **Code fill rule.** A `totp` handler's fill always uses the TOTP fill rule
-  (`autocomplete=one-time-code` or a short numeric input), whatever field it reads.
+  (`autocomplete=one-time-code` or a short numeric input), whatever field it reads. A
+  new status message in the code's form during the fill is the page's own submission,
+  not a refusal of the code; a new alert or an invalid mark on the field still refuses
+  it (`fill-rejected`).
 - **A page that submits the code itself.** Some code inputs submit once the last digit
   is in. The handler's click then counts as done (`AUTO_SUBMITTED`, one submission) and
-  the page is settled as after a click; the code is never filled again. The login
-  treats the code as submitted when the code fill's result reports that the page
-  replaced its form after the code went in; when, before the click, the page has left
-  the path, or shows the completion or the rejection without the button; and when a new
+  the page is held and settled as after a click: while the button still shows in that
+  document, as on a form rendered again as "Verifying", it is neither judged nor settled
+  for up to two minutes. The code is never filled again or followed by a click. The code
+  fill watches the page for 2 seconds once the code is in, with listeners installed
+  before it is typed, and the login treats the code as submitted on any of: a `submit`
+  event of the field's form; `beforeunload`, `pagehide` or a Navigation API `navigate`
+  event; a change of path; the field or its form disabled, read-only, inert, busy,
+  removed or replaced; the field cleared; the button disabled, busy or replaced; a new
+  visible busy indicator (`aria-busy`, `progressbar`, `progress`) or a new status
+  message in the form. It also does so when, before the click, the page has left the
+  path or shows the completion or the rejection without the button, and when a new
   document of the tab resumes a login whose code fill went in, or may have, and whose
-  click has not run. A button still shown is clicked once as planned.
+  click has not run. Only a button that still shows after a quiet watch is clicked,
+  once.
 - **Synthetic TOTP fact.** The probe build's configure message takes an optional
   `totp: true`, which gives the synthetic dummy item a `totp` field with the fixed code
   `012345` and sets its `totp` fact; no TOTP secret or real code is used.
@@ -481,8 +505,15 @@ new owner decision:
 - **Known limitation: a wrong code on the same document.** A code page that shows the
   form again in the same document after a wrong code keeps the clicked button, so the
   login holds for two minutes before it ends `challenge`, as the held-click limitation
-  below describes. A new document that shows the code page again ends `challenge` at
-  once.
+  below describes; so does one that submitted the code itself. A new document that
+  shows the code page again ends `challenge` at once.
+- **Known limitation: a silent submission.** A code page that submits the code itself
+  with a background request and changes nothing the watch sees, in the DOM, the path or
+  the navigation, for 2 seconds is clicked as well, and so gets the code twice.
+- **Known limitation: a same-form code page that keeps the password input.** A form that
+  asks for the code after the password and still shows the password input is a sign-in
+  page to the service (`not-judgeable`) and to the extension, so its `totp` handler is
+  never learned or entered; such a login ends as an unknown result.
 - **Known limitation.** Variants come only from identifier sets the start page shows at
   once in one observation. A set behind a tab or a link, as SMBC's contract-number tab
   appears to be, is not observed and so not generated; such a site gets the variant the

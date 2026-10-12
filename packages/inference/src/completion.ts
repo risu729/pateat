@@ -1,6 +1,5 @@
 import {
-  fillRoles,
-  isCodeField,
+  isTotpCode,
   loginObservationSchema,
   loginPathSchema,
   type LoginAttributeTarget,
@@ -88,9 +87,8 @@ export type SignInJudgement =
 
 /**
  * The judge's code answer as a `totp` handler, or nothing (ADR 0027): only a code the page
- * says comes from an authenticator app, in a field the executor fills a TOTP code into
- * (ADR 0013) with at least 6 characters when it limits them, which is the only such field
- * in its form, so split one-digit inputs never qualify, and a button of that form.
+ * says comes from an authenticator app, in a field and with a button that `isTotpCode`
+ * accepts.
  */
 function totpCode(
   page: LoginObservation,
@@ -99,19 +97,7 @@ function totpCode(
   if (code?.source !== "authenticator-app") return undefined;
   const field = page.candidates.find((candidate) => candidate.id === code.field);
   const submit = page.candidates.find((candidate) => candidate.id === code.submit);
-  if (
-    !field ||
-    !submit ||
-    !(fillRoles as readonly string[]).includes(field.role) ||
-    field.target.by === "text" ||
-    !isCodeField(field) ||
-    (field.maxLength !== undefined && field.maxLength < 6) ||
-    page.candidates.some(
-      (other) => other !== field && other.group === field.group && isCodeField(other),
-    ) ||
-    submit.role !== "button" ||
-    submit.group !== field.group
-  )
+  if (!field || !submit || field.target.by === "text" || !isTotpCode(page, field, submit))
     return undefined;
   return { field: field.target, target: submit.target };
 }

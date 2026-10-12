@@ -601,19 +601,23 @@ function createLoginAttemptMachine() {
         context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
         context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
         sameScope(context.document, event.document),
-      // Between a handler's fill and its click, or with the fill still unanswered; the
-      // page's own submission takes the click's place in the budget.
+      // Between an entered handler's first step, its fill, and the click after it, or with
+      // the fill still unanswered; the page's own submission takes the click's place in the
+      // budget. The runtime checks that the handler is a `totp` handler.
       canAutoSubmit: ({ context, event }) =>
         event.type === "AUTO_SUBMITTED" &&
         !context.usedOperationIds.includes(event.operationId) &&
         context.usedOperationIds.length < 96 &&
         context.submissions < context.maxSubmissions &&
         (context.operationId === undefined
-          ? context.stepIndex < context.stepCount && context.retryRequired !== true
+          ? context.stepIndex < context.stepCount &&
+            context.retryRequired !== true &&
+            context.handlers.some((entry) => entry.start === context.stepIndex - 1)
           : context.operationKind === "fill" &&
             context.operationEffect === "prepare" &&
             context.mutationIntent === true &&
-            context.stepIndex + 1 < context.stepCount),
+            context.stepIndex + 1 < context.stepCount &&
+            context.handlers.some((entry) => entry.start === context.stepIndex)),
     },
   }).createMachine({
     id: "login-attempt",

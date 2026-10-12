@@ -92,6 +92,18 @@ export async function startLoginFixture(
       });
       return;
     }
+    if (path === "/totp-verify") {
+      // A slow code verification (ADR 0027): the code page stays until the answer arrives.
+      const to = fixtureUrl.searchParams.get("to");
+      setTimeout(() => {
+        response.writeHead(302, {
+          location: to === "/authenticated" || to?.startsWith("/totp-code") ? to : "/",
+          "cache-control": "no-store",
+        });
+        response.end();
+      }, 1200);
+      return;
+    }
     response.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
@@ -227,12 +239,10 @@ export async function startLoginFixture(
     } else if (path === "/totp") {
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?wrong` shows it again after Verify, `?auto` submits the
-      // code by itself on its sixth digit, as some sites do.
-      const next = fixtureUrl.searchParams.has("auto")
-        ? "/totp-code?auto"
-        : fixtureUrl.searchParams.has("wrong")
-          ? "/totp-code?wrong"
-          : "/totp-code";
+      // code by itself on its sixth digit, as some sites do. With `?auto`, `slow` verifies
+      // it for 1.2 seconds before the next document loads, `spa=status` says "Verifying…"
+      // in the form for that long and `spa=replace` renders the form again as verifying,
+      // before both sign in without a new document.
       response.end(
         html(
           '<h1>Synthetic sign-in with a code</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
@@ -240,26 +250,47 @@ export async function startLoginFixture(
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('identityMatched', 'true');
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
-          location.href = ${JSON.stringify(next)};
+          location.href = ${JSON.stringify(`/totp-code${fixtureUrl.search}`)};
         });`,
         ),
       );
     } else if (path === "/totp-code") {
-      // Records how often the code was typed and Verify clicked, and whether the code was
-      // the synthetic one; never the code itself.
+      // Records how often the code was typed, submitted by the page and Verify clicked, and
+      // whether the code was the synthetic one; never the code itself.
       const auto = fixtureUrl.searchParams.has("auto");
+      const slow = fixtureUrl.searchParams.has("slow");
+      const spa = fixtureUrl.searchParams.get("spa");
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          '<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form"><label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label><button id="verify" type="button">Verify</button></form>',
+          '<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form"><label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label><button id="verify" type="button">Verify</button><p role="status" id="code-status"></p></form>',
           `const code = document.getElementById('code');
+          function count(name) {
+            sessionStorage.setItem(name, String(Number(sessionStorage.getItem(name) || 0) + 1));
+          }
           function submitCode(source) {
-            sessionStorage.setItem(source, String(Number(sessionStorage.getItem(source) || 0) + 1));
+            count(source);
+            count('codeSubmits');
             sessionStorage.setItem('codeMatched', String(code.value === '012345'));
-            location.href = code.value === '012345' && ${JSON.stringify(again)} === '/totp-code' ? '/authenticated' : ${JSON.stringify(again)};
+            const signedIn = code.value === '012345' && ${JSON.stringify(again)} === '/totp-code';
+            ${
+              spa
+                ? `${
+                    spa === "replace"
+                      ? `document.getElementById('code-form').innerHTML = '<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" disabled><button id="verify" type="button" disabled>Verify</button><p>Verifying…</p>';`
+                      : `document.getElementById('code-status').textContent = 'Verifying…';`
+                  }
+                setTimeout(() => {
+                  history.pushState({}, '', '/authenticated');
+                  document.body.innerHTML = signedIn
+                    ? '<h2 id="authenticated">Authenticated synthetic account</h2>'
+                    : '<h2 id="rejected">Code rejected</h2>';
+                }, 1200);`
+                : `location.href = ${slow ? "'/totp-verify?to=' + encodeURIComponent(signedIn ? '/authenticated' : " + JSON.stringify(again) + ")" : `signedIn ? '/authenticated' : ${JSON.stringify(again)}`};`
+            }
           }
           code.addEventListener('input', () => {
-            sessionStorage.setItem('codeInputs', String(Number(sessionStorage.getItem('codeInputs') || 0) + 1));
+            count('codeInputs');
             ${auto ? "if (code.value.length === 6) submitCode('autoSubmits');" : ""}
           });
           document.getElementById('verify').addEventListener('click', () => submitCode('verifyClicks'));`,

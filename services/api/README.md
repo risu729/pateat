@@ -227,9 +227,10 @@ a code, or `unavailable` with a reason when no model was called.
   the button not a field the route fills, the `passkey` route's button, a switch,
   rejection, completion or other handler target) and is stored as a `totp` handler; an
   SMS, email or unknown code stores nothing. Both handlers of one page land in the same
-  next revision, and the answer carries it as `change`. A `signed-in` marker on a page
-  that shows a `totp` handler's code field fails `addCompletion` like one on the sign-in
-  page, and the call answers `invalid-output`.
+  next revision, and the answer carries it as `change`. The kept and dropped handler
+  kinds, with the reason a handler was dropped, are logged without elements or values. A
+  `signed-in` marker on a `totp` handler's path that shows its code field fails
+  `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
 
 Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision and page path, so a repeat answers

@@ -2,7 +2,7 @@ import {
   extendsRecipe,
   fillRoles,
   handlerTargets,
-  isCodeField,
+  isTotpCode,
   loginRecipeSchema,
   loginStepEffect,
   passwordVariants,
@@ -54,9 +54,11 @@ const stepTargets = (step: LoginStep) =>
 /** Every element a handler of the recipe uses on `path`: buttons and code fields. */
 const handlerElements = (recipe: LoginRecipe, path: string) =>
   (recipe.handlers ?? []).filter((handler) => handler.path === path).flatMap(handlerTargets);
-/** The code fields of the recipe's `totp` handlers, on any path. */
-const codeFields = (recipe: LoginRecipe) =>
-  (recipe.handlers ?? []).flatMap((handler) => (handler.kind === "totp" ? [handler.field] : []));
+/** The code fields of the recipe's `totp` handlers on `path`. */
+const codeFields = (recipe: LoginRecipe, path: string) =>
+  (recipe.handlers ?? []).flatMap((handler) =>
+    handler.kind === "totp" && handler.path === path ? [handler.field] : [],
+  );
 /**
  * Every element a route's step uses on `path`: each password variant's, and the passkey
  * route's button (ADR 0027).
@@ -165,9 +167,13 @@ export function addCompletion(
   const used = routeTargets(base, page.path);
   if ([...used, ...handlerElements(base, page.path)].some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
-  // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not, and
-  // neither does a `totp` handler's code field (ADR 0027).
-  const loginElements = [...used, ...routeFillTargets(base, "password"), ...codeFields(base)];
+  // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not. A
+  // `totp` handler's code field on this path shows its code page (ADR 0027).
+  const loginElements = [
+    ...used,
+    ...routeFillTargets(base, "password"),
+    ...codeFields(base, page.path),
+  ];
   if (
     page.candidates.some((candidate) =>
       loginElements.some((element) => sameTarget(element, candidate.target)),
@@ -197,7 +203,11 @@ export type HandlerRejection =
   | "not-on-page"
   /** The button registers, adds or sets up a passkey rather than signing in with one. */
   | "registration"
-  /** A `totp` handler's field is not an input the executor fills a TOTP code into. */
+  /**
+   * A `totp` handler's field is not an input the executor fills a TOTP code into, shorter
+   * than 6 characters or one of several code inputs of its form, or its button is in
+   * another form.
+   */
   | "not-code-field"
   /**
    * The button is one of the recipe's step targets on that path, its account switch,
@@ -256,9 +266,10 @@ export function addHandler(
         (fillRoles as readonly string[]).includes(candidate.role) &&
         sameTarget(candidate.target, handler.field),
     );
-    // The executor fills a TOTP code only into such a field (ADR 0013).
     if (!field) return { ok: false, reason: "not-on-page" };
-    if (!isCodeField(field)) return { ok: false, reason: "not-code-field" };
+    // The judge's own checks, again: the executor fills a TOTP code only into such a field
+    // (ADR 0013), and one per form with its button.
+    if (!isTotpCode(page, field, button)) return { ok: false, reason: "not-code-field" };
     const fills = routeFillTargets(base, "password");
     if (
       [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
