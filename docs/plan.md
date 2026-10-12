@@ -168,9 +168,10 @@ Chrome, on a production build of main.
   loaded the unpacked build on 2026-10-12, and it stayed after the computer slept and
   after a computer update. Pairing there is refused by the service's WARP-only Access
   policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair" Access
-  application without WARP for pairing only. After the owner sets it up and the
-  owner's Chrome still pairs, the next check is pairing and a login on a real site on
-  the Grok Bot computer with the owner's existing Bitwarden account.
+  application without WARP for pairing only. With it, the Grok Bot computer paired on
+  2026-10-12 and Pateat logged in to Vpass there with the owner's existing Bitwarden
+  account, once the connection's policy was enabled by hand. Next: the Bot repeats the
+  logins itself, and ChatGPT Dots once the owner has ChatGPT Pro again.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

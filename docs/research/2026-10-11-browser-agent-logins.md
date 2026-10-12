@@ -162,17 +162,29 @@ entered the One-time PIN code, the Bitwarden email and the master password. Resu
   Please login first.", because that browser's only Access cookie is sent below `/pair`.
   The team domain's `/cdn-cgi/access/logout` answered "Success! You successfully logged
   out."
-- The owner connected their existing Bitwarden account as "main" and answered "done"
-  (12:57 UTC) to a request to do so once the connection showed "Local vault ready".
-  Nobody else read that state, so an unfinished connection is still a possible cause
-  below.
+- The owner connected their existing Bitwarden account as "main" (12:57 UTC), with
+  **Enable this connection in Pateat policy** left on. The connection showed "Local
+  vault ready" and debug logging was on.
 - Asked to open `https://www.smbc-card.com/mem/index.jsp` (Vpass) without typing, the
   Bot reported after one minute that the page was still the Vpass login form, with no
   code or confirmation prompt, and that it had typed nothing. Pateat did not log in.
-  The cause is not known yet: no Pateat log from that computer has been read. The same
-  recipe logged in automatically in the owner's Chrome earlier that day.
 - Soon after (13:11 UTC) the owner reported that Grok Bot itself had stopped working,
   so the run was paused there.
+- By 13:34 UTC Grok Bot worked again. Pateat's log on that computer had a
+  `login.refused` event for `https://www.smbc-card.com` with reason
+  `connection-disabled` at 12:59:35 UTC. In Settings, **Vault access policy**, the
+  connection "main" was not enabled, and every site default showed "Unavailable under
+  this draft policy: The vault connection is disabled." Why a connection added with the
+  policy box on was stored as disabled is a Pateat bug, followed up in the extension.
+- The Claude session turned **Enabled** on for "main" during a takeover. Opening the
+  Vpass URL in that browser then logged in automatically within 30 seconds and reached
+  the member page (`/memx/mypage/index.html`). The Bot itself had not retried at that
+  point.
+- The owner reported at 13:45 UTC that the Bot said Pateat had also logged in to MyJCB.
+  That is the Bot's own report; nobody else checked the page.
+
+So Pateat logs in on a Grok Bot computer, paired without WARP, with the Bot leaving the
+login form to the extension.
 
 ## What to check next
 
@@ -187,7 +199,5 @@ so each needs separate owner approval:
 3. On a dot's cloud computer during a takeover, check whether `chrome://extensions`
    or the Web Store opens. This only records what is possible; running Pateat there
    with a vault is the owner's tradeoff above.
-4. On the Grok Bot computer, once Grok Bot works again: why Pateat did not log in to
-   Vpass. Read Pateat's log lines for `www.smbc-card.com` (`login.refused`,
-   `recipe.generate`, `login.attempt`), and check that the connection shows "Local vault
-   ready" and that **Last recipe sync** has a time. Then retry the login.
+4. On the Grok Bot computer, have the Bot itself open the Vpass and MyJCB URLs again
+   and report the page it reaches, and check the result on screen.
