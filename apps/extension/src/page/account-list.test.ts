@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { accountEntries, chooses, entryLike, pickEntry } from "./account-list";
+import {
+  accountEntries,
+  besideAccounts,
+  besideEmails,
+  chooses,
+  entryLike,
+  namesUsername,
+  pickEntry,
+} from "./account-list";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -133,5 +141,90 @@ describe("pickEntry", () => {
     expect(pickEntry(plain, "risutaku@example.com", ["risuko@example.com"])).toEqual({
       entry: plain[0],
     });
+  });
+});
+
+// The structure of Wise's "Welcome back" card and Instagram's saved profile in the
+// owner's Chrome on 2026-10-12, with made-up texts.
+const wise = `
+  <h1>Welcome back</h1>
+  <div class="df-box-renderer">
+    <div class="df-media-layout-avatar">TY</div>
+    <h3>Taro</h3>
+    <p>t***@example.com</p>
+    <button><span>Log back in</span></button>
+    <button><span>Use another account</span></button>
+  </div>
+  <footer><p>Contact help@example.com</p><button>Cookies</button></footer>`;
+const instagram = `
+  <div>
+    <div>
+      <div><div role="img"><svg></svg></div><div><span>taro.yamada</span></div></div>
+      <div role="button"><div role="button" aria-label="Continue as taro.yamada">Continue</div></div>
+    </div>
+    <div role="button" aria-label="Use another profile">Use another profile</div>
+    <a role="link" aria-label="Create new account" href="/accounts/emailsignup/">Create new account</a>
+  </div>`;
+
+describe("besideAccounts", () => {
+  it("finds Wise's masked email beside its buttons, not the footer's address", () => {
+    document.body.innerHTML = wise;
+    expect(accountEntries(document)).toEqual([]);
+    const emails = besideEmails(document);
+    expect(emails.map((account) => account.text)).toEqual(["t***@example.com"]);
+    expect(emails[0]!.buttons.map((button) => button.textContent)).toEqual([
+      "Log back in",
+      "Use another account",
+    ]);
+    expect(besideAccounts(document).map((account) => account.text)).toContain("Taro");
+  });
+
+  it("finds Instagram's username beside Continue", () => {
+    document.body.innerHTML = instagram;
+    const shown = besideAccounts(document).find((account) => account.text === "taro.yamada");
+    expect(shown?.buttons.map((button) => button.textContent)).toEqual(["Continue"]);
+    expect(besideEmails(document)).toEqual([]);
+  });
+
+  it("leaves out texts beside more than three buttons and inside controls", () => {
+    document.body.innerHTML = `
+      <div><p>a@example.com</p><button>1</button><button>2</button><button>3</button><button>4</button></div>
+      <button disabled><span>b@example.com</span></button>`;
+    expect(besideAccounts(document).map((account) => account.text)).toEqual([]);
+  });
+});
+
+describe("besideAccounts limits", () => {
+  it("counts page chrome's controls but never returns them", () => {
+    document.body.innerHTML = `
+      <div>
+        <header><a href="/a">A</a><a href="/b">B</a><a href="/c">C</a></header>
+        <p>a@example.com</p><button>Continue</button>
+      </div>`;
+    expect(besideAccounts(document)).toEqual([]);
+    document.body.innerHTML = `
+      <div><nav><a href="/a">A</a></nav><p>a@example.com</p><button>Continue</button></div>`;
+    expect(besideEmails(document)[0]?.buttons.map((button) => button.textContent)).toEqual([
+      "Continue",
+    ]);
+  });
+
+  it("leaves out contact details and counts no hidden or script text", () => {
+    document.body.innerHTML = `
+      ${"<p hidden>x</p>".repeat(450)}<script>${"var a;".repeat(10)}</script>
+      <div role="contentinfo"><p>help@example.com</p><button>Help</button></div>
+      <div><p>t***@example.com</p><button>Log back in</button></div>`;
+    expect(besideEmails(document).map((account) => account.text)).toEqual(["t***@example.com"]);
+  });
+});
+
+describe("namesUsername", () => {
+  it("matches a whole text, ignoring case and a leading @", () => {
+    expect(namesUsername("taro.yamada", "Taro.Yamada")).toBe(true);
+    expect(namesUsername("@taro.yamada", "taro.yamada")).toBe(true);
+    expect(namesUsername("taro.yamada2", "taro.yamada")).toBe(false);
+    expect(namesUsername("Continue as taro.yamada", "taro.yamada")).toBe(false);
+    expect(namesUsername("taro***", "taro.yamada")).toBe(false);
+    expect(namesUsername("taro@example.com", "taro@example.com")).toBe(false);
   });
 });
