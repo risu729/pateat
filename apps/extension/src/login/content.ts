@@ -47,6 +47,7 @@ import {
   type LoginReadiness,
   type TargetState,
 } from "./wire";
+import { newId } from "@pateat/contracts/ids";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget, links = false): Element[] {
@@ -196,7 +197,7 @@ export interface LoginContentOptions {
 }
 
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
-  const token = crypto.randomUUID();
+  const token = newId();
   let cancelled = false;
   // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
   let ended = false;

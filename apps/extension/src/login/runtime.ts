@@ -149,6 +149,7 @@ import {
   loginUsernameFieldId,
   type LoginFieldSource,
 } from "./vault";
+import { newId } from "@pateat/contracts/ids";
 
 const STORAGE_KEY = "pateat.login-attempts.v4";
 /** The previous attempt store, removed on load; its records are not read. */
@@ -3328,7 +3329,7 @@ export function createLoginRuntime(
    * Returns whether the attempt took it.
    */
   async function codeSubmitted(run: Execution): Promise<boolean> {
-    await change(run, { type: "AUTO_SUBMITTED", operationId: crypto.randomUUID() });
+    await change(run, { type: "AUTO_SUBMITTED", operationId: newId() });
     if (
       !current(run) ||
       run.metadata.state !== "reconciling" ||
@@ -4225,12 +4226,7 @@ export function createLoginRuntime(
         // first submission, as a chooser login's click on its list is (ADR 0034).
         if (await switchToPasskey(run)) continue;
       }
-      const operation = nextLoginOperation(
-        run.metadata,
-        run.recipe,
-        run.live.document,
-        crypto.randomUUID(),
-      );
+      const operation = nextLoginOperation(run.metadata, run.recipe, run.live.document, newId());
       if (!operation) {
         await change(
           run,
@@ -6257,7 +6253,7 @@ export function createLoginRuntime(
       if (previous.document.documentId !== document.documentId && codeAwaitsClick(recipe, resumed))
         resumed = transitionLoginAttempt(resumed, {
           type: "AUTO_SUBMITTED",
-          operationId: crypto.randomUUID(),
+          operationId: newId(),
         });
       metadata = transitionLoginAttempt(resumed, {
         type: "NAVIGATED",
@@ -6277,7 +6273,7 @@ export function createLoginRuntime(
       if (!("facts" in plan)) return refuse("no-route");
       metadata = transitionLoginAttempt(
         createAttemptMetadata({
-          id: crypto.randomUUID(),
+          id: newId(),
           recipe,
           policyRevision: snapshot.snapshot.revision,
           account: {
@@ -7431,12 +7427,7 @@ export function createLoginRuntime(
       return;
     }
     if (!(await allowed(run))) return;
-    const operation = nextLoginOperation(
-      run.metadata,
-      run.recipe,
-      run.live.document,
-      crypto.randomUUID(),
-    );
+    const operation = nextLoginOperation(run.metadata, run.recipe, run.live.document, newId());
     if (!operation) {
       await change(
         run,

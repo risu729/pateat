@@ -12,6 +12,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { inferenceLocks, inferenceLog, inferenceSpend } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
+import { newId } from "@pateat/contracts/ids";
 
 // Every Claude call the service makes goes through here (ADR 0018): one call at a time
 // per owner, the monthly and daily spend stops, and the ADR 0012 request
@@ -88,7 +89,7 @@ function addSpend(db: Db, ownerId: string, period: string, calls: number, micro:
 }
 
 async function acquireLock(db: Db, ownerId: string, now: number) {
-  const lockId = crypto.randomUUID();
+  const lockId = newId();
   const expiresAt = now + CLAUDE_CALL_LIMITS.lockMs;
   const result = await db
     .insert(inferenceLocks)
@@ -211,7 +212,7 @@ export async function callClaude<T>(
     await db.batch([
       ...corrections,
       db.insert(inferenceLog).values({
-        id: crypto.randomUUID(),
+        id: newId(),
         ownerId,
         role: call.role,
         provider: "anthropic",

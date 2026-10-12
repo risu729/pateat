@@ -24,6 +24,7 @@ import {
   type HostSessionRef,
   type UriCandidates,
 } from "./wire";
+import { newId } from "@pateat/contracts/ids";
 
 // Native SDK panic/log output can contain decrypted input. The host emits only typed results.
 for (const method of ["log", "info", "warn", "error", "debug", "trace"] as const)
@@ -136,7 +137,7 @@ async function execute(command: HostCommand) {
       brokerGeneration: command.generation,
       connectionId: command.connectionId,
       userId: prepared.binding.userId,
-      sessionId: crypto.randomUUID(),
+      sessionId: newId(),
       snapshotId: op.snapshotId,
     };
     owned = {

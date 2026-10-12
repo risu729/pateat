@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { AccessIdentity } from "./auth";
 import { ownerIdentities, owners } from "./db/schema";
+import { newId } from "@pateat/contracts/ids";
 
 export async function findOwner(db: D1Database, identity: AccessIdentity) {
   const [row] = await drizzle(db)
@@ -26,7 +27,7 @@ export async function resolveOwner(db: D1Database, identity: AccessIdentity) {
   const existing = await findOwner(db, identity);
   if (existing) return existing;
   const orm = drizzle(db);
-  const ownerId = crypto.randomUUID();
+  const ownerId = newId();
   const now = Date.now();
   // INSERT ... SELECT is positional: keep each SELECT in its table's column order.
   await orm.batch([

@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import type { PasskeyChoice, PasskeyChooser } from "./runtime";
 import type { PasskeyDisplay } from "./select";
+import { newId } from "@pateat/contracts/ids";
 
 /** The chooser window's page (ADR 0021). */
 export const CHOOSER_PAGE = "/passkey-picker.html";
@@ -152,7 +153,7 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
         again: input.again,
       });
       if (!view.success) return { kind: "unavailable" };
-      const token = crypto.randomUUID();
+      const token = newId();
       let resolveOpened!: (windowId: number | undefined) => void;
       const opened = new Promise<number | undefined>((resolve) => (resolveOpened = resolve));
       const answer = new Promise<PasskeyChoice>((resolve) => {

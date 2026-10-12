@@ -10,6 +10,7 @@ import {
 } from "./wire";
 import type { BridgedGetRequest } from "./request";
 import type { PasskeyAssertion } from "./assertion";
+import { newId } from "@pateat/contracts/ids";
 
 type PageScope = Window & typeof globalThis;
 const MAX_ALLOW_CREDENTIALS = 64;
@@ -261,7 +262,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
     // A conditional request may wait for a login of the page for as long as the relay
     // answers (ADR 0034).
     const conditional = request.mediation === "conditional";
-    const id = crypto.randomUUID();
+    const id = newId();
     const result = await new Promise<PageResult | { kind: "aborted" }>((resolve) => {
       const finish = (outcome: PageResult | { kind: "aborted" }) => {
         if (!pending.delete(id)) return;
