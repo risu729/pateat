@@ -42,7 +42,8 @@ A `challenge` login then waits as `watching`, which holds the origin like `chall
 did, for 5 minutes after the record last changed; a page judged during the watch is not
 a change. Completing during the watch releases the origin, and the end of the watch
 keeps the record's last change time. During the watch, the recipe's first step showing
-in a new page of another tab of the site releases the watched record as a logout
+in a page of another tab of the site, first seen after the watch began, releases the
+watched record as a logout
 (ADR 0021 D), so that tab asks and fills without pressing anything instead of being
 refused `origin-busy` (owner's request, 13:49 UTC, after the person restarted an
 expired QR approval on 三菱UFJ銀行 and Pateat did nothing until the old tab closed).
@@ -163,8 +164,9 @@ fix them now; the SSO policy itself is recorded separately.
   be stopped by. A record in any other state keeps holding, for example one that is
   running, `retryable` (it is tried again from the same step at once, or, after a
   restart, once a new page of its tab shows, until its retries are spent), still
-  reconciling, settled as unknown, watched after a `challenge` (`watching`, ADR 0027,
-  until its first step shows in a new page of another tab),
+  reconciling, settled as unknown, watched after a `challenge` (`watching`, ADR 0027;
+  a watched one, settled or `watching`, until its first step shows in a new page of
+  another tab),
   ended `interrupted` after a submission, stopped by Pateat while a fill or click may
   have reached the page, or ended `credential-rejected`, `challenge`, `submission-limit`
   or `left-origin`. So a password

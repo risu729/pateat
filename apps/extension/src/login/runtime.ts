@@ -233,6 +233,11 @@ type LiveDocument = {
   generationSkip?: string;
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
+  /**
+   * When this worker first saw the document. Only a page first seen after another tab's
+   * login began to be watched releases that login (ADR 0027).
+   */
+  seenAt: number;
 };
 /**
  * A page offered as a list of accounts (ADR 0028): its path, and without an email listed,
@@ -4843,6 +4848,7 @@ export function createLoginRuntime(
       ...(sameDocument && oldLive.path === path && oldLive.notStarted
         ? { notStarted: oldLive.notStarted }
         : {}),
+      seenAt: sameDocument ? oldLive.seenAt : Date.now(),
     };
     documents.set(key, live);
     const refuse = async (
@@ -4977,6 +4983,8 @@ export function createLoginRuntime(
       } catch {
         return refuse("storage-unavailable");
       }
+      // A page of that tab admitted meanwhile may have resumed the record; it stops too.
+      if (attempts.get(tabId)?.metadata.id === released.id) attempts.delete(tabId);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       return undefined;
     };
@@ -5013,32 +5021,6 @@ export function createLoginRuntime(
       const refused = await releaseAsLogout(recorded, true);
       if (refused) return refused;
       recorded = undefined;
-    }
-    // The same holds when the person starts over in another tab, such as after closing a
-    // code page that expired: another tab's watched login of the site is released as after
-    // a logout, so this tab asks and fills without pressing anything instead of waiting
-    // for that login's hold to end (ADR 0027).
-    if (!recorded && document.frameId === 0 && start?.path === live.path) {
-      const now = Date.now();
-      const watched = [...persisted.values()]
-        .map((entry) => {
-          const run = attempts.get(entry.document.tabId);
-          return run?.metadata.id === entry.id ? run.metadata : entry;
-        })
-        .filter(
-          (entry) =>
-            entry.watch &&
-            !watchOver(entry, now) &&
-            entry.account.origin === document.origin &&
-            entry.document.tabId !== document.tabId,
-        );
-      // One at a time: each release stores the logout before it forgets the record.
-      /* eslint-disable no-await-in-loop */
-      for (const entry of watched) {
-        const refused = await releaseAsLogout(entry, true);
-        if (refused) return refused;
-      }
-      /* eslint-enable no-await-in-loop */
     }
     if (
       recorded &&
@@ -5130,6 +5112,34 @@ export function createLoginRuntime(
       }
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       recorded = undefined;
+    }
+    // The same holds when the person starts over in another tab, such as after closing a
+    // code page that expired: another tab's watched login of the site is released as after
+    // a logout, so this tab asks and fills without pressing anything instead of waiting
+    // for that login's hold to end (ADR 0027). Only a page first seen during the watch
+    // does, not one left open from before.
+    if (!recorded && document.frameId === 0 && start?.path === live.path) {
+      const keys = [...persisted.keys()];
+      // One at a time, each read again: a release awaits, and another watched login may
+      // have moved on meanwhile.
+      /* eslint-disable no-await-in-loop */
+      for (const entryKey of keys) {
+        const entry = persisted.get(entryKey);
+        if (!entry) continue;
+        const run = attempts.get(entry.document.tabId);
+        const latest = run?.metadata.id === entry.id ? run.metadata : entry;
+        if (
+          !latest.watch ||
+          watchOver(latest, Date.now()) ||
+          latest.account.origin !== document.origin ||
+          latest.document.tabId === document.tabId ||
+          live.seenAt < latest.watch.since
+        )
+          continue;
+        const refused = await releaseAsLogout(latest, true);
+        if (refused) return refused;
+      }
+      /* eslint-enable no-await-in-loop */
     }
     // A logout in another tab ends the shared session too, so this tab asks as well.
     const asking =

@@ -693,17 +693,17 @@ login is watched, each later page of its tab gets the origin's first steps to wa
 and when one of them is ready in a new document the record is released as after a logout
 ([ADR 0021 D](adr/0021-account-choice-outside-settings.md)): the tab asks and, with one
 account to use, fills without pressing anything, and the site's other tabs ask too. A
-first step ready in a new top-level document of another tab of the site releases it the
-same way, so a person who starts over in a new tab is asked rather than refused
-`origin-busy`. When the watch is over, the next page of the tab ends the login where it
-stopped (`WATCH_ENDED`: `blocked` with `challenge` or `unknown-submit`) without changing
-the record's last change time, so it holds the site only until 5 minutes after that
-time; a login stopped after a submission is then handled as before, also on a page the
-watch already followed, other than the one it began in. A restart keeps the watch.
-Leaving the origin ends it as for any submitted login (`left-origin`), and a settings
-change ends it `policy-changed`. A login in a frame and the `passkey` route still end
-`challenge` at once. The attempt store is `pateat.login-attempts.v4`; the v3 store is
-removed on load.
+first step ready in a new top-level document of another tab of the site, first seen by
+the worker after the watch began, releases it the same way, so a person who starts over
+in a new tab is asked rather than refused `origin-busy`. When the watch is over, the
+next page of the tab ends the login where it stopped (`WATCH_ENDED`: `blocked` with
+`challenge` or `unknown-submit`) without changing the record's last change time, so it
+holds the site only until 5 minutes after that time; a login stopped after a submission
+is then handled as before, also on a page the watch already followed, other than the one
+it began in. A restart keeps the watch. Leaving the origin ends it as for any submitted
+login (`left-origin`), and a settings change ends it `policy-changed`. A login in a
+frame and the `passkey` route still end `challenge` at once. The attempt store is
+`pateat.login-attempts.v4`; the v3 store is removed on load.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already

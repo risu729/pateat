@@ -7667,6 +7667,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     async function watched(
       verdicts: Awaited<ReturnType<LoginGeneration["judge"]>>["verdict"][] = [],
       chosen = plain,
+      before?: (h: ReturnType<typeof harness>) => Promise<unknown>,
     ) {
       vi.useFakeTimers();
       reports.mockClear();
@@ -7676,6 +7677,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const service = generation(async () => ({ verdict: answers.shift() ?? "unclear" }));
       const h = harness({}, { passkeys: withPasskey, generation: service, report: reports });
       h.recipes.recipe.mockResolvedValue(chosen);
+      await before?.(h);
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("watching", "challenge"), 10_000);
       expect(service.judge).toHaveBeenCalledTimes(1);
@@ -7819,6 +7821,29 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           .map((step) => step.kind),
       ).toEqual(["fill"]);
       expect(status() ?? []).toEqual([]);
+    });
+
+    it("keeps holding the site against another tab's page left open from before", async () => {
+      const { h } = await watched([], plain, async (harnessed) => {
+        // Another tab already shows a page of the site, which later renders the form.
+        fake.state.tabUrls[2] = `${origin}/home`;
+        await harnessed.hello(
+          { tab: { id: 2 }, documentId: "open-tab", url: `${origin}/home` },
+          false,
+        );
+        fake.state.pageUrl = `${origin}/signin`;
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      fake.state.pageUrl = `${origin}/signin`;
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "open-tab" })).toEqual({
+        ok: false,
+        reason: "origin-busy",
+      });
+      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+      expect(status()).toMatchObject([{ state: "watching", document: { tabId: 1 } }]);
     });
 
     it("keeps holding the site against another tab's page that is not the first step", async () => {

@@ -612,8 +612,12 @@ code by a subagent):
   happens when the first step shows in a new page of another tab of the site, where the
   person may start over after closing the expired page (the owner's request after the
   check above, 2026-10-12 13:49 UTC): that tab asks and fills only, instead of being
-  refused `origin-busy` until the watched tab's hold ends. Another tab's page without
-  the first step stays refused while the hold lasts.
+  refused `origin-busy` until the watched tab's hold ends. Only a page Pateat first saw
+  after the watch began counts, so a sign-in page left open from before does not release
+  it (after a worker restart every page counts as new). The release comes before that
+  tab's own checks, so if that tab is then refused for another reason, the watch is
+  still over and the site's tabs ask. Another tab's page without the first step stays
+  refused while the hold lasts.
 - **After the watch.** The next page of the tab ends the login where it stopped
   (`blocked` with `challenge`, or `unknown-submit` for a settled one) without changing
   the record's last change time, so it holds the site only until 5 minutes after that
