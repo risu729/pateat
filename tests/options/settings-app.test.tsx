@@ -141,7 +141,7 @@ test("each change is saved at once and refreshes never replace a pending draft",
 
   write.resolve(saved(1, "draft.example"));
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
-  await page.getByLabelText("Demo work vault: Enabled", { exact: true }).click();
+  await page.getByLabelText("Demo work vault: Use this vault", { exact: true }).click();
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
@@ -149,7 +149,7 @@ test("each change is saved at once and refreshes never replace a pending draft",
     settings: { excludedSites: [{ hostname: "draft.example" }] },
   });
   await expect
-    .element(page.getByLabelText("Demo work vault: Enabled", { exact: true }))
+    .element(page.getByLabelText("Demo work vault: Use this vault", { exact: true }))
     .not.toBeChecked();
 });
 
@@ -206,19 +206,21 @@ test("vault-wide lists start collapsed and summarize their selections", async ()
   client.getSettings.mockResolvedValue(response);
   await mount(client);
   const vault = page.getByRole("group", { name: "Demo personal vault", exact: true });
+  // The summaries count what is selected and what is excluded.
   await expect
     .element(vault.getByText(/^Included groups and items/))
-    .toHaveTextContent("Included groups and items 1 of 1 group, 0 of 2 items selected");
+    .toHaveTextContent("Included groups and items 1 selected");
   await expect
-    .element(vault.getByText(/^Item and field exclusions/))
-    .toHaveTextContent("Item and field exclusions 1 item and 1 field excluded");
+    .element(vault.getByText(/^Excluded items and fields/))
+    .toHaveTextContent("Excluded items and fields 2 excluded");
+  // With all items in use, there is no selection to show.
   await expect
     .element(
       page
         .getByRole("group", { name: "Demo work vault", exact: true })
         .getByText(/^Included groups and items/),
     )
-    .toHaveTextContent("Included groups and items Not used: all items except exclusions");
+    .not.toBeInTheDocument();
   const include = page.getByLabelText("Demo personal vault: Include group Everyday", {
     exact: true,
   });
@@ -226,28 +228,35 @@ test("vault-wide lists start collapsed and summarize their selections", async ()
   await expand("Demo personal vault", "Included groups and items");
   await expect.element(include).toBeVisible();
   await expect.element(include).toBeChecked();
+  await expect
+    .element(vault.getByText("1 of 1 group, 0 of 2 items selected", { exact: true }))
+    .toBeVisible();
 
   const branch = page.getByLabelText(
     "Demo personal vault: Exclude Branch number from Demo primary account",
     { exact: true },
   );
-  await expand("Demo personal vault", "Item and field exclusions");
+  await expand("Demo personal vault", "Excluded items and fields");
   await expect
-    .element(vault.getByText(/^Demo primary account/))
+    .element(vault.getByText("1 item and 1 field excluded", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(vault.getByText(/^Demo primary account ./))
     .toHaveTextContent("Demo primary account 1 field excluded");
   await expect
-    .element(vault.getByText(/^Demo secondary account/))
+    .element(vault.getByText(/^Demo secondary account ./))
     .toHaveTextContent("Demo secondary account Item excluded");
   await expect.element(branch).not.toBeVisible();
   await expand("Demo personal vault", "Demo primary account");
   await expect.element(branch).toBeChecked();
   await branch.click();
   await expect
-    .element(vault.getByText(/^Demo primary account/))
+    .element(vault.getByText(/^Demo primary account ./))
     .toHaveTextContent("Demo primary account Nothing excluded");
   await expect
-    .element(vault.getByText(/^Item and field exclusions/))
-    .toHaveTextContent("Item and field exclusions 1 item excluded");
+    .element(vault.getByText(/^Excluded items and fields/))
+    .toHaveTextContent("Excluded items and fields 1 excluded");
+  await expect.element(vault.getByText("1 item excluded", { exact: true })).toBeVisible();
   // Edits re-render the draft without closing what the owner opened.
   await expect.element(branch).toBeVisible();
 });
@@ -263,13 +272,13 @@ test("revision conflicts preserve all draft edits until the owner reloads", asyn
   await addSite("draft.example");
   await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
   await page
-    .getByLabelText("Demo personal vault: Item access", { exact: true })
+    .getByLabelText("Demo personal vault: Items for Pateat", { exact: true })
     .selectOptions("selected");
   await expand("Demo personal vault", "Included groups and items");
   await page.getByLabelText("Demo personal vault: Include group Everyday", { exact: true }).click();
   await expect.element(control("site-list")).toMatchTextContent("draft.example");
   await expect
-    .element(page.getByLabelText("Demo personal vault: Item access", { exact: true }))
+    .element(page.getByLabelText("Demo personal vault: Items for Pateat", { exact: true }))
     .toHaveValue("selected");
   await expect
     .element(page.getByLabelText("Demo personal vault: Include group Everyday", { exact: true }))

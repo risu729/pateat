@@ -196,7 +196,7 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await expect(page.locator("#site-origin")).toBeFocused();
 
     await page
-      .getByLabel("Demo personal vault: Item access", { exact: true })
+      .getByLabel("Demo personal vault: Items for Pateat", { exact: true })
       .selectOption("selected");
     await expand(page, "Demo personal vault", "Included groups and items");
     await page.getByLabel("Demo personal vault: Include group Everyday", { exact: true }).check();
@@ -209,7 +209,7 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await expect(page.locator("#site-origin")).toHaveAttribute("aria-invalid", "true");
     await expect(page.locator("#site-origin")).toBeFocused();
     // Axe skips closed disclosures, so open the exclusions before scanning.
-    await expand(page, "Demo personal vault", "Item and field exclusions", "Demo primary account");
+    await expand(page, "Demo personal vault", "Excluded items and fields", "Demo primary account");
     const invalid = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
       .analyze();
@@ -487,15 +487,15 @@ test("local policies and account defaults survive a browser restart", async () =
         const page = await context.newPage();
         await page.goto(`chrome-extension://${id}/options.html`);
         await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
-        await page.getByLabel("Demo work vault: Enabled", { exact: true }).uncheck();
+        await page.getByLabel("Demo work vault: Use this vault", { exact: true }).uncheck();
         await page
-          .getByLabel("Demo personal vault: Item access", { exact: true })
+          .getByLabel("Demo personal vault: Items for Pateat", { exact: true })
           .selectOption("selected");
         await expand(
           page,
           "Demo personal vault",
           "Included groups and items",
-          "Item and field exclusions",
+          "Excluded items and fields",
           "Demo primary account",
         );
         await page
@@ -526,16 +526,16 @@ test("local policies and account defaults survive a browser restart", async () =
         await page.goto(`chrome-extension://${id}/options.html`);
         await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
         await expect(
-          page.getByLabel("Demo work vault: Enabled", { exact: true }),
+          page.getByLabel("Demo work vault: Use this vault", { exact: true }),
         ).not.toBeChecked();
         await expect(
-          page.getByLabel("Demo personal vault: Item access", { exact: true }),
+          page.getByLabel("Demo personal vault: Items for Pateat", { exact: true }),
         ).toHaveValue("selected");
         await expand(
           page,
           "Demo personal vault",
           "Included groups and items",
-          "Item and field exclusions",
+          "Excluded items and fields",
           "Demo primary account",
         );
         await expect(

@@ -513,11 +513,11 @@ Saved settings, recipes and their field-policy entries are not modified; anythin
 referred to the deleted connection resolves as an unavailable connection. This is how
 a connection left over by a failed first sign-in is removed.
 
-The add form's **Use this connection** choice becomes the connection's entry in
-**Vault access** when the connection is added, before
-its first sign-in. If that sign-in does not finish, **Sign in again** completes the
-setup and keeps the choice. Sign-ins never change the entry; the policy is edited on
-the settings page. Like other saved settings, the entry stays after Delete connection.
+The add form's **Use this connection** choice becomes the **Use this vault** switch
+in the connection's row when the connection is added, before its first sign-in. If
+that sign-in does not finish, **Sign in again** completes the setup and keeps the
+choice. Sign-ins never change the entry; the policy is edited on the settings page.
+Like other saved settings, the entry stays after Delete connection.
 
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable
@@ -532,15 +532,20 @@ saving those stale edits. Custom-field review must confirm the current field
 selection before releasing an item whose earlier exclusions cannot be rebound.
 Automatic website login is not activated by this setup slice.
 
-The vault access policy keeps each connection's Enabled and Item access controls
-visible. Its vault-wide lists start collapsed so the sections below stay reachable
-with a large vault: "Included groups and items" and "Item and field exclusions" are
-native disclosures whose summaries show counts, for example `1 of 3 groups, 2 of 40
-items selected` or `1 item and 2 fields excluded` (fields of an excluded item are not
-counted). Each item inside the exclusions opens on its own, with a summary such as
+Each connection's row also holds its vault access policy, from the saved settings
+draft: the **Use this vault** switch, **Items for Pateat** (all except exclusions, or
+selected groups and items only) and two disclosures that start collapsed so a large
+vault stays manageable. "Included groups and items", shown only for a selection, and
+"Excluded items and fields" count what they hold (fields of an excluded item are not
+counted); inside, a line such as `1 of 3 groups, 2 of 40 items selected` or `1 item and
+2 fields excluded` sums them up, and each item opens on its own with a summary such as
 `Item excluded` or `1 field excluded`. Open/closed state lasts only while the page is
-open. Custom-field reviews are not folded; they stay expanded in the connection panel
-because they block the item until saved.
+open. These controls wait while saved settings load. A saved entry for a connection
+that has no row is listed under the rows: the demo vaults with the same controls, or
+an unavailable connection whose saved settings are kept. Without a Bitwarden setup (the
+demo preview) the vaults are listed in their own Demo vaults panel. Custom-field
+reviews are not folded; they stay expanded under the connection rows because they block
+the item until saved.
 
 ## Compatibility before release
 

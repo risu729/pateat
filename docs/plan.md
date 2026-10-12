@@ -277,6 +277,12 @@ own accounts, so they stay in the project's files rather than in this repository
     and its Remove default button deletes only the default. A default that cannot be
     used shows the reason. One add form takes an origin (or a hostname, to exclude), a
     default account and Exclude subdomains too.
+  - Done: vault access inside each Bitwarden connection. Its row holds the Use this
+    vault switch, Items for Pateat and the collapsed lists of included groups and items
+    and of excluded items and fields; the separate vault access panel is gone. Saved
+    entries without a connection row (the demo vaults, a connection this device no
+    longer has) are listed under the rows, and the demo preview lists its vaults in a
+    Demo vaults panel.
   - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
     first PR that uses it adds it.
   - Done: the diagnostics page keeps its structure, with only its visuals and copy

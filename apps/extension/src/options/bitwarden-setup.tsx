@@ -16,7 +16,7 @@ import {
   TriangleAlert,
   Vault,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
 import { Button } from "./button";
@@ -184,11 +184,17 @@ export function BitwardenSetup({
   onCatalogChanged,
   acceptedSettings,
   reviewBlocked = true,
+  renderAccess,
+  renderOthers,
 }: {
   client: ConnectionClient;
   onCatalogChanged: () => void;
   acceptedSettings?: Extract<SettingsResponse, { ok: true }> | undefined;
   reviewBlocked?: boolean;
+  /** Which items Pateat may use from a connection, shown in its row. */
+  renderAccess?: (connectionId: string) => ReactNode;
+  /** What goes under the rows, given the listed connections once their status was read. */
+  renderOthers?: (listed: string[] | undefined) => ReactNode;
 }) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [existing, setExisting] = useState<Connection>();
@@ -219,6 +225,7 @@ export function BitwardenSetup({
   const [provider, setProvider] = useState<0 | 1>(0);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
+  const [statusKnown, setStatusKnown] = useState(false);
   const [message, setMessage] = useState("Loading Bitwarden connections…");
   const operation = useRef(false);
   const generation = useRef(0);
@@ -255,6 +262,7 @@ export function BitwardenSetup({
         if (epoch === generation.current) {
           operation.current = false;
           setBusy(false);
+          setStatusKnown(true);
         }
       });
     return () => {
@@ -645,10 +653,15 @@ export function BitwardenSetup({
                   </>
                 )
               }
-            />
+            >
+              {renderAccess?.(connection.connectionId)}
+            </Row>
           );
         })}
       </RowList>
+      {renderOthers?.(
+        statusKnown ? connections.map((connection) => connection.connectionId) : undefined,
+      )}
       {acceptedSettings?.catalog.connections.map((connection) => {
         const quarantined = connection.quarantinedItemIds ?? [];
         if (!quarantined.length) return null;
