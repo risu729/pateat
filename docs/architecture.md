@@ -798,7 +798,7 @@ owner web UI take their colors, type, radii and focus ring from the
 2026-10-12 20:53 UTC). `apps/extension/entrypoints/options/style.css` and
 `services/api/web/styles.css` each define its tokens as CSS custom properties and
 Tailwind colors, with the same values; `tests/options/design-tokens.test.tsx` fails when
-the copies differ.
+their light or dark token values differ.
 
 Each page has light and dark themes and a Theme select (System, Light, Dark): on the
 extension's settings page and in the owner web UI's footer (owner, 2026-10-12 20:54
@@ -808,7 +808,8 @@ not in `chrome.storage`, the service or sync, so the extension and the owner web
 separate choices and each browser profile has its own. A page applies the stored choice
 before it renders, as a `data-theme` attribute on the root element, and an open page
 follows a change made on another page of the same program through the `storage` event.
-Because MV3 pages allow no inline script, the choice is applied from the page's module,
+Because neither program's pages allow inline script (the MV3 policy, and the owner web
+UI's `script-src 'self'`), the choice is applied from the page's module,
 so a page whose stored choice differs from the browser's scheme may paint one frame in
 the browser's scheme first.
 
