@@ -911,6 +911,21 @@ describe("production login document admission", () => {
       message: "synthetic page answer",
     });
   });
+  it("logs only the type of a thrown value that is not an Error", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    fake.state.onExecute = async () => {
+      fake.state.onExecute = undefined;
+      throw "synthetic thrown text";
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "exception", name: "string" }),
+      ),
+    );
+    expect(JSON.stringify(report.mock.calls)).not.toContain("synthetic thrown text");
+  });
   it("refuses a different content script instance in an already announced document", async () => {
     const h = harness();
     expect(await h.hello({}, false)).toMatchObject({ reason: "form-not-ready" });
@@ -3601,6 +3616,35 @@ describe("production login document admission", () => {
         { slot: "username", value: "synthetic-secret" },
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
+    });
+
+    it("logs a page whose description threw before it was sent", async () => {
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      // The page stops answering, as while it is replaced.
+      fake.state.gone.add("synthetic-document");
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith({
+          type: "generation",
+          tabId: 1,
+          origin,
+          outcome: "skipped",
+          reason: "exception",
+        }),
+      );
+      expect(service.generate).not.toHaveBeenCalled();
     });
 
     it("sends the username's shape only when every matching item agrees", async () => {

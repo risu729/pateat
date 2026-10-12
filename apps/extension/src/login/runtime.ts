@@ -1211,10 +1211,11 @@ export function createLoginRuntime(
     persisted.delete(key);
     await write();
   }
+  /** Throws `storage-failed`, a Pateat error code the log keeps (ADR 0019). */
   async function write(): Promise<void> {
     const snapshot = [...persisted.values()];
     storageQueue = storageQueue.then(async () => {
-      if (!storageHealthy) throw new Error("Attempt storage unavailable");
+      if (!storageHealthy) throw new Error("storage-failed");
       await browser.storage.local.set({ [STORAGE_KEY]: snapshot });
       return undefined;
     });
@@ -1222,7 +1223,7 @@ export function createLoginRuntime(
       await storageQueue;
     } catch {
       storageHealthy = false;
-      throw new Error("Attempt storage unavailable");
+      throw new Error("storage-failed");
     }
   }
   async function change(
@@ -3446,11 +3447,16 @@ export function createLoginRuntime(
     });
   }
   /**
-   * Whether a page is login-related: its origin has a recipe, or a login runs in its tab
-   * (ADR 0019). Other pages are ordinary browsing.
+   * Whether a page is login-related: its origin has a recipe, or it is the tab's page and a
+   * login runs in the tab (ADR 0019). Other pages are ordinary browsing.
    */
-  async function loginRelated(tabId: number, documentOrigin: string): Promise<boolean> {
-    const running = tabAttempt(tabId);
+  async function loginRelated(
+    tabId: number,
+    frameId: number,
+    documentOrigin: string,
+  ): Promise<boolean> {
+    // A frame counts only on its own origin's recipe, as a login form embedded in the page.
+    const running = frameId === 0 ? tabAttempt(tabId) : undefined;
     if (running && !terminal(running)) return true;
     if (probeMode && documentOrigin === origin) return true;
     return (await recipes.starts(documentOrigin).catch(() => [])).length > 0;
@@ -3476,7 +3482,7 @@ export function createLoginRuntime(
       const refusal = await sites.admission(url);
       // A page that is not HTTPS never runs the content script in production.
       if (refusal === "admitted" || refusal === "not-https") return;
-      if (!(await loginRelated(tabId, url.origin))) return;
+      if (!(await loginRelated(tabId, 0, url.origin))) return;
       note(
         { tabId, frameId: 0, documentId: sender.documentId, origin: url.origin },
         url.pathname,
@@ -3762,7 +3768,7 @@ export function createLoginRuntime(
       return refuse(
         "storage-unavailable",
         undefined,
-        !(await loginRelated(document.tabId, document.origin)),
+        !(await loginRelated(document.tabId, document.frameId, document.origin)),
       );
     const holder = tabAttempt(document.tabId);
     if (holder && !terminal(holder) && holder.document.frameId === 0 && leftSite(holder)) {
