@@ -595,7 +595,7 @@ describe("owner web UI recipes", () => {
         },
         { kind: "click", path: "/login", target: { by: "id", value: "submit" }, purpose: "submit" },
       ],
-      completion: { path: "/home", target: { by: "id", value: "welcome" } },
+      completion: [{ target: { by: "id", value: "welcome" } }],
       maxSubmissions: 1,
     };
   }

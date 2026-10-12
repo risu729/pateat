@@ -111,7 +111,7 @@ describe("generated recipe assembly", () => {
     const next = { id: "gen-1", origin, steps: page("/otp", "otp", "submit") };
     expect(appendPageSteps(submitted, next)).toEqual({ ok: false, reason: "not-advancing" });
     const advancing = built(page("/login", "username", "advance"));
-    const learned = { ...advancing, completion: { path: "/home", target: target("x") } };
+    const learned = { ...advancing, completion: [{ target: target("x") }] };
     expect(appendPageSteps(learned, next)).toEqual({ ok: false, reason: "already-complete" });
     expect(appendPageSteps(advancing, { ...next, origin: "https://other.example" })).toEqual({
       ok: false,
@@ -158,17 +158,44 @@ describe("judged completion", () => {
   ]);
   const home = { origin, path: "/home", candidates: [candidate("logout", target("logout"))] };
 
-  it("adds a completion once, at the judged page's path", () => {
+  it("adds a marker without a path, then later ones up to four (ADR 0029)", () => {
     const learned = addCompletion(recipe, home, target("logout"));
     if (!learned.ok) throw new Error(learned.reason);
     expect(learned.recipe).toMatchObject({
       revision: 2,
-      completion: { path: "/home", target: target("logout") },
+      completion: [{ target: target("logout") }],
     });
     expect(addCompletion(learned.recipe, home, target("logout"))).toEqual({
       ok: false,
-      reason: "already-complete",
+      reason: "already-learned",
     });
+    // Another signed-in page's marker comes after it, so a running login takes it over.
+    const account = { origin, path: "/account", candidates: [candidate("me", target("me"))] };
+    const second = addCompletion(learned.recipe, account, target("me"));
+    if (!second.ok) throw new Error(second.reason);
+    expect(second.recipe).toMatchObject({
+      revision: 3,
+      completion: [{ target: target("logout") }, { target: target("me") }],
+    });
+    expect(extendsRecipe(learned.recipe, second.recipe)).toBe(true);
+    let full = second.recipe;
+    for (const value of ["c", "d"]) {
+      const added = addCompletion(
+        full,
+        { origin, path: "/home", candidates: [candidate(value, target(value))] },
+        target(value),
+      );
+      if (!added.ok) throw new Error(added.reason);
+      full = added.recipe;
+    }
+    expect(full.completion).toHaveLength(4);
+    expect(
+      addCompletion(
+        full,
+        { origin, path: "/home", candidates: [candidate("e", target("e"))] },
+        target("e"),
+      ),
+    ).toEqual({ ok: false, reason: "marker-limit" });
   });
 
   it("refuses a marker that is not on the judged page", () => {
@@ -224,7 +251,7 @@ describe("judged completion", () => {
     ).toEqual({ ok: false, reason: "origin-mismatch" });
   });
 
-  it("refuses a step's own fill, click or text target on the same path, not on another", () => {
+  it("refuses a step's own fill, click or text target on any path", () => {
     const at = (path: string, marker: LoginTarget) =>
       addCompletion(recipe, { origin, path, candidates: [candidate("m", marker)] }, marker);
     expect(at("/login", target("username"))).toEqual({ ok: false, reason: "step-target" });
@@ -233,7 +260,8 @@ describe("judged completion", () => {
       ok: false,
       reason: "step-target",
     });
-    expect(at("/home", target("username-next")).ok).toBe(true);
+    // A marker proves a sign-in wherever it shows, the step's own page included.
+    expect(at("/home", target("username-next"))).toEqual({ ok: false, reason: "step-target" });
   });
 
   it("refuses a step path that still shows the login form, allows it once the form is gone", () => {
@@ -255,21 +283,16 @@ describe("judged completion", () => {
     const inPlace = { origin, path: "/login", candidates: [candidate("out", target("logout"))] };
     const learned = addCompletion(recipe, inPlace, target("logout"));
     if (!learned.ok) throw new Error(learned.reason);
-    expect(learned.recipe.completion).toEqual({
-      path: "/login",
-      target: target("logout"),
-      absent: [target("username")],
-    });
+    expect(learned.recipe.completion).toEqual([
+      { target: target("logout"), absent: [target("username")] },
+    ]);
     // A completion on a path without steps needs nothing else.
     const elsewhere = addCompletion(
       recipe,
       { origin, path: "/home", candidates: inPlace.candidates },
       target("logout"),
     );
-    expect(elsewhere.ok && elsewhere.recipe.completion).toEqual({
-      path: "/home",
-      target: target("logout"),
-    });
+    expect(elsewhere.ok && elsewhere.recipe.completion).toEqual([{ target: target("logout") }]);
   });
 });
 
@@ -376,7 +399,7 @@ describe("judged passkey handler (ADR 0027)", () => {
       ...recipe,
       accountSwitch: switchTarget,
       rejection: target("error"),
-      completion: { path: "/home", target: target("account") },
+      completion: [{ target: target("account") }],
     };
     for (const locator of [switchTarget, target("error"), target("account")])
       expect(addHandler(extended, webauthn(candidate("x", locator)), passkey(locator))).toEqual({
@@ -536,7 +559,7 @@ describe("judged totp handler (ADR 0027)", () => {
       ...recipe,
       accountSwitch: { by: "text", value: "Use another account" },
       rejection: target("error"),
-      completion: { path: "/home", target: target("account") },
+      completion: [{ target: target("account") }],
     };
     expect(
       addHandler(
@@ -689,11 +712,12 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
     // On the start path, the completion lists every variant's fill fields as absent.
     const learned = addCompletion(recipe, shown("welcome"), target("welcome"));
     if (!learned.ok) throw new Error(learned.reason);
-    expect(learned.recipe.completion).toEqual({
-      path: "/login",
-      target: target("welcome"),
-      absent: ["branch-number", "account-number", "password", "contract-number"].map(target),
-    });
+    expect(learned.recipe.completion).toEqual([
+      {
+        target: target("welcome"),
+        absent: ["branch-number", "account-number", "password", "contract-number"].map(target),
+      },
+    ]);
     expect(extendsRecipe(recipe, learned.recipe)).toBe(true);
     // More than 4 such fields cannot be listed, so nothing is learned there.
     const wide = appendPageSteps(undefined, {
@@ -779,7 +803,7 @@ describe("the passkey route in generated recipes (ADR 0027)", () => {
     expect(continued.recipe).not.toHaveProperty("accountSwitch");
   });
 
-  it("learns no completion on the passkey button or a start page that still shows it", () => {
+  it("learns no marker on the passkey button or a start page that still shows it", () => {
     const recipe = withPasskey();
     const login = (...candidates: ReturnType<typeof candidate>[]) => ({
       origin,
@@ -790,11 +814,9 @@ describe("the passkey route in generated recipes (ADR 0027)", () => {
     expect(
       addCompletion(recipe, login(candidate("logout", target("logout"))), target("logout")),
     ).toEqual({ ok: false, reason: "login-page" });
-    // Elsewhere, its locator is another element.
+    // A marker proves a sign-in on any path, so the button is none elsewhere either.
     const home = { origin, path: "/home", candidates: [candidate("passkey", button)] };
-    const learned = addCompletion(recipe, home, button);
-    if (!learned.ok) throw new Error(learned.reason);
-    expect(learned.recipe.passkey).toEqual(recipe.passkey);
+    expect(addCompletion(recipe, home, button)).toEqual({ ok: false, reason: "step-target" });
   });
 
   it("adds no handler on the passkey button on the start page", () => {
@@ -991,10 +1013,7 @@ describe("totp handler assembly, probed independently (ADR 0027)", () => {
       at("/account", code("pin"), candidate("logout", target("logout"))),
       target("logout"),
     );
-    expect(learned.ok && learned.recipe.completion).toEqual({
-      path: "/account",
-      target: target("logout"),
-    });
+    expect(learned.ok && learned.recipe.completion).toEqual([{ target: target("logout") }]);
     // The handler's button recurring there does not block it.
     const button = addCompletion(
       added.recipe,
@@ -1002,5 +1021,10 @@ describe("totp handler assembly, probed independently (ADR 0027)", () => {
       target("logout"),
     );
     expect(button.ok).toBe(true);
+    // Its button is never a marker, on any path (ADR 0029).
+    expect(addCompletion(added.recipe, at("/account", candidate("v", verify)), verify)).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
   });
 });

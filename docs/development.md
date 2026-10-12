@@ -525,6 +525,11 @@ edited after they could have been applied, because cf tracks them by name
 ([delivery](delivery.md#current-foundation-workflows)). The first public release ends
 this rule; compatibility from then on needs its own decision.
 
+One exception, chosen by the owner on 2026-10-12 at 18:07 UTC: D1 migration 0013
+rewrites each stored recipe's `completion` into the list of signed-in markers of
+[ADR 0029](adr/0029-local-sign-in-state.md), so the owner's recipes keep working
+without being generated again.
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner

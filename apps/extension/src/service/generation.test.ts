@@ -542,7 +542,7 @@ describe("recipe generation requests", () => {
           recipe: {
             ...recipeChange.recipe,
             revision: 2,
-            completion: { path: "/home", target: { by: "id", value: "logout" } },
+            completion: [{ target: { by: "id", value: "logout" } }],
           },
         },
       },
@@ -754,7 +754,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
     ...handled,
     recipe: {
       ...handled.recipe,
-      completion: { path: "/home", target: { by: "id" as const, value: "logout" } },
+      completion: [{ target: { by: "id" as const, value: "logout" } }],
     },
   };
   it.each([

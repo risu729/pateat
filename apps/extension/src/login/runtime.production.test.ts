@@ -277,7 +277,7 @@ const recipe = parseLoginRecipe({
     { kind: "fill", path: "/signin", fields: [{ slot: "password", target: target("password") }] },
     { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
   ],
-  completion: { path: "/signin", target: target("authenticated") },
+  completion: [{ target: target("authenticated") }],
   maxSubmissions: 1,
 });
 const userId = "70000000-0000-4000-8000-000000000001";
@@ -2793,7 +2793,7 @@ describe("production login document admission", () => {
       // only once the password field is gone (ADR 0018).
       const learned = parseLoginRecipe({
         ...recipe,
-        completion: { ...recipe.completion, absent: [target("password")] },
+        completion: [{ ...recipe.completion![0]!, absent: [target("password")] }],
       });
       const published = () => JSON.stringify(fake.state.messages);
       it("authenticates once the marker shows and the field is gone", async () => {
@@ -2810,6 +2810,29 @@ describe("production login document admission", () => {
           expect.objectContaining({
             type: "login.observe",
             targets: [target("authenticated"), target("password")],
+          }),
+        );
+      });
+      it("authenticates on a later marker while an earlier one's field is still there", async () => {
+        // The first marker needs the password field gone; the second, learned on another
+        // signed-in page, needs nothing (ADR 0029).
+        const two = parseLoginRecipe({
+          ...learned,
+          completion: [...learned.completion!, { target: target("account") }],
+        });
+        fake.state.present = new Set(["authenticated", "password", "account"]);
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+        });
+        h.recipes.recipe.mockResolvedValue(two);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"state":"authenticated"'));
+        // Each marker comes with the elements it needs missing, in the learned order.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("authenticated"), target("password"), target("account")],
           }),
         );
       });
@@ -2842,7 +2865,7 @@ describe("production login document admission", () => {
           fake.state.unusable = new Set(unusable);
           fake.state.observedPath = path;
         };
-      it("completes on the marker shown on another path once the sign-in state agrees (ADR 0029)", async () => {
+      it("completes on the marker shown on another path, before reading the sign-in state (ADR 0029)", async () => {
         fake.state.present = new Set(["password", "login"]);
         fake.state.signs = noSigns;
         fake.state.onExecute = afterClick(["authenticated"], "/home");
@@ -2857,10 +2880,30 @@ describe("production login document admission", () => {
         await vi.waitFor(() => expect(published()).toContain('"state":"authenticated"'), {
           timeout: 8_000,
         });
-        expect(report).toHaveBeenCalledWith(
-          expect.objectContaining({ type: "state", s1: false, e1: true, decision: "signed-in" }),
-        );
+        // A marker proves the sign-in on any path, so the completion check settles it.
+        expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "state" }));
       }, 12_000);
+      it("never counts a hidden marker, as on the sign-in page after a failed password (ADR 0029)", async () => {
+        fake.state.present = new Set(["password", "login"]);
+        fake.state.signs = noSigns;
+        // The site keeps a hidden "Sign out" in a closed menu on every page.
+        fake.state.onExecute = afterClick(["authenticated", "password", "login"], "/signin", [
+          "authenticated",
+        ]);
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(recipe);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"outcome":"unknown-submit"'), {
+          timeout: 6_000,
+        });
+        expect(published()).not.toContain('"state":"authenticated"');
+        expect(report).toHaveBeenCalledWith(expect.objectContaining({ type: "state", e1: false }));
+      }, 10_000);
       it("never counts the marker while a hidden field must still be gone on its path", async () => {
         fake.state.present = new Set(["password", "login"]);
         fake.state.signs = noSigns;
@@ -7659,7 +7702,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
   const keyHandler = { kind: "passkey" as const, path: "/login/webauthn", target: securityKey };
   const { completion: _unlearned, ...unlearned } = recipe;
   const plain = parseLoginRecipe(unlearned);
-  const home = { path: "/home", target: target("logout") };
+  const home = [{ target: target("logout") }];
   /** npm's shape: a handler for its security-key page and a learned completion. */
   const handled = parseLoginRecipe({ ...unlearned, completion: home, handlers: [keyHandler] });
   const taken = parseLoginRecipe({ ...unlearned, revision: 2, handlers: [keyHandler] });
@@ -8409,10 +8452,30 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     });
 
-    it("does not send a page that shows the completion marker", async () => {
+    it("sends a page whose marker is hidden, as in a closed menu (ADR 0029)", async () => {
       vi.useFakeTimers();
       const learned = parseLoginRecipe({ ...unlearned, completion: home });
-      // The marker shows, but on another path than the completion's.
+      fake.state.unusable = new Set(["logout"]);
+      onTestFinished(() => {
+        fake.state.unusable = new Set();
+      });
+      onClick({ login: toHome });
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const h = harness({}, { passkeys: withPasskey, generation: service });
+      h.recipes.recipe.mockResolvedValue(learned);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(service.judge).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not send a page that shows a marker the completion check cannot count", async () => {
+      vi.useFakeTimers();
+      const learned = parseLoginRecipe({ ...unlearned, completion: home });
+      // The marker shows, but more than once.
+      fake.state.ambiguous = new Set(["logout"]);
+      onTestFinished(() => {
+        fake.state.ambiguous = new Set();
+      });
       onClick({ login: { path: "/account", present: ["logout"], extracted: homePage } });
       const service = generation(async () => ({ verdict: "signed-in" }));
       const report = vi.fn<(report: LoginReport) => void>();
@@ -9349,7 +9412,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       it("settles a completion shown on the code page's own path without a click", async () => {
         const samePath = parseLoginRecipe({
           ...unlearned,
-          completion: { path: "/two-factor", target: target("logout") },
+          completion: [{ target: target("logout") }],
           handlers: [codeHandler],
         });
         onClick({ login: toCode });
@@ -10659,7 +10722,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
   });
 
   const button = { by: "text" as const, value: "Sign in with a passkey" };
-  const home = { path: "/home", target: target("logout") };
+  const home = [{ target: target("logout") }];
   const { completion: _unlearned, ...unlearned } = recipe;
   /** The password form and a passkey sign-in button on one start page, not learned yet. */
   const routed = parseLoginRecipe({
@@ -13199,7 +13262,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     });
     const learned = parseLoginRecipe({
       ...emailFirst,
-      completion: { path: "/home", target: target("logout") },
+      completion: [{ target: target("logout") }],
     });
     const service = generation(undefined, async () => ({ verdict: "unclear" }));
     const h = start(service, { recipe: learned });
@@ -13750,7 +13813,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       let h!: ReturnType<typeof harness>;
       const reports: LoginReport[] = [];
       const next = continuedOn("/signin", {
-        completion: { path: "/home", target: target("logout") },
+        completion: [{ target: target("logout") }],
       });
       const service = generation(answering(() => h, next));
       h = start(service, { report: reports });

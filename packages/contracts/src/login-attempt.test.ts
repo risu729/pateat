@@ -39,7 +39,7 @@ const recipe: LoginRecipe = {
     },
     { kind: "click", path: "/login", target: { by: "id", value: "login" }, purpose: "submit" },
   ],
-  completion: { path: "/account", target: { by: "id", value: "authenticated" } },
+  completion: [{ target: { by: "id", value: "authenticated" } }],
   rejection: { by: "id", value: "rejected" },
   maxSubmissions: 1,
 };

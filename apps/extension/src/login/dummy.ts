@@ -66,7 +66,7 @@ function variantsRecipe(origin: string, path: string): LoginRecipe {
     origin,
     ...contract,
     alternatives: [set(["branch", "account", "password"])],
-    completion: { path: "/authenticated", target: target("authenticated") },
+    completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),
     maxSubmissions: 1,
   });
@@ -89,7 +89,7 @@ function totpRecipe(origin: string, path: string): LoginRecipe {
     handlers: [
       { kind: "totp", path: "/totp-code", field: target("code"), target: target("verify") },
     ],
-    completion: { path: "/authenticated", target: target("authenticated") },
+    completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),
     maxSubmissions: 1,
   });
@@ -112,7 +112,7 @@ function identifierFirstRecipe(origin: string, path: string): LoginRecipe {
       { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
       { kind: "click", path, target: target("login"), purpose: "submit" },
     ],
-    completion: { path: "/authenticated", target: target("authenticated") },
+    completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),
     maxSubmissions: 2,
   });
@@ -226,10 +226,7 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
                 purpose: "submit",
               },
             ],
-    completion: {
-      path: multi || inputAdvance ? "/authenticated" : path,
-      target: target("authenticated"),
-    },
+    completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),
     ...(path === "/single" ? { accountSwitch: { by: "text", value: "Use another account" } } : {}),
     // The start page's passkey sign-in button (ADR 0027).

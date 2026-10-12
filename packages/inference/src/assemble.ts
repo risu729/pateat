@@ -6,6 +6,7 @@ import {
   loginEntryRecipeSchema,
   loginRecipeSchema,
   loginStepEffect,
+  MAX_COMPLETION_MARKERS,
   passwordVariants,
   refillsLoginSlot,
   routeFillTargets,
@@ -21,10 +22,10 @@ import * as v from "valibot";
 import { registersPasskey, type EntryTarget } from "./plan";
 
 // Generated recipes are built one page at a time (ADR 0018): each validated page plan is
-// appended as steps, and the completion target is added once the first sign-in is judged.
+// appended as steps, and a signed-in marker is added once the first sign-in is judged.
 
 export type AssemblyRejection =
-  /** The recipe already has a completion target, so it is no longer being generated. */
+  /** The recipe already has a signed-in marker, so it is no longer being generated. */
   | "already-complete"
   /** The recipe's last step submits, so no later page belongs to it. */
   | "not-advancing"
@@ -38,9 +39,15 @@ export type AssemblyRejection =
   | "invalid-recipe";
 
 export type CompletionRejection =
-  | "already-complete"
+  /** The marker is one of the recipe's markers already. */
+  | "already-learned"
+  /** The recipe has four markers already (ADR 0029). */
+  | "marker-limit"
   | "origin-mismatch"
-  /** The marker is an element one of the recipe's own steps or handlers uses on that path. */
+  /**
+   * The marker is an element one of the recipe's own steps or handlers uses, on any path:
+   * a marker proves a sign-in wherever it shows.
+   */
   | "step-target"
   /** The marker is not an element of the judged page. */
   | "not-on-page"
@@ -49,7 +56,7 @@ export type CompletionRejection =
    * fills: it is a login page again.
    */
   | "login-page"
-  /** The completion would break the recipe contract, such as its observation bound. */
+  /** The marker would break the recipe contract, such as its observation bound. */
   | "invalid-recipe";
 
 const effects = (steps: readonly LoginStep[]) =>
@@ -177,33 +184,42 @@ export function appendPageSteps(
 }
 
 /**
- * Adds the judged completion target to a generated recipe in its next revision. The
- * marker must be an element of the judged page on the recipe's origin and not one of
- * the recipe's own targets on that path. The page must not still show any element a
- * step uses on that path, nor a field any step fills on any path: a failed sign-in that
- * shows the login form again, on its own path or where the form posted, is not learned
- * as signed in. On a step's own path the completion also lists that path's fill fields
- * as `absent`, since the executor checks it after every step and counts hidden elements.
+ * Adds the judged signed-in marker to a generated recipe in its next revision (ADR 0029):
+ * the first one, or one more after those learned before, up to four. A marker proves a
+ * sign-in on any path, so it must be an element of the judged page on the recipe's origin
+ * and none of the elements the recipe's steps, passkey route or handlers use on any path.
+ * The page must not still show any element a step uses on its own path, nor a field any
+ * step fills on any path: a failed sign-in that shows the login form again, on its own
+ * path or where the form posted, is not learned as signed in. On a step's own path the
+ * marker also lists that path's fill fields as `absent`, since the executor checks it
+ * after every step and counts hidden elements.
  */
 export function addCompletion(
   base: LoginRecipe,
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
   target: LoginTarget,
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: CompletionRejection } {
-  if (base.completion) return { ok: false, reason: "already-complete" };
+  const markers = base.completion ?? [];
+  if (markers.some((marker) => sameTarget(marker.target, target)))
+    return { ok: false, reason: "already-learned" };
+  if (markers.length >= MAX_COMPLETION_MARKERS) return { ok: false, reason: "marker-limit" };
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };
   // Every variant's steps count, whichever one the judged login ran, and the passkey
   // route's button (ADR 0027).
   const steps = passwordVariants(base).flatMap((variant) => variant.steps);
-  const used = routeTargets(base, page.path);
-  if ([...used, ...handlerElements(base, page.path)].some((element) => sameTarget(element, target)))
+  const own = [
+    ...steps.flatMap(stepTargets),
+    ...(base.passkey ? [base.passkey.target] : []),
+    ...(base.handlers ?? []).flatMap(handlerTargets),
+  ];
+  if (own.some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
   // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not. A
   // `totp` handler's code field on this path shows its code page (ADR 0027).
   const loginElements = [
-    ...used,
+    ...routeTargets(base, page.path),
     ...routeFillTargets(base, "password"),
     ...codeFields(base, page.path),
   ];
@@ -217,13 +233,13 @@ export function addCompletion(
     .filter((step) => step.path === page.path && step.kind === "fill")
     .flatMap(stepTargets)
     .filter((field, index, all) => all.findIndex((other) => sameTarget(other, field)) === index);
-  // A completion lists at most 4 absent elements; with more, nothing is learned rather than
-  // a completion that a sign-in page could satisfy.
+  // A marker lists at most 4 absent elements; with more, nothing is learned rather than a
+  // marker that a sign-in page could satisfy.
   if (absent.length > 4) return { ok: false, reason: "invalid-recipe" };
   const recipe = v.safeParse(loginRecipeSchema, {
     ...base,
     revision: base.revision + 1,
-    completion: { path: page.path, target, ...(absent.length ? { absent } : {}) },
+    completion: [...markers, { target, ...(absent.length ? { absent } : {}) }],
   });
   return recipe.success
     ? { ok: true, recipe: recipe.output }
@@ -281,7 +297,7 @@ export function addHandler(
   const others = [
     ...(base.accountSwitch ? [base.accountSwitch] : []),
     ...(base.rejection ? [base.rejection] : []),
-    ...(base.completion ? [base.completion.target] : []),
+    ...(base.completion ?? []).map((marker) => marker.target),
     ...handlerElements(base, page.path),
   ];
   if (handler.kind === "passkey") {

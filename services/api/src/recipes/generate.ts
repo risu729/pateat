@@ -633,14 +633,14 @@ export async function judgeCompletion(
   // A list of accounts shown again is the sign-in's start, not its result (ADR 0028).
   if (observation.accounts) return unavailable("not-judgeable");
   // The checks use the stored recipe, never the request: a page that still shows one of
-  // the password route's fill fields, of any variant and on any path, or the completion
+  // the password route's fill fields, of any variant and on any path, or a signed-in
   // marker is not judged. The request never names the variant the login ran. The passkey
   // route starts beside that form, so the form counts for it too; and a page on its
   // sign-in paths that still shows its button is not judged either: its passkey exchange
   // may still be running, as the extension holds it.
   const unexplained = [
     ...routeFillTargets(recipe, "password"),
-    ...(recipe.completion ? [recipe.completion.target] : []),
+    ...(recipe.completion ?? []).map((marker) => marker.target),
   ];
   const shown = (targets: readonly LoginTarget[]) =>
     observation.candidates.some((candidate) =>
@@ -803,16 +803,14 @@ export async function judgeCompletion(
     const change = written.ok ? answerable(written.change) : undefined;
     return { version: 1, status: "challenge", ...(change ? { change } : {}) };
   }
-  // A completion is learned once; a later signed-in page needs no change.
-  if (recipe.completion) return { version: 1, status: "signed-in" };
-
+  // A later signed-in page adds its marker, up to four (ADR 0029). A recipe that has a
+  // marker already is signed in whether or not this one can be added, as with four, a
+  // marker it has, or one that breaks the recipe's bounds.
   const learned = addCompletion(recipe, observation, judgement.target);
-  if (!learned.ok)
-    return learned.reason === "already-complete"
-      ? unavailable("recipe-conflict")
-      : failed("invalid-output");
+  const signedIn = { version: 1, status: "signed-in" } as const;
+  if (!learned.ok) return recipe.completion ? signedIn : failed("invalid-output");
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
-  if (!learnedRecipe) return failed("recipe-invalid");
+  if (!learnedRecipe) return recipe.completion ? signedIn : failed("recipe-invalid");
   const written = await writeRecipe(
     env.DB,
     scope.ownerId,
@@ -821,5 +819,6 @@ export async function judgeCompletion(
     scope.deviceId,
   );
   const change = written.ok ? answerable(written.change) : undefined;
-  return change ? { version: 1, status: "signed-in", change } : unavailable("recipe-conflict");
+  if (change) return { ...signedIn, change };
+  return recipe.completion ? signedIn : unavailable("recipe-conflict");
 }

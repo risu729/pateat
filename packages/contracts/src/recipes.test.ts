@@ -35,7 +35,7 @@ function recipe(id: string, firstPath: string, revision = 1, at = origin): Login
       { kind: "fill", path: "/password", fields: [{ slot: "password", target: target("pass") }] },
       { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
     ],
-    completion: { path: "/home", target: target("welcome") },
+    completion: [{ target: target("welcome") }],
     maxSubmissions: 1,
   });
 }

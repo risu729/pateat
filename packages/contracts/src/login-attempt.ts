@@ -325,8 +325,8 @@ export const loginAttemptEventSchema = v.variant("type", [
     stage: v.picklist(["before-fill", "after-fill"]),
   }),
   /**
-   * The attempt takes over a newer revision of its recipe that only adds handlers or a
-   * completion (`extendsRecipe`, ADR 0027); the runtime checks that before sending it.
+   * The attempt takes over a newer revision of its recipe that only adds handlers or
+   * signed-in markers (`extendsRecipe`, ADR 0027); the runtime checks that before sending it.
    */
   v.strictObject({
     type: v.literal("REVISED"),
