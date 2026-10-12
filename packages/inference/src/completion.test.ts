@@ -200,6 +200,8 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
 
   it("tells the model never to name a button that registers a passkey", () => {
     expect(completionInstructions).toMatch(/passkeyButton/u);
+    // A marker's text is stored in the recipe and must match every later sign-in.
+    expect(completionInstructions).toMatch(/never name one whose text shows the person's name/u);
     expect(completionInstructions).toMatch(/Never name a button that registers, adds, creates/u);
   });
 

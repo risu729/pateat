@@ -898,7 +898,7 @@ describe("extractSignedInObservation", () => {
     ).join("");
     const ads = Array.from(
       { length: 40 },
-      (_, index) => `<a href="/ad/detail.php?id=${index}">広告${index}で最大ポイント還元</a>`,
+      (_, index) => `<a href="/ad/detail.php?id=${index}">広告${"ア".repeat(index + 1)}で還元</a>`,
     ).join("");
     const tabs = ["総合", "芸能", "社会", "スポーツ", "経済", "国際", "IT", "ライフ"]
       .map((tab) => `<button type="button">${tab}</button>`)
@@ -914,6 +914,7 @@ describe("extractSignedInObservation", () => {
     page(
       pointsSite(
         `<header><form><input id="search" type="text" placeholder="広告名で探す"></form>
+          <a href="/my/point.php">2,358pt</a><a href="/notice/">お知らせ 7</a>
           <a href="/my/">マイページ</a><a href="/my/bankbook.php">${icon("通帳")}</a>
           <a href="/logout.php">${icon("")}</a></header>`,
       ),
@@ -925,7 +926,8 @@ describe("extractSignedInObservation", () => {
     // The header comes last in the page, after more than 48 controls, yet its field and
     // its links, located by their text or image, are kept in document order; the ads past
     // the limit, the news tabs and the pop-up's close button are left out. The sign-out
-    // icon has neither text nor `alt`, so nothing can locate it.
+    // icon has neither text nor `alt`, so nothing can locate it, and text with a digit,
+    // such as the balance and the unread count, never names a marker.
     expect(kept.slice(-3)).toEqual([
       {
         role: "text",
@@ -944,19 +946,19 @@ describe("extractSignedInObservation", () => {
       );
   });
 
-  it("keeps a sign-out link outside the header by its text or path", () => {
+  it("keeps navigation links after a busy page and drops other links past the limit", () => {
     page(
-      pointsSite(`<footer><a href="/member/settings">設定</a>
-        <a href="/auth/logout">${icon("Sign out")}</a><a href="/help">ヘルプ</a></footer>`),
+      pointsSite(`<nav><a href="/member/settings">設定</a></nav>
+        <a href="/auth/logout">ログアウト</a>`),
     );
     const kept = summary(signedIn());
     expect(kept).toEqual(
       expect.arrayContaining([
         { role: "link", target: { by: "text", value: "設定" }, label: "設定" },
-        { role: "link", target: { by: "text", value: "Sign out" }, label: "Sign out" },
       ]),
     );
-    expect(kept.some((entry) => entry.label === "ヘルプ")).toBe(false);
+    // Its words do not count: a link outside the header or navigation waits its turn.
+    expect(kept.some((entry) => entry.label === "ログアウト")).toBe(false);
   });
 
   it("marks a page incomplete when a field cannot be described", () => {

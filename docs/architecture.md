@@ -854,8 +854,11 @@ the same text remains, that one is clicked.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button
-such as "Continue as taro_y" still carries an account name. Recipes are per owner
-today; before recipes are shared between users, such locators need a review.
+such as "Continue as taro_y" still carries an account name, and so can a completion
+marker's link text, such as a header link showing the person's name: the judge is told
+never to pick one, and text with a digit never names a marker, but nothing enforces the
+rest. Recipes are per owner today; before recipes are shared between users, such
+locators need a review.
 
 Site recipes contain meanings such as branch-number/account-number/password. Keep
 account-specific bindings separate from recipes. They are stored in the synced settings
