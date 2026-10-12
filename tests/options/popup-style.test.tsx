@@ -85,6 +85,10 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
   expect(main.getBoundingClientRect().width).toBe(360);
   expect(main.scrollWidth).toBeLessThanOrEqual(main.clientWidth);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(360);
+  // The empty live region stays rendered, so its first message is announced.
+  const message = document.querySelector("#popup-message")!;
+  expect(message.textContent).toBe("");
+  expect(getComputedStyle(message).display).not.toBe("none");
   // The switch keeps its size beside its label.
   const toggle = page.getByRole("switch", { name: "Pateat on this site" }).element();
   expect(toggle.getBoundingClientRect()).toMatchObject({ width: 36, height: 20 });

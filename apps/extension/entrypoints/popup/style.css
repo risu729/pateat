@@ -114,9 +114,16 @@
 .popup-switch input:disabled {
   opacity: 0.5;
 }
+.popup-switch input[aria-disabled="true"] {
+  cursor: default;
+}
 
+/* Kept in the accessibility tree while empty, without adding a gap. */
+.popup-message {
+  display: block;
+}
 .popup-message:empty {
-  display: none;
+  margin-top: -1rem;
 }
 .popup-notice {
   display: flex;

@@ -81,7 +81,11 @@ export function siteSwitch(settings: LocalSettings, hostname: string) {
   };
 }
 
-/** The header switch; a rule it cannot change disables it and names the reason. */
+/**
+ * The header switch; a rule it cannot change disables it and names the reason. While a
+ * change is saved it is only marked disabled, since Chrome moves focus away from a
+ * focused control that becomes disabled.
+ */
 function SiteSwitch({
   site,
   pending,
@@ -103,9 +107,12 @@ function SiteSwitch({
         role="switch"
         checked={checked}
         aria-checked={checked}
-        disabled={busy || !site.editable}
+        disabled={!site.editable}
+        aria-disabled={busy || undefined}
         aria-describedby={site.editable ? undefined : "popup-site-shared"}
-        onChange={(event) => onChange(event.target.checked)}
+        onChange={(event) => {
+          if (!busy) onChange(event.target.checked);
+        }}
       />
       Pateat on this site
     </label>
@@ -299,7 +306,10 @@ export function SiteApp({
   });
 
   async function change(update: (value: LocalSettings) => void, done: string) {
-    if (!saved || busy) return;
+    if (!saved || busy) {
+      setSwitching(undefined);
+      return;
+    }
     const next = structuredClone(saved.snapshot.settings);
     update(next);
     setBusy(true);
@@ -350,7 +360,9 @@ export function SiteApp({
       });
       if (response.ok) {
         say(
-          `Logging in with ${selected.name}.${asDefault ? " It becomes the default once the login succeeds." : ""}`,
+          asDefault
+            ? `Logging in with ${selected.name}. It becomes the default once the login succeeds.`
+            : `Logging in with ${selected.name}`,
           "success",
         );
         // The login runs in the page from here; the popup has nothing left to show.
@@ -429,7 +441,7 @@ export function SiteApp({
       : undefined;
     const shown = options.some((entry) => entry.value === chosen)
       ? chosen
-      : (currentOption?.value ?? options[0]?.value ?? "");
+      : (currentOption?.value ?? "");
     const offered = choice.data?.ok && choice.data.origin === origin ? choice.data : undefined;
     // The choice shows once the site's matches are listed, so each account is named by its
     // username from the first frame rather than by a shortened item ID.
@@ -614,6 +626,11 @@ export function SiteApp({
                   {accountsNote.text}
                 </Line>
               )}
+              {!current && (
+                <Line tone="idle" id="popup-no-default">
+                  No default account. With exactly one matching item, Pateat uses that item
+                </Line>
+              )}
               {found && !found.complete && (
                 <Line tone="warn" id="popup-accounts-incomplete">
                   Some vaults or items could not be checked, so this list may be incomplete
@@ -632,7 +649,7 @@ export function SiteApp({
                     type="button"
                     // The account choice above has the view's primary button.
                     variant={showChoice ? "outline" : "default"}
-                    disabled={busy || shown === currentValue}
+                    disabled={busy || !shown || shown === currentValue}
                     onClick={setDefault}
                   >
                     Use as default
@@ -712,16 +729,12 @@ export function SiteApp({
           <Settings2 size={20} strokeWidth={2} aria-hidden="true" />
         </button>
       </header>
-      <output
-        id="popup-message"
-        className={notice.text ? `popup-notice popup-notice--${notice.tone}` : "popup-message"}
-        aria-live="polite"
-      >
+      <output id="popup-message" className="popup-message" aria-live="polite">
         {notice.text && (
-          <>
+          <span className={`popup-notice popup-notice--${notice.tone}`}>
             <NoticeIcon size={16} strokeWidth={2} aria-hidden="true" />
             <span>{notice.text}</span>
-          </>
+          </span>
         )}
       </output>
       {body}

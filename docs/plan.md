@@ -269,10 +269,12 @@ own accounts, so they stay in the project's files rather than in this repository
     each such rule has a "Change in settings" link; before, the popup could remove the
     site's own exact rule while a parent rule kept it excluded. Default accounts and the
     account choice are native radios shown as cards: the username as the title, the item
-    and its vault below, and a Default badge on the saved default. A failed or
-    conflicting save leaves the switch in its saved position, and every result shows in
-    the popup's live region. The popup is 360px wide; checked with synthetic data in
-    Vitest and Playwright Chromium, light and dark.
+    and its vault below, and a Default badge on the saved default. Without a saved
+    default no card is selected until one is picked. A failed or conflicting save leaves
+    the switch in its saved position, and every result shows in the popup's live region.
+    The popup is 360px wide. Checked with synthetic data only: the Vitest and Playwright
+    Chromium tests run in the default (light) theme, and screenshots of each popup state
+    were compared in light and dark.
   - Next: the other screens' layouts and copy.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both

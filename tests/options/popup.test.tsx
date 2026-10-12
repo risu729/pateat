@@ -128,8 +128,16 @@ test("the site default is chosen from the items that match the tab's origin, the
   await expect.element(page.getByRole("heading", { name: "bank.example" })).toBeVisible();
   const accounts = page.getByRole("group", { name: "Default account" }).getByRole("radio");
   await expect.element(accounts).toHaveLength(3);
-  // No account is the default yet, so none carries the badge.
+  // No account is the default yet: none carries the badge or is selected, and nothing
+  // can be saved before one is picked.
   expect(page.getByText("Default", { exact: true }).query()).toBeNull();
+  for (const radio of accounts.elements()) expect((radio as HTMLInputElement).checked).toBe(false);
+  await expect
+    .element(
+      page.getByText("No default account. With exactly one matching item, Pateat uses that item"),
+    )
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Use as default" })).toBeDisabled();
   await expect.element(page.getByText("Takes effect at the next login")).toBeVisible();
   expect(client.findSiteAccounts).toHaveBeenCalledWith(
     "https://bank.example",
@@ -145,6 +153,7 @@ test("the site default is chosen from the items that match the tab's origin, the
   await expect
     .element(page.getByText("Demo team account is now the default for this site"))
     .toBeVisible();
+  expect(page.getByText("No default account.", { exact: false }).query()).toBeNull();
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     expect.objectContaining({ type: "settings.save", expectedRevision: 0 }),
   );
@@ -181,6 +190,8 @@ test("the switch excludes the site by its exact hostname, and turns it back on",
   await userEvent.click(toggle);
   await expect.element(page.getByText("login.bank.example is now excluded")).toBeVisible();
   await expect.element(toggle).not.toBeChecked();
+  // Saving does not disable the switch, so it keeps keyboard focus.
+  expect(document.activeElement).toBe(toggle.element());
   await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
   expect(current().snapshot.settings.excludedSites).toEqual([
     { hostname: "login.bank.example", includeSubdomains: false },
@@ -408,7 +419,9 @@ test("a login refused for several matches is restarted with the account picked h
   await userEvent.click(asDefault);
   choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
   await userEvent.click(page.getByRole("button", { name: "Log in" }));
-  await expect.element(page.getByText("Logging in with Demo team account.")).toBeVisible();
+  await expect
+    .element(page.getByText("Logging in with Demo team account", { exact: true }))
+    .toBeVisible();
   expect(choices.pick).toHaveBeenCalledWith({
     tabId: 7,
     documentId: "refused-document",
@@ -578,6 +591,9 @@ test("a pick that starts nothing says so, and a default set here ends the choice
   // The background ends the waiting choice once the site has a default.
   choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
   const calls = choices.get.mock.calls.length;
+  await userEvent.click(
+    page.getByRole("group", { name: "Default account" }).getByRole("radio").first(),
+  );
   await userEvent.click(page.getByRole("button", { name: "Use as default" }));
   await expect
     .element(page.getByText("is now the default for this site", { exact: false }))
