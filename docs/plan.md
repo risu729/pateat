@@ -262,6 +262,11 @@ own accounts, so they stay in the project's files rather than in this repository
 
 ### Phase 2: use it and fix what comes up
 
+- First, right after phase 1 (owner, 2026-10-12 21:29 UTC):
+  [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each
+  page's kind, recipes generated as `confirm` neither run nor count as logouts, a
+  passkey re-verification after Pateat's login in the tab is handed on, and the logs for
+  judging whether `confirm` can be split are kept.
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
@@ -525,12 +530,12 @@ still open on 2026-10-11.
     generation like a login page ([ADR 0016](adr/0016-recipe-generation-trigger.md)),
     and the returned recipe runs at once
     ([ADR 0018](adr/0018-recipe-generation-route.md)).
-  - The owner also wants these prompts classified, with a permission for each class set
-    per site in a settings profile ([ADR 0024](adr/0024-settings-profiles.md)) (owner,
-    2026-10-12 15:54 UTC). Examples: allow logins but refuse re-verification after them,
-    such as before a money transfer or a change of registered details; allow personal
-    details. The classes and permissions are still to be designed and need the owner's
-    approval before an ADR.
+  - [ADR 0035](adr/0035-page-kinds-per-site.md) (owner, 2026-10-12 21:30 UTC) gives
+    these pages the kind `confirm`, which Pateat only fills, never presses, and which
+    each profile sets per site to `fill` or `off`, next to `sign-in` (`auto` or `fill`,
+    so Pateat can be used as autofill only) and `personal-details`. Its delivery 1 is in
+    [phase 2](#phase-2-use-it-and-fix-what-comes-up); deliveries 2 to 4 (the settings
+    and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles

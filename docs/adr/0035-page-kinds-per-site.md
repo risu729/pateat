@@ -1,0 +1,221 @@
+# ADR 0035: Page kinds, and how far Pateat goes on each, per site and profile
+
+Status: accepted by the owner on 2026-10-12: the request at 15:54 UTC ("classify, and
+let profiles hold permissions", "per site"), then 21:11 to 21:30 UTC in the design
+thread (`sign-in` can be limited to filling, login-time values belong to `sign-in`,
+re-verification is not split by kind for now, Pateat never presses on it, logs for
+evaluation, and the answers to the proposal's seven questions). The proposal was
+reviewed against the code by subagents before each round. Not implemented. Amends
+[ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
+[ADR 0024](0024-settings-profiles.md) (two more profile parts).
+
+Date: 2026-10-12
+
+## Context
+
+Pateat has no rule for prompts a site shows while the person is already signed in,
+such as ポイントインカム's secret question before `/my/my_profile_change.php` opens,
+GitHub's "Confirm access" before a settings change, or a bank's transaction password
+before a transfer. It reacts to some of them as to a login (recorded in the
+[plan](../plan.md#phase-4-issues-and-work-as-needed) on 2026-10-12): it signs a passkey
+request that names its credentials, logs in on a form shaped like a recipe's first step
+in a tab without a login of the origin, and sends a password page on a path without a
+recipe for generation, whose recipe then fills and submits it at once.
+
+The button on such a page often both confirms and performs the action: pressing
+"振込実行" next to the transaction password sends the money. A wrong press cannot be
+undone. The owner also wants to use Pateat as plain autofill on some browsers or sites,
+with the person pressing every button, and to choose all of this per site and per
+settings profile.
+
+## Decision
+
+### Kinds of page
+
+A page that asks for something Pateat could fill has one of three kinds:
+
+| `pageKind` | Pages | Values |
+| --- | --- | --- |
+| `sign-in` | A login and the pages that continue it: second factors, account lists, sign-in entries, values asked during the login such as エポスNet's card security code or a birth date, and a sign-in again after a session expired | `auto`: fill and press, as today. `fill`: fill only |
+| `confirm` | A verification asked while signed in, before an action: a secret question, a password asked again, a transaction password | `fill`: fill only. `off`: nothing |
+| `personal-details` | Personal data in a form other than a login, such as a registration, address or profile form | `fill`: fill only. `off`: nothing |
+
+- Pateat never presses a button on a `confirm` page (owner, 21:21 UTC). Splitting
+  `confirm` into actions that cannot be undone (transfers, orders, account deletion, a
+  changed email address or password, turning off two-step verification) and the rest,
+  and pressing on the rest, is proposed again only after the evaluation below shows
+  that the kinds can be told apart (owner, 21:13 UTC: whether the AI can tell them
+  apart is doubtful).
+- Filling `personal-details` is not built; it is the personal-data autofill item under
+  [Research](../plan.md#research). Only the kind and its setting are decided here; which
+  pages count and what is filled are decided with that feature.
+- A page that asks for nothing, such as GitHub's "Verify your two-factor authentication
+  settings", has no kind here.
+
+### Classifying a page
+
+No site list is kept ([ADR 0033](0033-no-site-specific-features.md)).
+
+- Recipe generation answers the kind in the same model call: the `plan` decision gains
+  `pageKind`, `sign-in`, `confirm` or `unclear`, judged from the page's structure (a
+  session-expired sign-in form is `sign-in`; "enter your password before this action"
+  is `confirm`). The service stores it on the recipe, so a later visit decides without
+  a call. `unclear` is handled as `confirm` (owner, 21:29 UTC).
+- The extension adds `signedIn` to the generation request as a hint: true when the
+  recipe's learned signed-in marker or the username of a URI-matching item shows in the
+  header or navigation, read as [ADR 0029](0029-local-sign-in-state.md)'s E1 and E2. The
+  page text and username stay on the device; the flag reaches the service, the model
+  and the request log.
+- Entry recipes ([ADR 0031](0031-sign-in-entry-pages.md)) and chooser recipes
+  ([ADR 0028](0028-account-chooser-login-pages.md)) are always `sign-in`. A continuation
+  ([ADR 0018](0018-recipe-generation-route.md)) keeps the first page's kind.
+- A page set to `off` is still sent for generation, so its kind is stored once; a site
+  whose pages must not be sent at all is excluded (`excludedSites`), as today.
+- A `confirm` recipe never starts a login, never counts as a logout (ADR 0021 D) and is
+  never filled by the fill after a logout.
+- When recipes are shared later, a shared recipe's kind is not trusted; the receiving
+  side classifies again ([ADR 0013](0013-service-held-recipes-and-settings.md)).
+- Recipes stored before this change are generated again rather than marked `sign-in`,
+  because one may already be a `confirm` page.
+
+Known limits: a secret-question input of `type="text"` does not meet
+[ADR 0016](0016-recipe-generation-trigger.md)'s trigger, frames are not sent (most
+3-D Secure pages), a tab with Pateat's own login of the origin sends nothing, and a
+re-verification on the login page's own URL keeps its `sign-in` recipe.
+
+### Passkey re-verification
+
+A passkey request that names its credentials, from a tab whose Pateat login of the
+origin finished with no logout detected since, is `confirm` (owner, 21:29 UTC). Under
+`off` it is handed to the browser or Bitwarden. Under `fill` it is handed on too: an
+answer completes the verification as a press would, and Pateat never presses on a
+`confirm` page (derived from that rule, not asked separately). The same request after a
+login made in another tab or before a browser restart cannot be told apart and is
+answered as today.
+
+### Fill only (`sign-in` set to `fill`)
+
+Pateat works as autofill: it fills each page of a login and presses nothing. It builds
+on the fill after a logout (ADR 0021 D), which fills the first page's leading fields
+once, with these differences:
+
+- Every page of the login is filled, including the password page after the person
+  pressed "Next". This needs a new way to accept that the page or the person moved the
+  login on, since an advance is confirmed today only by Pateat's own click. A
+  single-page site that moves on in place is filled once per step; a value the person
+  changed is never overwritten.
+- No click of any kind: sign-in, next, an account list entry, a sign-in entry, a passkey
+  button, a code's submit button, an account switch. When another account is shown, the
+  fill stops.
+- Fields the recipe marks as advancing or submitting are left empty, as in ADR 0021 D.
+- The account is the saved default or the only URI match. With several, the person
+  picks in the popup, and that pick logs in with presses as today (owner, 21:29 UTC).
+- An item is filled on its password route even when it has a passkey; a passkey-only
+  item is not filled. A passkey request is answered only when it follows a user
+  activation; one issued on load or for conditional mediation
+  ([ADR 0034](0034-answer-page-passkey-requests.md)) is handed on, since answering it
+  signs in.
+- No judge call and no logout detection. Handlers are not learned in this mode, since
+  they are learned when a page is judged; learned ones are used.
+- A page after the person's press with no recipe is sent for generation as a
+  continuation, as under `auto` (owner, 21:29 UTC).
+
+### Settings
+
+The profile parts of the settings document (ADR 0024) gain two entries; the service
+stays the source of truth and the extension caches them:
+
+```json
+"pagePermissionDefaults": { "sign-in": "auto", "confirm": "fill", "personal-details": "fill" },
+"sitePagePermissions": [
+  { "hostname": "pointi.jp", "includeSubdomains": false, "permissions": { "confirm": "off" } },
+  { "hostname": "smbc.co.jp", "includeSubdomains": true, "permissions": { "sign-in": "fill" } }
+]
+```
+
+- The defaults are `sign-in` `auto`, `confirm` `fill` and `personal-details` `fill`
+  (owner, 21:29 UTC). `pagePermissionDefaults` always holds all three keys.
+- A site row overrides only the kinds it names. Rows match the page's hostname like
+  `excludedSites`: one row per hostname, at most 1,000, and when several match, the
+  longest hostname wins for each kind. A row for a site does not cover its identity
+  provider's pages, such as `accounts.google.com`.
+- `excludedSites` stays: it stops observation, generation and filling, while `sign-in`
+  `fill` still fills.
+- The toolbar popup edits the current site's row (without subdomains, as it adds
+  exclusions), and the settings page edits the defaults and all rows.
+
+The decision is taken when a recipe is selected for a new login (before logout
+detection and the fill after a logout), on each page of a fill-only login, on account
+list pages and their branches, on a popup pick, when a stopped login asks again, when a
+continuation is used, when a passkey request is answered or a passkey route chosen, and,
+once built, when personal details would be filled.
+
+### Logs and evaluation
+
+Local log entries ([ADR 0019](0019-local-diagnostics-and-logs.md)), with no values or
+page text:
+
+- `recipe.generate` adds the answered `pageKind` and the `signedIn` sent.
+- `login.start` adds `sign-in-fill` and which setting decided (`site` or `default`) to
+  `fillOnly`; each fill-only page ends `login.attempt` `fill-only`, with
+  `sign-in-fill` instead of `login.refused` `logged-out`.
+- `login.refused` gains `page-off` (origin, recipe ID, kind, `site` or `default`), and
+  `not-started` with detail `confirm-unsupported` while filling `confirm` pages is not
+  built.
+- `passkey.request` names `confirm-off`, `confirm-fill` or `sign-in-fill` when it hands
+  a request on.
+
+For the evaluation that decides whether `confirm` can be split (owner, 21:22 UTC):
+
+- The model also answers `irreversible` (`yes`, `no` or `unclear`) for every page. It is
+  kept in the service's request log only, never on the recipe, and changes nothing.
+- The request log gains the recipe ID and revision, so its rows can be joined with the
+  local log.
+- On `page-off` and `confirm-unsupported` pages, the local log adds the recipe ID and
+  revision, the kind, whether an amount (`¥`, `円`, `$` with digits) shows inside the
+  form (`amount`, never the amount), E1 and E2, the previous path, and whether the
+  person submitted the form themselves (`personSubmitted`, from a trusted `submit`
+  event the content script reports to the worker before the page leaves; no button text
+  or value). For a `confirm` page sent with `signedIn` false, it also records whether
+  the tab's next page shows E1, which would suggest a sign-in page.
+- Pages that look like re-verification but are not sent (a `type="text"` answer, a
+  frame) are counted by reason.
+- Rows whose kind is `confirm` or `unclear`, or that were sent with `signedIn` true, are
+  kept past ADR 0012's 90 days until they are labelled, for at most one year, and the
+  delete-all action still removes them (owner, 21:30 UTC). A thread labels them from the
+  logged observation and the owner checks the doubtful ones; labelled pages join the
+  real-page corpus under ADR 0012's review.
+
+## Delivery
+
+1. Right after phase 1 (owner, 21:29 UTC): `pageKind` and `irreversible` in generation,
+   `pageKind` on recipes, `confirm` recipes neither run nor count as logouts, passkey
+   re-verification handed on as above, the evaluation logs and retention, and
+   regeneration of existing recipes.
+2. The settings entries, the popup and settings page, and fill-only `sign-in`.
+3. Filling `confirm` pages: run in a tab whose login finished, use that login's
+   account (not the site default or a pick), and never take the page as a logout.
+4. `personal-details`, with the personal-data autofill feature.
+
+## Consequences
+
+- A browser or site can use Pateat as autofill only.
+- Once delivery 1 lands, pages generated as `confirm` are no longer filled and submitted
+  as logins, and passkey re-verification after Pateat's login in the tab is no longer
+  answered. A re-verification form shaped like a `sign-in` recipe's first step is still
+  taken as a login or a logout, as in ADR 0021's known gaps.
+- Every generated page costs a slightly longer answer; a page set to `off` still costs
+  one generation (about $0.007).
+- A session-expired sign-in misclassified as `confirm` or `unclear` is only filled, and
+  the person presses the button.
+
+## Alternatives
+
+- Split `confirm` now into account changes, payments and others: rejected for now,
+  since the AI's accuracy is unknown (owner, 21:13 UTC).
+- Press on `confirm` pages for non-irreversible actions, or only right after the
+  person's own click: deferred until the evaluation (owner, 21:21 UTC).
+- Leave `sign-in` out of the settings and use `excludedSites` to stop logins: rejected,
+  since autofill-only use needs filling without pressing (owner, 21:11 UTC).
+- Count login-time card codes and birth dates as `personal-details`: rejected; they are
+  part of the login (owner, 21:12 UTC).

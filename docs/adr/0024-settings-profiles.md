@@ -3,7 +3,9 @@
 Status: accepted by the owner on 2026-10-11 (12:15 UTC). Extends
 [ADR 0013](0013-service-held-recipes-and-settings.md) and
 [ADR 0023](0023-synced-vault-policy.md). Only the data split below applies now; profiles
-themselves are later work.
+themselves are later work. Amended on 2026-10-12 by
+[ADR 0035](0035-page-kinds-per-site.md) (not implemented): `pagePermissionDefaults` and
+`sitePagePermissions` are profile parts.
 
 Date: 2026-10-11
 
@@ -31,6 +33,7 @@ are assigned now so that profiles can be added without moving data again:
 | `accountPolicies`, including `enabled` (ADR 0023)          | profile           |
 | `itemPolicies` (ADR 0023)                                  | profile           |
 | `customFieldReviews` (ADR 0023)                            | profile           |
+| `pagePermissionDefaults`, `sitePagePermissions` (ADR 0035) | profile           |
 | `bindings`                                                 | owner (shared)    |
 | Recipes, Claude credentials, spending and generation state | owner (unchanged) |
 

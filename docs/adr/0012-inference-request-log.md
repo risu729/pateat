@@ -3,6 +3,9 @@
 Status: accepted by the owner on 2026-10-10. The retention period is 90 days, chosen
 with the service route in [ADR 0018](0018-recipe-generation-route.md). The service logs
 every request its generation routes send; the delete-all action comes with the web UI.
+Amended on 2026-10-12 by [ADR 0035](0035-page-kinds-per-site.md) (not implemented):
+rows of `confirm` or `unclear` pages, or sent with `signedIn` true, are kept past 90
+days until labelled, for at most one year, and rows gain the recipe ID and revision.
 
 Date: 2026-10-10
 
