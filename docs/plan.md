@@ -266,6 +266,17 @@ own accounts, so they stay in the project's files rather than in this repository
     a sign-in first) and the other actions in a menu. Adding a connection is a
     disclosure, open while there is none, and the paired sync service is a row with its
     last sync.
+  - Done: the settings page's Sites list. An exclusion rule matches a hostname, or a
+    hostname and its subdomains, on every scheme and port, and a default names one
+    exact origin, so the list has two kinds of row, sorted together by hostname. An
+    origin row edits its default account in a select that offers the accounts matching
+    that origin and No default, saved only by its Save button, and its Exclude button
+    adds a rule for that exact hostname, without a trailing dot. A rule row is marked
+    Excluded and its Allow button removes it; a default its rule excludes is kept and
+    shown as unused under the most specific such rule, since exclusion is checked first,
+    and its Remove default button deletes only the default. A default that cannot be
+    used shows the reason. One add form takes an origin (or a hostname, to exclude), a
+    default account and Exclude subdomains too.
   - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
     first PR that uses it adds it.
   - Done: the diagnostics page keeps its structure, with only its visuals and copy

@@ -1,7 +1,7 @@
 import { localSettingsSchema, type LocalSettings, type SettingsResponse } from "@pateat/contracts";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Bug, Info, Link, ShieldCheck, UserRound, Vault, type LucideIcon } from "lucide-react";
+import { Bug, Globe, Info, Link, ShieldCheck, Vault, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "../logo";
 import { Button } from "./button";
@@ -272,8 +272,7 @@ export function SettingsApp({
       label: connectionClient ? "Vault access" : "Demo vaults",
       icon: ShieldCheck,
     },
-    { id: "excluded-sites-panel", label: "Excluded sites", icon: Ban },
-    { id: "site-defaults-panel", label: "Default accounts", icon: UserRound },
+    { id: "sites", label: "Sites", icon: Globe },
     ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
   ];
   return (
@@ -384,18 +383,9 @@ export function SettingsApp({
                 findSiteAccounts={client.findSiteAccounts}
               />
             ) : (
-              <>
-                <Panel id="excluded-sites-panel" headingId="sites-heading" title="Excluded sites">
-                  <ul id="excluded-sites" className="hidden" />
-                </Panel>
-                <Panel
-                  id="site-defaults-panel"
-                  headingId="defaults-heading"
-                  title="Site default accounts"
-                >
-                  <ul id="site-defaults" className="hidden" />
-                </Panel>
-              </>
+              <Panel id="sites" headingId="sites-heading" title="Sites">
+                <ul id="site-list" className="hidden" />
+              </Panel>
             )}
           </fieldset>
           {serviceClient && <ServiceConnection client={serviceClient} />}
