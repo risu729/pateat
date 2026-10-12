@@ -34,6 +34,11 @@ Chrome, on a production build of main.
 
 - Start from a list of those sites. It names the owner's own accounts, so it stays in
   the project's files rather than in this repository.
+- Sites that offer only identity-provider sign-in or a code or link sent by email are
+  out of scope for phase 1 (owner, 2026-10-12 14:01 UTC), such as `https://claude.ai`,
+  which signs in by email only. Tailscale, Zenn and Vercel probably belong here too,
+  judged from their usual sign-in pages rather than checked. Both kinds are in
+  [phase 4](#phase-4-issues-and-work-as-needed).
 - Finish the fixes in flight: login attempts whose result settled as unknown no longer
   hold settings writes for the next login, and a vault replacement no longer runs during
   a login; diagnostics log events for sync, page judgements, handlers and the source of
@@ -220,6 +225,10 @@ still open on 2026-10-11.
 
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
+- Signing in with a code or link sent by email, which
+  [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
+  page ends `challenge`). It has the same priority as signing in through an identity
+  provider (owner, 2026-10-12 14:01 UTC).
 - Opening the service to other people, once there are users who need it; per-owner byte
   quotas come with it.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
