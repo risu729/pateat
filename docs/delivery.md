@@ -13,52 +13,53 @@ jobs below, and repeats the packaged-extension browser tests on Windows on main 
 and manual runs, not on PRs. The packaged-extension suite (`tests/extension`, 123 tests
 at the time, one after another in one worker) took about six minutes on Linux and seven
 on Windows, the longest step of every run (about 8.5 minutes in total on 2026-10-11). It
-therefore runs as six shards, in `Linux browser (1/6)` to `(6/6)` and
-`Windows browser (1/6)` to `(6/6)`: each shard sets
-`PATEAT_E2E_SHARD=<current>/<total>`, which `tests/extension/playwright.config.ts` turns
-into Playwright's `shard`, and the six shards together run every test once. The suite
-splits by test (`fullyParallel`) because splitting by file left `login.spec.ts` alone in
-a shard of about three minutes; each job still runs one worker. The `Verify` job runs
-the rest of the graph (lint, typecheck, unit and component tests, build checks) with
-`PATEAT_SKIP_E2E=1` (any non-empty value), which turns `//tests/extension:test` into a
-no-op there; without that variable, as in a local `mise run check`, the suite runs
-whole. With four shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37
-runs on 2026-10-11 and 12), where each Linux shard still repeated the rest of the graph;
-`Verify` and the Linux shards run side by side now. With six shards and `Verify` split
-out, 16 PR runs on 2026-10-12 between 06:11 and 07:24 UTC (JST 15:11 to 16:24) took
-4m06s on average (3m19s to 5m28s) and 11 successful main runs 4m44s (3m28s to 8m00s);
-the slowest ones overlapped other runs. One Windows shard timed out once in a test that
-usually takes about 8 s (a 30 s hang with no trace; Windows system-drive I/O stalls are
-the known cause of such timeouts, but this one was not confirmed), and a re-run is the
-response. A main or manual run is 15 jobs (up to 13 at once), so it can queue on
-GitHub's concurrent-job limit when runs overlap; that delays it without failing it. A PR
-run skips the Windows shards (the owner's decision on 2026-10-12): it is 9 jobs, or 3
-for a documentation-only PR (`Changes`, `Verify`, `CI Check`). A Windows-only failure
-therefore shows first on the main run, which then packages no release and starts no
-deployment; run the workflow manually (`workflow_dispatch`) on a branch to get the
-Windows shards before merging. `CI Check` requires `Verify` and every Linux shard to
-succeed (see `Changes` below) and every Windows shard to succeed on main pushes and
-manual runs (skipped on PRs), including when an upstream job failed or was cancelled. A
-`Changes` job (no checkout, on `ubuntu-slim`) decides whether a PR needs the browser
-tests: a PR whose changed files are all under `docs/` or are `AGENTS.md` or `README.md`
-skips the Linux shards, runs only `Verify` (which still checks the documentation) and
-passes `CI Check` with the shards skipped; any other change, every main push and every
-manual run runs them. The owner chose
+therefore runs as six shards of one `Browser` job (`Browser ubuntu-26.04 (1/6)` to
+`(6/6)`, plus `Browser windows-2025 (1/6)` to `(6/6)` on main pushes and manual runs):
+each shard sets `PATEAT_E2E_SHARD=<current>/<total>`, which
+`tests/extension/playwright.config.ts` turns into Playwright's `shard`, and the six
+shards together run every test once. The suite splits by test (`fullyParallel`) because
+splitting by file left `login.spec.ts` alone in a shard of about three minutes; each job
+still runs one worker. The `Verify` job runs the rest of the graph (lint, typecheck,
+unit and component tests, build checks) with `PATEAT_SKIP_E2E=1` (any non-empty value),
+which turns `//tests/extension:test` into a no-op there; without that variable, as in a
+local `mise run check`, the suite runs whole. With four shards the first sharded runs
+took 4 to 7 minutes (mean 4m41s over 37 runs on 2026-10-11 and 12), where each Linux
+shard still repeated the rest of the graph; `Verify` and the Linux shards run side by
+side now. With six shards and `Verify` split out, 16 PR runs on 2026-10-12 between 06:11
+and 07:24 UTC (JST 15:11 to 16:24) took 4m06s on average (3m19s to 5m28s) and 11
+successful main runs 4m44s (3m28s to 8m00s); the slowest ones overlapped other runs. One
+Windows shard timed out once in a test that usually takes about 8 s (a 30 s hang with no
+trace; Windows system-drive I/O stalls are the known cause of such timeouts, but this
+one was not confirmed), and a re-run is the response. A main or manual run is 15 jobs
+(up to 13 at once), so it can queue on GitHub's concurrent-job limit when runs overlap;
+that delays it without failing it. A PR run skips the Windows shards (the owner's
+decision on 2026-10-12): it is 9 jobs, or 3 for a documentation-only PR (`Changes`,
+`Verify`, `CI Check`). A Windows-only failure therefore shows first on the main run,
+which then packages no release and starts no deployment; run the workflow manually
+(`workflow_dispatch`) on a branch to get the Windows shards before merging. `CI Check`
+requires `Changes` and `Verify` to succeed and no `Browser` shard to fail or be
+cancelled; a skipped `Browser` job (a documentation-only PR) passes. It runs even when
+an upstream job failed. A `Changes` job (no checkout, on `ubuntu-slim`) decides whether
+a PR needs the browser tests: a PR whose changed files are all under `docs/` or are
+`AGENTS.md` or `README.md` skips the `Browser` job, runs only `Verify` (which still
+checks the documentation) and passes `CI Check` with the shards skipped; any other
+change, every main push and every manual run runs them. The owner chose
 [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
 2026-10-12 because on a `pull_request` event it reads the changed files through the API,
 so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
 filters are not used because a skipped workflow reports no `CI Check`. If the `Changes`
-job fails, `CI Check` fails. `Changes` adds a few seconds before the Linux shards start.
-A newer push to a PR cancels its older run, but each main push finishes its own run;
-otherwise frequent merges would cancel every main run before it could package a release
-and start `deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and Actions
-separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares
-results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions
-cache: dependency caching is off by default in advanced setup and its TRAP cache is
-disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the three jobs share
-their checkout, mise and Bun install steps through YAML anchors (`&checkout`, `&mise`,
-`&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits anchored
-workflows on a best-effort basis. GitHub Code Quality is not used: since its
+job fails, `CI Check` fails. `Changes` adds a few seconds before the browser shards
+start. A newer push to a PR cancels its older run, but each main push finishes its own
+run; otherwise frequent merges would cancel every main run before it could package a
+release and start `deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and
+Actions separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only
+compares results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no
+Actions cache: dependency caching is off by default in advanced setup and its TRAP cache
+is disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the `Verify` and
+`Browser` jobs share their checkout, mise and Bun install steps through YAML anchors
+(`&checkout`, `&mise`, `&install`), so those pins appear once in `ci.yml`; zizmor warns
+that it audits anchored workflows on a best-effort basis. GitHub Code Quality is not
+used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
