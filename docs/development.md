@@ -333,10 +333,10 @@ pseudonyms, with no labels, emails, item names, URLs or host names
 
 For a problem that happened earlier, click **Download logs** on the same page, check the
 preview and click **Save file**, then attach the `.jsonl` file, or click **Copy all**
-and paste the whole text. Site addresses and recipe IDs appear as `site-1` and
-`recipe-1` unless you check **Include site addresses and recipe IDs**. To record more
-detail, click **Enable debug logging for 24 hours**, reproduce the problem, then
-download the logs ([local log](architecture.md#local-log)).
+and paste the whole text. Site addresses and recipe IDs are included; check
+**Hide site addresses and recipe IDs** to replace them with `site-1` and `recipe-1`. To
+record more detail, click **Enable debug logging for 24 hours**, reproduce the problem,
+then download the logs ([local log](architecture.md#local-log)).
 
 ### Why a passkey request was delegated
 

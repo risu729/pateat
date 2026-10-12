@@ -709,18 +709,18 @@ that exact page URL and returns a value-free summary
 The worker fetches `/health` only for a paired service with site access, and
 `/v1/device` only then and while the service has not rejected the credential, with a 5 s
 timeout; that route reads the database and imports the signing key, but signs nothing
-and never exchanges a Claude token. It
-fetches `{api}/config` only for an enabled connection whose provider permission sync
-also requires, with a 5 s timeout and no credentials. It never reads the config's
-`environment` (host URLs) or a third-party server's name other than Vaultwarden.
-**Copy for bug report** shows the exact text before copying it; that text leaves out the
-unlock KDF parameters. It ends with the log's last update
-(`Updated <time> from <revision>`), its warnings and errors of the last 24 hours (newest
-10, one line each with the time, level, event and allowlisted field values) and the
-count of passkey requests left to the browser in those 24 hours by reason. The worker
-builds these lines from the log and numbers sites and recipes in them as in a download,
-but separately, so `site-1` there can be another site than in **Download logs**. Labels,
-emails, item names and IDs, URLs and host names are never part of the summary.
+and never exchanges a Claude token. It fetches `{api}/config` only for an enabled
+connection whose provider permission sync also requires, with a 5 s timeout and no
+credentials. It never reads the config's `environment` (host URLs) or a third-party
+server's name other than Vaultwarden. **Copy for bug report** shows the exact text
+before copying it; that text leaves out the unlock KDF parameters. It ends with the
+log's last update (`Updated <time> from <revision>`), its warnings and errors of the
+last 24 hours (newest 10, one line each with the time, level, event and allowlisted
+field values) and the count of passkey requests left to the browser in those 24 hours by
+reason. The worker builds these lines from the log and always numbers sites and recipes
+in them as a download does when they are hidden, but separately, so `site-1` there can
+be another site than in **Download logs**. Labels, emails, item names and IDs, URLs and
+host names are never part of the summary.
 
 The owner checked the page in installed Chrome on 2026-10-11 against production
 (extension main 8581f1d, service e48b4e7). The Bitwarden cloud server showed as
@@ -786,9 +786,10 @@ only. **Download logs** previews the exact JSON Lines text and saves it through 
 link (no `downloads` permission): a header line with the version, revision and export
 time, then one line per entry. **Copy all** puts the same text on the clipboard in full,
 without selecting the scrolled preview by hand, and reports how many entries it copied.
-Unless **Include site addresses and recipe IDs** is checked, every origin, pseudonymized
-origin and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that
-export. **Clear logs** deletes every entry and replaces the pseudonym key.
+The export shows sites and recipe IDs as logged. When
+**Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
+and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
+**Clear logs** deletes every entry and replaces the pseudonym key.
 
 ## Declarative recipes and AI
 
