@@ -137,6 +137,12 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   ([settings and eligibility](architecture.md#settings-eligibility-and-operation-grants)).
   The owner placed it in phase 1 on 2026-10-12 (14:26 UTC).
 - Installed-Chrome checks still open:
+  - Watching a login after a step left to the person
+    ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge),
+    owner's choice 2026-10-12 13:08 UTC, local tests only): on 三菱UFJ銀行, after the
+    app approval of the QR page (`LG_0001_PC10`), the signed-in page (`LG_0002_PC01`)
+    completes the login and the site's logout is detected; after an expired QR code,
+    the sign-in page, in the same tab or a new one, is filled without pressing anything.
   - Continuing a generated recipe on the page after an `advance` step (email, then
     Next, then password), which the owner rated high priority: implemented with
     synthetic evidence only, as listed under

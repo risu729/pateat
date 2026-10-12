@@ -35,6 +35,18 @@ possible submission ends the attempt" below. Evidence: in the owner's Chrome, JM
 sign-in page `jallogin.jal.co.jp` asked for a passkey after the username step, Pateat
 answered, and the site moved to `www.jal.co.jp` signed in, but the login ended
 `left-origin`, so it held the site for 5 minutes and saved no account choice.
+Amended again on 2026-10-12 (13:08 UTC, owner's choice on a decision card, recorded in
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): a top-level
+`password` login that ends `challenge` or settles as unknown is watched for 10 minutes.
+A `challenge` login then waits as `watching`, which holds the origin like `challenge`
+did, for 5 minutes after the record last changed; a page judged during the watch is not
+a change. Completing during the watch releases the origin, and the end of the watch
+keeps the record's last change time. During the watch, the recipe's first step showing
+in a page of another tab of the site, first seen after the watch began, releases the
+watched record as a logout
+(ADR 0021 D), so that tab asks and fills without pressing anything instead of being
+refused `origin-busy` (owner's request, 13:49 UTC, after the person restarted an
+expired QR approval on 三菱UFJ銀行 and Pateat did nothing until the old tab closed).
 
 ## Context
 
@@ -152,15 +164,17 @@ fix them now; the SSO policy itself is recorded separately.
   be stopped by. A record in any other state keeps holding, for example one that is
   running, `retryable` (it is tried again from the same step at once, or, after a
   restart, once a new page of its tab shows, until its retries are spent), still
-  reconciling, settled as unknown, ended `interrupted` after a submission, stopped by
-  Pateat while a fill or click may have reached the page, or ended
-  `credential-rejected`, `challenge`, `submission-limit` or `left-origin`. So a password
-  is not submitted again while a first submission may still be in flight or was refused,
-  or while the user may be answering a challenge Pateat does not handle. Releasing
-  `account-switched` lets another tab start between the switch click and the first tab's
-  fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip says that
-  another tab's login holds the site and that closing that tab, or waiting 5 minutes and
-  reloading, lets it log in, and is reset when the tab logs in
+  reconciling, settled as unknown, watched after a `challenge` (`watching`, ADR 0027),
+  ended `interrupted` after a submission, stopped by Pateat while a fill or click may
+  have reached the page, or ended `credential-rejected`, `challenge`, `submission-limit`
+  or `left-origin`. A watched login, settled or `watching`, stops holding once its first
+  step shows in another tab's page first seen after the watch began (ADR 0027). So a
+  password is not submitted again while a first submission may still be in flight or was
+  refused, or while the user may be answering a challenge Pateat does not handle.
+  Releasing `account-switched` lets another tab start between the switch click and the
+  first tab's fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip
+  says that another tab's login holds the site and that closing that tab, or waiting 5
+  minutes and reloading, lets it log in, and is reset when the tab logs in
   ([Background execution](../architecture.md#background-execution)). A refused page does
   not announce again when the hold ends; reloading it starts the login, as does a pick
   in the toolbar popup while the page waits for an account choice

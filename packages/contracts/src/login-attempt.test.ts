@@ -9,6 +9,7 @@ import {
   parseAttemptMetadata,
   recoverLoginAttempt,
   judgedPages,
+  pagesLeft,
   MAX_JUDGED_PAGES,
   transitionLoginAttempt,
   validateLoginOperation,
@@ -2366,5 +2367,163 @@ describe("a login on a chooser's list (ADR 0028)", () => {
       kind: "fill",
     });
     expect(transitionLoginAttempt(started, { type: "NOT_LISTED" }).outcome).toBeUndefined();
+  });
+});
+
+describe("a login watched after a challenge or an unknown result (ADR 0027)", () => {
+  const top: LoginDocument = { ...document, frameId: 0, documentId: "top-one" };
+  const later: LoginDocument = { ...top, documentId: "top-two" };
+  const withPasskey: LoginRecipe = {
+    ...recipe,
+    passkey: { path: "/login", target: { by: "id", value: "passkey-login" } },
+  };
+  function awaiting(at: LoginDocument = top, route: "password" | "passkey" = "password") {
+    let attempt = transitionLoginAttempt(
+      createAttemptMetadata({
+        id: "attempt-watched",
+        recipe: withPasskey,
+        policyRevision: 3,
+        account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: route === "password" ? { route, variant: 0 } : { route },
+        facts: { ...facts, passkey: true, discoverablePasskey: true },
+        document: at,
+      }),
+      { type: "RESOLVE" },
+    );
+    if (route === "password") {
+      attempt = transitionLoginAttempt(attempt, {
+        type: "PREPARE",
+        operationId: "fill-one",
+        kind: "fill",
+      });
+      attempt = transitionLoginAttempt(attempt, {
+        type: "MUTATION_INTENT",
+        operationId: "fill-one",
+      });
+      attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" });
+    }
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "click-one",
+      kind: "click",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId: "click-one" });
+    return transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "click-one" });
+  }
+  const observed = (
+    result: "authenticated" | "credential-rejected" | "challenge" | "unknown",
+    at = top,
+  ) => ({ type: "OBSERVED" as const, result, document: at });
+
+  it("watches a top-level password login that stops at a challenge", () => {
+    const watching = transitionLoginAttempt(awaiting(), observed("challenge"), 1000);
+    expect(watching).toMatchObject({
+      state: "watching",
+      outcome: "challenge",
+      watch: { since: 1000, documentId: "top-one", pages: 0 },
+    });
+    // A restart or a later page of the tab keeps the watch as it was.
+    expect(recoverLoginAttempt(watching)).toEqual(watching);
+    const moved = transitionLoginAttempt(watching, { type: "NAVIGATED", document: later }, 9000);
+    expect(moved).toEqual({ ...watching, document: later });
+    // It only reads: no step is issued or prepared.
+    expect(nextLoginOperation(moved, withPasskey, later, "operation-two", 0)).toBeUndefined();
+    expect(
+      transitionLoginAttempt(moved, {
+        type: "PREPARE",
+        operationId: "operation-two",
+        kind: "click",
+      }),
+    ).toEqual(moved);
+    // A page that proves the sign-in completes it; a refused password ends it.
+    const done = transitionLoginAttempt(moved, observed("authenticated", later));
+    expect(done).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    expect(done).not.toHaveProperty("watch");
+    expect(transitionLoginAttempt(moved, observed("credential-rejected", later))).toMatchObject({
+      state: "blocked",
+      outcome: "credential-rejected",
+    });
+    // Anything else leaves it watched.
+    for (const result of ["challenge", "unknown"] as const)
+      expect(transitionLoginAttempt(moved, observed(result, later))).toEqual(moved);
+    // The watch ends where the login stopped.
+    const ended = transitionLoginAttempt(moved, { type: "WATCH_ENDED" });
+    expect(ended).toMatchObject({ state: "blocked", outcome: "challenge" });
+    expect(ended).not.toHaveProperty("watch");
+    // Leaving the origin ends it as any submitted login does.
+    expect(
+      transitionLoginAttempt(moved, {
+        type: "NAVIGATED",
+        document: { ...later, origin: "https://elsewhere.example" },
+      }),
+    ).toMatchObject({ state: "blocked", outcome: "left-origin" });
+  });
+
+  it("keeps a frame's and the passkey route's challenge final", () => {
+    expect(
+      transitionLoginAttempt(
+        awaiting({ ...top, frameId: 2 }),
+        observed("challenge", { ...top, frameId: 2 }),
+      ),
+    ).toMatchObject({ state: "blocked", outcome: "challenge" });
+    const passkey = transitionLoginAttempt(awaiting(top, "passkey"), observed("challenge"));
+    expect(passkey).toMatchObject({ state: "blocked", outcome: "challenge" });
+    expect(passkey).not.toHaveProperty("watch");
+  });
+
+  it("watches a result settled as unknown until the attempt moves on or the watch ends", () => {
+    const unknown = transitionLoginAttempt(awaiting(), observed("unknown"), 2000);
+    expect(unknown).toMatchObject({
+      state: "reconciling",
+      settled: true,
+      watch: { since: 2000, documentId: "top-one", pages: 0 },
+    });
+    const moved = recoverLoginAttempt(
+      transitionLoginAttempt(unknown, { type: "NAVIGATED", document: later }, 5000),
+    );
+    expect(moved.watch).toEqual(unknown.watch);
+    // A challenge on a later page keeps the watch's start.
+    expect(transitionLoginAttempt(moved, observed("challenge", later), 7000)).toMatchObject({
+      state: "watching",
+      watch: { since: 2000, documentId: "top-one" },
+    });
+    const ended = transitionLoginAttempt(moved, { type: "WATCH_ENDED" });
+    expect(ended).toMatchObject({ state: "blocked", outcome: "unknown-submit" });
+    expect(ended).not.toHaveProperty("watch");
+    // Only a watched login's watch ends.
+    const pending = awaiting();
+    expect(transitionLoginAttempt(recoverLoginAttempt(pending), { type: "WATCH_ENDED" })).toEqual(
+      recoverLoginAttempt(pending),
+    );
+    // Moving on drops the watch with the settled result.
+    const authenticated = transitionLoginAttempt(moved, observed("authenticated", later));
+    expect(authenticated).not.toHaveProperty("watch");
+  });
+
+  it("judges at most two pages while watched, apart from the effect step's", () => {
+    const judging = { type: "JUDGING" as const, operationId: "click-one" };
+    const first = transitionLoginAttempt(awaiting(), judging);
+    expect(first.judged).toEqual({ operationId: "click-one", pages: 1 });
+    const watching = transitionLoginAttempt(first, observed("challenge"), 1000);
+    expect(pagesLeft(watching, "click-one")).toBe(MAX_JUDGED_PAGES);
+    const once = transitionLoginAttempt(watching, judging);
+    const twice = transitionLoginAttempt(once, judging);
+    expect(twice).toMatchObject({ judged: { pages: 1 }, watch: { pages: 2 } });
+    expect(pagesLeft(twice, "click-one")).toBe(0);
+    expect(transitionLoginAttempt(twice, judging)).toEqual(twice);
+    // A page no model saw is given back to the watch.
+    expect(
+      transitionLoginAttempt(twice, { type: "UNJUDGED", operationId: "click-one" }),
+    ).toMatchObject({ judged: { pages: 1 }, watch: { pages: 1 } });
+    expect(
+      transitionLoginAttempt(watching, { type: "UNJUDGED", operationId: "click-one" }),
+    ).toEqual(watching);
+  });
+
+  it("refuses a watch on a login that is not watched, and a watched login without one", () => {
+    const watching = transitionLoginAttempt(awaiting(), observed("challenge"), 1000);
+    expect(() => parseAttemptMetadata({ ...watching, watch: undefined })).toThrow();
+    expect(() => parseAttemptMetadata({ ...awaiting(), watch: watching.watch })).toThrow();
+    expect(() => parseAttemptMetadata({ ...watching, document: { ...top, frameId: 2 } })).toThrow();
   });
 });

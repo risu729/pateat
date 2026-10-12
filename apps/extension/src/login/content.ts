@@ -403,7 +403,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ...(entryPage ? { entry: { path: location.pathname } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
-    if (!parsed.success || parsed.output.ok) {
+    if (parsed.success && parsed.output.ok && parsed.output.starts) {
+      // A page of a watched login: its recipe's first step showing releases the login
+      // (ADR 0027).
+      watch(parsed.output.starts);
+      check();
+    } else if (!parsed.success || parsed.output.ok) {
       unwatch();
     } else if (parsed.output.starts) {
       watch(parsed.output.starts, parsed.output.generate === true, parsed.output.entry === true);

@@ -4,7 +4,10 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
-Each part lands in its own PR. All four parts, A to D, are implemented.
+Each part lands in its own PR. All four parts, A to D, are implemented. Amended on
+2026-10-12 by [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge):
+in D, a watched login is released like a finished one when its first step shows in a new
+page of its tab or of another tab of the site (implemented).
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
@@ -153,8 +156,17 @@ more.
 
 Once a Pateat login in a tab has finished, the next appearance of a recipe's first step
 for the same origin in that same tab counts as a logout. "Finished" includes
-`authenticated`, `credential-rejected`, `wrong-account` and unknown outcomes, and since
+`authenticated`, `credential-rejected` and `wrong-account`, and since
 [ADR 0022](0022-login-attempts-per-tab-and-origin.md) `left-origin` and `interrupted`.
+An unknown outcome is not finished (corrected on 2026-10-12: this sentence listed it,
+while the paragraph below and the code never did). Since
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge) (owner,
+2026-10-12 13:08 UTC), a top-level `password` login that ends `challenge` or settles as
+unknown is watched for 10 minutes, and during the watch the first step showing in a new
+page of the tab, or of another tab of the site, releases it the same way as a logout
+here, `login.logout` marked `watched`. Such a release in another tab is the exception to
+the rule below that only a tab's own record is released: a watched login is never
+submitted again by itself, and the page there is filled without pressing anything.
 On that appearance Pateat does not log in automatically. It asks for an account as in B,
 with the default listed first.
 
@@ -166,8 +178,9 @@ tooltip says why. While the tab asks, other tabs of the origin that show a recip
 first step ask too (amended 2026-10-11; before, they were refused `origin-busy`), so
 they do not log in again behind the logout. Their tooltip says the logout happened in
 another tab. A result Pateat could not observe stays `reconciling` and is resumed by the
-next page, not taken as a logout. The runtime and the content script must keep watching
-after a finished attempt, including after an in-document (SPA) logout.
+next page, not taken as a logout, except as the watch above releases it. The runtime and
+the content script must keep watching after a finished attempt, including after an
+in-document (SPA) logout.
 
 Amended 2026-10-12 by the owner: after a logout Pateat fills the login form but never
 presses anything. When the tab would ask as above and one account is to be used, the
