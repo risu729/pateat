@@ -1611,6 +1611,21 @@ describe("page judgement (ADR 0027)", () => {
     expect(await head(device, change.recipeId)).toBe(6);
   });
 
+  it("answers signed-in without a change when a later marker cannot be added", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    await complete(device, change.recipeId, 2);
+    // The judge names the first page's Next button, which is never a marker (ADR 0029).
+    const welcome = observation("/welcome", [element("next", "button", "Next")]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "next" }));
+    expect((await complete(device, change.recipeId, 3, welcome)).body).toEqual({
+      version: 1,
+      status: "signed-in",
+    });
+    expect(await head(device, change.recipeId)).toBe(3);
+  });
+
   it("does not judge a page that shows a route fill field or a signed-in marker", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

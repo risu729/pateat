@@ -2883,6 +2883,27 @@ describe("production login document admission", () => {
         // A marker proves the sign-in on any path, so the completion check settles it.
         expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "state" }));
       }, 12_000);
+      it("never counts a hidden marker, as on the sign-in page after a failed password (ADR 0029)", async () => {
+        fake.state.present = new Set(["password", "login"]);
+        fake.state.signs = noSigns;
+        // The site keeps a hidden "Sign out" in a closed menu on every page.
+        fake.state.onExecute = afterClick(["authenticated", "password", "login"], "/signin", [
+          "authenticated",
+        ]);
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(recipe);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"outcome":"unknown-submit"'), {
+          timeout: 6_000,
+        });
+        expect(published()).not.toContain('"state":"authenticated"');
+        expect(report).toHaveBeenCalledWith(expect.objectContaining({ type: "state", e1: false }));
+      }, 10_000);
       it("never counts the marker while a hidden field must still be gone on its path", async () => {
         fake.state.present = new Set(["password", "login"]);
         fake.state.signs = noSigns;

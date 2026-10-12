@@ -173,10 +173,10 @@ on the rest of that page, the account's own usernames hidden as `[account]`, and
 1,000 characters. The judge's instructions name it as untrusted page text. Login pages,
 lists of accounts and sign-in entry pages never carry it.
 
-The list of learned markers (since 2026-10-12): a recipe's `completion` is a list of up to
-four markers, each a locator with up to four `absent` elements and no path. After every
-effect step, in a watched login and in E1, a marker that shows once on any path while
-each of its `absent` elements is missing, even hidden, proves the sign-in, so the
+The list of learned markers (since 2026-10-12): a recipe's `completion` is a list of up
+to four markers, each a locator with up to four `absent` elements and no path. After
+every effect step, in a watched login and in E1, a marker that shows once on any path
+while each of its `absent` elements is missing, even hidden, proves the sign-in, so the
 completion check and E1 read the same markers. A page the judge answers `signed-in` for
 adds its marker after the learned ones in the recipe's next revision, which a running
 login takes over; when the recipe has four, or the judge names one it has, nothing

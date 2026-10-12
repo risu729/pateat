@@ -803,15 +803,14 @@ export async function judgeCompletion(
     const change = written.ok ? answerable(written.change) : undefined;
     return { version: 1, status: "challenge", ...(change ? { change } : {}) };
   }
-  // A later signed-in page adds its marker, up to four (ADR 0029); with four, or a marker
-  // the recipe has, the page needs no change.
+  // A later signed-in page adds its marker, up to four (ADR 0029). A recipe that has a
+  // marker already is signed in whether or not this one can be added, as with four, a
+  // marker it has, or one that breaks the recipe's bounds.
   const learned = addCompletion(recipe, observation, judgement.target);
-  if (!learned.ok)
-    return learned.reason === "marker-limit" || learned.reason === "already-learned"
-      ? { version: 1, status: "signed-in" }
-      : failed("invalid-output");
+  const signedIn = { version: 1, status: "signed-in" } as const;
+  if (!learned.ok) return recipe.completion ? signedIn : failed("invalid-output");
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
-  if (!learnedRecipe) return failed("recipe-invalid");
+  if (!learnedRecipe) return recipe.completion ? signedIn : failed("recipe-invalid");
   const written = await writeRecipe(
     env.DB,
     scope.ownerId,
@@ -820,5 +819,6 @@ export async function judgeCompletion(
     scope.deviceId,
   );
   const change = written.ok ? answerable(written.change) : undefined;
-  return change ? { version: 1, status: "signed-in", change } : unavailable("recipe-conflict");
+  if (change) return { ...signedIn, change };
+  return recipe.completion ? signedIn : unavailable("recipe-conflict");
 }

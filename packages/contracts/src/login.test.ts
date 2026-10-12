@@ -159,16 +159,14 @@ describe("declarative login boundaries", () => {
   it("keeps up to four distinct signed-in markers (ADR 0029)", () => {
     const marker = (value: string) => ({ target: { by: "id" as const, value } });
     const withMarkers = (completion: unknown[]) => ({ ...recipe(), completion });
-    expect(
-      parseLoginRecipe(withMarkers(["a", "b", "c", "d"].map(marker))).completion,
-    ).toHaveLength(4);
+    expect(parseLoginRecipe(withMarkers(["a", "b", "c", "d"].map(marker))).completion).toHaveLength(
+      4,
+    );
     expect(() => parseLoginRecipe(withMarkers(["a", "b", "c", "d", "e"].map(marker)))).toThrow();
     expect(() => parseLoginRecipe(withMarkers([]))).toThrow();
     expect(() => parseLoginRecipe(withMarkers([marker("a"), marker("a")]))).toThrow();
     // A marker has no path: it proves a sign-in on any path.
-    expect(() =>
-      parseLoginRecipe(withMarkers([{ ...marker("a"), path: "/home" }])),
-    ).toThrow();
+    expect(() => parseLoginRecipe(withMarkers([{ ...marker("a"), path: "/home" }]))).toThrow();
   });
 
   it("refuses an account switch that is a step's button or the rejection", () => {
@@ -712,14 +710,14 @@ describe("second-factor page handlers (ADR 0027)", () => {
       // An unchanged completion is kept, and a later marker is appended (ADR 0029).
       const learned = next({ completion });
       expect(extendsRecipe(learned, next({ handlers: [passkeyHandler()] }, learned))).toBe(true);
-      const account = { target: { by: "id", value: "account" } } as const;
-      expect(
-        extendsRecipe(learned, next({ completion: [...completion!, account] }, learned)),
-      ).toBe(true);
+      const account = { target: { by: "id", value: "profile" } } as const;
+      expect(extendsRecipe(learned, next({ completion: [...completion!, account] }, learned))).toBe(
+        true,
+      );
       // A marker put before the learned ones changes their order.
-      expect(
-        extendsRecipe(learned, next({ completion: [account, ...completion!] }, learned)),
-      ).toBe(false);
+      expect(extendsRecipe(learned, next({ completion: [account, ...completion!] }, learned))).toBe(
+        false,
+      );
     });
 
     it("compares the recipe whatever the key order", () => {
@@ -1500,9 +1498,7 @@ describe("password route variants (ADR 0027)", () => {
         next({ handlers: [{ kind: "passkey", path: "/webauthn", target: id("key") }] }),
       ),
     ).toBe(true);
-    expect(
-      extendsRecipe(base, next({ completion: [{ target: id("welcome") }] })),
-    ).toBe(true);
+    expect(extendsRecipe(base, next({ completion: [{ target: id("welcome") }] }))).toBe(true);
     expect(extendsRecipe(base, next({ alternatives: undefined }))).toBe(false);
     expect(
       extendsRecipe(
@@ -1597,9 +1593,7 @@ describe("password route variants (ADR 0027)", () => {
     // A marker proves a sign-in on any path, so no variant's field or button is one.
     expect(valid({ completion: [{ target: id("welcome") }] })).toBe(true);
     expect(valid({ completion: [{ target: id("contract") }] })).toBe(false);
-    expect(valid({ completion: [{ target: id("welcome") }, { target: id("login") }] })).toBe(
-      false,
-    );
+    expect(valid({ completion: [{ target: id("welcome") }, { target: id("login") }] })).toBe(false);
     // The rejection is checked on every page, so no variant's button may be it.
     expect(valid({ rejection: id("login") })).toBe(false);
     expect(valid({ rejection: id("contract") })).toBe(false);
@@ -1616,8 +1610,9 @@ describe("password route variants (ADR 0027)", () => {
         steps: [fill(["branch", "account", "password"]), { ...submit(), purpose: "advance" }],
       }),
     ).toBe(true);
-    // A completion or rejection on the recipe's own elements is left to the recipe's author.
-    expect(single({ completion: [{ target: id("branch") }] })).toBe(true);
+    // A rejection on the recipe's own elements is left to the recipe's author, but a marker
+    // proves a sign-in wherever it shows (ADR 0029), so it is never a step's element.
+    expect(single({ completion: [{ target: id("branch") }] })).toBe(false);
     expect(single({ rejection: id("login") })).toBe(true);
   });
 
@@ -1890,9 +1885,7 @@ describe("the passkey route (ADR 0027)", () => {
         next({ handlers: [{ kind: "passkey", path: "/webauthn", target: id("key") }] }),
       ),
     ).toBe(true);
-    expect(
-      extendsRecipe(base, next({ completion: [{ target: id("welcome") }] })),
-    ).toBe(true);
+    expect(extendsRecipe(base, next({ completion: [{ target: id("welcome") }] }))).toBe(true);
     expect(extendsRecipe(base, next({ passkey: undefined }))).toBe(false);
     expect(extendsRecipe(base, next({ passkey: { ...passkey, target: id("other") } }))).toBe(false);
     const plain = parseLoginRecipe({ ...recipe(), completion: undefined });

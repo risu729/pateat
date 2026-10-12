@@ -797,15 +797,15 @@ const stepTargets = (step: LoginStep) =>
 /**
  * The recipe's signed-in markers as elements to observe (ADR 0029): each marker, which may
  * be a link located by its text (ADR 0018), then the elements it needs missing. `proves`
- * reads their states from `offset`: whether one marker shows once while each element it
- * needs missing is missing, on any path.
+ * reads their states from `offset`: whether one marker shows once, visible, while each
+ * element it needs missing is missing even hidden, on any path.
  */
 function markerProof(recipe: LoginRecipe) {
   const markers = recipe.completion ?? [];
   return {
     targets: markers.flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
     links: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => false)]),
-    /** Each marker shown, and the elements it needs gone counted even when hidden. */
+    /** Each marker must be visible; the elements it needs gone count even when hidden. */
     shown: markers.flatMap((marker) => [
       "shown" as const,
       ...(marker.absent ?? []).map(() => "present" as const),
@@ -2817,9 +2817,11 @@ export function createLoginRuntime(
     const observed = await observe(
       run,
       targets,
-      inPlace
-        ? [...checks.map(() => "present" as const), ...nextTargets.map(() => inPlace.require)]
-        : undefined,
+      [
+        ...proof.shown,
+        ...(rejection ? ["present" as const] : []),
+        ...nextTargets.map(() => inPlace?.require ?? ("present" as const)),
+      ],
       proof.links.length > 0 ? proof.links : undefined,
     );
     if (!observed) return undefined;
@@ -3009,15 +3011,20 @@ export function createLoginRuntime(
     // Each marker shown, with the fields it needs gone counted even when hidden, as the
     // completion check counts them: a login form that hides itself again after a failed
     // sign-in is not a sign-in.
+    // The markers are read on their own, so they never crowd out the sign-in fields.
     const proof = markerProof(recipe);
-    const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - proof.targets.length);
+    const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24);
     const observed = await observe(
       run,
-      [...fills, ...proof.targets],
-      [...fills.map(() => "shown" as const), ...proof.shown],
-      proof.links.length > 0 ? [...fills.map(() => false), ...proof.links] : undefined,
+      fills,
+      fills.map(() => "shown" as const),
     );
     if (!observed) return undefined;
+    const marked =
+      proof.targets.length > 0
+        ? await observe(run, proof.targets, proof.shown, proof.links)
+        : undefined;
+    if (proof.targets.length > 0 && !marked) return undefined;
     const authorized = await allowed(run);
     if (!authorized) return undefined;
     let username: string | undefined;
@@ -3065,7 +3072,7 @@ export function createLoginRuntime(
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
-      e1: proof.proves(observed.targets, fills.length),
+      e1: marked !== undefined && proof.proves(marked.targets),
       e2: page.username === true,
       // The document's path now, which follows a route change of a single-page site.
       e3:
@@ -3243,7 +3250,7 @@ export function createLoginRuntime(
     const observed = await observe(
       run,
       [click.target, ...proof.targets, ...(rejection ? [rejection] : [])],
-      undefined,
+      ["present", ...proof.shown, ...(rejection ? ["present" as const] : [])],
       proof.links.length > 0 ? [false, ...proof.links] : undefined,
     );
     if (!observed || !current(run)) return false;
@@ -3990,7 +3997,7 @@ export function createLoginRuntime(
     if (proof.targets.length > 0) {
       const until = Date.now() + WATCH_SETTLE_MS;
       for (;;) {
-        const observed = await observe(run, proof.targets, undefined, proof.links);
+        const observed = await observe(run, proof.targets, proof.shown, proof.links);
         if (!observed || !watching()) return;
         if (proof.proves(observed.targets)) {
           await change(run, {

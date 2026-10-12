@@ -435,9 +435,10 @@ export const loginRecipeSchema = v.pipe(
     ].some((target) => targetKey(target) === key);
   }, "Account switch target is a step or rejection target"),
   // The markers and the rejection are checked after every step, on any path, so a
-  // variant's own element must never prove or refuse the sign-in.
+  // variant's own element must never prove or refuse the sign-in. A marker proves it
+  // wherever it shows (ADR 0029), so even a single variant's step never uses one; its
+  // rejection on its own elements is left to the recipe's author.
   v.check((recipe) => {
-    if (!recipe.alternatives) return true;
     const used = new Set(
       variantsOf(recipe).flatMap((variant) =>
         variant.steps.flatMap((step) =>
@@ -449,7 +450,7 @@ export const loginRecipeSchema = v.pipe(
     );
     return (
       !(recipe.completion ?? []).some((marker) => used.has(targetKey(marker.target))) &&
-      !(recipe.rejection && used.has(targetKey(recipe.rejection)))
+      !(recipe.alternatives && recipe.rejection && used.has(targetKey(recipe.rejection)))
     );
   }, "Completion or rejection target is a variant's step target"),
   // A handler's element showing would otherwise prove the sign-in on its own page.
@@ -511,9 +512,7 @@ export const loginRecipeSchema = v.pipe(
         recipe.accountSwitch,
         recipe.rejection,
         ...(recipe.completion ?? []).map((marker) => marker.target),
-      ].some(
-        (target) => target !== undefined && targetKey(target) === key,
-      )
+      ].some((target) => target !== undefined && targetKey(target) === key)
     );
   }, "Passkey target is a step, handler, completion, rejection or account switch target"),
 );
