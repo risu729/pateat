@@ -64,6 +64,8 @@ const fake = vi.hoisted(() => {
     session: {} as Record<string, unknown>,
     /** Present elements that are hidden or disabled, for an observation that asks. */
     unusable: new Set<string>(),
+    /** Elements that match more than once. */
+    ambiguous: new Set<string>(),
     /** Tab-specific toolbar badge text and title. */
     badges: {} as Record<number, { text?: string; title?: string }>,
     /** Each `login.reconnect` and the document it was sent to. */
@@ -128,18 +130,21 @@ const fake = vi.hoisted(() => {
           state.onAwait?.();
           return state.awaited;
         }
+        /** A target's state with `present`, as the content script reports it. */
+        const stateOf = (value: string, require: string | undefined) =>
+          !state.present!.has(value)
+            ? "missing"
+            : state.ambiguous.has(value)
+              ? "ambiguous"
+              : [undefined, "present"].includes(require) === false && state.unusable.has(value)
+                ? "unusable"
+                : "unique";
         if (message["type"] === "login.observe")
           return {
             path: state.observedPath,
             targets: state.present
               ? (message["targets"] as { value: string }[]).map((entry, index) =>
-                  !state.present!.has(entry.value)
-                    ? "missing"
-                    : [undefined, "present"].includes(
-                          (message["require"] as string[] | undefined)?.[index],
-                        ) === false && state.unusable.has(entry.value)
-                      ? "unusable"
-                      : "unique",
+                  stateOf(entry.value, (message["require"] as string[] | undefined)?.[index]),
                 )
               : [...state.observed],
           };
@@ -149,6 +154,14 @@ const fake = vi.hoisted(() => {
             state.extracted[message["page"] as string] ?? { ok: false, reason: "no-candidates" }
           );
         if (message["type"] === "login.execute") {
+          // An advance's next step, measured just before the click or the first input.
+          const next = message["next"] as
+            | { require: string; targets: { value: string }[] }
+            | undefined;
+          const before =
+            next && state.present
+              ? next.targets.map((entry) => stateOf(entry.value, next.require))
+              : undefined;
           await state.onExecute?.(message, _tabId);
           const operation = message["operation"] as {
             operationId: string;
@@ -159,6 +172,7 @@ const fake = vi.hoisted(() => {
             operationId: operation.operationId,
             documentId: operation.document.documentId,
             mutation: state.executeReply && !state.executeReply.ok ? "none" : "possible",
+            ...(before && state.executeReply?.ok !== false ? { before } : {}),
             ...state.executeReply,
           };
         }
@@ -6728,6 +6742,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     // An identifier-first form: the email form shows, the password form is hidden.
     fake.state.present = new Set(["email", "next", "password", "login"]);
     fake.state.unusable = new Set(["password", "login"]);
+    fake.state.ambiguous = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -6796,7 +6811,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
       if (step.target?.value === "login") fake.state.present?.add("authenticated");
     };
   };
-  const start = (withRecipe = identifierFirst()) => {
+  const start = (withRecipe = identifierFirst(), live: Parameters<typeof harness>[1] = {}) => {
     const h = harness(
       {
         bindings: [
@@ -6805,11 +6820,12 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
             slots: [
               { slot: "username", field: "username" },
               { slot: "password", field: "password" },
+              { slot: "branch", field: { custom: "Branch" } },
             ],
           },
         ],
       },
-      { username: true },
+      { username: true, ...live },
     );
     h.recipes.recipe.mockResolvedValue(withRecipe);
     h.recipes.starts.mockResolvedValue(startsOf([withRecipe.steps[0]!]));
@@ -6824,14 +6840,18 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     await until(settled("authenticated"));
     expect(executed()).toEqual(allSteps);
     expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
-    // The password field is checked as its fill waits for it, before and after Next.
-    const checks = fake.state.messages.filter(
-      (entry) =>
-        entry.type === "login.observe" &&
-        JSON.stringify(entry).includes('"value":"password"') &&
-        JSON.stringify(entry).includes('"writable"'),
-    );
-    expect(checks.length).toBeGreaterThanOrEqual(2);
+    // Only the Next click has the document measure the password field, as its fill waits
+    // for it, in the same task as the click.
+    expect(
+      fake.state.messages
+        .filter((entry) => entry.type === "login.execute")
+        .map((entry) => (entry as Record<string, unknown>)["next"]),
+    ).toEqual([
+      undefined,
+      { path: "/signin", require: "writable", targets: [target("password")] },
+      undefined,
+      undefined,
+    ]);
   });
 
   it("continues after a same-document URL change that keeps the path", async () => {
@@ -6944,5 +6964,87 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     expect(await h.hello()).toEqual({ ok: true });
     await until(settled("blocked", "credential-rejected"));
     expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+
+  it("never continues when the password form shows after Next's wait but before its click", async () => {
+    swapForms();
+    const h = start();
+    // The page reveals the password form by itself while the click is being prepared,
+    // after the Next button's wait, as a debounced input handler may.
+    const original = h.store.handle.getMockImplementation()!;
+    let revealedAfter: number | undefined;
+    h.store.handle.mockImplementation(async () => {
+      if (status()?.[0]?.["state"] === "submit-intent" && revealedAfter === undefined) {
+        fake.state.unusable = new Set(["login"]);
+        revealedAfter = executed().length;
+      }
+      return original();
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"), 15_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    // Revealed after the email fill and before the Next click.
+    expect(revealedAfter).toBe(1);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+
+  it("never continues when part of the next step was usable before Next", async () => {
+    // The branch field already shows beside the account form; only the password is new.
+    swapForms();
+    const h = start(
+      parseLoginRecipe({
+        ...identifierFirst(),
+        slots: ["username", "branch", "password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [{ slot: "username", target: target("email") }],
+          },
+          { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "branch", target: target("branch") },
+              { slot: "password", target: target("password") },
+            ],
+          },
+          { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+        ],
+      }),
+    );
+    fake.state.present?.add("branch");
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"), 15_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+
+  it("never continues when the password field matched several elements before Next", async () => {
+    fake.state.ambiguous = new Set(["password"]);
+    swapForms(() => (fake.state.ambiguous = new Set()));
+    const h = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"), 15_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+
+  it("types the password before a handler shown with the password form on that path", async () => {
+    // As on another path, the route's next step comes before the recipe's handlers.
+    const securityKey = { by: "text" as const, value: "Use security key" };
+    swapForms(() => fake.state.present?.add(securityKey.value));
+    const h = start(
+      parseLoginRecipe({
+        ...identifierFirst(),
+        handlers: [{ kind: "passkey", path: "/signin", target: securityKey }],
+      }),
+      { passkeys: async () => ({ passkey: true, discoverable: false }) },
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(status()![0]).toMatchObject({ handlers: [] });
   });
 });

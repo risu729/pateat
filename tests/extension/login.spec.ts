@@ -740,6 +740,35 @@ for (const [name, query] of [
     }
   });
 
+test("an identifier-first page that shows the password form from the start never continues after Next (ADR 0013)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/identifier-first?shown`);
+      // Nothing confirms the advance, so after ten seconds its result is unknown.
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }), {
+          timeout: 20_000,
+        })
+        .toMatchObject({ attempts: [{ outcome: "unknown-submit", stepIndex: 1 }] });
+      // Cover several more checks before the negative assertions.
+      await page.waitForTimeout(1000);
+      expect(
+        await page.evaluate(() => ({
+          identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+          password: (document.getElementById("password") as HTMLInputElement).value,
+        })),
+      ).toEqual({ identityClicks: 1, submitClicks: 0, password: "" });
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("signs in with the start page's passkey button for a discoverable passkey (ADR 0027)", async () => {
   const fixture = await startLoginFixture();
   try {

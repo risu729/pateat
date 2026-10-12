@@ -47,9 +47,11 @@ Chrome, on a production build of main.
   [#246](https://github.com/risu729/pateat/pull/246)) are merged, and so is the rest of
   delivery 4.
 - Continue a generated recipe on the page after an `advance` step (email, then Next,
-  then password), as listed under
-  [AI evaluation harness progress](#ai-evaluation-harness-progress). The owner rated it
-  high priority.
+  then password): generate the steps after Next through the generation route's `base`,
+  as listed under [AI evaluation harness progress](#ai-evaluation-harness-progress). The
+  owner rated it high priority. An existing recipe whose step after an advance is on the
+  same path, as an identifier-first form that swaps in its password form in place,
+  already continues ([#252](https://github.com/risu729/pateat/pull/252)).
 - Installed-Chrome checks still open:
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the
@@ -1266,6 +1268,15 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   with the built-in-slot or generated binding, saves that binding with the account
   choice after `authenticated`, and sends a page no check explains to be judged for
   `completion` or a handler. The service routes, limits and request log are implemented.
+  A recipe that already holds the steps after the advance continues on another path,
+  and since 2026-10-12 ([#252](https://github.com/risu729/pateat/pull/252)) on the same
+  path once those steps' elements become ready
+  ([architecture](architecture.md#background-execution)). Runtime tests and three probe
+  E2E specs on `/identifier-first` (the password form shown in place, the same after a
+  `history.pushState` that keeps the path, and a page that shows the password form from
+  the start never continuing) cover it with synthetic values only; it has not run in
+  installed Chrome or on a real site. Generating the steps after Next through `base` is
+  still open.
 - A different remembered account, approved by the owner on 2026-10-11: on a step that
   fills a secret but no username, the executor compares the account shown in that
   form and the page headings with the selected account's username, locally only. If

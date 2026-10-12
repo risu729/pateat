@@ -87,6 +87,7 @@ import {
   HELD_CLICK_WAIT_MS,
   LOGIN_STEP_WAIT_MS,
   type LoginReadiness,
+  type TargetState,
   type LoginSecretKind,
 } from "./wire";
 import {
@@ -235,11 +236,12 @@ type Execution = {
    */
   heldClick?: number;
   /**
-   * Whether the step after an advance on the same path was ready just before the advance
-   * ran (ADR 0013): only elements that become ready after it confirm it. Kept in memory
-   * and carried to the attempt's next document, never stored.
+   * The elements of the step after an advance on the same path, as the document measured
+   * them in the same task as the advance, just before it (ADR 0013): only elements that
+   * were not usable then confirm it. Kept in memory and carried to the attempt's next
+   * document, never stored.
    */
-  inPlace?: { operationId: string; ready: boolean };
+  inPlace?: { operationId: string; before: TargetState[] };
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -1842,7 +1844,7 @@ export function createLoginRuntime(
         (inPlace !== undefined &&
           run.inPlace !== undefined &&
           run.inPlace.operationId === run.metadata.operationId &&
-          !run.inPlace.ready))
+          run.inPlace.before.every((state) => state === "missing" || state === "unusable")))
     ) {
       const continuation: LoginAttemptEvent = {
         type: "OBSERVED",
@@ -2307,22 +2309,6 @@ export function createLoginRuntime(
           }
           if (waited !== "ready" || !(await allowed(run))) return;
         }
-        // Before an advance whose next step is on its path, whether that step is already
-        // ready: if it is, the page after the advance cannot confirm it (ADR 0013).
-        const inPlace = inPlaceNext(run.recipe, run.metadata, run.metadata.stepIndex);
-        let readyBefore: boolean | undefined;
-        if (inPlace) {
-          const seen = await observe(
-            run,
-            inPlace.targets,
-            inPlace.targets.map(() => inPlace.require),
-          );
-          if (!current(run) || run.metadata.state !== "ready") return;
-          // Unanswered, the advance can only be confirmed on another path.
-          if (seen)
-            readyBefore =
-              seen.path === inPlace.path && seen.targets.every((state) => state === "unique");
-        }
         const operation = nextLoginOperation(
           run.metadata,
           run.recipe,
@@ -2333,8 +2319,10 @@ export function createLoginRuntime(
           await change(run, { type: "FAILED", reason: "structural-mismatch" });
           return;
         }
-        if (readyBefore === undefined) delete run.inPlace;
-        else run.inPlace = { operationId: operation.operationId, ready: readyBefore };
+        // An advance whose next step is on its path is confirmed by that step's elements
+        // only if they were not usable just before it (ADR 0013).
+        const inPlace = inPlaceNext(run.recipe, run.metadata, operation.stepIndex);
+        delete run.inPlace;
         await change(run, {
           type: "PREPARE",
           operationId: operation.operationId,
@@ -2462,6 +2450,9 @@ export function createLoginRuntime(
               : {}),
             // A `totp` handler's code fill watches for the page submitting the code itself.
             ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
+            // An advance whose next step is on its path has the document measure that step
+            // just before its effect, in the same task (ADR 0013).
+            ...(inPlace ? { next: inPlace } : {}),
           });
         } finally {
           for (const entry of values) entry.value = "";
@@ -2477,6 +2468,14 @@ export function createLoginRuntime(
           result.success &&
           result.output.operationId === operation.operationId &&
           result.output.documentId === run.live.document.documentId;
+        // Without the measurement the advance can only be confirmed on another path.
+        if (
+          matchedResult &&
+          result.output.ok &&
+          inPlace &&
+          result.output.before?.length === inPlace.targets.length
+        )
+          run.inPlace = { operationId: operation.operationId, before: result.output.before };
         if (
           matchedResult &&
           !result.output.ok &&
