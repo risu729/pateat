@@ -5031,6 +5031,50 @@ describe("production login document admission", () => {
         return { service, h, generations };
       };
 
+      it("logs a page offered for generation that showed nothing to send, at debug level", async () => {
+        const { service, h, generations } = setup();
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        // The first announcement logs nothing: the page may still show a list.
+        expect(generations()).toEqual([]);
+        const unoffered = (why: string, from: Record<string, unknown> = {}) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              unoffered: { path: "/signin", why },
+            },
+            sender(from),
+          );
+        expect(await unoffered("no-list")).toMatchObject({ ok: false, reason: "recipe-not-found" });
+        expect(generations()).toEqual([
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "nothing-offered",
+            detail: "no-list",
+          },
+        ]);
+        expect(service.generate).not.toHaveBeenCalled();
+        expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+        // Another path than the document's is not logged for it.
+        expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({ generate: true });
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            unoffered: { path: "/elsewhere", why: "no-list" },
+          },
+          sender({ documentId: "next-page" }),
+        );
+        expect(generations()).toHaveLength(1);
+        // A reason outside the list is refused by the message schema.
+        expect(await unoffered("other", { documentId: "next-page" })).toBeUndefined();
+      });
+
       it("sends a list with an email as a list, logging it as one", async () => {
         const { service, h, generations } = setup();
         expect(await h.hello({}, false)).toMatchObject({ generate: true });

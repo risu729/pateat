@@ -41,6 +41,7 @@ const debugSkips: ReadonlySet<string> = new Set([
   "not-connected",
   "not-a-list",
   "no-listed-account",
+  "nothing-offered",
 ]);
 
 /** Unhandled errors share one rate-limit window of 20 a minute; its origin is not logged. */

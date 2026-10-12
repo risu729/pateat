@@ -67,6 +67,13 @@ export const LOGIN_STEP_WAIT_MS = 10000;
  * passkey", during a WebAuthn exchange; the passkey chooser's limit.
  */
 export const HELD_CLICK_WAIT_MS = 120_000;
+/**
+ * Why a page offered for generation sent nothing after the step wait: it showed no list of
+ * accounts, sign-in entry or identifier input (`no-list`), it is the page right after a
+ * submitted password form (`after-sign-in`), or a sign-in input showed only at the end of
+ * the wait (`sign-in-shown`).
+ */
+export const unofferedReasons = ["no-list", "after-sign-in", "sign-in-shown"] as const;
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
@@ -108,6 +115,11 @@ export const helloSchema = v.strictObject({
    * after loading, so the page may be sent as a site's sign-in entry (ADR 0031).
    */
   entry: v.optional(v.strictObject({ path })),
+  /**
+   * The page was offered for generation, but the step wait after loading found nothing to
+   * send: why, for the log only (ADR 0019).
+   */
+  unoffered: v.optional(v.strictObject({ path, why: v.picklist(unofferedReasons) })),
 });
 /**
  * A form with a password input was submitted in this document by anyone, Pateat or the

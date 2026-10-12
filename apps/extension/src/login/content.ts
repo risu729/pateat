@@ -292,6 +292,23 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (identifier && !offerEntry) void announce(false, "identifier").catch(() => undefined);
         else if (accounts || offerEntry)
           void announce(false, false, accounts, offerEntry).catch(() => undefined);
+        // Nothing to send: the log says why (ADR 0019).
+        else if (!cancelled && !starts.some(ready))
+          void browser.runtime
+            .sendMessage({
+              version: 1,
+              type: "login.document.ready",
+              token,
+              unoffered: {
+                path: location.pathname,
+                why: afterSubmitted()
+                  ? "after-sign-in"
+                  : showsSignIn()
+                    ? "sign-in-shown"
+                    : "no-list",
+              },
+            })
+            .catch(() => undefined);
       }, LOGIN_STEP_WAIT_MS);
     if ((!starts.length && !generate) || cancelled) {
       unwatch();
