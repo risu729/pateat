@@ -125,6 +125,14 @@ export const loginObservationSchema = v.pipe(
       ),
     "Text locators apply only to buttons and links",
   ),
+  v.check(
+    (observation) =>
+      observation.candidates.every(
+        ({ role, target }) =>
+          target.by !== "autocomplete" || (fillRoles as readonly string[]).includes(role),
+      ),
+    "Autocomplete locators apply only to fields",
+  ),
 );
 
 /** Character classes of a value shape, in their canonical order. */

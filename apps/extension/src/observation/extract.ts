@@ -14,7 +14,6 @@ import {
   buttonText,
   collapseText,
   hasNativeButton,
-  isButton,
   isScriptButton,
   isScriptLink,
   linkText,
@@ -171,10 +170,11 @@ function locatorIndex(document: Document): LocatorIndex {
 }
 
 /**
- * Mirrors the executor's lookup: an attribute value, or else an input's `autocomplete`
- * token, or else a button's text, that matches exactly one element. A script link's text must also name no native button,
- * shown or not, which the executor would take first. Button text is used only when redaction leaves
- * it unchanged, so a locator never carries an email address or a long number. With
+ * Mirrors the executor's lookup: an attribute value, or else a fillable input's
+ * `autocomplete` token, or else a button's text, that matches exactly one element. A
+ * script link's text must also name no native button, shown or not, which the executor
+ * would take first. Button text is used only when redaction leaves it unchanged, so a
+ * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account. With `links`, a link is located by its text too,
  * which only an account switch uses: the text must name no other link and no button.
@@ -191,7 +191,8 @@ function locate(
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
-  if (element instanceof HTMLInputElement && !isButton(element))
+  // Only a field the login fills; a button is named by its own attributes or text.
+  if (element instanceof HTMLInputElement && fillTypes[element.type])
     for (const value of autocompleteTokens(element)) {
       if (!(loginAutocompleteTokens as readonly string[]).includes(value)) continue;
       if (index.get("autocomplete")!.get(value) !== 1) continue;

@@ -311,6 +311,20 @@ describe("extractLoginObservation", () => {
     ]);
     for (const { target } of observation.candidates)
       expect(findTargets(document, target)).toHaveLength(1);
+    // Case and repeats do not matter; a field whose id is shared falls back to its token.
+    page(
+      `<form><input id="dup" autocomplete="Username username"><input id="dup" type="password">
+        <button id="go">Go</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "username" },
+      { by: "id", value: "go" },
+    ]);
+    // A button carrying the token makes it ambiguous and is never named by it.
+    page(
+      `<form><input autocomplete="username"><input type="submit" value="Go" autocomplete="username"></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([{ by: "text", value: "Go" }]);
     // A token two inputs carry, even a hidden one, names neither; nor does new-password.
     page(
       `<form><input autocomplete="username"><input type="password" autocomplete="new-password">
