@@ -578,12 +578,13 @@ type GenerationScope = {
  * uses `recipes`; the loopback probe adapter and its controls exist only in the probe build.
  * Account metadata comes from each live settings read; values come from `fields` per fill.
  */
-/**
- * A value-free account of what the runtime decided, for the local log (ADR 0019). The
- * origin and recipe ID are reduced there; account and item IDs are never included.
- */
 /** How a login's account was chosen (ADR 0013, ADR 0021). */
 export type AccountSource = "default" | "match" | "pick";
+/**
+ * A value-free account of what the runtime decided, for the local log (ADR 0019). The
+ * origin and recipe ID are reduced there; no account ID is included, and the only item ID,
+ * a `start`'s, is logged as a pseudonym.
+ */
 export type LoginReport =
   | {
       type: "attempt";
@@ -1427,7 +1428,12 @@ export function createLoginRuntime(
     let writing = false;
     try {
       // Writing bumps the policy revision for every attempt, so skip a choice already saved.
-      const latest = await settings.handle({ version: 1, type: "settings.get" });
+      const latest = await settings
+        .handle({ version: 1, type: "settings.get" })
+        .catch((error: unknown) => {
+          outcome("settings-unavailable");
+          throw error;
+        });
       if (!latest.ok) {
         outcome("settings-unavailable");
         return;
@@ -3955,12 +3961,6 @@ export function createLoginRuntime(
       // It shows again after a finished login: a logout. Only this tab's record for this
       // origin is released, and the tab asks for an account (ADR 0021 D).
       const released = recorded;
-      report({
-        type: "logout",
-        tabId: document.tabId,
-        origin: document.origin,
-        recipeId: released.recipeId,
-      });
       if (attempts.get(document.tabId)?.metadata.id === released.id)
         attempts.delete(document.tabId);
       if (picked.get(document.tabId)?.attemptId === released.id) picked.delete(document.tabId);
@@ -3972,6 +3972,14 @@ export function createLoginRuntime(
         logouts.delete(logoutKey);
         return refuse("storage-unavailable");
       }
+      // Logged once the logout is stored; a failed store undoes it, and the page's next
+      // announcement recognizes it again.
+      report({
+        type: "logout",
+        tabId: document.tabId,
+        origin: document.origin,
+        recipeId: released.recipeId,
+      });
       try {
         await forget(logoutKey);
       } catch {
