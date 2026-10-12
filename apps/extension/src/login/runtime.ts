@@ -125,6 +125,11 @@ const PICKS_KEY = "pateat.login-picks.v1";
 const CHOICES_KEY = "pateat.login-choices.v1";
 const LOGOUTS_KEY = "pateat.login-logouts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
+/**
+ * How long another tab's login that has not succeeded holds its origin after its record
+ * last changed (ADR 0022, owner's choice on 2026-10-12).
+ */
+const HOLD_MS = 5 * 60_000;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
@@ -899,18 +904,23 @@ export function createLoginRuntime(
   /**
    * Whether another tab's login still holds the origin. Cookies can be shared across tabs,
    * so a login that is running, awaits its result, or ended without success there keeps this
-   * tab from submitting until that tab closes (ADR 0022). One that authenticated, ended
-   * without ever submitting, or was stopped by Pateat with nothing in flight does not: the
-   * login form showing in this tab then means the site's session has ended.
+   * tab from submitting until that tab closes or its record has not changed for
+   * `HOLD_MS` (ADR 0022). One that authenticated, ended without ever submitting, or was
+   * stopped by Pateat with nothing in flight does not: the login form showing in this tab
+   * then means the site's session has ended.
    */
   function heldElsewhere(tabId: number, siteOrigin: string): boolean {
+    const now = Date.now();
     return [...persisted.values()].some(
       (entry) =>
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
         entry.state !== "authenticated" &&
         !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
-        !stoppedByPateat(entry),
+        !stoppedByPateat(entry) &&
+        // A clock set back ends the hold rather than prolonging it.
+        now - (entry.changedAt ?? 0) >= 0 &&
+        now - (entry.changedAt ?? 0) < HOLD_MS,
     );
   }
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
@@ -925,7 +935,7 @@ export function createLoginRuntime(
       browser.action.setTitle({
         tabId,
         title:
-          "Pateat: another tab's login to this site is running or did not succeed. Close that tab to log in here.",
+          "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
       }),
     );
   }
@@ -1099,9 +1109,22 @@ export function createLoginRuntime(
   }
   async function keep(metadata: LoginAttemptMetadata): Promise<void> {
     const key = recordKey(metadata.document.tabId, metadata.account.origin);
+    const previous = persisted.get(key);
+    const next = parseAttemptMetadata({ ...metadata, changedAt: undefined });
+    // Only the login's own progress counts as a change. A new page of its tab (another
+    // `documentId`) or a page sent to be judged keeps the time, so a tab left browsing the
+    // site after a login that did not succeed stops holding it.
+    const progress = (record: LoginAttemptMetadata) =>
+      JSON.stringify({
+        ...record,
+        document: { ...record.document, documentId: undefined },
+        judged: undefined,
+        changedAt: undefined,
+      });
+    const unchanged = previous?.changedAt !== undefined && progress(previous) === progress(next);
     // Re-inserted, so the last record of a tab is the one it wrote last.
     persisted.delete(key);
-    persisted.set(key, parseAttemptMetadata(metadata));
+    persisted.set(key, { ...next, changedAt: unchanged ? previous.changedAt : Date.now() });
     await write();
   }
   /** Releases one tab's record for one origin after a logout (ADR 0021 D). */

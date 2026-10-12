@@ -316,7 +316,8 @@ build. It uses explicit saved account defaults and bundled synthetic values. A m
 journal precedes every fill and click; input-triggered advance/submission declares its
 effect and event explicitly. Recovery observes the current document and never blindly
 replays an uncertain mutation or pending submit. Another tab's attempt of the same
-origin that is running or ended without success holds the origin until that tab closes;
+origin that is running or ended without success holds the origin until that tab closes
+or its record has not changed for 5 minutes;
 an `authenticated` one, or one Pateat itself stopped with nothing in flight, does not,
 and a tab keeps one record per origin
 ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).

@@ -417,7 +417,11 @@ test("a site another tab's login holds says so until that tab lets it go", async
   choices.pick.mockResolvedValue({ ok: false, reason: "origin-busy" });
   await userEvent.click(page.getByRole("button", { name: "Log in" }));
   await expect
-    .element(page.getByText(/so Pateat did not log in here\. Close that tab, then choose again\.$/))
+    .element(
+      page.getByText(
+        /so Pateat did not log in here\. Close that tab or wait up to 5 minutes, then choose again\.$/,
+      ),
+    )
     .toBeVisible();
 });
 
