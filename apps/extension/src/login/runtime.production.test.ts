@@ -3228,7 +3228,14 @@ describe("production login document admission", () => {
     it("does not send the page while the recipe's fields are still shown", async () => {
       fake.state.extracted = { "signed-in": homePage };
       const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
-      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        report,
+      });
       h.recipes.recipe.mockResolvedValue(generated);
       fake.state.present = new Set(["user", "password", "login"]);
       expect(await h.hello()).toEqual({ ok: true });
@@ -3238,6 +3245,10 @@ describe("production login document admission", () => {
       );
       expect(service.judge).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+      // The log says why.
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "sign-in-shown" }),
+      );
     }, 10_000);
 
     describe("custom-field offers and their shapes (ADR 0027)", () => {
@@ -4062,6 +4073,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           { state: "reconciling", outcome: "unknown-submit", repeat: true },
           { state: "reconciling", outcome: "unknown-submit", repeat: true },
         ]);
+        // The third page is not sent, and the log says why.
+        expect(report).toHaveBeenLastCalledWith(
+          expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "page-limit" }),
+        );
       });
 
       it("no longer holds policy writes once the result settled, also after a restart", async () => {
@@ -4373,12 +4388,16 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       // The marker shows, but on another path than the completion's.
       onClick({ login: { path: "/account", present: ["logout"], extracted: homePage } });
       const service = generation(async () => ({ verdict: "signed-in" }));
-      const h = harness({}, { passkeys: withPasskey, generation: service });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: withPasskey, generation: service, report });
       h.recipes.recipe.mockResolvedValue(learned);
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("reconciling", "unknown-submit"));
       expect(service.judge).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "marker-shown" }),
+      );
     });
   });
 
