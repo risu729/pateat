@@ -583,6 +583,8 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
       ["セキュリティーキーでログイン", "login"],
       ["Sign in", "fido-login"],
       ["Sign in", "myFido"],
+      ["セキュリティキー", "login"],
+      ["セキュリティキーを使用", "login"],
     ] as const)
       expect(namesPasskey(button(label, value)), `${label} ${value}`).toBe(true);
     for (const [label, value] of [
@@ -598,6 +600,13 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
       ["Passkeyless", "login"],
       ["Sign in", "fidorBank"],
       ["Sign in", "passkeyless"],
+      // A software keyboard or keypad is not a security key.
+      ["Security keyboard", "login"],
+      ["Sign in", "securityKeyboard"],
+      ["セキュリティキーボード", "login"],
+      ["セキュリティーキーボード", "login"],
+      ["セキュリティキーパッド", "login"],
+      ["セキュリティキーボードを使う", "login"],
     ] as const)
       expect(namesPasskey(button(label, value)), `${label} ${value}`).toBe(false);
     // A text locator reads as a label, never split inside a word.

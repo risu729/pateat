@@ -211,10 +211,12 @@ export const registersPasskey = (button: Pick<ObservedCandidate, "label" | "targ
  * Words that name a passkey or a security key ("Sign in with a passkey", "Use security
  * key", "パスキーでログイン", `#passkeyLoginButton`), matched case-insensitively. Latin words
  * match whole words of a label, or whole camelCase, kebab or snake parts of a locator, so
- * "MyFido" or "Fidor" in a label never match; Japanese words match anywhere.
+ * "MyFido" or "Fidor" in a label never match; Japanese words match anywhere, except that
+ * セキュリティキー followed by more katakana is another word, such as
+ * セキュリティキーボード ("security keyboard").
  */
 const passkeyWording =
-  /\b(?:pass\s*keys?|security\s*keys?|webauthn|fido\d*)\b|パスキー|セキュリティー?\s*キー|生体認証/iu;
+  /\b(?:pass\s*keys?|security\s*keys?|webauthn|fido\d*)\b|パスキー|セキュリティー?\s*キー(?![\p{sc=Katakana}ー])|生体認証/iu;
 /**
  * Whether a button's label, text or `id`, `name` or test ID locator names a passkey or a
  * security key (ADR 0027). The generated passkey route keeps only such a button, so a
