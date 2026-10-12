@@ -15,12 +15,20 @@ const textless = new Set([
   "CANVAS",
 ]);
 
-/** Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional). */
+/**
+ * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional).
+ * An element with `display: contents` has no box of its own, so `checkVisibility` is
+ * false for it although its children render in its place; it counts as shown when its
+ * parent is (Cloudflare's saved profiles wrap each address in one, 2026-10-12).
+ */
 export function shown(element: Element, opacity = true): element is HTMLElement {
-  return (
-    element instanceof HTMLElement &&
-    element.isConnected &&
-    !element.closest("[hidden], [inert], [aria-hidden='true']") &&
+  if (
+    !(element instanceof HTMLElement) ||
+    !element.isConnected ||
+    element.closest("[hidden], [inert], [aria-hidden='true']")
+  )
+    return false;
+  if (
     element.checkVisibility({
       contentVisibilityAuto: true,
       opacityProperty: opacity,
@@ -29,6 +37,16 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
       checkOpacity: opacity,
       checkVisibilityCSS: true,
     })
+  )
+    return true;
+  const parent = element.parentElement;
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+  return (
+    parent !== null &&
+    style?.display === "contents" &&
+    // Its own text renders with its `visibility`, which its children also inherit.
+    style.visibility === "visible" &&
+    shown(parent, opacity)
   );
 }
 

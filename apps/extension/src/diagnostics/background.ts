@@ -35,6 +35,13 @@ const QUIET_SYNC: ReadonlySet<RecipeSyncOutcome> = new Set([
  * already carries a login (ADR 0019).
  */
 const QUIET_REFUSALS: ReadonlySet<string> = new Set(["stale-document", "duplicate-document"]);
+/** Generation skips of ordinary browsing, logged at debug level (ADR 0019, ADR 0028). */
+const debugSkips: ReadonlySet<string> = new Set([
+  "no-vault-match",
+  "not-connected",
+  "not-a-list",
+  "no-listed-account",
+]);
 
 /** Unhandled errors share one rate-limit window of 20 a minute; its origin is not logged. */
 const ERROR_SOURCE = { tabId: -1, origin: "", perMinute: 20 };
@@ -354,12 +361,13 @@ export function createDiagnosticsLog(options: {
             takenOver: report.takenOver,
             page: report.page,
           },
-          // A login page without a matching vault item is common and not a problem; a
-          // request that failed is (ADR 0019).
+          // A login page without a matching vault item is common and not a problem, nor is
+          // a page that is no list of accounts or any page without the service; a request
+          // that failed is (ADR 0019).
           {
             source,
             level:
-              report.outcome === "skipped" && report.reason === "no-vault-match"
+              report.outcome === "skipped" && debugSkips.has(report.reason ?? "")
                 ? "debug"
                 : report.outcome === "failed"
                   ? "warn"

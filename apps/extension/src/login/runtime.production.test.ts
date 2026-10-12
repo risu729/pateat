@@ -4217,9 +4217,92 @@ describe("production login document admission", () => {
         origin,
         outcome: "skipped",
         reason: "no-vault-match",
+        detail: "no-item",
       });
       expect(service.generate).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("logs why the vault could not tell whether an item matches", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris: async () => vaultFailure("crypto-locked"),
+        username: true,
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(report).toHaveBeenCalledWith({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "vault-unavailable",
+        detail: "crypto-locked",
+      });
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("logs a sign-in page not sent because every vault connection is turned off", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const disabled = {
+        ...unsaved,
+        connections: [
+          {
+            connectionId,
+            enabled: false,
+            selection: { mode: "all" as const, groupIds: [], itemIds: [] },
+            excludedItemIds: [],
+            excludedFields: [],
+          },
+        ],
+      };
+      const h = harness(disabled, {
+        allowedOrigins: [],
+        uris: async () => ({ ok: true, data: uriMatch() }),
+        username: true,
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(report).toHaveBeenCalledWith({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "connection-disabled",
+      });
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("logs a page not offered while the service is not connected", async () => {
+      const service = generation({ available: async () => "not-connected" });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris: async () => ({ ok: true, data: uriMatch() }),
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(report).toHaveBeenCalledWith({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "not-connected",
+      });
     });
 
     describe("a page that lists accounts (ADR 0028)", () => {
@@ -4309,8 +4392,18 @@ describe("production login document admission", () => {
           ok: false,
           reason: "recipe-not-found",
         });
-        // A page offered only by its short texts is ordinary browsing then: not logged.
-        expect(generations()).toEqual([]);
+        // A page offered only by its short texts is mostly ordinary browsing: logged at
+        // debug level.
+        expect(generations()).toEqual([
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "no-listed-account",
+            detail: "no-name-match",
+          },
+        ]);
         expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
         // Another page whose shown text is the username, ignoring case and a leading `@`.
         expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({ generate: true });
@@ -4325,6 +4418,43 @@ describe("production login document admission", () => {
           names: ["@risu729"],
         });
         expect(JSON.stringify(fake.state.messages)).not.toContain("Risu729");
+      });
+
+      it("logs a shown email address that is no entry, and sends only names", async () => {
+        const { service, h, generations } = setup();
+        const missed = (from: Record<string, unknown>, names?: string[]) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              list: { path: "/signin", ...(names ? { names } : {}), missed: "not-rendered" },
+            },
+            sender(from),
+          );
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        expect(await missed({})).toMatchObject({ ok: false, reason: "recipe-not-found" });
+        expect(generations()).toEqual([
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "not-a-list",
+            detail: "not-rendered",
+          },
+        ]);
+        expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+        // With texts beside buttons, those are still compared with the usernames.
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "risu729" : "synthetic-secret",
+        );
+        expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({ generate: true });
+        expect(await missed({ documentId: "next-page" }, ["risu729"])).toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
       });
 
       it("offers no page where a stored list starts, and watches for the list there", async () => {
