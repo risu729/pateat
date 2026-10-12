@@ -273,16 +273,20 @@ const finishedLogin = (metadata: LoginAttemptMetadata) =>
     ));
 /**
  * A login Pateat itself stopped with nothing in flight: a withdrawn authorization, a
- * cancel, a value the page would not take, or another account shown. It does not hold the origin
- * against other tabs (ADR 0022). A refusal by the site, a second-factor challenge, a
- * submission limit, an operation the page may have received or a result that may still
- * arrive keeps holding.
+ * cancel, a value the page would not take, another account shown, or retries spent on
+ * failures that changed nothing. It does not hold the origin against other tabs (ADR
+ * 0022). A refusal by the site, a second-factor challenge, a submission limit, an
+ * operation the page may have received or a result that may still arrive keeps holding.
  */
 const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
   metadata.state === "blocked" &&
-  (["policy-changed", "value-mismatch", "wrong-account", "account-switched"].includes(
-    metadata.outcome ?? "",
-  ) ||
+  ([
+    "policy-changed",
+    "value-mismatch",
+    "wrong-account",
+    "account-switched",
+    "retry-limit",
+  ].includes(metadata.outcome ?? "") ||
     // A frame login whose page went away also ends `cancelled`; after a submission that
     // is the tab leaving, which holds like `interrupted`.
     (metadata.outcome === "cancelled" && metadata.submissions === 0)) &&
@@ -2766,341 +2770,15 @@ export function createLoginRuntime(
     if (run.running) return;
     run.running = true;
     try {
-      if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
-        await reconcileBounded(run);
-      while (current(run) && run.metadata.state === "ready") {
-        if (!(await allowed(run))) return;
-        // A fill or click waits for its elements before any intent, vault read or value
-        // delivery; a slow render is not a failure until the owner-approved limit passes.
-        const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
-        // A fill-only login stops before anything that may advance or submit (ADR 0021 D).
-        if (run.metadata.fillOnly && (!upcoming || effectfulStep(upcoming))) {
-          await endFillOnly(run);
-          return;
-        }
-        if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
-          // A code input may submit by itself once the code is in, as one that submits on
-          // its last digit does; its click then has nothing left to do (ADR 0027).
-          const afterCode =
-            upcoming.kind === "click" &&
-            codeStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
-          if (afterCode && (await submittedByPage(run, upcoming))) {
-            if (!current(run) || run.metadata.state !== "ready") return;
-            if (await codeSubmitted(run)) continue;
-            await change(run, { type: "FAILED", reason: "structural-mismatch" });
-            return;
-          }
-          if (!current(run) || run.metadata.state !== "ready") return;
-          const waited = await waitFor(run, loginReadiness(upcoming));
-          if (!current(run) || run.metadata.state !== "ready") return;
-          if (waited === "timeout") {
-            if (
-              afterCode &&
-              (await submittedByPage(run, upcoming)) &&
-              current(run) &&
-              run.metadata.state === "ready" &&
-              (await codeSubmitted(run))
-            )
-              continue;
-            if (!current(run) || run.metadata.state !== "ready") return;
-            await change(run, { type: "FAILED", reason: "structural-mismatch" });
-            return;
-          }
-          if (waited !== "ready" || !(await allowed(run))) return;
-        }
-        const operation = nextLoginOperation(
-          run.metadata,
-          run.recipe,
-          run.live.document,
-          crypto.randomUUID(),
-        );
-        if (!operation) {
-          await change(run, { type: "FAILED", reason: "structural-mismatch" });
-          return;
-        }
-        // An advance whose next step is on its path is confirmed by that step's elements
-        // only if they were not usable just before it (ADR 0013).
-        const inPlace = inPlaceNext(run.recipe, run.metadata, operation.stepIndex);
-        delete run.inPlace;
-        // Known before its intent is recorded, so a stop in between takes the intent back.
-        run.operation = operation;
-        run.delivered = false;
-        await change(run, {
-          type: "PREPARE",
-          operationId: operation.operationId,
-          kind: operation.step.kind,
-          effect: loginStepEffect(operation.step),
-        });
-        if (operation.step.kind === "click")
-          await change(run, { type: "SUBMIT_INTENT", operationId: operation.operationId });
-        else if (operation.step.kind === "fill")
-          await change(run, { type: "MUTATION_INTENT", operationId: operation.operationId });
-        const authorized = await allowed(run);
-        if (!authorized) return;
-        if (
-          !validateLoginOperation(
-            operation,
-            run.metadata,
-            run.live.document,
-            run.metadata.policyRevision,
-          )
-        ) {
-          await change(run, { type: "FAILED", reason: "timeout" });
-          return;
-        }
-        const values: { slot: string; value: string; secret?: LoginSecretKind }[] = [];
-        let expected: { username: string } | undefined;
-        let response: unknown;
-        try {
-          if (operation.step.kind === "fill") {
-            for (const field of operation.step.fields) {
-              const reference = authorized.binding.slots.find((entry) => entry.slot === field.slot);
-              if (!reference) {
-                await change(run, { type: "FAILED", reason: "structural-mismatch" });
-                return;
-              }
-              // Vault reads are serial so a denial stops before any later field is released.
-              let value: string | undefined;
-              try {
-                value = await fields({
-                  account: run.metadata.account,
-                  connection: authorized.connection,
-                  fieldId: reference.fieldId,
-                });
-              } catch {
-                // A failed read is not a page mutation; never reclassify it as uncertain.
-                value = undefined;
-              }
-              if (!current(run)) return;
-              // Locked, resynchronized or newly denied vault access withdraws this grant.
-              if (value === undefined) {
-                await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
-                return;
-              }
-              // A `totp` handler's code fills only a code input, whatever field it reads.
-              const secret: LoginSecretKind | undefined =
-                codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
-                  ? "otp"
-                  : loginSecretKind(
-                      authorized.connection,
-                      run.metadata.account.itemId,
-                      reference.fieldId,
-                    );
-              values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
-            }
-            // A step that fills a secret but no username, such as a password page for a
-            // remembered account, must not show another account (owner decision,
-            // 2026-10-11). Without a readable username the page is not compared.
-            const usernameField = loginUsernameFieldId(
-              authorized.connection,
-              run.metadata.account.itemId,
-            );
-            if (
-              usernameField &&
-              values.some((entry) => entry.secret) &&
-              !operation.step.fields.some((field) =>
-                authorized.binding.slots.some(
-                  (entry) =>
-                    entry.slot === field.slot &&
-                    loginFillsUsername(
-                      authorized.connection,
-                      run.metadata.account.itemId,
-                      entry.fieldId,
-                    ),
-                ),
-              )
-            ) {
-              let username: string | undefined;
-              try {
-                username = await fields({
-                  account: run.metadata.account,
-                  connection: authorized.connection,
-                  fieldId: usernameField,
-                });
-              } catch {
-                username = undefined;
-              }
-              if (!current(run)) return;
-              if (username) expected = { username };
-            }
-          }
-          if (operation.step.kind === "fill" || operation.step.kind === "click")
-            await pause("before-delivery");
-          if (!current(run)) return;
-          const latest = await allowed(run);
-          if (!latest) return;
-          // Values belong to the snapshot that authorized them; a replacement withdraws them.
-          if (latest.connection.snapshotId !== authorized.connection.snapshotId) {
-            await change(run, { type: "POLICY_CHANGED" }, { cause: "vault-replaced" });
-            return;
-          }
-          const after = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex + 1]?.step;
-          const codeSubmit =
-            codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
-            after?.kind === "click"
-              ? after.target
-              : undefined;
-          run.delivered = true;
-          const { tabId } = run.live.document;
-          if (
-            operation.step.kind === "click" ||
-            (operation.step.kind === "fill" && operation.step.effect !== "prepare")
-          ) {
-            const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
-            effects.set(tabId, {
-              attemptId: run.metadata.id,
-              at: Date.now(),
-              passkey:
-                run.metadata.route === "passkey" ||
-                (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
-            });
-          }
-          if (
-            operation.step.kind === "fill" &&
-            signInUrls.get(tabId)?.attemptId !== run.metadata.id
-          )
-            signInUrls.set(tabId, { attemptId: run.metadata.id, url: run.live.url });
-          response = await send(run.live, {
-            type: "login.execute",
-            operation,
-            values,
-            ...(expected ? { account: expected } : {}),
-            // One switch per tab: an attempt that follows a switch never clicks another.
-            // A fill-only login after a logout never clicks, not even a switch (ADR 0021 D).
-            ...(expected &&
-            run.recipe.accountSwitch &&
-            !run.metadata.accountSwitched &&
-            !run.metadata.fillOnly
-              ? { accountSwitch: run.recipe.accountSwitch }
-              : {}),
-            // A `totp` handler's code fill watches for the page submitting the code itself.
-            ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
-            // An advance whose next step is on its path has the document measure that step
-            // just before its effect, in the same task (ADR 0013).
-            ...(inPlace ? { next: inPlace } : {}),
-          });
-        } finally {
-          for (const entry of values) entry.value = "";
-          if (expected) expected.username = "";
-        }
-        if (!current(run)) return;
-        if (operation.step.kind === "fill" || operation.step.kind === "click")
-          await pause("before-ack");
-        if (!current(run)) return;
-        delete run.operation;
-        const result = v.safeParse(executionResultSchema, response);
-        const matchedResult =
-          result.success &&
-          result.output.operationId === operation.operationId &&
-          result.output.documentId === run.live.document.documentId;
-        // Without the measurement the advance can only be confirmed on another path.
-        if (
-          matchedResult &&
-          result.output.ok &&
-          inPlace &&
-          result.output.before?.length === inPlace.targets.length
-        )
-          run.inPlace = { operationId: operation.operationId, before: result.output.before };
-        if (
-          matchedResult &&
-          !result.output.ok &&
-          result.output.reason === "wrong-account" &&
-          result.output.mutation === "none"
-        ) {
-          const switched =
-            result.output.switchable === true &&
-            run.recipe.accountSwitch !== undefined &&
-            !run.metadata.accountSwitched &&
-            !run.metadata.fillOnly;
-          await change(run, {
-            type: "WRONG_ACCOUNT",
-            operationId: operation.operationId,
-            document: run.live.document,
-            ...(switched ? { switched: true } : {}),
-          });
-          // The page shows another account: a fill-only login ends and asks.
-          if (run.metadata.fillOnly) {
-            await endFillOnly(run);
-            return;
-          }
-          // The switch is recorded before the click, so the page it leads to starts a new
-          // attempt instead of resuming this one (owner decision, 2026-10-11).
-          if (run.metadata.outcome === "account-switched") {
-            const clicked =
-              current(run) &&
-              v.safeParse(
-                v.object({ ok: v.literal(true) }),
-                await send(run.live, {
-                  type: "login.switch",
-                  operationId: operation.operationId,
-                }).catch(() => undefined),
-              ).success;
-            // Without the click the attempt ends as `wrong-account` and keeps its tab.
-            if (!clicked) await withdrawSwitch(run);
-          }
-          return;
-        }
-        // The page would not accept the values; the same values would fail again.
-        if (
-          matchedResult &&
-          !result.output.ok &&
-          operation.step.kind === "fill" &&
-          ((result.output.reason === "value-mismatch" && result.output.mutation === "none") ||
-            (result.output.reason === "fill-rejected" && operation.step.effect === "prepare"))
-        ) {
-          await change(run, {
-            type: "VALUE_REJECTED",
-            operationId: operation.operationId,
-            document: run.live.document,
-            stage: result.output.reason === "value-mismatch" ? "before-fill" : "after-fill",
-          });
-          return;
-        }
-        // The code page showed that it submits the code by itself, or replaced its form
-        // once the code was in.
-        if (
-          matchedResult &&
-          !result.output.ok &&
-          (result.output.reason === "submitted" ||
-            result.output.reason === "structural-mismatch") &&
-          result.output.mutation === "possible" &&
-          codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
-          (await codeSubmitted(run))
-        )
-          continue;
-        if (!matchedResult || !result.output.ok) {
-          await change(
-            run,
-            matchedResult && result.output.reason === "cancelled"
-              ? { type: "CANCEL" }
-              : {
-                  type: "FAILED",
-                  reason:
-                    matchedResult && result.output.reason === "timeout"
-                      ? "timeout"
-                      : "structural-mismatch",
-                  mutation: matchedResult ? result.output.mutation : "possible",
-                  operationId: operation.operationId,
-                  document: run.live.document,
-                },
-          );
-          return;
-        }
-        if (
-          operation.step.kind !== "click" &&
-          !(operation.step.kind === "fill" && operation.step.effect !== "prepare")
-        ) {
-          await change(run, { type: "OPERATION_OK", operationId: operation.operationId });
-          continue;
-        }
-        await change(run, { type: "SUBMITTED", operationId: operation.operationId });
-        // A handler's click and the passkey route's click are held (ADR 0027).
-        const done = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex];
-        if (done && (done.handler !== undefined || run.metadata.route === "passkey"))
-          run.heldClick = operation.stepIndex;
-        // DOM navigation can replace this document. A same-page result is observed with a finite budget.
-        await reconcileBounded(run);
-        if (run.metadata.state !== "ready") return;
+      // A failure that changed nothing on the page is tried again from the same step, up
+      // to the attempt's retry budget; a spent budget ends it `retry-limit` (owner
+      // decision, 2026-10-12). A `totp` handler's click after its code is in is never
+      // retried: a late click could submit an expired code (ADR 0027).
+      for (;;) {
+        await runSteps(run);
+        if (!current(run) || run.metadata.state !== "retryable") return;
+        const final = codeStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
+        await change(run, final ? { type: "RETRY", final: true } : { type: "RETRY" });
       }
     } catch (error) {
       if (current(run) && !terminal(run.metadata)) {
@@ -3121,6 +2799,341 @@ export function createLoginRuntime(
       }
     } finally {
       run.running = false;
+    }
+  }
+  /** Runs the attempt's steps until it leaves `ready`; `drive` owns errors and retries. */
+  async function runSteps(run: Execution): Promise<void> {
+    if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
+      await reconcileBounded(run);
+    while (current(run) && run.metadata.state === "ready") {
+      if (!(await allowed(run))) return;
+      // A fill or click waits for its elements before any intent, vault read or value
+      // delivery; a slow render is not a failure until the owner-approved limit passes.
+      const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
+      // A fill-only login stops before anything that may advance or submit (ADR 0021 D).
+      if (run.metadata.fillOnly && (!upcoming || effectfulStep(upcoming))) {
+        await endFillOnly(run);
+        return;
+      }
+      if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
+        // A code input may submit by itself once the code is in, as one that submits on
+        // its last digit does; its click then has nothing left to do (ADR 0027).
+        const afterCode =
+          upcoming.kind === "click" &&
+          codeStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
+        if (afterCode && (await submittedByPage(run, upcoming))) {
+          if (!current(run) || run.metadata.state !== "ready") return;
+          if (await codeSubmitted(run)) continue;
+          await change(run, { type: "FAILED", reason: "structural-mismatch" });
+          return;
+        }
+        if (!current(run) || run.metadata.state !== "ready") return;
+        const waited = await waitFor(run, loginReadiness(upcoming));
+        if (!current(run) || run.metadata.state !== "ready") return;
+        if (waited === "timeout") {
+          if (
+            afterCode &&
+            (await submittedByPage(run, upcoming)) &&
+            current(run) &&
+            run.metadata.state === "ready" &&
+            (await codeSubmitted(run))
+          )
+            continue;
+          if (!current(run) || run.metadata.state !== "ready") return;
+          await change(run, { type: "FAILED", reason: "structural-mismatch" });
+          return;
+        }
+        if (waited !== "ready" || !(await allowed(run))) return;
+      }
+      const operation = nextLoginOperation(
+        run.metadata,
+        run.recipe,
+        run.live.document,
+        crypto.randomUUID(),
+      );
+      if (!operation) {
+        await change(run, { type: "FAILED", reason: "structural-mismatch" });
+        return;
+      }
+      // An advance whose next step is on its path is confirmed by that step's elements
+      // only if they were not usable just before it (ADR 0013).
+      const inPlace = inPlaceNext(run.recipe, run.metadata, operation.stepIndex);
+      delete run.inPlace;
+      // Known before its intent is recorded, so a stop in between takes the intent back.
+      run.operation = operation;
+      run.delivered = false;
+      await change(run, {
+        type: "PREPARE",
+        operationId: operation.operationId,
+        kind: operation.step.kind,
+        effect: loginStepEffect(operation.step),
+      });
+      if (operation.step.kind === "click")
+        await change(run, { type: "SUBMIT_INTENT", operationId: operation.operationId });
+      else if (operation.step.kind === "fill")
+        await change(run, { type: "MUTATION_INTENT", operationId: operation.operationId });
+      const authorized = await allowed(run);
+      if (!authorized) return;
+      if (
+        !validateLoginOperation(
+          operation,
+          run.metadata,
+          run.live.document,
+          run.metadata.policyRevision,
+        )
+      ) {
+        await change(run, { type: "FAILED", reason: "timeout" });
+        return;
+      }
+      const values: { slot: string; value: string; secret?: LoginSecretKind }[] = [];
+      let expected: { username: string } | undefined;
+      let response: unknown;
+      try {
+        if (operation.step.kind === "fill") {
+          for (const field of operation.step.fields) {
+            const reference = authorized.binding.slots.find((entry) => entry.slot === field.slot);
+            if (!reference) {
+              await change(run, { type: "FAILED", reason: "structural-mismatch" });
+              return;
+            }
+            // Vault reads are serial so a denial stops before any later field is released.
+            let value: string | undefined;
+            try {
+              value = await fields({
+                account: run.metadata.account,
+                connection: authorized.connection,
+                fieldId: reference.fieldId,
+              });
+            } catch {
+              // A failed read is not a page mutation; never reclassify it as uncertain.
+              value = undefined;
+            }
+            if (!current(run)) return;
+            // Locked, resynchronized or newly denied vault access withdraws this grant.
+            if (value === undefined) {
+              await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
+              return;
+            }
+            // A `totp` handler's code fills only a code input, whatever field it reads.
+            const secret: LoginSecretKind | undefined =
+              codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+                ? "otp"
+                : loginSecretKind(
+                    authorized.connection,
+                    run.metadata.account.itemId,
+                    reference.fieldId,
+                  );
+            values.push({ slot: field.slot, value, ...(secret ? { secret } : {}) });
+          }
+          // A step that fills a secret but no username, such as a password page for a
+          // remembered account, must not show another account (owner decision,
+          // 2026-10-11). Without a readable username the page is not compared.
+          const usernameField = loginUsernameFieldId(
+            authorized.connection,
+            run.metadata.account.itemId,
+          );
+          if (
+            usernameField &&
+            values.some((entry) => entry.secret) &&
+            !operation.step.fields.some((field) =>
+              authorized.binding.slots.some(
+                (entry) =>
+                  entry.slot === field.slot &&
+                  loginFillsUsername(
+                    authorized.connection,
+                    run.metadata.account.itemId,
+                    entry.fieldId,
+                  ),
+              ),
+            )
+          ) {
+            let username: string | undefined;
+            try {
+              username = await fields({
+                account: run.metadata.account,
+                connection: authorized.connection,
+                fieldId: usernameField,
+              });
+            } catch {
+              username = undefined;
+            }
+            if (!current(run)) return;
+            if (username) expected = { username };
+          }
+        }
+        if (operation.step.kind === "fill" || operation.step.kind === "click")
+          await pause("before-delivery");
+        if (!current(run)) return;
+        const latest = await allowed(run);
+        if (!latest) return;
+        // Values belong to the snapshot that authorized them; a replacement withdraws them.
+        if (latest.connection.snapshotId !== authorized.connection.snapshotId) {
+          await change(run, { type: "POLICY_CHANGED" }, { cause: "vault-replaced" });
+          return;
+        }
+        const after = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex + 1]?.step;
+        const codeSubmit =
+          codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+          after?.kind === "click"
+            ? after.target
+            : undefined;
+        run.delivered = true;
+        const { tabId } = run.live.document;
+        if (
+          operation.step.kind === "click" ||
+          (operation.step.kind === "fill" && operation.step.effect !== "prepare")
+        ) {
+          const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+          effects.set(tabId, {
+            attemptId: run.metadata.id,
+            at: Date.now(),
+            passkey:
+              run.metadata.route === "passkey" ||
+              (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
+          });
+        }
+        if (operation.step.kind === "fill" && signInUrls.get(tabId)?.attemptId !== run.metadata.id)
+          signInUrls.set(tabId, { attemptId: run.metadata.id, url: run.live.url });
+        response = await send(run.live, {
+          type: "login.execute",
+          operation,
+          values,
+          ...(expected ? { account: expected } : {}),
+          // One switch per tab: an attempt that follows a switch never clicks another.
+          // A fill-only login after a logout never clicks, not even a switch (ADR 0021 D).
+          ...(expected &&
+          run.recipe.accountSwitch &&
+          !run.metadata.accountSwitched &&
+          !run.metadata.fillOnly
+            ? { accountSwitch: run.recipe.accountSwitch }
+            : {}),
+          // A `totp` handler's code fill watches for the page submitting the code itself.
+          ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
+          // An advance whose next step is on its path has the document measure that step
+          // just before its effect, in the same task (ADR 0013).
+          ...(inPlace ? { next: inPlace } : {}),
+        });
+      } finally {
+        for (const entry of values) entry.value = "";
+        if (expected) expected.username = "";
+      }
+      if (!current(run)) return;
+      if (operation.step.kind === "fill" || operation.step.kind === "click")
+        await pause("before-ack");
+      if (!current(run)) return;
+      delete run.operation;
+      const result = v.safeParse(executionResultSchema, response);
+      const matchedResult =
+        result.success &&
+        result.output.operationId === operation.operationId &&
+        result.output.documentId === run.live.document.documentId;
+      // Without the measurement the advance can only be confirmed on another path.
+      if (
+        matchedResult &&
+        result.output.ok &&
+        inPlace &&
+        result.output.before?.length === inPlace.targets.length
+      )
+        run.inPlace = { operationId: operation.operationId, before: result.output.before };
+      if (
+        matchedResult &&
+        !result.output.ok &&
+        result.output.reason === "wrong-account" &&
+        result.output.mutation === "none"
+      ) {
+        const switched =
+          result.output.switchable === true &&
+          run.recipe.accountSwitch !== undefined &&
+          !run.metadata.accountSwitched &&
+          !run.metadata.fillOnly;
+        await change(run, {
+          type: "WRONG_ACCOUNT",
+          operationId: operation.operationId,
+          document: run.live.document,
+          ...(switched ? { switched: true } : {}),
+        });
+        // The page shows another account: a fill-only login ends and asks.
+        if (run.metadata.fillOnly) {
+          await endFillOnly(run);
+          return;
+        }
+        // The switch is recorded before the click, so the page it leads to starts a new
+        // attempt instead of resuming this one (owner decision, 2026-10-11).
+        if (run.metadata.outcome === "account-switched") {
+          const clicked =
+            current(run) &&
+            v.safeParse(
+              v.object({ ok: v.literal(true) }),
+              await send(run.live, {
+                type: "login.switch",
+                operationId: operation.operationId,
+              }).catch(() => undefined),
+            ).success;
+          // Without the click the attempt ends as `wrong-account` and keeps its tab.
+          if (!clicked) await withdrawSwitch(run);
+        }
+        return;
+      }
+      // The page would not accept the values; the same values would fail again.
+      if (
+        matchedResult &&
+        !result.output.ok &&
+        operation.step.kind === "fill" &&
+        ((result.output.reason === "value-mismatch" && result.output.mutation === "none") ||
+          (result.output.reason === "fill-rejected" && operation.step.effect === "prepare"))
+      ) {
+        await change(run, {
+          type: "VALUE_REJECTED",
+          operationId: operation.operationId,
+          document: run.live.document,
+          stage: result.output.reason === "value-mismatch" ? "before-fill" : "after-fill",
+        });
+        return;
+      }
+      // The code page showed that it submits the code by itself, or replaced its form
+      // once the code was in.
+      if (
+        matchedResult &&
+        !result.output.ok &&
+        (result.output.reason === "submitted" || result.output.reason === "structural-mismatch") &&
+        result.output.mutation === "possible" &&
+        codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+        (await codeSubmitted(run))
+      )
+        continue;
+      if (!matchedResult || !result.output.ok) {
+        await change(
+          run,
+          matchedResult && result.output.reason === "cancelled"
+            ? { type: "CANCEL" }
+            : {
+                type: "FAILED",
+                reason:
+                  matchedResult && result.output.reason === "timeout"
+                    ? "timeout"
+                    : "structural-mismatch",
+                mutation: matchedResult ? result.output.mutation : "possible",
+                operationId: operation.operationId,
+                document: run.live.document,
+              },
+        );
+        return;
+      }
+      if (
+        operation.step.kind !== "click" &&
+        !(operation.step.kind === "fill" && operation.step.effect !== "prepare")
+      ) {
+        await change(run, { type: "OPERATION_OK", operationId: operation.operationId });
+        continue;
+      }
+      await change(run, { type: "SUBMITTED", operationId: operation.operationId });
+      // A handler's click and the passkey route's click are held (ADR 0027).
+      const done = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex];
+      if (done && (done.handler !== undefined || run.metadata.route === "passkey"))
+        run.heldClick = operation.stepIndex;
+      // DOM navigation can replace this document. A same-page result is observed with a finite budget.
+      await reconcileBounded(run);
+      if (run.metadata.state !== "ready") return;
     }
   }
   /* eslint-enable no-await-in-loop */

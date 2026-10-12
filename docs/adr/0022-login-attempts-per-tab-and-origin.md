@@ -98,40 +98,43 @@ fix them now; the SSO policy itself is recorded separately.
   account choice is saved, and neither is retried. For the logout detection of
   [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
   like unknown outcomes.
-- **Holding the origin in other tabs** (amended 2026-10-11 and twice on 2026-10-12).
-  Cookies can be shared across tabs, so another tab's record of the origin refuses a new
-  attempt with `origin-busy` until that tab closes or the record has not changed for 5
-  minutes (`changedAt`, written when the login's progress changes: a new page of its tab
-  or a page sent to be judged does not count, nor does a restarted worker finding it; a
-  record without it does not hold), unless it is `authenticated`, ended `interrupted`
-  without any submission, or ended `blocked` because Pateat itself stopped it with
-  nothing in flight: `policy-changed`, `value-mismatch`, `wrong-account`,
-  `account-switched`, or `cancelled` before any submission (a frame login whose page
-  went away also ends `cancelled`), without a pending mutation intent, a click the page
-  may have received, or a result settled as unknown. A withdrawn authorization before
-  the page received the prepared fill or click takes back that operation's reserved
-  effect, so such a record shows nothing in flight; a record a restarted worker finds
-  with an intent pending keeps holding. Such a record does not hold: the login form
-  showing in a new tab means the site's session has ended, as when the first tab is
-  closed, and a stop by Pateat says nothing about the password. This includes a stop on
-  a second-factor handler step after the password was accepted. The tab then logs in as
-  a new tab would, with the saved default or by asking when several items match. While
-  an automatic account choice is being saved, or if one was saved after the tab read its
-  settings, the new login waits for the save and is checked again with the new settings,
-  because the save bumps the policy revision it would otherwise be stopped by. A record
-  in any other state keeps holding, for example one that is running, `retryable` (a
-  restarted worker resumes it), still reconciling, settled as unknown, ended
-  `interrupted` after a submission, stopped by Pateat while a fill or click may have
-  reached the page, or ended `credential-rejected`, `challenge`, `submission-limit` or
-  `left-origin`. So a password is not submitted again while a first submission may still
-  be in flight or was refused, or while the user may be answering a challenge Pateat
-  does not handle. Releasing `account-switched` lets another tab start between the
-  switch click and the first tab's fresh attempt, which then waits as `origin-busy`. A
-  refused tab's tooltip says that another tab's login holds the site and that closing
-  that tab, or waiting 5 minutes and reloading, lets it log in, and is reset when the
-  tab logs in ([Background execution](../architecture.md#background-execution)). A
-  refused page does not announce again when the hold ends; reloading it starts the
-  login, as does a pick in the toolbar popup while the page waits for an account choice
+- **Holding the origin in other tabs** (amended 2026-10-11 and three times on
+  2026-10-12). Cookies can be shared across tabs, so another tab's record of the origin
+  refuses a new attempt with `origin-busy` until that tab closes or the record has not
+  changed for 5 minutes (`changedAt`, written when the login's progress changes: a new
+  page of its tab or a page sent to be judged does not count, nor does a restarted
+  worker finding it; a record without it does not hold), unless it is `authenticated`,
+  ended `interrupted` without any submission, or ended `blocked` because Pateat itself
+  stopped it with nothing in flight: `policy-changed`, `value-mismatch`,
+  `wrong-account`, `account-switched`, `retry-limit` (its retries spent on failures that
+  changed nothing on the page; owner, 2026-10-12), or `cancelled` before any submission
+  (a frame login whose page went away also ends `cancelled`), without a pending mutation
+  intent, a click the page may have received, or a result settled as unknown. A
+  withdrawn authorization before the page received the prepared fill or click takes back
+  that operation's reserved effect, so such a record shows nothing in flight; a record a
+  restarted worker finds with an intent pending keeps holding. Such a record does not
+  hold: the login form showing in a new tab means the site's session has ended, as when
+  the first tab is closed, and a stop by Pateat says nothing about the password. This
+  includes a stop on a second-factor handler step after the password was accepted. The
+  tab then logs in as a new tab would, with the saved default or by asking when several
+  items match. While an automatic account choice is being saved, or if one was saved
+  after the tab read its settings, the new login waits for the save and is checked again
+  with the new settings, because the save bumps the policy revision it would otherwise
+  be stopped by. A record in any other state keeps holding, for example one that is
+  running, `retryable` (it is tried again from the same step at once, or, after a
+  restart, once a new page of its tab shows, until its retries are spent), still
+  reconciling, settled as unknown, ended `interrupted` after a submission, stopped by
+  Pateat while a fill or click may have reached the page, or ended
+  `credential-rejected`, `challenge`, `submission-limit` or `left-origin`. So a password
+  is not submitted again while a first submission may still be in flight or was refused,
+  or while the user may be answering a challenge Pateat does not handle. Releasing
+  `account-switched` lets another tab start between the switch click and the first tab's
+  fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip says that
+  another tab's login holds the site and that closing that tab, or waiting 5 minutes and
+  reloading, lets it log in, and is reset when the tab logs in
+  ([Background execution](../architecture.md#background-execution)). A refused page does
+  not announce again when the hold ends; reloading it starts the login, as does a pick
+  in the toolbar popup while the page waits for an account choice
   ([ADR 0021](0021-account-choice-outside-settings.md)).
 - **Generation offers.** ADR 0016's "a page is not offered while its tab holds an
   attempt record" now means a record for the page's own origin.

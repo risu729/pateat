@@ -625,6 +625,22 @@ describe("submission and failure reconciliation", () => {
     ).toBeUndefined();
   });
 
+  it("a final retry ends a retryable attempt with its budget unspent", () => {
+    let attempt = transitionLoginAttempt(detected(), { type: "RESOLVE" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "fill-final",
+      kind: "fill",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "FAILED", reason: "structural-mismatch" });
+    expect(attempt.state).toBe("retryable");
+    expect(transitionLoginAttempt(attempt, { type: "RETRY", final: true })).toMatchObject({
+      state: "blocked",
+      outcome: "retry-limit",
+      retries: 0,
+    });
+  });
+
   it("a wrong displayed account ends the attempt without a retry or a spent submission", () => {
     const ready = transitionLoginAttempt(detected(), { type: "RESOLVE" });
     const filling = transitionLoginAttempt(ready, {
