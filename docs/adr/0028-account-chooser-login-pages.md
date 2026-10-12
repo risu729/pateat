@@ -102,7 +102,9 @@ email listed, it hands over up to 32 short texts instead: those beside at most t
 buttons, each at most 64 characters and without an `@`; a control's own text is never
 one. Many ordinary pages show such a text, so on a site with a vault match the worker
 reads the matching items' usernames, email usernames included, one at a time on each
-such page, and sends the page only when a text names one; a page offered only by such
+such page, and sends the page only when a text names one, or (owner, 2026-10-12 19:11
+UTC, below) when the page also shows a control to sign in with another account; a page
+offered only by such
 texts that is not sent is logged at debug level only, as mostly ordinary browsing (owner
 rule that Pateat never stops silently, 2026-10-12). The worker passes the naming texts
 back with the request to describe the page. The observation then lists each as
@@ -332,6 +334,29 @@ at 08:36 UTC, from descriptions of these pages given before the capture:
   ADR 0016 otherwise avoids. The check before a password fill compares only email and
   all-digit usernames, so for these usernames the exact match is the only check; one
   username names one account on a site.
+
+Amended by the owner on 2026-10-12 (decision card answered "press" at 19:11 UTC), after
+Instagram's list was never sent in the owner's Chrome because the item's username is an
+email and the list shows only the profile's Instagram username: a page whose short texts
+name no matching item's username is still sent when it also shows, outside page chrome,
+a control whose whole text (at most 64 characters) holds a word for another (another,
+other, different, switch, 別の, 他の, ほかの, 切り替え, 切替) and one for an account
+(account, profile, user and their plurals, アカウント, プロフィール, ユーザー), such as
+"Use another profile" or "Switch accounts", and that the `other` rule above could click.
+Every short text the page handed over is then hidden as `[account]`, since any of them
+may name an account. A control whose text or `aria-label` holds one of those texts would
+be left out of the page sent, so it does not count, and a page without another such
+control is not sent: "Not taro? Switch accounts" beside the name taro, or
+"別のアカウントでログイン" under a heading "ログイン" beside the list. The login then
+clicks `other` by the [execution](#execution) rule, since no shown account fits the
+username, and the next page is generated as that branch. The page right after a sign-in
+is not sent and is logged as `after-sign-in`. The words are a local list, as the passkey
+button words are, and name no site ([ADR 0033](0033-no-site-specific-features.md)).
+Known cost: a signed-in page on a matching site that shows a short text beside a button
+and such a control in its content, such as "Manage other accounts" or "Create another
+account", can be sent (about $0.007, at most once in the 10-minute window), and the AI
+abstains there. Not covered: a control worded only "Not you?", "Use a different email"
+or "Add account".
 
 ## Consequences
 

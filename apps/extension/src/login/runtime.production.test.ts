@@ -5090,6 +5090,35 @@ describe("production login document admission", () => {
         expect(JSON.stringify(fake.state.messages)).not.toContain("Risu729");
       });
 
+      it("sends a list of names that name no item when it shows a control for another account", async () => {
+        const { service, h, generations } = setup();
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "risu@example.com" : "synthetic-secret",
+        );
+        const otherHello = () =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              list: { path: "/signin", names: ["taro.yamada", "Help"], other: true },
+            },
+            sender(),
+          );
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        expect(await otherHello()).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
+        // Every shown text goes back to be hidden, as a possible account name.
+        expect(fake.state.messages.find((entry) => entry.type === "login.extract")).toMatchObject({
+          page: "accounts",
+          names: ["taro.yamada", "Help"],
+        });
+        expect(generations()).not.toContainEqual(
+          expect.objectContaining({ reason: "no-listed-account" }),
+        );
+        expect(JSON.stringify(fake.state.messages)).not.toContain("risu@example.com");
+      });
+
       it("logs a shown email address that is no entry, and sends only names", async () => {
         const { service, h, generations } = setup();
         const missed = (from: Record<string, unknown>, names?: string[]) =>

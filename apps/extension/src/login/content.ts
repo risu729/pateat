@@ -20,6 +20,7 @@ import {
   besideEmails,
   listChoice,
   listControls,
+  showsOtherAccountControl,
   type EntryMiss,
 } from "../page/account-list";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
@@ -388,20 +389,30 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * account by email, or else the short texts that may name one by a username that is not
    * an email.
    */
-  function listed(): { path: string; names?: string[]; missed?: EntryMiss } | undefined {
+  function listed():
+    | { path: string; names?: string[]; other?: true; missed?: EntryMiss }
+    | undefined {
     const path = location.pathname;
     if (listsAccounts()) return { path };
     const names = accountNames(document);
     // Why a shown email address is not an entry, so a list missed is logged (ADR 0028).
     const missed = accountEntryMiss(document);
     if (!names.length && !missed) return undefined;
-    return { path, ...(names.length ? { names } : {}), ...(missed ? { missed } : {}) };
+    // A control to sign in with another account lets a list of names that name no item be
+    // sent too (ADR 0028).
+    const other = names.length > 0 && showsOtherAccountControl(document, names);
+    return {
+      path,
+      ...(names.length ? { names } : {}),
+      ...(other ? { other: true as const } : {}),
+      ...(missed ? { missed } : {}),
+    };
   }
   async function announce(
     start: boolean,
     /** `identifier` for a page that asks for an account identifier alone (ADR 0016). */
     signIn: boolean | "identifier" = false,
-    list?: { path: string; names?: string[]; missed?: EntryMiss },
+    list?: { path: string; names?: string[]; other?: true; missed?: EntryMiss },
     entryPage = false,
   ): Promise<unknown> {
     announced = start;

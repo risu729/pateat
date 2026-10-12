@@ -366,7 +366,12 @@ const logCode = (reason: string) =>
  * the short texts that may name an account by a username that is not an email, and why a
  * shown email address is not a list entry, for the log only.
  */
-type ListOffer = { path: string; names?: string[] | undefined; missed?: EntryMiss | undefined };
+type ListOffer = {
+  path: string;
+  names?: string[] | undefined;
+  other?: true | undefined;
+  missed?: EntryMiss | undefined;
+};
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
 const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
   entry.state !== "authenticated" &&
@@ -5907,9 +5912,9 @@ export function createLoginRuntime(
       // The page right after a sign-in is never sent as a list of accounts (ADR 0028) or as
       // a sign-in entry.
       if (offer && listing && afterSignIn.get(document.tabId) === document.documentId) {
-        // Logged for a list with an email or an offered entry only: short texts alone are
-        // ordinary browsing.
-        if (!listing.names || entryOffer) skipGeneration(live, "after-sign-in");
+        // Logged for a list with an email, one with a control for another account, or an
+        // offered entry only: short texts alone are ordinary browsing.
+        if (!listing.names || listing.other || entryOffer) skipGeneration(live, "after-sign-in");
         offer = false;
       }
       // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
@@ -5930,11 +5935,17 @@ export function createLoginRuntime(
             ? await listedNames(live.document.origin, scope, listing.names)
             : undefined;
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        if (scope && (!listing?.names || names?.length)) {
+        // Or the page shows a control to sign in with another account (ADR 0028, owner
+        // 2026-10-12 19:11 UTC), as Instagram's list of a profile whose username is not the
+        // item's: then every shown text is hidden from the page sent, as a possible account
+        // name, and the login continues through that control.
+        const otherOnly =
+          !names?.length && listing?.names && listing.other ? listing.names : undefined;
+        if (scope && (!listing?.names || names?.length || otherOnly)) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateFor(live, scope, listing ? { names: names ?? [] } : undefined);
+          void generateFor(live, scope, listing ? { names: otherOnly ?? names ?? [] } : undefined);
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, the vault could not tell, or no shown text names

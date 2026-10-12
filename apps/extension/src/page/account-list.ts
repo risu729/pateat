@@ -398,6 +398,48 @@ export function listControls(document: Document, target: LoginTarget): HTMLEleme
   return found.filter(clickableListControl);
 }
 
+/**
+ * Words of a control that signs in with another account than the one a list shows, as
+ * "Use another profile" or "Switch accounts" (ADR 0028, owner 2026-10-12 19:11 UTC): one
+ * word of each set, matched as whole words; Japanese parts match anywhere.
+ */
+const otherWords = new Set(["another", "other", "different", "switch"]);
+const accountWords = new Set(["account", "accounts", "profile", "profiles", "user", "users"]);
+const otherParts = ["別の", "他の", "ほかの", "切り替え", "切替"];
+const accountParts = ["アカウント", "プロフィール", "ユーザー"];
+/** A control naming another account is a short label, not a paragraph. */
+const otherTextLimit = 64;
+
+/**
+ * Whether the page shows a control, outside page chrome, that signs in with another
+ * account (ADR 0028): its whole text, at most 64 characters, holds a word for another
+ * (another, other, different, switch, 別の, 他の, ほかの, 切り替え, 切替) and one for an
+ * account (account, profile, user and their plurals, アカウント, プロフィール, ユーザー),
+ * and {@link listControls} could click it. Only words of the control's own text count,
+ * never a site name. A control whose text or label holds one of `names`, which are hidden
+ * from the page sent, would be left out of it, so it does not count.
+ */
+export function showsOtherAccountControl(
+  document: Document,
+  names: readonly string[] = [],
+): boolean {
+  const source = namePattern(names);
+  const holds = source ? new RegExp(source, "iu") : undefined;
+  return entryControls(document).some((element) => {
+    const text = listControlText(element).normalize("NFKC");
+    if (!text || text.length > otherTextLimit || !clickableListControl(element)) return false;
+    const label = (element.getAttribute("aria-label") ?? "").normalize("NFKC");
+    if (holds && (holds.test(text) || holds.test(label))) return false;
+    const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
+    const other =
+      words.some((word) => otherWords.has(word)) || otherParts.some((part) => text.includes(part));
+    const account =
+      words.some((word) => accountWords.has(word)) ||
+      accountParts.some((part) => text.includes(part));
+    return other && account;
+  });
+}
+
 /** At most this many short texts are handed over as possible account names. */
 const maxNames = 32;
 
