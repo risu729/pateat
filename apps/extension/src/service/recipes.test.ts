@@ -1,4 +1,9 @@
-import { parseLoginRecipe, type LoginRecipe, type SyncRecipeChange } from "@pateat/contracts";
+import {
+  parseLoginRecipe,
+  type LoginRecipe,
+  type StoredLoginRecipe,
+  type SyncRecipeChange,
+} from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   createRecipeSync,
@@ -678,6 +683,38 @@ describe("cached recipe lookup", () => {
       stored: { ...stored, recipes: [signin, recipe("bank-alt", "/login")] },
     });
     expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+  });
+
+  it("caches an entry recipe (ADR 0031) but never starts, resumes or lists it", async () => {
+    const entry: StoredLoginRecipe = {
+      version: 1,
+      id: "bank-entry",
+      revision: 1,
+      origin: SITE,
+      entry: { path: "/login", target: { by: "text", value: "Login" } },
+    };
+    const home = { ...entry, id: "bank-home", entry: { ...entry.entry, path: "/" } };
+    const { sync, cache } = setup({
+      pages: [
+        page(
+          [entry, home].map((value) => ({
+            recipeId: value.id,
+            revision: 1,
+            state: "active" as const,
+            recipe: value,
+          })),
+          3,
+        ),
+      ],
+      stored,
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(cache()["recipes"]).toEqual([...stored.recipes, entry, home]);
+    // Sharing the login recipe's start path, it neither replaces nor ambiguates it.
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
+    expect(await sync.recipes.recipe(SITE, "/")).toBeUndefined();
+    expect(await sync.recipes.recipe(SITE, "/", "bank-home")).toBeUndefined();
+    expect(await sync.recipes.starts(SITE)).toEqual([{ path: "/login", steps: [signin.steps[0]] }]);
   });
 
   it("serves nothing without a paired device or for another device's cache", async () => {

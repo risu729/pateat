@@ -726,6 +726,34 @@ describe("recipe generation", () => {
     expect(sent).toEqual([]);
   });
 
+  it("never generates, continues or judges an entry recipe stored under the page's ID", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    // ADR 0031: a recipe whose only member is `entry`, written by a device for now.
+    const entry = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      entry: { path: "/login", target: { by: "text", value: "Login" } },
+    };
+    const stored = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 0, state: "active", recipe: entry },
+      "PUT",
+    );
+    expect(stored.status).toBe(200);
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    expect(await generate(device, emailPage)).toEqual(conflict);
+    expect(await generate(device, passwordPage, { recipeId, revision: 1 })).toEqual(conflict);
+    expect(await complete(device, recipeId, 1)).toEqual({ status: 200, body: conflict });
+    expect(sent).toEqual([]);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
   it("refuses an incomplete page without recording an attempt", async () => {
     const device = await owner();
     expect(await generate(device, { ...emailPage, complete: false })).toEqual({

@@ -1,4 +1,5 @@
 import {
+  isLoginRouteRecipe,
   loginStepEffect,
   recipeHasRoute,
   recipeSlots,
@@ -6,6 +7,7 @@ import {
   routeSignInPaths,
   routeSignInTargets,
   sameLoginTarget,
+  storedRecipeStartPath,
   type GenerationUnavailableReason,
   type LoginRecipe,
   type LoginTarget,
@@ -13,6 +15,7 @@ import {
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type StoredLoginRecipe,
   type SyncRecipeChange,
 } from "@pateat/contracts";
 import {
@@ -77,6 +80,14 @@ const failureOf = (error: InferenceErrorCode): Failure =>
   error === "cancelled" ? "timeout" : error;
 const active = (change: SyncRecipeChange | null) =>
   change?.state === "active" ? change : undefined;
+/**
+ * An active head with a login route, the only kind a generation or judgement answers
+ * with; an entry recipe (ADR 0031) is never one.
+ */
+const activeRoute = (change: SyncRecipeChange | null) => {
+  const head = active(change);
+  return head && isLoginRouteRecipe(head.recipe) ? { ...head, recipe: head.recipe } : undefined;
+};
 
 /**
  * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe other
@@ -97,10 +108,10 @@ export async function generateRecipe(
   // costs no call.
   if (observation.accounts) return failed("invalid-request");
   /** Whether a stored recipe is the one generated for this origin under this ID. */
-  const generatedHere = async (recipe: LoginRecipe) =>
+  const generatedHere = async (recipe: StoredLoginRecipe) =>
     recipe.origin === origin &&
     recipe.id === recipeId &&
-    (await generatedRecipeId(origin, recipe.steps[0]!.path)) === recipeId;
+    (await generatedRecipeId(origin, storedRecipeStartPath(recipe))) === recipeId;
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
@@ -119,10 +130,14 @@ export async function generateRecipe(
         ? { base: undefined, revoked: head.revision }
         : { answer: unavailable("recipe-limit") };
     }
-    const current = active(head);
+    const stored = active(head);
     // Only the recipe generated here answers; a device write under the ID cannot redirect it.
-    if (current && !(await generatedHere(current.recipe)))
+    if (stored && !(await generatedHere(stored.recipe)))
       return { answer: unavailable("recipe-conflict") };
+    // An entry recipe (ADR 0031) of this origin and path never gains steps and is no login
+    // recipe to answer with; generating its entry is not implemented yet.
+    const current = activeRoute(head);
+    if (stored && !current) return { answer: unavailable("recipe-conflict") };
     if (current && (!base || current.revision !== base.revision))
       // Another device already generated it, or appended this page first: use that.
       return { answer: { version: 1, status: "recipe", change: current } };
@@ -288,7 +303,7 @@ export async function generateRecipe(
     const lost = await decide(written.current);
     return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
   }
-  const change = active(written.change);
+  const change = activeRoute(written.change);
   if (!change) return unavailable("recipe-conflict");
   // Only the recipe this call wrote has a mapping to answer with.
   return { version: 1, status: "recipe", change, ...(customSlots.length ? { customSlots } : {}) };
@@ -323,8 +338,13 @@ export async function judgeCompletion(
   const { recipe } = head;
   const { observation, route } = request;
   if (observation.origin !== recipe.origin) return null;
-  // Only a page of the revision that ran, on a route the stored recipe has, is judged.
-  if (head.revision !== request.revision || !recipeHasRoute(recipe, route))
+  // Only a page of the revision that ran, on a route the stored recipe has, is judged; an
+  // entry recipe (ADR 0031) has no route.
+  if (
+    !isLoginRouteRecipe(recipe) ||
+    head.revision !== request.revision ||
+    !recipeHasRoute(recipe, route)
+  )
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
   // The checks use the stored recipe, never the request: a page that still shows one of
@@ -454,7 +474,7 @@ export async function judgeCompletion(
       { version: 1, state: "active", expectedRevision: head.revision, recipe: changed },
       scope.deviceId,
     );
-    const change = written.ok ? active(written.change) : undefined;
+    const change = written.ok ? activeRoute(written.change) : undefined;
     return { version: 1, status: "challenge", ...(change ? { change } : {}) };
   }
   // A completion is learned once; a later signed-in page needs no change.
@@ -477,6 +497,6 @@ export async function judgeCompletion(
     },
     scope.deviceId,
   );
-  const change = written.ok ? active(written.change) : undefined;
+  const change = written.ok ? activeRoute(written.change) : undefined;
   return change ? { version: 1, status: "signed-in", change } : unavailable("recipe-conflict");
 }

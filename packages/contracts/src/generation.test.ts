@@ -58,6 +58,17 @@ describe("recipe generation contracts", () => {
       { recipeId: "gen-1", revision: 2, state: "revoked" },
       { ...change, revision: 3 },
       { ...change, recipeId: "gen-2" },
+      // An entry recipe (ADR 0031) is never a generation or judgement answer yet.
+      {
+        ...change,
+        recipe: {
+          version: 1,
+          id: "gen-1",
+          revision: 2,
+          origin: recipe.origin,
+          entry: { path: "/", target: { by: "text", value: "Login" } },
+        },
+      },
     ]) {
       expect(
         v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change: invalid }),

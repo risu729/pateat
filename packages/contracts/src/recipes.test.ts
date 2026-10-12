@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import { parseLoginRecipe, type LoginRecipe } from "./login";
+import { parseLoginRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
 import {
   customFieldReference,
   defaultLoginBinding,
@@ -114,6 +114,30 @@ describe("recipe selection", () => {
     expect(findLoginRecipe(revised, origin, "bank-signin", 2)?.revision).toBe(2);
     expect(findLoginRecipe(revised, origin, "bank-signin", 1)).toBeUndefined();
     expect(findLoginRecipe(revised, "https://other.example", "bank-signin", 2)).toBeUndefined();
+  });
+
+  it("never lists, starts or resumes an entry recipe (ADR 0031)", () => {
+    const entry: StoredLoginRecipe = {
+      version: 1,
+      id: "bank-entry",
+      revision: 1,
+      origin,
+      entry: { path: "/login", target: { by: "text", value: "Login" } },
+    };
+    expect(loginRecipesForOrigin([entry, ...recipes], origin).map(({ id }) => id)).toEqual([
+      "bank-signin",
+      "bank-admin",
+    ]);
+    // It shares the start path with a login recipe without making the start ambiguous.
+    expect(selectLoginRecipe([entry, ...recipes], origin, "/login")).toMatchObject({
+      ok: true,
+      recipe: { id: "bank-signin" },
+    });
+    expect(selectLoginRecipe([entry], origin, "/login")).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+    });
+    expect(findLoginRecipe([entry], origin, "bank-entry", 1)).toBeUndefined();
   });
 });
 
