@@ -28,8 +28,9 @@ a way through without WARP should stay once it works, not only for a test (05:17
   bindings.
 - **Two Allow policies.**
   - The owner's existing reusable policy (email domain and WARP). The owner's Chrome
-    passes it with its existing Access global session and is asked for a code only
-    when that session has ended.
+    passes this one. Its session on the host-wide application does not carry over:
+    on 2026-10-12, its first visit to `/pair/signed-in` after "pateat pair" was
+    created asked for a One-time PIN code.
   - Include the owner's email address only, and require the One-time PIN login method.
     No WARP. A browser without WARP can only pass this one. The login-method
     requirement keeps it from admitting another identity provider added later, so no
