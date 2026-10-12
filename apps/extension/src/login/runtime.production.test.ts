@@ -14946,6 +14946,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         candidates: [{ id: "c1", role: "button", target: target("logout"), label: "Sign out" }],
       },
     };
+    const onStart = { ...homePage, observation: { ...homePage.observation, path: "/signin" } };
     /** A recipe without a signed-in marker, so only the judge can settle the page. */
     function judged(verdict: "signed-in" | "unclear", change: Partial<LoginRecipe> = {}) {
       const { completion: _unlearned, ...unlearned } = { ...recipe, ...change };
@@ -14991,20 +14992,62 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect(executed()).toEqual([]);
     });
 
-    it("settles a page that stays on the start page's path once fifteen seconds passed", async () => {
+    it("judges a page that stays on the start page's path once fifteen seconds passed", async () => {
       vi.useFakeTimers();
       const { h, service } = judged("unclear");
       const request = ask(h);
       await flush();
       expect(await h.hello()).toEqual({ ok: true });
       await until(() => request.decided() !== undefined, 5_000);
-      fake.state.present = new Set();
+      // The form goes, and the page shows something to describe.
+      fake.state.present = new Set(["logout"]);
+      fake.state.extracted = { "signed-in": onStart };
       answerOf(request.decided()).answered(true);
       await vi.advanceTimersByTimeAsync(14_000);
       expect(status()![0]).toMatchObject({ state: "awaiting-result", route: "passkey" });
       expect(service.judge).not.toHaveBeenCalled();
       // Anything the passkey route does not prove ends as a challenge.
-      await until(settled("blocked", "challenge"), 20_000);
+      await until(settled("blocked", "challenge"), 10_000);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(executed()).toEqual([]);
+    });
+
+    it("waits while the start page's path shows nothing to describe, as a loader does", async () => {
+      vi.useFakeTimers();
+      const { h, service } = judged("signed-in");
+      const request = ask(h);
+      await flush();
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      fake.state.present = new Set();
+      answerOf(request.decided()).answered(true);
+      // The site moves on a minute and a half after the answer.
+      setTimeout(() => {
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        fake.state.extracted = { "signed-in": homePage };
+      }, 90_000);
+      await vi.advanceTimersByTimeAsync(85_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result", route: "passkey" });
+      expect(service.judge).not.toHaveBeenCalled();
+      await until(settled("authenticated"), 20_000);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(executed()).toEqual([]);
+    });
+
+    it("ends as a challenge when the start page's path shows nothing for two minutes", async () => {
+      vi.useFakeTimers();
+      const { h, service } = judged("signed-in");
+      const request = ask(h);
+      await flush();
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      fake.state.present = new Set();
+      answerOf(request.decided()).answered(true);
+      await vi.advanceTimersByTimeAsync(115_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result", route: "passkey" });
+      await until(settled("blocked", "challenge"), 10_000);
+      expect(service.judge).not.toHaveBeenCalled();
       expect(executed()).toEqual([]);
     });
 
@@ -15021,9 +15064,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         const step = (message["operation"] as { step: LoginStep }).step;
         if (step.kind === "click" && step.target.value === "login") {
           fake.state.present = new Set(["logout"]);
-          fake.state.extracted = {
-            "signed-in": { ...homePage, observation: { ...homePage.observation, path: "/signin" } },
-          };
+          fake.state.extracted = { "signed-in": onStart };
         }
       };
       answerOf(request.decided()).answered(true);

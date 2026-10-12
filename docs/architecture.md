@@ -583,7 +583,8 @@ anything is submitted, and a login on a chooser's list
 ([ADR 0028](adr/0028-account-chooser-login-pages.md)) before its click there. It falls
 back to the recorded `password` variant when no request comes, the item cannot answer
 it, the recipe's rejection shows, or the sign-in form still shows 15 seconds after the
-answer, and until then a page on the start path is not judged. While the tab asks for
+answer, and until then a page on the start path is not judged (up to two minutes while
+it shows nothing to describe, as a loader). While the tab asks for
 an account after a logout, that request waits for the popup pick, whose login answers
 it the same way
 ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A recipe's `password` route has

@@ -2960,7 +2960,8 @@ export function createLoginRuntime(
     if (!settleUnknown) return undefined;
     // After answering the page's own request, a page still on the start page's path may be
     // exchanging the assertion before the site moves on, with its form already gone: it is
-    // not judged until the request's hold ends (ADR 0034).
+    // not judged until the request's hold ends, nor while it shows nothing to describe, as
+    // a loader does, until the held click's wait ends (ADR 0034).
     const answered = plan[run.metadata.stepIndex];
     if (
       run.metadata.route === "passkey" &&
@@ -2969,9 +2970,9 @@ export function createLoginRuntime(
       answered.handler === undefined &&
       observed.path === answered.step.path &&
       run.answeredAt !== undefined &&
-      Date.now() - run.answeredAt < REQUEST_HOLD_MS
+      (Date.now() - run.answeredAt < REQUEST_HOLD_MS || (await showsNothing(run)))
     )
-      return "held";
+      return current(run) ? "held" : undefined;
     const state = effectful(run.metadata) ? await signInState(run) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
     // Evidence of a sign-in completes the login without a model call, and a failure shown
@@ -2995,6 +2996,14 @@ export function createLoginRuntime(
       document: run.live.document,
     });
     return undefined;
+  }
+  /** Whether the page has nothing a signed-in page's description could carry. */
+  async function showsNothing(run: Execution): Promise<boolean> {
+    const extracted = v.safeParse(
+      extractResultSchema,
+      await send(run.live, { type: "login.extract", page: "signed-in" }).catch(() => undefined),
+    );
+    return extracted.success && !extracted.output.ok && extracted.output.reason === "no-candidates";
   }
   /**
    * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
