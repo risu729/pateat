@@ -47,7 +47,10 @@ type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
 
 export type ClaudeCall<T> = {
   role: "generate" | "judge";
-  /** The role's prompt version (`generationPromptVersion`, `completionPromptVersion`). */
+  /**
+   * The role's prompt version (`generationPromptVersion`, `entryGenerationPromptVersion`,
+   * `completionPromptVersion`).
+   */
   promptVersion: string;
   origin: string;
   path: string;

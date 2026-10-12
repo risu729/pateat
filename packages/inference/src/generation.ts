@@ -1,4 +1,9 @@
-import { loginObservationSchema, loginStepSchema, semanticSlotsSchema } from "@pateat/contracts";
+import {
+  isEntryObservation,
+  loginObservationSchema,
+  loginStepSchema,
+  semanticSlotsSchema,
+} from "@pateat/contracts";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { LanguageModel } from "ai";
 import * as v from "valibot";
@@ -13,10 +18,13 @@ import {
 import {
   MAX_PAGE_ALTERNATIVES,
   redactAccountList,
+  redactEntry,
   redactGeneratedPage,
   validateAccountList,
+  validateEntry,
   validateGeneratedPage,
   type ValidatedAccountList,
+  type ValidatedEntry,
   type ValidatedGeneratedPage,
 } from "./plan";
 import { described, runStructuredRole, type Interpreted } from "./structured";
@@ -95,6 +103,9 @@ export const generatedPlanSchema = v.strictObject({
         ),
       ),
     }),
+    // The control that opens the site's login page, for a request without slots (ADR 0031);
+    // its meaning is the entry prompt line's, so the format other requests see stays short.
+    v.strictObject({ decision: v.literal("entry"), entry: reference }),
   ]),
 });
 
@@ -149,6 +160,22 @@ export function asPagePlan(
   };
 }
 
+/**
+ * The prompt line only a request without slots gets (ADR 0031): which control of a page
+ * without a login form opens sign-in, by meaning only.
+ */
+export const entryInstruction =
+  "If the page has no sign-in fields, name in `entry` the one control that opens sign-in " +
+  "to an existing account for a visitor who is not signed in; never one that creates an " +
+  "account or signs in through another service; otherwise abstain.";
+/** The instructions of an entry request: the generation role's and the entry line. */
+export const entryGenerationInstructions = `${generationInstructions} ${entryInstruction}`;
+/** An entry request's prompt version, for the request log. */
+export const entryGenerationPromptVersion = promptVersionOf(
+  entryGenerationInstructions,
+  outputSchemaJson,
+);
+
 export type GenerationRequest = {
   observation: unknown;
   slots: unknown;
@@ -157,17 +184,23 @@ export type GenerationRequest = {
   abortSignal?: AbortSignal;
 };
 
-/**
- * Recipe generation/repair role. Uses exactly the configured model: errors are
- * returned, never retried on another provider or model.
- */
-export function createRecipeGenerator(config: {
+/** A request for a page's sign-in entry (ADR 0031): an observation and no slots. */
+export type EntryGenerationRequest = { observation: unknown; abortSignal?: AbortSignal };
+
+type GenerationConfig = {
   model: Exclude<LanguageModel, string>;
   limits: RoleLimits;
   maxOutputTokens: number;
   /** Reads the provider's refusal category code from the last attempt's metadata. */
   refusalCategory?: (providerMetadata: unknown) => string | undefined;
-}) {
+};
+type GeneratedOutput = v.InferOutput<typeof generatedPlanSchema>;
+
+/**
+ * One call of the generation role with its response format, after the request bound;
+ * shared by page and entry requests.
+ */
+function generationCall(config: GenerationConfig) {
   // A string would resolve through the SDK's global default provider.
   if (typeof config.model !== "object" || config.model === null)
     throw new TypeError("Pass a configured model instance");
@@ -176,6 +209,35 @@ export function createRecipeGenerator(config: {
     v.pipe(v.number(), v.integer(), v.minValue(16), v.maxValue(16_384)),
     config.maxOutputTokens,
   );
+  return async <T>(call: {
+    instructions: string;
+    prompt: string;
+    abortSignal: AbortSignal | undefined;
+    interpret: (output: GeneratedOutput) => Interpreted<T>;
+  }): Promise<InferenceOutcome<T>> => {
+    if (requestBytes([call.instructions, call.prompt, outputSchemaJson]) > limits.maxInputBytes)
+      return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
+    return runStructuredRole({
+      model: config.model,
+      instructions: call.instructions,
+      prompt: call.prompt,
+      schema: generatedPlanSchema,
+      name: "login_page_plan",
+      limits,
+      maxOutputTokens,
+      abortSignal: call.abortSignal,
+      refusalCategory: config.refusalCategory,
+      interpret: call.interpret,
+    });
+  };
+}
+
+/**
+ * Recipe generation/repair role. Uses exactly the configured model: errors are
+ * returned, never retried on another provider or model.
+ */
+export function createRecipeGenerator(config: GenerationConfig) {
+  const call = generationCall(config);
 
   return async function generate(
     request: GenerationRequest,
@@ -195,22 +257,22 @@ export function createRecipeGenerator(config: {
       observation: observation.output,
       ...(repair?.success ? { repair: repair.output } : {}),
     });
-    if (requestBytes([generationInstructions, prompt, outputSchemaJson]) > limits.maxInputBytes)
-      return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
 
-    return runStructuredRole({
-      model: config.model,
+    return call({
       instructions: generationInstructions,
       prompt,
-      schema: generatedPlanSchema,
-      name: "login_page_plan",
-      limits,
-      maxOutputTokens,
       abortSignal: request.abortSignal,
-      refusalCategory: config.refusalCategory,
       interpret: (output): Interpreted<ValidatedGeneratedPage | ValidatedAccountList> => {
         const draft = output.result;
         if (draft.decision === "abstain") return { status: "abstained", reason: draft.reason };
+        // A sign-in entry answers only a request without slots (ADR 0031).
+        if (draft.decision === "entry")
+          return {
+            status: "failed",
+            error: "invalid-output",
+            detail: "unexpected-entry",
+            output: { result: redactEntry(observation.output, draft.entry) },
+          };
         if (draft.decision === "account-list") {
           const { decision: _decision, ...list } = draft;
           const checked = validateAccountList(observation.output, list);
@@ -245,6 +307,62 @@ export function createRecipeGenerator(config: {
               error: "invalid-output",
               detail: validated.reason,
               output: { result: redactGeneratedPage(observation.output, slots.output, draft) },
+            };
+      },
+    });
+  };
+}
+
+/**
+ * The generation role for a page without a login form (ADR 0031): the request offers no
+ * slots, its instructions add the entry line, and the answer names the one `link` that
+ * opens sign-in to an existing account, or abstains. A plan or an account list fails
+ * `invalid-output`, as an entry does for a request with slots.
+ */
+export function createEntryGenerator(config: GenerationConfig) {
+  const call = generationCall(config);
+
+  return async function generateEntry(
+    request: EntryGenerationRequest,
+  ): Promise<InferenceOutcome<ValidatedEntry>> {
+    const observation = v.safeParse(loginObservationSchema, request.observation);
+    if (!observation.success || !isEntryObservation(observation.output))
+      return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
+    if (!observation.output.complete)
+      return { status: "failed", error: "incomplete-observation", calls: 0, usage: noUsage };
+    const page = observation.output;
+
+    return call({
+      instructions: entryGenerationInstructions,
+      prompt: JSON.stringify({ task: "entry", observation: page }),
+      abortSignal: request.abortSignal,
+      interpret: (output): Interpreted<ValidatedEntry> => {
+        const draft = output.result;
+        if (draft.decision === "abstain") return { status: "abstained", reason: draft.reason };
+        if (draft.decision === "plan")
+          return {
+            status: "failed",
+            error: "invalid-output",
+            detail: "unexpected-plan",
+            output: { result: redactGeneratedPage(page, [], draft) },
+          };
+        if (draft.decision === "account-list") {
+          const { decision: _decision, ...list } = draft;
+          return {
+            status: "failed",
+            error: "invalid-output",
+            detail: "unexpected-account-list",
+            output: { result: { decision: "account-list", ...redactAccountList(page, list) } },
+          };
+        }
+        const validated = validateEntry(page, draft.entry);
+        return validated.ok
+          ? { status: "ok", value: validated.entry }
+          : {
+              status: "failed",
+              error: "invalid-output",
+              detail: validated.reason,
+              output: { result: redactEntry(page, draft.entry) },
             };
       },
     });

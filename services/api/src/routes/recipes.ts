@@ -1,7 +1,7 @@
 import {
   SYNC_PAGE_LIMIT,
+  generationRequestSchema,
   recipeCompletionRequestSchema,
-  recipeGenerationRequestSchema,
   syncRecipeIdSchema,
   syncRecipeWriteSchema,
 } from "@pateat/contracts";
@@ -15,7 +15,7 @@ import { recipeHeads } from "../db/schema";
 import { apiError } from "../http";
 import { purgeExpiredLog } from "../claude/calls";
 import { selectHeads, toChange, writeRecipe } from "../recipe-store";
-import { generateRecipe, judgeCompletion } from "../recipes/generate";
+import { generateEntry, generateRecipe, judgeCompletion } from "../recipes/generate";
 import { jsonBody, requireJsonBody } from "../validation";
 
 const recipeParam = validator("param", (value, c) => {
@@ -68,8 +68,13 @@ export const recipeRoutes = new Hono<ApiEnv>()
     },
   )
   // Registered before `/:recipeId` routes; ADR 0018. Answers are 200 with a status.
-  .post("/generate", requireJsonBody, jsonBody(recipeGenerationRequestSchema), async (c) => {
-    const result = await generateRecipe(c.env, c.get("scope"), c.req.valid("json"));
+  .post("/generate", requireJsonBody, jsonBody(generationRequestSchema), async (c) => {
+    const request = c.req.valid("json");
+    // A request without slots asks for a page's sign-in entry (ADR 0031).
+    const result =
+      "slots" in request
+        ? await generateRecipe(c.env, c.get("scope"), request)
+        : await generateEntry(c.env, c.get("scope"), request);
     return result ? c.json(result) : apiError(c, 400, { error: "bad_request" });
   })
   .post(

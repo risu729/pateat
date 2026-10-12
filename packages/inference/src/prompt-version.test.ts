@@ -1,7 +1,13 @@
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { describe, expect, it } from "vitest";
 import { completionInstructions, completionPromptVersion, judgedPageSchema } from "./completion";
-import { generatedPlanSchema, generationInstructions, generationPromptVersion } from "./generation";
+import {
+  entryGenerationInstructions,
+  entryGenerationPromptVersion,
+  generatedPlanSchema,
+  generationInstructions,
+  generationPromptVersion,
+} from "./generation";
 import { promptVersion, promptVersionOf } from "./outcome";
 
 describe("prompt versions", () => {
@@ -15,6 +21,11 @@ describe("prompt versions", () => {
       await promptVersion(completionInstructions, JSON.stringify(toJsonSchema(judgedPageSchema))),
     );
     expect(await completionPromptVersion()).not.toBe(version);
+    // An entry request (ADR 0031) sends other instructions with the same response format.
+    expect(await entryGenerationPromptVersion()).toBe(
+      await promptVersion(entryGenerationInstructions, schema),
+    );
+    expect(await entryGenerationPromptVersion()).not.toBe(version);
   });
 
   it("changes when the instruction text or the response format changes", async () => {
