@@ -14064,7 +14064,11 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         }),
       },
     };
-    const onList = (service: ReturnType<typeof generation>, reports?: LoginReport[]) => {
+    const onList = (
+      service: ReturnType<typeof generation>,
+      reports?: LoginReport[],
+      live: Parameters<typeof harness>[1] = {},
+    ) => {
       const h = harness(
         { siteDefaults: [], bindings: [] },
         {
@@ -14074,6 +14078,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           custom: [],
           generation: service,
           ...(reports ? { report: (value: LoginReport) => reports.push(value) } : {}),
+          ...live,
         },
       );
       h.recipes.recipe.mockResolvedValue(undefined);
@@ -14181,6 +14186,236 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       const h = onList(generation());
       expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
       expect(status()).toBeUndefined();
+    });
+
+    describe("when the page asks for a passkey by itself (ADR 0034)", () => {
+      const discoverable = () => vi.fn(async () => ({ passkey: true, discoverable: true }));
+      /** The passkey bridge passes the list page's conditional request to the login. */
+      const ask = (h: ReturnType<typeof harness>, signal = new AbortController().signal) => {
+        let decided: ConditionalDecision | undefined;
+        void h.login
+          .conditionalRequest({ tabId: 1, origin, documentId: "synthetic-document", signal })
+          .then((value) => (decided = value));
+        return { decided: () => decided };
+      };
+      const flush = async () => {
+        for (let index = 0; index < 10; index++)
+          // eslint-disable-next-line no-await-in-loop
+          await vi.advanceTimersByTimeAsync(0);
+      };
+      const answerOf = (decision: ConditionalDecision | undefined) => {
+        expect(decision).toMatchObject({ kind: "answer", item: { connectionId, itemId } });
+        return decision as Extract<ConditionalDecision, { kind: "answer" }>;
+      };
+      const routeChanges = (reports: LoginReport[]) =>
+        reports
+          .filter((entry) => entry.type === "attempt" && "routeChange" in entry)
+          .map((entry) => (entry as { routeChange?: string }).routeChange);
+      /** The page signs in after the answer, as its home page shows. */
+      const signedIn = () => {
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        fake.state.extracted = { "signed-in": homePage };
+      };
+      /**
+       * The profile's click shows the password form in place, the service generates the
+       * account branch, and the password's click signs in.
+       */
+      const branchSignsIn = (h: () => ReturnType<typeof harness>) => {
+        onClick(() => undefined);
+        const clicked = fake.state.onExecute!;
+        fake.state.onExecute = async (message, tabId) => {
+          const step = (message["operation"] as { step: { kind: string; target?: unknown } }).step;
+          if (step.kind === "click" && JSON.stringify(step.target).includes("[account]")) {
+            fake.state.present = new Set(["password", "login"]);
+            fake.state.signIn = true;
+            fake.state.extracted = { login: passwordPage("/signin") };
+          }
+          await clicked(message, tabId);
+        };
+        return generation(async () => {
+          h().recipes.chooser.mockResolvedValue(withAccount);
+          return { outcome: "recipe", recipe: withAccount };
+        });
+      };
+
+      it("answers a request that waits before the list announces, clicking nothing on it", async () => {
+        const reports: LoginReport[] = [];
+        const h = onList(generation(), reports, { passkeys: discoverable() });
+        const request = ask(h);
+        await flush();
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => request.decided() !== undefined, 5_000);
+        const answer = answerOf(request.decided());
+        expect(status()![0]).toMatchObject({
+          route: "passkey",
+          state: "submit-intent",
+          stepCount: 1,
+          submissions: 1,
+          chooser: { click: "entry" },
+        });
+        // The list's choice is still made and recorded; nothing on the list is clicked.
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.choose");
+        signedIn();
+        answer.answered(true);
+        await until(settled("authenticated"), 20_000);
+        expect(status()![0]).toMatchObject({ route: "passkey", chooser: { click: "entry" } });
+        expect(clicks()).toEqual([]);
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          route: "passkey",
+          click: "entry",
+        });
+        expect(routeChanges(reports)).toEqual([]);
+      });
+
+      it("switches to the passkey when the request comes while the click waits for the list", async () => {
+        const reports: LoginReport[] = [];
+        const h = onList(generation(), reports, { passkeys: discoverable() });
+        let request: ReturnType<typeof ask> | undefined;
+        // The page asks for a passkey while its list renders.
+        fake.state.onAwait = () => {
+          request ??= ask(h);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => request?.decided() !== undefined, 5_000);
+        const answer = answerOf(request!.decided());
+        expect(status()![0]).toMatchObject({
+          route: "passkey",
+          variant: 0,
+          state: "submit-intent",
+          submissions: 1,
+          chooser: { click: "entry" },
+        });
+        signedIn();
+        answer.answered(true);
+        await until(settled("authenticated"), 20_000);
+        expect(clicks()).toEqual([]);
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          route: "password",
+          click: "entry",
+        });
+        expect(routeChanges(reports)).toEqual(["page-request"]);
+      });
+
+      it("keeps the password once the list was clicked, and withholds the request after the sign-in", async () => {
+        const reports: LoginReport[] = [];
+        let h!: ReturnType<typeof harness>;
+        const service = branchSignsIn(() => h);
+        h = onList(service, reports, { passkeys: discoverable() });
+        let request: ReturnType<typeof ask> | undefined;
+        // The page asks for a passkey only as its list is clicked.
+        const clicked = fake.state.onExecute!;
+        fake.state.onExecute = async (message, tabId) => {
+          request ??= ask(h);
+          await clicked(message, tabId);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("authenticated"));
+        expect(executed()).toEqual(["click:[account]", "fill:password", "click:login"]);
+        expect(status()![0]).toMatchObject({ route: "password", chooser: { click: "entry" } });
+        await until(() => request?.decided() !== undefined, 5_000);
+        expect(request!.decided()).toEqual({ kind: "withhold" });
+        expect(routeChanges(reports)).toEqual([]);
+      });
+
+      it("falls back to the list's click when the item cannot answer", async () => {
+        const reports: LoginReport[] = [];
+        let h!: ReturnType<typeof harness>;
+        const service = branchSignsIn(() => h);
+        h = onList(service, reports, { passkeys: discoverable() });
+        const request = ask(h);
+        await flush();
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => request.decided() !== undefined, 5_000);
+        expect(status()![0]).toMatchObject({ route: "passkey", variant: 0 });
+        answerOf(request.decided()).answered(false);
+        // The passkey bridge passes the request to the login again after a failure.
+        const again = ask(h);
+        await until(settled("authenticated"));
+        expect(executed()).toEqual(["click:[account]", "fill:password", "click:login"]);
+        expect(clicks()[0]!.list).toMatchObject({ click: "entry" });
+        expect(status()![0]).toMatchObject({
+          route: "password",
+          variant: 0,
+          chooser: { click: "entry" },
+        });
+        expect(routeChanges(reports)).toEqual(["answer-failed"]);
+        await until(() => again.decided() !== undefined, 5_000);
+        expect(again.decided()).toEqual({ kind: "withhold" });
+      });
+
+      it("falls back to the list's click when the request went away before the answer", async () => {
+        const reports: LoginReport[] = [];
+        const controller = new AbortController();
+        // The page cancels its request while the login starts.
+        const passkeys = vi.fn(async () => {
+          controller.abort();
+          return { passkey: true, discoverable: true };
+        });
+        let h!: ReturnType<typeof harness>;
+        const service = branchSignsIn(() => h);
+        h = onList(service, reports, { passkeys });
+        ask(h, controller.signal);
+        await flush();
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("authenticated"));
+        expect(executed()).toEqual(["click:[account]", "fill:password", "click:login"]);
+        expect(status()![0]).toMatchObject({ route: "password", variant: 0 });
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          route: "passkey",
+          click: "entry",
+        });
+        expect(routeChanges(reports)).toEqual(["request-missing"]);
+      });
+
+      it("answers on the other button's route with the account planned again for it", async () => {
+        fake.state.chosen = { ok: true, click: "other" };
+        const reports: LoginReport[] = [];
+        const h = onList(generation(), reports, { passkeys: discoverable() });
+        const request = ask(h);
+        await flush();
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => request.decided() !== undefined, 5_000);
+        const answer = answerOf(request.decided());
+        expect(status()![0]).toMatchObject({
+          route: "passkey",
+          variant: 0,
+          state: "submit-intent",
+          account: { connectionId, itemId },
+          chooser: { click: "other" },
+        });
+        signedIn();
+        answer.answered(true);
+        await until(settled("authenticated"), 20_000);
+        expect(clicks()).toEqual([]);
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          route: "passkey",
+          click: "other",
+        });
+      });
+
+      it("ends account-not-listed without an answer when nothing on the list fits", async () => {
+        fake.state.chosen = { ok: true, click: "none" };
+        const reports: LoginReport[] = [];
+        const h = onList(generation(), reports, { passkeys: discoverable() });
+        const request = ask(h);
+        await flush();
+        expect(await h.hello()).toEqual({ ok: true });
+        expect(status()![0]).toMatchObject({
+          state: "blocked",
+          outcome: "account-not-listed",
+          submissions: 0,
+        });
+        await until(() => request.decided() !== undefined, 5_000);
+        expect(request.decided()).toEqual({ kind: "delegate", reason: "login-ended" });
+        expect(clicks()).toEqual([]);
+        // The plan took the passkey route for the waiting request; the list then ended it.
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          route: "passkey",
+          click: "none",
+        });
+        expect(status()![0]).toMatchObject({ route: "passkey" });
+      });
     });
   });
 });

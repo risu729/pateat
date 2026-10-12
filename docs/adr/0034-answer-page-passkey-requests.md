@@ -62,7 +62,8 @@ password when the item has one. The proposal reviewed with the owner is
    item and fills nothing. A login that started on the `password` route switches to it
    while nothing has been submitted, keeping any fields it filled. A login on a
    chooser's list (ADR 0028) does so too: it answers instead of clicking on the list,
-   and only before that click, which is its first submission. A recipe with a
+   and only before that click, which is its first submission; a list where no account
+   fits and no button leads elsewhere still ends `account-not-listed`. A recipe with a
    passkey button keeps clicking the button (ADR 0027); its page's conditional request
    then waits as in rule 5, so the two never overlap.
 4. **It is a login like any other.** `login.attempt` records the route, the attempt's
