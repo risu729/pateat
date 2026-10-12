@@ -81,7 +81,7 @@ into play. This is untested, and only holds where Pateat is installed:
 | The owner's Chrome driven by Claude in Chrome or ChatGPT `@Chrome` | Yes, already installed |
 | ChatGPT desktop app's built-in browser | Unknown. Chrome extensions are supported since 2026-09-18, and OpenAI says "ChatGPT's agent cannot interact with extensions or their data" ([RuntimeWire](https://runtimewire.com/article/openai-chatgpt-desktop-browser-chrome-extensions)). No source says whether unpacked ones load, and Pateat is not on the Web Store. It would also need its own pairing ([ADR 0020](../adr/0020-direct-device-pairing.md)) and Bitwarden login |
 | Cloud browser of dots or ChatGPT Work | No documented way. It "doesn't use your personal browser's … extensions" ([Browser](https://learn.chatgpt.com/docs/browser)), and no page describes installing one. The retired agent mode "cannot … install extensions" (Atlas help article as quoted in search results; the page returned HTTP 403) |
-| Grok Bot's computer | Yes, observed on 2026-10-12 (see [Observed on a Grok Bot computer](#observed-on-a-grok-bot-computer)); persistence not yet checked |
+| Grok Bot's computer | Yes, observed on 2026-10-12 (see [Observed on a Grok Bot computer](#observed-on-a-grok-bot-computer)), including after the computer slept and after a computer update |
 
 [ADR 0024](../adr/0024-settings-profiles.md) already expects remote agent browsers that
 reinstall the extension often, and the
@@ -135,10 +135,24 @@ vault, no pairing and no login:
   security-key ceremonies on the machine the key is plugged into". Pateat also answers
   passkey requests, so how the two interact is unchecked.
 
-Not yet checked: whether the extension survives a later task and a computer **Update**
-(Grok Bot app: Settings, Updates, Grok Bot's Computer, Update), and anything that needs
-pairing. Pairing from this browser is refused today, because the service's Access
-policy requires a WARP-connected device ([delivery](../delivery.md)).
+Later on 2026-10-12 the owner checked whether the install lasts:
+
+- After the computer had gone to sleep ("The computer is asleep. Click to wake up."),
+  waking it showed Pateat 0.1.0 still listed and enabled in `chrome://extensions`.
+- The owner then ran **Update** under Grok Bot app Settings, Updates, Grok Bot's
+  Computer. The app describes it as "Your files and logins stay, but installed apps and
+  packages are removed". Pateat was still listed and enabled afterwards. The build sat
+  in `/workspace` and was loaded into the browser profile, so it probably counts as
+  files rather than an installed app there (inferred, not documented). The neighbouring
+  **Reset** ("rebuilt from your last saved snapshot") was not tried.
+- On that screen the WebAuthn proxy's toggle was off and greyed out with no **Remove**
+  button, which suggests it is controlled by policy. While it is off it cannot interfere
+  with Pateat's passkey handling; passkeys from Pateat come from its own vault, not from
+  that proxy.
+
+Not yet checked: anything that needs pairing. Pairing from this browser is refused
+today, because the service's Access policy requires a WARP-connected device
+([delivery](../delivery.md)).
 
 ## What to check next
 
@@ -151,6 +165,8 @@ each needs separate owner approval:
 2. In the ChatGPT desktop app's built-in browser, check whether an unpacked extension
    can be loaded at all.
 3. On a dot's cloud computer during a takeover, check whether `chrome://extensions`
-   or the Web Store opens. On the Grok Bot computer, check that Pateat survives a later
-   task and a computer Update. This only records what is possible; running Pateat
-   there with a vault is the owner's tradeoff above.
+   or the Web Store opens. This only records what is possible; running Pateat there
+   with a vault is the owner's tradeoff above.
+4. On the Grok Bot computer, pairing and a login with a test vault. This needs the
+   owner to allow that browser through Access first, and a build from current main
+   with its source beside it ([Corresponding Source](../sdk-source.md)).
