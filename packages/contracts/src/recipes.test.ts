@@ -139,6 +139,26 @@ describe("recipe selection", () => {
     });
     expect(findLoginRecipe([entry], origin, "bank-entry", 1)).toBeUndefined();
   });
+
+  it("never lists, starts or resumes a chooser recipe or its branch (ADR 0028)", () => {
+    const signin = recipes[0]!;
+    const chooser: StoredLoginRecipe = {
+      version: 1,
+      id: "bank-chooser",
+      revision: 1,
+      origin,
+      chooser: { path: "/login", afterAccount: { ...signin, id: "bank-chooser", revision: 1 } },
+    };
+    expect(loginRecipesForOrigin([chooser, ...recipes], origin).map(({ id }) => id)).toEqual([
+      "bank-signin",
+      "bank-admin",
+    ]);
+    expect(selectLoginRecipe([chooser], origin, "/login")).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+    });
+    expect(findLoginRecipe([chooser], origin, "bank-chooser", 1)).toBeUndefined();
+  });
 });
 
 describe("synced account bindings", () => {

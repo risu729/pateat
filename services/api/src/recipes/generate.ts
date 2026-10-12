@@ -82,7 +82,7 @@ const active = (change: SyncRecipeChange | null) =>
   change?.state === "active" ? change : undefined;
 /**
  * An active head with a login route, the only kind a generation or judgement answers
- * with; an entry recipe (ADR 0031) is never one.
+ * with; an entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is never one.
  */
 const activeRoute = (change: SyncRecipeChange | null) => {
   const head = active(change);
@@ -134,8 +134,8 @@ export async function generateRecipe(
     // Only the recipe generated here answers; a device write under the ID cannot redirect it.
     if (stored && !(await generatedHere(stored.recipe)))
       return { answer: unavailable("recipe-conflict") };
-    // An entry recipe (ADR 0031) of this origin and path never gains steps and is no login
-    // recipe to answer with; generating its entry is not implemented yet.
+    // An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) of this origin and path is
+    // no login recipe to answer with; generating either is not implemented yet.
     const current = activeRoute(head);
     if (stored && !current) return { answer: unavailable("recipe-conflict") };
     if (current && (!base || current.revision !== base.revision))
@@ -339,7 +339,7 @@ export async function judgeCompletion(
   const { observation, route } = request;
   if (observation.origin !== recipe.origin) return null;
   // Only a page of the revision that ran, on a route the stored recipe has, is judged; an
-  // entry recipe (ADR 0031) has no route.
+  // entry or chooser recipe (ADR 0031, ADR 0028) has no route of its own.
   if (
     !isLoginRouteRecipe(recipe) ||
     head.revision !== request.revision ||

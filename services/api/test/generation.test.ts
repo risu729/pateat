@@ -754,6 +754,31 @@ describe("recipe generation", () => {
     ).toEqual([]);
   });
 
+  it("never generates, continues or judges a chooser recipe stored under the page's ID", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    // ADR 0028: a recipe whose only member is `chooser`, written by a device for now.
+    const chooser = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      chooser: { path: "/login", other: { by: "text", value: "Use another account" } },
+    };
+    const stored = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 0, state: "active", recipe: chooser },
+      "PUT",
+    );
+    expect(stored.status).toBe(200);
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    expect(await generate(device, emailPage)).toEqual(conflict);
+    expect(await generate(device, passwordPage, { recipeId, revision: 1 })).toEqual(conflict);
+    expect(await complete(device, recipeId, 1)).toEqual({ status: 200, body: conflict });
+    expect(sent).toEqual([]);
+  });
+
   it("generates a first page beside an entry recipe of another path, and after one is revoked", async () => {
     const device = await owner();
     const entryWrite = (id: string, path: string) => ({

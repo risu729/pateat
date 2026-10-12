@@ -1,7 +1,9 @@
 # ADR 0028: Login pages that list accounts to choose from
 
 Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC), and extended to a
-single shown account and to usernames that are not emails at 08:36 UTC. Not implemented.
+single shown account and to usernames that are not emails at 08:36 UTC. Partly
+implemented: finding entries and shown accounts, the observation, and the stored chooser
+recipe; nothing sends a list page or starts a chooser yet.
 Delivery depends on the extension's `advance` continuation of
 [ADR 0018](0018-recipe-generation-route.md), which is not implemented yet. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can be
@@ -111,23 +113,28 @@ other-account button by its meaning only, with no example text in any language.
 
 The answer is saved as a recipe whose start is the list on its path, with the steps
 after each choice kept apart, because the form after a profile (password only on
-Cloudflare) and the form after "another profile" (email and password) differ. Field
-names are settled in the implementation; the shape is:
+Cloudflare) and the form after "another profile" (email and password) differ. The
+contract in `packages/contracts/src/login.ts` (`loginChooserRecipeSchema`) has this
+shape:
 
 ```json
 {
   "chooser": {
     "path": "/login",
     "other": { "by": "text", "value": "Sign in with another profile" },
-    "afterAccount": [],
-    "afterOther": []
+    "continue": { "by": "text", "value": "Log back in" },
+    "afterAccount": { "...": "a login recipe" },
+    "afterOther": { "...": "a login recipe" }
   }
 }
 ```
 
-Each branch starts empty and its steps are generated the first time a login takes it, as
-an ADR 0018 continuation of the page the click led to. A chooser recipe may therefore
-have no slots until a branch is generated. [ADR 0027](0027-per-account-login-routes.md)
+`continue` is the button for a shown account beside it (Wise, below). Each branch is the
+login recipe of the page the click leads to, under the chooser's own ID, revision and
+origin, so the executor and the continuation handle it as any login recipe. A branch is
+absent until a login takes it and its page is generated as an ADR 0018 continuation, so
+a chooser recipe may have no slots at first; `afterOther` needs `other`. The entry to
+click is never stored. [ADR 0027](0027-per-account-login-routes.md)
 `alternatives` cannot hold the branches: a continuation cannot add a variant, a
 password-only set is a subset of the email and password set, and the executor picks a
 variant from the item's binding, not from the page. The continuation contract

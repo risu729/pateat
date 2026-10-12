@@ -234,6 +234,46 @@ test("shows an entry recipe's sign-in entry, which devices do not click yet (ADR
     await expect.element(details).toMatchTextContent(text);
 });
 
+test("shows a chooser recipe's buttons and branches, which devices do not use yet (ADR 0028)", async () => {
+  const client = mockClient({
+    version: 1,
+    recipes: [
+      {
+        change: {
+          recipeId: "bank-chooser",
+          revision: 1,
+          state: "active",
+          recipe: {
+            version: 1,
+            id: "bank-chooser",
+            revision: 1,
+            origin: "https://bank.example",
+            chooser: {
+              path: "/login",
+              other: { by: "text", value: "Use another account" },
+              continue: { by: "text", value: "Log back in" },
+            },
+          },
+        },
+        updatedAt: UPDATED,
+      },
+    ],
+  });
+  await mount(client);
+  await page.getByText("Account list and JSON for bank-chooser").click();
+  const details = page.getByRole("group").first();
+  for (const text of [
+    "Account listOn /login, click the entry of the chosen item's account. Devices do not do this yet.",
+    'Shown accountClick text "Log back in"',
+    'Another accountClick text "Use another account"',
+    "After an accountNot generated yet",
+    "After another accountNot generated yet",
+    '"chooser": {',
+  ])
+    // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
+    await expect.element(details).toMatchTextContent(text);
+});
+
 test("reports a revocation that lost to another write and shows the current recipes", async () => {
   const client = mockClient({ version: 1, recipes: [active("bank-signin")] });
   await mount(client);
