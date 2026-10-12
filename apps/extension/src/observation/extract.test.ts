@@ -1075,6 +1075,41 @@ describe("extractSignedInObservation", () => {
     ]);
   });
 
+  it("hides every number in a signed-in page's text, whatever its length", () => {
+    page(
+      `<header><a id="points" href="/points">保有ポイント 1,234,567pt</a>
+        <a id="miles" href="/miles">850 ポイント ①</a>
+        <button id="inbox" type="button" aria-label="Inbox ٣ new">✉</button></header>
+      <h1>Balance 12.50</h1><h2>Balance 7.25</h2><h3>Balance 1234.56</h3>
+      <form><input id="note" type="text" aria-label="Step 2" placeholder="e.g. 7"
+          aria-describedby="note-hint">
+        <span id="note-hint">Step 3</span>
+        <input id="memo" type="text" aria-label="Memo" aria-describedby="memo-hint">
+        <span id="memo-hint">Up to 20 characters</span></form>`,
+      "Account 3",
+    );
+    const observation = signedIn();
+    // Headings that differ only in their numbers become one.
+    expect(observation).toMatchObject({
+      title: "Account [number]",
+      headings: ["Balance [number]"],
+    });
+    expect(
+      observation.candidates.map(({ label, placeholder, description }) => [
+        label,
+        placeholder,
+        description,
+      ]),
+    ).toEqual([
+      ["保有ポイント [number]pt", undefined, undefined],
+      ["[number] ポイント [number]", undefined, undefined],
+      ["Inbox [number] new", undefined, undefined],
+      // A description that repeats the label once hidden is left out.
+      ["Step [number]", "e.g. [number]", undefined],
+      ["Memo", undefined, "Up to [number] characters"],
+    ]);
+  });
+
   it("never locates by an id or name that carries an email address or a long number", () => {
     page(
       `<a id="acct-0123456789" href="/a">Account</a>

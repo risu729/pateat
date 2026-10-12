@@ -74,6 +74,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0028: Login pages that list accounts to choose from](adr/0028-account-chooser-login-pages.md)
 - [0029: Local sign-in state after an effect step, with the judge as a fallback](adr/0029-local-sign-in-state.md)
 - [0030: Pairing from browsers without WARP](adr/0030-pairing-without-warp.md)
+- [0031: Press a site's sign-in entry on pages without a login form](adr/0031-sign-in-entry-pages.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),
