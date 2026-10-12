@@ -1,18 +1,36 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installPasskeyPage } from "./page";
-import { PAGE_CHANNEL, PAGE_MAX_WAIT_MS, PAGE_TIMEOUT_MS, type PageResult } from "./wire";
+import {
+  PAGE_CHANNEL,
+  PAGE_CREATE_MAX_WAIT_MS,
+  PAGE_MAX_WAIT_MS,
+  PAGE_TIMEOUT_MS,
+  type PageResult,
+} from "./wire";
 
 const origin = "https://login.example.com";
 type Message = { channel: string; type: string; id: string };
 
 /** Minimal top-level window: same-origin postMessage plus a scripted isolated relay. */
-function fakePage(relay: (message: Message) => Array<Record<string, unknown>> = () => []) {
+function fakePage(
+  relay: (message: Message) => Array<Record<string, unknown>> = () => [],
+  /** `locked`: a provider defined `create` before Pateat, without letting it be redefined. */
+  { create = true }: { create?: boolean | "locked" } = {},
+) {
   const listeners: Array<(event: unknown) => void> = [];
   const posted: Message[] = [];
   const nativeGet = vi.fn(async function (this: unknown, _options?: unknown) {
     return "native" as unknown;
   });
-  const container: { get: (options?: unknown) => Promise<unknown> } = { get: nativeGet };
+  const nativeCreate = vi.fn(async function (this: unknown, _options?: unknown) {
+    return "created" as unknown;
+  });
+  const container: {
+    get: (options?: unknown) => Promise<unknown>;
+    create: (options?: unknown) => Promise<unknown>;
+  } = create ? { get: nativeGet, create: nativeCreate } : ({ get: nativeGet } as never);
+  if (create === "locked")
+    Object.defineProperty(container, "create", { value: nativeCreate, configurable: false });
   // The wrapper reads only each class's prototype.
   const PublicKeyCredential = { prototype: { kind: "credential" } };
   const AuthenticatorAssertionResponse = { prototype: { kind: "response" } };
@@ -30,7 +48,7 @@ function fakePage(relay: (message: Message) => Array<Record<string, unknown>> = 
       queueMicrotask(() => {
         for (const listener of listeners) listener({ source: scope, origin, data: copy });
         if (copy.channel !== PAGE_CHANNEL) return;
-        if (copy.type === "get" || copy.type === "cancel") {
+        if (copy.type === "get" || copy.type === "create" || copy.type === "cancel") {
           posted.push(copy);
           for (const reply of relay(copy)) scope.postMessage({ channel: PAGE_CHANNEL, ...reply });
         }
@@ -42,6 +60,7 @@ function fakePage(relay: (message: Message) => Array<Record<string, unknown>> = 
   return {
     container,
     nativeGet,
+    nativeCreate,
     posted,
     prototypes: { credential: PublicKeyCredential.prototype },
     post: (data: unknown) => scope.postMessage(data),
@@ -518,5 +537,399 @@ describe("coexistence with a later passkey provider", () => {
     page.container.get = wrapper;
     expect(page.container.get).toBe(wrapper);
     await expect(page.container.get({ publicKey })).resolves.toBe("native");
+  });
+});
+
+/** A registration excluding one passkey, whose ID AQID is the bytes 1, 2, 3. */
+const registration = () => ({
+  rp: { id: "example.com", name: "Example" },
+  user: { id: new Uint8Array(8), name: "owner@example.com", displayName: "Owner" },
+  challenge: new Uint8Array(16),
+  pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+  excludeCredentials: [
+    { type: "public-key", id: Uint8Array.of(1, 2, 3), transports: ["internal"] },
+  ],
+});
+const answerCreate = (result: PageResult) => (message: Message) =>
+  message.type === "create"
+    ? [
+        { type: "ack", id: message.id },
+        { type: "result", id: message.id, result },
+      ]
+    : [];
+const types = (posted: Message[]) => posted.map((message) => message.type);
+
+describe("MAIN-world passkey create wrapper (ADR 0007)", () => {
+  it("rejects a declined registration as Chrome does a dismissed prompt, never calling the browser", async () => {
+    const page = fakePage(answerCreate({ kind: "decline" }));
+    const result = page.container.create({ publicKey: registration() });
+    await expect(result).rejects.toBeInstanceOf(DOMException);
+    await expect(result).rejects.toMatchObject({
+      name: "NotAllowedError",
+      message: expect.stringContaining("timed out or was not allowed"),
+    });
+    expect(page.nativeCreate).not.toHaveBeenCalled();
+    // The background already answered; nothing is left to cancel.
+    expect(types(page.posted)).toEqual(["create"]);
+  });
+
+  it("relays only what the check reads, never the user, challenge or other members", async () => {
+    const page = fakePage(answerCreate({ kind: "delegate" }));
+    await page.container.create({ publicKey: registration(), mediation: "conditional" });
+    expect((page.posted[0] as Message & { request: unknown }).request).toEqual({
+      excludeCredentials: [{ type: "public-key", id: "AQID", transports: ["internal"] }],
+      rpId: "example.com",
+      mediation: "conditional",
+    });
+    // Without an RP ID in `rp`, none is sent; the background uses the origin's host.
+    const { rp: _rp, ...rest } = registration();
+    await page.container.create({ publicKey: { ...rest, rp: { name: "Example" } } });
+    expect((page.posted.at(-1) as Message & { request: unknown }).request).toEqual({
+      excludeCredentials: [{ type: "public-key", id: "AQID", transports: ["internal"] }],
+    });
+  });
+
+  it("hands a delegated registration on with the caller's exact options and this", async () => {
+    const page = fakePage(answerCreate({ kind: "delegate" }));
+    const options = { publicKey: registration(), signal: new AbortController().signal };
+    await expect(page.container.create(options)).resolves.toBe("created");
+    expect(page.nativeCreate).toHaveBeenCalledOnce();
+    expect(page.nativeCreate.mock.calls[0]).toEqual([options]);
+    expect(page.nativeCreate.mock.calls[0]![0]).toBe(options);
+    expect(page.nativeCreate.mock.contexts[0]).toBe(page.container);
+    expect(page.nativeGet).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, PageResult]>([
+    [
+      "an assertion",
+      {
+        kind: "assertion",
+        assertion: {
+          credentialId: "AQID",
+          clientDataJSON: "e30",
+          authenticatorData: "AA",
+          signature: "AA",
+          userHandle: null,
+        },
+      },
+    ],
+    ["not-allowed", { kind: "not-allowed" }],
+    ["withheld", { kind: "withheld" }],
+    ["cancelled", { kind: "cancelled" }],
+  ])("hands a registration on when the relay answers %s", async (_name, result) => {
+    const page = fakePage(answerCreate(result));
+    const options = { publicKey: registration() };
+    await expect(page.container.create(options)).resolves.toBe("created");
+    expect(page.nativeCreate.mock.calls[0]![0]).toBe(options);
+  });
+
+  const withRegistration = (change: (members: Record<string, unknown>) => void) => {
+    const members: Record<string, unknown> = registration();
+    change(members);
+    return { publicKey: members };
+  };
+  it.each<[string, () => unknown]>([
+    ["no options", () => undefined],
+    ["no publicKey", () => ({})],
+    ["another credential type too", () => ({ publicKey: registration(), password: true })],
+    ["no excludeCredentials", () => withRegistration((pk) => delete pk["excludeCredentials"])],
+    [
+      "an empty excludeCredentials",
+      () => withRegistration((pk) => (pk["excludeCredentials"] = [])),
+    ],
+    [
+      "a non-list excludeCredentials",
+      () => withRegistration((pk) => (pk["excludeCredentials"] = {})),
+    ],
+    ["a null descriptor", () => withRegistration((pk) => (pk["excludeCredentials"] = [null]))],
+    [
+      "a string ID",
+      () =>
+        withRegistration((pk) => (pk["excludeCredentials"] = [{ type: "public-key", id: "AQID" }])),
+    ],
+    [
+      "a descriptor without a type",
+      () => withRegistration((pk) => (pk["excludeCredentials"] = [{ id: Uint8Array.of(1) }])),
+    ],
+    [
+      "transports that are not a list of strings",
+      () =>
+        withRegistration(
+          (pk) =>
+            (pk["excludeCredentials"] = [
+              { type: "public-key", id: Uint8Array.of(1), transports: "usb" },
+            ]),
+        ),
+    ],
+    [
+      "an ID over 4096 bytes",
+      () =>
+        withRegistration(
+          (pk) => (pk["excludeCredentials"] = [{ type: "public-key", id: new Uint8Array(4097) }]),
+        ),
+    ],
+    [
+      "an ID in shared memory",
+      () =>
+        withRegistration(
+          (pk) =>
+            (pk["excludeCredentials"] = [
+              { type: "public-key", id: new Uint8Array(new SharedArrayBuffer(3)) },
+            ]),
+        ),
+    ],
+    [
+      "more than 64 descriptors",
+      () =>
+        withRegistration(
+          (pk) =>
+            (pk["excludeCredentials"] = Array.from({ length: 65 }, () => ({
+              type: "public-key",
+              id: Uint8Array.of(1),
+            }))),
+        ),
+    ],
+    ["no rp", () => withRegistration((pk) => delete pk["rp"])],
+    ["no challenge", () => withRegistration((pk) => delete pk["challenge"])],
+    ["a string challenge", () => withRegistration((pk) => (pk["challenge"] = "AAAA"))],
+    ["no user", () => withRegistration((pk) => delete pk["user"])],
+    [
+      "a user without an ID",
+      () => withRegistration((pk) => (pk["user"] = { name: "owner", displayName: "Owner" })),
+    ],
+    [
+      "a user without a display name",
+      () => withRegistration((pk) => (pk["user"] = { id: new Uint8Array(8), name: "owner" })),
+    ],
+    [
+      "a user without a name",
+      () =>
+        withRegistration((pk) => (pk["user"] = { id: new Uint8Array(8), displayName: "Owner" })),
+    ],
+    ["no pubKeyCredParams", () => withRegistration((pk) => delete pk["pubKeyCredParams"])],
+    ["an rp without a name", () => withRegistration((pk) => (pk["rp"] = { id: "example.com" }))],
+    ["an unknown mediation", () => ({ publicKey: registration(), mediation: "Owner's text" })],
+    ["a non-string RP ID", () => withRegistration((pk) => (pk["rp"] = { id: 7, name: "Example" }))],
+    ["a non-string mediation", () => ({ publicKey: registration(), mediation: 1 })],
+    [
+      "a throwing publicKey getter",
+      () =>
+        Object.defineProperty({}, "publicKey", {
+          get() {
+            throw new Error("getter");
+          },
+        }),
+    ],
+    [
+      "a non-AbortSignal signal",
+      () => ({ publicKey: registration(), signal: { aborted: false, addEventListener() {} } }),
+    ],
+    [
+      "an already aborted signal",
+      () => ({ publicKey: registration(), signal: AbortSignal.abort() }),
+    ],
+  ])("leaves a registration with %s to the browser without relaying", async (_name, make) => {
+    const page = fakePage(answerCreate({ kind: "decline" }));
+    const options = make();
+    await expect(page.container.create(options)).resolves.toBe("created");
+    expect(page.nativeCreate).toHaveBeenCalledOnce();
+    expect(page.nativeCreate.mock.calls[0]![0]).toBe(options);
+    expect(page.posted).toEqual([]);
+  });
+
+  it.each(["get", "create"] as const)(
+    "hands %s on unchanged when called on another object",
+    async (name) => {
+      const page = fakePage((message) =>
+        name === "get"
+          ? answer({ kind: "not-allowed" })(message)
+          : answerCreate({ kind: "decline" })(message),
+      );
+      const other = {};
+      const options = name === "get" ? { publicKey } : { publicKey: registration() };
+      const result = await Reflect.apply(page.container[name], other, [options]);
+      const native = name === "get" ? page.nativeGet : page.nativeCreate;
+      expect(result).toBe(name === "get" ? "native" : "created");
+      expect(native.mock.contexts[0]).toBe(other);
+      expect(native.mock.calls[0]![0]).toBe(options);
+      expect(page.posted).toEqual([]);
+    },
+  );
+
+  it("rejects with the caller's abort reason and cancels the check", async () => {
+    const page = fakePage((message) =>
+      message.type === "create" ? [{ type: "ack", id: message.id }] : [],
+    );
+    const later = vi.fn(async () => "provider");
+    page.container.create = later;
+    const controller = new AbortController();
+    const result = page.container.create({ publicKey: registration(), signal: controller.signal });
+    await vi.waitFor(() => expect(page.posted).toHaveLength(1));
+    const reason = { synthetic: "abort" };
+    controller.abort(reason);
+    await expect(result).rejects.toBe(reason);
+    // Neither a later provider nor the browser is asked.
+    expect(later).not.toHaveBeenCalled();
+    expect(page.nativeCreate).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(types(page.posted)).toEqual(["create", "cancel"]));
+  });
+
+  it("hands a registration on promptly when no relay acknowledges", async () => {
+    vi.useFakeTimers();
+    const page = fakePage();
+    const result = page.container.create({ publicKey: registration() });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(page.nativeCreate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toBe("created");
+    expect(types(page.posted)).toEqual(["create", "cancel"]);
+  });
+
+  it("hands a registration on at its absolute limit even while the relay answers", async () => {
+    vi.useFakeTimers();
+    const page = fakePage((message) =>
+      message.type === "create" ? [{ type: "ack", id: message.id }] : [],
+    );
+    const held = page.container.create({ publicKey: registration() });
+    await vi.advanceTimersByTimeAsync(0);
+    const id = page.posted.at(-1)!.id;
+    const heartbeat = setInterval(
+      () => page.post({ channel: PAGE_CHANNEL, type: "ack", id }),
+      PAGE_TIMEOUT_MS / 3,
+    );
+    await vi.advanceTimersByTimeAsync(PAGE_CREATE_MAX_WAIT_MS - 1);
+    expect(page.nativeCreate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(held).resolves.toBe("created");
+    expect(types(page.posted)).toEqual(["create", "cancel"]);
+    clearInterval(heartbeat);
+  });
+
+  it("keeps the browser's name and an accessor that stays Pateat's", async () => {
+    const page = fakePage(answerCreate({ kind: "decline" }));
+    const wrapper = page.container.create;
+    expect(wrapper.name).toBe("create");
+    const descriptor = Object.getOwnPropertyDescriptor(page.container, "create")!;
+    expect(descriptor).toMatchObject({ enumerable: true, configurable: true });
+    expect(descriptor.get).toBeTypeOf("function");
+    (page.container as { create: unknown }).create = "not a function";
+    page.container.create = wrapper;
+    expect(page.container.create).toBe(wrapper);
+    await expect(page.container.create({ publicKey: registration() })).rejects.toMatchObject({
+      name: "NotAllowedError",
+    });
+  });
+
+  it("leaves a create a provider locked to it, and still wraps get", async () => {
+    const page = fakePage(
+      (message) =>
+        message.type === "get"
+          ? answer({ kind: "delegate" })(message)
+          : answerCreate({ kind: "decline" })(message),
+      { create: "locked" },
+    );
+    expect(page.container.create).toBe(page.nativeCreate);
+    const options = { publicKey: registration() };
+    await expect(page.container.create(options)).resolves.toBe("created");
+    expect(page.posted).toEqual([]);
+    await expect(page.container.get({ publicKey })).resolves.toBe("native");
+    expect(types(page.posted)).toEqual(["get"]);
+  });
+
+  it("wraps only get on a container without create", async () => {
+    const page = fakePage(answer({ kind: "delegate" }), { create: false });
+    expect("create" in page.container).toBe(false);
+    await expect(page.container.get({ publicKey })).resolves.toBe("native");
+  });
+});
+
+describe("create coexistence with a later passkey provider", () => {
+  /** Saves a bound `create`, assigns its own, and falls back to the saved one. */
+  const laterCreate = (page: ReturnType<typeof fakePage>) => {
+    const saved = page.container.create.bind(page.container);
+    const provider = vi.fn(async (options?: unknown) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return saved(options);
+    });
+    page.container.create = provider;
+    return { provider, saved };
+  };
+
+  it("declines before the provider is asked", async () => {
+    const page = fakePage(answerCreate({ kind: "decline" }));
+    const wrapper = page.container.create;
+    const later = laterCreate(page);
+    expect(page.container.create).toBe(wrapper);
+    await expect(page.container.create({ publicKey: registration() })).rejects.toMatchObject({
+      name: "NotAllowedError",
+    });
+    expect(later.provider).not.toHaveBeenCalled();
+    expect(page.nativeCreate).not.toHaveBeenCalled();
+  });
+
+  it("delegates to the provider, whose fallback reaches the browser once", async () => {
+    const page = fakePage(answerCreate({ kind: "delegate" }));
+    const later = laterCreate(page);
+    const options = { publicKey: registration() };
+    await expect(page.container.create(options)).resolves.toBe("created");
+    expect(later.provider).toHaveBeenCalledOnce();
+    expect(later.provider.mock.calls[0]![0]).toBe(options);
+    expect(page.nativeCreate).toHaveBeenCalledOnce();
+    expect(page.nativeCreate.mock.calls[0]![0]).toBe(options);
+    expect(types(page.posted)).toEqual(["create"]);
+  });
+
+  it("sends the provider's shallow copy to the browser", async () => {
+    const page = fakePage(answerCreate({ kind: "delegate" }));
+    const saved = page.container.create.bind(page.container);
+    const provider = vi.fn(async (options?: unknown) => saved({ ...(options as object) }));
+    page.container.create = provider;
+    await expect(page.container.create({ publicKey: registration() })).resolves.toBe("created");
+    expect(page.nativeCreate).toHaveBeenCalledOnce();
+    expect(types(page.posted)).toEqual(["create"]);
+  });
+
+  it("sends a wrapper's synchronous call with rebuilt options straight to the browser", async () => {
+    const page = fakePage(answerCreate({ kind: "delegate" }));
+    const saved = page.container.create.bind(page.container);
+    const provider = vi.fn((_options?: unknown) => saved({ publicKey: registration() }));
+    page.container.create = provider;
+    await expect(page.container.create({ publicKey: registration() })).resolves.toBe("created");
+    expect(provider).toHaveBeenCalledOnce();
+    expect(page.nativeCreate).toHaveBeenCalledOnce();
+    expect(types(page.posted)).toEqual(["create"]);
+  });
+
+  it("stops a wrapper that rebuilds the options asynchronously from looping", async () => {
+    const page = fakePage(answerCreate({ kind: "delegate" }));
+    const saved = page.container.create.bind(page.container);
+    const provider = vi.fn(async (_options?: unknown) => {
+      await Promise.resolve();
+      return saved({ publicKey: registration() });
+    });
+    page.container.create = provider;
+    await expect(page.container.create({ publicKey: registration() })).resolves.toBe("created");
+    expect(provider).toHaveBeenCalledTimes(4);
+    expect(page.nativeCreate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps get's delegations apart from create's", async () => {
+    const page = fakePage((message) =>
+      message.type === "get"
+        ? answer({ kind: "delegate" })(message)
+        : answerCreate({ kind: "decline" })(message),
+    );
+    // A provider holds the get request it was handed.
+    page.container.get = vi.fn(() => new Promise<never>(() => {}));
+    const options = { publicKey: registration() };
+    void page.container.get(options);
+    await vi.waitFor(() => expect(types(page.posted)).toEqual(["get"]));
+    // The same options object in create is still checked, not taken for get's fallback.
+    await expect(page.container.create(options)).rejects.toMatchObject({
+      name: "NotAllowedError",
+    });
+    expect(types(page.posted)).toEqual(["get", "create"]);
+    expect(page.nativeCreate).not.toHaveBeenCalled();
   });
 });

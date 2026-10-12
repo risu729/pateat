@@ -10,6 +10,7 @@
     "@pateat/contracts": "workspace:*",
     "@tanstack/react-form": "1.33.5",
     "@tanstack/react-query": "5.104.1",
+    "lucide-react": "1.55.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tldts": "7.4.18",

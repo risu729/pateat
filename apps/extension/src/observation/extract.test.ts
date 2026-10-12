@@ -323,6 +323,24 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("never locates by an ID React's useId generated, which another page reuses", () => {
+    page(
+      `<form id="f"><input id="_r_3_" name="session_key"><input id=":r4:" name="password" type="password">
+        <input id="«r5»" data-testid="pin"><input id="radix-:R1aH1:" name="code">
+        <input id="_R_2H1_" name="otp">
+        <input id="user_r_name"><button id="_r_6_">Sign in</button></form>`,
+    );
+    expect(summary(observe()).map((candidate) => candidate.target)).toEqual([
+      { by: "name", value: "session_key" },
+      { by: "name", value: "password" },
+      { by: "test-id", value: "pin" },
+      { by: "name", value: "code" },
+      { by: "name", value: "otp" },
+      { by: "id", value: "user_r_name" },
+      { by: "text", value: "Sign in" },
+    ]);
+  });
+
   it("locates an input without id or name by its autocomplete token, as on pixiv's login page", () => {
     page(
       `<form><input type="text" autocomplete="username webauthn" placeholder="メールアドレスまたはpixiv ID">

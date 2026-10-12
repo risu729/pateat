@@ -345,13 +345,16 @@ service's owner-authenticated web UI
 page handles vault connection, re-authentication, unlock and service pairing, and still
 edits local policy, exclusions and account defaults. The toolbar popup edits only the
 active tab's site default account and exclusion, through the same worker-owned store
-([ADR 0021](adr/0021-account-choice-outside-settings.md)). Item selection, field
+([ADR 0021](adr/0021-account-choice-outside-settings.md)). Its "Pateat on this site"
+switch adds or removes only an exclusion rule for the exact hostname without subdomains;
+when a parent-domain rule or one with subdomains covers the site, the switch is disabled
+and the popup links each such rule to the settings page. Item selection, field
 exclusions and custom-field review stay on the extension's settings page once synced
 ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
 per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
-settings profile that each device will choose later or to the owner. Chrome
-use access to these pages is not assumed. Keep settings and execution operations
-independent of their UI.
+settings profile that each device will choose later or to the owner. Chrome use access
+to these pages is not assumed. Keep settings and execution operations independent of
+their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
@@ -798,7 +801,7 @@ owner web UI take their colors, type, radii and focus ring from the
 2026-10-12 20:53 UTC). `apps/extension/entrypoints/options/style.css` and
 `services/api/web/styles.css` each define its tokens as CSS custom properties and
 Tailwind colors, with the same values; `tests/options/design-tokens.test.tsx` fails when
-the copies differ.
+their light or dark token values differ.
 
 Each page has light and dark themes and a Theme select (System, Light, Dark): on the
 extension's settings page and in the owner web UI's footer (owner, 2026-10-12 20:54
@@ -808,7 +811,8 @@ not in `chrome.storage`, the service or sync, so the extension and the owner web
 separate choices and each browser profile has its own. A page applies the stored choice
 before it renders, as a `data-theme` attribute on the root element, and an open page
 follows a change made on another page of the same program through the `storage` event.
-Because MV3 pages allow no inline script, the choice is applied from the page's module,
+Because neither program's pages allow inline script (the MV3 policy, and the owner web
+UI's `script-src 'self'`), the choice is applied from the page's module,
 so a page whose stored choice differs from the browser's scheme may paint one frame in
 the browser's scheme first.
 
@@ -858,6 +862,11 @@ that exact page URL and returns a value-free summary
   older than 24 hours and the errors and warnings logged in the last 24 hours (warn when
   there is an error, info for warnings only). Reworded states keep the
   raw code in parentheses.
+
+The page lists the checks first, each as a line led by its level's icon with the level
+read out to screen readers, then the Version and Settings and storage panels, the
+Bitwarden connections and Pateat service panels, and Logs. Values are shown as the
+summary has them, in a monospace face.
 
 The worker fetches `/health` only for a paired service with site access, and
 `/v1/device` only then and while the service has not rejected the credential, with a 5 s
@@ -912,6 +921,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `recipe.generate` | debug for `skipped` with `no-vault-match`, `not-connected`, `not-a-list` or `no-listed-account`, warn for `failed`, else info | origin, outcome (`sent` when the page goes out, then `recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match` with a detail (`no-item`, `no-slots`, `no-connection`, `incomplete-item`, `site-excluded`, `invalid-url`), `vault-unavailable` with the vault's reason (or `settings`, `tab`, `error`), `connection-disabled` when every vault connection is turned off, `not-a-list` with why a page whose text holds an `@` is not a list of accounts (ADR 0028: `aria-hidden`, `inert`, `hidden`, `not-rendered`, `page-chrome`, `inside-control`, `no-entry`, `unread-text`, `split-address`), `no-listed-account` when no short text beside the buttons named an item (`no-name-match` when the page also shows no control to sign in with another account, or the vault's reason), or for any list on a page whose path holds a matching item's username (`username-in-path`), `incomplete-observation`, the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a refused path or a description that fails its schema, `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `unreachable` when the page went away or stopped answering before it could be read, as during a navigation, with how as `detail` (`no-receiver`, `port-closed`, `send-failed`), `exception` when reading the vault for it, or anything else, threw while the page still shows, `no-slots`, `not-connected`, `storage-unavailable`, `username-unread` when a matching item's username could not be read to hide it, `username-shown` when a username shows in the page's path or a field's locator, where it cannot be hidden, for the page after a final `advance` step `scope-incomplete` while the vault match could not evaluate every item, `after-sign-in` for the tab's next page after a submitted password form when it lists accounts, offers an entry or asks for an identifier alone, and for a page offered as a site's sign-in entry `no-return-target`, `site-record`, `logged-out` and `no-entry-link` when its description lists no link); `page` (also for a page that asks for an account identifier alone, [ADR 0016](adr/0016-recipe-generation-trigger.md#pages-that-ask-for-an-identifier-alone)), `accounts` for a list of accounts (ADR 0028) or `entry` for a page sent as a site's sign-in entry (ADR 0031); for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to three reads a second apart; for the page after a final `advance` step, the recipe ID and the revision it continues, and for a returned revision whether this login took it over, left out when the page that asked was left before the answer |
 | `recipe.judge` | warn for `retry` after a request that failed (any reason but `not-connected`, where nothing was sent), for an undecided answer that completed the login (`completed`, ADR 0029), and for a watched login's `unclear` or `challenge` or its `not-sent` `page-limit`, which leave it without a result (ADR 0027), else info; `unclear` stays info even with a failure code such as `timeout`, since it also covers permanent refusals such as `already-judged`, and its reason tells them apart; `sent` is logged just before the request leaves the device and is kept because it is all that is left when no answer comes | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `watched` for a page of a watched login; `completed` when the judge did not decide a page with no sign and no evidence and the login completed on it; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages, or the watch's, were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), a signed-in marker shows but does not prove the sign-in, as more than once or beside one of its `absent` elements (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and is disabled (`disabled-field`, when it may not be a sign-in field) or may be a sign-in field (`unfillable-field`: a password or email input, one with a `username`, `email`, `current-password`, `new-password` or `one-time-code` autocomplete token, or a short numeric field; other read-only, transparent or tiny fields, as a read-only date picker, are left out), one that may be a sign-in field without a usable locator, as above, except a password field of a form with two or more of them or for a new password (`unlocated-field`; other fields without one are left out), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a description that fails its schema (`unsupported-page`; a path that may carry a token is sent with `[id]` instead), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`), a username that could not be read to hide it (`username-unread`) or that shows where it cannot be hidden (`username-shown`), or a sign-in page after a recipe's final `advance` step, which is sent to continue the recipe instead (`continuation`) |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
+| `passkey.create` | info | the registration check described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
 | `log.dropped` | warn; debug when only `debug` events were dropped | origin, the dropped event's name (`dropped`) and how many of it were dropped over the page limit |
 | `log.debug` | info | whether debug logging was turned on or off, and when it ends |
@@ -949,7 +959,7 @@ event and how many of it were dropped. The first drop of each event in a window 
 logged at once and also logs the drops not yet counted; the rest are counted when the
 window ends and the next event or prune runs, so a worker that stops first loses only
 that remainder. `debug` entries are written only for 24 hours after
-**Enable debug logging for 24 hours**, or until **Disable debug logging** turns it off
+**Turn on debug logging for 24 hours**, or until **Turn off debug logging** turns it off
 sooner; either change is logged as `log.debug` with `enabled`. Retention: 14 days;
 `debug` entries for 24 hours; at most 14,000 `debug` and `info` entries (oldest `debug`
 first, then `info`) and 1,000 `warn` and `error` entries, pruned at worker start and
@@ -1180,6 +1190,15 @@ shows a second, previously hidden button with the same text stops the attempt as
 ambiguous, but if the observed button is removed and another button with the same text
 remains, that one is clicked.
 
+The extractor gives no `id` that React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`,
+a hydrated `:R1aH1:`, also after a prefix such as `radix-`): it counts the components
+rendered before it, so another page of the site gives the same ID to another element.
+LinkedIn's feed gave its search box the ID of the login form's username field, so the
+signed-in page showed that field (ADR 0029's S1, 2026-10-12). An element with no other
+unique locator gets no target: a login form that needs it is incomplete, and a possible
+sign-in field on the signed-in page is reported as unlocated. Saved recipes keep their
+targets until they are generated again.
+
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button
 such as "Continue as taro_y" still carries an account name, and so can a signed-in
@@ -1330,9 +1349,9 @@ every claimed request; describe this as a deliberate deviation, never as verific
 and keep the flags behind a policy a later per-site setting can change. Hardware-bound
 keys cannot be unlocked merely by changing flags. Pateat's wrapper stays outside
 wrappers that other providers, including the official Bitwarden extension, install by
-assigning `get`, so it answers claimed requests first. A top document's conditional
-request goes to the login runtime, which answers it only through a login of that
-document and otherwise hands it on, or withholds it after that login signed in
+assigning `get` or `create`, so it answers claimed requests first. A top document's
+conditional request goes to the login runtime, which answers it only through a login of
+that document and otherwise hands it on, or withholds it after that login signed in
 ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). Real-extension coexistence
 requires separate compatibility tests.
 
@@ -1364,6 +1383,20 @@ background also keeps, per tab in session storage, the RP IDs it signed for; a l
 request with no allow list for one of them in that tab opens the window even for one
 match or a site default, because it may follow a logout. A running login's own requests
 never open it (below).
+
+The bridge also wraps `navigator.credentials.create`, but only to refuse one kind of
+registration
+([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in)).
+A top document's public-key registration with a non-empty `excludeCredentials` is
+checked by the background; every other one goes to the browser at once. The background
+keeps, per tab in session storage, Pateat's latest sign-ins: each assertion it returned
+(origin and RP ID) and each login that reached signed in on any route (origin), at most
+four per tab for the latest 64 tabs, forgotten when the tab closes. Within five minutes
+of such a sign-in to the request's RP ID in that tab, a request whose
+`excludeCredentials` lists a passkey Pateat could sign with there, found by the same
+lookup a sign-in uses, is refused with `NotAllowedError`, as Chrome answers when its own
+prompt is dismissed. Anything else, including a locked vault or a failed lookup, hands
+the request on. It never writes to the vault and is not passkey registration.
 
 While a login is running, a request from its tab and top-level origin is answered with
 that login's own vault item only, never the site default or the chooser

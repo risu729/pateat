@@ -27,6 +27,11 @@ export const CHOOSER_MIN_WAIT_MS = 10_000;
  */
 export const PAGE_MAX_WAIT_MS = CHOOSER_MAX_WAIT_MS + PAGE_TIMEOUT_MS;
 /**
+ * The wrapper's absolute limit for a `create` request, which the background only checks
+ * within its lookup budget and never shows a window for.
+ */
+export const PAGE_CREATE_MAX_WAIT_MS = PAGE_TIMEOUT_MS;
+/**
  * Upper bound on a serialized snapshot. A maximal valid snapshot with registered transport
  * names is about 110,000 characters; a larger one is handed on.
  */
@@ -48,6 +53,13 @@ export const pageRequestSchema = v.variant("type", [
   v.strictObject({
     channel: v.literal(PAGE_CHANNEL),
     type: v.literal("get"),
+    id: operationId,
+    request: v.unknown(),
+  }),
+  /** A `create` request whose `excludeCredentials` the background checks (ADR 0007). */
+  v.strictObject({
+    channel: v.literal(PAGE_CHANNEL),
+    type: v.literal("create"),
     id: operationId,
     request: v.unknown(),
   }),
@@ -84,6 +96,11 @@ export const pageResultSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("cancelled") }),
   v.strictObject({ kind: v.literal("not-allowed") }),
   v.strictObject({ kind: v.literal("withheld") }),
+  /**
+   * A `create` request Pateat refuses: it lists a passkey of the vault right after a Pateat
+   * sign-in in the tab. The page sees Chrome's NotAllowedError (ADR 0007).
+   */
+  v.strictObject({ kind: v.literal("decline") }),
 ]);
 export type PageResult = v.InferOutput<typeof pageResultSchema>;
 
@@ -110,3 +127,18 @@ export const runtimeMessageSchema = v.variant("type", [
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("passkey.cancel"), operationId }),
 ]);
+
+/** A bridged `navigator.credentials.create` request, which the background only checks. */
+export const createMessageSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("passkey.create"),
+  operationId,
+  request: v.unknown(),
+});
+
+/** The background's answer to a `create` request: refuse it, or hand it on with why. */
+export const createResultSchema = v.variant("kind", [
+  v.strictObject({ kind: v.literal("decline") }),
+  v.strictObject({ kind: v.literal("delegate"), reason: v.pipe(v.string(), v.maxLength(64)) }),
+]);
+export type CreateResult = v.InferOutput<typeof createResultSchema>;

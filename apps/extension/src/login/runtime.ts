@@ -1232,6 +1232,11 @@ export function createLoginRuntime(
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
+     * Told of each origin of a login that reached signed in, on any route, so a site's
+     * passkey registration right after it can be refused (ADR 0007). Never changes the login.
+     */
+    signedIn?: (tabId: number, origin: string) => void;
+    /**
      * Automatic vault sync (ADR 0025). Each page announcement starts a due check and
      * holds vault replacement off while it is handled; a page that may start a login
      * first waits briefly for a running check.
@@ -1848,6 +1853,28 @@ export function createLoginRuntime(
       throw new Error("storage-failed");
     }
   }
+  /**
+   * Tells `options.signedIn` of an attempt that has just reached signed in: its origin, the
+   * top page's origin for a frame's login, and the page it ended on.
+   */
+  const noteSignedIn = (
+    previous: LoginAttemptMetadata,
+    next: LoginAttemptMetadata,
+    pageOrigin?: string,
+  ) => {
+    if (next.state !== "authenticated" || previous.state === "authenticated") return;
+    const origins = new Set(
+      [next.account.origin, next.pageOrigin, pageOrigin].filter(
+        (value): value is string => value !== undefined,
+      ),
+    );
+    for (const signedOrigin of origins)
+      try {
+        options.signedIn?.(next.document.tabId, signedOrigin);
+      } catch {
+        // Never changes the login.
+      }
+  };
   async function change(
     run: Execution,
     event: LoginAttemptEvent,
@@ -1869,6 +1896,11 @@ export function createLoginRuntime(
     run.metadata = transitionLoginAttempt(
       run.metadata,
       undelivered ? { type: "POLICY_CHANGED", undelivered } : event,
+    );
+    noteSignedIn(
+      previous,
+      run.metadata,
+      run.live.document.frameId === 0 ? run.live.document.origin : undefined,
     );
     // Settling as unknown keeps the state, but it is how a login ends without a result.
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
@@ -5688,11 +5720,13 @@ export function createLoginRuntime(
       const latest = run?.metadata ?? tabAttempt(document.tabId);
       // Another page of the tab may have ended the attempt meanwhile.
       if (ending && latest?.id === holder.id && !terminal(latest)) {
-        const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(latest), {
+        const before = run?.metadata ?? recoverLoginAttempt(latest);
+        const ended = transitionLoginAttempt(before, {
           type: "NAVIGATED",
           document: { ...document, frameId: 0, origin: siteOrigin },
           ...(signedIn ? { signedIn } : {}),
         });
+        noteSignedIn(before, ended, siteOrigin);
         if (run) run.metadata = ended;
         reportAttempt(ended, run?.recipe);
         try {

@@ -383,9 +383,9 @@ For a problem that happened earlier, click **Download logs** on the same page, c
 preview and click **Save file**, then attach the `.jsonl` file, or click **Copy all**
 and paste the whole text. Site addresses and recipe IDs are included; check
 **Hide site addresses and recipe IDs** to replace them with `site-1` and `recipe-1`. To
-record more detail, click **Enable debug logging for 24 hours**, reproduce the problem,
+record more detail, click **Turn on debug logging for 24 hours**, reproduce the problem,
 then download the logs ([local log](architecture.md#local-log)). Debug logging turns
-itself off after 24 hours; **Disable debug logging** turns it off sooner.
+itself off after 24 hours; **Turn off debug logging** turns it off sooner.
 
 ### Why a passkey request was delegated
 
@@ -452,6 +452,35 @@ provider's wrapper did not call Pateat's, or the request came from a subframe. E
 never hold credential IDs, user handles or item IDs, and the page is never told the
 reason. The origin and RP ID are named only for sites your settings or recipes name;
 other sites appear as `origin:7d2b91aa` and `rp:7d2b91aa`.
+
+A site's passkey registration (`navigator.credentials.create`) that excludes credentials
+logs one `passkey.create` entry, under the same limit
+([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in)). A
+registration goes to the browser without an entry when the wrapper does not ask the
+background: an empty or malformed `excludeCredentials` or other required member, an
+unknown mediation, a non-string `rp.id`, a signal that is not genuine or already
+aborted, a call whose `this` is not `navigator.credentials`, a document the relay
+refuses (a frame, an insecure context or the permissions policy) or a relay that does
+not answer. A sender the background refuses (`invalid-sender`) is not logged either.
+The sign-ins the check reads are kept per tab in `chrome.storage.session`
+(`pateat.passkey-sign-ins.v1`). Each entry holds:
+
+- `origin` and `outcome`: `declined` (Pateat refused it with `NotAllowedError`) or
+  `delegate` (handed on to the browser and other providers), with the delegate `reason`:
+  `not-signed-in` (no Pateat sign-in to that RP ID in the tab), `expired` (the latest
+  one was more than five minutes ago), `not-listed` (no listed credential is a passkey
+  Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
+  could not be searched, as when the vault is locked), `not-configured` (the site is
+  excluded or the settings could not be read), `vault-unavailable` (the sign-in records
+  or the lookup failed) or `timeout` (the lookup took too long), `invalid-request`,
+  `invalid-origin`, `invalid-rp-id`, `rp-id-mismatch` or `busy`;
+- `rpId` once it is valid for the origin, and `excludeCredentials`: how many
+  credentials the site listed;
+- `mediation`: `conditional` (Chrome's automatic passkey upgrade) or `other`, when the
+  request names one;
+- `sinceSignIn`: whole seconds since Pateat's latest sign-in to that RP ID in the tab,
+  when there was one;
+- `listed`, once the listed credentials were checked: whether one is such a passkey.
 
 ### Manual Bitwarden setup preview
 

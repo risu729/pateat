@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { evaluationCorpus, expectedFields, type EvaluationCase } from "./corpus/cases";
 import { japanesePageCorpus } from "./corpus/real";
 import { customSlotNames } from "./corpus/slots";
-import { evaluateRole, judge, percentile } from "./evaluate";
+import { evaluateRole, judge } from "./evaluate";
 import type { InferenceOutcome } from "./outcome";
 import { isActionRole, slotFitsRole, validatePagePlan, type ValidatedPagePlan } from "./plan";
 
@@ -130,6 +130,13 @@ describe("evaluation harness", () => {
       },
     });
     expect(report.latencyMs).toEqual({ p50: 20, p95: 400 });
+    const empty = await evaluateRole({
+      cases: [],
+      run: async () => {
+        throw new Error("No case to run");
+      },
+    });
+    expect(empty.latencyMs).toEqual({ p50: 0, p95: 0 });
   });
 
   it("judges a plan with the right fields but wrong purpose as a false submit", () => {
@@ -178,11 +185,5 @@ describe("evaluation harness", () => {
     expect(report.passkeyButtons).toEqual({ expected: 3, correct: 1, missed: 1, wrong: 2 });
     expect(report.cases[0]!.plan).toMatchObject({ passkeyButton: "c5" });
     expect(report.cases[1]!.plan).not.toHaveProperty("passkeyButton");
-  });
-
-  it("uses nearest-rank percentiles", () => {
-    expect(percentile([], 0.5)).toBe(0);
-    expect(percentile([3, 1, 2], 0.5)).toBe(2);
-    expect(percentile([1, 2, 3, 4], 0.95)).toBe(4);
   });
 });

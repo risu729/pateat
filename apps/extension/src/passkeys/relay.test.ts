@@ -171,3 +171,143 @@ describe("isolated passkey relay", () => {
     },
   );
 });
+
+describe("isolated passkey relay for create (ADR 0007)", () => {
+  const request = { rpId: "example.com", excludeCredentials: [{ type: "public-key", id: "AQID" }] };
+  const result = (posted: unknown[]) =>
+    posted.filter((data) => (data as { type: string }).type === "result");
+
+  it("asks the background to check a registration, with nothing the page could forge", async () => {
+    const { scope, posted } = fakeWindow();
+    const send = vi.fn(async () => ({ kind: "decline" }));
+    installPasskeyRelay(send);
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "create", id, request });
+    await vi.waitFor(() => expect(result(posted)).toHaveLength(1));
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({
+      version: 1,
+      type: "passkey.create",
+      operationId: id,
+      request,
+    });
+    expect(posted.slice(1)).toEqual([
+      { channel: PAGE_CHANNEL, type: "ack", id },
+      { channel: PAGE_CHANNEL, type: "result", id, result: { kind: "decline" } },
+    ]);
+  });
+
+  it("tells the page that Pateat handed a registration on, never why", async () => {
+    const { scope, posted } = fakeWindow();
+    installPasskeyRelay(vi.fn(async () => ({ kind: "delegate", reason: "not-signed-in" })));
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "create", id, request });
+    await vi.waitFor(() => expect(result(posted)).toHaveLength(1));
+    expect(result(posted)[0]).toEqual({
+      channel: PAGE_CHANNEL,
+      type: "result",
+      id,
+      result: { kind: "delegate" },
+    });
+  });
+
+  it("checks the document's create policy, not its get policy", async () => {
+    const { scope, posted } = fakeWindow();
+    const allowsFeature = vi.fn((feature: string) => feature === "publickey-credentials-get");
+    vi.stubGlobal("document", {
+      featurePolicy: { allowsFeature },
+      visibilityState: "visible",
+      hasFocus: () => true,
+    });
+    const send = vi.fn(async (message: unknown) =>
+      (message as { type: string }).type === "passkey.get"
+        ? { kind: "delegate", reason: "no-credential" }
+        : { kind: "decline" },
+    );
+    installPasskeyRelay(send);
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "create", id, request });
+    await vi.waitFor(() => expect(result(posted)).toHaveLength(1));
+    expect(allowsFeature).toHaveBeenCalledWith("publickey-credentials-create");
+    expect(send).not.toHaveBeenCalled();
+    expect(result(posted)[0]).toMatchObject({ result: { kind: "delegate" } });
+    // The same document's get request is still relayed.
+    const getId = "00000000-0000-4000-8000-000000000001";
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id: getId, request: {} });
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "passkey.get" }));
+  });
+
+  it.each([
+    ["a policy that is not readable", {}],
+    ["a subframe", undefined],
+  ])("hands a registration on in %s without asking", async (_name, document) => {
+    const { scope, posted } = fakeWindow();
+    if (document) vi.stubGlobal("document", document);
+    else scope.top = {};
+    const send = vi.fn();
+    installPasskeyRelay(send);
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "create", id, request });
+    await vi.waitFor(() => expect(result(posted)).toHaveLength(1));
+    expect(send).not.toHaveBeenCalled();
+    expect(result(posted)[0]).toMatchObject({ result: { kind: "delegate" } });
+  });
+
+  it.each<[string, () => Promise<unknown>]>([
+    // A background answer meant for get never completes a registration.
+    [
+      "an assertion",
+      async () => ({
+        kind: "assertion",
+        assertion: {
+          credentialId: "AQID",
+          clientDataJSON: "e30",
+          authenticatorData: "AA",
+          signature: "AA",
+          userHandle: null,
+        },
+      }),
+    ],
+    ["not-allowed", async () => ({ kind: "not-allowed" })],
+    ["a malformed answer", async () => ({ kind: "decline", extra: true })],
+    ["no answer", async () => undefined],
+    ["a failed message", async () => Promise.reject(new Error("context invalidated"))],
+  ])("hands a registration on after %s", async (_name, answer) => {
+    const { scope, posted } = fakeWindow();
+    installPasskeyRelay(vi.fn(answer));
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "create", id, request });
+    await vi.waitFor(() => expect(result(posted)).toHaveLength(1));
+    expect(result(posted)[0]).toEqual({
+      channel: PAGE_CHANNEL,
+      type: "result",
+      id,
+      result: { kind: "delegate" },
+    });
+  });
+
+  it("hands an oversized registration on without asking", async () => {
+    const { scope, posted } = fakeWindow();
+    const send = vi.fn();
+    installPasskeyRelay(send);
+    scope.postMessage({
+      channel: PAGE_CHANNEL,
+      type: "create",
+      id,
+      request: { excludeCredentials: [{ type: "public-key", id: "A".repeat(140_000) }] },
+    });
+    await vi.waitFor(() => expect(result(posted)).toHaveLength(1));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("repeats its acknowledgement while the background checks", async () => {
+    vi.useFakeTimers();
+    const { scope, posted } = fakeWindow();
+    let answer!: (value: unknown) => void;
+    installPasskeyRelay(vi.fn(() => new Promise((resolve) => (answer = resolve))));
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "create", id, request });
+    const acks = () => posted.filter((data) => (data as { type: string }).type === "ack").length;
+    await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS * 2);
+    expect(acks()).toBe(3);
+    answer({ kind: "decline" });
+    await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS * 2);
+    expect(acks()).toBe(3);
+    expect(result(posted)).toHaveLength(1);
+  });
+});

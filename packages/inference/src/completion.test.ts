@@ -268,30 +268,52 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
     });
     const outcome = await answer({ source }).judge(page([codeField, verify]));
     expect(outcome.status === "ok" && "totp" in outcome.value).toBe(false);
+    // Why is kept for the log.
+    expect(outcome).toMatchObject({ value: { totpDropped: `source-${source}` } });
   });
 
   it.each([
     [
       "a field that is not a code field",
       [{ ...codeField, autocomplete: undefined, inputMode: undefined }, verify],
+      "not-code-field",
     ],
-    ["a field shorter than six characters", [{ ...codeField, maxLength: 1 }, verify]],
+    [
+      "a field shorter than six characters",
+      [{ ...codeField, maxLength: 1 }, verify],
+      "code-too-short",
+    ],
     [
       "one of several code fields in its form",
       [codeField, { ...codeField, id: "code-2", target: { by: "id", value: "digit-2" } }, verify],
+      "several-code-fields",
     ],
-    ["a submit element that is a link", [codeField, { ...verify, role: "link" }]],
-    ["a submit button in another form", [codeField, { ...verify, group: "form-2" }]],
+    [
+      "a submit element that is a link",
+      [codeField, { ...verify, role: "link" }],
+      "submit-not-button",
+    ],
+    [
+      "a submit button in another form",
+      [codeField, { ...verify, group: "form-2" }],
+      "submit-other-form",
+    ],
     [
       "a field that is a button",
       [
         { ...verify, id: "code" },
         { ...verify, target: { by: "id", value: "go" } },
       ],
+      "not-input",
     ],
-  ])("drops the code for %s", async (_label, candidates) => {
+    ["a field that is not on the page", [verify], "unknown-field"],
+    ["a submit button that is not on the page", [codeField], "unknown-submit"],
+  ])("drops the code for %s, saying why", async (_label, candidates, why) => {
     const outcome = await answer({ source: "authenticator-app" }).judge(page(candidates));
-    expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
+    expect(outcome).toMatchObject({
+      status: "ok",
+      value: { decision: "challenge", totpDropped: why },
+    });
     expect(outcome.status === "ok" && "totp" in outcome.value).toBe(false);
   });
 
@@ -303,6 +325,10 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
   });
 
   it("tells the model to say where the code comes from", () => {
+    // A bare challenge on a code page left no handler and no reason (Resend, 2026-10-12).
+    expect(completionInstructions).toMatch(
+      /A challenge that asks for a code always fills code: its field, submit and source\./u,
+    );
     expect(completionInstructions).toMatch(
       /code\.source is authenticator-app only when the page says the code comes from an authenticator app/u,
     );

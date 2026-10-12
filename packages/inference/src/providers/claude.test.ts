@@ -135,11 +135,9 @@ describe("Claude generation adapter", () => {
     const system = JSON.stringify(sent[0]!.body["system"]);
     expect(system).toContain("password manager");
     expect(system).toContain("their own account");
-  });
-
-  it("requires an explicit key", () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-environment");
-    expect(() => createClaudeGenerationModel({ apiKey: " " })).toThrow();
+    expect(system).toContain(
+      "You never see values; the extension fills them after checking your plan.",
+    );
   });
 
   it("sends a federated access token as a bearer token instead of a key", async () => {
@@ -161,6 +159,7 @@ describe("Claude generation adapter", () => {
 
   it("requires exactly one non-empty credential", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-environment");
+    expect(() => createClaudeGenerationModel({ apiKey: " " })).toThrow();
     expect(() => createClaudeGenerationModel({ authToken: " " })).toThrow();
     expect(() =>
       createClaudeGenerationModel({

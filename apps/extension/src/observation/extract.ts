@@ -92,6 +92,13 @@ const locators = [
   ["name", "name"],
   ["test-id", "data-testid"],
 ] as const;
+/**
+ * An ID React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`, a hydrated `:R1aH1:`, also
+ * inside a library's prefix such as `radix-:r1:`): its base-32 digits count the
+ * components rendered before, so another page of the site gives it to another element.
+ */
+const generatedId =
+  /:[Rr][0-9a-v]+(?:H[0-9a-v]+)?:|«[Rr][0-9a-v]+(?:H[0-9a-v]+)?»|(?:^|[^0-9A-Za-z])_[Rr]_[0-9a-v]+(?:H[0-9a-v]+)?_(?![0-9A-Za-z])/u;
 
 /**
  * Text that can reveal an account or a number is replaced before it is observed
@@ -220,7 +227,8 @@ function locatorIndex(document: Document): LocatorIndex {
 
 /**
  * Mirrors the executor's lookup: an attribute value, or else a fillable input's
- * `autocomplete` token, or else a button's text, that matches exactly one element. A
+ * `autocomplete` token, or else a button's text, that matches exactly one element. An ID
+ * React's `useId` generated is not used, as another page gives it to another element. A
  * script link's text must also name no native button, shown or not, which the executor
  * would take first. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
@@ -237,6 +245,7 @@ function locate(
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
     if (value === null || index.get(attribute)!.get(value) !== 1) continue;
+    if (attribute === "id" && generatedId.test(value)) continue;
     if (redactAttributes && (observedText(value) !== value || tokenSegment(value))) continue;
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;

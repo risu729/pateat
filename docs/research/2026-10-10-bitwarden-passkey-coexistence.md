@@ -85,7 +85,9 @@ ADR 0007 makes Pateat outermost whatever the order.
 
 Per ADR 0007, Pateat's wrapper is installed in top-level frames only, while Bitwarden
 runs in all frames, so requests from iframes go to Bitwarden or the browser. Pateat
-never wraps `create`, so passkey registration is unaffected.
+never wraps `create`, so passkey registration is unaffected. Update on 2026-10-12: ADR
+0007 now wraps `create` to refuse one kind of registration
+([Registration after a sign-in](../adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in)).
 
 ## Left open
 
