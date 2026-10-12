@@ -30,10 +30,18 @@ owner to confirm.
 ### Phase 1: usable
 
 Done when Pateat logs in on the sites the owner uses every day, in the owner's installed
-Chrome, on a production build of main.
+Chrome, and on the sites the owner's Grok Bot checks, in the Grok Bot computer's Chrome,
+on a production build of main.
 
 - Start from a list of those sites. It names the owner's own accounts, so it stays in
   the project's files rather than in this repository.
+- Grok Bot sites (owner, 2026-10-12 14:00 UTC): Pateat in the Grok Bot computer's Chrome
+  logs in to the sites the owner's Bot checks regularly, such as card statements, AI
+  usage pages and coursework submission, so the Bot never needs a password. Sites that
+  only offer single sign-on wait for SSO support; Microsoft's own sign-in page is a
+  target, but a university learning platform that signs in through it is not yet. The
+  list, like the daily-use list, stays in the project's files. Vpass and MyJCB already
+  log in there (2026-10-12 13:45 UTC).
 - Finish the fixes in flight: login attempts whose result settled as unknown no longer
   hold settings writes for the next login, and a vault replacement no longer runs during
   a login; diagnostics log events for sync, page judgements, handlers and the source of
@@ -170,8 +178,9 @@ Chrome, on a production build of main.
   policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair" Access
   application without WARP for pairing only. With it, the Grok Bot computer paired on
   2026-10-12 and Pateat logged in to Vpass there with the owner's existing Bitwarden
-  account, once the connection's policy was enabled by hand. Next: the Bot repeats the
-  logins itself, and ChatGPT Dots once the owner has ChatGPT Pro again.
+  account, once the connection's policy was enabled by hand. The logins the Bot needs
+  are a phase 1 goal (Grok Bot sites above). Next: ChatGPT Dots once the owner has
+  ChatGPT Pro again.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
