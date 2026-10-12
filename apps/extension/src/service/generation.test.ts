@@ -500,14 +500,21 @@ describe("recipe generation requests", () => {
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores pages claimed in the earlier record shape", async () => {
+  it("treats a claims record it cannot parse as holding no claims", async () => {
     const h = setup();
-    h.storage.write.mockClear();
     await h.storage.write({
       version: 1,
       attempts: [{ origin: observation.origin, path: "/login", at: h.now() }],
     });
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
+    // Sending goes through the claim write, which has no fallback of its own.
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "recipe" });
+    expect(h.storage.write).toHaveBeenLastCalledWith({
+      version: 1,
+      attempts: [
+        { origin: observation.origin, path: "/login", state: "sent", at: expect.any(Number) },
+      ],
+    });
   });
 
   it("sends nothing without a paired, accepted device or when it cannot remember", async () => {
@@ -890,75 +897,6 @@ describe("continuing a recipe after its final advance (ADR 0018)", () => {
     expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
   });
 
-  it("asks for a retry while the same continuation is still in flight", async () => {
-    const h = setup();
-    h.transport.generateRecipe.mockReturnValueOnce(new Promise(() => undefined));
-    void h.generation.generate(continuation);
-    await vi.waitFor(() => expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1));
-    expect(await h.generation.generate(continuation)).toEqual({
-      outcome: "skipped",
-      reason: "sending",
-      retry: true,
-    });
-  });
-
-  type Answer = Awaited<ReturnType<ServiceTransport["generateRecipe"]>>;
-  it.each<[string, Answer, string, string]>([
-    ["an unreachable service", { kind: "failed", error: "unreachable" }, "failed", "unreachable"],
-    ["a timeout", { kind: "failed", error: "timeout" }, "failed", "timeout"],
-    ["a rejected device", { kind: "rejected" }, "failed", "device-rejected"],
-    [
-      "a request refused before the model",
-      { kind: "result", result: { version: 1, status: "failed", error: "input-too-large" } },
-      "failed",
-      "input-too-large",
-    ],
-    [
-      "a busy owner",
-      { kind: "result", result: { version: 1, status: "unavailable", reason: "busy" } },
-      "unavailable",
-      "busy",
-    ],
-    [
-      "the daily limit",
-      { kind: "result", result: { version: 1, status: "unavailable", reason: "daily-limit" } },
-      "unavailable",
-      "daily-limit",
-    ],
-  ])("gives the request back after %s", async (_name, answer, outcome, reason) => {
-    const h = setup(answer);
-    expect(await h.generation.generate(continuation)).toEqual({ outcome, reason, retry: true });
-    h.transport.generateRecipe.mockResolvedValueOnce({
-      kind: "result",
-      result: { version: 1, status: "recipe", change: continued },
-    });
-    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
-  });
-
-  it.each<[string, Answer, string, string]>([
-    [
-      "an abstention",
-      { kind: "result", result: { version: 1, status: "abstained", reason: "ambiguous" } },
-      "abstained",
-      "ambiguous",
-    ],
-    [
-      "a model failure",
-      { kind: "result", result: { version: 1, status: "failed", error: "invalid-output" } },
-      "failed",
-      "invalid-output",
-    ],
-  ])("spends the request after %s", async (_name, answer, outcome, reason) => {
-    const h = setup(answer);
-    expect(await h.generation.generate(continuation)).toEqual({ outcome, reason });
-    expect(await h.generation.generate(continuation)).toEqual({
-      outcome: "skipped",
-      reason: "sent",
-    });
-    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
-    expect(h.refresh).not.toHaveBeenCalled();
-  });
-
   it.each(["recipe-revoked", "recipe-conflict"] as const)(
     "spends a continuation answered %s, which a later document would get again",
     async (reason) => {
@@ -978,40 +916,6 @@ describe("continuing a recipe after its final advance (ADR 0018)", () => {
       });
     },
   );
-
-  it("names the check that refused a continuation's output and spends it", async () => {
-    const h = setup({
-      kind: "result",
-      result: {
-        version: 1,
-        status: "failed",
-        error: "invalid-output",
-        rejection: { check: "schema", issue: "max-length", path: "result.steps" },
-      },
-    });
-    expect(await h.generation.generate(continuation)).toEqual({
-      outcome: "failed",
-      reason: "invalid-output",
-      check: "schema",
-      detail: "max-length",
-      path: "result.steps",
-    });
-    expect(await h.generation.generate(continuation)).toEqual({
-      outcome: "skipped",
-      reason: "sent",
-    });
-  });
-
-  it("asks for a retry without a paired service and sends nothing", async () => {
-    const h = setup();
-    h.service.connection.mockResolvedValueOnce(undefined);
-    expect(await h.generation.generate(continuation)).toEqual({
-      outcome: "skipped",
-      retry: true,
-      reason: "not-connected",
-    });
-    expect(h.transport.generateRecipe).not.toHaveBeenCalled();
-  });
 });
 
 describe("continuation claims and answers, probed independently (ADR 0018)", () => {
@@ -1113,6 +1017,7 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
       "unavailable",
       "recently-tried",
     ],
+    ["a rejected device", { kind: "rejected" }, "failed", "device-rejected"],
   ])("frees the claim and asks for a retry after %s", async (_n, answer, outcome, reason) => {
     const h = setup(answer);
     expect(await h.generation.generate(continuation)).toEqual({ outcome, reason, retry: true });
@@ -1132,17 +1037,6 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
     });
     expect(h.storage.write).not.toHaveBeenCalled();
     expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
-  });
-
-  it("asks for a retry when the claim cannot be stored, and sends nothing", async () => {
-    const h = setup(answerOf(2));
-    h.storage.write.mockRejectedValueOnce(new Error("quota"));
-    expect(await h.generation.generate(continuation)).toEqual({
-      outcome: "skipped",
-      reason: "storage-unavailable",
-      retry: true,
-    });
-    expect(h.transport.generateRecipe).not.toHaveBeenCalled();
   });
 
   // These answers show the model was called: the claim is kept, with no retry.
@@ -1171,6 +1065,12 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
       "failed",
       "recipe-invalid",
     ],
+    [
+      "an abstention",
+      { kind: "result", result: { version: 1, status: "abstained", reason: "ambiguous" } },
+      "abstained",
+      "ambiguous",
+    ],
   ])("keeps the claim after %s", async (_name, answer, outcome, reason) => {
     const h = setup(answer);
     expect(await h.generation.generate(continuation)).toEqual({ outcome, reason });
@@ -1178,15 +1078,6 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
     expect(h.sync).not.toHaveBeenCalled();
     expect(h.refresh).not.toHaveBeenCalled();
-  });
-
-  it("returns the current recipe the service answers for a stale base, pulling recipes only", async () => {
-    // Another device continued revision 1 first; the service answers with its revision 3.
-    const h = setup(answerOf(3));
-    const answer = await h.generation.generate(continuation);
-    expect(answer).toEqual({ outcome: "recipe", recipe: answerOf(3).result.change.recipe });
-    expect(h.refresh).toHaveBeenCalledTimes(1);
-    expect(h.sync).not.toHaveBeenCalled();
   });
 
   it("never syncs for a continuation, and still answers when the refresh fails", async () => {
@@ -1248,7 +1139,11 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
     void h.generation.generate(continuation);
     await vi.waitFor(() => expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1));
     h.advance(GENERATION_SENDING_MS - 1);
-    expect(await h.generation.generate(continuation)).toMatchObject({ reason: "sending" });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      reason: "sending",
+      retry: true,
+    });
     h.advance(1);
     expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(2);

@@ -97,8 +97,6 @@ describe("pairing", () => {
     { ...pair, label: "" },
     { ...pair, label: "Tab\tlabel" },
     { ...pair, credential: CREDENTIAL },
-    { version: 1, type: "service.pair.start", origin: ORIGIN, label: "Work laptop" },
-    { version: 1, type: "service.pair.check" },
     { version: 1, type: "service.unknown" },
   ])("rejects invalid requests: %j", async (request) => {
     const { storage, transport, runtime } = setup();
@@ -386,10 +384,8 @@ describe("storage failures", () => {
     expect(transport.revoke).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["the old pairing record", { version: 1, kind: "pairing", origin: ORIGIN, label: "Laptop" }],
-    ["an unknown kind", { ...connectedRecord(), kind: "paired" }],
-  ])("reads %s as corrupt", async (_, record) => {
+  it("reads a record of an unknown kind as corrupt", async () => {
+    const record = { ...connectedRecord(), kind: "paired" };
     const { runtime } = setup({ storage: memoryStorage(record) });
     expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
       ok: false,
@@ -429,6 +425,10 @@ describe("storage failures", () => {
       ok: false,
       error: "storage-unavailable",
     });
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: false,
+      error: "storage-unavailable",
+    });
     expect(storage.clear).not.toHaveBeenCalled();
   });
 
@@ -448,21 +448,5 @@ describe("storage failures", () => {
       state: { kind: "connected" },
     });
     expect(storage.value()).toEqual(connected);
-  });
-
-  it("reports unreadable and unwritable storage", async () => {
-    const storage = memoryStorage();
-    storage.write = vi.fn(async () => {
-      throw new Error("quota");
-    });
-    const { runtime } = setup({ storage });
-    expect(await runtime.handle(pair)).toEqual({ ok: false, error: "storage-unavailable" });
-    storage.read = vi.fn(async () => {
-      throw new Error("denied");
-    });
-    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
-      ok: false,
-      error: "storage-unavailable",
-    });
   });
 });

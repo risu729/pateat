@@ -450,6 +450,8 @@ own accounts, so they stay in the project's files rather than in this repository
   - Batch 5, `apps/extension` connections, vault and crypto (2026-10-12): 442 to 430
     Vitest cases, the same statements and branches covered. Files other threads are
     changing (login runtime, passkeys, observation, diagnostics, popup) wait.
+  - Batch 6, `apps/extension/src/service` (2026-10-12): 311 to 293 Vitest cases, the
+    same statements and branches covered.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
