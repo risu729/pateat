@@ -1006,6 +1006,81 @@ test("a code page that submits on its last digit signs in without a click (ADR 0
   }
 });
 
+for (const [mode, query, verifyClicks, autoSubmits] of [
+  ["gets one Verify click", "split", 1, 0],
+  ["that submits on its last digit gets no click", "split&auto", 0, 1],
+  ["whose Verify is disabled until the code is in gets one click", "split&ui=disabled", 1, 0],
+  [
+    "whose Verify is disabled only while the code is partial gets one click",
+    "split&ui=partial",
+    1,
+    0,
+  ],
+] as const) {
+  test(`a code split into one input per digit is typed one digit per input and ${mode} (ADR 0027)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin, true, undefined, true);
+        const status = async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/totp?${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        await expect.poll(status).toContain('"authenticated"');
+        // One input event per digit; the page joins the six inputs into the code.
+        expect(await codeEvidence(page)).toEqual({
+          codeInputs: 6,
+          verifyClicks,
+          autoSubmits,
+          codeMatched: "true",
+        });
+        expect(await status()).not.toContain("012345");
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+}
+
+for (const [mode, query, cause, codeInputs] of [
+  [
+    "an input the page changes after the first digit",
+    "split&ui=mutate",
+    '"outcome":"cancelled"',
+    1,
+  ],
+  ["seven one-digit inputs for a six-digit code", "split&ui=seven", "value-mismatch", 0],
+] as const) {
+  test(`a split code stops without a Verify click on ${mode} (ADR 0027)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin, true, undefined, true);
+        const status = async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/totp?${query}`);
+        await expect.poll(status).toContain(cause);
+        expect(await codeEvidence(page)).toEqual({
+          codeInputs,
+          verifyClicks: 0,
+          autoSubmits: 0,
+          codeMatched: null,
+        });
+        // The digits typed before the change stop there.
+        expect(await page.locator("#code-2").inputValue()).toBe("");
+        await expect(page.locator("#authenticated")).toHaveCount(0);
+        expect(await status()).not.toContain("012345");
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+}
+
 for (const [mode, query] of [
   ["a Verify button disabled until the code is in", "ui=disabled"],
   ["a Verify button rendered again on every digit", "ui=rerender"],

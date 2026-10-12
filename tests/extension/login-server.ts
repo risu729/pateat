@@ -320,7 +320,7 @@ export async function startLoginFixture(
     } else if (path === "/totp") {
       // Only the known flags go on, never the query as written.
       const flags = new URLSearchParams();
-      for (const flag of ["wrong", "auto", "slow"])
+      for (const flag of ["wrong", "auto", "slow", "split"])
         if (fixtureUrl.searchParams.has(flag)) flags.set(flag, "");
       const spa = fixtureUrl.searchParams.get("spa");
       if (spa === "status" || spa === "replace") flags.set("spa", spa);
@@ -330,12 +330,18 @@ export async function startLoginFixture(
         ui === "rerender" ||
         ui === "counter" ||
         ui === "disauto" ||
-        ui === "flicker"
+        ui === "flicker" ||
+        ui === "partial" ||
+        ui === "mutate" ||
+        ui === "seven"
       )
         flags.set("ui", ui);
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
-      // goes on to the code page: `?wrong` shows it again after Verify, `?auto` submits the
+      // goes on to the code page: `?split` asks for it in six one-digit inputs, the first of
+      // them `#code` (with `ui=seven`, seven; with `ui=partial`, Verify is disabled only
+      // while some but not all digits are in; with `ui=mutate`, the first digit makes the
+      // second input a plain text input), `?wrong` shows it again after Verify, `?auto` submits the
       // code by itself on its sixth digit, as some sites do. With `?auto`, `slow` verifies
       // it for 1.2 seconds before the next document loads, `spa=status` says "Verifying…"
       // in the form and disables Verify for that long and `spa=replace` renders the form
@@ -365,19 +371,21 @@ export async function startLoginFixture(
       const slow = fixtureUrl.searchParams.has("slow");
       const spa = fixtureUrl.searchParams.get("spa");
       const ui = fixtureUrl.searchParams.get("ui");
+      const split = fixtureUrl.searchParams.has("split");
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form"><label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label><button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
-          `const code = document.getElementById('code');
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
+          `const digits = [...document.querySelectorAll('#code-form input')];
+          const codeValue = () => digits.map((digit) => digit.value).join('');
           function count(name) {
             sessionStorage.setItem(name, String(Number(sessionStorage.getItem(name) || 0) + 1));
           }
           function submitCode(source) {
             count(source);
             count('codeSubmits');
-            sessionStorage.setItem('codeMatched', String(code.value === '012345'));
-            const signedIn = code.value === '012345' && ${JSON.stringify(again)} === '/totp-code';
+            sessionStorage.setItem('codeMatched', String(codeValue() === '012345'));
+            const signedIn = codeValue() === '012345' && ${JSON.stringify(again)} === '/totp-code';
             ${
               spa
                 ? `${
@@ -398,15 +406,17 @@ export async function startLoginFixture(
           function wire(button) {
             button.addEventListener('click', () => submitCode('verifyClicks'));
           }
-          code.addEventListener('input', () => {
+          for (const digit of digits) digit.addEventListener('input', () => {
             count('codeInputs');
-            ${ui === "disabled" ? "document.getElementById('verify').disabled = code.value.length !== 6;" : ""}
+            ${ui === "disabled" ? "document.getElementById('verify').disabled = codeValue().length !== 6;" : ""}
+            ${ui === "partial" ? "document.getElementById('verify').disabled = codeValue().length > 0 && codeValue().length < 6;" : ""}
+            ${ui === "mutate" ? "if (codeValue().length === 1) document.getElementById('code-2')?.removeAttribute('inputmode');" : ""}
             ${ui === "rerender" ? "const old = document.getElementById('verify'); const button = old.cloneNode(true); old.replaceWith(button); wire(button);" : ""}
-            ${ui === "counter" ? "document.getElementById('code-counter').textContent = code.value.length + ' of 6 digits';" : ""}
-            ${auto ? "if (code.value.length === 6) submitCode('autoSubmits');" : ""}
+            ${ui === "counter" ? "document.getElementById('code-counter').textContent = codeValue().length + ' of 6 digits';" : ""}
+            ${auto ? "if (codeValue().length === 6) submitCode('autoSubmits');" : ""}
             ${
               ui === "disauto" || ui === "flicker"
-                ? `if (code.value.length === 6) {
+                ? `if (codeValue().length === 6) {
                 ${
                   ui === "flicker"
                     ? `Promise.resolve().then(() => {
@@ -417,8 +427,8 @@ export async function startLoginFixture(
                 }
                 count('autoSubmits');
                 count('codeSubmits');
-                sessionStorage.setItem('codeMatched', String(code.value === '012345'));
-                const signedIn = code.value === '012345' && ${JSON.stringify(again)} === '/totp-code';
+                sessionStorage.setItem('codeMatched', String(codeValue() === '012345'));
+                const signedIn = codeValue() === '012345' && ${JSON.stringify(again)} === '/totp-code';
                 setTimeout(() => {
                   if (signedIn) location.href = '/authenticated';
                   else document.getElementById('verify').disabled = false;

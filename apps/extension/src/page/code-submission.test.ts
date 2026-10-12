@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { watchCodeSubmission } from "./code-submission";
+import { splitCodeInputs, watchCodeSubmission } from "./code-submission";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -163,5 +163,125 @@ describe("watchCodeSubmission (ADR 0027)", () => {
     clock.now = 1_000;
     expect(watch.submitted()).toBe(false);
     watch.stop();
+  });
+});
+
+describe("watchCodeSubmission on a split code (ADR 0027, owner decision 2026-10-12)", () => {
+  /**
+   * Six one-digit inputs typed as the executor does, the watch marked typed just before
+   * the last digit's input event; `react` runs on every digit's input event.
+   */
+  function splitPage(button: string, react: (code: string) => void) {
+    document.body.innerHTML = `<form>${[1, 2, 3, 4, 5, 6].map((digit) => `<input id="${digit === 1 ? "code" : `code-${digit}`}" inputmode="numeric" maxlength="1">`).join("")}${button}</form>`;
+    const inputs = [...document.querySelectorAll("input")];
+    for (const input of inputs)
+      input.addEventListener("input", () => react(inputs.map((box) => box.value).join("")));
+    const clock = { now: 0 };
+    const watch = watchCodeSubmission(inputs[0]!, code, verify, location.pathname, () => clock.now);
+    const type = async () => {
+      for (const [index, input] of inputs.entries()) {
+        input.value = "012345"[index]!;
+        if (index === inputs.length - 1) watch.typed();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        // The page's mutation records may be delivered between digits.
+        // eslint-disable-next-line no-await-in-loop
+        await settle();
+      }
+    };
+    return { watch, clock, type };
+  }
+
+  it("does not read Verify disabled while the code is partial as a submission", async () => {
+    const { watch, clock, type } = splitPage(
+      '<button id="verify" type="button">Verify</button>',
+      (typed) => {
+        document.querySelector<HTMLButtonElement>("#verify")!.disabled = typed.length !== 6;
+      },
+    );
+    await type();
+    clock.now = 1_000;
+    expect(watch.submitted()).toBe(false);
+    watch.stop();
+  });
+
+  it("does not read a busy indicator shown while the code is partial as a submission", async () => {
+    const { watch, clock, type } = splitPage(
+      '<button id="verify" type="button">Verify</button>',
+      (typed) => {
+        if (typed.length === 2)
+          document
+            .querySelector("form")!
+            .insertAdjacentHTML("beforeend", '<progress id="hint"></progress>');
+      },
+    );
+    await type();
+    clock.now = 1_000;
+    expect(watch.submitted()).toBe(false);
+    watch.stop();
+  });
+
+  it("still reads Verify disabled by the last digit as a submission", async () => {
+    const { watch, clock, type } = splitPage(
+      '<button id="verify" type="button">Verify</button>',
+      (typed) => {
+        if (typed.length === 6)
+          document.querySelector<HTMLButtonElement>("#verify")!.disabled = true;
+      },
+    );
+    await type();
+    clock.now = 1_000;
+    expect(watch.submitted()).toBe(true);
+    watch.stop();
+  });
+});
+
+describe("splitCodeInputs (ADR 0027, owner decision 2026-10-12)", () => {
+  const boxes = (count: number, attributes = 'inputmode="numeric" maxlength="1"') =>
+    Array.from({ length: count }, (_, index) => `<input id="d${index + 1}" ${attributes}>`).join(
+      "",
+    );
+  const first = () => document.querySelector<HTMLInputElement>("#d1")!;
+  const usable = () => true;
+
+  it("returns the one-digit inputs of the form in page order", () => {
+    document.body.innerHTML = `<form><input id="name">${boxes(6)}<button>Verify</button></form>`;
+    expect(splitCodeInputs(first(), 6, usable)?.map((input) => input.id)).toEqual([
+      "d1",
+      "d2",
+      "d3",
+      "d4",
+      "d5",
+      "d6",
+    ]);
+  });
+
+  it("takes inputs outside any form together, and tel or one-time-code inputs", () => {
+    document.body.innerHTML = `${boxes(3, 'type="tel" maxlength="1"')}${boxes(8, 'autocomplete="one-time-code" maxlength="1"').replace(/id="d/gu, 'id="e')}`;
+    expect(splitCodeInputs(first(), 6, usable)).toBeUndefined();
+    document.body.innerHTML = boxes(8, 'type="tel" maxlength="1"');
+    expect(splitCodeInputs(first(), 8, usable)).toHaveLength(8);
+  });
+
+  it.each([
+    ["a code of another length", boxes(6), 7],
+    ["five inputs", boxes(5), 5],
+    ["nine inputs", boxes(9), 9],
+    ["inputs that take two characters", boxes(6, 'inputmode="numeric" maxlength="2"'), 6],
+    ["inputs the TOTP fill rule refuses", boxes(6, 'maxlength="1"'), 6],
+  ])("refuses %s", (_label, html, length) => {
+    document.body.innerHTML = `<form>${html}</form>`;
+    expect(splitCodeInputs(first(), length, usable)).toBeUndefined();
+  });
+
+  it("refuses a first input that is not the first usable one", () => {
+    document.body.innerHTML = `<form>${boxes(6)}</form>`;
+    const second = document.querySelector<HTMLInputElement>("#d2")!;
+    expect(splitCodeInputs(second, 5, usable)).toBeUndefined();
+    expect(splitCodeInputs(first(), 6, (input) => input.id !== "d4")).toBeUndefined();
+  });
+
+  it("leaves out inputs of another form", () => {
+    document.body.innerHTML = `<form>${boxes(6)}</form><form><input inputmode="numeric" maxlength="1"></form>`;
+    expect(splitCodeInputs(first(), 6, usable)).toHaveLength(6);
   });
 });

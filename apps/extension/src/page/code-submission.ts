@@ -1,4 +1,5 @@
 import type { LoginTarget } from "@pateat/contracts";
+import { acceptsSecret } from "../login/inputs";
 import { findTargets } from "./targets";
 
 /** Whether the element is rendered and not hidden by its own style. */
@@ -11,6 +12,28 @@ export function visible(element: HTMLElement): boolean {
     style.visibility !== "hidden" &&
     element.getClientRects().length > 0
   );
+}
+
+/**
+ * The inputs of a code split into one input per digit that starts at `first` (ADR 0027,
+ * owner decision 2026-10-12 19:21 UTC), in page order: the inputs of its form, or of no
+ * form when it has none, that `usable` accepts, the TOTP fill rule accepts and that take
+ * one character (`maxlength` 1), when `first` is the first of them and there are `length`
+ * of them, 6 to 8. A `totp` handler's code goes into them one digit per input.
+ */
+export function splitCodeInputs(
+  first: HTMLInputElement,
+  length: number,
+  usable: (input: HTMLInputElement) => boolean,
+): HTMLInputElement[] | undefined {
+  if (first.maxLength !== 1 || length < 6 || length > 8) return undefined;
+  const inputs = first.form
+    ? [...first.form.elements].filter((element) => element instanceof HTMLInputElement)
+    : [...first.ownerDocument.querySelectorAll("input")].filter((input) => input.form === null);
+  const digits = inputs.filter(
+    (input) => input.maxLength === 1 && acceptsSecret(input, "otp") && usable(input),
+  );
+  return digits[0] === first && digits.length === length ? digits : undefined;
 }
 
 /**
@@ -45,7 +68,9 @@ const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
  * and from the old values its records carry, so neither a late poll in a background tab,
  * whose timers Chrome throttles, or on a busy page, nor an enable that lasts only until the
  * page disables the button again to check the code, is missed. Polling reads the rest and
- * stands in for the observer. `typed` marks the code going in, just before its input event;
+ * stands in for the observer. `typed` marks the code going in, just before its input event
+ * (for a split code, its last digit's), from when the button's states and the busy
+ * indicators are read afresh;
  * `submitted` reads the page; `stop` disconnects the observer and removes the listeners.
  */
 export function watchCodeSubmission(
@@ -129,7 +154,18 @@ export function watchCodeSubmission(
   navigation?.addEventListener("navigate", mark);
   return {
     typed: () => {
-      typedAt ??= now();
+      if (typedAt !== undefined) return;
+      // What the page did while the earlier digits of a split code went in answers a
+      // partial code, such as Verify disabled until the code is whole, not a submission:
+      // the button's states and the busy indicators count from the last digit.
+      feed(observer.takeRecords());
+      changed = false;
+      enabledSeen = false;
+      idleSeen = false;
+      const shown = button();
+      if (shown) see(isEnabled(shown), isBusy(shown));
+      if (form) for (const element of form.querySelectorAll(busySelector)) busyBefore.add(element);
+      typedAt = now();
     },
     submitted: () => {
       const at = now();

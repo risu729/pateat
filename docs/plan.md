@@ -232,6 +232,10 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
     npmjs.com: a judged code page adds the handler and the same login types one code.
     It needs a paid judge call and a real account's code, so it waits for the owner's
     approval.
+  - The same handler on a code split into one-digit inputs, on Resend's code page
+    (owner decision, 2026-10-12 19:21 UTC): a judged code page adds the handler with
+    the first input, and the same login types one digit per input and clicks once. It
+    needs a paid judge call and the owner's own code entry or approval, as above.
 - Polish the UI, in phase 1 so that phase 2's feedback is on the improved UI (owner,
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
@@ -1610,7 +1614,8 @@ Remaining M4 AI work:
   needs the paid regeneration listed in phase 1, with the owner's approval. Delivery 4
   is implemented: the `totp` handler (one code field and its button on a path), learned
   from a judge answer that names a code the page says comes from an authenticator app,
-  in a single code field of at least 6 characters with a button of its form; entered
+  in a single code field of at least 6 characters, or the first of 6 to 8 one-digit
+  inputs, with a button of its form; entered
   when all its elements show and are usable, after a `passkey` handler shown with it, at
   most one code per login, filling the item's built-in TOTP field under the TOTP fill
   rule and clicking once after a 2-second watch; and a code page that submits by itself
@@ -1628,7 +1633,12 @@ Remaining M4 AI work:
   TOTP fact and the fixed code `012345`; no paid judge call, real authenticator code or
   real-account login has used it. A binding that names a custom field for the code is
   deferred and ends `challenge`. Its real-Chrome check is listed with the phase 1
-  installed-Chrome checks.
+  installed-Chrome checks. The one-digit inputs are typed one digit per input (owner
+  decision, 2026-10-12 19:21 UTC, after Resend's code page stopped the login); six probe
+  E2E specs (one Verify click, a page that submits on its last digit, Verify disabled
+  until the code is in or only while it is partial, an input the page changes after the
+  first digit and seven inputs for a six-digit code, both stopping without a click)
+  cover it with the same synthetic fact.
 - Continuing a generated recipe on the page after an `advance` step, through the
   generation route's `base`, is implemented
   ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)). A
