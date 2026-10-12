@@ -1494,11 +1494,22 @@ describe("page judgement (ADR 0027)", () => {
       "SELECT recipe_id, revision, path FROM page_judgements WHERE owner_id = ? ORDER BY recipe_id, revision, path",
       device.ownerId,
     );
-  const seed = (device: Device, recipeId: string, revision: number, path: string, at: number) =>
+  /** A judgement row; without a prompt version, as an earlier judge left it. */
+  const seed = (
+    device: Device,
+    recipeId: string,
+    revision: number,
+    path: string,
+    at: number,
+    {
+      promptVersion = "",
+      verdict = null,
+    }: { promptVersion?: string; verdict?: string | null } = {},
+  ) =>
     env.DB.prepare(
-      "INSERT INTO page_judgements (owner_id, recipe_id, revision, path, judged_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO page_judgements (owner_id, recipe_id, revision, path, prompt_version, judged_at, verdict) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
-      .bind(device.ownerId, recipeId, revision, path, at)
+      .bind(device.ownerId, recipeId, revision, path, promptVersion, at, verdict)
       .run();
   const spend = (device: Device) =>
     rows(
@@ -1690,6 +1701,34 @@ describe("page judgement (ADR 0027)", () => {
     ]);
   });
 
+  it("judges a path again once the judge changed", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    // An earlier judge judged the page `challenge` and kept no handler, as for a code split
+    // into one-digit inputs before those were learned.
+    await seed(device, change.recipeId, 2, "/login/webauthn", dayStart(), {
+      verdict: "challenge",
+    });
+    const calls = sent.length;
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    expect((await complete(device, change.recipeId, 2, webauthnPage)).body).toMatchObject({
+      status: "challenge",
+      change: { revision: 3 },
+    });
+    expect(sent).toHaveLength(calls + 1);
+    // The current judge's own verdict still stops a repeat.
+    await seed(device, change.recipeId, 3, "/home", dayStart(), {
+      promptVersion: await completionPromptVersion(),
+      verdict: "challenge",
+    });
+    expect((await complete(device, change.recipeId, 3)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-challenge",
+    });
+    expect(sent).toHaveLength(calls + 1);
+  });
+
   it("judges a recipe at most 20 times a UTC day, whatever the path", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
@@ -1728,12 +1767,14 @@ describe("page judgement (ADR 0027)", () => {
     ).toMatchObject({ reason: "judgement-limit" });
   });
 
-  it("purges older revisions' judgements once their day is over", async () => {
+  it("purges older revisions' and judges' judgements once their day is over", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
+    const promptVersion = await completionPromptVersion();
     await seed(device, change.recipeId, 1, "/old", dayStart() - 1);
     await seed(device, change.recipeId, 1, "/recent", dayStart());
-    await seed(device, change.recipeId, 2, "/current", dayStart() - 1);
+    await seed(device, change.recipeId, 2, "/current", dayStart() - 1, { promptVersion });
+    await seed(device, change.recipeId, 2, "/earlier-judge", dayStart() - 1);
     await seed(device, "gen-other", 1, "/other", dayStart() - 1);
     replies.push(judgeReply({ decision: "rejected" }));
     await complete(device, change.recipeId, 2);

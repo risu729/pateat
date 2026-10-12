@@ -188,9 +188,12 @@ These rules work from any account, in any order.
     `totp` handler. The field must pass the TOTP fill rule of ADR 0013, and the judge
     must say it is an authenticator app, not SMS or email.
   - Anything else stores nothing.
-- **Limits:** each recipe revision and page path is judged at most once; at most 20
-  judgements per recipe per day (UTC), whatever the path (owner, 13:45 UTC); and the
-  existing $5 a day and $100 a month.
+- **Limits:** each recipe revision and page path is judged at most once per judge
+  prompt version; at most 20 judgements per recipe per day (UTC), whatever the path
+  (owner, 13:45 UTC); and the existing $5 a day and $100 a month. Judging again after
+  the judge changes was added on 2026-10-12, after Resend's code split into one-digit
+  inputs, judged `challenge` before such codes were learned, kept answering
+  `judged-challenge` on the same revision and never got its `totp` handler.
 - **First login:** when a judgement adds a handler, the running login takes the new
   revision and runs the handler on the page it is on, if the item has the fact. Its step
   and submission budget grows by the handler's steps. A login accepts a newer revision
@@ -698,10 +701,10 @@ Not handled:
   route needs regeneration: revoking the recipe in the web UI has its start page
   generated again on the next visit (ADR 0018, owner decision of 2026-10-12).
 - A passkey stored in another vault item than the login item.
-- A 2FA page path shared by several methods. A page is judged once per recipe revision
-  and path, so the first account judged there decides what is learned: if a TOTP account
-  is judged first, the security-key handler on that path is not learned until a new
-  revision.
+- A 2FA page path shared by several methods. A page is judged once per recipe revision,
+  path and judge prompt version, so the first account judged there decides what is
+  learned: if a TOTP account is judged first, the security-key handler on that path is
+  not learned until a new revision.
 - Start pages without a password input (passkey-only or SSO-only) are never generated
   (ADR 0016 condition 3); that is left to the SSO work.
 - Passkey requests the bridge already passes on: `silent` or `immediate` mediation
