@@ -334,7 +334,10 @@ still open on 2026-10-11.
   the current account is such a visitor account nor switches it on its own (owner,
   2026-10-12 19:18 UTC): a general page looks the same for both accounts, and a switch
   gives up the current account's plan and purchases, which may belong to another
-  person. A sign-in form that a click opens on the same path stays unsent
+  person. The account switch the person starts from the popup, kept for later in
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#later), switches such an
+  account too, even where Pateat has not logged in (owner, 19:19 UTC). A sign-in form
+  that a click opens on the same path stays unsent
   ([ADR 0031](adr/0031-sign-in-entry-pages.md#not-covered)); it is proposed on its own,
   with evidence from a site that signs in with a password, when one needs it.
 - Opening the service to other people, once there are users who need it; per-owner byte
