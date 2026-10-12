@@ -323,6 +323,29 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("locates a password field by its webauthn token when a hidden copy shares the first token", () => {
+    // LinkedIn's remembered-account page (2026-10-12): both fields carry only useId IDs.
+    page(
+      `<form><label for="_r_0_">Password</label>
+        <input id="_r_0_" type="password" autocomplete="current-password" hidden>
+        <label for="_r_1_">Password</label>
+        <input id="_r_1_" type="password" autocomplete="current-password webauthn">
+        <button type="button">Show password</button><button type="button">Sign in</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map((candidate) => candidate.target)).toEqual([
+      { by: "autocomplete", value: "webauthn" },
+      { by: "text", value: "Show password" },
+      { by: "text", value: "Sign in" },
+    ]);
+    expect(findTargets(document, { by: "autocomplete", value: "webauthn" })).toEqual([
+      document.getElementById("_r_1_"),
+    ]);
+    // The hint the model and the slots read still says it is the password field.
+    expect(observation.candidates[0]).toMatchObject({ autocomplete: "current-password" });
+  });
+
   it("never locates by an ID React's useId generated, which another page reuses", () => {
     page(
       `<form id="f"><input id="_r_3_" name="session_key"><input id=":r4:" name="password" type="password">

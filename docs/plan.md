@@ -59,7 +59,7 @@ on 2026-10-12 (20:50 UTC):
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site |
 | Fill only after a logout | アパホテル | Done |
 | Nothing on a site without a password or passkey sign-in | ABEMA | Done (judged from the code and the Grok Bot's log) |
-| Pages that stopped before generation | モッピー, LinkedIn | Recheck after [#261](https://github.com/risu729/pateat/pull/261) and [#271](https://github.com/risu729/pateat/pull/271) |
+| Pages that stopped before generation | モッピー, LinkedIn | Recheck after [#261](https://github.com/risu729/pateat/pull/261) and [#271](https://github.com/risu729/pateat/pull/271); LinkedIn's remembered-account page was incomplete again after #403 (2026-10-12 21:44 UTC): recheck once its shown password field is located by `webauthn` |
 
 The rechecks share one extension reload. The username redaction gap (the 120-character
 cut below) and the UI polish also stay in this phase. The site lists name the owner's
@@ -2054,8 +2054,8 @@ fills and the browser's validation, `pattern` included, before it clicks. Text i
 redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
 as the executor resolves it, skipping an `id` React's `useId` generated, and for an
-input without one, its first `autocomplete`
-token that is `username`, `email`, `current-password` or `one-time-code` and that no
+input without one, its first `autocomplete` token that is `username`, `email`,
+`current-password`, `one-time-code` or `webauthn` and that no
 other input carries; a button without one gets a text locator when its text matches
 exactly one button and redaction leaves it unchanged, and a script link when its text
 matches no button and exactly one script link. In a login form, a field, button or
