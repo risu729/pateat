@@ -60,10 +60,10 @@ steps = (
     steps {
       // mise writes these aube lockfiles for its npm tools; they keep aube's own layout.
       ["yamllint"] {
-        exclude = List(".mise/locks/**")
+        exclude = helpers.yamlLockExcludes + List(".mise/locks/**")
       }
       ["yamlfmt"] {
-        exclude = List(".mise/locks/**")
+        exclude = helpers.yamlLockExcludes + List(".mise/locks/**")
       }
     }
   }

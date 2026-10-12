@@ -30,9 +30,10 @@ can update, preferring `pnpm-lock.yaml` over Bun's or npm's.
   tool under `.mise/locks/` (oxlint, TypeScript, oxfmt), referenced from `mise.lock`.
 - **The lockfile stays `bun.lock`, and Bun writes it.** aube installs from it, and
   Renovate's Bun manager keeps updating it. Add, remove or update a dependency with
-  `bun add --exact`, `bun remove` or `bun update`, then `mise run install`; do not let
-  aube write the lockfile. On 2026-10-12, aube 2.7.0 had a workspace bug in both
-  formats it could share with Renovate:
+  `bun add --exact`, `bun remove` or `bun update`, each with `--lockfile-only` so that
+  Bun neither installs packages nor runs their build scripts outside aube's controls,
+  then `mise run install`; do not let aube write the lockfile. On 2026-10-12, aube 2.7.0
+  had a workspace bug in both formats it could share with Renovate:
   - In `bun.lock` it dropped the `@pateat/*` entries of `packages` (such as
     `"@pateat/bitwarden": ["@pateat/bitwarden@workspace:packages/bitwarden"]`), and its
     own `aube install --frozen-lockfile` then refused the file ("lockfile is out of date
@@ -57,6 +58,9 @@ can update, preferring `pnpm-lock.yaml` over Bun's or npm's.
   - `allowBuilds`: only `esbuild` and `workerd` may run install scripts.
   - `advisoryBloomCheck: "on"`: plain lockfile installs are also checked against the
     OSV malicious-package list.
+  - `enableGlobalVirtualStore: false`: aube 2.7.0 keeps packages in a per-user store
+    outside the repository except under `CI`; turning it off gives local runs the same
+    `node_modules` layout as CI.
   - `savePrefix: ""`: `aube add` writes exact versions, as `bunfig.toml`'s
     `exact = true` does for `bun add`, for when aube writes the lockfile.
 - **`@vitest/ui` 5.0.3 is a root devDependency.** Without it aube links the root
@@ -67,6 +71,10 @@ can update, preferring `pnpm-lock.yaml` over Bun's or npm's.
 ## Consequences
 
 - Bun stays a mise tool: it writes `bun.lock` and runs the two inference scripts.
+- aube links the root's peers at the root, so `node_modules/.bin/tsc` is the TypeScript
+  that `bun.lock` resolves for `@risu729/tsconfigs`, and it comes before mise's
+  `npm:typescript` on `PATH`. The `typecheck` tasks run that copy; both were 7.0.2 on
+  2026-10-12, and the two pins have to move together.
 - aube's 24-hour release age and OSV checks apply when aube resolves versions, which
   it does not do while Bun writes the lockfile; `advisoryBloomCheck` still checks every
   install. Renovate waits three days for npm updates (`security:minimumReleaseAgeNpm` in

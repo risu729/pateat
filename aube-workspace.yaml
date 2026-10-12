@@ -1,5 +1,5 @@
-# aube settings (ADR 0032). aube installs from bun.lock, which Bun writes (bun add --exact)
-# and Renovate's Bun manager updates.
+# aube settings (ADR 0032). aube installs from bun.lock, which Bun writes
+# (bun add --exact --lockfile-only) and Renovate's Bun manager updates.
 # Same globs as `workspaces` in package.json, which Bun (and so Renovate) reads; aube reads
 # only this list once this file exists, and a frozen install fails when the two differ.
 packages:
@@ -18,3 +18,6 @@ allowBuilds:
 paranoid: true
 # Also check plain lockfile installs against the OSV malicious-package list.
 advisoryBloomCheck: "on"
+# aube turns on its per-user global virtual store outside CI only; keep the store in the
+# repository everywhere so local runs see the same node_modules layout as CI.
+enableGlobalVirtualStore: false
