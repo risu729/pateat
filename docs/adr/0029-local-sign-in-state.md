@@ -175,16 +175,16 @@ lists of accounts and sign-in entry pages never carry it.
 
 The list of learned markers (since 2026-10-12): a recipe's `completion` is a list of up
 to four markers, each a locator with up to four `absent` elements and no path. After
-every effect step, in a watched login and in E1, a marker that shows once on any path
-while each of its `absent` elements is missing, even hidden, proves the sign-in, so the
-completion check and E1 read the same markers. A page the judge answers `signed-in` for
-adds its marker after the learned ones in the recipe's next revision, which a running
-login takes over; when the recipe has four, or the judge names one it has, nothing
-changes and the login completes. A marker is never an element the recipe's steps,
-passkey route or handlers use on any path, since it would then prove a sign-in on their
-pages. A marker learned on a step's own path keeps that path's fill fields as `absent`
-elements, which must now be missing on every path, so a site that keeps a hidden sign-in
-form on its signed-in pages does not complete on that marker.
+every effect step, in a watched login and in E1, a marker that shows once, visible, on
+any path while each of its `absent` elements is missing, even hidden, proves the
+sign-in, so the completion check and E1 read the same markers. A page the judge answers
+`signed-in` for adds its marker after the learned ones in the recipe's next revision,
+which a running login takes over; when the recipe has four, or the judge names one it
+has, nothing changes and the login completes. A marker is never an element the recipe's
+steps, passkey route or handlers use on any path, since it would then prove a sign-in on
+their pages. A marker learned on a step's own path keeps that path's fill fields as
+`absent` elements, which must now be missing on every path, so a site that keeps a
+hidden sign-in form on its signed-in pages does not complete on that marker.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on

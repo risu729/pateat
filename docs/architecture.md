@@ -1068,15 +1068,15 @@ first from the page after the first sign-in, each later one from another page th
 answered `signed-in` for while no learned marker showed there. A marker is never an
 element the recipe's steps, passkey route or handlers use, on any path. Each may also
 list up to four `absent` elements. The executor reports `authenticated` when one marker
-is unique on any path and every `absent` element of that marker is missing. A marker may
-be a link named by its text, such as an account page link without an `id`, matched as
-an account switch's is. A marker learned on a page that signs in on its own path lists
-that path's sign-in fields, because the executor checks the markers after every step and
-counts hidden elements: a login page that keeps a hidden "Sign out" link never counts as
-signed in. A site that keeps those sign-in inputs hidden in its pages after signing in
-therefore never reports `authenticated` with such a marker. A recipe's markers and their
-absent elements, its rejection and any one step's elements together stay within one
-24-element observation, so a marker that would exceed it is not learned.
+is unique and visible on any path and every `absent` element of that marker is missing.
+A marker may be a link named by its text, such as an account page link without an `id`,
+matched as an account switch's is. A marker learned on a page that signs in on its own
+path lists that path's sign-in fields, because the executor checks the markers after
+every step and counts hidden elements: a login page that keeps a hidden "Sign out" link
+never counts as signed in. A site that keeps those sign-in inputs hidden in its pages
+after signing in therefore never reports `authenticated` with such a marker. A recipe's
+markers and their absent elements, its rejection and any one step's elements together
+stay within one 24-element observation, so a marker that would exceed it is not learned.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
