@@ -1205,6 +1205,12 @@ describe("extractSignedInObservation", () => {
       <main><p>Body text 99</p><button id="logout" type="button">Sign out</button></main>`,
     );
     expect(signedIn().headerText).toBe("Welcome back, [email] Points [number] My account Help");
+    // Every element boundary separates words.
+    page(
+      `<header><a href="/account">Account</a><span>taro.yamada</span></header>
+      <button id="logout" type="button">Sign out</button>`,
+    );
+    expect(signedIn().headerText).toBe("Account taro.yamada");
     // Cut at 1,000 characters.
     page(
       `<nav>${"<a href='/x'>Menu</a> ".repeat(300)}</nav>

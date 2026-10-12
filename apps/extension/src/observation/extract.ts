@@ -113,10 +113,7 @@ const redactions: readonly (readonly [RegExp, string])[] = [
  * control/format/separator characters removed, private-looking parts redacted, and at
  * most `limit` (120) UTF-16 code units without splitting a surrogate pair.
  */
-export function observedText(
-  raw: string | null | undefined,
-  limit = maxText,
-): string | undefined {
+export function observedText(raw: string | null | undefined, limit = maxText): string | undefined {
   if (!raw) return undefined;
   // Format characters (zero-width spaces, soft hyphens) vanish before redaction so
   // they cannot split a digit run.
@@ -150,7 +147,10 @@ export const withoutNumbers = (text: string, limit = maxText) =>
 /**
  * The visible text of a signed-in page's header and navigation for the judge (ADR 0029,
  * owner, 2026-10-12): every outermost `header`, `nav`, banner and navigation landmark in
- * document order, redacted as the rest of that page and cut at 1,000 characters.
+ * document order, redacted as the rest of that page and cut at 1,000 characters. Every
+ * element boundary separates words, as E2 reads them, so a name in its own element is
+ * never glued to the word before it; the text is cut once, after every number is hidden,
+ * so the end of a cut username stays the end of the text.
  */
 function headerText(document: Document): string | undefined {
   const readLimit = maxHeaderText * 4;
@@ -158,10 +158,10 @@ function headerText(document: Document): string | undefined {
   for (const root of document.querySelectorAll(landmarks)) {
     if (raw.length > readLimit) break;
     if (root.parentElement?.closest(landmarks)) continue;
-    const text = renderedText(root, readLimit);
+    const text = renderedText(root, readLimit, { everyElement: true });
     if (text) raw += ` ${text}`;
   }
-  const text = observedText(raw, maxHeaderText);
+  const text = observedText(raw, Number.POSITIVE_INFINITY);
   return text && withoutNumbers(text, maxHeaderText);
 }
 

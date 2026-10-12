@@ -175,6 +175,14 @@ describe("withoutUsernames", () => {
     expect(text).not.toContain("ta");
     // The same end in a shorter header was not cut.
     expect(header(`${"x ".repeat(100)}Hi taro.ya`)).toBe(`${"x ".repeat(100)}Hi taro.ya`);
+    // Numbers are hidden before the one cut, so the cut name stays at the end.
+    document.body.innerHTML = `<header>${"<span>Points 1,234,567</span> ".repeat(61)}
+      <span>abcdefghijkl</span><span>Hi taro.yamada</span></header><button id="logout" type="button">Sign out</button>`;
+    const extracted = extractSignedInObservation();
+    if (!extracted.ok) throw new Error(extracted.reason);
+    expect(extracted.observation.headerText).toHaveLength(1000);
+    const shown = hidden(extracted.observation, ["taro.yamada"]).headerText!;
+    expect(shown).not.toMatch(/ta$|tar$|taro/u);
     const long = `${"a ".repeat(498)}taro.yamada`;
     expect(header(long)!.length).toBeLessThanOrEqual(1000);
   });
