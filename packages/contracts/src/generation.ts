@@ -75,10 +75,15 @@ export const generationUnavailableReasonSchema = v.picklist([
   "busy",
   "recently-tried",
   /**
-   * This recipe revision's page on this path was already judged once with the current
-   * judge prompt (ADR 0027).
+   * This recipe revision's page on this origin and path was already judged once with the
+   * current judge prompt (ADR 0027), and the model could not decide it.
    */
   "already-judged",
+  /**
+   * As `already-judged`, and that judgement was `signed-in`, so a page of another origin
+   * of the site that a login moved to completes it again (ADR 0022).
+   */
+  "judged-signed-in",
   /**
    * As `already-judged`, and that judgement was `challenge`: the page asks for a step the
    * person takes, so it never completes a login (ADR 0029).
@@ -281,8 +286,10 @@ export const entryGenerationResultSchema = v.pipe(
 
 /**
  * `POST /v1/recipes/:recipeId/completion`: a page shown after an effect step of the given
- * revision that no recipe check explained, judged at most once per revision, path and judge prompt version so
- * the service can learn a signed-in marker or a handler (ADR 0018, ADR 0027, ADR 0029).
+ * revision that no recipe check explained, judged at most once per revision, origin, path
+ * and judge prompt version so the service can learn a signed-in marker or a handler (ADR
+ * 0018, ADR 0027, ADR 0029). The page is on the recipe's origin, or on another HTTPS origin
+ * of its site that a `password` login's tab moved to right after the submission (ADR 0022).
  */
 export const recipeCompletionRequestSchema = v.strictObject({
   version: v.literal(1),

@@ -2009,6 +2009,152 @@ describe("production login document admission", () => {
         expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
         expect(reads()).toEqual([]);
       });
+      describe("asks the judge once when the username does not show", () => {
+        const www = "https://www.login.example";
+        const movedHome = {
+          ok: true,
+          observation: {
+            version: 1,
+            origin: www,
+            path: "/home",
+            language: "en",
+            complete: true,
+            candidates: [{ id: "c1", role: "button", target: target("logout"), label: "Sign out" }],
+          },
+        };
+        type JudgeAnswer = Awaited<ReturnType<LoginGeneration["judge"]>>;
+        /** Submits the password with the judge answering `answer`; the page shows no username. */
+        const judged = async (answer: () => Promise<JudgeAnswer>, runs?: LoginRecipe) => {
+          const judge = vi.fn<LoginGeneration["judge"]>(async (...args) => {
+            args[4]?.();
+            return answer();
+          });
+          const report = vi.fn<(entry: LoginReport) => void>();
+          holdClicks(origin);
+          const h = twoSites({
+            username: true,
+            report,
+            generation: {
+              available: vi.fn<LoginGeneration["available"]>(async () => true),
+              generate: vi.fn<LoginGeneration["generate"]>(),
+              generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+              judge,
+              slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+            },
+          });
+          if (runs)
+            h.recipes.recipe.mockImplementation(async (from: string, path: string) =>
+              from === origin && path === "/signin" ? runs : undefined,
+            );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          fake.state.signs = quiet;
+          fake.state.extracted = { "signed-in": movedHome };
+          const judgements = () =>
+            report.mock.calls.flatMap(([entry]) => (entry.type === "judge" ? [entry] : []));
+          return { h, judge, judgements };
+        };
+        it("completes when the judge answers signed-in", async () => {
+          const { h, judge, judgements } = await judged(async () => ({ verdict: "signed-in" }));
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+          expect(judge).toHaveBeenCalledTimes(1);
+          expect(judge.mock.calls[0]!.slice(0, 4)).toEqual([
+            recipe.id,
+            recipe.revision,
+            "password",
+            movedHome.observation,
+          ]);
+          expect(judgements()).toEqual([
+            expect.objectContaining({ verdict: "sent", origin: www, moved: true }),
+            expect.objectContaining({ verdict: "signed-in", origin: www, moved: true }),
+          ]);
+          // Five readings for the username, then one more once the answer is back.
+          expect(reads()).toHaveLength(6);
+          expect(executes()).toHaveLength(2);
+        }, 15_000);
+        it("completes on a page judged signed-in before", async () => {
+          const { h } = await judged(async () => ({
+            verdict: "unclear",
+            reason: "judged-signed-in",
+          }));
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated" });
+        }, 15_000);
+        it.each([
+          ["cannot decide", { verdict: "unclear" }],
+          ["found the page undecided before", { verdict: "unclear", reason: "already-judged" }],
+          ["answers challenge", { verdict: "challenge" }],
+          ["is unreachable", { verdict: "retry", reason: "unreachable" }],
+        ] as const)(
+          "ends left-origin when the judge %s",
+          async (_name, answer) => {
+            const { h, judge, judgements } = await judged(async () => answer);
+            await navigate(h, `${www}/home`, "home-document", false);
+            expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+            expect(judge).toHaveBeenCalledTimes(1);
+            expect(judgements().at(-1)).toMatchObject({ verdict: answer.verdict, moved: true });
+          },
+          15_000,
+        );
+        it("ends left-origin when the page shows a password field once the answer is back", async () => {
+          const { h } = await judged(async () => {
+            fake.state.signs = { ...quiet, password: true };
+            return { verdict: "signed-in" };
+          });
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it("ends left-origin when the page asks for a passkey while it is judged", async () => {
+          let h: ReturnType<typeof harness> | undefined;
+          ({ h } = await judged(async () => {
+            h!.login.passkeyRequested(1, www);
+            return { verdict: "signed-in" };
+          }));
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 15_000);
+        it("logs a page it could not describe and sends nothing", async () => {
+          const { h, judge, judgements } = await judged(async () => ({ verdict: "signed-in" }));
+          fake.state.extracted = {};
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+          expect(judge).not.toHaveBeenCalled();
+          expect(judgements()).toEqual([
+            expect.objectContaining({ verdict: "not-sent", reason: "no-candidates", moved: true }),
+          ]);
+        }, 15_000);
+        it("completes on a marker learned on that origin, without the judge", async () => {
+          const learned = parseLoginRecipe({
+            ...recipe,
+            completion: [...recipe.completion!, { target: target("account"), origin: www }],
+          });
+          const { h, judge } = await judged(async () => ({ verdict: "unclear" }), learned);
+          await navigate(h, `${www}/home`, "home-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated" });
+          expect(judge).not.toHaveBeenCalled();
+          // Only the marker learned there is looked for on that page.
+          expect(
+            fake.state.messages.filter((entry) => entry.type === "login.observe").at(-1),
+          ).toMatchObject({ targets: [target("account")] });
+        }, 15_000);
+        it("waits for the same document announcing again instead of judging it twice", async () => {
+          let answer: (value: JudgeAnswer) => void = () => undefined;
+          const { h, judge } = await judged(
+            () => new Promise<JudgeAnswer>((resolve) => (answer = resolve)),
+          );
+          const first = navigate(h, `${www}/home`, "home-document", false);
+          await vi.waitFor(() => expect(judge).toHaveBeenCalledTimes(1), { timeout: 8_000 });
+          const again = navigate(h, `${www}/home`, "home-document", false);
+          // The second announcement reaches the move while the page is still being judged.
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          answer({ verdict: "signed-in" });
+          expect(await first).toEqual({ ok: false, reason: "stale-document" });
+          await again;
+          expect(judge).toHaveBeenCalledTimes(1);
+          expect(at(origin)).toMatchObject({ state: "authenticated" });
+        }, 15_000);
+      });
       it("never completes on an http page of the site", async () => {
         const h = await submitted();
         // An http page is not admitted, so the move is not seen and the login is unchanged.
@@ -7613,7 +7759,14 @@ describe("production login document admission", () => {
         return { judges, service, report };
       }
 
-      it.each([undefined, "already-judged", "judgement-limit", "daily-limit", "monthly-limit"])(
+      it.each([
+        undefined,
+        "already-judged",
+        "judged-signed-in",
+        "judgement-limit",
+        "daily-limit",
+        "monthly-limit",
+      ])(
         "completes a page with no sign and no evidence the judge did not decide (%s)",
         async (reason) => {
           const { judges, service } = await judged({

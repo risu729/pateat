@@ -250,8 +250,8 @@ export const pageJudgementVerdicts = [
 ] as const;
 export type PageJudgementVerdict = (typeof pageJudgementVerdicts)[number];
 /**
- * Pages sent to the judge per recipe revision and path (ADR 0027): each is judged at most
- * once across devices and Worker restarts, and a recipe at most 20 times a UTC day.
+ * Pages sent to the judge per recipe revision, origin and path (ADR 0027): each is judged
+ * at most once across devices and Worker restarts, and a recipe at most 20 times a UTC day.
  */
 export const pageJudgements = sqliteTable(
   "page_judgements",
@@ -263,6 +263,11 @@ export const pageJudgements = sqliteTable(
     /** The chooser branch whose route was judged (ADR 0028), or empty for a route recipe. */
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
+    /**
+     * The judged page's origin: the recipe's own, or another origin of its site that a
+     * login's tab moved to (ADR 0022), whose paths are its own.
+     */
+    origin: text("origin").notNull(),
     path: text("path").notNull(),
     /**
      * The judge prompt version the page was judged with: a changed judge judges the page
@@ -283,6 +288,7 @@ export const pageJudgements = sqliteTable(
         table.recipeId,
         table.branch,
         table.revision,
+        table.origin,
         table.path,
         table.promptVersion,
       ],

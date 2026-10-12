@@ -228,9 +228,39 @@ describe("judged completion", () => {
     expect(addCompletion(recipe, next, target("logout")).ok).toBe(true);
   });
 
-  it("refuses another origin", () => {
+  it("refuses another site", () => {
     expect(
-      addCompletion(recipe, { ...home, origin: "https://www.bank.example" }, target("logout")),
+      addCompletion(recipe, { ...home, origin: "https://www.other.example" }, target("logout")),
+    ).toEqual({ ok: false, reason: "origin-mismatch" });
+  });
+
+  it("stores the origin of another origin of the site the tab moved to (ADR 0022)", () => {
+    const www = "https://www.bank.example";
+    // The recipe's own `/login` is not that origin's path, so nothing is needed absent.
+    const moved = { ...home, origin: www, path: "/login" };
+    const learned = addCompletion(recipe, moved, target("logout"));
+    if (!learned.ok) throw new Error(learned.reason);
+    expect(learned.recipe.completion).toEqual([{ target: target("logout"), origin: www }]);
+    expect(addCompletion(learned.recipe, moved, target("logout"))).toEqual({
+      ok: false,
+      reason: "already-learned",
+    });
+    // The same element on the recipe's own origin is a marker of its own.
+    const own = addCompletion(learned.recipe, home, target("logout"));
+    expect(own.ok && own.recipe.completion).toEqual([
+      { target: target("logout"), origin: www },
+      { target: target("logout") },
+    ]);
+    // A field a step fills still shows a login page there.
+    expect(
+      addCompletion(
+        recipe,
+        { ...moved, candidates: [...moved.candidates, candidate("u", target("username"), "text")] },
+        target("logout"),
+      ),
+    ).toEqual({ ok: false, reason: "login-page" });
+    expect(
+      addCompletion(recipe, { ...moved, origin: "http://www.bank.example" }, target("logout")),
     ).toEqual({ ok: false, reason: "origin-mismatch" });
   });
 

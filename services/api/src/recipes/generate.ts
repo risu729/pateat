@@ -25,6 +25,7 @@ import {
   type StoredLoginRecipe,
   type SyncRecipeChange,
 } from "@pateat/contracts";
+import { sameLoginSite } from "@pateat/contracts/site";
 import {
   accountListGenerationInstructions,
   accountListGenerationPromptVersion,
@@ -609,8 +610,9 @@ export function staleHead(
 
 /**
  * `POST /v1/recipes/:recipeId/completion`: judges a page after an effect step of the
- * login's route (ADR 0027). Returns `undefined` for a missing recipe and `null` for a page
- * on another origin, which the route answers as 404 and 400.
+ * login's route (ADR 0027), on the recipe's origin or on another origin of its site that
+ * the login's tab moved to (ADR 0022). Returns `undefined` for a missing recipe and `null`
+ * for a page on another site, which the route answers as 404 and 400.
  */
 export async function judgeCompletion(
   env: GenerationEnv,
@@ -622,7 +624,12 @@ export async function judgeCompletion(
   if (!head) return undefined;
   if (head.state === "revoked") return unavailable("recipe-revoked");
   const { observation, route, branch, partial } = request;
-  if (observation.origin !== head.recipe.origin) return null;
+  // A page of another origin of the site is one the login's tab moved to right after the
+  // submission (ADR 0022): the recipe's paths are not that origin's, and its markers there
+  // carry that origin.
+  const moved = observation.origin !== head.recipe.origin;
+  if (moved && (route !== "password" || !sameLoginSite(head.recipe.origin, observation.origin)))
+    return null;
   // Only a page of the revision that ran, on a route the stored recipe has, is judged: the
   // recipe's own, or for a chooser (ADR 0028) the route of the branch the login took. An
   // entry recipe (ADR 0031) has no route.
@@ -640,7 +647,9 @@ export async function judgeCompletion(
   // may still be running, as the extension holds it.
   const unexplained = [
     ...routeFillTargets(recipe, "password"),
-    ...(recipe.completion ?? []).map((marker) => marker.target),
+    ...(recipe.completion ?? [])
+      .filter((marker) => (marker.origin ?? head.recipe.origin) === observation.origin)
+      .map((marker) => marker.target),
   ];
   const shown = (targets: readonly LoginTarget[]) =>
     observation.candidates.some((candidate) =>
@@ -648,7 +657,8 @@ export async function judgeCompletion(
     );
   if (
     shown(unexplained) ||
-    (routeSignInPaths(recipe, route).includes(observation.path) &&
+    (!moved &&
+      routeSignInPaths(recipe, route).includes(observation.path) &&
       shown(routeSignInTargets(recipe, route)))
   )
     return unavailable("not-judgeable");
@@ -675,8 +685,8 @@ export async function judgeCompletion(
     origin: observation.origin,
     path: observation.path,
     request: { instructions: completionInstructions, recipeId, route, loginPaths, observation },
-    // Each revision and path is judged once per judge prompt version, and a recipe 20 times
-    // a UTC day (ADR 0027).
+    // Each revision, origin and path is judged once per judge prompt version, and a recipe
+    // 20 times a UTC day (ADR 0027).
     gate: async (db, now) => {
       const stale = staleHead(await readHead(env.DB, scope.ownerId, recipeId), head.revision);
       if (stale) return stale;
@@ -688,6 +698,7 @@ export async function judgeCompletion(
             ofRecipe,
             eq(pageJudgements.branch, judgedBranch),
             eq(pageJudgements.revision, head.revision),
+            eq(pageJudgements.origin, observation.origin),
             eq(pageJudgements.path, observation.path),
             eq(pageJudgements.promptVersion, promptVersion),
           ),
@@ -709,7 +720,9 @@ export async function judgeCompletion(
             ? "judged-rejected"
             : judged.verdict === null
               ? "judgement-unanswered"
-              : "already-judged";
+              : judged.verdict === "signed-in"
+                ? "judged-signed-in"
+                : "already-judged";
       const [today] = await db
         .select({ value: count() })
         .from(pageJudgements)
@@ -727,6 +740,7 @@ export async function judgeCompletion(
           recipeId,
           branch: judgedBranch,
           revision: head.revision,
+          origin: observation.origin,
           path: observation.path,
           promptVersion,
           judgedAt: now,
@@ -737,6 +751,7 @@ export async function judgeCompletion(
             pageJudgements.recipeId,
             pageJudgements.branch,
             pageJudgements.revision,
+            pageJudgements.origin,
             pageJudgements.path,
             pageJudgements.promptVersion,
           ],
@@ -775,6 +790,7 @@ export async function judgeCompletion(
             ofRecipe,
             eq(pageJudgements.branch, judgedBranch),
             eq(pageJudgements.revision, head.revision),
+            eq(pageJudgements.origin, observation.origin),
             eq(pageJudgements.path, observation.path),
             eq(pageJudgements.promptVersion, promptVersion),
           ),
@@ -836,12 +852,14 @@ export async function judgeCompletion(
   }
   // A later signed-in page adds its marker, up to four (ADR 0029). A recipe that has a
   // marker already is signed in whether or not this one can be added, as with four, a
-  // marker it has, or one that breaks the recipe's bounds.
+  // marker it has, or one that breaks the recipe's bounds. So is a page of another origin
+  // of the site (ADR 0022): a later request for it answers `judged-signed-in` anyway.
+  const signedInAnyway = recipe.completion !== undefined || moved;
   const learned = addCompletion(recipe, observation, judgement.target);
   const signedIn = { version: 1, status: "signed-in" } as const;
-  if (!learned.ok) return recipe.completion ? signedIn : failed("invalid-output");
+  if (!learned.ok) return signedInAnyway ? signedIn : failed("invalid-output");
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
-  if (!learnedRecipe) return recipe.completion ? signedIn : failed("recipe-invalid");
+  if (!learnedRecipe) return signedInAnyway ? signedIn : failed("recipe-invalid");
   const written = await writeRecipe(
     env.DB,
     scope.ownerId,
@@ -851,5 +869,5 @@ export async function judgeCompletion(
   );
   const change = written.ok ? answerable(written.change) : undefined;
   if (change) return { ...signedIn, change };
-  return recipe.completion ? signedIn : unavailable("recipe-conflict");
+  return signedInAnyway ? signedIn : unavailable("recipe-conflict");
 }

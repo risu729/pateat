@@ -238,7 +238,14 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
 - `POST /v1/recipes/:recipeId/completion` takes
   `{ version: 1, revision, route, observation, partial? }` for a page an effect step of
   that revision led to, on the recipe's origin
-  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). `partial: true` says
+  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)) or on another HTTPS
+  origin of its registrable domain that a `password` login's tab moved to
+  ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); a page of
+  another site, or of another origin on another route, answers 400). On that other
+  origin the recipe's paths are not compared with the page, only markers learned there
+  count, a `signed-in` marker is stored with that `origin` (or, when it cannot be
+  learned, the answer is still `signed-in`), and a `challenge` adds no handler.
+  `partial: true` says
   the description left out a disabled field that may not be a sign-in field
   ([ADR 0029](../../docs/adr/0029-local-sign-in-state.md)). Another revision, or a
   route the stored recipe lacks, answers `recipe-conflict`. The request never names a
@@ -269,14 +276,15 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   authenticator app (`source-sms`, `source-email`, `source-unknown`), `unknown-field` or
   `unknown-submit` for an ID that is no element of the page, or `not-input`,
   `text-locator`, `not-code-field`, `code-too-short`, `several-code-fields`,
-  `submit-not-button` or `submit-other-form`. A
-  `signed-in` marker on a `totp` handler's path that shows its code field fails
-  `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
+  `submit-not-button` or `submit-other-form`. A `signed-in` marker on a `totp` handler's
+  path that shows its code field fails `addCompletion` like one on the sign-in page, and
+  the call answers `invalid-output`.
 
 Judgements are limited under the lock, before credentials are resolved:
-`page_judgements` holds one row per recipe revision, page path and judge prompt version
-(its instructions and output schema), so a repeat answers
-`already-judged` when the model answered `signed-in` or abstained (`unclear`), and
+`page_judgements` holds one row per recipe revision, page origin and path and judge
+prompt version (its instructions and output schema), so a repeat answers
+`judged-signed-in` when the model answered `signed-in`, `already-judged` when it
+abstained (`unclear`), and
 `judged-challenge`, `judged-rejected` or `judgement-unanswered` when it judged the page
 `challenge` or `rejected` or the row has no verdict, as after the request failed or
 while it still runs past the owner's lock (the row's `verdict`, ADR 0029). An abstention

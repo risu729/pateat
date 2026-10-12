@@ -20,6 +20,7 @@ import {
   type LoginStep,
   type LoginTarget,
 } from "@pateat/contracts";
+import { sameLoginSite } from "@pateat/contracts/site";
 import * as v from "valibot";
 import { registersPasskey, type EntryTarget } from "./plan";
 
@@ -41,7 +42,7 @@ export type AssemblyRejection =
   | "invalid-recipe";
 
 export type CompletionRejection =
-  /** The marker is one of the recipe's markers already. */
+  /** The marker is one of the recipe's markers of the page's origin already. */
   | "already-learned"
   /** The recipe has four markers already (ADR 0029). */
   | "marker-limit"
@@ -188,13 +189,15 @@ export function appendPageSteps(
 /**
  * Adds the judged signed-in marker to a generated recipe in its next revision (ADR 0029):
  * the first one, or one more after those learned before, up to four. A marker proves a
- * sign-in on any path, so it must be an element of the judged page on the recipe's origin
- * and none of the elements the recipe's steps, passkey route or handlers use on any path.
- * The page must not still show any element a step uses on its own path, nor a field any
- * step fills on any path: a failed sign-in that shows the login form again, on its own
- * path or where the form posted, is not learned as signed in. On a step's own path the
- * marker also lists that path's fill fields as `absent`, since the executor checks it
- * after every step and counts hidden elements.
+ * sign-in on any path, so it must be an element of the judged page and none of the
+ * elements the recipe's steps, passkey route or handlers use on any path. The page must
+ * not still show any element a step uses on its own path, nor a field any step fills on
+ * any path: a failed sign-in that shows the login form again, on its own path or where
+ * the form posted, is not learned as signed in. On a step's own path the marker also
+ * lists that path's fill fields as `absent`, since the executor checks it after every
+ * step and counts hidden elements. A page of another origin of the recipe's site, which a
+ * login's tab moved to (ADR 0022), stores that origin with its marker; the recipe's paths
+ * are not that origin's, so its own steps' paths are not compared there.
  */
 export function addCompletion(
   base: LoginRecipe,
@@ -202,10 +205,17 @@ export function addCompletion(
   target: LoginTarget,
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: CompletionRejection } {
   const markers = base.completion ?? [];
-  if (markers.some((marker) => sameTarget(marker.target, target)))
+  const moved = base.origin !== page.origin;
+  if (
+    markers.some(
+      (marker) =>
+        (marker.origin ?? base.origin) === page.origin && sameTarget(marker.target, target),
+    )
+  )
     return { ok: false, reason: "already-learned" };
   if (markers.length >= MAX_COMPLETION_MARKERS) return { ok: false, reason: "marker-limit" };
-  if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
+  if (moved && !sameLoginSite(base.origin, page.origin))
+    return { ok: false, reason: "origin-mismatch" };
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };
   // Every variant's steps count, whichever one the judged login ran, and the passkey
@@ -221,9 +231,9 @@ export function addCompletion(
   // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not. A
   // `totp` handler's code field on this path shows its code page (ADR 0027).
   const loginElements = [
-    ...routeTargets(base, page.path),
+    ...(moved ? [] : routeTargets(base, page.path)),
     ...routeFillTargets(base, "password"),
-    ...codeFields(base, page.path),
+    ...(moved ? [] : codeFields(base, page.path)),
   ];
   if (
     page.candidates.some((candidate) =>
@@ -232,7 +242,7 @@ export function addCompletion(
   )
     return { ok: false, reason: "login-page" };
   const absent = steps
-    .filter((step) => step.path === page.path && step.kind === "fill")
+    .filter((step) => !moved && step.path === page.path && step.kind === "fill")
     .flatMap(stepTargets)
     .filter((field, index, all) => all.findIndex((other) => sameTarget(other, field)) === index);
   // A marker lists at most 4 absent elements; with more, nothing is learned rather than a
@@ -241,7 +251,10 @@ export function addCompletion(
   const recipe = v.safeParse(loginRecipeSchema, {
     ...base,
     revision: base.revision + 1,
-    completion: [...markers, { target, ...(absent.length ? { absent } : {}) }],
+    completion: [
+      ...markers,
+      { target, ...(moved ? { origin: page.origin } : {}), ...(absent.length ? { absent } : {}) },
+    ],
   });
   return recipe.success
     ? { ok: true, recipe: recipe.output }

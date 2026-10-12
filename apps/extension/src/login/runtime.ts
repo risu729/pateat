@@ -152,6 +152,7 @@ import {
   type LoginFieldSource,
 } from "./vault";
 import { newId } from "@pateat/contracts/ids";
+import { sameLoginSite } from "@pateat/contracts/site";
 
 const STORAGE_KEY = "pateat.login-attempts.v4";
 /** The previous attempt store, removed on load; its records are not read. */
@@ -213,7 +214,8 @@ const continuing = (reading: SignInReading | undefined) =>
   reading?.confirmed === true && reading.decision === "continuing";
 /**
  * Why the judge gave no verdict that still completes a page with no sign and no evidence
- * (ADR 0029): the model could not decide (no reason), the path was judged before, or a
+ * (ADR 0029): the model could not decide (no reason), the path was judged before, as
+ * undecided or signed in, or a
  * spending or judgement limit applies. A page judged `challenge` or `rejected` before
  * (`judged-challenge`, `judged-rejected`), one whose earlier request has no verdict
  * (`judgement-unanswered`), a failure, a conflict or a missing service does not.
@@ -221,6 +223,7 @@ const continuing = (reading: SignInReading | undefined) =>
 const UNDECIDED_COMPLETES = new Set([
   undefined,
   "already-judged",
+  "judged-signed-in",
   "judgement-limit",
   "daily-limit",
   "monthly-limit",
@@ -906,10 +909,14 @@ const stepTargets = (step: LoginStep) =>
  * The recipe's signed-in markers as elements to observe (ADR 0029): each marker, which may
  * be a link located by its text (ADR 0018), then the elements it needs missing. `proves`
  * reads their states from `offset`: whether one marker shows once, visible, while each
- * element it needs missing is missing even hidden, on any path.
+ * element it needs missing is missing even hidden, on any path. Only the markers learned
+ * on `pageOrigin` count: the recipe's own origin by default, or another origin of its site
+ * that a login's tab moved to (ADR 0022).
  */
-function markerProof(recipe: LoginRecipe) {
-  const markers = recipe.completion ?? [];
+function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
+  const markers = (recipe.completion ?? []).filter(
+    (marker) => (marker.origin ?? recipe.origin) === pageOrigin,
+  );
   return {
     targets: markers.flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
     links: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => false)]),
@@ -1187,6 +1194,11 @@ export type LoginReport = (
        * description left out a disabled field (ADR 0029).
        */
       notCompleted?: "disabled-left-out";
+      /**
+       * The page is on another origin of the site, which a `password` login's tab moved to
+       * right after the submission (ADR 0022); `origin` is that page's.
+       */
+      moved?: true;
     }
   | ({
       type: "state";
@@ -1442,6 +1454,12 @@ export function createLoginRuntime(
    * password submission, while its new top page is read (ADR 0022).
    */
   const siteMoves = new Map<number, Promise<boolean>>();
+  /**
+   * By attempt: the judgement of the page its tab moved to after a password submission
+   * (ADR 0022), while it runs, so the same document announcing again waits for it rather
+   * than sending the page twice.
+   */
+  const moveJudgements = new Map<string, { documentId: string; verdict: Promise<boolean> }>();
   /** Top documents' own conditional passkey requests, waiting for their login (ADR 0034). */
   const parkedRequests = new Set<ParkedRequest>();
   /** By tab: its popup choice outside a logout and whether it offers a passkey (ADR 0034). */
@@ -3585,7 +3603,9 @@ export function createLoginRuntime(
     // the variant; on the passkey route, its button and the password form, on its path and
     // the password route's (ADR 0027).
     const paths = routeSignInPaths(recipe, metadata.route);
-    const marker = (recipe.completion ?? []).map((entry) => entry.target);
+    const marker = (recipe.completion ?? [])
+      .filter((entry) => entry.origin === undefined)
+      .map((entry) => entry.target);
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
     // A hidden marker proves nothing and does not keep the page from the judge.
     const remaining = await observe(
@@ -5910,8 +5930,15 @@ export function createLoginRuntime(
       let ending = true;
       let signedIn = false;
       if (document.frameId !== 0) {
-        const check = siteMoves.get(document.tabId);
-        if (check) await check;
+        // The top page announcing again during a check starts another, which is waited for
+        // too; each check's own hello drops it once it settles.
+        for (
+          let check = siteMoves.get(document.tabId), last: Promise<boolean> | undefined;
+          check && check !== last;
+          last = check, check = siteMoves.get(document.tabId)
+        )
+          // eslint-disable-next-line no-await-in-loop
+          await check;
         // A check that went stale, as when the top page announced again, ended nothing.
         if (
           passkeyMoveFits(holder, document.tabId, siteOrigin) ||
@@ -7522,17 +7549,206 @@ export function createLoginRuntime(
    * Whether a top-level `password` attempt's tab moving to `live`, a top page of another
    * origin of the same site, ended its sign-in (ADR 0022): the attempt's last effect step
    * ran shortly before the move, and that page is quiet and shows the account's username
-   * in its header or navigation (`quietMove`, ADR 0029: E2). Only reads.
+   * in its header or navigation (`quietMove`, ADR 0029: E2), or, quiet without it, shows a
+   * signed-in marker learned on its origin or is judged `signed-in` once (`judgeMove`).
+   * Pateat fills and clicks nothing there.
    */
   async function signedInByPassword(
     record: LoginAttemptMetadata,
     live: LiveDocument,
   ): Promise<boolean> {
+    if (live.document.frameId !== 0 || live.topUrl !== undefined) return false;
+    const stillLive = () => documents.get(frameKey(live.document)) === live;
+    // The same document announcing again while its page is judged waits for that verdict.
+    const judging = moveJudgements.get(record.id);
+    if (judging?.documentId === live.document.documentId)
+      return (await judging.verdict) && stillLive();
     const effect = passwordMoveFits(record, live.document.tabId, live.document.origin);
-    if (!effect || live.document.frameId !== 0 || live.topUrl !== undefined) return false;
+    if (!effect) return false;
     const username = await moveUsername(record);
-    if (!username || documents.get(frameKey(live.document)) !== live) return false;
-    return quietMove(live, effect.at, username);
+    if (!username || !stillLive()) return false;
+    const reading = await quietMove(live, effect.at, username, true);
+    if (reading !== "unproven" || !stillLive()) return reading === "signed-in";
+    const verdict = judgeMove(record, live, username, effect.at);
+    moveJudgements.set(record.id, { documentId: live.document.documentId, verdict });
+    try {
+      return (await verdict) && stillLive();
+    } finally {
+      if (moveJudgements.get(record.id)?.verdict === verdict) moveJudgements.delete(record.id);
+    }
+  }
+  /**
+   * The recipe revision a login on another page of its tab ran, from its execution or the
+   * recipe cache: for a chooser login (ADR 0028), the route of its click. `undefined` when
+   * that revision is no longer at hand.
+   */
+  async function attemptRecipe(record: LoginAttemptMetadata): Promise<LoginRecipe | undefined> {
+    const run = attempts.get(record.document.tabId);
+    if (run?.metadata.id === record.id && run.recipe.revision === record.recipeRevision)
+      return run.recipe;
+    const { origin: loginOrigin } = record.account;
+    const click = record.chooser?.click;
+    const found = click
+      ? await recipes.chooser?.(loginOrigin, "/", record.recipeId)
+      : await recipes.recipe(loginOrigin, "/", record.recipeId);
+    const route =
+      found && (click && !isLoginRouteRecipe(found) ? chooserRoute(found, click) : found);
+    return route && isLoginRouteRecipe(route) && route.revision === record.recipeRevision
+      ? route
+      : undefined;
+  }
+  /**
+   * For a `password` login whose tab moved to `live`, a quiet page of another origin of the
+   * site that does not show the account's username (ADR 0022): whether a signed-in marker
+   * learned on that origin shows, or else the judge of ADR 0029, asked once, answers
+   * `signed-in` for the page or found it signed in before. A judge that cannot decide, a
+   * page that cannot be described or sent, and any other verdict end the login
+   * `left-origin`, each logged. Once the answer is back, the page must still be loaded and
+   * quiet, with no passkey request since `since`, the login's last effect step.
+   * `username` is the login's own, hidden from the page as for any judged page.
+   */
+  async function judgeMove(
+    record: LoginAttemptMetadata,
+    live: LiveDocument,
+    username: string,
+    since: number,
+  ): Promise<boolean> {
+    const { document } = live;
+    const recipe = await attemptRecipe(record);
+    let disabledLeftOut = false;
+    const reportJudge = (
+      verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
+      reason?: string,
+    ) =>
+      report(document, {
+        type: "judge",
+        tabId: document.tabId,
+        origin: document.origin,
+        recipeId: record.recipeId,
+        recipeRevision: record.recipeRevision,
+        route: record.route,
+        verdict,
+        ...(reason ? { reason } : {}),
+        moved: true,
+        ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+      });
+    const stale = () =>
+      documents.get(frameKey(document))?.document.documentId !== document.documentId;
+    if (!recipe) {
+      reportJudge("not-sent", "recipe-unavailable");
+      return false;
+    }
+    // A marker learned on this origin proves the sign-in, as on the recipe's own origin.
+    const proof = markerProof(recipe, document.origin);
+    if (proof.targets.length > 0) {
+      let observed: v.InferOutput<typeof observationSchema> | undefined;
+      try {
+        const parsed = v.safeParse(
+          observationSchema,
+          await send(live, {
+            type: "login.observe",
+            path: live.path,
+            targets: proof.targets,
+            require: proof.shown,
+            links: proof.links,
+          }),
+        );
+        observed = parsed.success ? parsed.output : undefined;
+      } catch {
+        observed = undefined;
+      }
+      if (stale()) return false;
+      if (observed && proof.proves(observed.targets)) return true;
+      if (
+        observed?.targets.some(
+          (state, index) => proof.links[index] && (state === "unique" || state === "ambiguous"),
+        )
+      ) {
+        // A marker shows, but does not prove the sign-in: the service would not judge it.
+        reportJudge("not-sent", "marker-shown");
+        return false;
+      }
+    }
+    if (!generation) {
+      reportJudge("not-sent", "no-service");
+      return false;
+    }
+    let observation: LoginObservation | undefined;
+    let unsent = "unreachable";
+    try {
+      const extracted = v.safeParse(
+        extractResultSchema,
+        await send(live, { type: "login.extract", page: "signed-in" }),
+      );
+      const parsed =
+        extracted.success && extracted.output.ok
+          ? v.safeParse(loginObservationSchema, extracted.output.observation)
+          : undefined;
+      if (!extracted.success || !parsed?.success)
+        unsent =
+          extracted.success && !extracted.output.ok ? extracted.output.reason : "invalid-page";
+      else if (!parsed.output.complete)
+        unsent = (extracted.output.ok && extracted.output.gap) || "incomplete";
+      else if (
+        parsed.output.origin !== document.origin ||
+        parsed.output.path !== signedInPath(live.path)
+      )
+        unsent = "page-changed";
+      else {
+        observation = parsed.output;
+        disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+      }
+    } catch {
+      // The page could not be asked: `unreachable`.
+    }
+    if (stale()) return false;
+    if (!observation) {
+      reportJudge("not-sent", unsent);
+      return false;
+    }
+    // The usernames of the items that match the page are hidden too, as for any judged page.
+    const scope = await generationSlotsFor(live).catch(() => undefined);
+    const others = await readUsernames(
+      document.origin,
+      scope
+        ? usernameReads(scope).filter(
+            ({ connection, itemId }) =>
+              connection.id !== record.account.connectionId || itemId !== record.account.itemId,
+          )
+        : [],
+    );
+    const hidden = hideUsernames(observation, others && [username, ...others]);
+    if (stale()) return false;
+    if ("reason" in hidden) {
+      reportJudge("not-sent", hidden.reason);
+      return false;
+    }
+    const { verdict, reason } = await generation.judge(
+      recipe.id,
+      recipe.revision,
+      "password",
+      hidden.observation,
+      () => reportJudge("sent"),
+      // A description that left out a disabled field says so (ADR 0029); only `signed-in`
+      // completes a moved login anyway.
+      record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
+      ...(disabledLeftOut ? [true as const] : []),
+    );
+    reportJudge(verdict, reason);
+    if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
+      return false;
+    // The answer can take a while: the page must still be loaded and show no sign-in step.
+    let again: unknown;
+    try {
+      again = await send(live, { type: "login.state" });
+    } catch {
+      return false;
+    }
+    const parsed = v.safeParse(stateResultSchema, again);
+    if (stale() || !parsed.success || !parsed.output.ok || !parsed.output.loaded) return false;
+    const { signs } = parsed.output;
+    const requested = passkeyRequests.get(`${document.tabId} ${document.origin}`);
+    return !signs.password && !signs.code && !signs.captcha && (requested ?? 0) < since;
   }
   /**
    * Whether `live`, the new top page of a move to another origin (ADR 0022), once loaded
@@ -7543,9 +7759,26 @@ export function createLoginRuntime(
    * for E2 after an effect step. A page still loading, or not showing the username yet, is
    * read again, a second apart. Only reads.
    */
-  async function quietMove(live: LiveDocument, since: number, username?: string) {
+  async function quietMove(live: LiveDocument, since: number, username?: string): Promise<boolean>;
+  /**
+   * As above, with `split` telling apart, as `unproven`, a page that showed no such sign
+   * in its last two loaded readings but never the username in two.
+   */
+  async function quietMove(
+    live: LiveDocument,
+    since: number,
+    username: string,
+    split: true,
+  ): Promise<"signed-in" | "unproven" | false>;
+  async function quietMove(
+    live: LiveDocument,
+    since: number,
+    username?: string,
+    split = false,
+  ): Promise<boolean | "signed-in" | "unproven"> {
     const { tabId, origin: pageOrigin } = live.document;
     let quiet = 0;
+    let calm = 0;
     // Each reading depends on the time passed since the last, so they run one after another.
     /* eslint-disable no-await-in-loop */
     for (let reading = 0; reading < SITE_MOVE_READINGS && quiet < 2; reading++) {
@@ -7568,9 +7801,11 @@ export function createLoginRuntime(
       if (signs.password || signs.code || signs.captcha || (requested ?? 0) >= since) return false;
       // A page that renders its header late, as a single-page site does, is read again.
       quiet = parsed.output.loaded && (!username || signs.username === true) ? quiet + 1 : 0;
+      calm = parsed.output.loaded ? calm + 1 : 0;
     }
     /* eslint-enable no-await-in-loop */
-    return quiet >= 2;
+    if (quiet >= 2) return split ? "signed-in" : true;
+    return split && calm >= 2 ? "unproven" : false;
   }
   /**
    * The passkey answer that lets a top-level attempt's tab moving to `siteOrigin` complete
@@ -7619,12 +7854,7 @@ export function createLoginRuntime(
       passkeyMoveFits(record, tabId, siteOrigin)
     )
       return undefined;
-    const site = siteOf(siteOrigin);
-    return new URL(siteOrigin).protocol === "https:" &&
-      site !== undefined &&
-      site === siteOf(record.document.origin)
-      ? effect
-      : undefined;
+    return sameLoginSite(record.document.origin, siteOrigin) ? effect : undefined;
   }
   /**
    * The username of a login's own account, for the E2 comparison on the page its tab moved

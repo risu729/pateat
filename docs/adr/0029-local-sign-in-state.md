@@ -180,21 +180,22 @@ otherwise the page is judged and settles as before. S1 with F1 or F2 ends the lo
 before; when the judge does not decide, the login ends `challenge`, and when the page is
 not sent it stays unknown. A page with no sign and no evidence is judged, and the login
 completes when the judge cannot decide: the model abstains (`unclear` with no reason),
-the path was judged before (`already-judged`), or a limit applies (`judgement-limit`,
-`daily-limit`, `monthly-limit`), and the page still shows no sign and no evidence once
-the answer is back in the loaded document, unless its description left out a disabled
-field (below). Its `recipe.judge` entry is then a warning
-marked `completed`. A failed request, a conflict, a missing service or a page that
-cannot be described or was not sent leaves the login unknown, as before. The service
-keeps the model's verdict on the path's judgement row (`page_judgements.verdict`,
-`unclear` when it abstained) and answers a later request for that revision and path
-`already-judged` only after `signed-in` or `unclear`. After `challenge` or `rejected` it
+the path was judged before (`already-judged`, `judged-signed-in`), or a limit applies
+(`judgement-limit`, `daily-limit`, `monthly-limit`), and the page still shows no sign
+and no evidence once the answer is back in the loaded document, unless its description
+left out a disabled field (below). Its `recipe.judge` entry is then a warning marked
+`completed`. A failed request, a conflict, a missing service or a page that cannot be
+described or was not sent leaves the login unknown, as before. The service keeps the
+model's verdict on the path's judgement row (`page_judgements.verdict`, `unclear` when
+it abstained) and answers a later request for that revision, origin and path
+`judged-signed-in` after `signed-in` and `already-judged` after `unclear`; both complete
+the login here. After `challenge` or `rejected` it
 answers `judged-challenge` or `judged-rejected`: the login then ends `challenge`, or
 stays unknown after `judged-rejected`, since an earlier rejection does not prove this
 one. A row with no verdict, after the request failed or while it is still being judged
 once the owner's lock has expired (until then a second request is answered `busy`),
-answers `judgement-unanswered`, and the login stays unknown. A watched login
-(below) never completes on an undecided answer.
+answers `judgement-unanswered`, and the login stays unknown. A watched login (below)
+never completes on an undecided answer.
 
 The header and navigation text (since 2026-10-12): the signed-in description carries
 `headerText`, the visible text of each outermost `header`, `nav`, banner and navigation
@@ -282,9 +283,14 @@ these signs were read. When a top-level `password` login's tab moves to another 
 origin of its registrable domain within 30 seconds of its last effect step, the new top
 page is read for S2 to S5 and E2 only, with the username sent as above, and the login
 completes when two readings a second apart in the loaded document show E2 and none of
-those signs. S1, F1, F2, E1 and E3 are not read there, and no `login.state` entry is
-logged. Otherwise the login ends `left-origin` as before; asking the judge once for such
-a page without E2 is the next change (ADR 0022).
+those signs. S1, F1, F2 and E3 are not read there, and no `login.state` entry is
+logged. A page that shows none of those signs but not E2 is checked for E1 with the
+markers learned on its origin only, and otherwise judged once; `signed-in` completes the
+login and learns a marker for that origin, and anything else, an undecided answer
+included, ends it `left-origin` as before (ADR 0022). The service keeps such a page's
+judgement row under its own origin, and answers a later request for a row judged
+`signed-in` with `judged-signed-in` instead of `already-judged`, which the "No S, no E"
+row above treats as before.
 
 ## Consequences
 

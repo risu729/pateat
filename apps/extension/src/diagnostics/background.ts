@@ -398,6 +398,7 @@ export function createDiagnosticsLog(options: {
             completed: report.completed,
             disabledLeftOut: report.disabledLeftOut,
             notCompleted: report.notCompleted,
+            moved: report.moved,
           },
           // The answer follows, but `sent` is what is left when no answer came (ADR 0019).
           // A request that failed before the model is a problem; with no paired service

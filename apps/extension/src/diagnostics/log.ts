@@ -254,6 +254,7 @@ export const LOG_EVENTS = {
       completed: "flag",
       disabledLeftOut: "flag",
       notCompleted: "code",
+      moved: "flag",
       url: "url",
     },
   },
