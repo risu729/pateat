@@ -518,6 +518,13 @@ type ParkedRequest = {
   since: number;
   /** The login of its document was seen running, so its end decides the request. */
   during?: true;
+  /**
+   * Its document was asked for an account after a logout (ADR 0021 D), so it waits for
+   * the pick while the tab asks.
+   */
+  asked?: true;
+  /** When a pick for its document started no login; it waits briefly for the choice again. */
+  dropped?: number;
   settle(decision: ConditionalDecision): boolean;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
@@ -1752,6 +1759,11 @@ export function createLoginRuntime(
       picked.delete(request.tabId);
       await quietly(saveSession);
     }
+    // Nothing answers the document's passkey request then, unless its choice is offered
+    // again soon, as when the document announces again (ADR 0034).
+    for (const parked of parkedRequests)
+      if (parked.tabId === request.tabId && parked.documentId === waiting.document.documentId)
+        parked.dropped = Date.now();
     if (gone) return { ok: false, reason: "document-gone" };
     // Another tab's login started holding the site after the choice was offered. The page
     // does not announce again once that hold ends, so its choice waits for a later pick.
@@ -2618,7 +2630,8 @@ export function createLoginRuntime(
     let facts: LoginItemFacts | undefined;
     const factsOf = (resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>) =>
       itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
-    const pageRequest = request.pageRequest === true && passkeyAnswersRequest(recipe);
+    const pageRequest =
+      request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
     if (recipeHasRoute(recipe, "passkey") || pageRequest) {
       const resolved = await resolveRoute({ route: "passkey" });
       if (resolved.ok) {
@@ -6035,10 +6048,10 @@ export function createLoginRuntime(
     const filledKey = `${document.tabId} ${document.documentId}`;
     const fill = asking && !previous && !switched && !logoutFills.has(filledKey);
     // A new login answers the page's own passkey request when its item holds a passkey
-    // (ADR 0034); a chooser's list has no such route, and a login that only fills after a
-    // logout keeps its password form and hands the request on.
+    // (ADR 0034), as one picked in the popup after a logout does; a chooser's list has no
+    // such route, and a login that only fills after a logout keeps its password form.
     const pageRequest =
-      !previous && !fill && !chooser && document.frameId === 0 && parkedFor(document) !== undefined;
+      !previous && !chooser && document.frameId === 0 && parkedFor(document) !== undefined;
     let plan = await planFor(snapshot, live, recipe, {
       asking,
       fill,
@@ -7142,9 +7155,10 @@ export function createLoginRuntime(
   /**
    * A top document's own `conditional` passkey request (ADR 0034). It waits for the login
    * of its document: that login's `passkey` route answers it; once the login ends, it is
-   * withheld if the login signed in and handed on otherwise. A request of an origin
+   * withheld if the login signed in and handed on otherwise. While the tab asks for an
+   * account after a logout, the login the pick starts answers it. A request of an origin
    * without a recipe is handed on at once, and one whose document starts no login within
-   * `REQUEST_START_WAIT_MS` then, as is one of a login that only fills after a logout.
+   * `REQUEST_START_WAIT_MS` then.
    */
   async function conditionalRequest(input: {
     tabId: number;
@@ -7180,9 +7194,37 @@ export function createLoginRuntime(
     });
   }
   /**
+   * Whether the tab asks the request's document for an account after a logout (ADR 0021 D):
+   * its choice waits in the popup, or the pick of a document asked so has not started a
+   * login yet.
+   */
+  function askedFor(parked: ParkedRequest): boolean {
+    const waiting = pending.get(parked.tabId);
+    const pick = picked.get(parked.tabId);
+    return (
+      (waiting?.logout === true &&
+        waiting.document.frameId === 0 &&
+        waiting.document.documentId === parked.documentId) ||
+      (parked.asked === true &&
+        pick !== undefined &&
+        pick.attemptId === undefined &&
+        pick.origin === parked.origin &&
+        pick.documentId === parked.documentId)
+    );
+  }
+  /** Whether a tab still asks for an account of the origin after a logout (ADR 0021 D). */
+  function asksAfterLogout(tabId: number, siteOrigin: string): boolean {
+    const key = recordKey(tabId, siteOrigin);
+    return (
+      !recordFor(tabId, siteOrigin) &&
+      (logouts.has(key) || stoppedAsks.has(key) || askedElsewhere(tabId, siteOrigin))
+    );
+  }
+  /**
    * Decides every waiting conditional request whose login ended or never started, and
    * checks again each second while one waits (ADR 0034). The `passkey` route answers its
-   * own page's request itself.
+   * own page's request itself. A request whose document the tab asks for an account after
+   * a logout, or fills only, waits for the login the pick starts.
    */
   function reviewRequests(): void {
     const now = Date.now();
@@ -7196,15 +7238,29 @@ export function createLoginRuntime(
           ? run.metadata
           : undefined;
       const ended = own && (terminal(own) || idle(own));
-      if (own && !ended) parked.during = true;
-      if (!own || (ended && !parked.during)) {
+      const running = own !== undefined && !ended;
+      if (running) parked.during = true;
+      const offered = !running && askedFor(parked);
+      if (offered) delete parked.dropped;
+      if (running ? own.fillOnly : offered) parked.asked = true;
+      // A choice still offered decides alone: another tab's login can end the logout this
+      // tab asks for, while its choice stays. A dropped pick leaves it a moment to be
+      // offered again.
+      const asks = running
+        ? own.fillOnly === true
+        : offered ||
+          (parked.asked === true &&
+            asksAfterLogout(parked.tabId, parked.origin) &&
+            (parked.dropped === undefined || now - parked.dropped < REQUEST_START_WAIT_MS));
+      if (asks) {
+        if (now - parked.since >= REQUEST_PARK_MS) parked.settle({ kind: "withhold" });
+      } else if (!own || (ended && !parked.during)) {
         // A login of another document, or one that ended before the request came, does
         // not decide it.
         if (now - parked.since >= REQUEST_START_WAIT_MS)
           parked.settle({ kind: "delegate", reason: own ? "login-ended" : "no-login" });
       } else if (own.state === "authenticated") parked.settle({ kind: "withhold" });
       else if (ended) parked.settle({ kind: "delegate", reason: "login-ended" });
-      else if (own.fillOnly) parked.settle({ kind: "delegate", reason: "after-logout" });
       else if (now - parked.since >= REQUEST_PARK_MS) parked.settle({ kind: "withhold" });
     }
     if (parkedRequests.size && reviewTimer === undefined)

@@ -10,6 +10,11 @@ a recipe without a passkey button, and its fallback to the password) and
 [ADR 0025](0025-automatic-vault-sync.md) (a waiting conditional request does not hold
 the vault).
 
+Amended on 2026-10-12 by the owner's choice at 17:56 UTC: while the tab asks for an
+account after a logout (ADR 0021 D), the asked document's request waits for the pick in
+the popup and is answered with the picked item's passkey, instead of being handed on
+(rule 5).
+
 Date: 2026-10-12
 
 ## Context
@@ -64,9 +69,16 @@ password when the item has one. The proposal reviewed with the owner is
    result (ADR 0027) has ended for this. One that waits four minutes is withheld. A
    waiting request is not cancelled when settings are saved and does not hold the vault
    replacement of ADR 0025; the item it is answered with is looked up under the settings
-   current at that time. A login that only fills after a logout (ADR 0021 D) hands it on
-   (`after-logout`), and so does a document whose login does not start within three
-   seconds (`no-login`).
+   current at that time. A document whose login does not start within three seconds
+   hands it on (`no-login`), unless the tab asks it for an account after a logout
+   (ADR 0021 D): a document so asked, or filled by a login that only fills, keeps its
+   request while the tab asks, and the login the popup pick starts answers it as in
+   rule 3 when the picked item holds a discoverable passkey. A pick that starts no
+   login hands it on three seconds later, unless the choice is offered again by then.
+   That request is also withheld
+   four minutes after it came, since the browser ends the message that carries it after
+   five: a pick after that signs in with the password, and an item with only a passkey
+   does not sign in until the page is loaded again.
 6. **Back to the password when the site refuses.** If no request comes within three
    seconds of the step, the item's passkey cannot answer it, the recipe's rejection
    shows after the answer, or the start page's sign-in form still shows on the start
@@ -84,9 +96,9 @@ password when the item has one. The proposal reviewed with the owner is
    make an `optional` one that Pateat answers the same way, and the RP ID and origin
    checks are unchanged.
 8. **Logs.** `passkey.request` names the request's `mediation` on every outcome, a new
-   outcome `withheld`, the reasons `no-recipe`, `no-login`, `login-ended` and
-   `after-logout`, the cause `login-wait` when waiting for the login failed (a page that
-   cancels a waiting request logs the `cancelled` outcome and `page-cancelled`), and
+   outcome `withheld`, the reasons `no-recipe`, `no-login` and `login-ended`, the cause
+   `login-wait` when waiting for the login failed (a page that cancels a waiting request
+   logs the `cancelled` outcome and `page-cancelled`), and
    `answerFailed` when the item could not answer. `login.attempt` names a route change
    as `routeChange`, logged at info: `page-request` (switched to the passkey), or
    `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown` (back to
@@ -132,7 +144,9 @@ password when the item has one. The proposal reviewed with the owner is
   only if nothing was submitted; a page that asks only after the password was sent
   keeps the password login, and its request waits as rule 5 says.
 - A conditional request on a page where Pateat logs in no longer reaches another
-  provider while the login runs; after a failed login it does.
+  provider while the login runs; after a failed login it does. While the tab asks for an
+  account after a logout, the Bitwarden extension's suggestions do not show on that
+  page, and an account picked in the popup that holds a passkey signs in with it.
 - If the RC check finds Wise's request is `immediate`, not `conditional`, this ADR is
   revised before the work is called done.
 - Verified with unit tests of the attempt machine, the route helpers, the bridge and the

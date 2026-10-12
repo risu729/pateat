@@ -14541,57 +14541,459 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(await request.decision).toEqual({ kind: "delegate", reason: "login-ended" });
   });
 
-  it("hands a request on during a login that only fills after a logout", async () => {
+  describe("while the tab asks for an account after a logout (ADR 0021 D)", () => {
     const both = uriMatch({
       candidates: [
         { itemId, matches: [{ uriIndex: 0, match: 0 }] },
         { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
       ],
     });
-    // The item holds a discoverable passkey, yet the login after the logout only fills.
-    const { h, report } = start(recipe, {
-      allowedOrigins: [],
-      uris: async () => ({ ok: true, data: both }),
-    });
-    signsInOnClick();
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
-    // The form shows again after a logout; the fill that follows never answers.
-    fake.state.present = new Set(["password", "login"]);
-    fake.state.onExecute = () => new Promise(() => undefined);
-    expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-    await vi.waitFor(() => expect(fills()).toBe(2));
-    expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
-    const request = ask(h, { documentId: "signed-out" });
-    expect(await request.decision).toEqual({ kind: "delegate", reason: "after-logout" });
-    expect(routeChanges(report)).toEqual([]);
-  });
+    const matching = { allowedOrigins: [], uris: async () => ({ ok: true as const, data: both }) };
+    const popup = {
+      id: "synthetic-extension",
+      url: "chrome-extension://synthetic-extension/popup.html",
+    } as never;
+    const choice = (h: ReturnType<typeof harness>, tabId = 1) =>
+      h.login.handle({ version: 1, type: "login.choice.get", tabId }, popup);
+    /** The person picks an account in the popup for the asked document. */
+    const pick = (
+      h: ReturnType<typeof harness>,
+      overrides: Partial<{ tabId: number; documentId: string; itemId: string }> = {},
+    ) =>
+      h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "signed-out",
+          connectionId,
+          itemId: otherItemId,
+          makeDefault: false,
+          ...overrides,
+        },
+        popup,
+      );
+    /** A login with the saved default signs in; the form then shows in a new document. */
+    const signedIn = async (live: Parameters<typeof harness>[1] = {}) => {
+      const started = start(recipe, { ...matching, ...live });
+      signsInOnClick();
+      expect(await started.h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      fake.state.present = new Set(["password", "login"]);
+      return started;
+    };
+    /**
+     * Without a saved default, a picked account signs in; the form then shows in a new
+     * document, which only asks: the popup offers both accounts.
+     */
+    const loggedOut = async (live: Parameters<typeof harness>[1] = {}) => {
+      const started = start(recipe, { ...matching, ...live }, { siteDefaults: [], bindings: [] });
+      const { h } = started;
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+      fake.state.onReconnect = () => h.hello();
+      signsInOnClick();
+      expect(await pick(h, { documentId: "synthetic-document", itemId })).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.onExecute = undefined;
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({
+        ok: false,
+        reason: "logged-out",
+      });
+      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: true });
+      fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
+      return started;
+    };
 
-  it("does not answer a login that only fills after a logout when the request came first", async () => {
-    const both = uriMatch({
-      candidates: [
-        { itemId, matches: [{ uriIndex: 0, match: 0 }] },
-        { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
-      ],
+    it("keeps a request waiting during a login that only fills after a logout, and after it", async () => {
+      vi.useFakeTimers();
+      // The item holds a discoverable passkey, yet the login after the logout only fills.
+      const { h, report } = await signedIn();
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      fake.state.onExecute = () => held;
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+      await until(() => fills() === 2, 5_000);
+      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      // The fill ends and the tab asks; the request still waits for the pick.
+      release();
+      await until(() => fake.state.badges[1]?.text === "2", 5_000);
+      expect(await h.login.active()).toBe(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      expect(fills()).toBe(2);
+      expect(clicks("login")).toBe(1);
+      expect(routeChanges(report)).toEqual([]);
     });
-    const { h, report } = start(recipe, {
-      allowedOrigins: [],
-      uris: async () => ({ ok: true, data: both }),
+
+    it("does not answer a login that only fills after a logout when the request came first", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await signedIn();
+      // The signed-out page asks for a passkey before its form is ready.
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+      await until(() => fills() === 2, 5_000);
+      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+      expect(clicks("login")).toBe(1);
+      expect(routeChanges(report)).toEqual([]);
     });
-    signsInOnClick();
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
-    // The signed-out page asks for a passkey before its form is ready.
-    fake.state.present = new Set(["password", "login"]);
-    fake.state.onExecute = () => new Promise(() => undefined);
-    const request = ask(h, { documentId: "signed-out" });
-    await flush();
-    expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-    expect(await request.decision).toEqual({ kind: "delegate", reason: "after-logout" });
-    await vi.waitFor(() => expect(fills()).toBe(2));
-    expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
-    expect(clicks("login")).toBe(1);
-    expect(routeChanges(report)).toEqual([]);
+
+    it("answers a waiting request with the account picked in the popup, on the passkey route", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await loggedOut();
+      expect(await choice(h)).toMatchObject({
+        candidates: [
+          { connectionId, itemId },
+          { connectionId, itemId: otherItemId },
+        ],
+      });
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      // The tab asks, so the request is not handed on after three seconds.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      const filled = fills();
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId: otherItemId },
+      });
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        state: "submit-intent",
+        submissions: 1,
+        account: { connectionId, itemId: otherItemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        account: { connectionId, itemId: otherItemId },
+      });
+      expect(fills()).toBe(filled);
+      expect(clicks("login")).toBe(1);
+      expect(
+        report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "start"),
+      ).toEqual([
+        expect.objectContaining({ route: "password", account: "pick" }),
+        expect.objectContaining({ route: "passkey", account: "pick" }),
+      ]);
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("answers a request kept through a login that only filled with the account picked next", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await signedIn();
+      fake.state.onExecute = undefined;
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+      await until(() => fake.state.badges[1]?.text === "2", 5_000);
+      expect(fills()).toBe(2);
+      expect(await h.login.active()).toBe(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId: otherItemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        account: { connectionId, itemId: otherItemId },
+      });
+      // Nothing was pressed after the logout, and the pick filled nothing.
+      expect(fills()).toBe(2);
+      expect(clicks("login")).toBe(1);
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "start", route: "passkey", account: "pick" }),
+      );
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("withholds a request of the asked document after four minutes", async () => {
+      vi.useFakeTimers();
+      const { h } = await loggedOut();
+      const sent = executed().length;
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(235_000);
+      expect(request.decided()).toBeUndefined();
+      await until(() => request.decided() !== undefined, 10_000);
+      expect(request.decided()).toEqual({ kind: "withhold" });
+      expect(executed()).toHaveLength(sent);
+    });
+
+    it("hands on a request of another document of the tab that was not asked", async () => {
+      vi.useFakeTimers();
+      const { h } = await loggedOut();
+      const request = ask(h, { documentId: "other-page" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(request.decided()).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+    });
+
+    it("logs a picked account without a discoverable passkey in with the password, then withholds", async () => {
+      vi.useFakeTimers();
+      const passkeys = vi.fn(async (account: unknown) =>
+        (account as { itemId: string }).itemId === otherItemId
+          ? { passkey: false, discoverable: false }
+          : { passkey: true, discoverable: true },
+      );
+      const { h, report } = await loggedOut({ passkeys });
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      signsInOnClick();
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "password",
+        account: { connectionId, itemId: otherItemId },
+      });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toEqual({ kind: "withhold" });
+      expect(fills()).toBe(2);
+      expect(clicks("login")).toBe(2);
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("keeps a request of a tab asked for another tab's logout after that tab's pick logs in", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await loggedOut();
+      const recordOf = (tabId: number) =>
+        status()?.find(
+          (entry) => (entry["document"] as { tabId: number } | undefined)?.tabId === tabId,
+        );
+      // Another tab shows the form and asks only because of this tab's logout.
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+        ok: false,
+        reason: "logged-out",
+      });
+      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: true });
+      const request = ask(h, { tabId: 2, documentId: "other-tab" });
+      await flush();
+      // The first tab's pick logs in there and ends its logout.
+      signsInOnClick();
+      expect(await pick(h, { itemId })).toEqual({ ok: true });
+      await until(() => recordOf(1)?.["state"] === "authenticated", 20_000);
+      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+      // The second tab's choice is still offered, so its request still waits.
+      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: true });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      fake.state.present = new Set(["password", "login"]);
+      const filled = fills();
+      const clicked = clicks("login");
+      fake.state.onReconnect = () => h.hello({ tab: { id: 2 }, documentId: "other-tab" });
+      expect(await pick(h, { tabId: 2, documentId: "other-tab" })).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId: otherItemId },
+      });
+      expect(recordOf(2)).toMatchObject({
+        route: "passkey",
+        state: "submit-intent",
+        account: { connectionId, itemId: otherItemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(() => recordOf(2)?.["state"] === "authenticated", 20_000);
+      expect(recordOf(2)).toMatchObject({ route: "passkey" });
+      expect(fills()).toBe(filled);
+      expect(clicks("login")).toBe(clicked);
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "start", tabId: 2, route: "passkey", account: "pick" }),
+      );
+    });
+
+    it("hands a waiting request on soon after a pick that starts no login", async () => {
+      vi.useFakeTimers();
+      const { h } = await loggedOut();
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      // The picked item is quarantined meanwhile, so its login is refused.
+      const original = h.store.handle.getMockImplementation()!;
+      h.store.handle.mockImplementation(async () => {
+        const response = await original();
+        if (response.ok) response.catalog.connections[0]!.quarantinedItemIds = [otherItemId];
+        return response;
+      });
+      const sent = executed().length;
+      expect(await pick(h)).toMatchObject({ ok: false });
+      expect(await choice(h)).toMatchObject({ ok: false });
+      await until(() => request.decided() !== undefined, 4_500);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+      expect(executed()).toHaveLength(sent);
+    });
+
+    it("hands a waiting request on soon after a pick whose page does not announce again", async () => {
+      vi.useFakeTimers();
+      const { h } = await loggedOut();
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      fake.state.onReconnect = async () => ({ ok: false });
+      expect(await pick(h)).toEqual({ ok: false, reason: "not-started" });
+      await until(() => request.decided() !== undefined, 4_500);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+    });
+
+    it("keeps a request whose choice is offered again soon after a pick that started no login", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await loggedOut();
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      // The pick's reconnect gets no announcement, so it starts nothing.
+      fake.state.onReconnect = async () => ({ ok: false });
+      expect(await pick(h)).toEqual({ ok: false, reason: "not-started" });
+      // The document announces again a moment later and is asked again.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({
+        ok: false,
+        reason: "logged-out",
+      });
+      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: true });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      const filled = fills();
+      fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId: otherItemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        account: { connectionId, itemId: otherItemId },
+      });
+      expect(fills()).toBe(filled);
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("hands on a request of a document asked without a logout, even while its pick is pending", async () => {
+      vi.useFakeTimers();
+      const { h } = start(recipe, matching, { siteDefaults: [], bindings: [] });
+      // Several accounts match and none is the default: the popup asks, with no logout.
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+      expect(await choice(h)).toMatchObject({ ok: true, documentId: "synthetic-document" });
+      expect(await choice(h)).not.toHaveProperty("logout");
+      const request = ask(h);
+      await flush();
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(request.decided()).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+      expect(await choice(h)).toMatchObject({ ok: true, documentId: "synthetic-document" });
+      // A second request is picked for meanwhile; the page announces again only later.
+      const again = ask(h);
+      await flush();
+      fake.state.onReconnect = () =>
+        new Promise((resolve) => setTimeout(() => resolve(h.hello()), 5_000));
+      signsInOnClick();
+      const picking = pick(h, { documentId: "synthetic-document" });
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(again.decided()).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(again.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await picking).toEqual({ ok: true });
+      // The pick's login, finding no request, takes the password.
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "password",
+        account: { connectionId, itemId: otherItemId },
+      });
+    });
+
+    it("keeps a request of a document asked after the tab's stopped login, and answers it with the pick", async () => {
+      vi.useFakeTimers();
+      const first = start(recipe, matching);
+      // The login stops after its click, as when the page leaves while submitting.
+      fake.state.onExecute = (message) =>
+        (message["operation"] as { step: LoginStep }).step.kind === "click"
+          ? new Promise(() => undefined)
+          : Promise.resolve();
+      expect(await first.h.hello()).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["state"] === "submit-intent", 5_000);
+      const [record] = status()!;
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        fake.state.storage["pateat.login-attempts.v4"] = [
+          {
+            ...record!,
+            state: "blocked",
+            outcome: "policy-changed",
+            mutationIntent: undefined,
+            operationId: undefined,
+            operationKind: undefined,
+            operationEffect: undefined,
+          },
+        ];
+        fake.state.onExecute = undefined;
+        // A restarted worker sees the form show again in a later page of the tab.
+        const { h, report } = start(recipe, matching);
+        const request = ask(h, { documentId: "next-page" });
+        await flush();
+        expect(await h.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        await until(() => fake.state.badges[1]?.text === "2", 5_000);
+        expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(request.decided()).toBeUndefined();
+        const filled = fills();
+        fake.state.onReconnect = () => h.hello({ documentId: "next-page" });
+        expect(await pick(h, { documentId: "next-page" })).toEqual({ ok: true });
+        await until(() => request.decided() !== undefined, 5_000);
+        expect(request.decided()).toMatchObject({
+          kind: "answer",
+          item: { connectionId, itemId: otherItemId },
+        });
+        fake.state.present = new Set(["authenticated"]);
+        (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+        await until(settled("authenticated"), 20_000);
+        expect(status()![0]).toMatchObject({
+          route: "passkey",
+          account: { connectionId, itemId: otherItemId },
+        });
+        expect(fills()).toBe(filled);
+        expect(clicks("login")).toBe(1);
+        expect(routeChanges(report)).toEqual([]);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
   });
 
   it("falls back as a missing request when the request went away as it was answered", async () => {
