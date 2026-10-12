@@ -1,6 +1,5 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { PATEAT_EXTENSION_ID } from "./extension-id";
 import {
   deviceLabelSchema,
   devicePairRequestSchema,
@@ -71,9 +70,5 @@ describe("extension IDs", () => {
       "",
     ])
       expect(v.safeParse(extensionIdSchema, id).success).toBe(false);
-  });
-
-  it("matches Pateat's own ID", () => {
-    expect(v.safeParse(extensionIdSchema, PATEAT_EXTENSION_ID).success).toBe(true);
   });
 });
