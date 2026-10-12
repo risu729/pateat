@@ -433,6 +433,7 @@ export function createDiagnosticsLog(options: {
                 (sign) => [sign, report[sign] || undefined],
               ),
             ),
+            reshown: report.reshown,
             settled: report.settled,
           },
           // Later pages of a settled attempt repeat what its first page showed.

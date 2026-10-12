@@ -1041,6 +1041,8 @@ describe("unhandled errors", () => {
       route: "password",
       ...signs,
       ...{ e1: false, e2: false, e3: false },
+      // Read on the sign-in form shown again in a new document (ADR 0029).
+      reshown: true,
       decision: "rejected",
     });
     log.login({
@@ -1200,6 +1202,7 @@ describe("unhandled errors", () => {
           s1: true,
           s2: true,
           f2: true,
+          reshown: true,
         },
       ],
       [

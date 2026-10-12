@@ -703,13 +703,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (command.type === "login.state") {
       const username = command.account?.username;
       if (command.account) command.account.username = "";
+      // The sign-in form shown again in a new document: its inputs each target names alone.
+      const reshown = command.fields?.flatMap((target) => {
+        const found = matches(target);
+        return found.length === 1 && writable(found[0]) ? [found[0]] : [];
+      });
       respond(
         cancelled
           ? { ok: false }
           : {
               ok: true,
               signs: pageSigns(document, {
-                ...(submitted ? { submitted } : {}),
+                ...(reshown ? { reshown } : submitted ? { submitted } : {}),
                 ...(username === undefined ? {} : { username }),
               }),
               loaded: document.readyState === "complete",

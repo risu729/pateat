@@ -28,6 +28,15 @@ describe("decideSignInState", () => {
       expect(decideSignInState({ ...none, [evidence]: true })).toBe("signed-in");
     expect(decideSignInState(none)).toBe("judge");
   });
+  it("never rejects a sign-in form shown again in a new document with a CAPTCHA", () => {
+    const reshown = { ...none, s1: true, reshown: true } as const;
+    expect(decideSignInState({ ...reshown, f1: true })).toBe("rejected");
+    expect(decideSignInState({ ...reshown, f2: true })).toBe("rejected");
+    expect(decideSignInState(reshown)).toBe("unknown");
+    expect(decideSignInState({ ...reshown, s4: true, f1: true, f2: true })).toBe("unknown");
+    // In the submitted document a CAPTCHA does not hold a failure off.
+    expect(decideSignInState({ ...none, s1: true, s4: true, f2: true })).toBe("rejected");
+  });
 });
 
 describe("reachedReturnTarget", () => {

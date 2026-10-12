@@ -35,6 +35,8 @@ const fake = vi.hoisted(() => {
       account?: { username: string };
       accountSwitch?: unknown;
       outcome?: string;
+      /** `login.state`: the sign-in elements of a form shown again in a new document. */
+      fields?: unknown[];
     }[],
     /** Overrides the document's answer to an execution, such as a wrong-account refusal. */
     executeReply: undefined as
@@ -82,8 +84,14 @@ const fake = vi.hoisted(() => {
     removed: [] as ((tabId: number) => void)[],
     /** The document's description of itself, by the page asked for. */
     extracted: {} as Record<string, unknown>,
-    /** The page signs the document reports for ADR 0029; none when unset. */
-    signs: undefined as undefined | Record<string, boolean>,
+    /**
+     * The page signs the document reports for ADR 0029, or a function of the `login.state`
+     * message that gives them; none when unset.
+     */
+    signs: undefined as
+      | undefined
+      | Record<string, boolean>
+      | ((message: Record<string, unknown>) => Record<string, boolean>),
     /** Whether the document says it has finished loading, with its signs. */
     loaded: true,
     /** `chrome.storage.session`. */
@@ -208,7 +216,11 @@ const fake = vi.hoisted(() => {
         }
         if (message["type"] === "login.state")
           return state.signs
-            ? { ok: true, signs: state.signs, loaded: state.loaded }
+            ? {
+                ok: true,
+                signs: typeof state.signs === "function" ? state.signs(message) : state.signs,
+                loaded: state.loaded,
+              }
             : { ok: false };
         if (message["type"] === "login.extract")
           return (
@@ -7789,8 +7801,313 @@ describe("production login document admission", () => {
         expect(fake.state.messages.find((entry) => entry.type === "login.state")?.account).toEqual({
           username: "synthetic-secret",
         });
+        // The submitted document is compared with its own reading, never asked for fields.
+        expect(
+          fake.state.messages.filter(
+            (entry) => entry.type === "login.state" && entry.fields !== undefined,
+          ),
+        ).toEqual([]);
         expect(service.judge).not.toHaveBeenCalled();
       }, 10_000);
+
+      /**
+       * Logs in on the generated recipe; the click loads the sign-in form again in a new
+       * document, which shows `signs` when the worker names the sign-in fields to read.
+       */
+      async function reshown(signs: typeof noSigns) {
+        fake.state.extracted = { "signed-in": homePage };
+        // The submitted document never shows a failure; only the new one can.
+        fake.state.signs = (message) =>
+          message["fields"] ? { ...signs, username: false } : { ...noSigns, username: false };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          // The site answers the submission with its sign-in page, as a new document.
+          fake.state.gone.add("synthetic-document");
+          setTimeout(() => void h.hello({ documentId: "document-again" }, false), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        const states = () =>
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : []));
+        await vi.waitFor(() => expect(states().length).toBeGreaterThan(0), { timeout: 8_000 });
+        // Only the re-shown document is asked for its sign-in fields' marks.
+        const reads = fake.state.messages.filter((entry) => entry.type === "login.state");
+        expect(reads.length).toBeGreaterThan(0);
+        expect(reads.every((entry) => Array.isArray(entry.fields))).toBe(true);
+        return { service, states };
+      }
+
+      it.each([
+        ["a sign-in field marked invalid (F1)", { invalid: true }, { f1: true, f2: false }],
+        ["an alert (F2)", { alert: true }, { f1: false, f2: true }],
+      ])(
+        "rejects the sign-in form shown again in a new document with %s",
+        async (_label, shown, flags) => {
+          const { service, states } = await reshown({ ...noSigns, password: true, ...shown });
+          await vi.waitFor(
+            () =>
+              expect(status()).toMatchObject([
+                { state: "blocked", outcome: "credential-rejected" },
+              ]),
+            { timeout: 8_000 },
+          );
+          expect(states()).toEqual([
+            expect.objectContaining({ s1: true, s4: false, ...flags, reshown: true }),
+          ]);
+          expect(states()[0]).toMatchObject({ decision: "rejected" });
+          expect(service.judge).not.toHaveBeenCalled();
+        },
+        12_000,
+      );
+
+      it("leaves the sign-in form shown again in a new document unknown without a mark", async () => {
+        const { service, states } = await reshown({ ...noSigns, password: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 8_000 },
+        );
+        expect(states()).toEqual([
+          expect.objectContaining({ s1: true, f1: false, f2: false, reshown: true }),
+        ]);
+        expect(states()[0]).toMatchObject({ decision: "unknown" });
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 12_000);
+
+      it("never rejects the sign-in form shown again in a new document with a CAPTCHA", async () => {
+        const { states } = await reshown({
+          ...noSigns,
+          password: true,
+          captcha: true,
+          invalid: true,
+          alert: true,
+        });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 8_000 },
+        );
+        expect(states()).toEqual([
+          expect.objectContaining({ s1: true, s4: true, f1: true, f2: true, reshown: true }),
+        ]);
+        expect(states()[0]).toMatchObject({ decision: "unknown" });
+      }, 12_000);
+
+      /**
+       * Logs in on the generated recipe; the submitted document settles as unknown first,
+       * and `pages` then load in new documents, one after another, `afterMs` later. Each
+       * shows `signs` when the worker names the sign-in fields to read.
+       */
+      async function settledFirst(pages: (typeof noSigns)[], afterMs = 0) {
+        fake.state.extracted = { "signed-in": homePage };
+        let shown = { ...noSigns, password: true };
+        fake.state.signs = (message) =>
+          message["fields"] ? { ...shown, username: false } : { ...noSigns, password: true };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        expect(await h.hello()).toEqual({ ok: true });
+        const states = () =>
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : []));
+        // A slow answer: the submitted document's reading settles the login first.
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([
+              { state: "reconciling", outcome: "unknown-submit", settled: true },
+            ]),
+          { timeout: 8_000 },
+        );
+        expect(states()).toEqual([expect.objectContaining({ s1: true, decision: "unknown" })]);
+        expect(states()[0]).not.toHaveProperty("reshown");
+        if (afterMs > 0) {
+          const now = Date.now.bind(Date);
+          const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + afterMs);
+          onTestFinished(() => clock.mockRestore());
+        }
+        // Each page is read before the next one loads, so they run one after another.
+        /* eslint-disable no-await-in-loop */
+        for (const [index, signs] of pages.entries()) {
+          shown = signs;
+          fake.state.gone.add(index === 0 ? "synthetic-document" : `document-${index}`);
+          await h.hello({ documentId: `document-${index + 1}` }, false);
+          await vi.waitFor(() => expect(states().length).toBeGreaterThan(index + 1), {
+            timeout: 8_000,
+          });
+        }
+        /* eslint-enable no-await-in-loop */
+        return { states, service };
+      }
+
+      it("rejects the sign-in form shown again after the submitted document settled", async () => {
+        // A slow answer, still well within 30 seconds of the submission.
+        const { states, service } = await settledFirst([
+          { ...noSigns, password: true, invalid: true },
+        ]);
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "blocked", outcome: "credential-rejected" }]),
+          { timeout: 8_000 },
+        );
+        expect(states()[1]).toMatchObject({
+          f1: true,
+          reshown: true,
+          settled: true,
+          decision: "rejected",
+        });
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 20_000);
+
+      it("reads only the first new document after the submission as the form shown again", async () => {
+        // The person's own retry in the form shown again loads a third document.
+        const { states } = await settledFirst([
+          { ...noSigns, password: true },
+          { ...noSigns, password: true, invalid: true, alert: true },
+        ]);
+        expect(states()[1]).toMatchObject({ reshown: true, decision: "unknown" });
+        expect(states()[2]).toMatchObject({ f1: false, f2: false, decision: "unknown" });
+        expect(states()[2]).not.toHaveProperty("reshown");
+        const reads = fake.state.messages.filter((entry) => entry.type === "login.state");
+        expect(reads.at(-1)).not.toHaveProperty("fields");
+        expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]);
+      }, 30_000);
+
+      it("never reads a new document more than 30 seconds after the submission as its answer", async () => {
+        // The login settled and is watched; the person's own later attempt loads the
+        // sign-in form with an error.
+        const { states } = await settledFirst(
+          [{ ...noSigns, password: true, invalid: true, alert: true }],
+          31_000,
+        );
+        expect(states()[1]).toMatchObject({ s1: true, f1: false, f2: false, decision: "unknown" });
+        expect(states()[1]).not.toHaveProperty("reshown");
+        expect(
+          fake.state.messages.filter(
+            (entry) => entry.type === "login.state" && entry.fields !== undefined,
+          ),
+        ).toEqual([]);
+        expect(status()).toMatchObject([
+          { state: "reconciling", outcome: "unknown-submit", settled: true },
+        ]);
+      }, 20_000);
+
+      it("rejects the sign-in form shown again after a page judged challenge", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = (message) =>
+          message["fields"]
+            ? { ...noSigns, password: true, alert: true, username: false }
+            : { ...noSigns, username: false };
+        const service = generation({ judge: async () => ({ verdict: "challenge" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          // The submitted document shows an approval page first.
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 8_000 },
+        );
+        // The site then answers with its sign-in form and an error, as a new document.
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.observedPath = "/signin";
+        fake.state.gone.add("synthetic-document");
+        await h.hello({ documentId: "document-again" }, false);
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "blocked", outcome: "credential-rejected" }]),
+          { timeout: 10_000 },
+        );
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])).at(-1),
+        ).toMatchObject({ f2: true, reshown: true, decision: "rejected" });
+        expect(service.judge).toHaveBeenCalledTimes(1);
+      }, 20_000);
+
+      it("never reads the sign-in form shown again after an advance as a rejection", async () => {
+        const advancing = parseLoginRecipe({
+          ...generated,
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "username", target: target("user") }],
+            },
+            { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+            {
+              kind: "fill",
+              path: "/next",
+              fields: [{ slot: "password", target: target("password") }],
+            },
+            { kind: "click", path: "/next", target: target("login"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = (message) =>
+          message["fields"]
+            ? { ...noSigns, alert: true, invalid: true, username: false }
+            : { ...noSigns, username: false };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(advancing);
+        fake.state.present = new Set(["user", "next"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          // Next loads an unexpected page that shows the username form again.
+          fake.state.present = new Set(["user"]);
+          fake.state.observedPath = "/signin/again";
+          fake.state.gone.add("synthetic-document");
+          setTimeout(() => void h.hello({ documentId: "document-again" }, false), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        const states = () =>
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : []));
+        await vi.waitFor(() => expect(states().length).toBeGreaterThan(0), { timeout: 16_000 });
+        expect(states()[0]).toMatchObject({ s1: true, f1: false, f2: false, decision: "unknown" });
+        expect(states()[0]).not.toHaveProperty("reshown");
+        expect(
+          fake.state.messages.filter(
+            (entry) => entry.type === "login.state" && entry.fields !== undefined,
+          ),
+        ).toEqual([]);
+        expect(status()).not.toMatchObject([{ outcome: "credential-rejected" }]);
+      }, 25_000);
 
       it("logs reaching the return target the sign-in page's URL named, before the judge", async () => {
         fake.state.pageUrl = `${origin}/signin?return_to=%2Fhome`;

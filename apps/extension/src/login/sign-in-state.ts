@@ -13,9 +13,15 @@ export interface SignInSigns {
   readonly s4: boolean;
   /** S5: the top document asked for a passkey, outside conditional mediation, after the step. */
   readonly s5: boolean;
-  /** F1: an input became `aria-invalid="true"` in the submitted document. */
+  /**
+   * F1: an input became `aria-invalid="true"` in the submitted document, or, with
+   * `reshown`, one of the sign-in inputs is.
+   */
   readonly f1: boolean;
-  /** F2: an alert shows new text in the submitted document. */
+  /**
+   * F2: an alert shows new text in the submitted document, or, with `reshown`, an alert next
+   * to the sign-in form shows any text.
+   */
   readonly f2: boolean;
   /** E1: the recipe's signed-in marker shows, on any path. */
   readonly e1: boolean;
@@ -23,18 +29,27 @@ export interface SignInSigns {
   readonly e2: boolean;
   /** E3: the page is the same-origin return target the sign-in page's URL named. */
   readonly e3: boolean;
+  /**
+   * S1 holds in the first new top document after the attempt's password submission: the
+   * site showed its sign-in form again as a new page, and F1 and F2 were read on it
+   * without an earlier reading to compare with.
+   */
+  readonly reshown?: true;
 }
 
 /**
  * What ADR 0029 would do with the page: `rejected` (a failure shows next to the sign-in
  * fields), `unknown` (the sign-in fields show), `continuing` (another sign-in step shows;
  * the judge learns a handler), `signed-in` (evidence without a model call) or `judge` (no
- * sign and no evidence; the judge decides, and an undecided answer completes).
+ * sign and no evidence; the judge decides, and an undecided answer completes). A sign-in
+ * form shown again in a new document with a CAPTCHA is never rejected (owner, 2026-10-12
+ * 22:03 UTC): the site may ask for the CAPTCHA rather than refuse the password.
  */
 export type SignInDecision = "rejected" | "unknown" | "continuing" | "signed-in" | "judge";
 
 export function decideSignInState(signs: SignInSigns): SignInDecision {
-  if (signs.s1) return signs.f1 || signs.f2 ? "rejected" : "unknown";
+  if (signs.s1)
+    return (signs.f1 || signs.f2) && !(signs.reshown && signs.s4) ? "rejected" : "unknown";
   if (signs.s2 || signs.s3 || signs.s4 || signs.s5) return "continuing";
   if (signs.e1 || signs.e2 || signs.e3) return "signed-in";
   return "judge";

@@ -360,13 +360,17 @@ export const commandSchema = v.variant("type", [
   /**
    * Reads the page signs of ADR 0029 after an effect step that no check explained. The
    * username, when given, is compared with the header and navigation and never leaves the
-   * content script.
+   * content script. `fields`, the route's sign-in elements, is given for the first new
+   * top document after a password submission that shows the sign-in form again: F1 and F2
+   * are then read on those of them that are shown writable inputs, and on the alerts next
+   * to them, without an earlier reading to compare with.
    */
   v.strictObject({
     version: v.literal(1),
     type: v.literal("login.state"),
     token: id,
     account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
+    fields: v.optional(v.pipe(v.array(loginTargetSchema), v.maxLength(24))),
   }),
   v.strictObject({
     version: v.literal(1),

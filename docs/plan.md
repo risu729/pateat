@@ -132,11 +132,15 @@ own accounts, so they stay in the project's files rather than in this repository
   confirms completes a `password`-route login without a model call (owner's choice,
   2026-10-12 06:58 UTC, after アパホテル's login stayed unknown though its marker
   showed). The other rows of the ADR's outcome table are implemented too: a failure next
-  to the fields rejects, a sign of another sign-in step the judge does not decide goes
-  to the person, and no sign and no evidence asks the judge once and completes when it
-  cannot decide, never on a path judged `challenge` or `rejected` before or whose
-  earlier request has no verdict (local tests only). The judged page also carries its
-  header and navigation text (`headerText`, up to 1,000 characters, local tests only).
+  to the fields rejects, also when the sign-in form comes back as the first new document
+  after the submission with an invalid mark or an alert next to it and no recognised
+  CAPTCHA, even once watched (owner, 22:03 UTC, after GitHub's login with the wrong
+  account stayed unknown at 21:16:51 UTC), a sign of another sign-in step the
+  judge does not decide goes to the person, and no sign and no evidence asks the judge
+  once and completes when it cannot decide, never on a path judged `challenge` or
+  `rejected` before or whose earlier request has no verdict (local tests only). The
+  judged page also carries its header and navigation text (`headerText`, up to 1,000
+  characters, local tests only).
   Known gap, not fixed yet: on that page the title, headings and labels are cut at 120
   characters before every number is hidden, which can shorten them, so the start of a
   username cut at the limit is no longer recognised as cut and is sent (review of the
