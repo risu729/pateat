@@ -250,6 +250,10 @@ own accounts, so they stay in the project's files rather than in this repository
     open extension page follows a change made on another.
   - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
     first PR that uses it adds it.
+  - Done: the diagnostics page keeps its structure, with only its visuals and copy
+    changed (owner, 2026-10-12 21:08 UTC): icon-led check lines, two-column panels,
+    and in Logs the retention, debug logging's end time with **Turn off debug
+    logging**, and the privacy warning as a notice above the download.
   - Next: screen layouts and copy, some still under discussion with the owner.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
@@ -378,6 +382,8 @@ own accounts, so they stay in the project's files rather than in this repository
   - Batch 2, `services/api` (2026-10-12): 308 to 293 Vitest cases, service line
     coverage unchanged at 95.6%. The preservation review's mutations found two
     removals that were the only proof of a judgement rule, and both were kept.
+  - Batch 3, `packages/inference` (2026-10-12): 336 to 323 Vitest cases, package
+    line coverage unchanged at 99.1%.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
@@ -2001,7 +2007,8 @@ the model saw, the executor still checks a field's `maxlength` and `minlength` b
 fills and the browser's validation, `pattern` included, before it clicks. Text is
 redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
-as the executor resolves it, and for an input without one, its first `autocomplete`
+as the executor resolves it, skipping an `id` React's `useId` generated, and for an
+input without one, its first `autocomplete`
 token that is `username`, `email`, `current-password` or `one-time-code` and that no
 other input carries; a button without one gets a text locator when its text matches
 exactly one button and redaction leaves it unchanged, and a script link when its text

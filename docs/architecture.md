@@ -798,7 +798,7 @@ owner web UI take their colors, type, radii and focus ring from the
 2026-10-12 20:53 UTC). `apps/extension/entrypoints/options/style.css` and
 `services/api/web/styles.css` each define its tokens as CSS custom properties and
 Tailwind colors, with the same values; `tests/options/design-tokens.test.tsx` fails when
-the copies differ.
+their light or dark token values differ.
 
 Each page has light and dark themes and a Theme select (System, Light, Dark): on the
 extension's settings page and in the owner web UI's footer (owner, 2026-10-12 20:54
@@ -808,7 +808,8 @@ not in `chrome.storage`, the service or sync, so the extension and the owner web
 separate choices and each browser profile has its own. A page applies the stored choice
 before it renders, as a `data-theme` attribute on the root element, and an open page
 follows a change made on another page of the same program through the `storage` event.
-Because MV3 pages allow no inline script, the choice is applied from the page's module,
+Because neither program's pages allow inline script (the MV3 policy, and the owner web
+UI's `script-src 'self'`), the choice is applied from the page's module,
 so a page whose stored choice differs from the browser's scheme may paint one frame in
 the browser's scheme first.
 
@@ -858,6 +859,11 @@ that exact page URL and returns a value-free summary
   older than 24 hours and the errors and warnings logged in the last 24 hours (warn when
   there is an error, info for warnings only). Reworded states keep the
   raw code in parentheses.
+
+The page lists the checks first, each as a line led by its level's icon with the level
+read out to screen readers, then the Version and Settings and storage panels, the
+Bitwarden connections and Pateat service panels, and Logs. Values are shown as the
+summary has them, in a monospace face.
 
 The worker fetches `/health` only for a paired service with site access, and
 `/v1/device` only then and while the service has not rejected the credential, with a 5 s
@@ -949,7 +955,7 @@ event and how many of it were dropped. The first drop of each event in a window 
 logged at once and also logs the drops not yet counted; the rest are counted when the
 window ends and the next event or prune runs, so a worker that stops first loses only
 that remainder. `debug` entries are written only for 24 hours after
-**Enable debug logging for 24 hours**, or until **Disable debug logging** turns it off
+**Turn on debug logging for 24 hours**, or until **Turn off debug logging** turns it off
 sooner; either change is logged as `log.debug` with `enabled`. Retention: 14 days;
 `debug` entries for 24 hours; at most 14,000 `debug` and `info` entries (oldest `debug`
 first, then `info`) and 1,000 `warn` and `error` entries, pruned at worker start and
@@ -1179,6 +1185,15 @@ completion marker). A click is not tied to the form the previous fill used: a pa
 shows a second, previously hidden button with the same text stops the attempt as
 ambiguous, but if the observed button is removed and another button with the same text
 remains, that one is clicked.
+
+The extractor gives no `id` that React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`,
+a hydrated `:R1aH1:`, also after a prefix such as `radix-`): it counts the components
+rendered before it, so another page of the site gives the same ID to another element.
+LinkedIn's feed gave its search box the ID of the login form's username field, so the
+signed-in page showed that field (ADR 0029's S1, 2026-10-12). An element with no other
+unique locator gets no target: a login form that needs it is incomplete, and a possible
+sign-in field on the signed-in page is reported as unlocated. Saved recipes keep their
+targets until they are generated again.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button

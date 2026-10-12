@@ -228,23 +228,6 @@ describe("judged completion", () => {
     expect(addCompletion(recipe, next, target("logout")).ok).toBe(true);
   });
 
-  it("refuses a completion with more absent fields than the contract allows", () => {
-    const wide = built([
-      {
-        kind: "fill",
-        path: "/login",
-        effect: "prepare",
-        fields: ["a", "b", "c", "d", "e"].map((slot) => ({ slot, target: target(slot) })),
-      },
-      { kind: "click", path: "/login", target: target("go"), purpose: "submit" },
-    ]);
-    const signedIn = { origin, path: "/login", candidates: [candidate("out", target("logout"))] };
-    expect(addCompletion(wide, signedIn, target("logout"))).toEqual({
-      ok: false,
-      reason: "invalid-recipe",
-    });
-  });
-
   it("refuses another origin", () => {
     expect(
       addCompletion(recipe, { ...home, origin: "https://www.bank.example" }, target("logout")),
@@ -613,26 +596,6 @@ describe("judged totp handler (ADR 0027)", () => {
         totp(target("account")),
       ),
     ).toEqual({ ok: false, reason: "step-target" });
-  });
-
-  it("learns no completion on a page that still shows the code field", () => {
-    const added = addHandler(recipe, codePage(), totp());
-    if (!added.ok) throw new Error(added.reason);
-    const shown = (path: string) => ({
-      origin,
-      path,
-      candidates: [codeInput(), candidate("logout", target("logout"))],
-    });
-    expect(addCompletion(added.recipe, shown("/two-factor"), target("logout"))).toEqual({
-      ok: false,
-      reason: "login-page",
-    });
-    // An input of the same ID on another path is another element.
-    expect(addCompletion(added.recipe, shown("/home"), target("logout")).ok).toBe(true);
-    expect(addCompletion(added.recipe, codePage(), verify)).toEqual({
-      ok: false,
-      reason: "step-target",
-    });
   });
 });
 

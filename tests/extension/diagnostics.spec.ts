@@ -42,7 +42,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await page.goto(`chrome-extension://${id}/diagnostics.html`);
     await expect(page.getByRole("heading", { name: "Diagnostics", exact: true })).toBeVisible();
     await expect(page.locator("#diagnostics-version")).toHaveText(
-      /^0\.1\.0 \(([0-9a-f]{7}|development)\) · production build$/u,
+      /^0\.1\.0 \(([0-9a-f]{7}|development)\) production build$/u,
     );
     await expect(page.locator("#diagnostics-browser")).toHaveText(/^(Chrome|Chromium) \d+\./u);
     await expect(page.locator("#diagnostics-sdk")).toHaveText(/^0\.2\.0-main\.\d+$/u);
@@ -62,7 +62,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     );
 
     // Debug logging, the exact saved text, and clearing.
-    await page.getByRole("button", { name: "Enable debug logging for 24 hours" }).click();
+    await page.getByRole("button", { name: "Turn on debug logging for 24 hours" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Debug logging is on for 24 hours.");
     // Site addresses and recipe IDs are included until the person hides them.
     const included = await logs(page);
@@ -104,10 +104,10 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await page.getByRole("button", { name: "Copy all" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Copy failed. Use Save file instead.");
     // Debug logging turns off at once, before its 24 hours end.
-    await page.getByRole("button", { name: "Disable debug logging" }).click();
+    await page.getByRole("button", { name: "Turn off debug logging" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Debug logging is off.");
     await expect(
-      page.getByRole("button", { name: "Enable debug logging for 24 hours" }),
+      page.getByRole("button", { name: "Turn on debug logging for 24 hours" }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Clear logs" }).click();
     await page.getByRole("button", { name: "Delete all log entries" }).click();
@@ -129,7 +129,7 @@ test("a connection appears under a stable pseudonym with its server, and only it
     const page = await first.context.newPage();
     await page.goto(`chrome-extension://${first.extensionId}/diagnostics.html`);
     // Debug logging records the connection as the worker first sees it.
-    await page.getByRole("button", { name: "Enable debug logging for 24 hours" }).click();
+    await page.getByRole("button", { name: "Turn on debug logging for 24 hours" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Debug logging is on for 24 hours.");
     const options = await first.context.newPage();
     await options.goto(`chrome-extension://${first.extensionId}/options.html`);

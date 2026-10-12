@@ -400,22 +400,6 @@ describe("recipe generation role", () => {
       undefined,
       "invalid-output",
     ],
-    [
-      "four alternatives",
-      JSON.stringify({
-        result: {
-          decision: "plan",
-          fields: [{ slot: "password", candidate: "password" }],
-          action: { candidate: "sign-in", purpose: "submit" },
-          alternatives: Array.from({ length: 4 }, () => ({
-            fields: [{ slot: "email", candidate: "email" }],
-            action: { candidate: "sign-in", purpose: "submit" },
-          })),
-        },
-      }),
-      undefined,
-      "invalid-output",
-    ],
     ["truncation", '{"result":{"decision":"pl', "length", "truncated"],
     ["provider content filter", "", "content-filter", "refused"],
   ] as const)("maps %s to %s and keeps reported usage", async (_name, text, finish, error) => {
@@ -695,7 +679,7 @@ describe("account lists (ADR 0028)", () => {
     });
   });
 
-  it("tells the model about lists only for a list, without example texts", () => {
+  it("tells the model about lists only for a list", () => {
     expect(accountListGenerationInstructions).toBe(
       `${generationInstructions} ${accountListInstruction}`,
     );
