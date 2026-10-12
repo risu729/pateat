@@ -11,10 +11,10 @@ mode without the service are planned for [phase 3](plan.md#phase-3-public-releas
 and main push, split over the jobs below, and repeats the packaged-extension browser
 tests on Windows. The packaged-extension suite (`tests/extension`, 123 tests one after
 another in one worker) took about six minutes on Linux and seven on Windows, the longest
-step of every run (about 8.5 minutes in total on 2026-10-11). It therefore runs as four
-shards, in `Linux browser (1/4)` to `(4/4)` and `Windows browser (1/4)` to `(4/4)`: each
+step of every run (about 8.5 minutes in total on 2026-10-11). It therefore runs as six
+shards, in `Linux browser (1/6)` to `(6/6)` and `Windows browser (1/6)` to `(6/6)`: each
 shard sets `PATEAT_E2E_SHARD=<current>/<total>`, which
-`tests/extension/playwright.config.ts` turns into Playwright's `shard`, and the four
+`tests/extension/playwright.config.ts` turns into Playwright's `shard`, and the six
 shards together run every test once. The suite splits by test (`fullyParallel`) because
 splitting by file left `login.spec.ts` alone in a shard of about three minutes; each job
 still runs one worker. The `Verify` job runs the rest of the graph (lint, typecheck,
