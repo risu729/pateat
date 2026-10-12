@@ -944,6 +944,15 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(2);
   });
 
+  it("returns the current recipe the service answers for a stale base, pulling recipes only", async () => {
+    // Another device continued revision 1 first; the service answers with its revision 3.
+    const h = setup(answerOf(3));
+    const answer = await h.generation.generate(continuation);
+    expect(answer).toEqual({ outcome: "recipe", recipe: answerOf(3).result.change.recipe });
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+    expect(h.sync).not.toHaveBeenCalled();
+  });
+
   it("keys the claim by recipe as well as revision and path", async () => {
     const h = setup(answerOf(2));
     expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
@@ -1018,6 +1027,12 @@ describe("continuation claims and answers, probed independently (ADR 0018)", () 
       "recently-tried",
     ],
     ["a rejected device", { kind: "rejected" }, "failed", "device-rejected"],
+    [
+      "the daily limit",
+      { kind: "result", result: { version: 1, status: "unavailable", reason: "daily-limit" } },
+      "unavailable",
+      "daily-limit",
+    ],
   ])("frees the claim and asks for a retry after %s", async (_n, answer, outcome, reason) => {
     const h = setup(answer);
     expect(await h.generation.generate(continuation)).toEqual({ outcome, reason, retry: true });
