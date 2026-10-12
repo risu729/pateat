@@ -81,7 +81,7 @@ The owner decided these on 2026-10-11, following the kogane repository:
   application: it needs the owner's Access session.
 - Pairing without WARP: the owner decided on 2026-10-12 that browsers without WARP,
   such as an agent's cloud computer, may pair permanently
-  ([ADR 0029](adr/0029-pairing-without-warp.md)). A third self-hosted Access
+  ([ADR 0030](adr/0030-pairing-without-warp.md)). A third self-hosted Access
   application, "pateat pair", covers `pateat.takuk.me` with path `pair` (and the paths
   below it) and takes precedence there. Its Login methods are the host-wide
   application's identity provider and One-time PIN. Policy 1 is the same reusable

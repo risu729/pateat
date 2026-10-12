@@ -1156,7 +1156,7 @@ steady-state API calls carry no cookie.
   `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
   The route sits behind Access; the Worker verifies the token (the host-wide
   application's audience, or "pateat pair"'s, which also admits browsers without WARP,
-  [ADR 0029](adr/0029-pairing-without-warp.md)) and requires
+  [ADR 0030](adr/0030-pairing-without-warp.md)) and requires
   `Origin: chrome-extension://<id>` for an ID in `PAIRING_EXTENSION_IDS`, which lists
   Pateat's manifest-pinned production ID. It then limits pairing per identity, creates
   the owner on first pairing and the device, and answers the credential once; only its

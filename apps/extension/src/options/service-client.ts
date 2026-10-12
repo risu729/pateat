@@ -15,7 +15,7 @@ export interface ServiceClient {
   forget(): Promise<ServiceResponse>;
   /**
    * Opens the service's `/pair/signed-in` page in an ordinary tab, where the user signs
-   * in. A browser without WARP can sign in there but not on `/manage` (ADR 0029).
+   * in. A browser without WARP can sign in there but not on `/manage` (ADR 0030).
    */
   openSignIn(origin: string): Promise<void>;
 }

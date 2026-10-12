@@ -143,7 +143,7 @@ test("opens the sign-in page once when signed out and pairs on Try again", async
       await expect(options.getByText(/in the new tab, then come back here/)).toBeVisible();
       await signInPage.waitForURL(`${service.origin}/cdn-cgi/access/login`);
       // The settings page opened the service's own /pair/signed-in page, which Access
-      // redirected (ADR 0029).
+      // redirected (ADR 0030).
       expect(signInPages(service)).toEqual([
         { method: "GET", path: "/pair/signed-in", origin: null, cookie: null },
       ]);

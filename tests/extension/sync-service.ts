@@ -32,7 +32,7 @@ export type SyncService = {
 // Synthetic Access settings; they name no real Cloudflare organization.
 const ACCESS_TEAM_DOMAIN = "pateat-test.cloudflareaccess.com";
 const ACCESS_AUD = "pateat-test-audience";
-/** The audience of the "pateat pair" application, which covers `/pair` (ADR 0029). */
+/** The audience of the "pateat pair" application, which covers `/pair` (ADR 0030). */
 const ACCESS_PAIR_AUD = "pateat-test-pair-audience";
 /** The session cookie the stand-in accepts, as `context.addCookies` sets it. */
 export const ACCESS_COOKIE = { name: "CF_Authorization", value: "synthetic" };

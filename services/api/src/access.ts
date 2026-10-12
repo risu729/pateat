@@ -16,7 +16,7 @@ type AccessFailure = "unconfigured" | "missing" | "rejected";
  * Only the signed `Cf-Access-Jwt-Assertion` is trusted, never the plain identity
  * headers; issuer, audience, signature and expiry must all match the configuration.
  * Pairing routes also accept the "pateat pair" application's audience, which lets a
- * browser without WARP pair but not open the owner pages (ADR 0029).
+ * browser without WARP pair but not open the owner pages (ADR 0030).
  */
 function accessGuard(
   refuse: (c: Context<ApiEnv>, failure: AccessFailure) => Response | Promise<Response>,

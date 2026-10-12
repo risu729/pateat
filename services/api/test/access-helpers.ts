@@ -105,7 +105,7 @@ export async function owner(subject = newSubject()) {
   return { subject, token: await signAccess(claims(subject)) };
 }
 
-/** The owner signed in through the "pateat pair" application (ADR 0029). */
+/** The owner signed in through the "pateat pair" application (ADR 0030). */
 export async function pairOwner(subject = newSubject()) {
   return { subject, token: await signAccess(claims(subject, { aud: [PAIR_AUDIENCE] })) };
 }

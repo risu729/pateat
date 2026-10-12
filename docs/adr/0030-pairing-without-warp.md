@@ -1,4 +1,4 @@
-# ADR 0029: Pairing from browsers without WARP
+# ADR 0030: Pairing from browsers without WARP
 
 Status: accepted by the owner on 2026-10-12 (05:17 to 05:28 UTC). Implemented in the
 Worker and the extension. The "pateat pair" Access application and the
@@ -72,15 +72,19 @@ a way through without WARP should stay once it works, not only for a test (05:17
   on a vendor's machine, open `<service>/cdn-cgi/access/logout`; it signs out of every
   Access application, the owner's Chrome included.
 - **One owner.** A device paired this way belongs to the owner, so settings changed on
-  it apply to all of the owner's devices. A Bitwarden account connected there for a
-  test leaves its entry in the account policies until it is removed.
+  it apply to all of the owner's devices.
 - **Monitoring and removal.** The owner can watch Access authentication logs for
   One-time PIN sign-ins, revoke unknown devices on `/manage`, and use **Revoke existing
   tokens** on "pateat pair". Deleting the application and emptying `ACCESS_PAIR_AUD`
   returns pairing to WARP only.
 - The vault cache and retained unlock key on a vendor's machine
-  ([ADR 0006](0006-atomic-local-vault-cache.md)) are unchanged by this decision; the
-  owner tries it with a test Bitwarden account first.
+  ([ADR 0006](0006-atomic-local-vault-cache.md)) are unchanged by this decision. The
+  owner decided on 2026-10-12 (05:33 UTC) to connect their existing Bitwarden account
+  there rather than a test account. The vendor's machine then holds an encrypted copy
+  of the whole vault and the key that opens it, and an agent with a shell there could
+  read them, or read a password Pateat fills, if a prompt injection steered it.
+  **Deauthorize sessions** in Bitwarden stops new syncs but not the copy already there;
+  changing the affected passwords is the remedy if a leak is suspected.
 
 ## Alternatives
 
