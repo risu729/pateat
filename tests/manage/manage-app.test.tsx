@@ -79,17 +79,24 @@ test("lists devices and revokes one", async () => {
   await expect
     .element(page.getByRole("link", { name: "Devices" }))
     .toHaveAttribute("aria-current", "page");
-  await expect.element(page.getByRole("cell", { name: "Work laptop" })).toBeVisible();
-  await expect.element(page.getByRole("cell", { name: "Unnamed device" })).toBeVisible();
-  await expect.element(page.getByRole("cell", { name: formatted(PAIRED) }).first()).toBeVisible();
-  await expect.element(page.getByRole("columnheader", { name: "Last used" })).toBeVisible();
-  await expect.element(page.getByRole("cell", { name: formatted(LAPTOP_USED) })).toBeVisible();
-  await expect.element(page.getByRole("cell", { name: formatted(PHONE_USED) })).toBeVisible();
+  await expect.element(page.getByRole("heading", { level: 1, name: "Devices" })).toBeVisible();
+  const laptop = page.getByRole("listitem").filter({ hasText: "Work laptop" });
+  const phone = page.getByRole("listitem").filter({ hasText: "Unnamed device" });
+  await expect
+    .element(laptop)
+    .toMatchTextContent(`Paired ${formatted(PAIRED)}, last used ${formatted(LAPTOP_USED)}`);
+  await expect
+    .element(phone)
+    .toMatchTextContent(`Paired ${formatted(PAIRED)}, last used ${formatted(PHONE_USED)}`);
+  await expect
+    .element(page.getByText("A device unused for 90 days expires and must be paired again"))
+    .toBeVisible();
 
   await page.getByRole("button", { name: /^Revoke Unnamed device, paired / }).click();
   expect(client.revokeDevice).toHaveBeenCalledWith(PHONE);
-  await expect.element(page.getByText(`Revoked ${formatted(PAIRED + 60_000)}`)).toBeVisible();
-  await expect.element(page.getByRole("status")).toHaveTextContent("Unnamed device was revoked.");
+  await expect.element(phone).toMatchTextContent(`revoked ${formatted(PAIRED + 60_000)}`);
+  await expect.element(phone).toMatchTextContent("Revoked");
+  await expect.element(page.getByRole("status")).toHaveTextContent("Unnamed device revoked");
   await expect
     .element(page.getByRole("button", { name: /^Revoke Work laptop, paired / }))
     .toBeEnabled();
@@ -99,7 +106,9 @@ test("shows a device unused past the idle limit as expired, not revocable", asyn
   const listed = devices();
   listed.devices[1]!.lastUsedAt = Date.now() - DEVICE_IDLE_LIMIT_MS - DAY_MS;
   await mount(mockClient(listed));
-  await expect.element(page.getByRole("cell", { name: "Expired" })).toBeVisible();
+  await expect
+    .element(page.getByRole("listitem").filter({ hasText: "Unnamed device" }))
+    .toMatchTextContent("Expired");
   await expect
     .element(page.getByRole("button", { name: /^Revoke Unnamed device, paired / }))
     .not.toBeInTheDocument();
@@ -130,17 +139,22 @@ test("reports a failed revocation and keeps the device listed", async () => {
   await expect
     .element(page.getByRole("alert"))
     .toHaveTextContent("It no longer exists. Reload the page.");
-  await expect.element(page.getByRole("cell", { name: "Work laptop" })).toBeVisible();
+  await expect.element(page.getByText("Work laptop")).toBeVisible();
 });
 
-test("links the source and the bundled notices", async () => {
+test("links the source, its license and the bundled notices", async () => {
   await mount(mockClient());
+  await expect.element(page.getByText("Pateat test-revision")).toBeVisible();
   await expect
-    .element(page.getByRole("link", { name: "its source" }))
+    .element(page.getByRole("link", { name: "Source" }))
     .toHaveAttribute("href", "https://github.com/risu729/pateat/tree/main");
   await expect
-    .element(page.getByRole("link", { name: "third-party notices" }))
+    .element(page.getByRole("link", { name: "GPL-3.0-only" }))
+    .toHaveAttribute("href", "https://github.com/risu729/pateat/blob/main/LICENSE-GPL-3.0.txt");
+  await expect
+    .element(page.getByRole("link", { name: "Third-party notices" }))
     .toHaveAttribute("href", "/manage/assets/notices.md");
+  await expect.element(page.getByRole("combobox", { name: /^Theme/ })).toBeVisible();
 });
 
 test("renders no page for an unknown path", async () => {

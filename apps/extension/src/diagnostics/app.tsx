@@ -63,7 +63,6 @@ const TWO_PANELS = "grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))
 const PREVIEW =
   "m-0 overflow-auto rounded-lg border border-border bg-surface-sunken p-3 font-mono text-[13px] whitespace-pre-wrap";
 const NOTE = "m-0 text-[13px]/5 text-ink-muted";
-const DANGER = "border-danger! text-danger!";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** UTC first, as in the copied report, then the local time for reading. */
@@ -356,8 +355,8 @@ function Logs({
             <Button
               id="confirm-clear-logs"
               type="button"
-              variant="outline"
-              className={`gap-2 ${DANGER}`}
+              variant="danger"
+              className="gap-2"
               onClick={() =>
                 void client
                   .clearLogs()
@@ -380,8 +379,8 @@ function Logs({
             <Button
               id="clear-logs"
               type="button"
-              variant="outline"
-              className={`gap-2 ${DANGER}`}
+              variant="danger"
+              className="gap-2"
               onClick={() => setConfirmClear(true)}
             >
               <Trash aria-hidden size={16} strokeWidth={2} />

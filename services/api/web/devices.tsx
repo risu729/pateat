@@ -1,11 +1,24 @@
 import { DEVICE_IDLE_LIMIT_MS } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Clock, HardDrive, Laptop } from "lucide-react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
+import {
+  Badge,
+  ErrorNotice,
+  Line,
+  Lines,
+  PAGE_TITLE_CLASSES,
+  ROW_CLASSES,
+  RowIcon,
+  RowList,
+  RowMain,
+  SuccessNotice,
+} from "./ui";
 
 export const DEVICES_QUERY_KEY = ["devices"] as const;
 
-function formatTime(milliseconds: number) {
+export function formatTime(milliseconds: number) {
   return `${new Date(milliseconds).toISOString().replace("T", " ").slice(0, 16)} UTC`;
 }
 
@@ -21,84 +34,73 @@ export function DevicesPage({ client }: { client: ManageClient }) {
 
   return (
     <section aria-labelledby="devices-heading" className="space-y-4">
-      <h2 id="devices-heading" className="text-xl font-semibold">
+      <h1 id="devices-heading" className={PAGE_TITLE_CLASSES}>
         Devices
-      </h2>
-      <p className="text-ink-muted">
-        Revoking a device stops its later service requests. It does not erase data already stored on
-        that device or affect any vault. A device unused for {IDLE_LIMIT_DAYS} days expires the same
-        way and must be paired again.
-      </p>
-      <output id="devices-revoked" className="block text-ink-muted">
-        {revoke.isSuccess && `${revoke.variables.label} was revoked.`}
-      </output>
+      </h1>
+      <SuccessNotice
+        id="devices-revoked"
+        message={revoke.isSuccess && `${revoke.variables.label} revoked`}
+      />
       {revoke.isError && (
-        <p role="alert" id="devices-error" className="text-danger">
-          {describeError(revoke.error)}
-        </p>
+        <ErrorNotice id="devices-error">{describeError(revoke.error)}</ErrorNotice>
       )}
       {devices.isPending ? (
         <output id="devices-status" className="block">
           Loading devices…
         </output>
       ) : devices.isError ? (
-        <p role="alert" id="devices-status" className="text-danger">
-          {describeError(devices.error)}
-        </p>
+        <ErrorNotice id="devices-status">{describeError(devices.error)}</ErrorNotice>
       ) : devices.data.devices.length === 0 ? (
         <p id="devices-status">No devices are paired with this account.</p>
       ) : (
-        <table id="devices" className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b border-border-strong">
-              <th scope="col" className="py-2 pr-4">
-                Device
-              </th>
-              <th scope="col" className="py-2 pr-4">
-                Paired
-              </th>
-              <th scope="col" className="py-2 pr-4">
-                Last used
-              </th>
-              <th scope="col" className="py-2">
-                Status
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {devices.data.devices.map((device) => {
-              const label = device.label || "Unnamed device";
-              const paired = formatTime(device.createdAt);
-              // As of loading the list; the service refuses an expired device.
-              const expired = devices.dataUpdatedAt - device.lastUsedAt > DEVICE_IDLE_LIMIT_MS;
-              return (
-                <tr key={device.id} className="border-b border-border">
-                  <td className="py-2 pr-4">{label}</td>
-                  <td className="py-2 pr-4">{paired}</td>
-                  <td className="py-2 pr-4">{formatTime(device.lastUsedAt)}</td>
-                  <td className="py-2">
-                    {device.revokedAt !== null ? (
-                      `Revoked ${formatTime(device.revokedAt)}`
-                    ) : expired ? (
-                      "Expired"
-                    ) : (
-                      <Button
-                        variant="outline"
-                        // Unnamed devices are told apart by when they were paired.
-                        aria-label={`Revoke ${label}, paired ${paired}`}
-                        disabled={revoke.isPending}
-                        onClick={() => revoke.mutate({ id: device.id, label })}
-                      >
-                        Revoke
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <RowList id="devices">
+          {devices.data.devices.map((device) => {
+            const label = device.label || "Unnamed device";
+            const paired = formatTime(device.createdAt);
+            // As of loading the list; the service refuses an expired device.
+            const expired = devices.dataUpdatedAt - device.lastUsedAt > DEVICE_IDLE_LIMIT_MS;
+            const revoked =
+              device.revokedAt === null ? "" : `, revoked ${formatTime(device.revokedAt)}`;
+            return (
+              <li key={device.id} className={ROW_CLASSES}>
+                <RowIcon>
+                  <Laptop size={16} aria-hidden />
+                </RowIcon>
+                <RowMain
+                  title={label}
+                  sub={`Paired ${paired}, last used ${formatTime(device.lastUsedAt)}${revoked}`}
+                />
+                {device.revokedAt !== null ? (
+                  <Badge tone="muted">Revoked</Badge>
+                ) : expired ? (
+                  <Badge tone="warning">
+                    <Clock size={12} aria-hidden />
+                    Expired
+                  </Badge>
+                ) : (
+                  <Button
+                    variant="danger"
+                    // Unnamed devices are told apart by when they were paired.
+                    aria-label={`Revoke ${label}, paired ${paired}`}
+                    disabled={revoke.isPending}
+                    onClick={() => revoke.mutate({ id: device.id, label })}
+                  >
+                    Revoke
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </RowList>
       )}
+      <Lines>
+        <Line icon={<Clock size={16} aria-hidden />}>
+          A device unused for {IDLE_LIMIT_DAYS} days expires and must be paired again
+        </Line>
+        <Line icon={<HardDrive size={16} aria-hidden />}>
+          Revoking does not erase data already on that device
+        </Line>
+      </Lines>
     </section>
   );
 }

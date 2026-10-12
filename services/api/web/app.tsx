@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+// The toolbar icon, emitted beside the bundle as the favicon is.
+import logo from "../../../apps/extension/icons/icon.svg?url";
 import type { ManageClient } from "./api";
 import { BindingsPage } from "./bindings";
 import { DevicesPage } from "./devices";
@@ -6,8 +9,9 @@ import { SitesPage } from "./sites";
 import { ThemeSelect } from "./theme-select";
 
 const revision = PATEAT_BUILD_REVISION;
+const isCommit = /^[0-9a-f]{40}$/.test(revision);
 // The source offer and license text are the repository at the exact built commit.
-const sourceRef = /^[0-9a-f]{40}$/.test(revision) ? revision : "main";
+const sourceRef = isCommit ? revision : "main";
 const sourceUrl = `https://github.com/risu729/pateat/tree/${sourceRef}`;
 const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-GPL-3.0.txt`;
 
@@ -19,20 +23,28 @@ const PAGES = [
   { path: "/manage/recipes", title: "Recipes", Page: RecipesPage },
 ] as const;
 
+const linkClasses = "text-accent-ink underline hover:text-accent-hover";
+
 export function ManageApp({ client, path }: { client: ManageClient; path: string }) {
   const current = PAGES.find((page) => page.path === path);
+  useEffect(() => {
+    document.title = current ? `${current.title} – Pateat` : "Pateat";
+  }, [current]);
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4">
-      <header className="space-y-2">
-        <h1 className="text-[1.75rem]/9 font-bold tracking-[-0.02em]">Pateat</h1>
+    <div className="mx-auto flex max-w-[880px] flex-col gap-6 px-4 pt-6 pb-12 text-[15px]/6 sm:px-6">
+      <header className="flex flex-wrap items-center gap-4">
+        <span className="flex items-center gap-2 font-bold">
+          <img src={logo} alt="" width={20} height={20} />
+          Pateat
+        </span>
         <nav aria-label="Sections">
-          <ul className="flex gap-4">
+          <ul className="flex flex-wrap gap-1">
             {PAGES.map((page) => (
               <li key={page.path}>
                 <a
                   href={page.path}
                   aria-current={page === current ? "page" : undefined}
-                  className="text-accent-ink underline aria-[current=page]:font-semibold aria-[current=page]:no-underline"
+                  className="inline-flex min-h-10 items-center rounded-lg px-3.5 text-sm font-medium text-ink no-underline hover:bg-surface aria-[current=page]:bg-surface aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink aria-[current=page]:shadow-[inset_0_0_0_1px_var(--border)]"
                 >
                   {page.title}
                 </a>
@@ -42,23 +54,21 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
         </nav>
       </header>
       <main>{current ? <current.Page client={client} /> : <p>No such page.</p>}</main>
-      <footer className="space-y-3 border-t border-border pt-4 text-sm text-ink-muted">
-        <ThemeSelect />
-        <p>
-          Pateat {revision}. This page includes code licensed under the{" "}
-          <a className="text-accent-ink underline" href={licenseUrl}>
-            GPL-3.0-only
-          </a>
-          ;{" "}
-          <a className="text-accent-ink underline" href={sourceUrl}>
-            its source
-          </a>{" "}
-          and the{" "}
-          <a className="text-accent-ink underline" href="/manage/assets/notices.md">
-            third-party notices
-          </a>{" "}
-          are available.
-        </p>
+      <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-4 text-[13px]/5 text-ink-muted">
+        {/* The bundle includes GPL-3.0-only code: its source and license at the built commit. */}
+        <span className="font-mono">Pateat {isCommit ? revision.slice(0, 7) : revision}</span>
+        <a className={linkClasses} href={sourceUrl}>
+          Source
+        </a>
+        <a className={linkClasses} href={licenseUrl}>
+          GPL-3.0-only
+        </a>
+        <a className={linkClasses} href="/manage/assets/notices.md">
+          Third-party notices
+        </a>
+        <span className="ml-auto">
+          <ThemeSelect />
+        </span>
       </footer>
     </div>
   );

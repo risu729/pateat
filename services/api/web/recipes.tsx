@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { describeError, ManageApiError, type ManageClient } from "./api";
 import { Button } from "./button";
+import { PAGE_TITLE_CLASSES } from "./ui";
 
 export const RECIPES_QUERY_KEY = ["recipes"] as const;
 
@@ -215,9 +216,9 @@ export function RecipesPage({ client }: { client: ManageClient }) {
         </p>
       )}
       <section aria-labelledby="recipes-heading" className="space-y-4">
-        <h2 id="recipes-heading" tabIndex={-1} className="text-xl font-semibold outline-none">
+        <h1 id="recipes-heading" tabIndex={-1} className={`${PAGE_TITLE_CLASSES} outline-none`}>
           Recipes
-        </h2>
+        </h1>
         <p className="text-ink-muted">
           The steps devices follow to log in on each site. Devices write recipes; this page does not
           edit them. Revoking one stops devices from using it after their next sync, and logins on

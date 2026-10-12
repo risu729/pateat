@@ -290,6 +290,12 @@ own accounts, so they stay in the project's files rather than in this repository
     the site, each passkey as a choice led by its user name, the site default marked
     **Default**, a one-line note after a Pateat sign-in from the tab, and the save
     checkbox above the list.
+  - Done: the `/manage` header shows the logo beside "Pateat" and the sections as tabs;
+    Devices is a list with a Revoke button, a Revoked or Expired badge and the idle
+    expiry and data notes as icon-led lines; the footer holds the version, Source,
+    GPL-3.0-only, Third-party notices and the Theme select. Icons come from
+    `lucide-react` in `services/api`.
+  - Next: the other screens' layouts and copy.
   - Next: the other screens' layouts and copy.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
