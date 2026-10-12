@@ -103,8 +103,7 @@ export function accountEntries(root: Document | Element): AccountEntry[] {
   }
   const entries = [...found.values()];
   return entries.filter(
-    (entry) =>
-      !entries.some((inner) => inner !== entry && entry.element.contains(inner.element)),
+    (entry) => !entries.some((inner) => inner !== entry && entry.element.contains(inner.element)),
   );
 }
 

@@ -53,10 +53,10 @@ token and that is one of: a `<button>` or button-type `<input>`; an `<a>`, whose
 if any, stays on the page's origin; an element with `role` `button`, `link`, `option`,
 `menuitem` or `radio`; an element with `tabindex` 0 or more; or an element whose
 computed `cursor` is `pointer`. A link, button or element with one of those roles around
-the text that fails the rule (another origin, disabled) means the text has no entry, since
-a click on an element around it would land on that control. This deliberately wider rule
-applies only to list entries and the `other` button, not to the executor's other click
-steps.
+the text that fails the rule (another origin, disabled) means the text has no entry,
+since a click on an element around it would land on that control. This deliberately
+wider rule applies only to list entries and the `other` button, not to the executor's
+other click steps.
 
 ### Which pages are sent
 
