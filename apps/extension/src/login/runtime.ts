@@ -523,6 +523,8 @@ type ParkedRequest = {
    * the pick while the tab asks.
    */
   asked?: true;
+  /** When a pick for its document started no login; it waits briefly for the choice again. */
+  dropped?: number;
   settle(decision: ConditionalDecision): boolean;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
@@ -1758,10 +1760,10 @@ export function createLoginRuntime(
       await quietly(saveSession);
     }
     // Nothing answers the document's passkey request then, unless its choice is offered
-    // again (ADR 0034).
+    // again soon, as when the document announces again (ADR 0034).
     for (const parked of parkedRequests)
       if (parked.tabId === request.tabId && parked.documentId === waiting.document.documentId)
-        delete parked.asked;
+        parked.dropped = Date.now();
     if (gone) return { ok: false, reason: "document-gone" };
     // Another tab's login started holding the site after the choice was offered. The page
     // does not announce again once that hold ends, so its choice waits for a later pick.
@@ -7193,7 +7195,8 @@ export function createLoginRuntime(
   }
   /**
    * Whether the tab asks the request's document for an account after a logout (ADR 0021 D):
-   * its choice waits in the popup, or its pick has not started a login yet.
+   * its choice waits in the popup, or the pick of a document asked so has not started a
+   * login yet.
    */
   function askedFor(parked: ParkedRequest): boolean {
     const waiting = pending.get(parked.tabId);
@@ -7202,7 +7205,8 @@ export function createLoginRuntime(
       (waiting?.logout === true &&
         waiting.document.frameId === 0 &&
         waiting.document.documentId === parked.documentId) ||
-      (pick !== undefined &&
+      (parked.asked === true &&
+        pick !== undefined &&
         pick.attemptId === undefined &&
         pick.origin === parked.origin &&
         pick.documentId === parked.documentId)
@@ -7236,13 +7240,18 @@ export function createLoginRuntime(
       const ended = own && (terminal(own) || idle(own));
       const running = own !== undefined && !ended;
       if (running) parked.during = true;
-      if (running ? own.fillOnly : askedFor(parked)) parked.asked = true;
+      const offered = !running && askedFor(parked);
+      if (offered) delete parked.dropped;
+      if (running ? own.fillOnly : offered) parked.asked = true;
       // A choice still offered decides alone: another tab's login can end the logout this
-      // tab asks for, while its choice stays.
+      // tab asks for, while its choice stays. A dropped pick leaves it a moment to be
+      // offered again.
       const asks = running
         ? own.fillOnly === true
-        : askedFor(parked) ||
-          (parked.asked === true && asksAfterLogout(parked.tabId, parked.origin));
+        : offered ||
+          (parked.asked === true &&
+            asksAfterLogout(parked.tabId, parked.origin) &&
+            (parked.dropped === undefined || now - parked.dropped < REQUEST_START_WAIT_MS));
       if (asks) {
         if (now - parked.since >= REQUEST_PARK_MS) parked.settle({ kind: "withhold" });
       } else if (!own || (ended && !parked.during)) {
