@@ -664,6 +664,9 @@ describe("extractLoginObservation", () => {
       <form><input name="u2"><input name="p2" type="password"><input type="button" value="Login"></form>`,
     );
     expect(observe().complete).toBe(false);
+    // An icon button may be the form's only, script-run submit, so there it still does.
+    page(`<form><input name="mail"><input name="pass" type="password">${toggle}</form>`);
+    expect(observe().complete).toBe(false);
     // A submit button without a locator still marks the login form incomplete.
     page(
       `<form><input name="mail"><input name="pass" type="password">
