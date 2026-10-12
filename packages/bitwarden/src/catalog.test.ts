@@ -116,9 +116,9 @@ describe("actual SDK metadata group verification", () => {
   });
   it("requires an initialized organization key before projecting that collection", async () => {
     const active = await session();
-    expect(
-      (await active.decryptCatalogGroups({ folders: [], collections: [collection()] })).ok,
-    ).toBe(false);
+    expect(await active.decryptCatalogGroups({ folders: [], collections: [collection()] })).toEqual(
+      { ok: false, error: { code: "crypto-failed" } },
+    );
   });
   it("fails closed for a non-cloneable group request without throwing a raw error", async () => {
     const active = await session();

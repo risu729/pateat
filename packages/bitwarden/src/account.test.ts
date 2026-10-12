@@ -14,7 +14,14 @@ import {
   rawV2Account,
   syntheticJwt,
 } from "./__fixtures__/account";
-import { v1Email, v1Password, v1PrivateKey, v1WrappedUserKey } from "./__fixtures__/crypto";
+import {
+  TEST_ORGANIZATION_ID,
+  TEST_ORGANIZATION_KEY,
+  v1Email,
+  v1Password,
+  v1PrivateKey,
+  v1WrappedUserKey,
+} from "./__fixtures__/crypto";
 import { jsonResponse } from "./__fixtures__/transport";
 import { v2ContainedKeyId, v2UnlockSalt } from "./__fixtures__/account-generated";
 
@@ -363,7 +370,10 @@ describe("raw provider account through native local crypto", () => {
   it("still rejects stored Data that contradicts the response model", () => {
     const raw = serverStoredLogin(null);
     const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
-    cipher["data"] = JSON.stringify({ Username: v1WrappedUserKey, Name: cipher["name"] });
+    cipher["data"] = JSON.stringify({
+      ...JSON.parse(cipher["data"] as string),
+      Username: v1WrappedUserKey,
+    });
     expect(mapRaw(raw)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
   });
 
@@ -426,25 +436,6 @@ describe("raw provider account through native local crypto", () => {
     const { prepared, session } = await received(raw);
     expect(prepared.minimumSecurityVersion).toBe(1);
     expect(session.metadata.securityVersion).toBe(2);
-  });
-
-  it("rejects a tampered signed V2 account after raw DTO preparation without returning a session", async () => {
-    const raw = rawV2Account();
-    const bytes = Uint8Array.from(
-      atob(raw.sync.profile.accountKeys.securityState.securityState),
-      (part) => part.charCodeAt(0),
-    );
-    bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 1;
-    const corrupted = btoa(String.fromCharCode(...bytes));
-    raw.sync.profile.accountKeys.securityState.securityState = corrupted;
-    raw.token.AccountKeys.securityState.securityState = corrupted;
-    const prepared = mapRaw(raw);
-    expect(prepared.ok).toBe(true);
-    if (!prepared.ok) return;
-    expect(await initializePrepared(prepared.data)).toEqual({
-      ok: false,
-      error: { code: "crypto-failed" },
-    });
   });
 
   it("keeps authentication KDF independent from modern vault unlock KDF", () => {
@@ -584,30 +575,6 @@ describe("account and provider binding admission", () => {
       error: { code: "security-downgrade" },
     });
   });
-
-  it("rejects a signed-security floor downgrade after native initialization", async () => {
-    const result = mapRaw(rawV1Account(), { ...known, accountVersion: "v1" });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(
-      await createLocalCryptoSession(
-        {
-          connectionId: accountProfile.connectionId,
-          userId: result.data.binding.userId,
-          email: v1Email,
-          kdf: result.data.kdf,
-          accountCryptographicState: result.data.accountCryptographicState,
-          unlock: {
-            kind: "password",
-            password: v1Password,
-            masterPasswordUnlock: result.data.masterPasswordUnlock,
-          },
-          minimumSecurityVersion: result.data.minimumSecurityVersion,
-        },
-        sdk,
-      ),
-    ).toEqual({ ok: false, error: { code: "security-downgrade" } });
-  });
 });
 
 describe("strict modern data without legacy alias fallback", () => {
@@ -744,12 +711,6 @@ describe("received-envelope item mapping", () => {
     },
   );
 
-  it("rejects duplicate received cipher IDs", () => {
-    const raw = rawV1Account();
-    raw.sync.ciphers.push(rawLoginCipher());
-    expect(mapRaw(raw).ok).toBe(false);
-  });
-
   it("rejects an unavailable item with invalid identifying metadata", () => {
     const raw = rawV1Account();
     raw.sync.ciphers.push({ ...rawLoginCipher(), id: "not-an-id", type: 99 });
@@ -762,14 +723,15 @@ describe("received-envelope item mapping", () => {
       raw,
       ["sync", "profile", "organizations"],
       [
-        { id: "1bc9ac1e-f5aa-45f2-94bf-b181009709b8", enabled: false },
-        { id: "1bc9ac1e-f5aa-45f2-94bf-b181009709b8", enabled: false },
+        { id: TEST_ORGANIZATION_ID, key: TEST_ORGANIZATION_KEY, enabled: true, status: 2 },
+        { id: TEST_ORGANIZATION_ID, key: TEST_ORGANIZATION_KEY, enabled: true, status: 2 },
       ],
     );
-    expect(mapRaw(raw).ok).toBe(false);
+    expect(mapRaw(raw)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
   });
 
   it.each([
+    [1, 1],
     [1, 5],
     [5, 1],
     [5, 99],
@@ -872,7 +834,7 @@ describe("received-envelope item mapping", () => {
       const result = mapRaw(raw);
       expect(result.ok).toBe(false);
       expect(JSON.stringify(result)).not.toContain("synthetic-secret");
-      expect(Object.hasOwn({}, "polluted")).toBe(false);
+      expect("polluted" in {}).toBe(false);
     },
   );
 });

@@ -39,9 +39,20 @@ describe("local password authentication known answers", () => {
           kdfSettings: { kdfType: 1, iterations: 4, memory: 32, parallelism: 2 },
           salt: argon2Auth.salt,
         }),
-        sdk,
+        { PureCrypto: sdk.PureCrypto },
       ),
     ).toEqual({ ok: true, data: { connectionId, masterPasswordHash: argon2Auth.expected } });
+    // V2 vault fixtures use a different unlock KDF (6/32/4). Authentication uses only prelogin.
+    const unlockParameters = await derivePasswordAuthentication(
+      modern({
+        kdfSettings: { kdfType: 1, iterations: 6, memory: 32, parallelism: 4 },
+        salt: argon2Auth.salt,
+      }),
+      sdk,
+    );
+    expect(unlockParameters.ok).toBe(true);
+    if (unlockParameters.ok)
+      expect(unlockParameters.data.masterPasswordHash).not.toBe(argon2Auth.expected);
   });
 
   it("derives from flat KDF fields and the email salt when password prelogin omits kdfSettings", async () => {
@@ -140,33 +151,6 @@ describe("local password authentication known answers", () => {
     const result = await derivePasswordAuthentication({ ...input(), password }, sdk);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.masterPasswordHash).not.toBe(pbkdf2Auth.expected);
-  });
-
-  it("uses authentication KDF/salt and does not treat the hash as a V2 vault unlock", async () => {
-    const result = await derivePasswordAuthentication(
-      modern({
-        kdfSettings: { kdfType: 1, iterations: 4, memory: 32, parallelism: 2 },
-        salt: argon2Auth.salt,
-      }),
-      { PureCrypto: sdk.PureCrypto },
-    );
-    expect(result).toEqual({
-      ok: true,
-      data: { connectionId, masterPasswordHash: argon2Auth.expected },
-    });
-    if (result.ok)
-      expect(Object.keys(result.data).sort()).toEqual(["connectionId", "masterPasswordHash"]);
-    // V2 vault fixtures use a different unlock KDF (6/32/4). Authentication uses only prelogin.
-    const unlockParameters = await derivePasswordAuthentication(
-      modern({
-        kdfSettings: { kdfType: 1, iterations: 6, memory: 32, parallelism: 4 },
-        salt: argon2Auth.salt,
-      }),
-      sdk,
-    );
-    expect(unlockParameters.ok).toBe(true);
-    if (unlockParameters.ok)
-      expect(unlockParameters.data.masterPasswordHash).not.toBe(argon2Auth.expected);
   });
 });
 

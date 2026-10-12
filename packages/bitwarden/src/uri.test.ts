@@ -72,19 +72,6 @@ describe("pinned ordinary Bitwarden URI semantics", () => {
     },
   );
 
-  it.each([{}, { defaultMatch: null }])(
-    "absent/null account default uses Domain case %#",
-    (options) => {
-      expect(
-        matchBitwardenLoginUris(
-          [{ uri: target, match: null }],
-          "https://auth.example.com/login",
-          options,
-        ),
-      ).toMatchObject({ ok: true, data: { matched: true, matches: [{ uriIndex: 0, match: 0 }] } });
-    },
-  );
-
   it("an explicit Domain mode overrides a stricter trusted default", () => {
     expect(
       matchBitwardenLoginUris(saved(), "https://auth.example.com/", { defaultMatch: 3 }),
@@ -193,13 +180,6 @@ describe("same-account supplied equivalent domains", () => {
       );
     },
   );
-
-  it("canonicalizes ordinary case and IDN domain members", () => {
-    const domains = userDomains([["EXAMPLE.COM", "bücher.de"]]);
-    expect(
-      matchBitwardenLoginUris(saved("https://xn--bcher-kva.de"), target, { domains }),
-    ).toMatchObject({ ok: true, data: { matched: true } });
-  });
 
   it("does not mutate caller-owned URI arrays or equivalent domain groups", () => {
     const uris = saved("https://example.net");
@@ -576,15 +556,6 @@ describe("strict destination and unsupported rule admission", () => {
     });
   });
 
-  it("bounds URI count before returning candidates", () => {
-    expect(
-      matchBitwardenLoginUris(
-        Array.from({ length: 1001 }, () => ({ uri: target, match: 0 })),
-        target,
-      ),
-    ).toEqual({ ok: false, error: { code: "invalid-uri-input" } });
-  });
-
   it("accepts the maximum URI count without deduplicating their snapshot indices", () => {
     const result = matchBitwardenLoginUris(
       Array.from({ length: 1000 }, () => ({ uri: target, match: 3 })),
@@ -693,23 +664,6 @@ describe("URI candidate matching is separate from the existing destination grant
       });
     },
   );
-
-  it("a matching URI cannot override the selected account's item exclusion", () => {
-    expect(
-      matchBitwardenLoginUris(saved("https://bank.example"), "https://bank.example/login"),
-    ).toMatchObject({ ok: true, data: { matched: true } });
-    const settings = createDefaultSettings();
-    settings.siteDefaults.push({
-      origin: "https://bank.example",
-      provider: "dummy",
-      userId: "demo-personal-account",
-      itemId: "primary",
-    });
-    settings.connections[0]!.excludedItemIds.push("primary");
-    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example/login")).toEqual(
-      { ok: false, reason: "item-excluded" },
-    );
-  });
 });
 
 describe("real SDK authenticated URI to local matching", () => {

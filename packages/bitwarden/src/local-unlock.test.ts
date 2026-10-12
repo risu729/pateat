@@ -91,10 +91,12 @@ describe("verified local unlock material with the actual official SDK", () => {
       if (!decrypted.ok) throw new Error("Restored native item failed");
       if (kind === "v2")
         expect(decrypted.data).toMatchObject({ name: "Test Cipher", notes: "Some notes" });
-      else
-        expect(decrypted.data.login?.password).toBe(
-          kind === "organization" ? "synthetic-org-password" : "test_password",
-        );
+      else if (kind === "organization")
+        expect(decrypted.data).toMatchObject({
+          name: "Synthetic organization login",
+          login: { username: "synthetic-org-user", password: "synthetic-org-password" },
+        });
+      else expect(decrypted.data.login?.password).toBe("test_password");
       expect(restored.data.metadata).toEqual(exported.data.metadata);
     },
   );
@@ -147,7 +149,7 @@ describe("offline encrypted prepared-context admission", () => {
     ["binding.userId", ["binding", "userId"], "not-a-uuid"],
     ["binding.accountVersion", ["binding", "accountVersion"], "v3"],
     ["coverage", ["coverage"], "complete-vault"],
-    ["KDF", ["kdf"], { pBKDF2: { iterations: 1 } }],
+    ["KDF differing from the unlock KDF", ["kdf"], { pBKDF2: { iterations: 1 } }],
     ["floor", ["minimumSecurityVersion"], 3],
     ["cipher DTO", ["ciphers", "0", "login"], { unknown: "plaintext" }],
     ["extra password", ["password"], v1Password],

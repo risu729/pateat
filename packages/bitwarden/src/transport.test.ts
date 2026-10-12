@@ -351,7 +351,7 @@ describe("response admission and diagnostics", () => {
   it("rejects a fetch-followed redirect even when its status and JSON look valid", async () => {
     const response = jsonResponse(encryptedSync());
     Object.defineProperty(response, "redirected", { value: true });
-    Object.defineProperty(response, "url", { value: "https://other.example.test/api/sync" });
+    Object.defineProperty(response, "url", { value: "https://api.bitwarden.com/sync" });
     const fetch = vi.fn<Fetch>().mockResolvedValue(response);
     expect(
       await transport(fetch).sync({
@@ -400,6 +400,7 @@ describe("response admission and diagnostics", () => {
     jsonResponse({ kdf: "0", kdfIterations: 600_000 }),
     jsonResponse({ kdf: 0, kdfIterations: 0 }),
     jsonResponse({ kdf: 1, kdfIterations: 3, kdfMemory: 64 }),
+    jsonResponse(passwordPrelogin),
   ])("rejects malformed prelogin data without exposing body text", async (response) => {
     const fetch = vi.fn<Fetch>().mockResolvedValue(response);
     const result = await transport(fetch).prelogin({
@@ -475,18 +476,6 @@ describe("response admission and diagnostics", () => {
         mode: "password",
       }),
     ).toEqual({ ok: true, data: unknown });
-  });
-
-  it("rejects a password-prelogin envelope on the legacy route", async () => {
-    const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse(passwordPrelogin));
-    expect(
-      await transport(fetch).prelogin({
-        connectionId: cloudProfile.connectionId,
-        email: "synthetic@example.test",
-        mode: "legacy",
-      }),
-    ).toEqual({ ok: false, error: { code: "invalid-response" } });
-    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -704,7 +693,7 @@ describe("bounded response processing", () => {
     ).toEqual({ ok: false, error: { code: "invalid-response" } });
   });
 
-  it("sanitizes a stream read error and cancels remaining work", async () => {
+  it("maps a stream read error to a sanitized network failure", async () => {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.error(new Error("synthetic-stream-secret"));

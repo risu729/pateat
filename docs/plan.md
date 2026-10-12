@@ -249,6 +249,12 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   the deleted tests with the kept ones before each batch merges, as the skill's
   preservation review does. The suite's size and CI times in the survey are a 2026-10-12
   snapshot; re-measure them when the work starts and after each batch.
+  - Batch 1, `packages/bitwarden` (started 2026-10-12): read-only reviewers marked
+    every declaration keep, fix, merge or delete, naming the remaining proof for each
+    removal; 943 to 919 Vitest cases, package line coverage unchanged at 96.0%. Copying
+    the skill files into the repository was refused by the cloud session's approval
+    policy, so the batches follow the survey's summary of its rules until the owner
+    decides how the copy lands.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26

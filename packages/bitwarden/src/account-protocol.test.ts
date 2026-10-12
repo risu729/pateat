@@ -71,24 +71,4 @@ describe("fixed Bitwarden read protocol", () => {
       expect(init.credentials).toBe("omit");
     }
   });
-
-  it.each(["version_header_missing", "invalid_client_version"])(
-    "never retries or advertises an older profile after %s",
-    async (error) => {
-      const fetch = vi.fn<Fetch>(async () => jsonResponse({ error }, { status: 400 }));
-      const created = createBitwardenTransport(
-        { connectionId: "synthetic-auth-a", environment: { kind: "cloud", region: "us" } },
-        { fetch },
-      );
-      if (!created.ok) throw new Error("Synthetic profile rejected");
-      expect(await created.data.passwordToken(passwordTokenRequest())).toEqual({
-        ok: true,
-        data: { kind: "interaction-required", reason: "protocol-compatibility" },
-      });
-      expect(fetch).toHaveBeenCalledTimes(1);
-      expect(new Headers(fetch.mock.calls[0]![1].headers).get("bitwarden-client-version")).toBe(
-        "2026.2.0",
-      );
-    },
-  );
 });
