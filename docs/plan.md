@@ -94,6 +94,15 @@ Chrome, on a production build of main.
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
   planned on 2026-10-11, and the base design tokens set with Claude Design.
+- Prune low-value tests with OpenClaw's `test-audit` agent skill, alongside the UI
+  polish once the daily-use sites are done (owner, 2026-10-12 07:43 UTC; the
+  [survey](research/2026-10-12-test-pruning-skills.md) compares the alternatives). The
+  skill is copied into the repository with its OpenClaw-specific validation replaced by
+  `mise run check`. The owner asked for care not to remove needed tests: every deletion
+  names the test that still covers its contract, and an independent subagent compares
+  the deleted tests with the kept ones before each batch merges, as the skill's
+  preservation review does. The suite's size and CI times in the survey are a 2026-10-12
+  snapshot; re-measure them when the work starts and after each batch.
 - `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged (the retry
   window is 10 minutes since 2026-10-12), so the first recipe names both its password
   and passkey routes. A recipe generated earlier gets no routes
@@ -254,6 +263,10 @@ still open on 2026-10-11.
   [research note](research/2026-10-11-clef-finite-choice.md) covers its API, where it
   would fit in recipe generation, cost, and the open questions (Japanese, calibration,
   who pays, abstention handover).
+- An agent skill for pruning the low-value tests agents write (owner, 2026-10-12 07:32
+  UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills;
+  the owner chose OpenClaw's `test-audit` (07:43 UTC), planned in
+  [phase 1](#phase-1-usable).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -292,10 +305,11 @@ SideBySide assembly on one local Windows host. On 2026-10-11 a clean `windows-20
 runner launched the Playwright-downloaded Chromium and
 [passed all 92 packaged-extension tests at that head](https://github.com/risu729/pateat/actions/runs/38118250919/job/114407461875),
 so the failure did not reproduce on a clean Windows host; CI now runs these tests on
-Windows on every PR, with browser profiles on the runner's work drive to avoid
-system-drive I/O stalls. The later installed-Chrome synthetic probe passed the early
-login gate; broader coexistence remains a separate M1 gate. Code Quality is not used,
-and normal merges need no bypass; see [merging](delivery.md#merging).
+Windows on main pushes and manual runs (not on PRs since 2026-10-12), with browser
+profiles on the runner's work drive to avoid system-drive I/O stalls. The later
+installed-Chrome synthetic probe passed the early login gate; broader coexistence
+remains a separate M1 gate. Code Quality is not used, and normal merges need no bypass;
+see [merging](delivery.md#merging).
 
 ## Local settings progress
 
