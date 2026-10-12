@@ -206,7 +206,8 @@ page and that origin's frames in it) asks: `pateat.login-stopped-asks.v1` in
 origin in the tab, or the tab closes; other tabs of the site keep logging in. Pateat
 never submits again from that tab by itself, so ADR 0022's reason for resuming such
 records still holds. While the record still holds the site against other tabs (ADR 0022,
-5 minutes after it last changed), it is resumed as before, so the hold is not cut short.
+5 minutes after it last changed), it is resumed as before, so the hold is not cut short;
+a page loaded during the hold asks only once the tab loads a new page after it.
 A record stopped before any submission is released as ADR 0022 describes; one still
 `reconciling` (its result not known yet) is resumed as before. The log shows the
 watching page as `login.refused` `not-started` with `stopped-login` and the asking as
