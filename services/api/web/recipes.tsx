@@ -1,26 +1,30 @@
 import {
   passwordVariants,
   recipeSlots,
-  type LoginChooserRecipe,
-  type LoginEntryRecipe,
   type LoginRecipe,
   type ManageRecipe,
   type StoredLoginRecipe,
 } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { describeError, ManageApiError, type ManageClient } from "./api";
 import { Button } from "./button";
-import { PAGE_TITLE_CLASSES } from "./ui";
+import { formatTime } from "./devices";
+import { Badge, ErrorNotice, KeyValues, Panel, ROW_CLASSES, RowList, RowMain } from "./ui";
 
 export const RECIPES_QUERY_KEY = ["recipes"] as const;
 
+export type ActiveRecipe = ManageRecipe & { change: { state: "active" } };
+
+export function useRecipes(client: ManageClient) {
+  return useQuery({ queryKey: RECIPES_QUERY_KEY, queryFn: () => client.recipes() });
+}
+
+export const isActive = (entry: ManageRecipe): entry is ActiveRecipe =>
+  entry.change.state === "active";
+
 type Step = LoginRecipe["steps"][number];
 type Target = Extract<Step, { kind: "click" }>["target"];
-
-function formatTime(milliseconds: number) {
-  return `${new Date(milliseconds).toISOString().replace("T", " ").slice(0, 16)} UTC`;
-}
 
 const describeTarget = (target: Target) => `${target.by} "${target.value}"`;
 
@@ -42,141 +46,147 @@ function describeStep(step: Step): string {
   }
 }
 
-/** A recipe with only a sign-in entry (ADR 0031), which devices do not press yet. */
-function EntryDetails({ recipe }: { recipe: LoginEntryRecipe }) {
-  return (
-    <details className="space-y-2">
-      <summary className="cursor-pointer text-accent-ink">
-        Entry and JSON<span className="sr-only"> for {recipe.id}</span>
-      </summary>
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-        <dt className="font-medium">Sign-in entry</dt>
-        <dd>
-          Click {describeTarget(recipe.entry.target)} on {recipe.entry.path} to open the site's
-          login page. Devices do not click it yet.
-        </dd>
-      </dl>
-      <pre className="overflow-x-auto rounded-lg bg-surface-sunken p-3 text-sm">
-        {JSON.stringify(recipe, null, 2)}
-      </pre>
-    </details>
-  );
+/** What a recipe does, as label and value pairs, and its steps when it has any. */
+function recipeFacts(recipe: StoredLoginRecipe): {
+  facts: [string, ReactNode][];
+  variants: ReturnType<typeof passwordVariants>;
+} {
+  // A recipe with only a sign-in entry (ADR 0031), which devices do not press yet.
+  if ("entry" in recipe)
+    return {
+      facts: [
+        [
+          "Sign-in entry",
+          `Click ${describeTarget(recipe.entry.target)} on ${recipe.entry.path} to open the site's login page. Devices do not click it yet.`,
+        ],
+      ],
+      variants: [],
+    };
+  // A recipe that starts on a list of accounts (ADR 0028), which devices do not start yet.
+  if ("chooser" in recipe) {
+    const { chooser } = recipe;
+    const branch = (route: LoginRecipe | undefined) =>
+      route ? `${route.steps.length} steps from ${route.steps[0]!.path}` : "Not generated yet";
+    return {
+      facts: [
+        [
+          "Account list",
+          `On ${chooser.path}, click the entry of the chosen item's account. Devices do not do this yet.`,
+        ],
+        ["Shown account", chooser.continue ? `Click ${describeTarget(chooser.continue)}` : "None"],
+        ["Another account", chooser.other ? `Click ${describeTarget(chooser.other)}` : "None"],
+        ["After an account", branch(chooser.afterAccount)],
+        ["After another account", branch(chooser.afterOther)],
+      ],
+      variants: [],
+    };
+  }
+  return {
+    facts: [
+      ["Slots", recipeSlots(recipe).join(", ")],
+      [
+        "Signed-in markers",
+        recipe.completion
+          ? `${recipe.completion.map((marker) => describeTarget(marker.target)).join(", ")} on any page`
+          : "Not learned yet; set from the page after the first sign-in",
+      ],
+      ["Rejection", recipe.rejection ? describeTarget(recipe.rejection) : "None"],
+      [
+        "Passkey sign-in",
+        recipe.passkey
+          ? `Click ${describeTarget(recipe.passkey.target)} on ${recipe.passkey.path} for an account with a discoverable passkey`
+          : "None",
+      ],
+      [
+        "Handlers",
+        recipe.handlers?.length
+          ? recipe.handlers
+              .map((handler) =>
+                handler.kind === "totp"
+                  ? `totp fills ${describeTarget(handler.field)} and clicks ${describeTarget(handler.target)} on ${handler.path}`
+                  : `${handler.kind} clicks ${describeTarget(handler.target)} on ${handler.path}`,
+              )
+              .join("; ")
+          : "None",
+      ],
+      ["Submissions", `At most ${recipe.maxSubmissions}`],
+    ],
+    // A password route with several identifier sets lists each with its own steps (ADR 0027).
+    variants: passwordVariants(recipe),
+  };
 }
 
-/** A recipe that starts on a list of accounts (ADR 0028), which devices do not start yet. */
-function ChooserDetails({ recipe }: { recipe: LoginChooserRecipe }) {
-  const { chooser } = recipe;
-  const branch = (route: LoginRecipe | undefined) =>
-    route ? `${route.steps.length} steps from ${route.steps[0]!.path}` : "Not generated yet";
+function RecipeDetails({ entry }: { entry: ActiveRecipe }) {
+  const { recipe, revision } = entry.change;
+  const { facts, variants } = recipeFacts(recipe);
   return (
-    <details className="space-y-2">
-      <summary className="cursor-pointer text-accent-ink">
-        Account list and JSON<span className="sr-only"> for {recipe.id}</span>
-      </summary>
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-        <dt className="font-medium">Account list</dt>
-        <dd>
-          On {chooser.path}, click the entry of the chosen item's account. Devices do not do this
-          yet.
-        </dd>
-        <dt className="font-medium">Shown account</dt>
-        <dd>{chooser.continue ? `Click ${describeTarget(chooser.continue)}` : "None"}</dd>
-        <dt className="font-medium">Another account</dt>
-        <dd>{chooser.other ? `Click ${describeTarget(chooser.other)}` : "None"}</dd>
-        <dt className="font-medium">After an account</dt>
-        <dd>{branch(chooser.afterAccount)}</dd>
-        <dt className="font-medium">After another account</dt>
-        <dd>{branch(chooser.afterOther)}</dd>
-      </dl>
-      <pre className="overflow-x-auto rounded-lg bg-surface-sunken p-3 text-sm">
-        {JSON.stringify(recipe, null, 2)}
-      </pre>
-    </details>
-  );
-}
-
-function RecipeDetails({ recipe }: { recipe: StoredLoginRecipe }) {
-  if ("entry" in recipe) return <EntryDetails recipe={recipe} />;
-  if ("chooser" in recipe) return <ChooserDetails recipe={recipe} />;
-  // A password route with several identifier sets lists each with its own steps (ADR 0027).
-  const variants = passwordVariants(recipe);
-  return (
-    <details className="space-y-2">
-      <summary className="cursor-pointer text-accent-ink">
-        Steps and JSON<span className="sr-only"> for {recipe.id}</span>
-      </summary>
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-        <dt className="font-medium">Slots</dt>
-        <dd>{recipeSlots(recipe).join(", ")}</dd>
-        <dt className="font-medium">Signed-in markers</dt>
-        <dd>
-          {recipe.completion
-            ? `${recipe.completion.map((marker) => describeTarget(marker.target)).join(", ")} on any page`
-            : "Not learned yet; set from the page after the first sign-in"}
-        </dd>
-        <dt className="font-medium">Rejection</dt>
-        <dd>{recipe.rejection ? describeTarget(recipe.rejection) : "None"}</dd>
-        <dt className="font-medium">Passkey sign-in</dt>
-        <dd>
-          {recipe.passkey
-            ? `Click ${describeTarget(recipe.passkey.target)} on ${recipe.passkey.path} for an account with a discoverable passkey`
-            : "None"}
-        </dd>
-        <dt className="font-medium">Handlers</dt>
-        <dd>
-          {recipe.handlers?.length
-            ? recipe.handlers
-                .map((handler) =>
-                  handler.kind === "totp"
-                    ? `totp: fill ${describeTarget(handler.field)}, click ${describeTarget(handler.target)} on ${handler.path}`
-                    : `${handler.kind}: click ${describeTarget(handler.target)} on ${handler.path}`,
-                )
-                .join("; ")
-            : "None"}
-        </dd>
-        <dt className="font-medium">Submissions</dt>
-        <dd>At most {recipe.maxSubmissions}</dd>
-      </dl>
+    <>
+      <KeyValues
+        entries={[["Revision", `${revision}, updated ${formatTime(entry.updatedAt)}`], ...facts]}
+      />
       {variants.map((variant, variantIndex) => (
         // Variants have no identity of their own; the executor tries them in this order.
         // oxlint-disable-next-line no-array-index-key
-        <section key={variantIndex} className="space-y-1">
+        <section key={variantIndex} className="space-y-2">
           {variants.length > 1 ? (
-            <h4 className="font-medium">
-              Identifier set {variantIndex + 1}: {variant.slots.join(", ")}
+            <h4 className="text-sm font-semibold">
+              Identifier set {variantIndex + 1} ({variant.slots.join(", ")})
             </h4>
           ) : null}
-          <ol className="list-decimal space-y-1 pl-6">
+          <ol className="flex flex-col gap-2">
             {variant.steps.map((step, index) => (
               // Steps have no identity of their own; their order is the recipe.
               // oxlint-disable-next-line no-array-index-key
-              <li key={index}>
-                <span className="text-ink-muted">{step.path}</span> {describeStep(step)}
+              <li key={index} className="flex items-start gap-2 text-sm">
+                <Badge tone="muted">{index + 1}</Badge>
+                <span className="[overflow-wrap:anywhere]">
+                  <span className="text-ink-muted">{step.path}</span> {describeStep(step)}
+                </span>
               </li>
             ))}
           </ol>
         </section>
       ))}
-      <pre className="overflow-x-auto rounded-lg bg-surface-sunken p-3 text-sm">
-        {JSON.stringify(recipe, null, 2)}
-      </pre>
-    </details>
+      <details>
+        <summary className="flex min-h-9 cursor-pointer items-center text-sm font-semibold text-accent-ink">
+          JSON<span className="sr-only"> of {recipe.id}</span>
+        </summary>
+        <pre className="overflow-x-auto rounded-lg bg-surface-sunken p-3 font-mono text-[13px]/5">
+          {JSON.stringify(recipe, null, 2)}
+        </pre>
+      </details>
+    </>
   );
 }
 
-export function RecipesPage({ client }: { client: ManageClient }) {
+/**
+ * One site's active recipes with their revocation. Revocation cannot be undone here, so it
+ * takes a second, explicit confirmation of the revision the owner saw when they asked.
+ */
+export function SiteRecipes({
+  client,
+  origin,
+  announce,
+  shownError,
+}: {
+  client: ManageClient;
+  origin: string;
+  announce: (message: string) => void;
+  /** An error the page already shows, such as a signed-out owner's; it is not repeated. */
+  shownError?: string | undefined;
+}) {
   const queryClient = useQueryClient();
-  const recipes = useQuery({ queryKey: RECIPES_QUERY_KEY, queryFn: () => client.recipes() });
-  // Revocation cannot be undone here, so it takes a second, explicit confirmation of the
-  // revision the owner saw when they asked to revoke.
+  const recipes = useRecipes(client);
   const [confirming, setConfirming] = useState<{ recipeId: string; revision: number } | null>(null);
   // The element to focus once the control the owner used has gone away.
-  // A write's target waits for the refresh it starts, which may remove the row.
+  // A write's target waits for the refresh it starts, which may remove the recipe.
   const focusTarget = useRef<{ id: string; afterRefresh: boolean } | null>(null);
   const revoke = useMutation({
     mutationFn: (entry: { recipeId: string; revision: number }) =>
       client.revokeRecipe(entry.recipeId, entry.revision),
-    onSuccess: () => {
+    onMutate: () => announce(""),
+    onSuccess: (_result, entry) => {
+      announce(`${entry.recipeId} revoked`);
       focusTarget.current = { id: "recipes-heading", afterRefresh: true };
     },
     onError: (_error, entry) => {
@@ -196,68 +206,49 @@ export function RecipesPage({ client }: { client: ManageClient }) {
     (document.getElementById(target.id) ?? document.getElementById("recipes-heading"))?.focus();
     focusTarget.current = null;
   });
-  const entries = recipes.data?.recipes ?? [];
-  const active = entries.filter(
-    (entry): entry is ManageRecipe & { change: { state: "active" } } =>
-      entry.change.state === "active",
-  );
-  const revoked = entries.filter((entry) => entry.change.state === "revoked");
+  const active = (recipes.data?.recipes ?? [])
+    .filter(isActive)
+    .filter((entry) => entry.change.recipe.origin === origin);
 
   return (
-    <div className="space-y-8">
-      <output id="recipes-saved" className="block text-ink-muted">
-        {revoke.isSuccess && `${revoke.variables.recipeId} was revoked.`}
-      </output>
+    <Panel id="recipes-heading" title="Recipes">
       {revoke.isError && (
-        <p role="alert" id="recipes-error" className="text-danger">
+        <ErrorNotice id="recipes-error">
           {revoke.error instanceof ManageApiError && revoke.error.code === "not_found"
             ? "That recipe no longer exists. The page now shows the current recipes."
             : describeError(revoke.error)}
-        </p>
+        </ErrorNotice>
       )}
-      <section aria-labelledby="recipes-heading" className="space-y-4">
-        <h1 id="recipes-heading" tabIndex={-1} className={`${PAGE_TITLE_CLASSES} outline-none`}>
-          Recipes
-        </h1>
-        <p className="text-ink-muted">
-          The steps devices follow to log in on each site. Devices write recipes; this page does not
-          edit them. Revoking one stops devices from using it after their next sync, and logins on
-          that site then wait for a new recipe. This page cannot restore a revoked recipe.
-        </p>
-        {recipes.isPending ? (
-          <output id="recipes-status" className="block">
-            Loading recipes…
-          </output>
-        ) : recipes.isError && !recipes.data ? (
-          <p role="alert" id="recipes-status" className="text-danger">
-            {describeError(recipes.error)}
-          </p>
-        ) : null}
-        {recipes.isError && recipes.data && (
-          <p role="alert" id="recipes-status" className="text-danger">
-            The list below could not be refreshed and may be out of date.{" "}
-            {describeError(recipes.error)}
-          </p>
-        )}
-        {!recipes.data ? null : active.length === 0 ? (
-          <p>No active recipes.</p>
-        ) : (
-          <ul id="recipes" className="divide-y divide-border">
-            {active.map(({ change, updatedAt }) => (
-              <li key={change.recipeId} className="space-y-2 py-3">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="font-semibold">{change.recipeId}</h3>
-                    <p className="text-ink-muted">
-                      {change.recipe.origin} · revision {change.revision} · updated{" "}
-                      {formatTime(updatedAt)}
-                    </p>
-                  </div>
-                  {confirming?.recipeId === change.recipeId ? (
-                    <div className="flex items-center gap-2">
-                      <span>Revoke {change.recipeId}?</span>
+      {recipes.isPending ? (
+        <output id="recipes-status" className="block">
+          Loading recipes…
+        </output>
+      ) : recipes.isError && describeError(recipes.error) !== shownError ? (
+        <ErrorNotice id="recipes-status">
+          {recipes.data && "The list below could not be refreshed and may be out of date. "}
+          {describeError(recipes.error)}
+        </ErrorNotice>
+      ) : null}
+      {!recipes.data ? null : active.length === 0 ? (
+        <p>No recipes</p>
+      ) : (
+        <ul id="recipes" className="divide-y divide-border">
+          {active.map((entry) => {
+            const { recipeId, revision } = entry.change;
+            return (
+              <li key={recipeId} className="space-y-4 py-4 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h3 className="min-w-0 flex-1 font-mono font-[650] [overflow-wrap:anywhere]">
+                    {recipeId}
+                  </h3>
+                  {confirming?.recipeId === recipeId ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>
+                        Revoke {recipeId}, revision {confirming.revision}?
+                      </span>
                       <Button
-                        id={`confirm-${change.recipeId}`}
+                        id={`confirm-${recipeId}`}
+                        variant="danger"
                         disabled={revoke.isPending}
                         onClick={() => revoke.mutate(confirming)}
                       >
@@ -268,10 +259,7 @@ export function RecipesPage({ client }: { client: ManageClient }) {
                         disabled={revoke.isPending}
                         onClick={() => {
                           setConfirming(null);
-                          focusTarget.current = {
-                            id: `revoke-${change.recipeId}`,
-                            afterRefresh: false,
-                          };
+                          focusTarget.current = { id: `revoke-${recipeId}`, afterRefresh: false };
                         }}
                       >
                         Cancel
@@ -279,49 +267,51 @@ export function RecipesPage({ client }: { client: ManageClient }) {
                     </div>
                   ) : (
                     <Button
-                      variant="outline"
-                      aria-label={`Revoke recipe ${change.recipeId}`}
-                      id={`revoke-${change.recipeId}`}
+                      variant="danger"
+                      aria-label={`Revoke recipe ${recipeId}`}
+                      id={`revoke-${recipeId}`}
                       disabled={revoke.isPending}
                       onClick={() => {
-                        setConfirming({ recipeId: change.recipeId, revision: change.revision });
-                        focusTarget.current = {
-                          id: `confirm-${change.recipeId}`,
-                          afterRefresh: false,
-                        };
+                        setConfirming({ recipeId, revision });
+                        focusTarget.current = { id: `confirm-${recipeId}`, afterRefresh: false };
                       }}
                     >
                       Revoke
                     </Button>
                   )}
                 </div>
-                <RecipeDetails recipe={change.recipe} />
+                <RecipeDetails entry={entry} />
               </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      {recipes.data && (
-        <section aria-labelledby="revoked-heading" className="space-y-4">
-          <h2 id="revoked-heading" className="text-xl font-semibold">
-            Revoked recipes
-          </h2>
-          {revoked.length === 0 ? (
-            <p>No revoked recipes.</p>
-          ) : (
-            <ul id="revoked-recipes" className="divide-y divide-border">
-              {revoked.map(({ change, updatedAt }) => (
-                <li key={change.recipeId} className="py-2">
-                  {change.recipeId}{" "}
-                  <span className="text-ink-muted">
-                    (revision {change.revision}, revoked {formatTime(updatedAt)})
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            );
+          })}
+        </ul>
       )}
-    </div>
+    </Panel>
+  );
+}
+
+/** Revoked recipes keep no origin, so they are listed apart from the sites. */
+export function RevokedRecipes({ recipes }: { recipes: ManageRecipe[] }) {
+  const revoked = recipes.filter((entry) => entry.change.state === "revoked");
+  return (
+    <section aria-labelledby="revoked-heading" className="space-y-4">
+      <h2 id="revoked-heading" className="text-xl/7 font-[650]">
+        Revoked recipes
+      </h2>
+      {revoked.length === 0 ? (
+        <p>No revoked recipes</p>
+      ) : (
+        <RowList id="revoked-recipes">
+          {revoked.map(({ change, updatedAt }) => (
+            <li key={change.recipeId} className={ROW_CLASSES}>
+              <RowMain
+                title={<span className="font-mono">{change.recipeId}</span>}
+                sub={`Revision ${change.revision}, revoked ${formatTime(updatedAt)}`}
+              />
+            </li>
+          ))}
+        </RowList>
+      )}
+    </section>
   );
 }

@@ -77,10 +77,9 @@ export const app = new Hono<ApiEnv>()
   .all("/manage", methodNotAllowed("GET"))
   .get("/manage/sites", requireAccess, appPage)
   .all("/manage/sites", methodNotAllowed("GET"))
-  .get("/manage/bindings", requireAccess, appPage)
-  .all("/manage/bindings", methodNotAllowed("GET"))
-  .get("/manage/recipes", requireAccess, appPage)
-  .all("/manage/recipes", methodNotAllowed("GET"))
+  // One site's page, for the origin `<scheme>://<host>`; the app checks the host.
+  .get("/manage/sites/:scheme{https?}/:host", requireAccess, appPage)
+  .all("/manage/sites/:scheme{https?}/:host", methodNotAllowed("GET"))
   // Direct pairing from an allowed extension with the owner's login session (ADR 0020).
   // Access and the Origin check run before the per-identity limit and any body read.
   // No CORS headers: extension contexts with host access skip CORS; pages cannot read it.

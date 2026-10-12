@@ -101,8 +101,7 @@ describe("Access verification", () => {
     const pages = [
       "/manage",
       "/manage/sites",
-      "/manage/bindings",
-      "/manage/recipes",
+      "/manage/sites/https/bank.example",
       "/manage/assets/app.js",
       "/manage/claude",
     ];
@@ -518,16 +517,34 @@ describe("owner web UI settings", () => {
     expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
   });
 
-  it("serves the settings pages", async () => {
+  it("serves the sites list and each site's page", async () => {
     const { token } = await owner();
-    const paths = ["/manage/sites", "/manage/bindings"];
+    const paths = [
+      "/manage/sites",
+      "/manage/sites/https/bank.example",
+      "/manage/sites/http/localhost:8443",
+    ];
     const [signedIn, anonymous] = await Promise.all([
       Promise.all(paths.map((path) => request(path, { access: token }))),
       Promise.all(paths.map((path) => request(path))),
     ]);
-    expect(signedIn.map((response) => response.status)).toEqual([200, 200]);
-    expect(await signedIn[0]!.text()).toContain("Pateat test app");
-    expect(anonymous.map((response) => response.status)).toEqual([401, 401]);
+    expect(signedIn.map((response) => response.status)).toEqual([200, 200, 200]);
+    expect(await signedIn[1]!.text()).toContain("Pateat test app");
+    expect(anonymous.map((response) => response.status)).toEqual([401, 401, 401]);
+    // Only an HTTP(S) origin has a page; the former bindings and recipes pages are gone.
+    const missing = [
+      "/manage/sites/ftp/bank.example",
+      "/manage/sites/https/bank.example/login",
+      "/manage/bindings",
+      "/manage/recipes",
+    ];
+    const refused = await Promise.all(missing.map((path) => request(path, { access: token })));
+    expect(refused.map((response) => response.status)).toEqual([404, 404, 404, 404]);
+    const post = await request("/manage/sites/https/bank.example", {
+      access: token,
+      method: "POST",
+    });
+    expect(post.status).toBe(405);
   });
 });
 
@@ -685,10 +702,8 @@ describe("owner web UI recipes", () => {
     expect((await list(first)).recipes[0]!.change.state).toBe("active");
   });
 
-  it("serves the recipes page", async () => {
+  it("refuses other methods on the recipes API", async () => {
     const { token } = await owner();
-    expect((await request("/manage/recipes", { access: token })).status).toBe(200);
-    expect((await request("/manage/recipes")).status).toBe(401);
     expect((await manageApi("/manage/api/recipes", token, "PUT")).status).toBe(405);
   });
 });

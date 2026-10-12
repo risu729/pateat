@@ -295,6 +295,12 @@ own accounts, so they stay in the project's files rather than in this repository
     expiry and data notes as icon-led lines; the footer holds the version, Source,
     GPL-3.0-only, Third-party notices and the Theme select. Icons come from
     `lucide-react` in `services/api`.
+  - Done: `/manage` has two tabs, Sites and Devices (owner, 2026-10-12 21:08 UTC). Sites
+    merges the former sites, account bindings and recipes pages into one list of origins
+    with badges for their recipes, default account and bindings, the excluded hostnames
+    with Allow and an exclude form, and the revoked recipes. Each origin opens its own
+    page with a "Pateat on this site" switch, its default account, recipes and bindings
+    ([owner web UI](architecture.md#owner-web-ui)).
   - Next: the other screens' layouts and copy.
   - Next: the other screens' layouts and copy.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
