@@ -181,16 +181,20 @@ describe("passkey runtime cancellation", () => {
       kind: "delegate",
       reason: "assertion-failed",
     });
-    expect(report).toHaveBeenLastCalledWith(
-      expect.objectContaining({ reason: "assertion-failed", cause: "signing" }),
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({ reason: "assertion-failed", cause: "signing" }),
+      ),
     );
     vi.mocked(backing.candidates).mockRejectedValueOnce(new Error("vault-unavailable"));
     expect(await runtime.handle(get(), sender())).toEqual({
       kind: "delegate",
       reason: "assertion-failed",
     });
-    expect(report).toHaveBeenLastCalledWith(
-      expect.objectContaining({ reason: "assertion-failed", cause: "passkey-lookup" }),
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({ reason: "assertion-failed", cause: "passkey-lookup" }),
+      ),
     );
 
     const lookup = vi.fn();
@@ -203,8 +207,10 @@ describe("passkey runtime cancellation", () => {
       kind: "delegate",
       reason: "assertion-failed",
     });
-    expect(lookup).toHaveBeenLastCalledWith(
-      expect.objectContaining({ reason: "assertion-failed", cause: "account-lookup" }),
+    await vi.waitFor(() =>
+      expect(lookup).toHaveBeenLastCalledWith(
+        expect.objectContaining({ reason: "assertion-failed", cause: "account-lookup" }),
+      ),
     );
   });
 });
@@ -332,13 +338,16 @@ describe("passkey runtime reports", () => {
         sender(),
       ),
     ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
-    expect(report).toHaveBeenLastCalledWith({
-      tabId: 7,
-      origin,
-      outcome: "delegate",
-      reason: "unsupported-mediation",
-      mediation: "conditional",
-    });
+    // A delegation is reported after the reply.
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith({
+        tabId: 7,
+        origin,
+        outcome: "delegate",
+        reason: "unsupported-mediation",
+        mediation: "conditional",
+      }),
+    );
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
     expect(report).toHaveBeenLastCalledWith({
       tabId: 7,
@@ -358,7 +367,7 @@ describe("passkey runtime reports", () => {
   it.each([
     ["conditional", "conditional"],
     ["silent", "silent"],
-    ["a mediation the page made up", "other"],
+    ["made-up", "other"],
   ])("reports a %s request delegated while the tab's login runs", async (mediation, reported) => {
     // Another provider, such as the Bitwarden extension, may show its prompt then.
     const report = vi.fn();
@@ -373,22 +382,25 @@ describe("passkey runtime reports", () => {
     });
     const delegated = {
       ...get(),
-      request: { ...request, mediation: reported === "other" ? "made-up" : mediation },
+      request: { ...request, mediation },
     };
     expect(await runtime.handle(delegated, sender())).toEqual({
       kind: "delegate",
       reason: "unsupported-mediation",
     });
-    expect(report).toHaveBeenLastCalledWith({
-      tabId: 7,
-      origin,
-      outcome: "delegate",
-      reason: "unsupported-mediation",
-      mediation: reported,
-      duringLogin: true,
-    });
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith({
+        tabId: 7,
+        origin,
+        outcome: "delegate",
+        reason: "unsupported-mediation",
+        mediation: reported,
+        duringLogin: true,
+      }),
+    );
     login = undefined;
     await runtime.handle(delegated, sender());
+    await vi.waitFor(() => expect(report).toHaveBeenCalledTimes(2));
     expect(report.mock.lastCall![0]).not.toHaveProperty("duringLogin");
   });
 

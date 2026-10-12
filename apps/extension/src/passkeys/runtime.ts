@@ -479,6 +479,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         return { ok: true };
       }
       const { request } = command;
+      // Read as the request comes in, for the report only; the answer never waits for it.
+      const loginAtEntry = Promise.resolve()
+        .then(() => options.loginAccount?.(sender.tab!.id!, origin))
+        .catch(() => undefined);
       if (
         !(typeof request === "object" && request !== null && "mediation" in request) ||
         request.mediation !== "conditional"
@@ -516,31 +520,32 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         void signedTabs.add(sender.tab!.id!, rpId).catch(() => undefined);
       }
       const remembered = after.remember;
-      if (result.kind === "delegate") {
-        if (result.reason === "unsupported-mediation") detail.mediation = mediationOf(request);
-        try {
-          if (await options.loginAccount?.(sender.tab!.id!, origin)) detail.duringLogin = true;
-        } catch {
-          // Only the report misses it.
-        }
-      }
+      if (result.kind === "delegate" && result.reason === "unsupported-mediation")
+        detail.mediation = mediationOf(request);
       if (remembered && options.remember) {
         const remember = options.remember;
         // After the reply is on its way: saving settings cancels pending passkey requests.
         setTimeout(() => void remember(origin, remembered).catch(() => undefined), 0);
       }
-      try {
-        options.report?.({
-          ...detail,
-          // senderOrigin() accepted only a sender with a tab.
-          tabId: sender.tab!.id!,
-          origin,
-          outcome: result.kind,
-          ...(result.kind === "delegate" ? { reason: result.reason } : {}),
-        });
-      } catch {
-        // A report must never change the answer.
-      }
+      const report = (login?: unknown) => {
+        try {
+          options.report?.({
+            ...detail,
+            // senderOrigin() accepted only a sender with a tab.
+            tabId: sender.tab!.id!,
+            origin,
+            outcome: result.kind,
+            ...(result.kind === "delegate" ? { reason: result.reason } : {}),
+            ...(login ? { duringLogin: true } : {}),
+          });
+        } catch {
+          // A report must never change the answer.
+        }
+      };
+      // A delegated request is reported once the login read as it came in is known, after
+      // the reply is on its way.
+      if (result.kind === "delegate") void loginAtEntry.then(report);
+      else report();
       return result;
     },
   };
