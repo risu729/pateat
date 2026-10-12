@@ -7,6 +7,7 @@ import { findTargets } from "../page/targets";
 import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
+import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
 import {
   commandSchema,
@@ -121,6 +122,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
   let ended = false;
   const used = new Set<string>();
+  // What this document showed when its last effect step ran (ADR 0029: F1, F2).
+  let submitted: SubmittedPage | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
@@ -354,6 +357,22 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       respond(result);
       return false;
     }
+    if (command.type === "login.state") {
+      const username = command.account?.username;
+      if (command.account) command.account.username = "";
+      respond(
+        cancelled
+          ? { ok: false }
+          : {
+              ok: true,
+              signs: pageSigns(document, {
+                ...(submitted ? { submitted } : {}),
+                ...(username === undefined ? {} : { username }),
+              }),
+            },
+      );
+      return false;
+    }
     if (command.type === "login.observe") {
       if (cancelled) {
         respond({ ok: false, reason: "cancelled" });
@@ -514,8 +533,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               inputValueMismatch(input, value.value) !== undefined
             )
               return fail("cancelled");
-            // An advance's next step is measured in this task, just before its first input.
-            if (index === 0) measureNext();
+            // An advance's next step is measured in this task, just before its first input,
+            // and so is what the page shows before an effect (ADR 0029).
+            if (index === 0) {
+              measureNext();
+              if (step.effect !== "prepare") submitted = submittedPage(document, writableInputs);
+            }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
             setter.call(input, value.value);
@@ -568,8 +591,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
         if (!clickable(element)) return fail("structural-mismatch");
-        // An advance's next step is measured in this task, just before the click.
+        // An advance's next step is measured in this task, just before the click, and so
+        // is what the page shows before it (ADR 0029).
         measureNext();
+        // The click's form's inputs, or the page's for a button outside a form.
+        submitted = submittedPage(
+          document,
+          [
+            ...(isButton(element) && element.form
+              ? element.form.elements
+              : document.querySelectorAll("input")),
+          ].filter(writable),
+        );
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };
