@@ -21,9 +21,11 @@ import {
   appendPageSteps,
   claudeRefusalCategory,
   completionInstructions,
+  completionPromptVersion,
   createCompletionJudge,
   createRecipeGenerator,
   generationInstructions,
+  generationPromptVersion,
   outputRejection,
   type InferenceErrorCode,
 } from "@pateat/inference";
@@ -140,6 +142,7 @@ export async function generateRecipe(
 
   const call = await callClaude(env, scope.ownerId, {
     role: "generate",
+    promptVersion: await generationPromptVersion(),
     origin,
     path,
     request: { instructions: generationInstructions, slots, observation },
@@ -355,6 +358,7 @@ export async function judgeCompletion(
   );
   const call = await callClaude(env, scope.ownerId, {
     role: "judge",
+    promptVersion: await completionPromptVersion(),
     origin: observation.origin,
     path: observation.path,
     request: { instructions: completionInstructions, recipeId, route, loginPaths, observation },

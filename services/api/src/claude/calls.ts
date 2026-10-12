@@ -47,6 +47,8 @@ type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
 
 export type ClaudeCall<T> = {
   role: "generate" | "judge";
+  /** The role's prompt version (`generationPromptVersion`, `completionPromptVersion`). */
+  promptVersion: string;
   origin: string;
   path: string;
   /** What is sent: the instructions and the input, as ADR 0012 requires. */
@@ -197,7 +199,12 @@ export async function callClaude<T>(
     }
     // Codes only, for the Worker's own logs; the request log row holds the rest.
     const rejection = outcome.status === "failed" ? outputRejection(outcome) : undefined;
-    if (rejection) console.info("Model output refused", { role: call.role, rejection });
+    if (rejection)
+      console.info("Model output refused", {
+        role: call.role,
+        promptVersion: call.promptVersion,
+        rejection,
+      });
     await db.batch([
       ...corrections,
       db.insert(inferenceLog).values({
@@ -206,6 +213,7 @@ export async function callClaude<T>(
         role: call.role,
         provider: "anthropic",
         modelId: claudeGeneration.modelId,
+        promptVersion: call.promptVersion,
         origin: call.origin,
         path: call.path,
         request: call.request,

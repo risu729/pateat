@@ -163,6 +163,11 @@ export const inferenceLog = sqliteTable(
     role: text("role", { enum: ["generate", "judge"] }).notNull(),
     provider: text("provider").notNull(),
     modelId: text("model_id").notNull(),
+    /**
+     * The role's prompt version: 12 hex digits of the SHA-256 of its instructions and
+     * response format (`promptVersion`). Rows logged before it was recorded have none.
+     */
+    promptVersion: text("prompt_version"),
     origin: text("origin").notNull(),
     path: text("path").notNull(),
     request: text("request", { mode: "json" }).notNull(),

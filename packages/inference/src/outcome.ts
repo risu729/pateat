@@ -159,3 +159,25 @@ export async function raceAbort<T>(work: PromiseLike<T>, signal: AbortSignal): P
     signal.removeEventListener("abort", abort);
   }
 }
+
+/**
+ * A short version of what a role sends besides the page: the first 12 hex digits of the
+ * SHA-256 of its instructions, a newline and its response format's JSON Schema as sent.
+ * Logged with each call, so a log row shows which instructions produced it.
+ */
+export async function promptVersion(instructions: string, schemaJson: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${instructions}\n${schemaJson}`),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 12);
+}
+
+/** Computes a role's prompt version once, on first use. */
+export function promptVersionOf(instructions: string, schemaJson: string): () => Promise<string> {
+  let version: Promise<string> | undefined;
+  return () => (version ??= promptVersion(instructions, schemaJson));
+}

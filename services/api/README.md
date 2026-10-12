@@ -260,16 +260,18 @@ passes every check is an attempt, including one the role then refuses locally fo
 size, which would be refused again. Each call first reserves its upper bound (64 KiB of
 input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and then
 corrects it from reported usage; usage the provider does not report keeps the
-reservation. The `inference_log` row stores the provider and model, the instructions and
-input as sent, the structured result, the outcome code, usage and estimated cost; a
+reservation. The `inference_log` row stores the provider and model, the role's prompt
+version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a
+newline and its response format's JSON Schema, computed once per role), the instructions
+and input as sent, the structured result, the outcome code, usage and estimated cost; a
 request refused locally before any model call is not logged. For `invalid-output`, the
 result is the `rejection` and, when the plan check refused a plan, that plan as
 `output`, with every candidate, slot or name that is not one of the request's candidate
 or slot IDs or a generic slot ID replaced by `?`, since an unchecked string may quote
 the page or a field name. The model's text is never stored, and the Worker logs only
-`Model output refused` with the role and the `rejection`. Rows older than 90 days are
-deleted whenever a call is logged and on every `GET /v1/recipes`, because routine
-releases do not apply cron triggers.
+`Model output refused` with the role, its prompt version and the `rejection`. Rows older
+than 90 days are deleted whenever a call is logged and on every `GET /v1/recipes`,
+because routine releases do not apply cron triggers.
 
 ## Schema and tests
 

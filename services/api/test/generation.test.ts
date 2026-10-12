@@ -6,6 +6,7 @@ import type {
   SemanticSlot,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
+import { completionPromptVersion, generationPromptVersion } from "@pateat/inference";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
@@ -458,11 +459,12 @@ describe("recipe generation", () => {
     replies.push({ text: "Sign in with the email field." });
     expect(await generate(third, emailPage)).toMatchObject({ rejection: { check: "json" } });
 
+    const version = await generationPromptVersion();
     const logged = (
       await Promise.all(
         [device, other, third].map((each) =>
           rows(
-            "SELECT outcome, input_tokens, output_tokens, result FROM inference_log WHERE owner_id = ?",
+            "SELECT outcome, prompt_version, input_tokens, output_tokens, result FROM inference_log WHERE owner_id = ?",
             each.ownerId,
           ),
         ),
@@ -471,6 +473,7 @@ describe("recipe generation", () => {
     expect(logged.map((row) => ({ ...row, result: JSON.parse(String(row.result)) }))).toEqual([
       {
         outcome: "invalid-output",
+        prompt_version: version,
         input_tokens: 2_900,
         output_tokens: 78,
         result: {
@@ -489,6 +492,7 @@ describe("recipe generation", () => {
       },
       {
         outcome: "invalid-output",
+        prompt_version: version,
         input_tokens: 3_000,
         output_tokens: 900,
         result: {
@@ -497,6 +501,7 @@ describe("recipe generation", () => {
       },
       {
         outcome: "invalid-output",
+        prompt_version: version,
         input_tokens: 3_000,
         output_tokens: 900,
         result: { rejection: { check: "json" } },
@@ -505,6 +510,7 @@ describe("recipe generation", () => {
     expect(JSON.stringify(logged.map((row) => row.result))).not.toMatch(/Sign in/u);
     expect(info).toHaveBeenCalledWith("Model output refused", {
       role: "generate",
+      promptVersion: version,
       rejection: { check: "plan", reason: "incompatible-role" },
     });
     expect(JSON.stringify(info.mock.calls)).not.toMatch(/Sign in/u);
@@ -1339,15 +1345,17 @@ describe("page judgement (ADR 0027)", () => {
       observation: homePage,
     });
     expect(await response.json()).toEqual({ version: 1, status: "rejected" });
-    // The logged request names the route.
+    // The logged request names the route, and the row the judge's prompt version.
     const [logged] = await rows(
-      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      "SELECT request, prompt_version FROM inference_log WHERE owner_id = ? AND role = 'judge'",
       device.ownerId,
     );
     expect(JSON.parse(String(logged!.request))).toMatchObject({
       route: "password",
       loginPaths: ["/login", "/password"],
     });
+    expect(logged!["prompt_version"]).toBe(await completionPromptVersion());
+    expect(logged!["prompt_version"]).not.toBe(await generationPromptVersion());
   });
 
   it("judges the page after an advance whose next step never appeared", async () => {
