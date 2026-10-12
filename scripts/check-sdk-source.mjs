@@ -4,13 +4,10 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
-const records = [
-  "docs/sdk-source.md",
-  "apps/extension/public/THIRD-PARTY-NOTICES.md",
-  "apps/extension/public/legal.html",
-];
-// Upstream revision of the public synthetic vectors, attributed separately in the notices.
+// The notices also attribute the public synthetic vectors to their own upstream revision.
+const notices = "apps/extension/public/THIRD-PARTY-NOTICES.md";
 const fixtureRevision = "7de8f13a14b56068167160f88d55231f916cf16a";
+const records = ["docs/sdk-source.md", notices, "apps/extension/public/legal.html"];
 const read = (file) => readFileSync(path.join(root, file), "utf8");
 
 const locked = /"@bitwarden\/sdk-internal": \["@bitwarden\/sdk-internal@([^"]+)"/.exec(
@@ -39,7 +36,7 @@ for (const file of records) {
     if (stale !== locked) failures.add(`${file}: names SDK ${stale}, locked is ${locked}`);
   }
   for (const [named] of source.matchAll(/\b[0-9a-f]{40}\b/gi)) {
-    if (named !== revision && named !== fixtureRevision) {
+    if (named !== revision && !(file === notices && named === fixtureRevision)) {
       failures.add(`${file}: names revision ${named}, SDK source is ${revision}`);
     }
   }
