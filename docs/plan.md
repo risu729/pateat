@@ -195,6 +195,13 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   logout now keeps the page's request until the popup pick, whose login answers it with
   the picked item's passkey, as the owner chose on 2026-10-12 (17:56 UTC). Still to
   check in the owner's Chrome: a logout and a pick on Wise.
+- Find why Pateat did not answer Google's passkey step on the Grok Bot's browser (build
+  `a8350f5`, 2026-10-12 19:49 UTC): both of the page's requests were logged as
+  `passkey.request` `delegate` `invalid-request`, so the browser offered only the
+  phone (hybrid) flow, which failed. The page's options broke one of the bounds of
+  [ADR 0007](adr/0007-existing-passkey-assertions.md#admission), which the log did not
+  say. The log now names the member and its size (`invalid`, `invalidLength`; local
+  tests only); the next Bot run on Google decides the fix.
 - Installed-Chrome checks still open:
   - Watching a login after a step left to the person
     ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge),
