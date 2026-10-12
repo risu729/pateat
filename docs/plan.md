@@ -1553,12 +1553,18 @@ generation is not offered there. On the Formasaurus pages of the real-page corpu
 refused 10 of 954 paths (2026-10-11). Label text is rendered text only: scripts, styles,
 `<noscript>`, SVG, hidden elements and select or text area contents never contribute.
 Only forms that hold a field count, or every control outside a form when a field is
-outside one. There the candidates are visible text, email, tel, number and password
-inputs, checkboxes, buttons (disabled ones too, since many enable after typing), script
-links (an `<a>` without `href` that has an `onclick` attribute or `role="button"`, or an
-`<a href>` with a `javascript:` URL or with an empty or fragment-only `href` and an
-`onclick` attribute or `role="button"`) as buttons, other elements with `role="button"`
-that have an `id`, `name` or `data-testid` (as
+outside one. Up to four buttons outside every form are kept as optional candidates when
+they sit within two parent elements of a login form with a password field (never the
+body or the root element, never in a header or navigation landmark), such as SBI
+Securities' "パスキー認証でログイン" button beside its password form; more than four are
+left out as page content. On the 954 Formasaurus pages (2026-10-12) this added 36
+buttons on 34 pages, mostly social sign-in, registration and font-size buttons, and
+changed no page's completeness. There the candidates are visible text, email, tel,
+number and password inputs, checkboxes, buttons (disabled ones too, since many enable
+after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
+`role="button"`, or an `<a href>` with a `javascript:` URL or with an empty or
+fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
+elements with `role="button"` that have an `id`, `name` or `data-testid` (as
 [architecture](architecture.md#declarative-recipes-and-ai) describes) and, as context
 only, links. Script links with `href` were added after observing public Japanese login
 pages on 2026-10-11 showed the login buttons of MyJCB (`href="#"`) and SMBC Direct
