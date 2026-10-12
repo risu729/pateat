@@ -14553,12 +14553,12 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       id: "synthetic-extension",
       url: "chrome-extension://synthetic-extension/popup.html",
     } as never;
-    const choice = (h: ReturnType<typeof harness>) =>
-      h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup);
+    const choice = (h: ReturnType<typeof harness>, tabId = 1) =>
+      h.login.handle({ version: 1, type: "login.choice.get", tabId }, popup);
     /** The person picks an account in the popup for the asked document. */
     const pick = (
       h: ReturnType<typeof harness>,
-      overrides: Partial<{ documentId: string; itemId: string }> = {},
+      overrides: Partial<{ tabId: number; documentId: string; itemId: string }> = {},
     ) =>
       h.login.handle(
         {
@@ -14775,6 +14775,151 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect(fills()).toBe(2);
       expect(clicks("login")).toBe(2);
       expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("keeps a request of a tab asked for another tab's logout after that tab's pick logs in", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await loggedOut();
+      const recordOf = (tabId: number) =>
+        status()?.find(
+          (entry) => (entry["document"] as { tabId: number } | undefined)?.tabId === tabId,
+        );
+      // Another tab shows the form and asks only because of this tab's logout.
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+        ok: false,
+        reason: "logged-out",
+      });
+      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: true });
+      const request = ask(h, { tabId: 2, documentId: "other-tab" });
+      await flush();
+      // The first tab's pick logs in there and ends its logout.
+      signsInOnClick();
+      expect(await pick(h, { itemId })).toEqual({ ok: true });
+      await until(() => recordOf(1)?.["state"] === "authenticated", 20_000);
+      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+      // The second tab's choice is still offered, so its request still waits.
+      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: true });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      fake.state.present = new Set(["password", "login"]);
+      const filled = fills();
+      const clicked = clicks("login");
+      fake.state.onReconnect = () => h.hello({ tab: { id: 2 }, documentId: "other-tab" });
+      expect(await pick(h, { tabId: 2, documentId: "other-tab" })).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId: otherItemId },
+      });
+      expect(recordOf(2)).toMatchObject({
+        route: "passkey",
+        state: "submit-intent",
+        account: { connectionId, itemId: otherItemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(() => recordOf(2)?.["state"] === "authenticated", 20_000);
+      expect(recordOf(2)).toMatchObject({ route: "passkey" });
+      expect(fills()).toBe(filled);
+      expect(clicks("login")).toBe(clicked);
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "start", tabId: 2, route: "passkey", account: "pick" }),
+      );
+    });
+
+    it("hands a waiting request on soon after a pick that starts no login", async () => {
+      vi.useFakeTimers();
+      const { h } = await loggedOut();
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      // The picked item is quarantined meanwhile, so its login is refused.
+      const original = h.store.handle.getMockImplementation()!;
+      h.store.handle.mockImplementation(async () => {
+        const response = await original();
+        if (response.ok) response.catalog.connections[0]!.quarantinedItemIds = [otherItemId];
+        return response;
+      });
+      const sent = executed().length;
+      expect(await pick(h)).toMatchObject({ ok: false });
+      expect(await choice(h)).toMatchObject({ ok: false });
+      await until(() => request.decided() !== undefined, 3_500);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+      expect(executed()).toHaveLength(sent);
+    });
+
+    it("hands a waiting request on soon after a pick whose page does not announce again", async () => {
+      vi.useFakeTimers();
+      const { h } = await loggedOut();
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      fake.state.onReconnect = async () => ({ ok: false });
+      expect(await pick(h)).toEqual({ ok: false, reason: "not-started" });
+      await until(() => request.decided() !== undefined, 3_500);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+    });
+
+    it("keeps a request of a document asked after the tab's stopped login, and answers it with the pick", async () => {
+      vi.useFakeTimers();
+      const first = start(recipe, matching);
+      // The login stops after its click, as when the page leaves while submitting.
+      fake.state.onExecute = (message) =>
+        (message["operation"] as { step: LoginStep }).step.kind === "click"
+          ? new Promise(() => undefined)
+          : Promise.resolve();
+      expect(await first.h.hello()).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["state"] === "submit-intent", 5_000);
+      const [record] = status()!;
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        fake.state.storage["pateat.login-attempts.v4"] = [
+          {
+            ...record!,
+            state: "blocked",
+            outcome: "policy-changed",
+            mutationIntent: undefined,
+            operationId: undefined,
+            operationKind: undefined,
+            operationEffect: undefined,
+          },
+        ];
+        fake.state.onExecute = undefined;
+        // A restarted worker sees the form show again in a later page of the tab.
+        const { h, report } = start(recipe, matching);
+        const request = ask(h, { documentId: "next-page" });
+        await flush();
+        expect(await h.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        await until(() => fake.state.badges[1]?.text === "2", 5_000);
+        expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(request.decided()).toBeUndefined();
+        const filled = fills();
+        fake.state.onReconnect = () => h.hello({ documentId: "next-page" });
+        expect(await pick(h, { documentId: "next-page" })).toEqual({ ok: true });
+        await until(() => request.decided() !== undefined, 5_000);
+        expect(request.decided()).toMatchObject({
+          kind: "answer",
+          item: { connectionId, itemId: otherItemId },
+        });
+        fake.state.present = new Set(["authenticated"]);
+        (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+        await until(settled("authenticated"), 20_000);
+        expect(status()![0]).toMatchObject({
+          route: "passkey",
+          account: { connectionId, itemId: otherItemId },
+        });
+        expect(fills()).toBe(filled);
+        expect(clicks("login")).toBe(1);
+        expect(routeChanges(report)).toEqual([]);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
     });
   });
 
