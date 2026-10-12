@@ -3131,6 +3131,35 @@ describe("production login document admission", () => {
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
     });
 
+    it.each([
+      ["the extractor's refusal", { ok: false, reason: "no-locator" }, "no-locator"],
+      ["an answer that fails its check", { ok: true }, "extract-failed"],
+    ] as const)("logs %s when the page cannot be described", async (_name, extracted, reason) => {
+      fake.state.extracted = { login: extracted };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith({
+          type: "generation",
+          tabId: 1,
+          origin,
+          outcome: "skipped",
+          reason,
+        }),
+      );
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
     it("offers nothing for a page sent recently, a path a recipe starts on, a frame or an incomplete description", async () => {
       const service = generation({ available: async () => "sent" as const });
       const report = vi.fn<(report: LoginReport) => void>();

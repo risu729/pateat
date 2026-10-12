@@ -19,8 +19,12 @@ import {
   shown,
 } from "../page/text";
 
-/** Why no observation was produced. A page without one is never sent to inference. */
-export type ObservationRefusal = "unsupported-page" | "no-candidates";
+/**
+ * Why no observation was produced. A page without one is never sent to inference.
+ * `no-locator` is a login page whose fields and buttons all lack a locator that names
+ * them alone, as when a hidden copy of the form shares their ids and names.
+ */
+export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-locator";
 /**
  * Why a signed-in page's observation is incomplete, for diagnostics only: a fillable field
  * in a shadow root, one that cannot be filled and is disabled or may be a sign-in field,
@@ -522,7 +526,7 @@ function loginFormsOf(
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
  * incomplete too, and inference rejects an incomplete observation. A page without a
- * field is refused.
+ * field is refused, and so is one where nothing can be located.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
@@ -636,6 +640,7 @@ export function extractLoginObservation(
     ...buttons,
     ...kept(links, { optional: true }).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
+  if (chosen.length === 0) return { ok: false, reason: "no-locator" };
   return observe(document, chosen, complete);
 }
 

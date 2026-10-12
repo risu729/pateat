@@ -3091,7 +3091,12 @@ export function createLoginRuntime(
       );
       if (documents.get(key) !== live) return;
       if (!extracted.success || !extracted.output.ok) {
-        skipGeneration(live, "extract-failed");
+        // The extractor's refusal, such as `no-locator`; `extract-failed` for an answer
+        // that fails its check.
+        skipGeneration(
+          live,
+          extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed",
+        );
         return;
       }
       const parsed = v.safeParse(loginObservationSchema, extracted.output.observation);
