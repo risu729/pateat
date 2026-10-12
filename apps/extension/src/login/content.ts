@@ -46,6 +46,7 @@ import {
   reconnectSchema,
   type ExecutionDetail,
   type LoginReadiness,
+  type TargetRequirement,
   type TargetState,
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
@@ -54,16 +55,17 @@ import { newId } from "@pateat/contracts/ids";
 function matches(target: LoginTarget, links = false): Element[] {
   return findTargets(document, target, { links });
 }
-function writable(element: Element | undefined): element is HTMLInputElement {
+/** An input of a kind Pateat fills, whether or not it is shown or can be written now. */
+function textInput(element: Element | undefined): element is HTMLInputElement {
   return (
     element instanceof HTMLInputElement &&
-    visible(element) &&
-    !element.disabled &&
-    !element.readOnly &&
     !["hidden", "file", "submit", "button", "image", "reset", "checkbox", "radio"].includes(
       element.type,
     )
   );
+}
+function writable(element: Element | undefined): element is HTMLInputElement {
+  return textInput(element) && visible(element) && !element.disabled && !element.readOnly;
 }
 function clickable(element: Element | undefined): element is HTMLElement {
   if (element === undefined) return false;
@@ -94,19 +96,20 @@ function switchable(element: Element | undefined): element is HTMLElement {
 }
 /**
  * One target's state: `unique` when it matches one element that is what `require` asks for
- * (a shown writable input, a shown enabled button or any shown element); without it, or
- * with `present`, any one element counts.
+ * (a shown writable input, a shown enabled button, any shown element, an input of a kind
+ * Pateat fills, or such an input shown); without it, or with `present`, any one element
+ * counts.
  */
-function targetState(
-  target: LoginTarget,
-  require?: "writable" | "clickable" | "shown" | "present",
-  links = false,
-): TargetState {
+function targetState(target: LoginTarget, require?: TargetRequirement, links = false): TargetState {
   const found = matches(target, links);
   if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
-  return (require === "writable" && !writable(found[0])) ||
-    (require === "clickable" && !clickable(found[0])) ||
-    (require === "shown" && !(found[0] instanceof HTMLElement && visible(found[0])))
+  const [element] = found;
+  const shown = element instanceof HTMLElement && visible(element);
+  return (require === "writable" && !writable(element)) ||
+    (require === "clickable" && !clickable(element)) ||
+    (require === "shown" && !shown) ||
+    (require === "input" && !textInput(element)) ||
+    (require === "shown-input" && !(textInput(element) && shown))
     ? "unusable"
     : "unique";
 }

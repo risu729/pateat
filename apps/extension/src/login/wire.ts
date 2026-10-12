@@ -18,6 +18,21 @@ const path = v.pipe(v.string(), v.minLength(1), v.maxLength(300));
 export const targetStateSchema = v.picklist(["missing", "unique", "ambiguous", "unusable"]);
 export type TargetState = v.InferOutput<typeof targetStateSchema>;
 /**
+ * What a target's one element must be to count as `unique`: a shown writable input, a
+ * shown enabled button, any shown element, an input of a kind Pateat fills (`input`, shown
+ * or not) or such an input shown (`shown-input`), so another page's element with the same
+ * locator is never taken for a sign-in field; `present` takes any element.
+ */
+export const targetRequirementSchema = v.picklist([
+  "writable",
+  "clickable",
+  "shown",
+  "present",
+  "input",
+  "shown-input",
+]);
+export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
+/**
  * Elements a step needs before it can run: each target matches exactly one element that
  * is a writable input (`fill`), an enabled visible button (`click`) or simply present.
  * No targets means the path alone is enough.
@@ -179,13 +194,11 @@ export const commandSchema = v.variant("type", [
     path: v.string(),
     targets: v.pipe(v.array(loginTargetSchema), v.maxLength(24)),
     /**
-     * Per target, what its one element must be to count as `unique`: a shown writable
-     * input, a shown enabled button, or any shown element; otherwise it is `unusable`.
-     * Without it, any one element counts, hidden or not.
+     * Per target, what its one element must be to count as `unique`
+     * (`targetRequirementSchema`); otherwise it is `unusable`. Without it, any one element
+     * counts, hidden or not.
      */
-    require: v.optional(
-      v.pipe(v.array(v.picklist(["writable", "clickable", "shown", "present"])), v.maxLength(24)),
-    ),
+    require: v.optional(v.pipe(v.array(targetRequirementSchema), v.maxLength(24))),
     /**
      * Per target, whether a text locator may also name a link by its text, as for an
      * account switch: set for a completion marker, which may be a link (ADR 0018).

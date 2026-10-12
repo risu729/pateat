@@ -11,6 +11,7 @@ import {
   type LoginEntryRecipe,
   type LoginRecipe,
   type LoginStep,
+  type LoginTarget,
 } from "@pateat/contracts";
 import type { UriCandidates } from "../crypto/wire";
 import { vaultFailure } from "../vault/record";
@@ -7167,6 +7168,35 @@ describe("production login document admission", () => {
       );
     }, 10_000);
 
+    it("sends the page when a field's locator names an element that is no input there", async () => {
+      // 2026-10-12: Wise's signed-in page gave the password field's React ID to an empty div.
+      fake.state.extracted = {
+        "signed-in": page("/signin", [
+          { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
+        ]),
+      };
+      const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      h.recipes.recipe.mockResolvedValue(generated);
+      fake.state.present = new Set(["user", "password", "login"]);
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: LoginStep }).step.kind !== "click") return;
+        fake.state.present = new Set(["user", "password", "logout"]);
+        fake.state.unusable = new Set(["user", "password"]);
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      // Only an input counts as the sign-in field, shown for the sign-in state.
+      const requires = fake.state.messages
+        .filter((entry) => entry.type === "login.observe")
+        .map((entry) => (entry as Record<string, unknown>)["require"]);
+      expect(requires).toContainEqual(["shown-input", "shown-input"]);
+      expect(requires).toContainEqual(expect.arrayContaining(["input", "input"]));
+    }, 10_000);
+
     it("sends a page whose path may carry a token with that segment as [id]", async () => {
       const accountHome = page("/[id]/home", [
         { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
@@ -11423,6 +11453,21 @@ describe("the start page's passkey route (ADR 0027)", () => {
       homePage.observation,
       expect.any(Function),
     );
+    // The button is no input: only the form's fields need one (ADR 0029 S1).
+    const read = fake.state.messages
+      .filter((entry) => entry.type === "login.observe")
+      .map((entry) => entry as Record<string, unknown>)
+      .filter((entry) => Array.isArray(entry["require"]))
+      .flatMap((entry) =>
+        (entry["targets"] as LoginTarget[]).map((observed, index) => ({
+          button: observed.value === button.value,
+          require: (entry["require"] as string[])[index],
+        })),
+      );
+    const inputs = ["input", "shown-input"];
+    expect(read.filter((entry) => entry.button).length).toBeGreaterThan(0);
+    expect(read.filter((entry) => entry.button && inputs.includes(entry.require!))).toEqual([]);
+    expect(read.some((entry) => !entry.button && inputs.includes(entry.require!))).toBe(true);
     expect(clicks(button.value)).toBe(1);
     expect(fills()).toBe(0);
   });
