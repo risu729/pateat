@@ -9617,6 +9617,82 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       },
     );
 
+    describe("a route's code page that submits by itself", () => {
+      // A page opened on the code step, as a pending sign-in's second factor is: its
+      // recipe's route fills only the `totp` slot, then clicks the button.
+      const routeCode = parseLoginRecipe({
+        version: 1,
+        id: "synthetic-code",
+        revision: 1,
+        origin,
+        slots: ["totp"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [{ slot: "totp", target: target("app-code") }],
+          },
+          { kind: "click", path: "/signin", target: target("verify"), purpose: "submit" },
+        ],
+        completion: home,
+        maxSubmissions: 1,
+      });
+      const onCodePage = () => {
+        fake.state.present = new Set(["app-code", "verify"]);
+        fake.state.observed = ["unique", "unique"];
+      };
+
+      it("settles a page that moved on after the code fill without a click", async () => {
+        onCodePage();
+        onCodeFill(() => {
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+        });
+        const h = harness({}, { passkeys: noPasskey });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(routeCode);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+        expect(status()![0]).toMatchObject({ stepIndex: 1, submissions: 1 });
+      }, 10_000);
+
+      it("settles the new document the code fill led to, never looking for the button", async () => {
+        onCodePage();
+        onCodeFill(() => {
+          // The page submits on the last digit and navigates during the fill.
+          fake.state.gone.add("synthetic-document");
+          throw new Error("Could not establish connection. Receiving end does not exist.");
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(routeCode);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(codeFills()).toHaveLength(1));
+        fake.state.pageUrl = `${origin}/home`;
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        expect(await h.hello({ documentId: "signed-in" }, false)).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(status()![0]).toMatchObject({ stepIndex: 1, submissions: 1 });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+        expect(
+          report.mock.calls.some(
+            ([value]) => value.type === "attempt" && value.outcome === "retry-limit",
+          ),
+        ).toBe(false);
+      }, 10_000);
+    });
+
     describe("a code page that submits by itself", () => {
       it("settles a form replaced by the code fill without a click", async () => {
         onClick({ login: toCode, verify: toHome });

@@ -127,7 +127,8 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
    - Each handler runs at most once per login, so a wrong TOTP code is never retried
      into a lockout. A click on the code's button that failed without changing the page
      is not retried either, since a late click could submit an expired code: the login
-     ends `retry-limit` (2026-10-12).
+     ends `retry-limit` (2026-10-12). The same holds for a route step's click after it
+     fills only the `totp` slot.
    - If the item lacks the handler's fact, the login ends `challenge`.
    - After a click (a handler's or the `passkey` route's), the page is not judged while
      the clicked button is still there. This waits out a slow WebAuthn exchange or a
@@ -541,7 +542,11 @@ new owner decision:
   document of the tab resumes a login whose code fill went in, or may have, and whose
   click has not run. The button is clicked, once, only when it was enabled within half a
   second of the code going in, stayed enabled and idle since, and nothing else showed a
-  submission.
+  submission. A route step that fills only the `totp` slot and is followed by a click on
+  the same path is handled the same way, with its click taking the handler click's
+  place; this was added on 2026-10-12, after Resend's code page, opened on its own as a
+  pending sign-in's second factor, signed in on the last digit while the login retried
+  the gone button until `retry-limit`.
 - **Synthetic TOTP fact.** The probe build's configure message takes an optional
   `totp: true`, which gives the synthetic dummy item a `totp` field with the fixed code
   `012345` and sets its `totp` fact; no TOTP secret or real code is used.
