@@ -196,16 +196,33 @@ run ID, event, branch, per-file and migration digests, Worker name, the account 
 health URL on the Worker's Custom Domain), applies the released migrations, deploys
 through the pinned action without rebuilding, and verifies returned deployment IDs and
 the hosted revision; it tries `/health` up to 30 times, 2 seconds apart, while the new
-version propagates. Before `cf d1 migrations apply`, it reads the database by the
-recorded ID and requires the name `pateat`; afterwards no migration may remain
-unapplied. A failed migration stops the release before activation. Before the first
-public release, migrations need not be additive and the previously serving Worker need
-not keep running on the new schema
+version propagates. The action creates the 100% deployment and then reads it back from
+the Cloudflare API within a fixed 30 seconds; it never repeats an upload or activation
+itself, and a late or missing answer fails with `deployment_readback_pending`. On
+2026-10-12, three of four releases between 12:26 and 12:54 UTC failed in activation:
+ffa712f and e199920 with `deployment_readback_pending` (about 31.5 s after the upload;
+the passing releases read the deployment back about 3 s after it), and 0a73b56 with
+`504 Gateway Timeout` on the version upload (no version or deployment was created). The
+action prints no HTTP statuses, so the reason for the missing readback (error 10336
+"not visible yet" or no timely answer) is not confirmed. The job therefore waits 30
+seconds and runs the activation a second time when the first one fails; the retry must
+pass the same strict readback, and when both fail the job fails (check `/health` before
+re-running; a re-run is safe in either case). The retry runs after any failed first
+activation, including a readback that found a different current deployment, which the
+action alone would refuse; only an out-of-band change (a dashboard rollback, a manual
+`cf deploy`) within that window can cause it, and the retry then deploys the newest
+released build over it. The lock serializes releases, so a retry never re-activates an
+older version. Before `cf d1 migrations apply`, it reads the database by the recorded ID
+and requires the name `pateat`; afterwards no migration may remain unapplied. A failed
+migration stops the release before activation. Before the first public release,
+migrations need not be additive and the previously serving Worker need not keep running
+on the new schema
 ([compatibility before release](development.md#compatibility-before-release)); cf
 compares applied migrations by name only, so an applied migration file is never edited.
 `cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
-is updated. There is no automatic retry; the next successful main CI run releases its
-revision if that is ahead of the live one, or re-run the failed main run's jobs. Routine
+is updated. Only the activation is retried automatically, once; otherwise the next
+successful main CI run releases its revision if that is ahead of the live one, or re-run
+the failed main run's jobs. Routine
 releases never change the Custom Domain or other triggers; the bootstrap applies them
 once. The complete service release gates below remain planned, including automatic
 promotion/failure acknowledgement.
@@ -331,14 +348,14 @@ that the Worker accepts as an owner, which is a separate owner decision.
 
 ## Failure and rollback
 
-If migrations fail, do not deploy. If activation/readback/smoke checks fail,
-leave the release failed, retain sanitized evidence, and stop automatic further
-promotion. Restore a retained compatible build artifact through the same scoped
-action, producing a new version ID, and repeat readback/smoke checks. The action
-does not accept an old version ID as a substitute for Build Output. Additive
-schema is retained; do not run automatic
-destructive down-migrations. A bad recipe has its own revision rollback/revocation
-and does not require replacing the whole Worker.
+If migrations fail, do not deploy. If activation/readback/smoke checks fail (after the
+one automatic activation retry described above), leave the release failed, retain
+sanitized evidence, and stop automatic further promotion. Restore a retained compatible
+build artifact through the same scoped action, producing a new version ID, and repeat
+readback/smoke checks. The action does not accept an old version ID as a substitute for
+Build Output. Additive schema is retained; do not run automatic destructive
+down-migrations. A bad recipe has its own revision rollback/revocation and does not
+require replacing the whole Worker.
 
 Document actual deployed IDs, schema version and smoke result in release output,
 not a manually maintained duplicate state file. Real-model checks and spending
