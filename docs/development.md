@@ -400,9 +400,8 @@ holds:
   chooser window was still open as the wait ran out, or `withheld` for a conditional
   request kept unanswered after a Pateat login of its page signed in) and the delegate
   `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
-  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
-  or `after-logout` (the login only fills after a logout)
-  ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
+  `no-login` (no login of its page started) or `login-ended` (the login did not sign
+  in) ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in

@@ -160,12 +160,11 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   2026-10-12 (14:26 UTC): already implemented on 2026-10-11 by
   [#204](https://github.com/risu729/pateat/pull/204) (a username-less request after
   Pateat signed in the tab opens the chooser window, ADR 0021 D); the architecture page
-  still said otherwise. Open since
-  [ADR 0034](adr/0034-answer-page-passkey-requests.md): on a page that asks for a
-  passkey by itself, the tab that asks after a logout hands the page's request on after
-  three seconds, so an account picked in the popup then signs in with the password.
-  Proposal, waiting for the owner: keep that request until the popup pick and answer it
-  with the picked item's passkey.
+  still said otherwise. On a page that asks for a passkey by itself
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md)), the tab that asks after a
+  logout now keeps the page's request until the popup pick, whose login answers it with
+  the picked item's passkey, as the owner chose on 2026-10-12 (17:56 UTC). Still to
+  check in the owner's Chrome: a logout and a pick on Wise.
 - Installed-Chrome checks still open:
   - Watching a login after a step left to the person
     ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge),
