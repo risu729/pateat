@@ -50,8 +50,15 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   is a target, but a site that signs in only through it is not yet. The list, like
   the daily-use list, stays in the project's files. Pateat has logged in to Vpass there,
   opened during a takeover after the connection was enabled by hand, and the Bot
-  reported a MyJCB login (2026-10-12 13:45 UTC) that nobody else checked. Next: the Bot
-  itself opens each site and reports the page it reaches, starting with Vpass and MyJCB.
+  reported a MyJCB login (2026-10-12 13:45 UTC) that nobody else checked. On
+  2026-10-12 (19:08 UTC) the Bot itself opened ten of those sites on a build of
+  a8350f5, and the diagnostics log showed logins to Vpass, MyJCB and Give. On JP
+  BANKカードWEB the submit press left the sign-in form in place, and later attempts only
+  filled the form. Google, Microsoft and OpenAI Platform stopped with
+  `account-ambiguous`; the owner picks those accounts by hand on that computer for now
+  (owner, 19:22 UTC). Cursor stopped at a human check and an email code. Next: sites
+  that failed on the Grok Bot computer, starting with JP BANKカードWEB, are checked in
+  the owner's installed Chrome before other sites (owner, 19:23 UTC).
 - Done: login attempts whose result settled as unknown no longer hold settings writes
   for the next login, and a vault replacement no longer runs during a login
   ([declarative recipes](architecture.md#declarative-recipes-and-ai)); diagnostics log
@@ -258,6 +265,10 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   requests from Claude without the owner pasting them
   ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). Which
   one to use waits for the owner.
+- A way for an agent such as the Grok Bot to choose the account in Pateat's account
+  chooser itself, such as a tool the agent can call, so the owner need not take over
+  the agent's computer for it (owner, 2026-10-12 19:22 UTC). Low priority; until then
+  the owner chooses by hand.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
