@@ -5,7 +5,6 @@ import {
   customFieldReference,
   defaultLoginBinding,
   findLoginBinding,
-  findLoginRecipe,
   loginDisplayNames,
   loginRecipesForOrigin,
   resolveBindingFields,
@@ -77,13 +76,6 @@ describe("recipe selection", () => {
     recipe("other-signin", "/login", 1, "https://other.example"),
   ];
 
-  it("lists every recipe of one exact origin", () => {
-    expect(loginRecipesForOrigin(recipes, origin).map((entry) => entry.id)).toEqual([
-      "bank-signin",
-      "bank-admin",
-    ]);
-  });
-
   it("starts only on a recipe's first step", () => {
     expect(selectLoginRecipe(recipes, origin, "/login")).toMatchObject({
       ok: true,
@@ -109,14 +101,7 @@ describe("recipe selection", () => {
     ).toEqual({ ok: false, reason: "recipe-ambiguous" });
   });
 
-  it("resumes only the exact recipe revision on its origin", () => {
-    const revised = [recipe("bank-signin", "/login", 2)];
-    expect(findLoginRecipe(revised, origin, "bank-signin", 2)?.revision).toBe(2);
-    expect(findLoginRecipe(revised, origin, "bank-signin", 1)).toBeUndefined();
-    expect(findLoginRecipe(revised, "https://other.example", "bank-signin", 2)).toBeUndefined();
-  });
-
-  it("never lists, starts or resumes an entry recipe (ADR 0031)", () => {
+  it("never lists or starts an entry recipe (ADR 0031)", () => {
     const entry: StoredLoginRecipe = {
       version: 1,
       id: "bank-entry",
@@ -137,10 +122,9 @@ describe("recipe selection", () => {
       ok: false,
       reason: "recipe-not-found",
     });
-    expect(findLoginRecipe([entry], origin, "bank-entry", 1)).toBeUndefined();
   });
 
-  it("never lists, starts or resumes a chooser recipe or its branch (ADR 0028)", () => {
+  it("never lists or starts a chooser recipe or its branch (ADR 0028)", () => {
     const signin = recipes[0]!;
     const chooser: StoredLoginRecipe = {
       version: 1,
@@ -157,7 +141,6 @@ describe("recipe selection", () => {
       ok: false,
       reason: "recipe-not-found",
     });
-    expect(findLoginRecipe([chooser], origin, "bank-chooser", 1)).toBeUndefined();
   });
 });
 

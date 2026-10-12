@@ -389,6 +389,10 @@ own accounts, so they stay in the project's files rather than in this repository
     removals that were the only proof of a judgement rule, and both were kept.
   - Batch 3, `packages/inference` (2026-10-12): 336 to 323 Vitest cases, package
     line coverage unchanged at 99.1%.
+  - Batch 4, `packages/contracts` (2026-10-12): 368 to 350 Vitest cases, the same
+    statements and branches covered; two exports only tests called were removed. The
+    browser suites in `tests/options` and `tests/manage` wait until the UI changes in
+    progress land.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

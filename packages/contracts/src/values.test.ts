@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidEmail, valueMismatch } from "./values";
+import { valueMismatch } from "./values";
 
 describe("valueMismatch", () => {
   it("applies the browser's length, email and number rules", () => {
@@ -14,6 +14,6 @@ describe("valueMismatch", () => {
     expect(valueMismatch({ type: "number" }, "1.")).toBe("not-number");
     expect(valueMismatch({ type: "email" }, "sato-7")).toBe("not-email");
     expect(valueMismatch({ type: "email" }, "user@shop.example.test")).toBeUndefined();
-    expect(isValidEmail("a@b")).toBe(true);
+    expect(valueMismatch({ type: "email" }, "a@b")).toBeUndefined();
   });
 });
