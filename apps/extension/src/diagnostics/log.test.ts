@@ -125,6 +125,20 @@ describe("diagnostics log", () => {
     expect((await restarted.summary()).debugUntil).toBeUndefined();
   });
 
+  it("turns debug logging off before the 24 hours end, across workers", async () => {
+    const { logger, deps } = setup();
+    await logger.enableDebug();
+    await logger.disableDebug();
+    await logger.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    const restarted = createLogger(deps);
+    await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    expect((await restarted.summary()).debugUntil).toBeUndefined();
+    expect((await restarted.entries()).map((entry) => [entry.event, entry.fields])).toEqual([
+      ["log.debug", { enabled: true, until: NOW + DEBUG_LOGGING_MS }],
+      ["log.debug", { enabled: false }],
+    ]);
+  });
+
   it("limits page-caused events per tab and origin and counts the rest", async () => {
     const { logger, advance } = setup();
     const source = { tabId: 4, origin: "https://bank.example" };

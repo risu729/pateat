@@ -270,4 +270,5 @@ Limits:
 
 Delivery, one pull request each: debug logging on and off; reasons for doing nothing
 (including an exception that stops a login); decisions; URLs; requests and sync
-results; finer reasons; limits. The page limit per level (#291) is done.
+results; finer reasons; limits. The page limit per level (#291) and debug logging on
+and off are done.
