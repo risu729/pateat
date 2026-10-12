@@ -28,6 +28,8 @@ const projects = [
   "packages/inference/src",
   "services/api/src",
   "services/api/web",
+  // Reached only when a config measures a folder not listed above; add it to the list.
+  "Other",
 ];
 const summaries = new Map(
   projects.map((project) => [project, libCoverage.createCoverageSummary()]),
@@ -35,22 +37,24 @@ const summaries = new Map(
 const overall = libCoverage.createCoverageSummary();
 for (const file of map.files()) {
   const relative = path.relative(root, file).split(path.sep).join("/");
-  const project = projects.find((prefix) => relative.startsWith(`${prefix}/`));
-  if (!project) throw new Error(`Coverage for a file outside the listed projects: ${relative}`);
+  const project = projects.find((prefix) => relative.startsWith(`${prefix}/`)) ?? projects.at(-1);
   const summary = map.fileCoverageFor(file).toSummary();
   summaries.get(project).merge(summary);
   overall.merge(summary);
 }
 
-const metrics = ["lines", "branches", "functions", "statements"];
+const metrics = ["Lines", "Branches", "Functions", "Statements"];
 const cell = ({ covered, total }) =>
   total ? `${((100 * covered) / total).toFixed(1)}% (${covered}/${total})` : "-";
 const rows = [
   `| Project | ${metrics.join(" | ")} |`,
   `| --- |${" --- |".repeat(metrics.length)}`,
-  ...[...summaries, ["Total", overall]].map(
-    ([project, summary]) => `| ${project} | ${metrics.map((m) => cell(summary[m])).join(" | ")} |`,
-  ),
+  ...[...summaries, ["Total", overall]]
+    .filter(([project, summary]) => project !== "Other" || summary.lines.total)
+    .map(
+      ([project, summary]) =>
+        `| ${project} | ${metrics.map((m) => cell(summary[m.toLowerCase()])).join(" | ")} |`,
+    ),
 ];
 const markdown = [
   "## Coverage",

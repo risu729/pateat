@@ -19,7 +19,8 @@ therefore runs as six shards, in `Linux browser (1/6)` to `(6/6)` and
 into Playwright's `shard`, and the six shards together run every test once. The suite
 splits by test (`fullyParallel`) because splitting by file left `login.spec.ts` alone in
 a shard of about three minutes; each job still runs one worker. The `Verify` job runs
-the rest of the graph (lint, typecheck, unit and component tests, build checks) with
+the rest of the graph (lint, typecheck, unit and component tests with
+[coverage](development.md#test-coverage), build checks) with
 `PATEAT_SKIP_E2E=1` (any non-empty value), which turns `//tests/extension:test` into a
 no-op there; without that variable, as in a local `mise run check`, the suite runs
 whole. With four shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37

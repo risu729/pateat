@@ -161,13 +161,14 @@ Vitest run writes `coverage/<run>/coverage-final.json` with `@vitest/coverage-v8
 `test:<area>` task of the extension names its own `<run>` directory. The next step,
 `mise run coverage:summary`, merges those files with `istanbul-lib-coverage` and writes
 line, branch, function and statement coverage per project (`apps/extension/src`,
-`packages/*/src`, `services/api/src`, `services/api/web`) to the job summary. A file
-reached by several runs, such as extension code tested by a unit area and a Browser Mode
-suite, counts once. No threshold fails CI. The packaged-extension Playwright suite
-(`tests/extension`) is not measured, so code that runs only there, such as
-`apps/extension/src/login/content.ts`, `crypto/worker.ts` and the `probe.ts` files,
-shows as uncovered. For the same table locally, delete `coverage/`, run
-`mise run check:runtime` with `PATEAT_COVERAGE=1` set, then `mise run coverage:summary`.
+`packages/*/src`, `services/api/src`, `services/api/web`) to the job summary; the step
+runs even after a failed check and never fails the job. A file reached by several runs,
+such as extension code tested by a unit area and a Browser Mode suite, counts once. No
+threshold fails CI. The packaged-extension Playwright suite (`tests/extension`) is not
+measured, so code that runs only there, such as `apps/extension/src/login/content.ts`,
+`crypto/worker.ts` and the `probe.ts` files, shows as uncovered. For the same table
+locally, delete `coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE` set to
+any non-empty value, then `mise run coverage:summary`.
 
 Not adopted: Codecov, which adds an external service and an upload token, and GitHub
 Code Quality's pull-request coverage, which requires Code Quality; GitHub offers Code

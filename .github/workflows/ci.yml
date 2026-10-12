@@ -76,6 +76,10 @@ jobs:
           PATEAT_COVERAGE: "1"
         run: mise run check
       - name: Summarize test coverage
+        # Report only: a failed test run still gets the table of what it measured, and the
+        # summary never fails the job.
+        if: ${{ !cancelled() }}
+        continue-on-error: true
         run: mise run coverage:summary
       - name: Prepare tested server artifact
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
