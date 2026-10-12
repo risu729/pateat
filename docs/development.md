@@ -456,8 +456,8 @@ this rule; compatibility from then on needs its own decision.
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner
-repositories. Its GitHub App covers this repository; scanning the package files starts
-after `renovate.json` reaches the default branch. Cloudflare build and test dependencies
+repositories. Its GitHub App covers this repository and reads the configuration from
+`.github/renovate.json` on the default branch. Cloudflare build and test dependencies
 are grouped and allow prereleases. `@cloudflare/vite-plugin` versions are
 `2.0.0-beta.sha-<commit>`, which semver compares by the hash text, not by release date,
 and Renovate has no release-date ordering. It follows the `beta` dist-tag with
