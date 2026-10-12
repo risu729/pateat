@@ -1463,7 +1463,16 @@ describe("completion judgement", () => {
       (
         await complete(device, change.recipeId, 2, {
           ...homePage,
-          origin: "https://x.example.test",
+          origin: "https://shop.elsewhere.test",
+        })
+      ).status,
+    ).toBe(400);
+    // Another origin of the site is judged only over HTTPS (ADR 0022).
+    expect(
+      (
+        await complete(device, change.recipeId, 2, {
+          ...homePage,
+          origin: "http://www.example.test",
         })
       ).status,
     ).toBe(400);
@@ -1515,9 +1524,9 @@ describe("page judgement (ADR 0027)", () => {
     }: { promptVersion?: string; verdict?: string | null } = {},
   ) =>
     env.DB.prepare(
-      "INSERT INTO page_judgements (owner_id, recipe_id, revision, path, prompt_version, judged_at, verdict) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO page_judgements (owner_id, recipe_id, revision, origin, path, prompt_version, judged_at, verdict) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
-      .bind(device.ownerId, recipeId, revision, path, promptVersion, at, verdict)
+      .bind(device.ownerId, recipeId, revision, ORIGIN, path, promptVersion, at, verdict)
       .run();
   const spend = (device: Device) =>
     rows(
@@ -1707,6 +1716,166 @@ describe("page judgement (ADR 0027)", () => {
       { recipe_id: change.recipeId, revision: 2, path: "/login/webauthn" },
       { recipe_id: change.recipeId, revision: 3, path: "/home" },
     ]);
+  });
+
+  describe("a page of another origin of the site (ADR 0022)", () => {
+    const moved = (path: string, candidates: ObservedCandidate[]) =>
+      observation(path, candidates, "https://www.example.test");
+    const movedHome = moved("/home", [
+      element("logout", "button", "Sign out"),
+      element("help", "link", "Help"),
+    ]);
+    const origins = (device: Device) =>
+      rows(
+        "SELECT origin, path, verdict FROM page_judgements WHERE owner_id = ? ORDER BY origin",
+        device.ownerId,
+      );
+
+    it("judges it apart from the recipe's origin and learns its marker with that origin", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+      expect((await complete(device, change.recipeId, 2, movedHome)).body).toMatchObject({
+        status: "signed-in",
+        change: {
+          revision: 3,
+          recipe: {
+            completion: [
+              { target: { by: "id", value: "logout" }, origin: "https://www.example.test" },
+            ],
+          },
+        },
+      });
+      // The recipe's own origin, on the same path, is another page with its own marker.
+      replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+      expect((await complete(device, change.recipeId, 3)).body).toMatchObject({
+        status: "signed-in",
+        change: {
+          revision: 4,
+          recipe: {
+            completion: [
+              { target: { by: "id", value: "logout" }, origin: "https://www.example.test" },
+              { target: { by: "id", value: "logout" } },
+            ],
+          },
+        },
+      });
+      expect(await origins(device)).toEqual([
+        { origin: ORIGIN, path: "/home", verdict: "signed-in" },
+        { origin: "https://www.example.test", path: "/home", verdict: "signed-in" },
+      ]);
+      // Its marker now proves the sign-in there, so the page is not judged again.
+      const calls = sent.length;
+      expect((await complete(device, change.recipeId, 4, movedHome)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "not-judgeable",
+      });
+      expect(sent).toHaveLength(calls);
+    });
+
+    it("answers a page judged signed-in before as such, and an undecided one as already judged", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      // The first page's Next button is never a marker, so nothing is learned there.
+      const welcome = moved("/welcome", [element("next", "button", "Next")]);
+      replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+      await complete(device, change.recipeId, 2);
+      replies.push(judgeReply({ decision: "signed-in", marker: "next" }));
+      expect((await complete(device, change.recipeId, 3, welcome)).body).toEqual({
+        version: 1,
+        status: "signed-in",
+      });
+      const unclear = moved("/later", [element("help", "link", "Help")]);
+      replies.push(judgeReply({ decision: "unclear" }));
+      expect((await complete(device, change.recipeId, 3, unclear)).body).toEqual({
+        version: 1,
+        status: "unclear",
+      });
+      const calls = sent.length;
+      expect((await complete(device, change.recipeId, 3, welcome)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "judged-signed-in",
+      });
+      expect((await complete(device, change.recipeId, 3, unclear)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "already-judged",
+      });
+      expect(sent).toHaveLength(calls);
+    });
+
+    it("answers signed-in when its marker cannot be learned, as a later request would", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      // The first page's Next button is never a marker, and the recipe has none yet.
+      replies.push(judgeReply({ decision: "signed-in", marker: "next" }));
+      expect(
+        (
+          await complete(
+            device,
+            change.recipeId,
+            2,
+            moved("/welcome", [element("next", "button", "Next")]),
+          )
+        ).body,
+      ).toEqual({ version: 1, status: "signed-in" });
+      expect(await head(device, change.recipeId)).toBe(2);
+    });
+
+    it("judges it only for a password login", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const calls = sent.length;
+      const response = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
+        version: 1,
+        revision: 2,
+        route: "passkey",
+        observation: movedHome,
+      });
+      expect(response.status).toBe(400);
+      expect(sent).toHaveLength(calls);
+    });
+
+    it("keeps no handler for a challenge there", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+      expect(
+        (
+          await complete(
+            device,
+            change.recipeId,
+            2,
+            moved("/login/webauthn", [element("key", "button", "Use security key")]),
+          )
+        ).body,
+      ).toEqual({ version: 1, status: "challenge" });
+      expect(await head(device, change.recipeId)).toBe(2);
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "passkey", kept: false, reason: "origin-mismatch" }],
+      });
+    });
+
+    it("judges its page on a path the recipe signs in on", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      // The recipe's `/password` is its own origin's path; the button alone shows there.
+      replies.push(judgeReply({ decision: "unclear" }));
+      expect(
+        (
+          await complete(
+            device,
+            change.recipeId,
+            2,
+            moved("/password", [element("sign-in", "button", "Sign in")]),
+          )
+        ).body,
+      ).toEqual({ version: 1, status: "unclear" });
+    });
   });
 
   it("judges a path again once the judge changed", async () => {

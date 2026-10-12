@@ -167,6 +167,32 @@ describe("declarative login boundaries", () => {
     expect(() => parseLoginRecipe(withMarkers([{ ...marker("a"), path: "/home" }]))).toThrow();
   });
 
+  it("keeps a marker learned on another origin of the site apart (ADR 0022)", () => {
+    const marker = (value: string, origin?: string) => ({
+      target: { by: "id" as const, value },
+      ...(origin ? { origin } : {}),
+    });
+    const withMarkers = (completion: unknown[]) => ({ ...recipe(), completion });
+    // The same element on the recipe's own origin and on another one are two markers.
+    expect(
+      parseLoginRecipe(withMarkers([marker("a"), marker("a", "https://www.bank.example")]))
+        .completion,
+    ).toHaveLength(2);
+    expect(() =>
+      parseLoginRecipe(
+        withMarkers([
+          marker("a", "https://www.bank.example"),
+          marker("a", "https://www.bank.example"),
+        ]),
+      ),
+    ).toThrow();
+    // The recipe's own origin is never named, and an origin is exact.
+    expect(() => parseLoginRecipe(withMarkers([marker("a", "https://bank.example")]))).toThrow();
+    expect(() =>
+      parseLoginRecipe(withMarkers([marker("a", "https://www.bank.example/home")])),
+    ).toThrow();
+  });
+
   it("refuses an account switch that is a step's button or the rejection", () => {
     const other = { by: "text", value: "Use another account" } as const;
     expect(parseLoginRecipe({ ...recipe(), accountSwitch: other }).accountSwitch).toEqual(other);

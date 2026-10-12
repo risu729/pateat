@@ -260,16 +260,23 @@ export const loginRecipeSchema = v.pipe(
     passkey: v.optional(v.strictObject({ path, target: loginTargetSchema })),
     /**
      * The signed-in markers (ADR 0029): elements the judge picked on signed-in pages, in
-     * the order they were learned, each proving a sign-in on any path of the origin. A
-     * generated recipe has none until the page after its first sign-in is judged (ADR
-     * 0018); until then only the sign-in state of ADR 0029 completes a login. A later page
-     * the judge answers `signed-in` for adds its marker, up to four.
+     * the order they were learned, each proving a sign-in on any path of the origin it was
+     * learned on. A generated recipe has none until the page after its first sign-in is
+     * judged (ADR 0018); until then only the sign-in state of ADR 0029 completes a login. A
+     * later page the judge answers `signed-in` for adds its marker, up to four.
      */
     completion: v.optional(
       v.pipe(
         v.array(
           v.strictObject({
             target: loginTargetSchema,
+            /**
+             * Another origin of the recipe's site the marker was learned on (ADR 0022): the
+             * page a `password` login's tab moved to right after the submission. Such a
+             * marker proves a sign-in only on a page of that origin the tab moved to; one
+             * without proves it on the recipe's own origin.
+             */
+            origin: v.optional(loginOriginSchema),
             /**
              * Elements that must be missing as well, even hidden, such as the sign-in
              * fields of a page that signs in on its own path, where the marker was learned.
@@ -292,7 +299,8 @@ export const loginRecipeSchema = v.pipe(
         v.minLength(1),
         v.maxLength(MAX_COMPLETION_MARKERS),
         v.check(
-          (markers) => unique(markers.map((marker) => JSON.stringify(marker.target))),
+          (markers) =>
+            unique(markers.map((marker) => JSON.stringify([marker.origin ?? "", marker.target]))),
           "Duplicate completion markers",
         ),
       ),
@@ -456,6 +464,11 @@ export const loginRecipeSchema = v.pipe(
       !(recipe.alternatives && recipe.rejection && used.has(targetKey(recipe.rejection)))
     );
   }, "Completion or rejection target is a variant's step target"),
+  // A marker of the recipe's own origin names none.
+  v.check(
+    (recipe) => !(recipe.completion ?? []).some((marker) => marker.origin === recipe.origin),
+    "Completion marker names the recipe's own origin",
+  ),
   // A handler's element showing would otherwise prove the sign-in on its own page.
   v.check((recipe) => {
     const markers = new Set((recipe.completion ?? []).map((marker) => targetKey(marker.target)));

@@ -54,7 +54,8 @@ change, the judge decides once when it does not; see "Leaving the origin after a
 possible submission ends the attempt" below. Evidence: on モッピー at 20:52 UTC Pateat
 submitted the password on `ssl.pc.moppy.jp`, the site moved the tab to the signed-in
 `pc.moppy.jp`, and the login ended `left-origin`, so it saved no account choice and held
-the site in other tabs for 5 minutes.
+the site in other tabs for 5 minutes. The judge for a page without the username was
+implemented as that choice's second delivery (2026-10-12).
 
 ## Context
 
@@ -170,11 +171,36 @@ fix them now; the SSO policy itself is recorded separately.
     attempt. The step's time is kept in memory only, so after a worker restart, or with
     any condition not met, the attempt ends `left-origin` as before. Generic signs only;
     no site is named in the code ([ADR 0033](0033-no-site-specific-features.md)).
-  - **The judge for such a move** (owner's choice at 21:18 UTC; not implemented, the
-    next change, which also needs service changes). When the new page does not show the
-    username, the sign-in judge of ADR 0029 is asked once for it: `signed-in` completes
-    the attempt and learns a signed-in marker; when the judge cannot decide, the attempt
-    ends `left-origin` as today. Pateat still fills and clicks nothing on that page.
+  - **The judge for such a move** (owner's choice at 21:18 UTC, implemented in its
+    second delivery). When the new page shows none of those signs in its last two loaded
+    readings but never the username in two, a signed-in marker learned on that origin
+    (below) that shows on it completes the attempt as the readings would. Otherwise the
+    page is described and sent once to the sign-in judge of ADR 0029, with the account's
+    username and those of the items matching the page hidden as for any judged page, and
+    `signed-in`, or the service's `judged-signed-in` for a page of that origin and path
+    the judge answered `signed-in` before in the revision, completes the attempt once
+    the page, read again after the answer, has loaded and still shows none of those
+    signs, with no passkey request since the step. Any other answer, including one the
+    judge could not decide (`unclear`, `already-judged`), `challenge`, `rejected` or a
+    refusal, a page that cannot be described or sent, and a recipe revision no longer at
+    hand, ends the attempt `left-origin` as before, each logged as a `recipe.judge`
+    entry marked `moved` with the new page's origin. The page's announcement, and frames
+    of it, wait for the answer; the same document announcing again meanwhile waits for
+    that answer instead of sending the page again. The service judges a page of another
+    HTTPS origin of the recipe's registrable domain, for the `password` route only, as
+    one of the recipe's own (one rule, `sameLoginSite` in the contracts, for the
+    extension's check, the service and the markers, so a later widening changes it in
+    one place), except that the recipe's paths are not compared with it, its markers
+    there are only those learned on that origin, a `challenge` there adds no handler,
+    since no login runs on that origin, and a `signed-in` verdict whose marker cannot be
+    learned still answers `signed-in`, as a later request for the page would. Each
+    judged page is kept per recipe revision, origin and path (D1 migration 0015; earlier
+    rows were dropped, as Pateat is unreleased), so a second login on the recipe's own
+    origin and on the other one are judged apart. A `signed-in` page there learns its
+    marker with that origin (`completion[].origin`), which proves a sign-in only on a
+    page of that origin a login's tab moved to, never on the recipe's own origin, and
+    markers of the recipe's own origin are never read on the other one. Pateat still
+    fills and clicks nothing on that page and never reopens the login URL.
 - **Holding the origin in other tabs** (amended 2026-10-11 and three times on
   2026-10-12). Cookies can be shared across tabs, so another tab's record of the origin
   refuses a new attempt with `origin-busy` until that tab closes or the record has not
