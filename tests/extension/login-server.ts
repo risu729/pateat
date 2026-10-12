@@ -97,7 +97,13 @@ export async function startLoginFixture(
       const to = fixtureUrl.searchParams.get("to");
       setTimeout(() => {
         response.writeHead(302, {
-          location: to === "/authenticated" || to?.startsWith("/totp-code") ? to : "/",
+          // Only fixed locations, never the query's own value.
+          location:
+            to === "/authenticated"
+              ? "/authenticated"
+              : to === "/totp-code?wrong"
+                ? "/totp-code?wrong"
+                : "/totp-code",
           "cache-control": "no-store",
         });
         response.end();
@@ -237,6 +243,13 @@ export async function startLoginFixture(
         ),
       );
     } else if (path === "/totp") {
+      // Only the known flags go on, never the query as written.
+      const flags = new URLSearchParams();
+      for (const flag of ["wrong", "auto", "slow"])
+        if (fixtureUrl.searchParams.has(flag)) flags.set(flag, "");
+      const spa = fixtureUrl.searchParams.get("spa");
+      if (spa === "status" || spa === "replace") flags.set("spa", spa);
+      const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?wrong` shows it again after Verify, `?auto` submits the
       // code by itself on its sixth digit, as some sites do. With `?auto`, `slow` verifies
@@ -250,7 +263,7 @@ export async function startLoginFixture(
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('identityMatched', 'true');
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
-          location.href = ${JSON.stringify(`/totp-code${fixtureUrl.search}`)};
+          location.href = ${JSON.stringify(next)};
         });`,
         ),
       );
