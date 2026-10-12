@@ -26,8 +26,7 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 5
     permissions:
-      # Lists the changed files of the pull request.
-      pull-requests: read
+      pull-requests: read # List the changed files of the pull request.
     outputs:
       # Only a pull request that changes nothing but documentation skips the browser tests;
       # main pushes and manual runs always run them.
