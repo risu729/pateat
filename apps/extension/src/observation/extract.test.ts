@@ -1260,7 +1260,7 @@ describe("extractSignedInObservation", () => {
     ]);
 
     // Nor one that may be a token, such as an account ID.
-    page(`<button id="acct-0123456789abcdef0123" type="button">Account</button>`);
+    page(`<button id="acct-a1b2c3d4e5f6a7b8c9d0" type="button">Account</button>`);
     expect(summary(signedIn())).toEqual([
       { role: "button", target: { by: "text", value: "Account" }, label: "Account" },
     ]);
