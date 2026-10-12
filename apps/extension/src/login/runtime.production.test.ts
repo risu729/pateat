@@ -4271,7 +4271,7 @@ describe("production login document admission", () => {
       ]);
     });
 
-    it("logs a page whose description threw before it was sent", async () => {
+    it("logs a page that stopped answering before it was sent", async () => {
       const service = generation();
       const report = vi.fn<(report: LoginReport) => void>();
       const h = harness(unsaved, {
@@ -4294,7 +4294,8 @@ describe("production login document admission", () => {
           tabId: 1,
           origin,
           outcome: "skipped",
-          reason: "exception",
+          reason: "unreachable",
+          detail: "no-receiver",
         }),
       );
       expect(service.generate).not.toHaveBeenCalled();

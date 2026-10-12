@@ -5118,10 +5118,14 @@ export function createLoginRuntime(
           }
         }),
       );
-    } catch {
-      // The document went away or did not answer, or the vault could not be read; nothing
-      // was started. Only a page still shown is worth the reason (ADR 0019).
-      if (!sent && documents.get(key) === live) skipGeneration(live, "exception");
+    } catch (error) {
+      // The document went away or did not answer (`unreachable`, with how), or reading the
+      // vault threw; nothing was started. Only a page still tracked is worth the reason
+      // (ADR 0019).
+      if (!sent && documents.get(key) === live)
+        if (error instanceof DocumentGone)
+          skipGeneration(live, "unreachable", undefined, error.reason);
+        else skipGeneration(live, "exception");
     }
   }
   /**
@@ -6696,8 +6700,11 @@ export function createLoginRuntime(
         { version: 1, type: "login.reconnect" },
         { documentId: live.document.documentId, frameId: live.document.frameId },
       );
-    } catch {
-      if (!sent && documents.get(key) === live) skipGeneration(live, "exception", "entry");
+    } catch (error) {
+      if (!sent && documents.get(key) === live)
+        if (error instanceof DocumentGone)
+          skipGeneration(live, "unreachable", "entry", error.reason);
+        else skipGeneration(live, "exception", "entry");
     }
   }
   /**
