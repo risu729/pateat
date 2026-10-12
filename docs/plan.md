@@ -233,6 +233,11 @@ still open on 2026-10-11.
   has no Japanese address model, and no widely used extension covers them. It recommends
   Japanese forms as the first candidate if identity filling is designed later (not
   decided).
+- CAPTCHA solving is out of scope because it is heavy (owner, 2026-10-12 05:35 UTC). The
+  [survey](research/2026-10-12-captcha-solving-landscape.md) records the existing
+  approaches (paid solver services, audio speech-to-text, object detection, LLM agents,
+  and ways to avoid the challenge such as Private Access Tokens) and their reported
+  success rates.
 - Cloudflare Clef for the finite-choice role, chosen for
   [phase 3](#phase-3-public-release) but not planned until the corpus of real pages
   grows (owner, 2026-10-11 17:48 UTC): the
