@@ -2786,12 +2786,13 @@ export function createLoginRuntime(
   async function waitFor(
     run: Execution,
     readiness: LoginReadiness,
+    timeoutMs = LOGIN_STEP_WAIT_MS,
   ): Promise<"ready" | "timeout" | "gone"> {
     try {
       const response = await send(run.live, {
         type: "login.await",
         readiness,
-        timeoutMs: LOGIN_STEP_WAIT_MS,
+        timeoutMs,
       });
       const parsed = v.safeParse(awaitResultSchema, response);
       if (!parsed.success) return "gone";
@@ -2917,9 +2918,20 @@ export function createLoginRuntime(
       // the assertion in this document for a while, then the login falls back to its
       // password variant (ADR 0034).
       if (inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
-        const form = await observe(run, stepTargets(inFlight.step), ["shown"]);
-        if (!form) return undefined;
-        if (form.path === inFlight.step.path && form.targets[0] === "unique") {
+        let shows: boolean;
+        if (run.chooser) {
+          // A chooser login's start page is its list, read as its click's wait reads it,
+          // since the click's target names no element by itself (ADR 0028).
+          if (!(await allowed(run))) return undefined;
+          const list = await waitFor(run, listReadiness(run.chooser), 1);
+          if (!current(run) || list === "gone") return undefined;
+          shows = list === "ready";
+        } else {
+          const form = await observe(run, stepTargets(inFlight.step), ["shown"]);
+          if (!form) return undefined;
+          shows = form.path === inFlight.step.path && form.targets[0] === "unique";
+        }
+        if (shows) {
           if (run.answeredAt !== undefined && Date.now() - run.answeredAt < REQUEST_HOLD_MS)
             return "held";
           await fallBack(run, "sign-in-shown");

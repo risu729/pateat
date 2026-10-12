@@ -121,7 +121,9 @@ password when the item has one. The proposal reviewed with the owner is
   route is chosen at the start only when the request already waits; otherwise the
   `password` route starts and switches as rule 3 says, also once its first step's
   elements are ready. On a chooser login the first step is its click on the list, so the
-  fallback starts from that click.
+  synthetic step stands on the click's target and the fallback starts from that click;
+  whether the list still shows after the answer is read as the click's wait for the list
+  reads it, since an account entry's target names no element.
 - The attempt machine has a `ROUTE` event. Before any submission or handler, it changes
   route between steps; after the `passkey` route's answer, it goes back to the
   `password` route once. The attempt keeps its `password` variant while on the `passkey`
