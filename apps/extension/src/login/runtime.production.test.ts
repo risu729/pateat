@@ -1010,7 +1010,16 @@ describe("production login document admission", () => {
     expect(fake.state.messages.filter((entry) => entry.type === "login.await")).toHaveLength(3);
     expect(
       report.mock.calls.map(([entry]) => (entry.type === "attempt" ? entry.state : entry.type)),
-    ).toEqual(["ready", "retryable", "ready", "retryable", "ready", "retryable", "blocked"]);
+    ).toEqual([
+      "start",
+      "ready",
+      "retryable",
+      "ready",
+      "retryable",
+      "ready",
+      "retryable",
+      "blocked",
+    ]);
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
   });
