@@ -415,10 +415,12 @@ describe("recipe generation", () => {
   it("names the check that refused the output and logs the refused plan by reference", async () => {
     const device = await owner();
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    // A password for an input the page marks `new-password`: the plan check refuses it.
+    // A password for a sign-up form's `new-password` input, which a confirmation field
+    // follows: the plan check refuses it.
     const page = observation("/login", [
       element("email", "email", "Email"),
       { ...element("password", "password", "Password"), autocomplete: "new-password" },
+      { ...element("confirm", "password", "Confirm password"), autocomplete: "new-password" },
       element("sign-in", "button", "Sign in"),
     ]);
     const refused = JSON.stringify({

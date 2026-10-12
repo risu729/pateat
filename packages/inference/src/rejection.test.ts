@@ -78,28 +78,32 @@ const field = (slot: string, candidate: string, name?: string) => ({
 const signIn = { candidate: "c4", purpose: "submit" };
 
 describe("refused generated output", () => {
-  it("says the plan check refused a password for a new-password input", async () => {
-    const fields = [field("username", "c1"), field("password", "c2")];
+  it("says the plan check refused a password for a lone new-password input", async () => {
+    // The sign-in form's lone new-password field takes a password beside the identifier
+    // (ADR 0018, 2026-10-12), but not without one.
+    const fields = [field("password", "c2")];
     const outcome = await answer({ fields, action: signIn });
     expect(outcome).toMatchObject({
       status: "failed",
       error: "invalid-output",
-      detail: "incompatible-role",
+      detail: "lone-new-password",
       output: { result: { fields, action: signIn } },
     });
     if (outcome.status !== "failed") throw new Error("expected a failure");
-    expect(outputRejection(outcome)).toEqual({ check: "plan", reason: "incompatible-role" });
-    // A custom field in that input is refused alike; the identifier alone passes.
+    expect(outputRejection(outcome)).toEqual({ check: "plan", reason: "lone-new-password" });
+    // A password in the identifier input is refused for its role.
+    expect(await answer({ fields: [field("password", "c1")], action: signIn })).toMatchObject({
+      detail: "incompatible-role",
+    });
+    // With an identifier, the password or a Hidden custom field passes.
     const others = await Promise.all(
       [
+        [field("username", "c1"), field("password", "c2")],
         [field("username", "c1"), field("custom-1", "c2", "trading-pin")],
         [field("custom-2", "c1", "email-address"), field("password", "c2")],
       ].map((plan) => answer({ fields: plan, action: signIn })),
     );
-    for (const other of others) expect(other).toMatchObject({ detail: "incompatible-role" });
-    expect(await answer({ fields: [field("username", "c1")], action: signIn })).toMatchObject({
-      status: "ok",
-    });
+    for (const other of others) expect(other).toMatchObject({ status: "ok" });
   });
 
   it("keeps only references the request holds in a refused plan", async () => {

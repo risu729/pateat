@@ -158,6 +158,28 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("keeps personal-data autocomplete tokens, which mark a sign-up form", () => {
+    page(
+      `<form id="f">
+        <input id="last" autocomplete="family-name">
+        <input id="phone" type="tel" autocomplete="section-a shipping tel">
+        <input id="birth" autocomplete="BDAY">
+        <input id="u" autocomplete="username">
+        <input id="p" type="password" autocomplete="new-password">
+        <input id="other" autocomplete="cc-number">
+        <button id="go">Join</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.autocomplete)).toEqual([
+      "family-name",
+      "tel",
+      "bday",
+      "username",
+      "new-password",
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("takes labels from ARIA, label elements, definition lists and title", () => {
     page(
       `<span id="lead">会員</span><span id="tail">番号</span>

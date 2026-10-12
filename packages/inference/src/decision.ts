@@ -19,7 +19,7 @@ import {
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
-import { isActionRole, slotAccepts, validatePagePlan, type ValidatedPagePlan } from "./plan";
+import { isActionRole, slotAcceptsOn, validatePagePlan, type ValidatedPagePlan } from "./plan";
 
 /** A finite-choice model implementing the AI SDK decision contract (`doDecide`). */
 export type FiniteChoiceModel = Extract<
@@ -54,7 +54,7 @@ export function buildFieldQuestions(observation: LoginObservation, slots: readon
   const questions: Record<string, ChoiceQuestion> = {};
   for (const slot of slots) {
     const eligible = observation.candidates.filter((candidate) =>
-      slotAccepts(slot.kind, candidate),
+      slotAcceptsOn(observation, slot.kind, candidate),
     );
     if (eligible.length === 0) continue;
     questions[`slot:${slot.id}`] = {
@@ -206,7 +206,8 @@ export function createFieldMappingDecider(config: {
         purpose: fields.some((field) => field.kind !== "identifier") ? "submit" : "advance",
       },
     });
-    // Options are pre-filtered, so a rejection here is a cross-form joint mapping.
+    // Options are pre-filtered, so a rejection here is a cross-form joint mapping, or a
+    // lone `new-password` field filled without an identifier of its form.
     if (!validated.ok) return { status: "abstained", reason: "inconsistent-mapping", calls, usage };
     return { status: "ok", value: validated.plan, calls, usage };
   };

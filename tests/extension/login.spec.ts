@@ -1371,6 +1371,15 @@ test("values the page would not accept are never submitted", async () => {
         await expect.poll(status).not.toContain("fill-rejected");
       }
       /* eslint-enable no-await-in-loop */
+      // The page clears the field and shows another password field: the form is not sent.
+      const switched = await context.newPage();
+      await switched.goto(`${fixture.origin}/single?reject-fill=switch-form`);
+      await expect.poll(status).toContain("structural-mismatch");
+      await expect(switched.locator("#security")).toBeVisible();
+      await switched.waitForTimeout(500);
+      expect(await clicks(switched)).toBe(0);
+      await switched.close();
+      await expect.poll(status).not.toContain("structural-mismatch");
       // A message the page already showed, rendered again on input, is not a rejection.
       const shown = await context.newPage();
       await shown.goto(`${fixture.origin}/single?reject-fill=shown`);

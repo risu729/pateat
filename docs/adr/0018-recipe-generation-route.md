@@ -17,10 +17,10 @@ Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a page is
 after any effect step that leads nowhere known, a judgement can add a second-factor
 handler, and judgements are limited per revision and path and to 20 per recipe a day
 (implemented with the `passkey` and `totp` handlers).
-Amended on 2026-10-12: every number on the page shown after sign-in becomes `[number]`
-([Architecture](../architecture.md#declarative-recipes-and-ai)).
 Amended on 2026-10-12 by the owner's decision on a sign-in form's lone `new-password`
 field ([Decision](#decision)), which the plan check implements.
+Amended on 2026-10-12: every number on the page shown after sign-in becomes `[number]`
+([Architecture](../architecture.md#declarative-recipes-and-ai)).
 
 Date: 2026-10-11
 

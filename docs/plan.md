@@ -1214,7 +1214,9 @@ rejected before inference. The generation/repair role uses AI SDK
 structured output and the finite-choice role uses the SDK decision contract with an
 explicit none option per question. Both resolve observation-local candidate IDs, check
 slot/role compatibility, joint mapping uniqueness and same-form grouping, refuse secrets
-in new-password fields, and apply the shared recipe step contract. They return explicit
+in new-password fields except a sign-in form's lone one beside the identifier the plan
+fills ([ADR 0018](adr/0018-recipe-generation-route.md#decision), owner decision of
+2026-10-12), and apply the shared recipe step contract. They return explicit
 ok, abstained or failed outcomes. Usage sums every attempt, including failed retries;
 one attempt without reported usage makes the total unknown. Retries default to none and
 are bounded; timeouts, caller cancellation and byte limits on the sent instructions,
@@ -1605,15 +1607,16 @@ added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
-locators, labels, placeholders, descriptions, `autocomplete` and declared input
-constraints, plus the title and visible `h1`-`h3`. It never reads input values, hidden
-inputs or query strings, and refuses a path that may carry a session ID or another
-token: a segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an
-ASP.NET part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's
-base64-encoded `/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and
-digits that contains a digit, or a base64url-like run of 16 or more letters, digits, `-`
-and `_` that contains a digit and switches case or between letters and digits often.
-Each segment is checked as it is and percent-decoded up to three times.
+locators, labels, placeholders, descriptions, `autocomplete` (the sign-in tokens, `off`,
+and the personal-data tokens that mark a sign-up form) and declared input constraints,
+plus the title and visible `h1`-`h3`. It never reads input values, hidden inputs or
+query strings, and refuses a path that may carry a session ID or another token: a
+segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET
+part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
+`/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
+contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
+that contains a digit and switches case or between letters and digits often. Each
+segment is checked as it is and percent-decoded up to three times.
 `extractSignedInObservation` refuses the same paths. The rule is a heuristic: it misses
 tokens shorter than 16 characters and some plain-looking ones, and it also refuses paths
 that carry no session, such as Microsoft Entra tenant IDs
