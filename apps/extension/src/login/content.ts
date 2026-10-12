@@ -25,8 +25,9 @@ import {
   besideEmails,
   listChoice,
   listControls,
-  showsOtherAccountControl,
+  otherAccountMiss,
   type EntryMiss,
+  type OtherMiss,
 } from "../page/account-list";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
 import {
@@ -422,7 +423,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * an email.
    */
   function listed():
-    | { path: string; names?: string[]; other?: true; missed?: EntryMiss }
+    | {
+        path: string;
+        names?: string[];
+        other?: true;
+        otherMiss?: OtherMiss;
+        missed?: EntryMiss;
+      }
     | undefined {
     const path = location.pathname;
     if (listsAccounts()) return { path };
@@ -432,11 +439,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (!names.length && !missed) return undefined;
     // A control to sign in with another account lets a list of names that name no item be
     // sent too (ADR 0028).
-    const other = names.length > 0 && showsOtherAccountControl(document, names);
+    const otherMiss = names.length > 0 ? otherAccountMiss(document, names) : "no-other";
     return {
       path,
       ...(names.length ? { names } : {}),
-      ...(other ? { other: true as const } : {}),
+      ...(otherMiss === undefined ? { other: true as const } : {}),
+      // Why no such control counts, for the log, when the words show at all.
+      ...(otherMiss && otherMiss !== "no-other" ? { otherMiss } : {}),
       ...(missed ? { missed } : {}),
     };
   }
@@ -444,7 +453,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     start: boolean,
     /** `identifier` for a page that asks for an account identifier alone (ADR 0016). */
     signIn: boolean | "identifier" = false,
-    list?: { path: string; names?: string[]; other?: true; missed?: EntryMiss },
+    list?: {
+      path: string;
+      names?: string[];
+      other?: true;
+      otherMiss?: OtherMiss;
+      missed?: EntryMiss;
+    },
     entryPage = false,
   ): Promise<unknown> {
     announced = start;

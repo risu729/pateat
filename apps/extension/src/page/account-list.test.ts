@@ -11,6 +11,7 @@ import {
   listControls,
   namedAccounts,
   namesUsername,
+  otherAccountMiss,
   pickEntry,
   showsOtherAccountControl,
 } from "./account-list";
@@ -252,6 +253,27 @@ describe("showsOtherAccountControl", () => {
       document.body.innerHTML = html;
       expect(showsOtherAccountControl(document)).toBe(false);
     }
+  });
+});
+
+describe("otherAccountMiss", () => {
+  it("says why no control for another account counts, for the log", () => {
+    document.body.innerHTML = instagram;
+    expect(otherAccountMiss(document, ["taro.yamada"])).toBeUndefined();
+    document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><button>Not taro? Switch accounts</button>`;
+    expect(otherAccountMiss(document, ["taro"])).toBe("other-holds-name");
+    document.body.innerHTML = `<div><span>taro</span><button>Go</button></div><button>Switch account 1234</button>`;
+    expect(otherAccountMiss(document)).toBe("other-not-clickable");
+    for (const html of [
+      `<header><button>Switch account</button></header><div><span>taro</span><button>Go</button></div>`,
+      `<div><span>taro</span><button>Go</button></div><button disabled>Use another profile</button>`,
+      `<div><span>taro</span><button>Go</button></div><p>Use another profile</p>`,
+    ]) {
+      document.body.innerHTML = html;
+      expect(otherAccountMiss(document)).toBe("other-not-control");
+    }
+    document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><button>Create new account</button>`;
+    expect(otherAccountMiss(document)).toBe("no-other");
   });
 });
 

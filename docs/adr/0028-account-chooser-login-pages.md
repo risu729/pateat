@@ -133,16 +133,19 @@ an email as `after-sign-in` or `no-vault-match`. At debug level it also names a 
 that, once its ten seconds end without a sign-in input, holds an `@` in its text but is
 not taken as a list (`not-a-list`, with why: for its first shown address, such as
 `inside-control` or `not-rendered`; else how a hidden one is hidden; else
-`split-address`), and a page of texts that named no item (`no-listed-account`), and one
-that showed nothing to send at all (`nothing-offered`: `no-list`, `after-sign-in` or
-`sign-in-shown`; added 2026-10-12 after Instagram's saved-profile list left no log
-line); other pages without a matching item stay `no-vault-match` with a detail. At info
-level, a page not sent because the vault could not tell is logged as `vault-unavailable`
-or `connection-disabled`; one not offered without the service is `not-connected` at
-debug level. An element with `display: contents` has no box, so it counts as shown when
-its parent is and renders its content, and any child element renders: Cloudflare's saved
-profiles wrap each address in one, and the list was not found before (2026-10-12). The
-service's check of the answer also refuses a control whose text holds `[account]`.
+`split-address`), and a page of texts that named no item (`no-listed-account`, with why
+a shown control for another account did not count when one showed: `other-holds-name`,
+`other-not-clickable` or `other-not-control`, added 2026-10-12 after Instagram's list
+was not sent), and one that showed nothing to send at all (`nothing-offered`: `no-list`,
+`after-sign-in` or `sign-in-shown`; added 2026-10-12 after Instagram's saved-profile
+list left no log line); other pages without a matching item stay `no-vault-match` with a
+detail. At info level, a page not sent because the vault could not tell is logged as
+`vault-unavailable` or `connection-disabled`; one not offered without the service is
+`not-connected` at debug level. An element with `display: contents` has no box, so it
+counts as shown when its parent is and renders its content, and any child element
+renders: Cloudflare's saved profiles wrap each address in one, and the list was not
+found before (2026-10-12). The service's check of the answer also refuses a control
+whose text holds `[account]`.
 
 ### What the AI answers
 

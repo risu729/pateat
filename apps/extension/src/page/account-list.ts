@@ -424,21 +424,61 @@ export function showsOtherAccountControl(
   document: Document,
   names: readonly string[] = [],
 ): boolean {
+  return otherAccountMiss(document, names) === undefined;
+}
+
+/** Why a shown control for another account does not count, for the log (ADR 0028). */
+export const otherMisses = [
+  "other-holds-name",
+  "other-not-clickable",
+  "other-not-control",
+] as const;
+export type OtherMiss = (typeof otherMisses)[number];
+
+/** Words for another account in a control's text, as {@link showsOtherAccountControl} reads them. */
+function namesOtherAccount(text: string): boolean {
+  const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
+  const other =
+    words.some((word) => otherWords.has(word)) || otherParts.some((part) => text.includes(part));
+  const account =
+    words.some((word) => accountWords.has(word)) ||
+    accountParts.some((part) => text.includes(part));
+  return other && account;
+}
+
+/**
+ * Why {@link showsOtherAccountControl} finds no control to sign in with another account,
+ * for the log (ADR 0028), or undefined when it finds one: such a control holds one of
+ * `names` in its text or label (`other-holds-name`), {@link listControls} could not click
+ * it (`other-not-clickable`), the words show only outside every entry-like control, such
+ * as in a hidden, disabled or page chrome one (`other-not-control`), or nowhere
+ * (`no-other`). Only these codes leave the page, never its text.
+ */
+export function otherAccountMiss(
+  document: Document,
+  names: readonly string[] = [],
+): OtherMiss | "no-other" | undefined {
   const source = namePattern(names);
   const holds = source ? new RegExp(source, "iu") : undefined;
-  return entryControls(document).some((element) => {
+  let miss: "other-holds-name" | "other-not-clickable" | undefined;
+  for (const element of entryControls(document)) {
     const text = listControlText(element).normalize("NFKC");
-    if (!text || text.length > otherTextLimit || !clickableListControl(element)) return false;
+    if (!text || text.length > otherTextLimit || !namesOtherAccount(text)) continue;
     const label = (element.getAttribute("aria-label") ?? "").normalize("NFKC");
-    if (holds && (holds.test(text) || holds.test(label))) return false;
-    const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
-    const other =
-      words.some((word) => otherWords.has(word)) || otherParts.some((part) => text.includes(part));
-    const account =
-      words.some((word) => accountWords.has(word)) ||
-      accountParts.some((part) => text.includes(part));
-    return other && account;
+    if (holds && (holds.test(text) || holds.test(label))) miss = "other-holds-name";
+    else if (!clickableListControl(element)) miss ??= "other-not-clickable";
+    else return undefined;
+  }
+  if (miss) return miss;
+  // The words elsewhere on the page: an element whose whole short text names another account.
+  const start = document.body;
+  if (!start) return "no-other";
+  const named = [...start.querySelectorAll("*")].slice(0, scanLimit).some((element) => {
+    if (!(element instanceof HTMLElement) || element.childElementCount > 0) return false;
+    const text = collapseText(element.textContent ?? "").normalize("NFKC");
+    return text.length > 0 && text.length <= otherTextLimit && namesOtherAccount(text);
   });
+  return named ? "other-not-control" : "no-other";
 }
 
 /** At most this many short texts are handed over as possible account names. */

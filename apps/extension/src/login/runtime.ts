@@ -132,7 +132,7 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
-import { emailUsername, namesUsername, type EntryMiss } from "../page/account-list";
+import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
 import { signedInPath } from "../observation/extract";
 import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
@@ -372,6 +372,7 @@ type ListOffer = {
   path: string;
   names?: string[] | undefined;
   other?: true | undefined;
+  otherMiss?: OtherMiss | undefined;
   missed?: EntryMiss | undefined;
 };
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
@@ -6056,7 +6057,9 @@ export function createLoginRuntime(
             live,
             "no-listed-account",
             undefined,
-            scope ? "no-name-match" : logCode(missed.filter(Boolean).join(":")),
+            scope
+              ? (listing.otherMiss ?? "no-name-match")
+              : logCode(missed.filter(Boolean).join(":")),
           );
         // A page whose path holds a username is not sent as a sign-in entry either.
         if (listed?.inPath || !(listing?.names && entryOffer)) offer = false;
