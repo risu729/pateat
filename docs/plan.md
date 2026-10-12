@@ -90,6 +90,14 @@ Chrome, on a production build of main.
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
   planned on 2026-10-11, and the base design tokens set with Claude Design.
+- Prune low-value tests with OpenClaw's `test-audit` agent skill, alongside the UI
+  polish once the daily-use sites are done (owner, 2026-10-12 07:43 UTC; the
+  [survey](research/2026-10-12-test-pruning-skills.md) compares the alternatives). The
+  skill is copied into the repository with its OpenClaw-specific validation replaced by
+  `mise run check`. The owner asked for care not to remove needed tests: every deletion
+  names the test that still covers its contract, and an independent subagent compares
+  the deleted tests with the kept ones before each batch merges, as the skill's
+  preservation review does.
 - `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged (the retry
   window is 10 minutes since 2026-10-12), so the first recipe names both its password
   and passkey routes. A recipe generated earlier gets no routes
@@ -251,9 +259,9 @@ still open on 2026-10-11.
   would fit in recipe generation, cost, and the open questions (Japanese, calibration,
   who pays, abstention handover).
 - An agent skill for pruning the low-value tests agents write (owner, 2026-10-12 07:32
-  UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills
-  and proposes OpenClaw's `test-audit`, adapted to `mise run check`. Not adopted until
-  the owner picks one.
+  UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills;
+  the owner chose OpenClaw's `test-audit` (07:43 UTC), planned in
+  [phase 1](#phase-1-usable).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);

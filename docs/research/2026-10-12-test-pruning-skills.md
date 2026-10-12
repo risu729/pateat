@@ -3,8 +3,8 @@
 Researched: 2026-10-12, from public web pages and the repository at `e902ef3` (main).
 The owner asked for a recent, well-known agent skill that removes the excess tests AI
 agents write. Nothing was installed or run against Pateat; star and install counts are
-the values the pages showed on 2026-10-12. Adopting a skill is the owner's choice and is
-not decided.
+the values the pages showed on 2026-10-12. The owner chose OpenClaw's `test-audit` on
+2026-10-12 at 07:43 UTC; the plan is in [the roadmap](../plan.md#phase-1-usable).
 
 ## Pateat's test suite today
 
