@@ -267,7 +267,9 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   ([ADR 0013](0013-service-held-recipes-and-settings.md)'s same-path rule); one that was
   already usable leaves the login `unknown` after Next. A code input typed `password`
   without `autocomplete="one-time-code"` counts as a password input, so such a code
-  page is sent to be continued rather than judged.
+  page is sent to be continued rather than judged. A sign-in form whose only password
+  field is marked `new-password`, which a first page may fill since 2026-10-12, is not
+  continued after an `advance` step: such a page is judged.
 
 ## Consequences
 
