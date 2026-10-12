@@ -1,5 +1,103 @@
 @import "tailwindcss";
 
+/* Pateat design tokens (the Pateat design system). services/api/web/styles.css keeps the
+   same values; change both together. The light theme is the default; the dark theme
+   applies when the page's theme is "dark", or when it follows the browser (no
+   data-theme attribute) and the browser prefers dark. */
+:root {
+  color-scheme: light;
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --surface-sunken: #f8fafc;
+  --border: #d6e0e8;
+  --border-strong: #7a8899;
+  --ink: #1e293b;
+  --ink-muted: #4f5d6f;
+  --accent: #115e59;
+  --accent-hover: #134e4a;
+  --on-accent: #ffffff;
+  --accent-tint: #e6f6f2;
+  --accent-ink: #115e59;
+  --focus: #0f766e;
+  --danger: #b42318;
+  --danger-tint: #fdecea;
+  --warning: #8a5a00;
+  --warning-tint: #fff6dc;
+  --shadow-panel: 0 1px 2px rgb(15 23 42 / 5%);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1316;
+  --surface: #161d21;
+  --surface-sunken: #11171a;
+  --border: #2a353c;
+  --border-strong: #5c6b76;
+  --ink: #e4ebf0;
+  --ink-muted: #9fb0bc;
+  --accent: #5cc7ad;
+  --accent-hover: #7fd8c2;
+  --on-accent: #04201a;
+  --accent-tint: #123029;
+  --accent-ink: #7fd8c2;
+  --focus: #7fd8c2;
+  --danger: #ff8a7a;
+  --danger-tint: #3a1814;
+  --warning: #f2c14e;
+  --warning-tint: #33280d;
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1316;
+    --surface: #161d21;
+    --surface-sunken: #11171a;
+    --border: #2a353c;
+    --border-strong: #5c6b76;
+    --ink: #e4ebf0;
+    --ink-muted: #9fb0bc;
+    --accent: #5cc7ad;
+    --accent-hover: #7fd8c2;
+    --on-accent: #04201a;
+    --accent-tint: #123029;
+    --accent-ink: #7fd8c2;
+    --focus: #7fd8c2;
+    --danger: #ff8a7a;
+    --danger-tint: #3a1814;
+    --warning: #f2c14e;
+    --warning-tint: #33280d;
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
+  }
+}
+
+/* Tailwind utilities for the tokens: bg-surface, text-ink-muted, border-border-strong,
+   outline-focus and so on. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-ink: var(--accent-ink);
+  --color-focus: var(--focus);
+  --color-danger: var(--danger);
+  --color-danger-tint: var(--danger-tint);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+}
+@theme {
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", Meiryo,
+    sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono", monospace;
+}
+
 /* Chrome gives every extension page an unlayered body rule with its own font family and
    `font-size: 75%`, which the layered base below cannot override: text without a size of
    its own would be 12px while rem-sized text stays at the 16px root. */
@@ -10,20 +108,19 @@ body {
 
 @layer base {
   :root {
-    font-family: ui-sans-serif, system-ui, sans-serif;
-    color: #1e293b;
-    background: #f1f5f9;
-    color-scheme: light;
+    font-family: var(--font-sans);
+    color: var(--ink);
+    background: var(--bg);
   }
   body {
     margin: 0;
   }
   h1 {
     margin: 0.5rem 0 1rem;
-    font-size: 2.75rem;
-    font-weight: 750;
-    letter-spacing: -0.045em;
-    line-height: 1.15;
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 2.25rem;
   }
   h2 {
     font-size: 1.2rem;
@@ -63,10 +160,10 @@ body {
     width: 100%;
     min-height: 2.75rem;
     padding: 0.65rem 0.8rem;
-    border: 1px solid #94a3b8;
+    border: 1px solid var(--border-strong);
     border-radius: 0.5rem;
     color: inherit;
-    background: white;
+    background: var(--surface);
   }
   label > select {
     margin-top: 0.5rem;
@@ -76,15 +173,18 @@ body {
     height: 1.1rem;
     flex-shrink: 0;
     margin-top: 0.18rem;
-    accent-color: #115e59;
+    accent-color: var(--accent);
   }
-  input:focus-visible,
-  select:focus-visible {
-    outline: 3px solid #0f766e;
-    outline-offset: 3px;
+  a {
+    color: var(--accent-ink);
+    text-decoration: underline;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
   }
   input[aria-invalid="true"] {
-    border-color: #b91c1c;
+    border-color: var(--danger);
   }
   button {
     cursor: pointer;
@@ -97,7 +197,7 @@ body {
     justify-content: space-between;
     gap: 1.5rem;
     padding: 0.85rem 0;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--border);
   }
   dt {
     font-weight: 600;
@@ -110,7 +210,7 @@ body {
     display: block;
     margin-top: 0.3rem;
     font-size: 0.85rem;
-    color: #475569;
+    color: var(--ink-muted);
     line-height: 1.6;
   }
 }
@@ -118,43 +218,42 @@ body {
 @layer components {
   .eyebrow {
     font-size: 0.8rem;
-    color: #115e59;
+    color: var(--accent-ink);
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
   .intro {
     font-size: 1.075rem;
-    color: #475569;
+    color: var(--ink-muted);
   }
   .panel {
     padding: 1.5rem;
     margin: 1.5rem 0;
-    border: 1px solid #d6e0e8;
-    border-radius: 1rem;
-    background: white;
-    box-shadow: 0 2px 4px rgb(15 23 42 / 3%);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: var(--surface);
+    box-shadow: var(--shadow-panel);
   }
   .note {
     font-size: 0.9rem;
-    color: #475569;
+    color: var(--ink-muted);
   }
   .badge {
     display: inline-flex;
     padding: 0.3rem 0.65rem;
     border-radius: 999px;
-    color: #115e59;
-    background: #f0fdfa;
+    color: var(--accent-ink);
+    background: var(--accent-tint);
     font-size: 0.75rem;
     font-weight: 650;
   }
   .settings-status {
     padding: 1rem 1.2rem;
-    border: 1px solid #99c6c0;
-    border-left: 4px solid #115e59;
-    border-radius: 0.6rem;
-    background: #f0fdfa;
-    color: #134e4a;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--accent-tint));
+    border-radius: 0.75rem;
+    background: var(--accent-tint);
+    color: var(--ink);
   }
   /* Kept in the page for screen readers, without a box while there is no message. */
   .settings-status:empty {
@@ -169,8 +268,8 @@ body {
   .connection,
   .selection,
   .item-exclusions {
-    border: 1px solid #d6e0e8;
-    border-radius: 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
     margin: 1rem 0;
     padding: 1rem;
   }
@@ -178,10 +277,10 @@ body {
     margin: 0.75rem 0;
   }
   .selection {
-    background: #f8fafc;
+    background: var(--surface-sunken);
   }
   .selection:disabled {
-    color: #64748b;
+    color: var(--ink-muted);
   }
   .disclosure {
     margin: 1rem 0;
@@ -205,7 +304,7 @@ body {
     margin-left: 0.4rem;
     font-size: 0.85rem;
     font-weight: 400;
-    color: #475569;
+    color: var(--ink-muted);
   }
   .checkbox-row {
     display: flex;
@@ -229,11 +328,11 @@ body {
     justify-content: space-between;
     gap: 1rem;
     padding: 0.9rem 0;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--border);
     overflow-wrap: anywhere;
   }
   .validation-error {
-    color: #b91c1c;
+    color: var(--danger);
     font-size: 0.9rem;
     font-weight: 500;
   }

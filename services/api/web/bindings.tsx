@@ -34,7 +34,7 @@ export function BindingsPage({ client }: { client: ManageClient }) {
     );
   if (settings.isError)
     return (
-      <p role="alert" id="settings-status" className="text-red-800">
+      <p role="alert" id="settings-status" className="text-danger">
         {describeError(settings.error)}
       </p>
     );
@@ -45,16 +45,16 @@ export function BindingsPage({ client }: { client: ManageClient }) {
       <h2 id="bindings-heading" className="text-xl font-semibold">
         Account bindings
       </h2>
-      <p className="text-slate-700">
+      <p className="text-ink-muted">
         Which vault field fills each part of a recipe for one item. Removing a binding makes that
         item use only its username, password and TOTP; a recipe that needs other fields then stops
         until a new binding is made.
       </p>
-      <output id="settings-saved" className="block text-slate-700">
+      <output id="settings-saved" className="block text-ink-muted">
         {edit.isSuccess && edit.variables.done}
       </output>
       {edit.isError && (
-        <p role="alert" id="settings-error" className="text-red-800">
+        <p role="alert" id="settings-error" className="text-danger">
           {describeError(edit.error)}
         </p>
       )}
@@ -63,7 +63,7 @@ export function BindingsPage({ client }: { client: ManageClient }) {
       ) : (
         <table id="bindings" className="w-full border-collapse text-left">
           <thead>
-            <tr className="border-b border-slate-300">
+            <tr className="border-b border-border-strong">
               <th scope="col" className="py-2 pr-4">
                 Recipe
               </th>
@@ -80,16 +80,16 @@ export function BindingsPage({ client }: { client: ManageClient }) {
           </thead>
           <tbody>
             {bindings.map((binding) => (
-              <tr key={bindingKey(binding)} className="border-b border-slate-200 align-top">
+              <tr key={bindingKey(binding)} className="border-b border-border align-top">
                 <td className="py-2 pr-4">
                   {binding.recipeId}
                   <br />
-                  <span className="text-slate-600">{binding.origin}</span>
+                  <span className="text-ink-muted">{binding.origin}</span>
                 </td>
                 <td className="py-2 pr-4">
                   {binding.itemName}
                   <br />
-                  <span className="text-slate-600">{vaultAccountLabel(binding)}</span>
+                  <span className="text-ink-muted">{vaultAccountLabel(binding)}</span>
                 </td>
                 <td className="py-2 pr-4">
                   <ul>

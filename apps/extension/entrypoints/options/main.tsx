@@ -5,8 +5,12 @@ import { SettingsApp } from "../../src/options/settings-app";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createConnectionClient } from "../../src/options/connection-client";
 import { createServiceClient } from "../../src/options/service-client";
+import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Bundle the options page stylesheet.
 import "./style.css";
+
+// The theme is set before the first render, and follows changes made on another page.
+followThemePreference();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing options root");

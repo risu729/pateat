@@ -9,7 +9,7 @@ import type { ConnectionClient } from "./connection-client";
 type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
 type Connection = StatusReply["connections"][number];
-const inputClass = "w-full rounded-lg border border-slate-400 bg-white px-3 py-2.5";
+const inputClass = "w-full rounded-lg border border-border-strong bg-surface px-3 py-2.5";
 function errorMessage(code: string, check?: string): string {
   if (code === "account-mismatch")
     return `The provider's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;

@@ -24,16 +24,16 @@ export function DevicesPage({ client }: { client: ManageClient }) {
       <h2 id="devices-heading" className="text-xl font-semibold">
         Devices
       </h2>
-      <p className="text-slate-700">
+      <p className="text-ink-muted">
         Revoking a device stops its later service requests. It does not erase data already stored on
         that device or affect any vault. A device unused for {IDLE_LIMIT_DAYS} days expires the same
         way and must be paired again.
       </p>
-      <output id="devices-revoked" className="block text-slate-700">
+      <output id="devices-revoked" className="block text-ink-muted">
         {revoke.isSuccess && `${revoke.variables.label} was revoked.`}
       </output>
       {revoke.isError && (
-        <p role="alert" id="devices-error" className="text-red-800">
+        <p role="alert" id="devices-error" className="text-danger">
           {describeError(revoke.error)}
         </p>
       )}
@@ -42,7 +42,7 @@ export function DevicesPage({ client }: { client: ManageClient }) {
           Loading devices…
         </output>
       ) : devices.isError ? (
-        <p role="alert" id="devices-status" className="text-red-800">
+        <p role="alert" id="devices-status" className="text-danger">
           {describeError(devices.error)}
         </p>
       ) : devices.data.devices.length === 0 ? (
@@ -50,7 +50,7 @@ export function DevicesPage({ client }: { client: ManageClient }) {
       ) : (
         <table id="devices" className="w-full border-collapse text-left">
           <thead>
-            <tr className="border-b border-slate-300">
+            <tr className="border-b border-border-strong">
               <th scope="col" className="py-2 pr-4">
                 Device
               </th>
@@ -72,7 +72,7 @@ export function DevicesPage({ client }: { client: ManageClient }) {
               // As of loading the list; the service refuses an expired device.
               const expired = devices.dataUpdatedAt - device.lastUsedAt > DEVICE_IDLE_LIMIT_MS;
               return (
-                <tr key={device.id} className="border-b border-slate-200">
+                <tr key={device.id} className="border-b border-border">
                   <td className="py-2 pr-4">{label}</td>
                   <td className="py-2 pr-4">{paired}</td>
                   <td className="py-2 pr-4">{formatTime(device.lastUsedAt)}</td>

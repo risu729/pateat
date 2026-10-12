@@ -4,10 +4,14 @@ import { browser } from "wxt/browser";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createChoiceClient } from "../../src/login/choice-wire";
 import { SiteApp } from "../../src/popup/site-app";
+import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Share the settings page stylesheet.
 import "../options/style.css";
 // oxlint-disable-next-line import/no-unassigned-import -- Size the popup.
 import "./style.css";
+
+// The theme is set before the first render, and follows changes made on another page.
+followThemePreference();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing popup root");

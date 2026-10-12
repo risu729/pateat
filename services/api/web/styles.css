@@ -1,2 +1,115 @@
 @import "tailwindcss";
 @source "./";
+
+/* Pateat design tokens (the Pateat design system). The extension's
+   apps/extension/entrypoints/options/style.css keeps the same values; change both
+   together. The light theme is the default; the dark theme applies when the page's theme
+   is "dark", or when it follows the browser (no data-theme attribute) and the browser
+   prefers dark. */
+:root {
+  color-scheme: light;
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --surface-sunken: #f8fafc;
+  --border: #d6e0e8;
+  --border-strong: #7a8899;
+  --ink: #1e293b;
+  --ink-muted: #4f5d6f;
+  --accent: #115e59;
+  --accent-hover: #134e4a;
+  --on-accent: #ffffff;
+  --accent-tint: #e6f6f2;
+  --accent-ink: #115e59;
+  --focus: #0f766e;
+  --danger: #b42318;
+  --danger-tint: #fdecea;
+  --warning: #8a5a00;
+  --warning-tint: #fff6dc;
+  --shadow-panel: 0 1px 2px rgb(15 23 42 / 5%);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1316;
+  --surface: #161d21;
+  --surface-sunken: #11171a;
+  --border: #2a353c;
+  --border-strong: #5c6b76;
+  --ink: #e4ebf0;
+  --ink-muted: #9fb0bc;
+  --accent: #5cc7ad;
+  --accent-hover: #7fd8c2;
+  --on-accent: #04201a;
+  --accent-tint: #123029;
+  --accent-ink: #7fd8c2;
+  --focus: #7fd8c2;
+  --danger: #ff8a7a;
+  --danger-tint: #3a1814;
+  --warning: #f2c14e;
+  --warning-tint: #33280d;
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1316;
+    --surface: #161d21;
+    --surface-sunken: #11171a;
+    --border: #2a353c;
+    --border-strong: #5c6b76;
+    --ink: #e4ebf0;
+    --ink-muted: #9fb0bc;
+    --accent: #5cc7ad;
+    --accent-hover: #7fd8c2;
+    --on-accent: #04201a;
+    --accent-tint: #123029;
+    --accent-ink: #7fd8c2;
+    --focus: #7fd8c2;
+    --danger: #ff8a7a;
+    --danger-tint: #3a1814;
+    --warning: #f2c14e;
+    --warning-tint: #33280d;
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
+  }
+}
+
+/* Tailwind utilities for the tokens: bg-surface, text-ink-muted, border-border-strong,
+   outline-focus and so on. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-ink: var(--accent-ink);
+  --color-focus: var(--focus);
+  --color-danger: var(--danger);
+  --color-danger-tint: var(--danger-tint);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+}
+@theme {
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", Meiryo,
+    sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono", monospace;
+}
+
+@layer base {
+  :root {
+    color: var(--ink);
+    background: var(--bg);
+  }
+  input[type="checkbox"] {
+    accent-color: var(--accent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}

@@ -8,8 +8,12 @@ import {
   parseDiagnosticsResponse,
   parseLogsResponse,
 } from "../../src/diagnostics/wire";
+import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Share the settings page stylesheet.
 import "../options/style.css";
+
+// The theme is set before the first render, and follows changes made on another page.
+followThemePreference();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing diagnostics root");

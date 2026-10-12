@@ -3,6 +3,7 @@ import { BindingsPage } from "./bindings";
 import { DevicesPage } from "./devices";
 import { RecipesPage } from "./recipes";
 import { SitesPage } from "./sites";
+import { ThemeSelect } from "./theme-select";
 
 const revision = PATEAT_BUILD_REVISION;
 // The source offer and license text are the repository at the exact built commit.
@@ -23,7 +24,7 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4">
       <header className="space-y-2">
-        <h1 className="text-2xl font-bold">Pateat</h1>
+        <h1 className="text-[1.75rem]/9 font-bold tracking-[-0.02em]">Pateat</h1>
         <nav aria-label="Sections">
           <ul className="flex gap-4">
             {PAGES.map((page) => (
@@ -31,7 +32,7 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
                 <a
                   href={page.path}
                   aria-current={page === current ? "page" : undefined}
-                  className="text-teal-800 underline aria-[current=page]:font-semibold aria-[current=page]:no-underline"
+                  className="text-accent-ink underline aria-[current=page]:font-semibold aria-[current=page]:no-underline"
                 >
                   {page.title}
                 </a>
@@ -41,20 +42,23 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
         </nav>
       </header>
       <main>{current ? <current.Page client={client} /> : <p>No such page.</p>}</main>
-      <footer className="border-t border-slate-200 pt-4 text-sm text-slate-600">
-        Pateat {revision}. This page includes code licensed under the{" "}
-        <a className="text-teal-800 underline" href={licenseUrl}>
-          GPL-3.0-only
-        </a>
-        ;{" "}
-        <a className="text-teal-800 underline" href={sourceUrl}>
-          its source
-        </a>{" "}
-        and the{" "}
-        <a className="text-teal-800 underline" href="/manage/assets/notices.md">
-          third-party notices
-        </a>{" "}
-        are available.
+      <footer className="space-y-3 border-t border-border pt-4 text-sm text-ink-muted">
+        <ThemeSelect />
+        <p>
+          Pateat {revision}. This page includes code licensed under the{" "}
+          <a className="text-accent-ink underline" href={licenseUrl}>
+            GPL-3.0-only
+          </a>
+          ;{" "}
+          <a className="text-accent-ink underline" href={sourceUrl}>
+            its source
+          </a>{" "}
+          and the{" "}
+          <a className="text-accent-ink underline" href="/manage/assets/notices.md">
+            third-party notices
+          </a>{" "}
+          are available.
+        </p>
       </footer>
     </div>
   );

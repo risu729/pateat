@@ -45,7 +45,7 @@ function describeStep(step: Step): string {
 function EntryDetails({ recipe }: { recipe: LoginEntryRecipe }) {
   return (
     <details className="space-y-2">
-      <summary className="cursor-pointer text-teal-800">
+      <summary className="cursor-pointer text-accent-ink">
         Entry and JSON<span className="sr-only"> for {recipe.id}</span>
       </summary>
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
@@ -55,7 +55,7 @@ function EntryDetails({ recipe }: { recipe: LoginEntryRecipe }) {
           login page. Devices do not click it yet.
         </dd>
       </dl>
-      <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-sm">
+      <pre className="overflow-x-auto rounded-lg bg-surface-sunken p-3 text-sm">
         {JSON.stringify(recipe, null, 2)}
       </pre>
     </details>
@@ -69,7 +69,7 @@ function ChooserDetails({ recipe }: { recipe: LoginChooserRecipe }) {
     route ? `${route.steps.length} steps from ${route.steps[0]!.path}` : "Not generated yet";
   return (
     <details className="space-y-2">
-      <summary className="cursor-pointer text-teal-800">
+      <summary className="cursor-pointer text-accent-ink">
         Account list and JSON<span className="sr-only"> for {recipe.id}</span>
       </summary>
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
@@ -87,7 +87,7 @@ function ChooserDetails({ recipe }: { recipe: LoginChooserRecipe }) {
         <dt className="font-medium">After another account</dt>
         <dd>{branch(chooser.afterOther)}</dd>
       </dl>
-      <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-sm">
+      <pre className="overflow-x-auto rounded-lg bg-surface-sunken p-3 text-sm">
         {JSON.stringify(recipe, null, 2)}
       </pre>
     </details>
@@ -101,7 +101,7 @@ function RecipeDetails({ recipe }: { recipe: StoredLoginRecipe }) {
   const variants = passwordVariants(recipe);
   return (
     <details className="space-y-2">
-      <summary className="cursor-pointer text-teal-800">
+      <summary className="cursor-pointer text-accent-ink">
         Steps and JSON<span className="sr-only"> for {recipe.id}</span>
       </summary>
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
@@ -150,13 +150,13 @@ function RecipeDetails({ recipe }: { recipe: StoredLoginRecipe }) {
               // Steps have no identity of their own; their order is the recipe.
               // oxlint-disable-next-line no-array-index-key
               <li key={index}>
-                <span className="text-slate-600">{step.path}</span> {describeStep(step)}
+                <span className="text-ink-muted">{step.path}</span> {describeStep(step)}
               </li>
             ))}
           </ol>
         </section>
       ))}
-      <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-sm">
+      <pre className="overflow-x-auto rounded-lg bg-surface-sunken p-3 text-sm">
         {JSON.stringify(recipe, null, 2)}
       </pre>
     </details>
@@ -204,11 +204,11 @@ export function RecipesPage({ client }: { client: ManageClient }) {
 
   return (
     <div className="space-y-8">
-      <output id="recipes-saved" className="block text-slate-700">
+      <output id="recipes-saved" className="block text-ink-muted">
         {revoke.isSuccess && `${revoke.variables.recipeId} was revoked.`}
       </output>
       {revoke.isError && (
-        <p role="alert" id="recipes-error" className="text-red-800">
+        <p role="alert" id="recipes-error" className="text-danger">
           {revoke.error instanceof ManageApiError && revoke.error.code === "not_found"
             ? "That recipe no longer exists. The page now shows the current recipes."
             : describeError(revoke.error)}
@@ -218,7 +218,7 @@ export function RecipesPage({ client }: { client: ManageClient }) {
         <h2 id="recipes-heading" tabIndex={-1} className="text-xl font-semibold outline-none">
           Recipes
         </h2>
-        <p className="text-slate-700">
+        <p className="text-ink-muted">
           The steps devices follow to log in on each site. Devices write recipes; this page does not
           edit them. Revoking one stops devices from using it after their next sync, and logins on
           that site then wait for a new recipe. This page cannot restore a revoked recipe.
@@ -228,12 +228,12 @@ export function RecipesPage({ client }: { client: ManageClient }) {
             Loading recipes…
           </output>
         ) : recipes.isError && !recipes.data ? (
-          <p role="alert" id="recipes-status" className="text-red-800">
+          <p role="alert" id="recipes-status" className="text-danger">
             {describeError(recipes.error)}
           </p>
         ) : null}
         {recipes.isError && recipes.data && (
-          <p role="alert" id="recipes-status" className="text-red-800">
+          <p role="alert" id="recipes-status" className="text-danger">
             The list below could not be refreshed and may be out of date.{" "}
             {describeError(recipes.error)}
           </p>
@@ -241,13 +241,13 @@ export function RecipesPage({ client }: { client: ManageClient }) {
         {!recipes.data ? null : active.length === 0 ? (
           <p>No active recipes.</p>
         ) : (
-          <ul id="recipes" className="divide-y divide-slate-200">
+          <ul id="recipes" className="divide-y divide-border">
             {active.map(({ change, updatedAt }) => (
               <li key={change.recipeId} className="space-y-2 py-3">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className="font-semibold">{change.recipeId}</h3>
-                    <p className="text-slate-600">
+                    <p className="text-ink-muted">
                       {change.recipe.origin} · revision {change.revision} · updated{" "}
                       {formatTime(updatedAt)}
                     </p>
@@ -308,11 +308,11 @@ export function RecipesPage({ client }: { client: ManageClient }) {
           {revoked.length === 0 ? (
             <p>No revoked recipes.</p>
           ) : (
-            <ul id="revoked-recipes" className="divide-y divide-slate-200">
+            <ul id="revoked-recipes" className="divide-y divide-border">
               {revoked.map(({ change, updatedAt }) => (
                 <li key={change.recipeId} className="py-2">
                   {change.recipeId}{" "}
-                  <span className="text-slate-600">
+                  <span className="text-ink-muted">
                     (revision {change.revision}, revoked {formatTime(updatedAt)})
                   </span>
                 </li>
