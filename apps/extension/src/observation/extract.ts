@@ -122,7 +122,7 @@ function bounded(text: string): string | undefined {
  * of them. Numerals written as letters, such as kanji, are not numbers to Unicode and stay.
  */
 const withoutNumbers = (text: string) =>
-  bounded(text.replace(/\p{Number}+(?:[.,，．'’]\p{Number}+)*/gu, "[number]")) ?? "[number]";
+  bounded(text.replace(/\p{Number}+(?:[.,，．'\u2019]\p{Number}+)*/gu, "[number]")) ?? "[number]";
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
