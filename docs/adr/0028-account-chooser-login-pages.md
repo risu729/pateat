@@ -11,10 +11,11 @@ Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
 quoted below as "at most one generation per origin and path in 24 hours" and "once a day
-per path" is condition 4 of [ADR 0016](0016-recipe-generation-trigger.md), which the
-owner shortened to 10 minutes on 2026-10-12; the 10-minute window applies. ADR 0031
-shares this ADR's recipe that starts without a fill step (the start-only member), which
-is delivered once for both.
+per path" is condition 4 of [ADR 0016](0016-recipe-generation-trigger.md); on
+2026-10-12, after this ADR was accepted, the owner lifted the 24-hour rule and a
+10-minute window replaced it ([#269](https://github.com/risu729/pateat/pull/269)). ADR
+0031's recipe with only `entry` also starts without a fill step, so the contract change
+that allows such a recipe is delivered once for both.
 
 ## Context
 

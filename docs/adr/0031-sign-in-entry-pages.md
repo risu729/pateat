@@ -3,8 +3,9 @@
 Status: accepted by the owner on 2026-10-12 (03:31 to 06:53 UTC). Not implemented.
 Amends [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can
 be sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
-form plan) and the recipe contract in `packages/contracts/src/login.ts`. Shares its
-start-only recipe member with [ADR 0028](0028-account-chooser-login-pages.md).
+form plan) and the recipe contract in `packages/contracts/src/login.ts`. Like
+[ADR 0028](0028-account-chooser-login-pages.md)'s `chooser`, it needs a recipe whose
+start has no fill step.
 
 Date: 2026-10-12
 
@@ -16,14 +17,14 @@ pixiv. pixiv had sent the visitor there to sign in before showing
 `/bookmark_new_illust.php`. The page has no form; it shows "Create account", "Login" and
 icons for signing in with other services. "Login" leads to
 `https://accounts.pixiv.net/login`, the real login page. Pateat did nothing on the top
-page. Checked against main `e3acb8c`:
+page. Checked against main `88a8222`:
 
 - ADR 0016 sends a page only when it shows a sign-in input. `showsSignIn`
   (`apps/extension/src/login/content.ts:97-107`) finds none, so the content script never
-  offers the page (`content.ts:243`) after the background allowed it
-  (`offersGeneration`, `apps/extension/src/login/runtime.ts:3700`). The extractor would
+  offers the page (`content.ts:251`) after the background allowed it
+  (`offersGeneration`, `apps/extension/src/login/runtime.ts:3727`). The extractor would
   refuse it anyway: a page without a field form gives `no-candidates`
-  (`apps/extension/src/observation/extract.ts:604`).
+  (`apps/extension/src/observation/extract.ts:598`).
 - A recipe needs at least one slot and one step (`recipeSlotList` and `routeStepList`,
   `packages/contracts/src/login.ts:178-184`) and holds one origin (`login.ts:227`), so
   nothing can describe "press this, then go on elsewhere". An ADR 0018 continuation
@@ -45,33 +46,71 @@ the login signed in to `www.pixiv.net`. After a logout, Pateat now only fills th
 form and presses nothing ([#294](https://github.com/risu729/pateat/pull/294), an
 [ADR 0021](0021-account-choice-outside-settings.md) amendment), and a login completes on
 local evidence of a sign-in ([#299](https://github.com/risu729/pateat/pull/299),
-[ADR 0029](0029-local-sign-in-state.md) delivery 2).
+[ADR 0029](0029-local-sign-in-state.md) delivery 2, first part).
 
 ## Decision
 
 The owner decided on 2026-10-12:
 
-- 03:31 UTC: prompts stay short and language-neutral. The new prompt line describes the
-  control by its meaning, with no example text in any language.
-- 04:36 UTC: the AI judges which control is which. Pateat keeps no local word lists such
-  as "Login" or "ログイン".
+- 03:31 UTC: prompts stay short and language-neutral.
+- 04:36 UTC: Pateat never records the person's own clicks or input to build recipes
+  ("操作を覚える、みたいなのはスコープ外"); what a page is and what it offers is judged
+  by the AI first, as in ADR 0028.
 - 06:26 UTC: on pixiv's top page Pateat presses "Login" itself to reach the real login
   page. It never presses "Create account" or a sign-in through another service.
 - 06:53 UTC (decision card, option 「戻り先つきだけ」, "only with a return target"):
   Pateat presses only when the site sent the visitor to the page to sign in first, shown
-  by a query value that names another path of the same site, as `return_to` does on
-  pixiv. A manual logout that lands on the bare top page is never undone.
+  by a query value that names another path of the same site, such as
+  `return_to=/bookmark_new_illust.php` on pixiv. A manual logout that lands on the bare
+  top page is never undone.
 
-The press only opens the site's login page. It reads no vault field and fills nothing.
-The page it leads to logs in through its own recipe, or is generated, as any login page
-is today; on pixiv that is the `accounts.pixiv.net/login` recipe described above.
+The approved proposal's design follows. The press only opens the site's login page. It
+reads no vault field and fills nothing. The page it leads to logs in through its own
+recipe, or is generated, as any login page is today; on pixiv that is the
+`accounts.pixiv.net/login` recipe described above.
 
-### Entry recipe
+- **Stored recipe.** A recipe of the page's origin with only `entry`: the start path and
+  the control to press,
+  `{"origin":"https://www.pixiv.net","entry":{"path":"/en/","target":{"by":"text","value":"Login"}}}`.
+  ADR 0028's `chooser` needs the same kind of recipe, one whose start has no fill step.
+- **When the page is sent.** A top-level HTTPS page of a site that is not excluded, with
+  a vault item whose URI matches its origin, on whose path no recipe starts, and that 10
+  seconds after loading shows no sign-in input. Its URL must carry a query value naming
+  another path of the same site, such as `return_to=/bookmark_new_illust.php`. ADR
+  0016's 10-minute retry window applies.
+- **What the AI sees and answers.** The visible, enabled buttons and links that carry
+  text, outside forms with fields. Links to another site are dropped on the device, so
+  off-site social sign-ins never reach the model. It names one of them as `entry`, or
+  abstains.
+- **Prompt line**, one sentence, by meaning only:
 
-The answer is saved as a recipe of the page's origin whose only member is `entry`: the
-start path and the control to press. `slots`, `steps` and `maxSubmissions` are absent,
-and so are the members that only a login route uses (`alternatives`, `passkey`,
-`completion`, `rejection`, `accountSwitch`, `handlers`). The ID is synthetic here:
+  > If the page has no sign-in fields, name in `entry` the one control that opens
+  > sign-in to an existing account for a visitor who is not signed in; never one that
+  > creates an account or signs in through another service; otherwise abstain.
+
+- **Checks just before the press.** The site is not excluded; the vault is unlocked with
+  a URI match for the page; the recipe is current and not blocked; the document is the
+  tab's top frame; the press is bound to the document. The current URL still carries
+  the query value naming a same-site path, so a manual logout that lands on the bare top
+  page is never undone. The target is unique and has rendered text; a link's `href` is
+  on the same site (registrable domain) and names no URL of another site in its query.
+  The tab holds no Pateat record for the site, and nothing holds the site in any tab. At
+  most one press per tab per 10 minutes.
+- **Checks after the press.** Within 10 seconds the next page must be on the same site,
+  show a sign-in input and show no sign-up form (a visible `new-password` field beside a
+  confirmation field, or two password fields in one form). Otherwise the recipe is
+  blocked on this device, a warning is logged, and that page is not sent for generation.
+
+### Implementation choices
+
+These follow from the decisions above and were made on 2026-10-12 without a new owner
+decision.
+
+#### Recipe contract
+
+The recipe with only `entry` has no `slots`, `steps` or `maxSubmissions`, and none of
+the members only a login route uses (`alternatives`, `passkey`, `completion`,
+`rejection`, `accountSwitch`, `handlers`). The ID here is synthetic:
 
 ```json
 {
@@ -83,57 +122,47 @@ and so are the members that only a login route uses (`alternatives`, `passkey`,
 }
 ```
 
-`target` is a `loginTargetSchema` locator. A `text` target names the one button whose
-rendered text equals the value, as for any click, and, like a recipe's `accountSwitch`
-and completion, also an `<a href>` link by its rendered text when no button shows it.
+`entry` is never beside `slots`, `steps` or the login route's members, and never gains
+steps: a continuation (`base`) of such a recipe is refused. The shape of a recipe with
+`chooser`, which gains slots once a branch is generated, stays ADR 0028's. The contract
+change that lets a recipe start without a fill step is delivered once for both. The
+service keeps the recipe as the one generated recipe of its origin and start path (ADR
+0016's amendment), so its path is a path where a recipe starts.
 
-ADR 0028's `chooser` needs the same change: a recipe that starts on a page without a
-fill step and may have no slots. The contract therefore gains one "start-only member"
-rule, delivered once for both: a recipe holds either a login route (`slots` and `steps`,
-as today) or exactly one of `entry` and `chooser`, never both and never beside `slots`
-or `steps`. An `entry` recipe never gains steps; a continuation (`base`) of it is
-refused. The service keeps it as the one generated recipe of its origin and start path
-(ADR 0016's amendment), so its path counts as a path where a recipe starts.
+#### Query value naming a same-site path
 
-### Which pages are sent
+A query value counts when, after URL decoding, it is an absolute URL or starts with `/`;
+other values, such as `lang=en`, are not read, since any word resolves to a path of the
+page. Whether a value stays on the site is decided by the URL parser, never by its
+characters: the value is parsed against the page's URL, and the result must be `https:`,
+on the page's registrable domain (as `domainKey` computes it), with a path other than
+`/` and other than the current path. `reachedReturnTarget`
+(`apps/extension/src/login/sign-in-state.ts:50`) reads ADR 0029's E3 values much the
+same way but compares origins. So `//evil.example/x`, `/\evil.example/x` and
+`/<TAB>/evil.example/x` (the parser reads a backslash as a slash and drops tabs) resolve
+to `evil.example` and do not count. Any parameter name counts. The query is read on the
+device only; the observation never carries it.
 
-A page is sent for an entry recipe when all of these hold:
+#### More conditions for sending
 
-1. It is a top-level HTTPS document of a site that is not excluded.
-2. The vault is unlocked and has an item whose URI matches the page's origin under the
-   provider's URI rules (ADR 0016 condition 2). No field of the item is read.
-3. No cached recipe starts on its path.
-4. 10 seconds after loading (`LOGIN_STEP_WAIT_MS`) it shows no sign-in input
-   (`showsSignIn` is false).
-5. Its URL carries a [return sign](#return-sign).
-6. ADR 0016's other conditions hold unchanged: no generation for the origin and path in
-   the last 10 minutes, no path that may carry a token, and no attempt record of the
-   origin in the tab ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
-7. No logout state is kept for an origin of the site in any tab
-   (`pateat.login-logouts.v1`, ADR 0021 D). After a logout Pateat never presses an
-   entry, in line with 「戻り先つきだけ」 and with #294's fill-without-pressing.
+Besides the proposal's conditions and ADR 0016's (no path that may carry a token, the
+claim and `recipe.generate` log entry), a page is not sent when:
 
-The claim (`sending`, then `sent`) and the `recipe.generate` log entry are ADR 0016's.
+- the tab holds an ADR 0022 attempt record for any origin of the page's site, ended or
+  not (per site, as the check before the press);
+- a logout state is kept for an origin of the site in any tab
+  (`pateat.login-logouts.v1`, ADR 0021 D); or
+- the page is the next page of its origin in the tab after a form holding a password
+  input was submitted there, ADR 0028's skip of a page right after a manual sign-in,
+  delivered with whichever of the two ADRs comes first.
 
-### Return sign
-
-The current URL carries a return sign when one of its query values, after URL decoding,
-is a path or URL of the same site that is neither `/` nor the current path:
-
-- a value starting with a single `/`, such as `return_to=/bookmark_new_illust.php`; or
-- an absolute `https:` URL whose registrable domain is the page's, such as
-  `next=https://www.pixiv.net/bookmark_new_illust.php`.
-
-A value starting with `//`, or a URL of another registrable domain, is not a return
-sign. Any parameter name counts, as in ADR 0029's E3, whose `reachedReturnTarget`
-(`apps/extension/src/login/sign-in-state.ts:50`) reads values the same way but compares
-origins rather than registrable domains. The query is read on the device only; the
-observation never carries it.
-
-### What the AI sees and answers
+#### Request and answer
 
 The request is ADR 0018's `POST /v1/recipes/generate` with a `LoginObservation` and no
-`slots`, since nothing of the vault is offered:
+`slots`, since nothing of the vault is offered. `recipeGenerationRequestSchema.slots`
+(`packages/contracts/src/generation.ts:102`) requires at least one slot today; it
+becomes optional for this request only, which the service recognises by an observation
+with no fill candidate.
 
 ```json
 {
@@ -153,15 +182,13 @@ The request is ADR 0018's `POST /v1/recipes/generate` with a `LoginObservation` 
 }
 ```
 
-The candidates are the visible, enabled buttons and links with rendered text, outside
-any form that has fields. A link whose `href` leaves the site (another registrable
-domain, or a query value naming a URL of another site) is dropped on the device, so the
-icons that sign in through another service usually never reach the model. Candidates in
-`<header>`, `<nav>`, `role="banner"` or `role="navigation"` come first, then the rest in
-document order, up to the observation's 48 candidates; the rest are left out without
-making the observation incomplete, since one control is all an entry page needs. Labels
-are redacted as in every observation (`[email]`, `[masked]`, `[number]`). The path goes
-without its query, and no `href` is sent.
+Candidates in `<header>`, `<nav>`, `role="banner"` or `role="navigation"` come first,
+then the rest in document order, up to the observation's 48 candidates; the rest are
+left out without making the observation incomplete, since one control is all such a page
+needs. A link is dropped on the device when its parsed `href` is not on the page's
+registrable domain or a query value of it names a URL of another registrable domain.
+Labels are redacted as in every observation (`[email]`, `[masked]`, `[number]`). The
+path goes without its query, and no `href` is sent.
 
 The model's output format gains one decision beside `plan` and `abstain`:
 
@@ -169,45 +196,71 @@ The model's output format gains one decision beside `plan` and `abstain`:
 { "result": { "decision": "entry", "entry": "c2" } }
 ```
 
-The service resolves `c2` to its candidate's target and saves the [entry
-recipe](#entry-recipe). An abstention is saved and logged as today. A request without
-`slots` whose answer is `plan` fails `invalid-output` with the plan check's code.
+The prompt line goes only into requests without slots. `entry` is accepted only for a
+request without slots, and only when it names a `link` candidate; a request with slots
+that answers `entry`, or a request without slots that answers `plan`, fails
+`invalid-output` with the plan check's code. The service resolves the candidate to its
+target and saves the recipe. An abstention is not saved: it is logged and counts toward
+the 10-minute retry window
+([API README](../../services/api/README.md#recipe-generation)), so the page is sent
+again on a visit after 10 minutes.
 
-The generation instructions gain one sentence, described by meaning only:
+#### What may be pressed
 
-> If the page has no sign-in fields, name in `entry` the one control that opens sign-in
-> to an existing account for a visitor who is not signed in; never one that creates an
-> account or signs in through another service; otherwise abstain.
+Only an `<a href>` link is pressed. The `text` target names it by its rendered text, as
+a recipe's `accountSwitch` and completion may name such a link; "rendered text" excludes
+a link whose only text is an image `alt`. Its parsed `href` must be `https:` on the
+page's registrable domain, no query value of it may name a URL of another registrable
+domain (parsed as above), and it has no `target` attribute, or `_self`. Buttons and
+script links are never pressed. A same-site link that redirects to another provider,
+such as `/auth/google`, passes these checks; it is guarded only by the model before the
+press and by the `left-site` block after the first press. pixiv's "Login" control type
+is not verified; if it is a button, the implementation PR comes back to the owner with
+that evidence before the rule is widened.
 
-### Checks just before the press
+#### More checks just before the press
 
-The content script reports the target ready when it shows within 10 seconds. The
-background then presses only when all of these hold, and otherwise logs why and presses
-nothing:
+- The link's destination site is not excluded either.
+- "The tab holds no Pateat record for the site" means no ADR 0022 attempt record for any
+  origin of the site, ended or not: a tab that already ran a login there, failed or not,
+  is not sent back to the login page. "Nothing holds the site" means ADR 0022's holding
+  rules, and no logout state kept for an origin of the site in any tab.
 
-- The press is bound to the document that reported the target ready, as a login step
-  is; a reload, a new document or a cancelled document drops it.
-- Neither the page's site nor the link's destination site is excluded.
-- The vault is unlocked and an item's URI matches the page's origin.
-- The recipe is the current cached revision, is not revoked and is not
-  [blocked on this device](#checks-after-the-press).
-- The document is the tab's top frame. A frame never presses an entry.
-- Exactly one element matches the target, and it has rendered text (not only an image
-  `alt`).
-- A link's `href` resolves to `https:` on the page's registrable domain (computed as
-  `domainKey` does), and none of its query values names a URL of another registrable
-  domain, `//` included. A button without `href` passes this check; where it leads is
-  checked after the press.
-- The current URL still carries a [return sign](#return-sign).
-- The tab holds no ADR 0022 attempt record for an origin of the site, ended or not. A
-  tab that already ran a login there, failed or not, is not sent back to the login page.
-- No tab holds the site (ADR 0022's holding rules), and no logout state is kept for an
-  origin of the site in any tab.
-- The tab has had no entry press in the last 10 minutes.
+Neither the press nor the recipe's start is an ADR 0022 attempt. The press starts no
+attempt, holds no origin, is not a first step for ADR 0021 D's logout detection and is
+not a signed-in state, so the entry page showing "Login" again is never taken as a
+logout.
+
+#### Checks after the press
+
+The next page is a new top-level document, or a same-document URL change, in the same
+tab within 10 seconds of the press. The checks on it then get their own wait of up to 10
+seconds (`LOGIN_STEP_WAIT_MS`). No navigation within 10 seconds, or a modal on the same
+page, counts as `no-sign-in` and blocks the recipe. A new tab or popup window is never
+followed: a link with another `target` is refused before the press, and a window a
+script opens is out of scope.
+
+On that page:
+
+- it must be on the entry page's registrable domain (else `left-site`);
+- it must show a visible `type="password"` input, an input with
+  `autocomplete="username"` or `autocomplete="one-time-code"` (ADR 0016 condition 3), or
+  a ready first step of a cached recipe (else `no-sign-in`);
+- it must not show a visible `autocomplete="new-password"` input together with a second
+  visible password input in the same form, nor two or more visible password inputs in
+  one form (else `sign-up`).
+
+When they hold, that page goes on as any login page: its own recipe starts, or it is
+generated under ADR 0016. A sign-up page that passes these checks is then judged by its
+own generation: [#298](https://github.com/risu729/pateat/pull/298) refuses a plan that
+puts a secret into a lone `new-password` field unless the page is shaped like a sign-in
+(ADR 0018), and otherwise the model's `no-login-form` abstention keeps it out.
+
+#### Records and log
 
 The press is kept per tab in `chrome.storage.session` until the tab closes, so the
-10-minute limit and the check after it survive a worker restart. Field names are settled
-in the implementation; the shape is:
+10-minute limit and the checks after the press survive a worker restart. Field names are
+settled in the implementation; the shape is:
 
 ```json
 {
@@ -219,25 +272,8 @@ in the implementation; the shape is:
 }
 ```
 
-The press is not an ADR 0022 attempt record: it holds no origin, starts no login and is
-not a signed-in state for ADR 0021 D, so the entry page showing "Login" again later is
-never taken as a logout.
-
-### Checks after the press
-
-Within 10 seconds of the press, the tab's next top-level page must:
-
-- be on the same registrable domain as the entry page;
-- show a sign-in sign: `showsSignIn` holds, or a cached recipe's first step is ready on
-  it; and
-- show no sign-up sign: a shown `autocomplete="new-password"` input together with a
-  second shown password input, or two or more shown password inputs in one form.
-
-When they hold, that page goes on as any login page: its own recipe starts, or it is
-generated under ADR 0016. When one fails, the entry recipe is blocked on this device
-until the service has a newer revision of it, the page that failed is not sent for
-generation, and a warn-level entry is logged. The block is kept in
-`chrome.storage.local`:
+A block is kept in `chrome.storage.local` until the device's recipe sync brings a newer
+revision of the recipe or removes it:
 
 ```json
 {
@@ -248,30 +284,37 @@ generation, and a warn-level entry is logged. The block is kept in
 }
 ```
 
-`reason` is `left-site`, `no-sign-in` or `sign-up`. The log event is `login.entry`, with
-the origin, recipe ID and revision and an outcome: `pressed` (info), `refused` with the
-failed pre-press check (debug), or `blocked` with the reason (warn).
+`reason` is `left-site`, `no-sign-in` or `sign-up`. To recover, the owner revokes the
+recipe in the web UI; since [#269](https://github.com/risu729/pateat/pull/269) its start
+page is generated again on the next visit. While the blocked recipe stays cached, no
+page is generated on its path, because a recipe starts there.
+
+The log event is `login.entry`, with the origin, recipe ID and revision and an outcome:
+`pressed` (info), `refused` with the failed check before the press (debug), or `blocked`
+with the reason (warn).
 
 ## Consequences
 
 - No new permission: the page is already reachable under
-  [ADR 0009](0009-install-time-https-site-access.md), and the press is one click in the
-  top document.
+  [ADR 0009](0009-install-time-https-site-access.md), and the press is one click on a
+  same-site link in the top document.
 - Nothing of the vault is read on the entry page beyond ADR 0016's URI match. The
   username, password and other fields are read only on the login page the press leads
   to, by that page's own recipe.
-- The service and Anthropic see, once per entry page, its origin, its path without the
+- The service and Anthropic see, for each such page, its origin, its path without the
   query, its title and headings, and the text of its buttons and on-site links, redacted
   as every observation is. That is more ordinary browsing than a login page shows; it is
-  sent only for vault-matched sites whose URL carries a return sign.
+  sent only for vault-matched sites whose URL names a same-site path in its query.
 - A call costs about $0.007, like a login page. It is bounded by ADR 0016's 10-minute
-  window per origin and path and by the service's daily and monthly limits; once the
-  entry recipe exists, the page is not sent again.
-- A visitor who opens the bare top page, or who logged out by hand, is never signed in
-  by this; Pateat acts only where the site itself asked for a sign-in.
-- A wrong answer that leads to a sign-up or another page blocks the recipe on the device
-  after one press; it does not repeat in that tab for 10 minutes, and a tab that already
-  tried a login on the site never presses.
+  window per origin and path and by the service's daily and monthly limits. Once the
+  recipe exists the page is not sent again; after an abstention it is sent again on a
+  visit at least 10 minutes later.
+- A manual logout that lands on the bare top page is never undone, because that URL has
+  no query value naming a same-site path. A logout that redirects to a URL carrying
+  `return_to`, in a tab where Pateat never logged in to the site and while no tab keeps
+  a logout state for it, would be pressed.
+- A wrong answer that leads to another site, to a page without a sign-in input or to a
+  sign-up form blocks the recipe on the device after one press.
 
 ## Alternatives
 
@@ -282,16 +325,17 @@ failed pre-press check (debug), or `blocked` with the reason (warn).
   account-origin-tab scope of every login.
 - **Reuse ADR 0028's chooser.** The chooser is for a list of accounts, compares the
   chosen item's username on the page and keeps branches of steps. An entry page has no
-  account and no branches, and needs no vault read. The two share only the start-only
-  member of the recipe contract.
+  account and no branches, and needs no vault read. The two share only the contract
+  change for a recipe that starts without a fill step.
 - **Navigate to a learned URL.** Save `https://accounts.pixiv.net/login` and send the
   tab there. Rejected: recipes hold no URLs (`loginTargetSchema` allows locators only),
   a saved URL drops the site's own return target and other state, and Pateat would
   choose where the tab goes instead of the site.
-- **A device-local cache.** Find the button with a local word list and keep it only on
-  the device. Rejected by the owner (04:36 UTC): the AI judges, recipes are held by the
-  service ([ADR 0013](0013-service-held-recipes-and-settings.md)), and a word list ties
-  Pateat to languages.
+- **A local word list or device-local cache.** Find the control with a list of words
+  such as "Login" and keep the result on the device. Not used, because the AI judges a
+  page first (owner, 04:36 UTC). Recipes are also held by the service
+  ([ADR 0013](0013-service-held-recipes-and-settings.md)), and a word list ties Pateat
+  to languages.
 - **Press on every signed-out visit to the top page.** Rejected by the owner (06:53
   UTC): it would undo a manual logout that lands on the top page.
 
@@ -300,17 +344,21 @@ failed pre-press check (debug), or `blocked` with the reason (warn).
 1. The login page first: until `accounts.pixiv.net/login` logs in, pressing "Login"
    gains nothing. Done on 2026-10-12 07:24 UTC, build `e9144a6`, as described in
    [Context](#context).
-2. The start-only recipe member in the contract, the service and the extension's recipe
-   cache, delivered once and shared with ADR 0028's `chooser`.
-3. The entry press: sending entry pages, the `entry` decision and prompt line, the
-   checks before and after the press, the per-tab press record, the device block and the
-   `login.entry` log. Verified on pixiv's top page in the owner's Chrome; the paid
-   generation calls that needs were approved by the owner on 2026-10-12 at 06:28 UTC.
+2. The contract change for a recipe that starts without a fill step, in the contract,
+   the service and the extension's recipe cache, delivered once for this ADR's `entry`
+   and ADR 0028's `chooser`.
+3. The press: sending such pages, the `entry` decision and prompt line, the checks
+   before and after the press, the press record, the device block and the `login.entry`
+   log. Verified on pixiv's top page in the owner's Chrome; the paid generation calls
+   that needs were approved by the owner on 2026-10-12 at 06:28 UTC.
 
 ## Not covered
 
 - A sign-in button that opens a form on the same path or in a modal, without a new page.
   The page then shows a sign-in input only after a click, which ADR 0016 does not send.
-- Pressing a sign-in entry on a bare top page with no [return sign](#return-sign).
+- A sign-in control that is a button or a script link rather than an `<a href>` link.
+- A sign-in link that opens a new tab or window.
+- Pressing a sign-in entry on a bare top page whose URL names no same-site path in its
+  query.
 - Signing in through a social or SSO provider, which waits for
   [ADR 0026](0026-sign-in-through-identity-providers.md).
