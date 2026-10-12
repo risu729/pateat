@@ -123,7 +123,7 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
-import { namesUsername } from "../page/account-list";
+import { emailUsername, namesUsername } from "../page/account-list";
 import {
   decideSignInState,
   reachedReturnTarget,
@@ -3736,12 +3736,13 @@ export function createLoginRuntime(
             await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
             return;
           }
-          list = {
-            ...(await listUsernames(snapshot, run.live, run.metadata.account)),
-            ...listButtons(run.chooser),
-            click: run.metadata.chooser.click,
-          };
+          const usernames = await listUsernames(snapshot, run.live, run.metadata.account);
           if (!current(run)) return;
+          if (!usernames) {
+            await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
+            return;
+          }
+          list = { ...usernames, ...listButtons(run.chooser), click: run.metadata.chooser.click };
         }
         if (operation.step.kind === "fill" || operation.step.kind === "click")
           await pause("before-delivery");
@@ -4127,27 +4128,30 @@ export function createLoginRuntime(
     return [...found];
   }
   /**
-   * What a chooser login compares on its list (ADR 0028): the account's username and the
-   * other matching items' usernames, one at a time through the vault and never kept,
-   * leaving out an item whose username the user excluded. The account's username is empty
-   * when it cannot be read, so no entry fits it.
+   * What a chooser login compares on its list (ADR 0028): the account's username and, for
+   * an email username, the other matching items' usernames, one at a time through the
+   * vault and never kept. The others are complete only when every matching item was read:
+   * an item that cannot be read, or whose username the user excluded, or more than 32
+   * items, leave them incomplete, and then no masked address fits. `undefined` when the
+   * account's username cannot be read.
    */
   async function listUsernames(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     chosen: { connectionId: string; itemId: string },
-  ): Promise<{ username: string; others: string[] }> {
+  ): Promise<{ username: string; others: string[]; othersComplete: boolean } | undefined> {
     const settingsValue = snapshot.snapshot.settings;
+    /** The item's username; `""` for an item without one, `undefined` when unknown. */
     const read = async (connectionId: string, itemId: string, excluded: boolean) => {
       const connection = snapshot.catalog.connections.find((entry) => entry.id === connectionId);
-      const fieldId = connection && loginUsernameFieldId(connection, itemId);
+      if (!connection) return undefined;
+      const fieldId = loginUsernameFieldId(connection, itemId);
+      if (!fieldId) return "";
       if (
-        !connection ||
-        !fieldId ||
-        (excluded &&
-          settingsValue.connections
-            .find((entry) => entry.connectionId === connectionId)
-            ?.excludedFields.some((field) => field.itemId === itemId && field.fieldId === fieldId))
+        excluded &&
+        settingsValue.connections
+          .find((entry) => entry.connectionId === connectionId)
+          ?.excludedFields.some((field) => field.itemId === itemId && field.fieldId === fieldId)
       )
         return undefined;
       try {
@@ -4160,18 +4164,25 @@ export function createLoginRuntime(
         return undefined;
       }
     };
-    const username = (await read(chosen.connectionId, chosen.itemId, false)) ?? "";
-    const found = uris ? await siteCandidates(snapshot, live).catch(() => undefined) : undefined;
+    const username = await read(chosen.connectionId, chosen.itemId, false);
+    if (!username) return undefined;
     const others: string[] = [];
-    for (const candidate of (found && "candidates" in found ? found.candidates : []).slice(0, 32)) {
-      if (candidate.connectionId === chosen.connectionId && candidate.itemId === chosen.itemId)
-        continue;
+    // Only an email username is compared with the others' (ADR 0028).
+    if (!emailUsername(username)) return { username, others, othersComplete: true };
+    const found = uris ? await siteCandidates(snapshot, live).catch(() => undefined) : undefined;
+    const candidates = (found && "candidates" in found ? found.candidates : undefined)?.filter(
+      (candidate) =>
+        candidate.connectionId !== chosen.connectionId || candidate.itemId !== chosen.itemId,
+    );
+    let othersComplete = candidates !== undefined && candidates.length <= 32;
+    for (const candidate of candidates?.slice(0, 32) ?? []) {
       // Serial reads through the shared vault host, as for a fill.
       // eslint-disable-next-line no-await-in-loop
       const value = await read(candidate.connectionId, candidate.itemId, true);
-      if (value) others.push(value);
+      if (value === undefined) othersComplete = false;
+      else if (value) others.push(value);
     }
-    return { username, others };
+    return { username, others, othersComplete };
   }
   /** A chooser's buttons and what its readiness waits for on its list (ADR 0028). */
   const listButtons = (chooser: LoginChooserRecipe) => ({
@@ -4188,16 +4199,19 @@ export function createLoginRuntime(
   });
   /**
    * What a new login on a chooser's list clicks for its account (ADR 0028), as the
-   * document decides it now without clicking; `undefined` when it could not be asked or
-   * no longer shows the list.
+   * document decides it now without clicking; `unreadable` when the account's username
+   * cannot be read, and `undefined` when the document could not be asked or no longer
+   * shows the list.
    */
   async function listClick(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     chooser: LoginChooserRecipe,
     chosen: { connectionId: string; itemId: string },
-  ): Promise<ChooserClick | "none" | undefined> {
-    const list = { ...(await listUsernames(snapshot, live, chosen)), ...listButtons(chooser) };
+  ): Promise<ChooserClick | "none" | "unreadable" | undefined> {
+    const usernames = await listUsernames(snapshot, live, chosen);
+    if (!usernames) return "unreadable";
+    const list = { ...usernames, ...listButtons(chooser) };
     try {
       const parsed = v.safeParse(
         chooseResultSchema,
@@ -5156,10 +5170,13 @@ export function createLoginRuntime(
     // 0028), and takes the route that click leads to. A fill-only login presses nothing.
     let click: ChooserClick | "none" | undefined;
     if (!previous && chooser && !("fillOnly" in plan)) {
-      click = await listClick(snapshot, live, chooser, plan.account);
+      const chosen = await listClick(snapshot, live, chooser, plan.account);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      // Without the account's username nothing on the list can be compared with it.
+      if (chosen === "unreadable") return refuse("field-unavailable", "list-username");
       // The page no longer shows the list, or could not be asked: it announces again.
-      if (!click) return { ok: false, reason: "stale-document" };
+      if (!chosen) return { ok: false, reason: "stale-document" };
+      click = chosen;
       if (click === "other" || click === "continue") {
         const route = chooserRoute(chooser, click);
         if (!route) return refuse("recipe-not-found");
@@ -5168,11 +5185,12 @@ export function createLoginRuntime(
           const replanned = await planFor(snapshot, live, route, { asking });
           if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
           if (!replanned.ok) return refuse(replanned.reason);
+          // The click was chosen for the planned account; another one is not logged in.
           if (
             replanned.account.connectionId !== plan.account.connectionId ||
             replanned.account.itemId !== plan.account.itemId
           )
-            return { ok: false, reason: "stale-document" };
+            return refuse("account-changed", "list-other");
           plan = replanned;
         }
         recipe = route;

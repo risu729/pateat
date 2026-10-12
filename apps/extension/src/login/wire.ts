@@ -136,6 +136,8 @@ export const authorizeSchema = v.strictObject({
 const listInputSchema = v.strictObject({
   username: v.pipe(v.string(), v.maxLength(4096)),
   others: v.pipe(v.array(v.pipe(v.string(), v.maxLength(4096))), v.maxLength(32)),
+  /** Whether `others` holds every other matching item's username; else no masked text fits. */
+  othersComplete: v.boolean(),
   other: v.optional(loginTargetSchema),
   continue: v.optional(loginTargetSchema),
 });

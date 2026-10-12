@@ -225,7 +225,7 @@ the one entry whose text holds an email that fits the username:
   username's part before `@` are visible. For `risutaku@example.com`,
   `risu***@example.com` fits and `ri***@example.com` does not.
 - A masked email that also fits another matching vault item's username is not used. The
-  background makes this comparison; masked texts and usernames stay in the extension.
+  extension makes this comparison; masked texts and usernames stay in the extension.
   For example, with `risu@example.com` and `risutaku@example.com` in the vault,
   `risu***@example.com` fits neither.
 - This rule is stricter than the masked-email check before a password fill, which
@@ -244,23 +244,31 @@ login when the form then shows a different full email.
 As implemented in the extension: a chooser's path is where its login starts, once the
 page shows no sign-in input and shows one of the chooser's buttons or an account listed
 by email. The account is chosen as for any login. The worker then reads the account's
-username and the other matching items' usernames one at a time, and asks the content
-script what it would click, without clicking. The answer is the one entry that fits,
-the `continue` button when the page shows one account beside its buttons and that
-account fits, the `other` button, or nothing. A username that is not an email fits an
-entry-like control or a text beside the buttons whose whole text equals it. The login
-runs the chooser's route for that click (`chooserRoute` in
-`packages/contracts/src/login.ts`): an `advance` click on the list, then the branch's
-steps. Just before the click, the content script makes the same choice again and
-refuses any other. Without the branch, the page after the click is sent with the
-chooser as `base` and the click's branch, and the chooser that comes back is taken over
-as the route of the same click. A chooser that comes back without the branch's page,
-because the other branch changed it meanwhile, is taken over and the page is sent
-again. A judgement names the branch. With nothing to click, the login ends
-`account-not-listed` before its first step. Like `wrong-account`, it is released as a
-stop by Pateat. Each later page of a chooser login resumes the route of its recorded
-click. The local log's `login.start` names the click as `list`. After a logout, the
-tab's fill-only login presses nothing, so it does nothing on a list.
+username and, for an email username, the other matching items' usernames one at a time,
+and asks the content script what it would click, without clicking. When an other item
+cannot be read, its username field is excluded, or more than 32 items match, the others
+are incomplete and no masked address fits. The answer is the one entry that fits, the
+`continue` button when the page shows one account, that account fits and the button is
+one of the buttons beside it, the `other` button, or nothing. A username that is not an
+email fits an entry-like control whose whole text equals it, or the one text beside
+buttons on the page whose whole text equals it. The `other` and `continue` buttons are
+never clicked when their text holds an email address, a masked text or four or more
+digits, or when they are inside a form with a shown field. The login runs the chooser's
+route for that click (`chooserRoute` in `packages/contracts/src/login.ts`): an `advance`
+click on the list, then the branch's steps. Just before the click, the content script
+makes the same choice again and refuses any other. Without the branch, the page after
+the click is sent with the chooser as `base` and the click's branch, and the chooser
+that comes back is taken over as the route of the same click. A chooser that comes back
+without the branch's page, because the other branch changed it meanwhile, is taken over
+and the page is sent again. A judgement names the branch. With nothing to click, the
+login ends `account-not-listed` before its first step. Like `wrong-account`, it is
+released as a stop by Pateat. When the account's username cannot be read, the login does
+not start and the log names `field-unavailable` with `list-username`. Each later page of
+a chooser login resumes the route of its recorded click. The local log's `login.start`
+names the click as `list`. After a logout, the tab's fill-only login presses nothing, so
+it does nothing on a list. Not covered yet: the branch's pages, and the page judged
+after the sign-in, are sent as for any login, so a username that is not an email shown
+there, such as in a heading beside the password, reaches the AI.
 
 ### A shown account with a separate button, and usernames that are not emails
 

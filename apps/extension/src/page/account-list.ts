@@ -136,19 +136,21 @@ export function chooses(shownAddress: string, username: string): boolean {
 
 /**
  * The one entry that shows `username`'s account. A masked address that `others` (the
- * other matching vault items' usernames) would also choose is not used. `none` when no
- * entry fits, `ambiguous` when several do.
+ * other matching vault items' usernames) would also choose is not used, and none is used
+ * when `others` is not known to be complete (`masked: false`). `none` when no entry fits,
+ * `ambiguous` when several do.
  */
 export function pickEntry(
   entries: readonly AccountEntry[],
   username: string,
   others: readonly string[] = [],
+  { masked = true }: { masked?: boolean } = {},
 ): { entry: AccountEntry } | { reason: "none" | "ambiguous" } {
   const fitting = entries.filter((entry) =>
     entry.accounts.some(
       (account) =>
         chooses(account, username) &&
-        (!/[*●•]/u.test(account) || !others.some((other) => chooses(account, other))),
+        (!/[*●•]/u.test(account) || (masked && !others.some((other) => chooses(account, other)))),
     ),
   );
   if (fitting.length === 1) return { entry: fitting[0]! };
@@ -298,16 +300,37 @@ export function listControlText(element: HTMLElement): string {
   return collapseText(renderedText(element, controlTextLimit) ?? "");
 }
 
+/** A field a person fills, as opposed to a hidden input or a button. */
+const filledFields =
+  "input:not([type='hidden' i], [type='submit' i], [type='button' i], [type='image' i], [type='reset' i]), textarea, select";
+
+/**
+ * Whether a list's `other` or `continue` control may be clicked (ADR 0028): not when its
+ * text holds an email address, a masked text or a run of four or more digits, which may
+ * name an account, nor when it is inside a form with a shown field.
+ */
+function clickableListControl(element: HTMLElement): boolean {
+  const text = listControlText(element);
+  if (shownAccounts(text).some((shownAccount) => shownAccount.includes("@"))) return false;
+  if (/[*●•]|\p{N}{4}/u.test(text)) return false;
+  const form = element.closest("form");
+  return (
+    !form || ![...form.querySelectorAll<HTMLElement>(filledFields)].some((field) => shown(field))
+  );
+}
+
 /**
  * The elements a chooser's `other` or `continue` locator names (ADR 0028): for a `text`
  * locator, the innermost entry-like elements outside page chrome whose whole text is its
  * value, as the observation named them; otherwise the locator's own elements that are
- * entry-like.
+ * entry-like. A control that {@link clickableListControl} refuses is left out.
  */
 export function listControls(document: Document, target: LoginTarget): HTMLElement[] {
-  if (target.by === "text")
-    return entryControls(document).filter((element) => listControlText(element) === target.value);
-  return findTargets(document, target).filter((element) => entryLike(element));
+  const found =
+    target.by === "text"
+      ? entryControls(document).filter((element) => listControlText(element) === target.value)
+      : findTargets(document, target).filter((element) => entryLike(element));
+  return found.filter(clickableListControl);
 }
 
 /** At most this many short texts are handed over as possible account names. */
@@ -358,16 +381,22 @@ export type ListChoice =
   | { click: "entry" | "continue" | "other"; element: HTMLElement }
   | { click: "none" };
 
+/** Whether `username` is an email: an `@` after its first character; `@name` is a handle. */
+export const emailUsername = (username: string) =>
+  username.normalize("NFKC").trim().indexOf("@") > 0;
+
 /**
  * What a chooser's login clicks on the list `document` shows (ADR 0028), for the chosen
- * item's `username` and the other matching items' usernames (`others`):
+ * item's `username` and the other matching items' usernames (`others`, complete only
+ * when `othersComplete`):
  *
  * - With an email username, the one entry whose address fits it ({@link pickEntry}).
  *   Otherwise, when the page shows exactly one account and it is a text beside its
- *   buttons, the chooser's `continue` button if that text fits the username the same way.
- * - With another username, the one entry-like control or text beside buttons whose whole
- *   text names it ({@link namesUsername}): the control itself, or the `continue` button
- *   beside the text.
+ *   buttons, the chooser's `continue` button if it is one of those buttons and the text
+ *   fits the username the same way. A masked address fits only when `others` is complete.
+ * - With another username, the one entry-like control whose whole text names it
+ *   ({@link namesUsername}), or, when the page shows exactly one text beside buttons and
+ *   it names the username, the `continue` button if it is one of them.
  * - Otherwise the `other` button, or nothing.
  *
  * A button is clicked only when its locator names one element.
@@ -377,6 +406,7 @@ export function listChoice(
   input: {
     username: string;
     others: readonly string[];
+    othersComplete: boolean;
     other?: LoginTarget | undefined;
     continue?: LoginTarget | undefined;
   },
@@ -386,30 +416,40 @@ export function listChoice(
     return found.length === 1 ? found[0] : undefined;
   };
   const proceed = only(input.continue);
-  // An email username has an `@` after its first character; `@name` is a handle.
-  if (input.username.normalize("NFKC").trim().indexOf("@") > 0) {
+  const masked = { masked: input.othersComplete };
+  if (emailUsername(input.username)) {
     const entries = accountEntries(document);
-    const picked = pickEntry(entries, input.username, input.others);
+    const picked = pickEntry(entries, input.username, input.others, masked);
     if ("entry" in picked) return { click: "entry", element: picked.entry.element };
     const beside = besideEmails(document);
-    if (proceed && entries.length === 0 && beside.length === 1) {
+    if (
+      proceed &&
+      entries.length === 0 &&
+      beside.length === 1 &&
+      beside[0]!.buttons.includes(proceed)
+    ) {
       const shownAccount = {
         element: beside[0]!.element,
         accounts: shownAccounts(beside[0]!.text),
       };
-      if ("entry" in pickEntry([shownAccount], input.username, input.others))
+      if ("entry" in pickEntry([shownAccount], input.username, input.others, masked))
         return { click: "continue", element: proceed };
     }
   } else if (input.username.trim()) {
     const controls = entryControls(document).filter((element) =>
       namesUsername(listControlText(element), input.username),
     );
-    const beside = besideAccounts(document).filter((account) =>
-      namesUsername(account.text, input.username),
-    );
-    if (controls.length === 1 && beside.length === 0)
+    const beside = besideAccounts(document);
+    const named = beside.filter((account) => namesUsername(account.text, input.username));
+    if (controls.length === 1 && named.length === 0)
       return { click: "entry", element: controls[0]! };
-    if (proceed && controls.length === 0 && beside.length === 1)
+    if (
+      proceed &&
+      controls.length === 0 &&
+      beside.length === 1 &&
+      named.length === 1 &&
+      beside[0]!.buttons.includes(proceed)
+    )
       return { click: "continue", element: proceed };
   }
   const other = only(input.other);

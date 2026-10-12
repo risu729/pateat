@@ -277,14 +277,26 @@ describe("listChoice", () => {
 
   it("clicks the one entry that fits the account, else the other button", () => {
     document.body.innerHTML = cloudflare;
-    const picked = listChoice(document, { username: "RisuTaku@example.com", others: [], other });
+    const picked = listChoice(document, {
+      username: "RisuTaku@example.com",
+      others: [],
+      othersComplete: true,
+      other,
+    });
     expect(picked.click).toBe("entry");
     expect("element" in picked && picked.element.textContent).toContain("risutaku@example.com");
-    const missing = listChoice(document, { username: "jiro@example.com", others: [], other });
+    const missing = listChoice(document, {
+      username: "jiro@example.com",
+      others: [],
+      othersComplete: true,
+      other,
+    });
     expect(missing.click).toBe("other");
     expect("element" in missing && missing.element.textContent).toBe(other.value);
     // Without the button, nothing is clicked.
-    expect(listChoice(document, { username: "jiro@example.com", others: [] })).toEqual({
+    expect(
+      listChoice(document, { username: "jiro@example.com", others: [], othersComplete: true }),
+    ).toEqual({
       click: "none",
     });
   });
@@ -293,12 +305,18 @@ describe("listChoice", () => {
     document.body.innerHTML = `<div role="link" tabindex="0">risu***@example.com</div>
       <button>Sign in with another profile</button>`;
     expect(
-      listChoice(document, { username: "risutaku@example.com", others: [], other }).click,
+      listChoice(document, {
+        username: "risutaku@example.com",
+        others: [],
+        othersComplete: true,
+        other,
+      }).click,
     ).toBe("entry");
     expect(
       listChoice(document, {
         username: "risutaku@example.com",
         others: ["risuko@example.com"],
+        othersComplete: true,
         other,
       }).click,
     ).toBe("other");
@@ -312,10 +330,20 @@ describe("listChoice", () => {
     } as const;
     // One visible character before @ is too few to choose it.
     expect(
-      listChoice(document, { username: "taro@example.com", others: [], ...buttons }).click,
+      listChoice(document, {
+        username: "taro@example.com",
+        others: [],
+        othersComplete: true,
+        ...buttons,
+      }).click,
     ).toBe("other");
     document.body.innerHTML = wise.replace("t***@", "tar***@");
-    const chosen = listChoice(document, { username: "taro@example.com", others: [], ...buttons });
+    const chosen = listChoice(document, {
+      username: "taro@example.com",
+      others: [],
+      othersComplete: true,
+      ...buttons,
+    });
     expect(chosen.click).toBe("continue");
     expect("element" in chosen && chosen.element.textContent).toBe("Log back in");
   });
@@ -326,14 +354,82 @@ describe("listChoice", () => {
       continue: { by: "text", value: "Continue" },
       other: { by: "text", value: "Use another profile" },
     } as const;
-    expect(listChoice(document, { username: "@Taro.Yamada", others: [], ...buttons }).click).toBe(
-      "continue",
-    );
-    expect(listChoice(document, { username: "hanako", others: [], ...buttons }).click).toBe(
-      "other",
-    );
+    expect(
+      listChoice(document, {
+        username: "@Taro.Yamada",
+        others: [],
+        othersComplete: true,
+        ...buttons,
+      }).click,
+    ).toBe("continue");
+    expect(
+      listChoice(document, { username: "hanako", others: [], othersComplete: true, ...buttons })
+        .click,
+    ).toBe("other");
     // A list whose entry's whole text is the username clicks the entry itself.
     document.body.innerHTML = `<ul><li><a href="#">taro.yamada</a></li><li><a href="#">hanako</a></li></ul>`;
-    expect(listChoice(document, { username: "taro.yamada", others: [] }).click).toBe("entry");
+    expect(
+      listChoice(document, { username: "taro.yamada", others: [], othersComplete: true }).click,
+    ).toBe("entry");
+  });
+
+  it("takes no masked entry when the other vault items are not all known", () => {
+    document.body.innerHTML = `<div role="link" tabindex="0">risu***@example.com</div>
+      <div role="link" tabindex="0">hanako@example.com</div>
+      <button>Sign in with another profile</button>`;
+    const input = { others: [], othersComplete: false, other };
+    expect(listChoice(document, { username: "risutaku@example.com", ...input }).click).toBe(
+      "other",
+    );
+    // A whole address still fits.
+    expect(listChoice(document, { username: "hanako@example.com", ...input }).click).toBe("entry");
+  });
+
+  it("continues with a username only beside the one shown account's own button", () => {
+    const buttons = {
+      continue: { by: "text", value: "Continue" },
+      other: { by: "text", value: "Use another profile" },
+    } as const;
+    const input = { username: "taro", others: ["hanako"], othersComplete: true, ...buttons };
+    // Two accounts beside one Continue: the checked one may be another account.
+    document.body.innerHTML = `<form><label><input type="radio" name="a"> taro</label>
+      <label><input type="radio" name="a" checked> hanako</label><button>Continue</button></form>
+      <button>Use another profile</button>`;
+    expect(listChoice(document, input).click).not.toBe("continue");
+    // The name sits beside another button, and Continue is elsewhere.
+    document.body.innerHTML = `<div><span>taro</span><button>Follow</button></div>
+      <div><button>Continue</button></div><button>Use another profile</button>`;
+    expect(listChoice(document, input).click).toBe("other");
+  });
+
+  it("never clicks a button whose text may name an account, or one in a form with fields", () => {
+    const named = { by: "id", value: "next" } as const;
+    document.body.innerHTML = `<button id="next">Continue as hanako@example.com</button>`;
+    expect(
+      listChoice(document, {
+        username: "taro@example.com",
+        others: [],
+        othersComplete: true,
+        other: named,
+      }),
+    ).toEqual({ click: "none" });
+    document.body.innerHTML = `<form><input type="text" name="q"><button id="next">Next</button></form>`;
+    expect(
+      listChoice(document, {
+        username: "taro@example.com",
+        others: [],
+        othersComplete: true,
+        other: named,
+      }),
+    ).toEqual({ click: "none" });
+    document.body.innerHTML = `<form><input type="hidden" name="q"><button id="next">Next</button></form>`;
+    expect(
+      listChoice(document, {
+        username: "taro@example.com",
+        others: [],
+        othersComplete: true,
+        other: named,
+      }).click,
+    ).toBe("other");
   });
 });

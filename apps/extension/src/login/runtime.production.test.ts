@@ -11379,7 +11379,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       // The list's choice gets the account's username and the chooser's button.
       expect(fake.state.messages.find((entry) => entry.type === "login.choose")).toMatchObject({
         path: "/signin",
-        list: { others: [], other },
+        list: { others: [], othersComplete: true, other },
       });
       expect(clicks()[0]!.list).toMatchObject({ click: "entry", others: [], other });
       expect(clicks()[1]).not.toHaveProperty("list");
@@ -11410,6 +11410,21 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(clicks()[0]!.operation.step.target).toEqual(other);
       expect(clicks()[0]!.list).toMatchObject({ click: "other" });
       expect(status()![0]).toMatchObject({ chooser: { click: "other" } });
+    });
+
+    it("presses the continue button beside the one shown account that fits", async () => {
+      const proceed = { by: "text" as const, value: "Log back in" };
+      fake.state.chosen = { ok: true, click: "continue" };
+      const h = onList(generation());
+      h.recipes.chooser.mockResolvedValue({
+        ...listed,
+        chooser: { ...listed.chooser, continue: proceed },
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks().length > 0);
+      expect(clicks()[0]!.operation.step.target).toEqual(proceed);
+      expect(clicks()[0]!.list).toMatchObject({ click: "continue", continue: proceed, other });
+      expect(status()![0]).toMatchObject({ chooser: { click: "continue" } });
     });
 
     it("ends account-not-listed without a click when nothing fits and there is no button", async () => {
