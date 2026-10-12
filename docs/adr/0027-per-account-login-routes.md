@@ -84,7 +84,8 @@ them from one page and nothing could check them.
     requires a TOTP secret.
 
 A page that asks for a passkey by itself (`navigator.credentials.get` without
-`mediation`, or with `optional`) needs no branch: the bridge already answers it.
+`mediation`, or with `optional` or, since an amendment of ADR 0007 on 2026-10-12,
+`required`) needs no branch: the bridge already answers it.
 
 ### The item's facts
 
@@ -680,8 +681,10 @@ Not handled:
   revision.
 - Start pages without a password input (passkey-only or SSO-only) are never generated
   (ADR 0016 condition 3); that is left to the SSO work.
-- Passkey requests the bridge already passes on: `conditional`, `required` or `silent`
-  mediation, external-only transports, a nonzero counter, an incomplete vault, timeout.
+- Passkey requests the bridge already passes on: `silent` or `immediate` mediation
+  (`conditional` is answered through a login since ADR 0034, `required` since an
+  amendment of ADR 0007), external-only transports, a nonzero counter, an incomplete
+  vault, timeout.
 
 ## Alternatives
 

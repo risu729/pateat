@@ -118,12 +118,16 @@ describe("request admission", () => {
         reason: "unsupported-mediation",
       });
     // The flag admits no other mediation, and marks no other request.
-    for (const mediation of ["silent", "required", "immediate"])
+    for (const mediation of ["silent", "immediate", "made-up"])
       expect(through({ ...base, mediation }, true)).toEqual({
         kind: "delegate",
         reason: "unsupported-mediation",
       });
-    for (const request of [base, { ...base, mediation: "optional" }]) {
+    for (const request of [
+      base,
+      { ...base, mediation: "optional" },
+      { ...base, mediation: "required" },
+    ]) {
       const admitted = through(request, true);
       expect(admitted.kind).toBe("claim");
       expect(admitted.kind === "claim" && admitted.request).not.toHaveProperty("conditional");
@@ -209,7 +213,8 @@ describe("request admission", () => {
   it.each([
     ["conditional mediation", { ...base, mediation: "conditional" }, true, "unsupported-mediation"],
     ["silent mediation", { ...base, mediation: "silent" }, true, "unsupported-mediation"],
-    ["required mediation", { ...base, mediation: "required" }, true, "unsupported-mediation"],
+    ["immediate mediation", { ...base, mediation: "immediate" }, true, "unsupported-mediation"],
+    ["an unknown mediation", { ...base, mediation: "made-up" }, true, "unsupported-mediation"],
     ["foreign RP ID", { ...base, rpId: "example.net" }, true, "rp-id-mismatch"],
     ["public-suffix RP ID", { ...base, rpId: "com" }, true, "rp-id-mismatch"],
     ["short challenge", { ...base, challenge: "AAECAwQFBgcICQoLDA0O" }, true, "invalid-request"],
@@ -267,6 +272,113 @@ describe("request admission", () => {
       reason: "invalid-origin",
     });
   });
+});
+
+describe("required mediation (ADR 0007)", () => {
+  const through = (
+    request: unknown,
+    options: { policy?: PasskeyPolicy; userActivation?: boolean; conditional?: boolean } = {},
+  ) =>
+    admitGetRequest({
+      origin: "https://login.example.com",
+      request,
+      userActivation: options.userActivation ?? true,
+      policy: options.policy ?? INITIAL_PASSKEY_POLICY,
+      ...(options.conditional === undefined ? {} : { conditional: options.conditional }),
+    });
+
+  it("claims a required request exactly as it claims an optional one", () => {
+    // Wise's "Log back in" asks with `mediation: "required"`.
+    const asked = {
+      ...base,
+      rpId: "example.com",
+      timeout: 60_000,
+      allowCredentials: [
+        { type: "public-key", id: "AQID", transports: ["internal"] },
+        { type: "public-key", id: "BAUG" },
+      ],
+    };
+    const required = through({ ...asked, mediation: "required" });
+    expect(required).toEqual({
+      kind: "claim",
+      request: {
+        origin: "https://login.example.com",
+        rpId: "example.com",
+        challenge: Uint8Array.from({ length: 16 }, (_, index) => index),
+        allowCredentialIds: ["AQID", "BAUG"],
+        userVerified: true,
+        timeoutMs: 60_000,
+      },
+    });
+    expect(required).toEqual(through({ ...asked, mediation: "optional" }));
+    expect(required).toEqual(through(asked));
+    // A ceremony policy leaves UV clear for it as for an optional request.
+    const ceremonyRequired = through({ ...asked, mediation: "required" }, { policy: ceremony });
+    expect(ceremonyRequired).toMatchObject({ kind: "claim", request: { userVerified: false } });
+    expect(ceremonyRequired).toEqual(
+      through({ ...asked, mediation: "optional" }, { policy: ceremony }),
+    );
+    // A discoverable request without an RP ID or timeout keeps the same shape too.
+    expect(through({ ...base, mediation: "required" })).toEqual(
+      through({ ...base, mediation: "optional" }),
+    );
+    // It is never marked conditional, even for a caller that answers conditional requests.
+    for (const conditional of [undefined, false, true]) {
+      const admitted = through(
+        { ...asked, mediation: "required" },
+        conditional === undefined ? {} : { conditional },
+      );
+      expect(admitted).toEqual(required);
+      expect(admitted.kind === "claim" && admitted.request).not.toHaveProperty("conditional");
+    }
+  });
+
+  it("keeps every other admission gate for a required request", () => {
+    const required = { ...base, mediation: "required" };
+    expect(through({ ...required, userVerification: "required" }, { policy: ceremony })).toEqual({
+      kind: "delegate",
+      reason: "user-verification-required",
+    });
+    expect(through({ ...required, rpId: "example.net" })).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+    expect(through(required, { policy: ceremony, userActivation: false })).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+    expect(
+      through({
+        ...required,
+        allowCredentials: [{ type: "public-key", id: "AQID", transports: ["usb"] }],
+      }),
+    ).toEqual({ kind: "delegate", reason: "external-transports-only" });
+    expect(through({ ...required, challenge: "AAECAwQFBgcICQoLDA0O" })).toEqual({
+      kind: "delegate",
+      reason: "invalid-request",
+    });
+    expect(
+      admitGetRequest({
+        origin: "http://login.example.com",
+        request: required,
+        userActivation: true,
+        policy: INITIAL_PASSKEY_POLICY,
+      }),
+    ).toEqual({ kind: "delegate", reason: "invalid-origin" });
+    // The same requests pass once the gate they failed is lifted.
+    expect(through({ ...required, userVerification: "required" }).kind).toBe("claim");
+    expect(through(required, { policy: ceremony, userActivation: true }).kind).toBe("claim");
+  });
+
+  it.each(["silent", "immediate", "made-up", "Required", ""])(
+    "still delegates %j mediation with or without the conditional flag",
+    (mediation) => {
+      for (const conditional of [undefined, false, true])
+        expect(
+          through({ ...base, mediation }, conditional === undefined ? {} : { conditional }),
+        ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
+    },
+  );
 });
 
 describe("credential selection", () => {

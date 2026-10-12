@@ -25,6 +25,11 @@ that has not ended, a request from its tab and origin uses that login's own item
 Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a top
 document's `conditional` request is answered through a Pateat login of that document,
 with UP and UV set as for `optional` requests, and otherwise handed on (implemented).
+Amended on 2026-10-12 by the owner's choice at 19:32 UTC: a `required` request, as
+Wise's "Log back in" makes, is claimed as an `optional` one is, since a passkey request
+shows the browser's prompt either way and any page that can make one can make the
+other. As for `optional`, Pateat skips the person's confirmation the site asked for
+(implemented).
 
 Date: 2026-10-10
 
@@ -112,10 +117,10 @@ boundary. Only the assertion fields return to the page.
 
 Pateat claims a request only when all of these hold; otherwise it delegates:
 
-- `publicKey` is the only credential type requested and mediation is absent or
-  `optional`. Silent and immediate mediation delegate. Conditional mediation is
-  admitted only for the login runtime to decide, which answers it through a login of
-  the document and hands it on otherwise
+- `publicKey` is the only credential type requested and mediation is absent,
+  `optional` or `required`. Silent and immediate mediation delegate. Conditional
+  mediation is admitted only for the login runtime to decide, which answers it through
+  a login of the document and hands it on otherwise
   ([ADR 0034](0034-answer-page-passkey-requests.md)).
 - The caller is a top-level document, so `crossOrigin` is false and `topOrigin`
   is absent. Cross-origin frames, opaque

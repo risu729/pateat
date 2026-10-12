@@ -157,9 +157,14 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   (18:30 and 18:43 UTC) Wise's requests were `conditional`, but its login ran as a
   chooser login (ADR 0028), which the first implementation left on the password; a
   chooser login now answers too, before its click on the list (local tests only).
-  Next, confirm that Pateat signs in to Wise with the passkey, and find where the
-  Bitwarden extension's passkey window seen at 18:31 UTC came from: no request Pateat's
-  top-document bridge saw was handed to it.
+  The Bitwarden extension's passkey window, then Windows Security, came from Wise's "Log
+  back in", which asks with `mediation: "required"`: on build `f971955` at 19:20 UTC
+  Pateat logged that request as `passkey.request` `delegate` `unsupported-mediation`.
+  As the owner chose on 2026-10-12 (19:32 UTC), Pateat now answers a `required` request
+  as it answers an `optional` one
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md); local tests only). Next, in the
+  owner's Chrome: Wise's "Welcome back" list and "Log back in" sign in with the passkey
+  (`passkey.request` `assertion`) without the Bitwarden or Windows Security window.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): each matching
   item's username of three or more characters is hidden as `[account]` wherever it shows
@@ -1224,9 +1229,9 @@ The SDK-decrypted private key is decoded with a DER framing check only; WebCrypt
 import validates its structure. Unit tests cover malformed and unsupported views and
 an SDK round trip through the synthetic legacy account fixture.
 
-The extension's assertion core admits only requests with mediation absent or `optional`
-that pass WebAuthn RP ID validation with tldts private suffixes, and `conditional` ones
-for a login of the page to answer
+The extension's assertion core admits only requests with mediation absent, `optional`
+or `required` (ADR 0007, amended 2026-10-12) that pass WebAuthn RP ID validation with
+tldts private suffixes, and `conditional` ones for a login of the page to answer
 ([ADR 0034](adr/0034-answer-page-passkey-requests.md)); everything else is a
 delegation result. A `PasskeyPolicy` decides whether a missing gesture or a UV
 requirement also delegates; the initial policy sets UP and UV unattended. It selects
