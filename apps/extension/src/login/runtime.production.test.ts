@@ -4367,6 +4367,28 @@ describe("production login document admission", () => {
         });
         await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
       });
+
+      it("sends a list that loads more than a minute after the submission", async () => {
+        const { service, h, generations } = setup();
+        const at = Date.now();
+        const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender(),
+        );
+        // A single-page app signed in and out in one document; the reload comes later.
+        clock.mockReturnValue(at + 61_000);
+        expect(await h.hello({ documentId: "reloaded" }, false)).toMatchObject({ generate: true });
+        expect(await listHello(h, undefined, { documentId: "reloaded" })).toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        clock.mockRestore();
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        expect(generations()).not.toContainEqual(
+          expect.objectContaining({ outcome: "skipped", reason: "after-sign-in" }),
+        );
+      });
     });
 
     it.each([
