@@ -4173,6 +4173,9 @@ export function createLoginRuntime(
           return;
         }
         if (waited !== "ready" || !(await allowed(run))) return;
+        // A request the page made while the step waited still decides the route before the
+        // first submission, as a chooser login's click on its list is (ADR 0034).
+        if (await switchToPasskey(run)) continue;
       }
       const operation = nextLoginOperation(
         run.metadata,
@@ -6059,10 +6062,9 @@ export function createLoginRuntime(
     const filledKey = `${document.tabId} ${document.documentId}`;
     const fill = asking && !previous && !switched && !logoutFills.has(filledKey);
     // A new login answers the page's own passkey request when its item holds a passkey
-    // (ADR 0034), as one picked in the popup after a logout does; a chooser's list has no
-    // such route, and a login that only fills after a logout keeps its password form.
-    const pageRequest =
-      !previous && !chooser && document.frameId === 0 && parkedFor(document) !== undefined;
+    // (ADR 0034), as one picked in the popup after a logout and one on a chooser's list do,
+    // instead of clicking there; a login that only fills after a logout keeps its form.
+    const pageRequest = !previous && document.frameId === 0 && parkedFor(document) !== undefined;
     let plan = await planFor(snapshot, live, recipe, {
       asking,
       fill,
@@ -6119,7 +6121,10 @@ export function createLoginRuntime(
         if (!route) return refuse("recipe-not-found");
         // Another branch's route has other slots, and is planned again for the same account.
         if (click === "other") {
-          const replanned = await planFor(snapshot, live, route, { asking });
+          const replanned = await planFor(snapshot, live, route, {
+            asking,
+            ...(pageRequest ? { pageRequest } : {}),
+          });
           if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
           if (!replanned.ok) return refuse(replanned.reason);
           // The click was chosen for the planned account; another one is not logged in.
@@ -7283,7 +7288,8 @@ export function createLoginRuntime(
   }
   /**
    * Whether a login takes the `passkey` route because its page asked for a passkey by
-   * itself (ADR 0034): only before anything was submitted, on a recipe without a passkey
+   * itself (ADR 0034): only before anything was submitted, so a chooser login only before
+   * its click on the list, on a recipe without a passkey
    * button, for an item that held a discoverable passkey when the login started. Fields
    * already filled stay as they are.
    */
@@ -7292,7 +7298,6 @@ export function createLoginRuntime(
     if (
       metadata.route !== "password" ||
       !passkeyAnswersRequest(run.recipe) ||
-      run.chooser ||
       run.passkeyFailed ||
       metadata.fillOnly ||
       !metadata.facts.discoverablePasskey ||

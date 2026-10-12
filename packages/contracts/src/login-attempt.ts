@@ -856,8 +856,7 @@ function createLoginAttemptMachine() {
         context.operationId === undefined &&
         context.submissions === 0 &&
         context.handlers.length === 0 &&
-        context.fillOnly !== true &&
-        context.chooser === undefined,
+        context.fillOnly !== true,
       // After the passkey answer, once, to the variant the login recorded.
       canFallBack: ({ context, event }) =>
         event.type === "ROUTE" &&

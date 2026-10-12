@@ -15,6 +15,12 @@ account after a logout (ADR 0021 D), the asked document's request waits for the 
 the popup and is answered with the picked item's passkey, instead of being handed on
 (rule 5).
 
+Amended on 2026-10-12 under the owner's policy of 13:58 UTC, after logs from the owner's
+Chrome (18:30 and 18:43 UTC) showed Wise's sign-in runs as a chooser login
+([ADR 0028](0028-account-chooser-login-pages.md)) that this ADR had left on the
+password: a chooser login takes the `passkey` route too, before its click on the list
+(rule 3).
+
 Date: 2026-10-12
 
 ## Context
@@ -54,7 +60,9 @@ password when the item has one. The proposal reviewed with the owner is
    discoverable passkey, a login on a recipe without a passkey button takes the
    `passkey` route. That route's one step answers the waiting request with the login's
    item and fills nothing. A login that started on the `password` route switches to it
-   while nothing has been submitted, keeping any fields it filled. A recipe with a
+   while nothing has been submitted, keeping any fields it filled. A login on a
+   chooser's list (ADR 0028) does so too: it answers instead of clicking on the list,
+   and only before that click, which is its first submission. A recipe with a
    passkey button keeps clicking the button (ADR 0027); its page's conditional request
    then waits as in rule 5, so the two never overlap.
 4. **It is a login like any other.** `login.attempt` records the route, the attempt's
@@ -110,9 +118,11 @@ password when the item has one. The proposal reviewed with the owner is
   `submit` click on the target of the recipe's first step. It is never sent to the page:
   the runtime answers the request in its place. Start detection is unchanged, so the
   route is chosen at the start only when the request already waits; otherwise the
-  `password` route starts and switches as rule 3 says.
-- The attempt machine has a `ROUTE` event. Before any submission, handler or chooser, it
-  changes route between steps; after the `passkey` route's answer, it goes back to the
+  `password` route starts and switches as rule 3 says, also once its first step's
+  elements are ready. On a chooser login the first step is its click on the list, so the
+  fallback starts from that click.
+- The attempt machine has a `ROUTE` event. Before any submission or handler, it changes
+  route between steps; after the `passkey` route's answer, it goes back to the
   `password` route once. The attempt keeps its `password` variant while on the `passkey`
   route, so the fallback needs no new plan, and the fallback adds the answer to the
   password route's submission budget.

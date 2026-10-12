@@ -579,9 +579,11 @@ ends `challenge`: it never falls back to typing the password, and after `authent
 it saves only the site default. On a recipe without that button, a start page that asks
 for a passkey by itself with a `conditional` request gets the same route, whose one step
 answers that request with the login's item; a `password` login switches to it before
-anything is submitted. It falls back to the recorded `password` variant when no request
-comes, the item cannot answer it, the recipe's rejection shows, or the sign-in form
-still shows 15 seconds after the answer. While the tab asks for an account after a
+anything is submitted, and a login on a chooser's list
+([ADR 0028](adr/0028-account-chooser-login-pages.md)) before its click there. It falls
+back to the recorded `password` variant when no request comes, the item cannot answer
+it, the recipe's rejection shows, or the sign-in form still shows 15 seconds after the
+answer. While the tab asks for an account after a
 logout, that request waits for the popup pick, whose login answers it the same way
 ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A recipe's `password` route has
 one to four variants, one per identifier set its start page offers (such as branch and
