@@ -184,7 +184,11 @@ has, nothing changes and the login completes. A marker is never an element the r
 steps, passkey route or handlers use on any path, since it would then prove a sign-in on
 their pages. A marker learned on a step's own path keeps that path's fill fields as
 `absent` elements, which must now be missing on every path, so a site that keeps a
-hidden sign-in form on its signed-in pages does not complete on that marker.
+hidden sign-in form on its signed-in pages does not complete on that marker. The recipes
+already stored when this shipped keep working: on 2026-10-12 at 18:07 UTC the owner
+chose to rewrite them once, so D1 migration 0013 turns each stored completion into a
+one-marker list, and leaves out one whose locator another element of the recipe also
+uses.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on
