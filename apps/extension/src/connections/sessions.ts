@@ -210,7 +210,8 @@ export function createProviderSessions(deps: {
           // carries no rejection the captured one is still valid: put it back so a later sync can retry without a
           // password. The restore compares only the claim, so a forget in between still wins.
           // A resumed claim has no session to go back to, so it becomes a new claim nobody
-          // holds. Any other failure keeps the claim without its token: password sign-in.
+          // holds. A failure that is not retryable keeps the claim without its token, which
+          // requires password sign-in.
           const restored = retryable(failure)
             ? (
                 await store.compareAndSwap(
@@ -221,7 +222,8 @@ export function createProviderSessions(deps: {
                 )
               ).ok
             : false;
-          if (!restored) {
+          // A restore that could not be written leaves the claim with its token to resume.
+          if (!retryable(failure)) {
             const { refreshToken: _dropped, ...final } = claim;
             await store.compareAndSwap(claim.revision, { ...final, revision: random() });
           }

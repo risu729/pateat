@@ -280,7 +280,7 @@ describe("explicit sync acquisition", () => {
       "synthetic-new-refresh-token",
     );
   });
-  it("a restore that cannot be written leaves the claim and still reports the failure", async () => {
+  it("a restore that cannot be written leaves the claim with its token to resume", async () => {
     const h = harness();
     await h.retain();
     h.advance(3_600_000);
@@ -292,7 +292,13 @@ describe("explicit sync acquisition", () => {
       ok: false,
       error: { code: "network" },
     });
-    expect(await h.sessions.status(accountProfile)).toBe("reauthentication-required");
+    expect(h.memory.raw()).toMatchObject({
+      state: "refreshing",
+      refreshToken: "synthetic-refresh-token",
+    });
+    expect(await h.sessions.status(accountProfile)).toBe("refresh-required");
+    h.refreshToken.mockResolvedValueOnce(h.refreshed());
+    expect((await h.sessions.acquire(accountProfile, h.context())).ok).toBe(true);
   });
   it("forget during a refresh that later fails is not undone by the restore", async () => {
     const h = harness();
@@ -536,6 +542,60 @@ describe("a refresh left by a stopped worker", () => {
     expect(await next.status(accountProfile)).toBe("refresh-required");
     h.refreshToken.mockResolvedValueOnce(h.refreshed());
     expect((await next.acquire(accountProfile, h.context())).ok).toBe(true);
+  });
+  it("drops its token when the resumed request fails without a retry", async () => {
+    const h = await abandoned();
+    h.refreshToken.mockResolvedValueOnce({ ok: false, error: { code: "invalid-response" } });
+    const next = h.worker();
+    expect(await next.acquire(accountProfile, h.context())).toEqual({
+      ok: false,
+      error: { code: "invalid-response" },
+    });
+    expect(h.memory.raw()).not.toHaveProperty("refreshToken");
+    expect(await next.status(accountProfile)).toBe("reauthentication-required");
+  });
+  it("stays resumable when the rotation commit cannot be written", async () => {
+    const h = await abandoned();
+    const next = h.worker();
+    h.refreshToken.mockImplementationOnce(async () => {
+      h.memory.failNext("storage-uncertain");
+      return h.refreshed();
+    });
+    expect(await next.acquire(accountProfile, h.context())).toEqual({
+      ok: false,
+      error: { code: "storage-uncertain" },
+    });
+    expect(await next.status(accountProfile)).toBe("refresh-required");
+    h.refreshToken.mockResolvedValueOnce(h.refreshed());
+    expect((await next.acquire(accountProfile, h.context())).ok).toBe(true);
+  });
+  it("two new workers resume it at most once", async () => {
+    const h = await abandoned();
+    h.refreshToken.mockImplementation(async () => h.refreshed());
+    const results = await Promise.all([
+      h.worker().acquire(accountProfile, h.context()),
+      h.worker().acquire(accountProfile, h.context()),
+    ]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(h.refreshToken).toHaveBeenCalledTimes(2);
+  });
+  it("forget during a resumed request wins over its late commit", async () => {
+    const h = await abandoned();
+    const next = h.worker();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    h.refreshToken.mockImplementationOnce(async () => {
+      await held;
+      return h.refreshed();
+    });
+    const pending = next.acquire(accountProfile, h.context());
+    await vi.waitFor(() => expect(h.refreshToken).toHaveBeenCalledTimes(2));
+    expect(await next.forget(accountProfile)).toEqual({ ok: true, data: true });
+    release();
+    expect(await pending).toEqual({ ok: false, error: { code: "storage-conflict" } });
+    expect(h.memory.raw()).toBeUndefined();
   });
   it("forget removes it", async () => {
     const h = await abandoned();
