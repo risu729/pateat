@@ -26,6 +26,9 @@ createRoot(root).render(
           void browser.runtime.openOptionsPage();
           window.close();
         },
+        close() {
+          window.close();
+        },
       }}
     />
   </QueryClientProvider>,

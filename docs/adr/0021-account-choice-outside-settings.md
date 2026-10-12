@@ -5,11 +5,22 @@ Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
 chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
 account defaults and exclusions are edited, and manual choices before they are saved).
 Each part lands in its own PR. All four parts, A to D, are implemented.
+
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet).
 Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a passkey request
 during a login that has not ended uses that login's item instead of the chooser
 (implemented).
+Amended on 2026-10-12: in B, the open popup keeps asking until a choice waits, and
+closes once a picked login starts (closing is the owner's suggestion). Observed on
+2026-10-12 in the owner's Chrome on github.com with three matching items: the first
+popup open showed no choice although the badge read "3"; reopening showed it. Most
+likely cause, reproduced in a synthetic test: opening the popup restarts the worker,
+and when the tab is reached by its reconnect of every tab (a persisted attempt in the
+tab, or an origin with one), that reconnect announces the page again while the popup's
+own reconnect is admitted; the popup's answer comes back stale, so it sees no choice.
+The popup's question now also waits for the newer announcement, and a choice whose page
+can no longer be admitted ends.
 
 Date: 2026-10-11
 
@@ -53,10 +64,14 @@ settings-page edits. The popup edits nothing else.
 The page shows nothing. The background records the refused document as
 `{tabId, frameId, documentId, origin}`. That tab's icon gets a badge with the candidate
 count and a tooltip asking the user to choose. Opening the popup lists only the
-candidates the executor accepts for that document.
+candidates the executor accepts for that document. While open, the popup asks again
+every second until a choice waits, so a choice that starts waiting late, for example
+after a restarted service worker asked the page to announce again, still appears; until
+the first answer it says it is checking (amended 2026-10-12).
 
 Choosing one stores the choice in `chrome.storage.session` for that `documentId` and
-sends `login.reconnect` to that document only. The page announces itself again and a new
+sends `login.reconnect` to that document only. Once that starts the login, the popup
+closes (owner's suggestion, 2026-10-12). The page announces itself again and a new
 attempt starts from the recipe's first step on the same page, with no reload. Text the
 user typed is overwritten. If the form has moved past its first step, nothing runs and
 the popup says so. The choice then applies to the login it started, including its later

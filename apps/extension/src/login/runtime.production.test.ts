@@ -2299,6 +2299,32 @@ describe("production login document admission", () => {
         expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
         await vi.waitFor(() => expect(fake.state.session["pateat.login-choices.v1"]).toEqual([]));
       });
+      it("offers the choice after a restart when a newer announcement overtakes the asked one", async () => {
+        await refused();
+        const restarted = matching();
+        // The worker's reconnect of every tab announces the document again while the
+        // popup's reconnect is still admitted, so the popup's answer comes back stale.
+        let overtaken: Promise<unknown> | undefined;
+        fake.state.onReconnect = async () => {
+          const asked = restarted.hello();
+          overtaken = restarted.hello();
+          return asked;
+        };
+        expect(await ask(restarted)).toEqual(offered);
+        expect(await overtaken).toEqual({ ok: false, reason: "account-ambiguous" });
+      });
+      it("ends the choice after a restart once the page can no longer be admitted", async () => {
+        await refused();
+        const restarted = matching();
+        fake.state.onReconnect = () => restarted.hello();
+        // Site access was withdrawn while the worker slept; the page answers but is refused.
+        fake.state.granted = false;
+        expect(await ask(restarted)).toEqual({ ok: false, reason: "no-choice" });
+        expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+        // The open popup asking again sends no further reconnects.
+        expect(await ask(restarted)).toEqual({ ok: false, reason: "no-choice" });
+        expect(fake.state.reconnects).toHaveLength(1);
+      });
       it("ends the choice once a default is saved for the site", async () => {
         const h = await refused();
         h.settings.settings.siteDefaults = [{ origin, provider: "bitwarden", userId, itemId }];

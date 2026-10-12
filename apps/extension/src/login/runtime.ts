@@ -815,6 +815,8 @@ export function createLoginRuntime(
     }
   })();
   const hellos = new Map<string, number>();
+  /** The latest announcement of each frame while it is admitted, by the same key. */
+  const admitting = new Map<string, Promise<unknown>>();
   const probeDocument = (url: URL) =>
     probeMode && url.origin === origin && url.protocol === "http:" && url.hostname === "127.0.0.1";
   // The synthetic fixture embeds its frames in a page on another loopback port to test refusal.
@@ -938,6 +940,13 @@ export function createLoginRuntime(
     let waiting = pending.get(tabId);
     if (waiting && !documents.has(frameKey(waiting.document))) {
       await revive(waiting);
+      // The document may have answered as stale because another announcement of it, such
+      // as one asked for by the restarted worker's reconnect of every tab, overtook it.
+      await admitting.get(`${tabId}:${waiting.document.frameId}`)?.catch(() => undefined);
+      // A document that answered but could not be admitted again, for example after its
+      // site access was withdrawn, offers nothing; asking again would only repeat that.
+      if (pending.get(tabId) === waiting && !documents.has(frameKey(waiting.document)))
+        clearChoice(tabId);
       waiting = pending.get(tabId);
     }
     const live = waiting && documents.get(frameKey(waiting.document));
@@ -2973,11 +2982,19 @@ export function createLoginRuntime(
     hellos.set(helloKey, sequence);
     // Entered after the sequence is taken, so a hello waiting on the vault check is stale
     // once a later one from the same frame arrives (ADR 0025).
-    const leave = await options.vault?.enter(start !== undefined);
+    const admission = (async () => {
+      const leave = await options.vault?.enter(start !== undefined);
+      try {
+        return await admitFresh(sender, token, helloKey, sequence, start, signIn);
+      } finally {
+        leave?.();
+      }
+    })();
+    admitting.set(helloKey, admission);
     try {
-      return await admitFresh(sender, token, helloKey, sequence, start, signIn);
+      return await admission;
     } finally {
-      leave?.();
+      if (admitting.get(helloKey) === admission) admitting.delete(helloKey);
     }
   }
   /**

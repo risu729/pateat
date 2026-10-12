@@ -88,6 +88,7 @@ async function mount(
   const host = {
     currentTab: vi.fn<PopupHost["currentTab"]>().mockResolvedValue({ id: 7, url, incognito }),
     openSettings: vi.fn<PopupHost["openSettings"]>(),
+    close: vi.fn<PopupHost["close"]>(),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -297,7 +298,7 @@ test("a login refused for several matches is restarted with the account picked h
     ],
   };
   choices.get.mockResolvedValue(offer);
-  await mount(client, "https://bank.example/login", choices);
+  const host = await mount(client, "https://bank.example/login", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
   expect(choices.get).toHaveBeenCalledWith(7);
   // Only the refused login's candidates are offered, not every matching item.
@@ -317,12 +318,47 @@ test("a login refused for several matches is restarted with the account picked h
     itemId: "primary",
     makeDefault: false,
   });
+  // The login runs in the page from here, so the popup closes.
+  expect(host.close).toHaveBeenCalledOnce();
   // The pick itself saves no settings; a default is saved only after the login succeeds.
   expect(client.saveSettings).not.toHaveBeenCalled();
   expect(current().snapshot.revision).toBe(0);
+});
+
+test("a choice that starts waiting after the popup opened is shown while it stays open", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  let answer: (value: Awaited<ReturnType<ChoiceClient["get"]>>) => void = () => undefined;
+  choices.get.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+  );
+  await mount(client, "https://bank.example/login", choices);
   await expect
-    .element(page.getByRole("heading", { name: "Choose an account" }))
+    .element(page.getByText("Checking whether this page waits for an account choice…"))
+    .toBeVisible();
+  answer({ ok: false, reason: "no-choice" });
+  await expect
+    .element(page.getByText("Checking whether this page waits for an account choice…"))
     .not.toBeInTheDocument();
+  expect(page.getByRole("heading", { name: "Choose an account" }).elements()).toHaveLength(0);
+  // A restarted worker re-asks the page, which is refused for several matches again.
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  const calls = choices.get.mock.calls.length;
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  // Once a choice is shown it is not asked for again.
+  expect(choices.get.mock.calls.length).toBe(calls);
 });
 
 test("a pick in a private window is not made the default unless asked", async () => {
