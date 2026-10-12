@@ -112,6 +112,8 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
   let rejectHello: (() => void) | undefined;
   const sessions = new Map<string, HostSessionRef>();
   const closing = new Set<string>();
+  /** Per session, settled once every job admitted for it so far has finished. */
+  const turns = new Map<string, Promise<void>>();
   const pending = new Map<
     string,
     {
@@ -594,9 +596,31 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         ))
     )
       return fail("resource-limit");
+    // A session's Worker runs one job at a time, so a job for a busy session waits for its
+    // turn here instead of being refused as `resource-limit`, as when a passkey is signed
+    // while a login matches the page's URI.
+    const lane = "session" in operation && !destructive ? operation.session.sessionId : undefined;
+    const before = lane ? turns.get(lane) : undefined;
+    let ended: (() => void) | undefined;
+    // While it waits for its turn the job has reached no Worker, so cancelling it leaves the
+    // session alone.
+    let waiting = before !== undefined;
+    if (lane) {
+      const turn = Promise.all([before, new Promise<void>((done) => (ended = done))]).then(
+        () => undefined,
+      );
+      turns.set(lane, turn);
+      void turn.then(() => turns.get(lane) === turn && turns.delete(lane));
+    }
     return new Promise<BitwardenResult<T>>((resolve) => {
       const cancel = (code: "cancelled" | "timeout") => {
         if (!pending.has(command.requestId)) return;
+        // A job that times out still waiting for its turn never ran, so the caller may retry
+        // it as it would a refused one.
+        if (waiting) {
+          finish(command.requestId, fail(code === "timeout" ? "resource-limit" : code));
+          return;
+        }
         // Invalidate the session immediately; the supervisor terminates its Worker before ACK.
         if ("session" in operation) sessions.delete(operation.session.sessionId);
         finish(command.requestId, fail(code));
@@ -615,14 +639,27 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         deadline: now() + budget,
         dispatched: false,
         timer,
-        resolve: (result) => resolve(result as BitwardenResult<T>),
+        resolve: (result) => {
+          ended?.();
+          resolve(result as BitwardenResult<T>);
+        },
         cleanup: () => signal?.removeEventListener("abort", aborted),
       });
       signal?.addEventListener("abort", aborted, { once: true });
       void (async () => {
         await ensure();
         if (!destructive) await deps.checkpoint?.("before-dispatch");
-        if (!pending.has(command.requestId)) return;
+        await before;
+        waiting = false;
+        const job = pending.get(command.requestId);
+        if (!job) return;
+        // A job that waited for its turn gets its own full budget once it reaches the Worker,
+        // so time spent waiting never shortens the run and times out the session.
+        if (before) {
+          clearTimeout(job.timer);
+          job.timer = setTimeout(() => cancel("timeout"), budget);
+          job.deadline = now() + budget;
+        }
         if (signal?.aborted || disposed || !boundPort || !ready) {
           finish(command.requestId, fail(signal?.aborted ? "cancelled" : "crypto-locked"));
           return;
