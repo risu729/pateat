@@ -553,7 +553,7 @@ ready or matched several elements when the content script measured them in the s
 as the click or the fill's first input, just before it, and none is one of the advance's
 own elements ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). This holds in
 the same document, after a `history.pushState` that keeps the path, and in a new
-document the form posts back to that path once the click's answer arrived. So a page
+document the form posts back to that path once the advance's answer arrived. So a page
 that still shows only the account form, or showed the password form from the start,
 never continues, and Next is never clicked again; it settles as any advance its next
 step never confirmed, after 10 seconds. The measurement is kept in the worker's memory
