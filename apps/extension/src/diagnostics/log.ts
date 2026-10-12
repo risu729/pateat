@@ -136,6 +136,7 @@ export const LOG_EVENTS = {
       s2: "flag",
       s3: "flag",
       s4: "flag",
+      s5: "flag",
       f1: "flag",
       f2: "flag",
       e1: "flag",

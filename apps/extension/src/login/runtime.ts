@@ -705,6 +705,10 @@ export function createLoginRuntime(
   let probeTotp = false;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  /** By tab: when the attempt last delivered an effect step, for ADR 0029's S5. */
+  const effects = new Map<number, { attemptId: string; at: number }>();
+  /** By tab: the last passkey request of its top document, outside conditional mediation. */
+  const passkeyRequests = new Map<number, { origin: string; at: number }>();
   /** By `recordKey`, in the order they were last written. */
   const persisted = new Map<string, LoginAttemptMetadata>();
   const picked = new Map<number, PickedAccount>();
@@ -2073,11 +2077,17 @@ export function createLoginRuntime(
     if (!parsed.success || !parsed.output.ok) return;
     const page = parsed.output.signs;
     const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
+    const effect = effects.get(run.live.document.tabId);
+    const request = passkeyRequests.get(run.live.document.tabId);
     const signs: SignInSigns = {
       s1,
       s2: page.password,
       s3: page.code,
       s4: page.captcha,
+      s5:
+        effect?.attemptId === metadata.id &&
+        request?.origin === run.live.document.origin &&
+        request.at >= effect.at,
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
@@ -2670,6 +2680,11 @@ export function createLoginRuntime(
               ? after.target
               : undefined;
           run.delivered = true;
+          if (
+            operation.step.kind === "click" ||
+            (operation.step.kind === "fill" && operation.step.effect !== "prepare")
+          )
+            effects.set(run.live.document.tabId, { attemptId: run.metadata.id, at: Date.now() });
           response = await send(run.live, {
             type: "login.execute",
             operation,
@@ -3733,6 +3748,8 @@ export function createLoginRuntime(
     for (const key of hellos.keys()) if (key.startsWith(`${tabId}:`)) hellos.delete(key);
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
     attempts.delete(tabId);
+    effects.delete(tabId);
+    passkeyRequests.delete(tabId);
     void sessionLoaded.then(async () => {
       let changed = pending.delete(tabId);
       if (picked.delete(tabId)) changed = true;
@@ -3809,5 +3826,9 @@ export function createLoginRuntime(
       ? { connectionId: metadata.account.connectionId, itemId: metadata.account.itemId }
       : undefined;
   }
-  return { handle, settingsChanged, active, loginAccount };
+  /** The passkey bridge saw a request of this tab's top document (ADR 0029: S5). */
+  function passkeyRequested(tabId: number, siteOrigin: string): void {
+    passkeyRequests.set(tabId, { origin: siteOrigin, at: Date.now() });
+  }
+  return { handle, settingsChanged, active, loginAccount, passkeyRequested };
 }

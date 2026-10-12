@@ -58,9 +58,8 @@ Chrome, on a production build of main.
   already continues ([#252](https://github.com/risu729/pateat/pull/252)).
 - [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
   local sign-in state of the page after a submission as `login.state`, next to today's
-  result, with no change in behaviour; reading S5 (a passkey request after the
-  submission) is still to come. After the owner reviews those logs from the daily-site
-  passes, delivery 2 settles logins by it, with the judge as a fallback.
+  result, with no change in behaviour. After the owner reviews those logs from the
+  daily-site passes, delivery 2 settles logins by it, with the judge as a fallback.
 - Installed-Chrome checks still open:
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the

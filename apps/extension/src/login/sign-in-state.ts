@@ -1,7 +1,7 @@
 // The sign-in state of ADR 0029 for the page after an effect step that no check explained.
 // Delivery 1 only logs it next to what the login does today.
 
-/** The signs read from the page (ADR 0029); S5 is not read yet. */
+/** The signs read from the page (ADR 0029). */
 export interface SignInSigns {
   /** S1: one of the route's sign-in elements shows. */
   readonly s1: boolean;
@@ -11,6 +11,8 @@ export interface SignInSigns {
   readonly s3: boolean;
   /** S4: a shown CAPTCHA widget. */
   readonly s4: boolean;
+  /** S5: the top document asked for a passkey, outside conditional mediation, after the step. */
+  readonly s5: boolean;
   /** F1: an input became `aria-invalid="true"` in the submitted document. */
   readonly f1: boolean;
   /** F2: an alert shows new text in the submitted document. */
@@ -33,7 +35,7 @@ export type SignInDecision = "rejected" | "unknown" | "continuing" | "signed-in"
 
 export function decideSignInState(signs: SignInSigns): SignInDecision {
   if (signs.s1) return signs.f1 || signs.f2 ? "rejected" : "unknown";
-  if (signs.s2 || signs.s3 || signs.s4) return "continuing";
+  if (signs.s2 || signs.s3 || signs.s4 || signs.s5) return "continuing";
   if (signs.e1 || signs.e2 || signs.e3) return "signed-in";
   return "judge";
 }

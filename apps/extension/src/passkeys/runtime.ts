@@ -175,6 +175,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       tabId: number,
       origin: string,
     ) => Promise<PasskeyItem | undefined> | PasskeyItem | undefined;
+    /**
+     * Told of each request of a top document that does not wait for an autofill choice
+     * (conditional mediation), so a login can tell that the page asked for a passkey after
+     * its submission (ADR 0029: S5). Never changes the answer.
+     */
+    requested?: (tabId: number, origin: string) => void;
     /** Where Pateat signed before; a username-less request there asks again (ADR 0021 D). */
     signedTabs?: SignedTabs;
   },
@@ -413,6 +419,16 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         operation.controller.abort();
         return { ok: true };
       }
+      const { request } = command;
+      if (
+        !(typeof request === "object" && request !== null && "mediation" in request) ||
+        request.mediation !== "conditional"
+      )
+        try {
+          options.requested?.(sender.tab!.id!, origin);
+        } catch {
+          // Never changes the answer.
+        }
       const detail: ReportDetail = {};
       const after: { remember?: TCandidate } = {};
       const result = await get(

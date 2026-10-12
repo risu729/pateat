@@ -6,6 +6,7 @@ const none: SignInSigns = {
   s2: false,
   s3: false,
   s4: false,
+  s5: false,
   f1: false,
   f2: false,
   e1: false,
@@ -22,6 +23,7 @@ describe("decideSignInState", () => {
     expect(decideSignInState({ ...none, s3: true, e2: true })).toBe("continuing");
     expect(decideSignInState({ ...none, s2: true })).toBe("continuing");
     expect(decideSignInState({ ...none, s4: true })).toBe("continuing");
+    expect(decideSignInState({ ...none, s5: true, e1: true })).toBe("continuing");
     for (const evidence of ["e1", "e2", "e3"] as const)
       expect(decideSignInState({ ...none, [evidence]: true })).toBe("signed-in");
     expect(decideSignInState(none)).toBe("judge");

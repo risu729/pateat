@@ -245,6 +245,7 @@ export default defineBackground(() => {
         chooser: passkeyChooser,
         remember: passkeyProbe.remember,
         loginAccount: login.loginAccount,
+        requested: login.passkeyRequested,
         signedTabs,
       })
     : createPasskeyRuntime(vaultPasskeys, {
@@ -255,6 +256,8 @@ export default defineBackground(() => {
         remember: rememberPasskey,
         // ADR 0027: a running login's passkey request is answered with its own item.
         loginAccount: login.loginAccount,
+        // ADR 0029: the login logs whether the page asked for a passkey after a step.
+        requested: login.passkeyRequested,
         signedTabs,
       });
 

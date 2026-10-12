@@ -284,10 +284,9 @@ export function createDiagnosticsLog(options: {
             decision: report.decision,
             // Only the signs that show, to keep the entry short.
             ...Object.fromEntries(
-              (["s1", "s2", "s3", "s4", "f1", "f2", "e1", "e2", "e3"] as const).map((sign) => [
-                sign,
-                report[sign] || undefined,
-              ]),
+              (["s1", "s2", "s3", "s4", "s5", "f1", "f2", "e1", "e2", "e3"] as const).map(
+                (sign) => [sign, report[sign] || undefined],
+              ),
             ),
             settled: report.settled,
           },

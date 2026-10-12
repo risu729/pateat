@@ -680,7 +680,7 @@ describe("unhandled errors", () => {
       steps: 1,
     });
     // ADR 0029's sign-in state: only the signs that show are written.
-    const signs = { s1: true, s2: true, s3: false, s4: false, f1: false, f2: true };
+    const signs = { s1: true, s2: true, s3: false, s4: false, s5: false, f1: false, f2: true };
     log.login({
       type: "state",
       ...page,

@@ -1,11 +1,11 @@
 # ADR 0029: Local sign-in state after an effect step, with the judge as a fallback
 
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
-logged only, as `login.state`) is implemented except S5, the passkey request after the
-submission, which is not read yet; delivery 2 (acting on it) waits for the owner's
-review of the delivery 1 logs. Amends [ADR 0018](0018-recipe-generation-route.md) (how
-success is decided after a generated recipe's submission) and
-[ADR 0027](0027-per-account-login-routes.md) (when a page is judged).
+logged only, as `login.state`) is implemented; delivery 2 (acting on it) waits for the
+owner's review of the delivery 1 logs. Amends
+[ADR 0018](0018-recipe-generation-route.md) (how success is decided after a generated
+recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a page is
+judged).
 
 Date: 2026-10-12
 
@@ -105,8 +105,10 @@ unknown today (3 seconds after a submission, 10 after an advance), just before t
 is asked; the re-check comes with delivery 2. It writes one `login.state` entry with the
 signs that show and the ADR's outcome ([architecture](../architecture.md)). A login in a
 frame is not read. The start URL for E3 is kept in the background's memory, so a worker
-restart during the login leaves E3 unread. S5 needs the passkey bridge to tell the login
-which requests it received and is not read yet.
+restart during the login leaves E3 unread, and so are S5's times. For S5 the passkey
+bridge tells the login of each request of a top document that is not for conditional
+mediation, whether Pateat answers it or leaves it to the browser; one at or after the
+time the step was sent to the page counts.
 
 ## Consequences
 

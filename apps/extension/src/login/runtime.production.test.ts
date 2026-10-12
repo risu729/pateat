@@ -3316,6 +3316,75 @@ describe("production login document admission", () => {
     }, 10_000);
 
     describe("the sign-in state, logged only (ADR 0029 delivery 1)", () => {
+      it("logs a passkey request after the submission, but not one before it", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        // The sign-in page's own request, before the submission, does not count.
+        h.login.passkeyRequested(1, origin);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+          setTimeout(() => h.login.passkeyRequested(1, origin), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
+        ).toEqual([expect.objectContaining({ s1: false, s5: true, decision: "continuing" })]);
+      }, 10_000);
+
+      it("does not count a passkey request of another origin or before the submission", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        h.login.passkeyRequested(1, origin);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+          setTimeout(() => h.login.passkeyRequested(1, "https://other.example"), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
+        ).toEqual([expect.objectContaining({ s5: false, decision: "judge" })]);
+      }, 10_000);
+
       const noSigns = {
         password: false,
         code: false,
@@ -3350,7 +3419,7 @@ describe("production login document admission", () => {
           origin,
           recipeId: generated.id,
           route: "password",
-          ...{ s1: true, s2: true, s3: false, s4: false, f1: false, f2: true },
+          ...{ s1: true, s2: true, s3: false, s4: false, s5: false, f1: false, f2: true },
           ...{ e1: false, e2: false, e3: false },
           decision: "rejected",
         });
@@ -3390,7 +3459,7 @@ describe("production login document admission", () => {
           value.type === "state" ? [value] : [],
         );
         expect(states).toEqual([
-          expect.objectContaining({ s1: false, e3: true, decision: "signed-in" }),
+          expect.objectContaining({ s1: false, s5: false, e3: true, decision: "signed-in" }),
         ]);
         // The judge's verdict is logged right after, as today.
         const entries = report.mock.calls.map(([value]) => value.type);
