@@ -494,6 +494,18 @@ describe("extractLoginObservation", () => {
     expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 
+  it("refuses a login page where nothing can be located", () => {
+    // A hidden copy of the form shares the ids and names, and the header shows the
+    // button's text too.
+    const form = `<form><input id="vp-userid" name="userid">
+      <input id="vp-password" name="password" type="password"><button>Log in</button></form>`;
+    page(`<header><button>Log in</button></header>${form}<div hidden>${form}</div>`);
+    expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-locator" });
+    // A form with only a field that cannot be filled has nothing to locate.
+    page(`<form><input id="pin" type="password" readonly></form>`);
+    expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
   it("produces targets the executor's exact-match lookup resolves to the same element", () => {
     page(
       `<form id="f"><input id="a"><input name="ctl00$Main$b"><input data-testid="c">
