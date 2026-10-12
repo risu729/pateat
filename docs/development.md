@@ -419,7 +419,12 @@ holds:
   `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
-  (`account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser` or `signing`).
+  (`account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser` or `signing`);
+- `mediation`: for the `unsupported-mediation` reason, the request's mediation
+  (`conditional`, `required`, `silent`, `immediate` or `other`);
+- `duringLogin` when a delegated request came while a Pateat login of the tab and origin
+  had not ended. The request then went to the browser or another passkey provider, such
+  as the Bitwarden extension, which may show its own prompt during that login.
 
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached

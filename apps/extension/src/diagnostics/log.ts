@@ -244,6 +244,8 @@ export const LOG_EVENTS = {
       complete: "flag",
       chooser: "code",
       signedBefore: "flag",
+      mediation: "code",
+      duringLogin: "flag",
       cause: "code",
     },
   },

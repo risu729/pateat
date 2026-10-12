@@ -337,6 +337,7 @@ describe("passkey runtime reports", () => {
       origin,
       outcome: "delegate",
       reason: "unsupported-mediation",
+      mediation: "conditional",
     });
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
     expect(report).toHaveBeenLastCalledWith({
@@ -352,6 +353,43 @@ describe("passkey runtime reports", () => {
       complete: true,
     });
     expect(report).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["conditional", "conditional"],
+    ["silent", "silent"],
+    ["a mediation the page made up", "other"],
+  ])("reports a %s request delegated while the tab's login runs", async (mediation, reported) => {
+    // Another provider, such as the Bitwarden extension, may show its prompt then.
+    const report = vi.fn();
+    let login: { connectionId: string; itemId: string } | undefined = {
+      connectionId: "synthetic-connection",
+      itemId: "synthetic-item",
+    };
+    const runtime = createPasskeyRuntime(source(), {
+      extensionId,
+      report,
+      loginAccount: async () => login,
+    });
+    const delegated = {
+      ...get(),
+      request: { ...request, mediation: reported === "other" ? "made-up" : mediation },
+    };
+    expect(await runtime.handle(delegated, sender())).toEqual({
+      kind: "delegate",
+      reason: "unsupported-mediation",
+    });
+    expect(report).toHaveBeenLastCalledWith({
+      tabId: 7,
+      origin,
+      outcome: "delegate",
+      reason: "unsupported-mediation",
+      mediation: reported,
+      duringLogin: true,
+    });
+    login = undefined;
+    await runtime.handle(delegated, sender());
+    expect(report.mock.lastCall![0]).not.toHaveProperty("duringLogin");
   });
 
   it("tells a login of each request outside conditional mediation, from a top frame only", async () => {

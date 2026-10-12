@@ -110,6 +110,13 @@ export interface PasskeyRequestReport {
   readonly chooser?: PasskeyChoice["kind"] | "timeout" | "cancelled";
   /** Pateat signed for this RP ID in this tab before, so the request asks again. */
   readonly signedBefore?: boolean;
+  /** For the `unsupported-mediation` reason: the request's mediation. */
+  readonly mediation?: "conditional" | "required" | "silent" | "immediate" | "other";
+  /**
+   * A delegated request came while a login of the tab and origin had not ended, so another
+   * provider, such as the Bitwarden extension, may have shown its prompt during that login.
+   */
+  readonly duringLogin?: boolean;
   /**
    * Why a request was `cancelled` (the page cancelled it, or settings changed) or which step
    * threw for an `assertion-failed` delegation (ADR 0019).
@@ -134,6 +141,16 @@ type ReportDetail = {
     K in Exclude<keyof PasskeyRequestReport, "tabId" | "origin" | "outcome" | "reason">
   ]?: PasskeyRequestReport[K];
 };
+
+const MEDIATIONS = ["conditional", "required", "silent", "immediate"] as const;
+/** A delegated request's mediation for its report, never the page's own text. */
+function mediationOf(request: unknown): NonNullable<PasskeyRequestReport["mediation"]> {
+  const mediation =
+    typeof request === "object" && request !== null && "mediation" in request
+      ? request.mediation
+      : undefined;
+  return MEDIATIONS.find((entry) => entry === mediation) ?? "other";
+}
 
 const MAX_OPERATIONS = 32;
 /** One document cannot exhaust the shared operation budget. */
@@ -499,6 +516,14 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         void signedTabs.add(sender.tab!.id!, rpId).catch(() => undefined);
       }
       const remembered = after.remember;
+      if (result.kind === "delegate") {
+        if (result.reason === "unsupported-mediation") detail.mediation = mediationOf(request);
+        try {
+          if (await options.loginAccount?.(sender.tab!.id!, origin)) detail.duringLogin = true;
+        } catch {
+          // Only the report misses it.
+        }
+      }
       if (remembered && options.remember) {
         const remember = options.remember;
         // After the reply is on its way: saving settings cancels pending passkey requests.
