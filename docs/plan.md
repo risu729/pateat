@@ -47,9 +47,13 @@ Chrome, on a production build of main.
   [#246](https://github.com/risu729/pateat/pull/246)) are merged, and so is the rest of
   delivery 4.
 - Log in on pages that list accounts and show no form until one is chosen, such as
-  Cloudflare's saved profiles at `https://dash.cloudflare.com/login`
-  ([ADR 0028](adr/0028-account-chooser-login-pages.md), accepted 2026-10-12). It builds
-  on the `advance` continuation below.
+  Cloudflare's saved profiles at `https://dash.cloudflare.com/login`, Wise's "Welcome
+  back" page and Instagram's saved profiles
+  ([ADR 0028](adr/0028-account-chooser-login-pages.md), accepted 2026-10-12). The owner
+  ranked it top priority on 2026-10-12. Finding entries and the observation are in
+  [#314](https://github.com/risu729/pateat/pull/314); the trigger, answer, recipe and
+  execution build on the `advance` continuation below and the start-only recipe of
+  ADR 0031 (in review).
 - Continue a generated recipe on the page after an `advance` step (email, then Next,
   then password): generate the steps after Next through the generation route's `base`,
   as listed under [AI evaluation harness progress](#ai-evaluation-harness-progress). The
