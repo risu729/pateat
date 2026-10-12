@@ -385,6 +385,16 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
+/**
+ * An icon button that never submits its form on its own, such as the eye that shows the
+ * password: `type="button"` and no text of its own, so no text locator either. One with
+ * text, such as an `<input type="button" value="Login">` that submits by script, is not.
+ */
+const iconButton = (element: Element) =>
+  (element instanceof HTMLButtonElement || element instanceof HTMLInputElement) &&
+  element.type === "button" &&
+  buttonText(element) === undefined;
+
 /** True when an open shadow root holds a visible match, which the executor cannot reach. */
 function inShadow(shadow: ShadowRoot, selector: string): boolean {
   return (
@@ -504,7 +514,8 @@ function loginFormsOf(
  * links (or, for fields outside any form, every control outside a form). Up to four
  * buttons outside every form but near a login form with a password field
  * (`besideDepth`), such as a passkey button, are kept when they can be located and never
- * make the observation incomplete. A field or button that cannot be located, a control
+ * make the observation incomplete. A field or button that cannot be located (other than
+ * a script button or an icon button that never submits, which is left out), a control
  * the executor cannot act on or a control in a shadow root marks the observation
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
@@ -545,9 +556,9 @@ export function extractLoginObservation(
       flawed.add(host.closest("form"));
   }
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
-  // Script buttons are often widgets (menus, toggles), and text locators name only the
-  // `<a>` ones, so one without a locator is left out rather than marking the page
-  // incomplete.
+  // Script buttons and icon buttons that never submit are often widgets, such as menus
+  // or the eye that shows the password, so one without a locator is left out rather
+  // than marking the page incomplete.
   const scripted: typeof required = [];
   const links: typeof required = [];
   const beside: typeof required = [];
@@ -581,7 +592,8 @@ export function extractLoginObservation(
     if (entry.kind === "unsupported") flawed.add(entry.form);
     else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
-    } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
+    } else if (isScriptButton(entry.draft.element) || iconButton(entry.draft.element))
+      scripted.push(entry);
     else required.push(entry);
   }
 
