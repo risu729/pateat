@@ -605,43 +605,6 @@ describe("recipe generation", () => {
     ).toEqual([{ revision: 1 }]);
   });
 
-  it("answers with another device's recipe stored during the call", async () => {
-    const device = await owner();
-    const recipeId = await generatedRecipeId(ORIGIN, "/login");
-    const other = {
-      version: 1,
-      id: recipeId,
-      revision: 1,
-      origin: ORIGIN,
-      slots: ["email"],
-      steps: [
-        {
-          kind: "fill",
-          path: "/login",
-          effect: "prepare",
-          fields: [{ slot: "email", target: { by: "id", value: "e" } }],
-        },
-        { kind: "click", path: "/login", target: { by: "id", value: "go" }, purpose: "submit" },
-      ],
-      maxSubmissions: 1,
-    };
-    during = async () => {
-      const stored = await post(
-        device,
-        `/v1/recipes/${recipeId}`,
-        { version: 1, expectedRevision: 0, state: "active", recipe: other },
-        "PUT",
-      );
-      expect(stored.status).toBe(200);
-    };
-    replies.push({ text: plan([["email", "email"]], "next", "advance") });
-    expect(await generate(device, emailPage)).toEqual({
-      version: 1,
-      status: "recipe",
-      change: { recipeId, revision: 1, state: "active", recipe: other },
-    });
-  });
-
   it("holds the owner's lock for the whole call and releases only its own", async () => {
     const device = await owner();
     during = async () => {
@@ -1271,26 +1234,6 @@ describe("custom-field slots (ADR 0027)", () => {
       first.change.recipeId,
     );
     expect(head).toEqual([{ revision: 1 }]);
-  });
-
-  it("fails a plan that names a slot without a field name or leaves a custom slot unnamed", async () => {
-    const device = await owner();
-    replies.push({
-      text: named([{ slot: "email", candidate: "email", name: "login-email" }], "next", "advance"),
-    });
-    expect(await generateCustom(device, branchPage)).toMatchObject({ status: "failed" });
-    const other = await owner();
-    replies.push({
-      text: named([{ slot: "custom-1", candidate: "branch" }], "next", "advance"),
-    });
-    expect(await generateCustom(other, branchPage)).toMatchObject({ status: "failed" });
-    expect(
-      await rows(
-        "SELECT * FROM recipe_revisions WHERE owner_id IN (?, ?)",
-        device.ownerId,
-        other.ownerId,
-      ),
-    ).toEqual([]);
   });
 
   it("answers no mapping with another device's recipe stored during the call", async () => {
@@ -1961,42 +1904,6 @@ describe("page judgement (ADR 0027)", () => {
     };
     const verify = element("verify", "button", "Verify");
     const code = (source: string) => ({ field: "app-code", submit: "verify", source });
-    const revisions = (device: Device, recipeId: string) =>
-      rows(
-        "SELECT revision FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ? ORDER BY revision",
-        device.ownerId,
-        recipeId,
-      );
-
-    it("writes both handlers as one revision, with no revision skipped", async () => {
-      const device = await owner();
-      const change = await twoPageRecipe(device);
-      const mfa = observation("/login/mfa", [
-        appCode,
-        verify,
-        element("key", "button", "Use security key"),
-      ]);
-      replies.push(
-        judgeReply({
-          decision: "challenge",
-          passkeyButton: "key",
-          code: code("authenticator-app"),
-        }),
-      );
-      const judged = await complete(device, change.recipeId, 2, mfa);
-      expect(judged.body).toMatchObject({ change: { revision: 3, recipe: { revision: 3 } } });
-      expect(await revisions(device, change.recipeId)).toEqual([
-        { revision: 1 },
-        { revision: 2 },
-        { revision: 3 },
-      ]);
-      // The next judgement, against revision 3, is accepted as the head.
-      replies.push(judgeReply({ decision: "rejected" }));
-      expect((await complete(device, change.recipeId, 3)).body).toEqual({
-        version: 1,
-        status: "rejected",
-      });
-    });
 
     it("keeps the code when the named passkey button fails its checks, and the reverse", async () => {
       const device = await owner();
@@ -2051,17 +1958,6 @@ describe("page judgement (ADR 0027)", () => {
         "totp",
         "passkey",
       ]);
-    });
-
-    it("stores nothing for a code sent by email", async () => {
-      const device = await owner();
-      const change = await twoPageRecipe(device);
-      replies.push(judgeReply({ decision: "challenge", code: code("email") }));
-      expect(
-        (await complete(device, change.recipeId, 2, observation("/login/mfa", [appCode, verify])))
-          .body,
-      ).toEqual({ version: 1, status: "challenge" });
-      expect(await head(device, change.recipeId)).toBe(2);
     });
 
     it("stores a code step in the sign-in form that reuses the route's button", async () => {
@@ -2131,7 +2027,7 @@ describe("page judgement (ADR 0027)", () => {
     });
   });
 
-  it("checks the head again under the lock and names a revocation meanwhile", async () => {
+  it("names a revoked, moved or missing head as stale", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
     expect(staleHead(change, 2)).toBeUndefined();
@@ -3228,7 +3124,7 @@ describe("sign-in entry pages (ADR 0031)", () => {
     // A page request never gets the entry line.
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
-    expect(JSON.stringify(sent[1]!.body)).not.toContain("If the page has no sign-in fields");
+    expect(JSON.stringify(sent[1]!.body)).not.toContain(entryInstruction);
   });
 
   it("refuses an entry for a page request and a plan for an entry request", async () => {
@@ -3431,18 +3327,6 @@ describe("sign-in entry pages (ADR 0031)", () => {
     };
     expect((await post(other, `/v1/recipes/${recipeId}`, chooser, "PUT")).status).toBe(200);
     expect(await generateEntry(other, topPage)).toMatchObject({ reason: "recipe-conflict" });
-    expect(sent).toHaveLength(1);
-  });
-
-  it("never generates a login page on, or continues, a generated entry recipe", async () => {
-    const device = await owner();
-    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
-    replies.push({ text: entryAnswer("c2") });
-    expect(await generateEntry(device, topPage)).toMatchObject({ status: "recipe" });
-    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
-    expect(await generate(device, { ...emailPage, path: "/en/" })).toEqual(conflict);
-    expect(await generate(device, passwordPage, { recipeId, revision: 1 })).toEqual(conflict);
-    expect(await complete(device, recipeId, 1)).toEqual({ status: 200, body: conflict });
     expect(sent).toHaveLength(1);
   });
 

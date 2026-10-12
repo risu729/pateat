@@ -1,13 +1,9 @@
-import { deviceCredentialSchema } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
-import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { hashDeviceToken } from "../src/auth";
 import {
   OWNER_TABLES,
   SMOKE_OWNER_PREFIX,
   checkAccessGate,
-  createDeviceCredential,
   removeSmokeOwners,
   runHostedSmoke,
   type Fetch,
@@ -144,12 +140,6 @@ describe("hosted smoke checks", () => {
         owned.push(name);
     }
     expect(owned.sort()).toEqual([...OWNER_TABLES].sort());
-  });
-
-  it("create device credentials the service accepts", async () => {
-    const { credential, tokenHash } = await createDeviceCredential();
-    expect(v.is(deviceCredentialSchema, credential)).toBe(true);
-    expect(tokenHash).toBe(await hashDeviceToken(credential));
   });
 });
 

@@ -1,7 +1,7 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-describe("health-only Worker", () => {
+describe("health endpoint", () => {
   it("identifies the build without caching or opening cross-origin access", async () => {
     const response = await exports.default.fetch("https://example.test/health");
     expect(response.status).toBe(200);
@@ -30,7 +30,7 @@ describe("health-only Worker", () => {
   );
 
   it.each(["POST", "PUT", "PATCH", "DELETE", "OPTIONS"])(
-    "rejects %s without processing a body",
+    "answers %s with 405 and Allow: GET, HEAD",
     async (method) => {
       const response = await exports.default.fetch("https://example.test/health", {
         method,

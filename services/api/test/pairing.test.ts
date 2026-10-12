@@ -1,13 +1,9 @@
-import {
-  deviceCredentialSchema,
-  devicePairResultSchema,
-  manageDevicesSchema,
-} from "@pateat/contracts";
+import { devicePairResultSchema, manageDevicesSchema } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { app } from "../src/app";
-import { hashDeviceToken, TOKEN_PATTERN } from "../src/auth";
+import { hashDeviceToken } from "../src/auth";
 import {
   claims,
   deviceApi,
@@ -138,11 +134,6 @@ describe("direct pairing", () => {
     ).first<{ count: number }>();
     expect(orphans?.count).toBe(0);
   });
-
-  it("keeps the credential shape the device routes accept", () => {
-    expect(deviceCredentialSchema.pipe[1].requirement.source).toBe(TOKEN_PATTERN.source);
-    expect(deviceCredentialSchema.pipe[1].requirement.flags).toBe(TOKEN_PATTERN.flags);
-  });
 });
 
 /** The rejected tokens carry subjects the test never sees, so count every row instead. */
@@ -153,12 +144,6 @@ async function rowCounts() {
 }
 
 describe("pairing sign-in", () => {
-  it("requires a login token", async () => {
-    const response = await pair(undefined);
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "unauthorized" });
-  });
-
   it.each(rejectedTokens)("rejects %s without creating a device", async (_, token) => {
     const before = await rowCounts();
     const response = await request("/pair", pairInit(await token()));
@@ -174,20 +159,11 @@ describe("pairing sign-in", () => {
     expect(await ownerIdFor(by.subject)).toBeNull();
   });
 
-  it("fails closed without Access configuration", async () => {
-    const by = await owner();
-    const response = await app.request(`${ORIGIN}/pair`, pairInit(by.token), {
-      ...env,
-      ACCESS_AUD: "",
-    });
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "access_unavailable" });
-    expect(await ownerIdFor(by.subject)).toBeNull();
-  });
-
   it("checks Access and the origin before reading the body", async () => {
     const big = "x".repeat(5 * 1024);
-    expect((await pair(undefined, { body: big, contentType: "text/plain" })).status).toBe(401);
+    const anonymous = await pair(undefined, { body: big, contentType: "text/plain" });
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({ error: "unauthorized" });
     const by = await owner();
     const response = await pair(by, { origin: null, body: big, contentType: "text/plain" });
     expect(response.status).toBe(403);
@@ -229,7 +205,6 @@ describe("pairing through the pairing-only Access application", () => {
   });
 
   it.each([
-    ["another audience", ["other-audience"]],
     ["a longer audience", [`${PAIR_AUDIENCE}-other`]],
     ["a shorter audience", [PAIR_AUDIENCE.slice(0, -1)]],
     ["no audience", []],

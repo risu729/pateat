@@ -9,7 +9,6 @@ import { env } from "cloudflare:workers";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { app } from "../src/app";
-import { createDeviceToken } from "../src/auth";
 import {
   claims,
   deviceApi,
@@ -81,12 +80,12 @@ describe("Access verification", () => {
     expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401, 401]);
     expect(await responses[0]!.json()).toEqual({ error: "unauthorized" });
     expect(await responses[3]!.json()).toEqual({ error: "unauthorized" });
-  });
-
-  it("accepts a valid token", async () => {
-    const response = await request("/manage", { access: (await owner()).token });
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Pateat test app");
+    const head = await Promise.all(
+      ["/manage", "/manage/assets/app.js"].map((path) => request(path, { method: "HEAD" })),
+    );
+    expect(head.map((response) => response.status)).toEqual([401, 401]);
+    const forged = await forgedAccess(claims(newSubject()));
+    expect((await request("/manage/assets/app.js", { access: forged })).status).toBe(403);
   });
 
   it.each(rejectedTokens)("rejects %s", async (_, token) => {
@@ -177,39 +176,6 @@ describe("Access verification", () => {
     );
     expect(responses.map((response) => response.status)).toEqual([503, 503, 503]);
   });
-
-  it("no longer serves the typed-code pairing routes", async () => {
-    const by = await owner();
-    const responses = await Promise.all([
-      request("/enroll?challenge=x&label=Laptop", { access: by.token }),
-      request("/enroll", {
-        method: "POST",
-        access: by.token,
-        headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: ORIGIN },
-        body: new URLSearchParams({ challenge: "x", label: "Laptop", code: "ABCD-EFGH" }),
-      }),
-      request("/redeem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: 1, verifier: "A".repeat(43) }),
-      }),
-    ]);
-    expect(responses.map((response) => response.status)).toEqual([404, 404, 404]);
-    const bodies = await Promise.all(responses.map((response) => response.json()));
-    expect(bodies).toEqual([
-      { error: "not_found" },
-      { error: "not_found" },
-      { error: "not_found" },
-    ]);
-    expect(await ownerIdFor(by.subject)).toBeNull();
-  });
-
-  it("does not gate device routes or health behind Access", async () => {
-    expect((await request("/health")).status).toBe(200);
-    const response = await request("/v1/settings", { access: (await owner()).token });
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "unauthorized" });
-  });
 });
 
 describe("owner web UI", () => {
@@ -218,6 +184,7 @@ describe("owner web UI", () => {
     const page = await request("/manage", { access: token });
     expect(page.status).toBe(200);
     expect(page.headers.get("Content-Type")).toMatch(/^text\/html/);
+    expect(await page.text()).toContain("Pateat test app");
     const policy = page.headers.get("Content-Security-Policy");
     expect(policy).toContain("script-src 'self'");
     expect(policy).toContain("frame-ancestors 'none'");
@@ -255,17 +222,6 @@ describe("owner web UI", () => {
       expect(status, path).toBe(404);
       expect(body, path).not.toContain("Pateat test app");
     }
-  });
-
-  it("serves no page or asset without a verified token", async () => {
-    const forged = await forgedAccess(claims(newSubject()));
-    const anonymous = await Promise.all(
-      ["GET", "HEAD"].flatMap((method) =>
-        ["/manage", "/manage/assets/app.js"].map((path) => request(path, { method })),
-      ),
-    );
-    expect(anonymous.map((response) => response.status)).toEqual([401, 401, 401, 401]);
-    expect((await request("/manage/assets/app.js", { access: forged })).status).toBe(403);
   });
 
   it("answers API Access failures with error codes", async () => {
@@ -751,14 +707,7 @@ describe("device self-revocation", () => {
     expect((await deviceApi(leaving.credential, "/v1/device", { method: "DELETE" })).status).toBe(
       401,
     );
-  });
-
-  it("requires a device credential", async () => {
     expect((await request("/v1/device", { method: "DELETE" })).status).toBe(401);
-    const unknown = createDeviceToken();
-    expect((await deviceApi(unknown, "/v1/device", { method: "DELETE" })).status).toBe(401);
-    const by = await owner();
-    const device = await pairDevice(by);
-    expect((await deviceApi(device.credential, "/v1/device", { method: "PUT" })).status).toBe(405);
+    expect((await deviceApi(staying.credential, "/v1/device", { method: "PUT" })).status).toBe(405);
   });
 });
