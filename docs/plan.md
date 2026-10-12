@@ -159,6 +159,12 @@ still open on 2026-10-11.
 - Low priority (owner, 2026-10-11 18:29 UTC): pages that add another account while one
   is signed in, such as Google's AddSession or Microsoft's "Use another account", show
   a login form and are logged in with the default account today. They should not be.
+- A page after the password that asks for a card's security code, as on エポスNet,
+  filled from the owner's Bitwarden card item (owner, 2026-10-12 04:18 UTC: it can
+  wait). The [feasibility note](research/2026-10-12-card-security-code.md) found that
+  the Worker already decrypts card items, and that it needs a handler that fills a field
+  the binding names (ADR 0027's deferred `totp` binding field needs the same naming, but
+  makes a code instead of filling a raw value) and a way to link the site to the card.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
