@@ -346,6 +346,7 @@ export function createDiagnosticsLog(options: {
             // Engine messages can quote input; only Pateat's own codes are kept.
             message:
               report.message && KNOWN_ERROR_CODES.has(report.message) ? report.message : undefined,
+            stack: stackPositions(report.stack),
           },
           { source },
         );
@@ -499,9 +500,12 @@ export function createDiagnosticsLog(options: {
             // A fill-only login after a logout ends by design without pressing anything.
             level: report.repeat
               ? "debug"
-              : report.state === "blocked" &&
-                  report.outcome === "cancelled" &&
-                  report.reason === "fill-only"
+              : (report.state === "blocked" &&
+                    report.outcome === "cancelled" &&
+                    report.reason === "fill-only") ||
+                  // A submit that replaced the document leaves no receiver; any other
+                  // unanswered message may be a fault, so it shows without debug logging.
+                  (report.cause === "document-gone" && report.reason !== "no-receiver")
                 ? "info"
                 : report.state === "blocked" || report.state === "watching" || report.settled
                   ? "warn"

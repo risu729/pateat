@@ -982,9 +982,10 @@ describe("production login document admission", () => {
   it("logs an exception that stops a login with its name and message", async () => {
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness({}, { report });
+    // The settings read before the next step fails once.
     fake.state.onExecute = async () => {
       fake.state.onExecute = undefined;
-      throw new SyntaxError("synthetic page answer");
+      h.store.handle.mockRejectedValueOnce(new SyntaxError("synthetic settings answer"));
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
@@ -1001,9 +1002,10 @@ describe("production login document admission", () => {
       recipeId: recipe.id,
       route: "password",
       state: expect.any(String),
-      stepIndex: 0,
+      stepIndex: 1,
       name: "SyntaxError",
-      message: "synthetic page answer",
+      message: "synthetic settings answer",
+      stack: expect.any(String),
     });
   });
   it("logs only the type of a thrown value that is not an Error", async () => {
@@ -1011,7 +1013,7 @@ describe("production login document admission", () => {
     const h = harness({}, { report });
     fake.state.onExecute = async () => {
       fake.state.onExecute = undefined;
-      throw "synthetic thrown text";
+      h.store.handle.mockRejectedValueOnce("synthetic thrown text");
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
@@ -1020,6 +1022,38 @@ describe("production login document admission", () => {
       ),
     );
     expect(JSON.stringify(report.mock.calls)).not.toContain("synthetic thrown text");
+  });
+  it("resumes a login whose submit replaced its document without logging an exception", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    const entries = () => report.mock.calls.map(([entry]) => entry);
+    // The click submits the form, and the page navigates before the result is observed.
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+        fake.state.gone.add("synthetic-document");
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        { state: "reconciling", stepIndex: 1 },
+      ]),
+    );
+    expect(entries()).toContainEqual(
+      expect.objectContaining({
+        type: "attempt",
+        state: "reconciling",
+        cause: "document-gone",
+        reason: "no-receiver",
+      }),
+    );
+    // The page it led to proves the sign-in.
+    expect(await h.hello({ documentId: "next-document" }, false)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        { state: "authenticated" },
+      ]),
+    );
+    expect(entries().filter((entry) => entry.type === "exception")).toEqual([]);
   });
   it("refuses a different content script instance in an already announced document", async () => {
     const h = harness();

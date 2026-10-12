@@ -1140,6 +1140,44 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows an unanswered login message without debug logging unless no receiver was left", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    for (const reason of ["no-receiver", "port-closed", "send-failed"])
+      log.login({
+        type: "attempt",
+        tabId: 4,
+        origin: "https://login.example",
+        recipeId: "synthetic-recipe",
+        route: "password",
+        state: "reconciling",
+        stepIndex: 1,
+        stepCount: 2,
+        outcome: "unknown-submit",
+        cause: "document-gone",
+        reason,
+      });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(entries.map((entry) => [entry.level, entry.fields["reason"]])).toEqual([
+      ["debug", "no-receiver"],
+      ["info", "port-closed"],
+      ["info", "send-failed"],
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("logs a reason once per login-related page and warns for an exception", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
@@ -1173,6 +1211,8 @@ describe("unhandled errors", () => {
         stepIndex: 1,
         name: "Error",
         message,
+        // The message line is dropped; only the extension's own positions are kept.
+        stack: `Error: ${message}\n    at send (chrome-extension://${EXTENSION}/background.js:12:34)`,
       });
     await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(10));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
@@ -1201,6 +1241,7 @@ describe("unhandled errors", () => {
       state: "reconciling",
       step: 1,
       name: "Error",
+      stack: "background.js:12:34",
     });
     expect(JSON.stringify(entries)).not.toContain("hunter2");
     vi.restoreAllMocks();

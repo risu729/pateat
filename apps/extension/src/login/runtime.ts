@@ -918,6 +918,8 @@ export type LoginReport = (
       name: string;
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
+      /** Logged as the extension's own file positions only (ADR 0019). */
+      stack?: string;
     }
   | {
       type: "generation";
@@ -1038,8 +1040,9 @@ type PolicyChange = { cause: PolicyChangeCause; reason?: string };
  * click (`code-not-submitted`), no operation could be built (`no-operation`), the operation
  * no longer validated (`operation-invalid`), a field had no binding (`slot-unbound`), the
  * page did not answer or its answer failed its check (`no-answer`), a code page said it
- * submitted the code itself but no check confirmed it (`page-submitted`), or the page's
- * own reason (`ExecutionDetail`).
+ * submitted the code itself but no check confirmed it (`page-submitted`), the document
+ * could not be reached, as when a submit replaced it (`document-gone`), or the page's own
+ * reason (`ExecutionDetail`).
  */
 export type StopCause =
   | "elements-timeout"
@@ -1049,7 +1052,30 @@ export type StopCause =
   | "slot-unbound"
   | "no-answer"
   | "page-submitted"
+  | "document-gone"
   | ExecutionDetail;
+
+/**
+ * A message to a login document that went unanswered, mostly because the document is gone:
+ * a submit or a redirect replaced it, or its tab closed. Its replacement resumes the login.
+ * `reason` keeps what the browser said: no listener was left, or the page went into the
+ * back/forward cache (`no-receiver`), the listener did not answer, as when the document
+ * unloads while it handles the message or a content script fault leaves it unanswered
+ * (`port-closed`), or anything else (`send-failed`).
+ */
+class DocumentGone extends Error {
+  override name = "DocumentGone";
+  readonly reason: "no-receiver" | "port-closed" | "send-failed";
+  constructor(cause: unknown) {
+    super("document-gone");
+    const message = cause instanceof Error ? cause.message : "";
+    this.reason = /Receiving end does not exist|back\/forward cache/u.test(message)
+      ? "no-receiver"
+      : /message (?:port|channel) closed/u.test(message)
+        ? "port-closed"
+        : "send-failed";
+  }
+}
 
 export function createLoginRuntime(
   settings: SettingsRuntime,
@@ -1107,7 +1133,7 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
-    flags: { settled?: true; repeat?: true; stop?: StopCause } = {},
+    flags: { settled?: true; repeat?: true; stop?: StopCause; reason?: string } = {},
   ) => {
     const { stop, ...marks } = flags;
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
@@ -1839,11 +1865,17 @@ export function createLoginRuntime(
     }
   }
   async function send(live: LiveDocument, message: Record<string, unknown>): Promise<unknown> {
-    return browser.tabs.sendMessage(
-      live.document.tabId,
-      { version: 1, token: live.token, ...message },
-      { documentId: live.document.documentId, frameId: live.document.frameId },
-    );
+    try {
+      return await browser.tabs.sendMessage(
+        live.document.tabId,
+        { version: 1, token: live.token, ...message },
+        { documentId: live.document.documentId, frameId: live.document.frameId },
+      );
+    } catch (error) {
+      // The browser rejects when no listener in the document answered: the document has no
+      // receiver anymore, or it unloaded before its answer.
+      throw new DocumentGone(error);
+    }
   }
   async function publish(live: LiveDocument, metadata?: LoginAttemptMetadata): Promise<void> {
     if (documents.get(frameKey(live.document)) !== live) return;
@@ -3754,17 +3786,27 @@ export function createLoginRuntime(
     } catch (error) {
       if (current(run) && !terminal(run.metadata)) {
         run.metadata = recoverLoginAttempt(run.metadata);
-        report(run.metadata.document, {
-          type: "exception",
-          tabId: run.metadata.document.tabId,
-          origin: run.metadata.document.origin,
-          recipeId: run.metadata.recipeId,
-          route: run.metadata.route,
-          state: run.metadata.state,
-          stepIndex: run.metadata.stepIndex,
-          name: error instanceof Error ? error.name : typeof error,
-          ...(error instanceof Error ? { message: error.message } : {}),
-        });
+        // A submit that replaced the document is how most logins go on: the next document
+        // resumes the attempt, so this is no exception (2026-10-12 logs).
+        if (error instanceof DocumentGone)
+          reportAttempt(run.metadata, run.recipe, undefined, {
+            stop: "document-gone",
+            // A fill-only login keeps `fill-only` as its reason.
+            ...(run.metadata.fillOnly ? {} : { reason: error.reason }),
+          });
+        else
+          report(run.metadata.document, {
+            type: "exception",
+            tabId: run.metadata.document.tabId,
+            origin: run.metadata.document.origin,
+            recipeId: run.metadata.recipeId,
+            route: run.metadata.route,
+            state: run.metadata.state,
+            stepIndex: run.metadata.stepIndex,
+            name: error instanceof Error ? error.name : typeof error,
+            ...(error instanceof Error ? { message: error.message } : {}),
+            ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+          });
         await save(run).catch(() => undefined);
         await publish(run.live, run.metadata);
       }
