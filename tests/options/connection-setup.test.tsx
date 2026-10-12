@@ -358,6 +358,44 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
   },
 );
 
+test("a challenge while adding a connection reloads a clean draft to the revision the new policy entry wrote", async () => {
+  const connection = mockClient();
+  connection.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
+    return {
+      version: 1,
+      ok: true,
+      snapshot: { version: 1, revision, settings: createDefaultSettings() },
+      catalog: structuredClone(DUMMY_VAULT_CATALOG),
+    };
+  }
+  const settings = {
+    getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(saved(0)),
+    saveSettings: vi.fn<SettingsClient["saveSettings"]>(),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+      version: 1,
+      ok: false,
+      reason: "unavailable",
+    }),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SettingsApp client={settings} connectionClient={connection} />
+    </QueryClientProvider>,
+  );
+  await expect.element(page.getByText("Saved settings loaded · Revision 0")).toBeVisible();
+  settings.getSettings.mockResolvedValue(saved(1));
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(
+      page.getByText("Enter a manual two-step verification code. No code is sent automatically."),
+    )
+    .toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded · Revision 1")).toBeVisible();
+  expect(settings.getSettings).toHaveBeenCalledTimes(2);
+});
+
 test.each([false, true])(
   "field review uses current snapshot IDs and starts every custom field excluded (blocked=%s)",
   async (blocked) => {

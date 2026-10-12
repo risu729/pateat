@@ -1,4 +1,8 @@
-import type { LoginObservation, RecipeGenerationRequest } from "@pateat/contracts";
+import type {
+  EntryGenerationRequest,
+  LoginObservation,
+  RecipeGenerationRequest,
+} from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   createLoginGeneration,
@@ -53,10 +57,40 @@ const recipeChange = {
   },
 };
 
+const entryChange = {
+  recipeId: "gen-fedcba9876543210fedcba9876543210",
+  revision: 1,
+  state: "active" as const,
+  recipe: {
+    version: 1 as const,
+    id: "gen-fedcba9876543210fedcba9876543210",
+    revision: 1,
+    origin: "https://shop.example",
+    entry: { path: "/", target: { by: "text" as const, value: "Log in" } },
+  },
+};
+const entryRequest: EntryGenerationRequest = {
+  version: 1,
+  observation: {
+    version: 1,
+    origin: "https://shop.example",
+    path: "/",
+    language: "en",
+    complete: true,
+    candidates: [
+      { id: "c1", role: "link", target: { by: "text", value: "Log in" }, label: "Log in" },
+    ],
+  },
+};
+
 function setup(
   answer: Awaited<ReturnType<ServiceTransport["generateRecipe"]>> = {
     kind: "result",
     result: { version: 1, status: "recipe", change: recipeChange },
+  },
+  entryAnswer: Awaited<ReturnType<ServiceTransport["generateEntry"]>> = {
+    kind: "result",
+    result: { version: 1, status: "recipe", change: entryChange },
   },
 ) {
   let stored: unknown;
@@ -69,6 +103,7 @@ function setup(
   };
   const transport = {
     generateRecipe: vi.fn<ServiceTransport["generateRecipe"]>(async () => answer),
+    generateEntry: vi.fn<ServiceTransport["generateEntry"]>(async () => entryAnswer),
     judgeCompletion: vi.fn<ServiceTransport["judgeCompletion"]>(
       async (): Promise<InferenceResult<never>> => ({ kind: "failed", error: "unreachable" }),
     ),
@@ -216,6 +251,66 @@ describe("recipe generation requests", () => {
     });
     // The request reached the model, so the page is not sent again in the window.
     expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+  });
+
+  it("sends an entry page without slots and pulls its entry recipe (ADR 0031)", async () => {
+    const h = setup();
+    const sent = vi.fn();
+    expect(await h.generation.generateEntry(entryRequest, sent)).toEqual({
+      outcome: "recipe",
+      recipe: entryChange.recipe,
+    });
+    expect(h.transport.generateEntry).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      entryRequest,
+    );
+    expect(h.transport.generateRecipe).not.toHaveBeenCalled();
+    expect(sent).toHaveBeenCalledTimes(1);
+    // Cached through the full sync, as a first page's recipe is.
+    expect(h.sync).toHaveBeenCalledTimes(1);
+    expect(h.refresh).not.toHaveBeenCalled();
+    // Claimed as any first page: the page is held for the retry window (ADR 0016).
+    expect(await h.generation.available("https://shop.example", "/")).toBe("sent");
+    expect(await h.generation.generateEntry(entryRequest, sent)).toEqual({
+      outcome: "skipped",
+      reason: "sent",
+    });
+    expect(h.transport.generateEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      "an abstention",
+      { kind: "result", result: { version: 1, status: "abstained", reason: "no-login-form" } },
+      { outcome: "abstained", reason: "no-login-form" },
+      "sent",
+    ],
+    [
+      "an unreachable service",
+      { kind: "failed", error: "unreachable" },
+      { outcome: "failed", reason: "unreachable", retry: true },
+      true,
+    ],
+  ] as const)(
+    "answers an entry page's %s without syncing",
+    async (_label, answer, outcome, held) => {
+      const h = setup(undefined, answer);
+      expect(await h.generation.generateEntry(entryRequest)).toEqual(outcome);
+      expect(h.sync).not.toHaveBeenCalled();
+      expect(await h.generation.available("https://shop.example", "/")).toBe(held);
+    },
+  );
+
+  it("skips an entry page while no service is paired", async () => {
+    const h = setup();
+    h.service.connection.mockResolvedValue(undefined);
+    expect(await h.generation.generateEntry(entryRequest)).toEqual({
+      outcome: "skipped",
+      reason: "not-connected",
+      retry: true,
+    });
+    expect(h.transport.generateEntry).not.toHaveBeenCalled();
   });
 
   it("claims the page before sending, so two tabs send it once", async () => {
@@ -1238,6 +1333,7 @@ describe("generated slot maps (ADR 0027)", () => {
           },
         }),
       ),
+      generateEntry: vi.fn<ServiceTransport["generateEntry"]>(),
       judgeCompletion: vi.fn<ServiceTransport["judgeCompletion"]>(),
     };
     const service = {

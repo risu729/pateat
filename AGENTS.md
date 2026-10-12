@@ -53,7 +53,8 @@
 
 - A merged PR is not a stopping point. Continue with the next slice of the current phase
   in the [roadmap](docs/plan.md#roadmap) until that phase is done, then the next phase;
-  phase 1 ends with login on the owner's everyday sites in their installed Chrome.
+  phase 1 ends with login on the owner's everyday sites in their installed Chrome and on
+  the Grok Bot sites in the Grok Bot computer's Chrome.
 - Create GitHub issues only in phase 4. Until then, docs/plan.md is the tracker.
 - A thread that researches something lands its findings in its own docs PR, including
   the roadmap lines they change.

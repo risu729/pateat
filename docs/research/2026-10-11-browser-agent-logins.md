@@ -174,8 +174,11 @@ entered the One-time PIN code, the Bitwarden email and the master password. Resu
   `login.refused` event for `https://www.smbc-card.com` with reason
   `connection-disabled` at 12:59:35 UTC. In Settings, **Vault access policy**, the
   connection "main" was not enabled, and every site default showed "Unavailable under
-  this draft policy: The vault connection is disabled." Why a connection added with the
-  policy box on was stored as disabled is a Pateat bug, followed up in the extension.
+  this draft policy: The vault connection is disabled." A connection added with the
+  policy box on was stored as disabled. The likely cause (inferred, not seen in that
+  log) is a first sign-in that did not finish, completed by **Sign in again**, which
+  lost the choice. The extension now keeps it on that path
+  ([development notes](../development.md)).
 - The Claude session turned **Enabled** on for "main" during a takeover. Opening the
   Vpass URL in that browser then logged in automatically within 30 seconds and reached
   the member page (`/memx/mypage/index.html`). The Bot itself had not retried at that

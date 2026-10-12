@@ -113,12 +113,17 @@ export interface ConnectionPolicy {
     expectedRevision: number;
     excludedFieldIds: string[];
   }): Promise<{ policyReviewItemIds: string[] }>;
+  /**
+   * Records the add form's policy choice when a new connection is registered, before its
+   * first sign-in. A later sign-in that completes the setup, such as "Sign in again" after
+   * the first attempt failed or expired, then keeps that choice.
+   */
+  register(connectionId: string, enabled: boolean): Promise<void>;
   /** Reconcile after durable cache acceptance; an unmatched binding never authorizes release. */
   adopt(input: {
     previous: VaultEntry | null;
     next: VaultEntry;
     catalog: VaultCatalog["connections"][number];
-    enabled?: boolean;
     /** Items whose decrypted custom fields the crypto host found equal in both snapshots. */
     sameCustomFields?: string[];
   }): Promise<{ policyReviewItemIds: string[] }>;

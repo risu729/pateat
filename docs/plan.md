@@ -30,10 +30,28 @@ owner to confirm.
 ### Phase 1: usable
 
 Done when Pateat logs in on the sites the owner uses every day, in the owner's installed
-Chrome, on a production build of main.
+Chrome, and on the sites the owner's Grok Bot checks where the owner signs in with a
+password or passkey, in the Grok Bot computer's Chrome, on a production build of main.
 
 - Start from a list of those sites. It names the owner's own accounts, so it stays in
   the project's files rather than in this repository.
+- Sites where the owner has no password or passkey sign-in, only a code or link sent
+  by email or an identity provider, are out of scope for phase 1 (owner, 2026-10-12
+  14:01 and 14:21 UTC). Such a site counts as done once a check shows Pateat does
+  nothing there, and waits for those sign-ins in
+  [phase 4](#phase-4-issues-and-work-as-needed). Claude, where the owner signs in by
+  email, Tailscale, Zenn and Vercel are recorded as such sites; the last three were
+  judged from their usual sign-in pages, not checked.
+- Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
+  regularly, such as card statements and AI usage pages, so the Bot never needs a
+  password (owner, 2026-10-12 14:00 UTC). Sites that sign in only through another
+  site's single sign-on, or only with a code or link sent by email (owner, 14:01 UTC),
+  wait for [phase 4](#phase-4-issues-and-work-as-needed); Microsoft's own sign-in page
+  is a target, but a site that signs in only through it is not yet. The list, like
+  the daily-use list, stays in the project's files. Pateat has logged in to Vpass there,
+  opened during a takeover after the connection was enabled by hand, and the Bot
+  reported a MyJCB login (2026-10-12 13:45 UTC) that nobody else checked. Next: the Bot
+  itself opens each site and reports the page it reaches, starting with Vpass and MyJCB.
 - Finish the fixes in flight: login attempts whose result settled as unknown no longer
   hold settings writes for the next login, and a vault replacement no longer runs during
   a login; diagnostics log events for sync, page judgements, handlers and the source of
@@ -71,15 +89,16 @@ Chrome, on a production build of main.
   to `https://accounts.pixiv.net/login`
   ([ADR 0031](adr/0031-sign-in-entry-pages.md), accepted 2026-10-12). Generation on that
   login page succeeds since build `e9144a6` (2026-10-12 07:24 UTC). The service stores,
-  syncs and lists a recipe with only `entry`, and the extension caches it without
-  pressing it or starting a login (local tests only); ADR 0028's `chooser` builds on
+  syncs and lists a recipe with only `entry`, and the extension caches it, never as a
+  login (local tests only); ADR 0028's `chooser` builds on
   that contract. The service generates that recipe from an entry request, a page sent
   without slots, with the `entry` decision, its prompt line and plan checks (#336, local
-  tests with fake models only). Next, the extension's sending of such pages and the
-  press, verified on pixiv in the owner's Chrome. That PR also
-  makes the entry path a path where a recipe starts for ADR 0016, so no page on it is
-  generated, by adding it in `offersGeneration` only: not through `starts()`, whose
-  paths runtime `startsFor` drops when more than one start shares them.
+  tests with fake models only). The extension sends such pages ten seconds after
+  loading, presses a cached entry after the checks before the press, checks the page it
+  leads to and blocks the revision on the device when that page left the site, showed no
+  sign-in input or showed a sign-up form, logging `login.entry`; the entry path counts
+  as a recipe start in `offersGeneration` only (local tests and a synthetic browser test
+  only). Next, verification on pixiv in the owner's Chrome.
 - [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
   local sign-in state of the page after a submission as `login.state`. Delivery 2's
   first part is implemented: evidence of a sign-in that a second reading a second later
@@ -170,8 +189,9 @@ Chrome, on a production build of main.
   policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair" Access
   application without WARP for pairing only. With it, the Grok Bot computer paired on
   2026-10-12 and Pateat logged in to Vpass there with the owner's existing Bitwarden
-  account, once the connection's policy was enabled by hand. Next: the Bot repeats the
-  logins itself, and ChatGPT Dots once the owner has ChatGPT Pro again.
+  account, once the connection's policy was enabled by hand. The logins the Bot needs
+  are a phase 1 goal (Grok Bot sites above). Next: ChatGPT Dots once the owner has
+  ChatGPT Pro again.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
@@ -188,10 +208,12 @@ Once the fixes have settled:
   Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the extension's
   UI text. The service's pages, such as `/manage`, come later. Which library or
   mechanism translates the extension's UI text is the owner's choice and has not been
-  made. Proposed, to confirm with the owner: "the docs" means the README and the
-  user-facing pages, including those the docs website below adds, while ADRs, this plan
-  and research notes stay in English as AGENTS.md asks for repository files; that rule
-  then needs an exception for the Japanese pages.
+  made; the [comparison](research/2026-10-12-extension-ui-translation.md) recommends
+  `@wxt-dev/i18n` if Chrome's language is enough, otherwise i18next. The owner chose
+  (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing pages,
+  including those the docs website below adds; ADRs, this plan and research notes stay
+  in English. AGENTS.md's English rule gets an exception for the Japanese pages when
+  they land.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
@@ -228,6 +250,10 @@ still open on 2026-10-11.
 
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
+- Signing in with a code or link sent by email, which
+  [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
+  page ends `challenge`). It has the same priority as signing in through an identity
+  provider (owner, 2026-10-12 14:01 UTC).
 - Opening the service to other people, once there are users who need it; per-owner byte
   quotas come with it.
 - Settings to limit Pateat as an extension that handles personal data: only allowed

@@ -124,6 +124,18 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
+  "login.entry": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      revision: "count",
+      outcome: "code",
+      reason: "code",
+      detail: "code",
+      url: "url",
+    },
+  },
   "login.handler": {
     level: "info",
     fields: {
@@ -210,7 +222,7 @@ export const LOG_EVENTS = {
       recipe: "recipe",
       baseRevision: "count",
       takenOver: "flag",
-      // `accounts` for a list of accounts (ADR 0028).
+      // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031).
       page: "code",
       url: "url",
     },
@@ -244,6 +256,8 @@ export const LOG_EVENTS = {
       complete: "flag",
       chooser: "code",
       signedBefore: "flag",
+      mediation: "code",
+      duringLogin: "flag",
       cause: "code",
     },
   },
