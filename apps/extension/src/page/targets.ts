@@ -3,9 +3,14 @@ import { buttonText, hasNativeButton, isButton, isScriptLink, linkText } from ".
 
 const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const;
 
+/** The input's `autocomplete` tokens, lowercased. */
+export const autocompleteTokens = (input: Element) =>
+  (input.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/u).filter(Boolean);
+
 /**
  * Every element a locator names. Attribute locators compare the attribute string, so a
- * value never becomes a selector. Text locators compare {@link buttonText}: native
+ * value never becomes a selector; an `autocomplete` locator matches inputs whose
+ * attribute holds the token. Text locators compare {@link buttonText}: native
  * buttons first, and only when none carries the text, even hidden, links that run a script
  * ({@link isScriptLink}), so a script link never makes a native button's locator
  * ambiguous. With `links`, and only when no button of either kind shows the text, they
@@ -30,6 +35,10 @@ export function findTargets(
       (element) => !isScriptLink(element) && linkText(element) === target.value,
     );
   }
+  if (target.by === "autocomplete")
+    return [...document.querySelectorAll("input[autocomplete]")].filter((input) =>
+      autocompleteTokens(input).includes(target.value),
+    );
   const attribute = attributes[target.by];
   return [...document.querySelectorAll(`[${attribute}]`)].filter(
     (element) => element.getAttribute(attribute) === target.value,

@@ -296,6 +296,46 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("locates an input without id or name by its autocomplete token, as on pixiv's login page", () => {
+    page(
+      `<form><input type="text" autocomplete="username webauthn" placeholder="メールアドレスまたはpixiv ID">
+        <input type="password" autocomplete="current-password webauthn" placeholder="パスワード">
+        <button type="submit" disabled>ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "username" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "ログイン" },
+    ]);
+    for (const { target } of observation.candidates)
+      expect(findTargets(document, target)).toHaveLength(1);
+    // Case and repeats do not matter; a field whose id is shared falls back to its token.
+    page(
+      `<form><input id="dup" autocomplete="Username username"><input id="dup" type="password">
+        <button id="go">Go</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "username" },
+      { by: "id", value: "go" },
+    ]);
+    // A button carrying the token makes it ambiguous and is never named by it.
+    page(
+      `<form><input autocomplete="username"><input type="submit" value="Go" autocomplete="username"></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([{ by: "text", value: "Go" }]);
+    // A token two inputs carry, even a hidden one, names neither; nor does new-password.
+    page(
+      `<form><input autocomplete="username"><input type="password" autocomplete="new-password">
+        <button>ログイン</button></form><input autocomplete="username" hidden>`,
+    );
+    expect(observe().complete).toBe(false);
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "ログイン" },
+    ]);
+  });
+
   it("marks the observation incomplete when a field or button cannot be targeted", () => {
     page(`<form><input id="user"><input type="password"><button id="go">ログイン</button></form>`);
     expect(observe().complete).toBe(false);

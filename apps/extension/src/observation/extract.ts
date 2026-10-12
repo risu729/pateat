@@ -1,4 +1,5 @@
 import {
+  loginAutocompleteTokens,
   loginObservationSchema,
   loginTargetSchema,
   type LoginObservation,
@@ -8,6 +9,7 @@ import {
 import * as v from "valibot";
 import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
+import { autocompleteTokens } from "../page/targets";
 import {
   buttonText,
   collapseText,
@@ -51,7 +53,7 @@ const maxHeadings = 8;
 const maxText = 120;
 const rawLimit = maxText * 4;
 const labelDepth = 3;
-const autocompleteTokens = [
+const observedAutocomplete = [
   "username",
   "email",
   "current-password",
@@ -137,9 +139,13 @@ type LocatorIndex = Map<string, Map<string, number>>;
 /** Counts every locator value once, as the executor's whole-document lookup sees them. */
 function locatorIndex(document: Document): LocatorIndex {
   const index: LocatorIndex = new Map(
-    [...locators.map(([, attribute]) => attribute), "text", "script-text", "link-text"].map(
-      (key) => [key, new Map()],
-    ),
+    [
+      ...locators.map(([, attribute]) => attribute),
+      "autocomplete",
+      "text",
+      "script-text",
+      "link-text",
+    ].map((key) => [key, new Map()]),
   );
   const count = (key: string, value: string) => {
     const counts = index.get(key)!;
@@ -150,6 +156,8 @@ function locatorIndex(document: Document): LocatorIndex {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
     }
+  for (const input of document.querySelectorAll("input[autocomplete]"))
+    for (const token of new Set(autocompleteTokens(input))) count("autocomplete", token);
   for (const element of document.querySelectorAll("button, input, a")) {
     const text = buttonText(element);
     if (text !== undefined) count(isScriptLink(element) ? "script-text" : "text", text);
@@ -162,10 +170,11 @@ function locatorIndex(document: Document): LocatorIndex {
 }
 
 /**
- * Mirrors the executor's lookup: an attribute value, or else a button's text, that
- * matches exactly one element. A script link's text must also name no native button,
- * shown or not, which the executor would take first. Button text is used only when redaction leaves
- * it unchanged, so a locator never carries an email address or a long number. With
+ * Mirrors the executor's lookup: an attribute value, or else a fillable input's
+ * `autocomplete` token, or else a button's text, that matches exactly one element. A
+ * script link's text must also name no native button, shown or not, which the executor
+ * would take first. Button text is used only when redaction leaves it unchanged, so a
+ * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account. With `links`, a link is located by its text too,
  * which only an account switch uses: the text must name no other link and no button.
@@ -182,6 +191,14 @@ function locate(
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
+  // Only a field the login fills; a button is named by its own attributes or text.
+  if (element instanceof HTMLInputElement && fillTypes[element.type])
+    for (const value of autocompleteTokens(element)) {
+      if (!(loginAutocompleteTokens as readonly string[]).includes(value)) continue;
+      if (index.get("autocomplete")!.get(value) !== 1) continue;
+      const target = { by: "autocomplete" as const, value };
+      if (v.is(loginTargetSchema, target)) return target;
+    }
   if (
     element instanceof HTMLAnchorElement &&
     element.hasAttribute("href") &&
@@ -319,9 +336,9 @@ function actionLabel(element: HTMLElement): string | undefined {
 }
 
 function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
-  const tokens = (input.getAttribute("autocomplete") ?? "").toLowerCase().trim().split(/\s+/u);
+  const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
-  return autocompleteTokens.find((token) => tokens.includes(token));
+  return observedAutocomplete.find((token) => tokens.includes(token));
 }
 
 function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {

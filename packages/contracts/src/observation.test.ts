@@ -58,6 +58,10 @@ describe("observation contract", () => {
     // A link may be an account switch, located by its text.
     const link = { ...button, role: "link", target: { by: "text", value: "Use another account" } };
     expect(parse({ ...base, candidates: [candidate, link] })).toBe(true);
+    // An autocomplete token names a field only.
+    const token = { by: "autocomplete", value: "username" };
+    expect(parse({ ...base, candidates: [{ ...candidate, target: token }] })).toBe(true);
+    expect(parse({ ...base, candidates: [candidate, { ...button, target: token }] })).toBe(false);
     expect(parse({ ...base, path: "/login?next=/" })).toBe(false);
     expect(parse({ ...base, origin: "https://shop.example.test/login" })).toBe(false);
     expect(parse({ ...base, html: "<form></form>" })).toBe(false);

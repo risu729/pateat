@@ -40,10 +40,23 @@ export const loginPathSchema = path;
 const unique = (values: string[]) => new Set(values).size === values.length;
 
 /**
+ * `autocomplete` tokens an input can be located by. `new-password` is left out: a
+ * recipe never names a field for a new password.
+ */
+export const loginAutocompleteTokens = [
+  "username",
+  "email",
+  "current-password",
+  "one-time-code",
+] as const;
+/**
  * An attribute locator: the element whose `id`, `name` or `data-testid` equals the
- * value. `id` and `name` take any ASCII except whitespace and control characters, as
- * ASP.NET (`ctl00$Main$txtUserId`) and Rails (`user[login]`) names need; the executor
- * compares attribute strings, so the value never becomes a selector.
+ * value, or the `<input>` whose `autocomplete` attribute holds the token among its
+ * whitespace-separated tokens, ignoring case (for fields with no `id` or `name`, such as
+ * `autocomplete="username webauthn"`). `id` and `name` take any ASCII except whitespace
+ * and control characters, as ASP.NET (`ctl00$Main$txtUserId`) and Rails (`user[login]`)
+ * names need; the executor compares attribute strings, so the value never becomes a
+ * selector.
  */
 export const loginAttributeTargetSchema = v.variant("by", [
   v.strictObject({
@@ -54,6 +67,7 @@ export const loginAttributeTargetSchema = v.variant("by", [
     by: v.literal("test-id"),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
   }),
+  v.strictObject({ by: v.literal("autocomplete"), value: v.picklist(loginAutocompleteTokens) }),
 ]);
 /**
  * A button locator: the one button whose text equals the value. The text is a
