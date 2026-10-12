@@ -34,11 +34,12 @@ Chrome, on a production build of main.
 
 - Start from a list of those sites. It names the owner's own accounts, so it stays in
   the project's files rather than in this repository.
-- Sites that offer only identity-provider sign-in or a code or link sent by email are
-  out of scope for phase 1 (owner, 2026-10-12 14:01 UTC), such as `https://claude.ai`,
-  which signs in by email only. Tailscale, Zenn and Vercel probably belong here too,
-  judged from their usual sign-in pages rather than checked. Both kinds are in
-  [phase 4](#phase-4-issues-and-work-as-needed).
+- Sites where the owner has no password or passkey sign-in, only a code or link sent
+  by email (owner, 2026-10-12 14:01 UTC) or an identity provider (already in phase 4),
+  are out of scope for phase 1. An example is `https://claude.ai`, where the owner signs
+  in by email. Tailscale, Zenn and Vercel probably belong here too, judged from their
+  usual sign-in pages rather than checked; a passkey they offer is handled in phase 1.
+  Both kinds of sign-in are in [phase 4](#phase-4-issues-and-work-as-needed).
 - Finish the fixes in flight: login attempts whose result settled as unknown no longer
   hold settings writes for the next login, and a vault replacement no longer runs during
   a login; diagnostics log events for sync, page judgements, handlers and the source of
