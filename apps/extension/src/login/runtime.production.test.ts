@@ -9656,7 +9656,11 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     return {
       available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
       generate: vi.fn<LoginGeneration["generate"]>(generate),
-      judge: vi.fn<LoginGeneration["judge"]>(judge),
+      // Like the service, it says just before the request leaves the device.
+      judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+        args[4]?.();
+        return judge(...args);
+      }),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
     };
   }
@@ -9788,6 +9792,41 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(
       fake.state.messages.find((entry) => entry.type === "login.extract") as unknown,
     ).toMatchObject({ page: "login", known: [target("email")] });
+  });
+
+  it("logs the continuation's page when it leaves the device, then the answer", async () => {
+    inPlace();
+    const reports: LoginReport[] = [];
+    let h!: ReturnType<typeof harness>;
+    const next = continuedOn("/signin");
+    const answer = answering(() => h, next);
+    // Like the service, it says just before the request leaves the device.
+    const service = generation(async (_request, sent) => {
+      sent?.();
+      return answer();
+    });
+    h = start(service, { report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      {
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "sent",
+        recipeId: emailFirst.id,
+        baseRevision: 1,
+      },
+      {
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "recipe",
+        recipeId: emailFirst.id,
+        baseRevision: 1,
+        takenOver: true,
+      },
+    ]);
   });
 
   it("after a logout, only fills the continued recipe's first page and never presses Next", async () => {
@@ -10348,7 +10387,13 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(await h.hello()).toEqual({ ok: true });
     await until(settled("blocked", "challenge"));
     expect(service.generate).not.toHaveBeenCalled();
-    expect(service.judge).toHaveBeenCalledWith(emailFirst.id, 1, "password", codePage.observation);
+    expect(service.judge).toHaveBeenCalledWith(
+      emailFirst.id,
+      1,
+      "password",
+      codePage.observation,
+      expect.any(Function),
+    );
   });
 
   it("judges the page instead when the recipe already has a completion", async () => {
@@ -10510,7 +10555,13 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("blocked", "challenge"));
       expect(service.generate).not.toHaveBeenCalled();
-      expect(service.judge).toHaveBeenCalledWith(emailFirst.id, 1, "password", page.observation);
+      expect(service.judge).toHaveBeenCalledWith(
+        emailFirst.id,
+        1,
+        "password",
+        page.observation,
+        expect.any(Function),
+      );
       expect(status()![0]!["continuation"]).toBeUndefined();
     });
 

@@ -3231,18 +3231,31 @@ export function createLoginRuntime(
     // the step's page then settles `unknown` unless the cache brings the continuation.
     if (!current(run)) return "moved";
     if (run.metadata.continuation?.operationId !== operationId) return refuse();
+    // The page that asks, logged when its request leaves the device (ADR 0019).
+    const page = run.live.document;
     const asked = generation
-      .generate({
-        version: 1,
-        observation,
-        slots: [
-          ...slots.map((slot) =>
-            slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
-          ),
-          ...custom,
-        ],
-        base: { recipeId: recipe.id, revision: recipe.revision },
-      })
+      .generate(
+        {
+          version: 1,
+          observation,
+          slots: [
+            ...slots.map((slot) =>
+              slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+            ),
+            ...custom,
+          ],
+          base: { recipeId: recipe.id, revision: recipe.revision },
+        },
+        () =>
+          report(page, {
+            type: "generation",
+            tabId: page.tabId,
+            origin: pageOrigin,
+            outcome: "sent",
+            recipeId: recipe.id,
+            baseRevision: recipe.revision,
+          }),
+      )
       // A thrown request frees its claim, so it is given back like any request that did not
       // reach the model.
       .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error", retry: true }));
