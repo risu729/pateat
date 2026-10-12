@@ -29,7 +29,13 @@ import {
   type EntryMiss,
 } from "../page/account-list";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
-import { pageSigns, showsCaptcha, submittedPage, type SubmittedPage } from "../page/sign-in-state";
+import {
+  pageSigns,
+  passedCaptcha,
+  showsCaptcha,
+  submittedPage,
+  type SubmittedPage,
+} from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
 import {
   commandSchema,
@@ -989,9 +995,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // is what the page shows before it (ADR 0029).
         measureNext();
         submitted = submittedPage(document, formInputs.filter(writable));
-        // A CAPTCHA the page shows is left to the person, who presses the button after
-        // solving it; the background reads the page as after a click (ADR 0029, S4).
-        if (!command.list && showsCaptcha(document)) return fail("captcha");
+        // A CAPTCHA the page shows and that has not passed is left to the person, who
+        // presses the button after solving it; the background reads the page as after a
+        // click (ADR 0029, S4).
+        if (!command.list && showsCaptcha(document) && !passedCaptcha(document))
+          return fail("captcha");
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };

@@ -65,12 +65,15 @@ then answered 04:51 and 04:54 UTC):
   - S4: a visible CAPTCHA widget, recognised by the reCAPTCHA, hCaptcha or Turnstile
     frame origin; invisible ones do not count. Pateat does not solve CAPTCHAs
     ([plan](../plan.md)). When S4 shows in the document as a click step is about to run,
-    the form stays filled and the button is not pressed (owner, 20:23 UTC): the person
+    and no token field of those services (`g-recaptcha-response`, `h-captcha-response`,
+    `cf-turnstile-response`) holds a token yet, the form stays filled and the button is
+    not pressed (owner, 20:23 UTC): the person
     solves the CAPTCHA and presses it. The login then waits as for a held click
     ([ADR 0027](0027-per-account-login-routes.md)): while the button shows, the page is
     neither judged nor settled for up to two minutes, then the login ends `challenge`,
     watched as below; once the person's press moves the page on, it is read as after
-    Pateat's own click. A chooser's click on its list is not held.
+    Pateat's own click. A rejection already shown is not taken as the person's. A
+    chooser's click on its list is not held.
   - S5: the page requested a passkey after the submission, outside conditional
     mediation, in the top frame.
 - **Signs of a failure**, only while S1 holds and the document is the one that was

@@ -140,6 +140,20 @@ function showsCode(document: Document): boolean {
   );
 }
 
+/** The fields the CAPTCHA services fill with their token once the challenge is passed. */
+const captchaTokens = ["g-recaptcha-response", "h-captcha-response", "cf-turnstile-response"];
+
+/** Whether a CAPTCHA service's token field of the page holds a token. */
+export function passedCaptcha(document: Document): boolean {
+  return captchaTokens.some((name) =>
+    [...document.getElementsByName(name)].some(
+      (field) =>
+        (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) &&
+        field.value !== "",
+    ),
+  );
+}
+
 /** S4: a shown frame of a CAPTCHA service large enough to be solved. */
 export function showsCaptcha(document: Document): boolean {
   return [...document.querySelectorAll("iframe")].some((frame) => {

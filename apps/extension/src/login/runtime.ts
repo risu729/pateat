@@ -4527,8 +4527,10 @@ export function createLoginRuntime(
           undefined,
           "captcha-shown",
         );
-        // Its button is held until the person presses it or the hold ends (ADR 0029, S4).
+        // Its button is held until the person presses it or the hold ends (ADR 0029, S4),
+        // and a rejection the page already showed is not taken as the person's.
         run.heldClick = operation.stepIndex;
+        run.staleRejection = true;
         await reconcileBounded(run);
         if (run.metadata.state !== "ready") return;
         continue;

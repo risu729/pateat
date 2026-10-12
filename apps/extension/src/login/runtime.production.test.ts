@@ -8142,6 +8142,28 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(clicks("login")).toBe(1);
     });
 
+    it("does not take a rejection the page already showed as the person's", async () => {
+      vi.useFakeTimers();
+      captchaOnLogin();
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const h = harness({}, { generation: service });
+      h.recipes.recipe.mockResolvedValue(
+        parseLoginRecipe({ ...unlearned, rejection: target("rejected") }),
+      );
+      // The page shows a failed sign-in's banner next to its CAPTCHA.
+      fake.state.present = new Set(["password", "login", "rejected"]);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks("login") === 1);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+      fake.state.executeReply = undefined;
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set(["logout"]);
+      fake.state.extracted = { "signed-in": homePage };
+      await until(settled("authenticated"));
+      expect(clicks("login")).toBe(1);
+    });
+
     it("ends as a challenge when the button still shows after two minutes", async () => {
       vi.useFakeTimers();
       captchaOnLogin();
