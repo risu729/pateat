@@ -582,7 +582,8 @@ be chosen in Pateat's settings rather than only following Chrome's
 ([comparison](research/2026-10-12-extension-ui-translation.md)).
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
-use.
+use. WXT drives Vite 8 (Rolldown) for the extension build
+([what each layer does](research/2026-10-12-wxt-build-pipeline.md)).
 
 | Area | Choice and integration status | Owning slice |
 | --- | --- | --- |

@@ -57,7 +57,8 @@ The background is an IIFE because it does not set `type: "module"`.
 
 Pateat imports only `defineConfig`, `wxt/browser`, `wxt/utils/define-content-script` and
 `wxt/utils/define-background`. It does not use `wxt dev`, `wxt zip`, `wxt submit`,
-auto-imports, content-script UI helpers or i18n. WXT storage is approved in
+content-script UI helpers or i18n. Auto-imports stay enabled (`.wxt/types/imports.d.ts`
+declares them), but the code imports everything explicitly. WXT storage is approved in
 [ADR 0004](../adr/0004-library-composition.md), but the code calls
 `browser.storage` directly. WXT has no messaging wrapper
 ([comparison](https://wxt.dev/guide/resources/compare)), and it does not change Chrome
@@ -69,8 +70,9 @@ policy ([ADR 0002](../adr/0002-toolchain.md)).
   [vite-plugin-web-extension](https://github.com/aklinker1/vite-plugin-web-extension) on
   2021-11-01 and started WXT on 2023-06-20
   ([24a561e](https://github.com/wxt-dev/wxt/commit/24a561e)). Version 0.0.1 reached npm
-  on 2023-06-26 and already built on Vite 4. That WXT continues the plugin is inferred
-  from the shared author and the migration guide, not stated by the author.
+  on 2023-06-26 and already built on Vite 4. The plugin's
+  [README](https://github.com/aklinker1/vite-plugin-web-extension/blob/main/README.md)
+  calls WXT its successor and says the plugin will be deprecated in its favor.
 - The repository moved to the `wxt-dev` organization on 2023-09-05
   ([ac7cbfc](https://github.com/wxt-dev/wxt/commit/ac7cbfc)).
 - 0.20.0 (2025-03-28) removed `webextension-polyfill`; 0.20.19 (2026-03-14) added Vite
@@ -80,6 +82,8 @@ policy ([ADR 0002](../adr/0002-toolchain.md)).
   breaking changes.
 - Aaron Klinker is the only npm maintainer and the default
   [code owner](https://github.com/wxt-dev/wxt/blob/wxt-v0.21.4/.github/CODEOWNERS);
-  co-owners cover `docs` and two add-on packages. On `main` since 2026-06-01, 87 of the
-  commits are his and 12 are Patryk Kuniczak's; no one else has 10. Funding is
+  `docs` has two co-owners and two add-on packages have their own owner. Of the 216
+  commits on `main` from 2026-06-01 to
+  [c1b8185](https://github.com/wxt-dev/wxt/commit/c1b8185) (2026-10-11), 87 are his and
+  12 are Patryk Kuniczak's; no other person has 10. Funding is
   [GitHub Sponsors](https://github.com/sponsors/wxt-dev).
