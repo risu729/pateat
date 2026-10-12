@@ -1548,9 +1548,16 @@ accepts only a button as the page action. Known limits: a read-only username sho
 on a password step makes that step incomplete, and honeypot inputs moved to the right or
 clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
 the page after a generated recipe's final submission the same way, but over the whole
-page: every field, then buttons and links in document order up to 48 candidates. A field
-it cannot describe marks it incomplete; buttons and links past the limit or without a
-locator are left out, since they are only possible sign-in markers. There, an attribute
+page: every field, then buttons and links up to 48 candidates, listed in document order.
+A field it cannot describe marks it incomplete; buttons and links past the limit or
+without a locator are left out, since they are only possible sign-in markers. Links are
+located by their text too, and the ones most likely to show the signed-in account are
+kept first: those whose label or link path names the account or signing out (such as
+マイページ, ログアウト, `account`, `logout`, `mypage`), then those in a page header or
+navigation, then the rest in document order. On ポイントインカム (2026-10-12) the page
+after sign-in gave 21 candidates, all carousel controls, news tabs and an ad's close
+button, because its header links have no `id`; the judge answered `unclear`. A
+synthetic page of that shape now keeps the header's links. There, an attribute
 locator that redaction would change counts as no locator, so an account number in an
 `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in Chromium
 with synthetic pages.

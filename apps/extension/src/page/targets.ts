@@ -9,7 +9,8 @@ const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const
  * buttons first, and only when none carries the text, even hidden, links that run a script
  * ({@link isScriptLink}), so a script link never makes a native button's locator
  * ambiguous. With `links`, and only when no button of either kind shows the text, they
- * compare other links' {@link linkText} (an account switch is often a link). Callers
+ * compare other links' {@link linkText} (an account switch or a completion marker is often
+ * a link). Callers
  * reject anything but exactly one match rather than taking the first.
  */
 export function findTargets(

@@ -615,16 +615,38 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
     : { ok: false, reason: "unsupported-page" };
 }
 
+/** Text of a control that names the signed-in account or signing out. */
+const accountText =
+  /ログアウト|サインアウト|マイページ|アカウント|会員情報|プロフィール|log ?out|sign ?out|log ?off|my ?page|account|profile/iu;
+/** Words of a link's path that point to the account or to signing out. */
+const accountPath = /log[-_]?(?:out|off)|sign[-_]?out|my[-_]?page|account|profile|member/iu;
+const landmarks = "header, nav, [role='banner'], [role='navigation']";
+
+/**
+ * How likely a control is to show only when signed in: 2 when its label or link path
+ * names the account or signing out, 1 inside a page header or navigation, where account
+ * menus usually sit, and 0 for the rest of the page, such as carousels and news tabs.
+ */
+function accountSignal(draft: Draft): number {
+  const { element, label } = draft;
+  const path = element instanceof HTMLAnchorElement ? element.pathname : "";
+  if ((label !== undefined && accountText.test(label)) || accountPath.test(path)) return 2;
+  return element.closest(landmarks) ? 1 : 0;
+}
+
 /**
  * Builds the observation of the page shown after a generated recipe's final submission,
  * which the service judges for a signed-in marker (ADR 0018). It reads the same
  * value-free details as `extractLoginObservation`, but from the whole page: every field,
- * then buttons and links in document order up to the candidate limit.
+ * then buttons and links up to the candidate limit, those most likely to show the
+ * signed-in account first (`accountSignal`), listed in document order.
  *
  * The judge refuses a page that still shows a sign-in field, so every field must be
  * described: a field that cannot be located or filled, a field in a shadow root, or more
  * fields than the limit marks the observation incomplete. Buttons and links are only
- * possible markers; those past the limit or without a locator are left out.
+ * possible markers; those past the limit or without a locator are left out. A link is
+ * located by its text too, as for an account switch, and the executor looks for the
+ * completion marker the same way.
  */
 export function extractSignedInObservation(
   document: Document = globalThis.document,
@@ -649,15 +671,20 @@ export function extractSignedInObservation(
   const index = locatorIndex(document);
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
-      const target = locate(entry.draft.element, index, { redactAttributes: true });
+      const target = locate(entry.draft.element, index, { redactAttributes: true, links: true });
       return target ? [{ ...entry, target }] : [];
     });
   const fieldsFound = located(fieldEntries);
   if (fieldsFound.length < fieldEntries.length || fieldsFound.length > maxCandidates)
     complete = false;
+  // A stable sort keeps document order within each rank; `observe` restores it overall.
+  const ranked = located(markers)
+    .map((entry) => ({ entry, rank: accountSignal(entry.draft) }))
+    .sort((left, right) => right.rank - left.rank)
+    .map(({ entry }) => entry);
   const chosen = [
     ...fieldsFound.slice(0, maxCandidates),
-    ...located(markers).slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
+    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
   return observe(document, chosen, complete);

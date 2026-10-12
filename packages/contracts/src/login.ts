@@ -63,8 +63,9 @@ export const loginAttributeTargetSchema = v.variant("by", [
  * `javascript:` URL, or an empty or fragment-only `href` with either), with whitespace
  * collapsed to single spaces and format characters removed. Native buttons are matched
  * first; such links only when no native button shows the text. It matches buttons only,
- * so fills never use it; a recipe's `accountSwitch` alone also matches another
- * `<a href>` link by its rendered text when no button shows it.
+ * so fills never use it; a recipe's `accountSwitch` and completion target alone also
+ * match another `<a href>` link by its rendered text (or an image-only link's `alt`)
+ * when no button shows it.
  */
 export const loginTextTargetSchema = v.strictObject({
   by: v.literal("text"),

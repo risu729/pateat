@@ -93,6 +93,11 @@ export const commandSchema = v.variant("type", [
     require: v.optional(
       v.pipe(v.array(v.picklist(["writable", "clickable", "shown", "present"])), v.maxLength(24)),
     ),
+    /**
+     * Per target, whether a text locator may also name a link by its text, as for an
+     * account switch: set for a completion marker, which may be a link (ADR 0018).
+     */
+    links: v.optional(v.pipe(v.array(v.boolean()), v.maxLength(24))),
   }),
   v.strictObject({
     version: v.literal(1),

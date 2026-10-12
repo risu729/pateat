@@ -178,9 +178,9 @@ export function hasNativeButton(document: Document, text: string): boolean {
   });
 }
 
-/** The `alt` of the shown images in a `<button>` that has no rendered text. */
-function imageText(button: HTMLButtonElement): string {
-  return [...button.querySelectorAll("img[alt]")]
+/** The `alt` of the shown images in a `<button>` or link that has no rendered text. */
+function imageText(element: Element): string {
+  return [...element.querySelectorAll("img[alt]")]
     .flatMap((image) => (shown(image) ? [image.getAttribute("alt")!] : []))
     .join(" ");
 }
@@ -208,15 +208,17 @@ export function buttonText(element: Element): string | undefined {
 }
 
 /**
- * A rendered `<a href>` link's text, collapsed, like {@link buttonText}: none when the
- * link is not rendered, or its text is empty or longer than 120 code units.
+ * A rendered `<a href>` link's text (or, for an image-only link such as a header icon,
+ * its images' `alt`), collapsed, like {@link buttonText}: none when the link is not
+ * rendered, or its text is empty or longer than 120 code units.
  */
 export function linkText(element: Element): string | undefined {
   if (!(element instanceof HTMLAnchorElement) || !element.hasAttribute("href") || !shown(element))
     return undefined;
   const readLimit = buttonTextLimit * 4;
-  const raw = renderedText(element, readLimit);
+  let raw = renderedText(element, readLimit);
   if (raw === undefined || raw.length > readLimit) return undefined;
+  if (!collapseText(raw)) raw = imageText(element);
   const text = collapseText(raw);
   return text && text.length <= buttonTextLimit ? text : undefined;
 }

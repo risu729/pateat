@@ -492,7 +492,8 @@ shows no comparable identifier. A masked number that is not the account, such as
 number on a password page, still stops a digits-only username: a known limitation.
 A recipe can name an `accountSwitch` target: the button or `<a href>` link that switches
 to another account (`{ "by": "text", "value": "Use another account" }`; text locators
-match link text only here; the recipe must not use it for a click step or `rejection`).
+match link text only here and in a completion target; the recipe must not use it for a
+click step or `rejection`).
 When the page shows another account, nothing was submitted in the attempt, and that
 target matches exactly one shown link or button that does not submit a form, the
 background first records the attempt as `account-switched` (blocked, no submission
@@ -796,15 +797,16 @@ minutes for every later login. A policy write while an attempt is settled stops 
 ([ADR 0027](adr/0027-per-account-login-routes.md)).
 
 A completion may also list up to four `absent` elements. The executor reports
-`authenticated` only when the completion target is unique on its path and every
-`absent` element is missing. A learned completion on a page that signs in on its own
-path lists that path's sign-in fields there, because the executor checks the completion
-after every step and counts hidden elements: a login page that keeps a hidden
-"Sign out" link never counts as signed in. A site that keeps its sign-in inputs hidden
-in the page after signing in therefore never reports `authenticated` with such a
-completion; its attempts stay unknown. A recipe's completion and absent elements,
-its rejection and any one step's elements together stay within one 24-element
-observation.
+`authenticated` only when the completion target is unique on its path and every `absent`
+element is missing. The completion target may be a link named by its text, such as an
+account page link without an `id`, matched as an account switch's is. A learned
+completion on a page that signs in on its own path lists that path's sign-in fields
+there, because the executor checks the completion after every step and counts hidden
+elements: a login page that keeps a hidden "Sign out" link never counts as signed in. A
+site that keeps its sign-in inputs hidden in the page after signing in therefore never
+reports `authenticated` with such a completion; its attempts stay unknown. A recipe's
+completion and absent elements, its rejection and any one step's elements together stay
+within one 24-element observation.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
@@ -819,34 +821,36 @@ another element with `role="button"`, but never a form control or anything insid
 `<a href>`. A script link is an `<a>` without `href` that has an `onclick` attribute or
 `role="button"`, such as `<a id="login" onclick="document.loginForm.submit()">`, or an
 `<a href>` that runs a script instead of following the link: a `javascript:` URL (or a
-`data:` or `vbscript:` one, which Chrome never follows from a page), such
-as `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or
-fragment-only `href` on a link with an `onclick` attribute or `role="button"`, such as
-`<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts
-add `href="#"` after load). The owner chose on 2026-10-11 that such `href` links are
-clicked as buttons, so pages whose login control is one, such as MyJCB and SMBC Direct,
-can get a generated recipe. A text locator names a script link by its rendered
-text, but only when no native button carries that text, shown or hidden: native buttons
-are matched first, so a login tab such as `<a href="#" onclick="...">Login</a>` never
-makes the `<input type="submit" value="Login">` below it ambiguous, and a text locator
-waits for a hidden native button rather than clicking a script link with its text. A
-recipe that names a script link by text clicks a native button instead if the page later
-adds one with the same text. Other script buttons are often widgets such as menus and
-toggles, so only their `id`, `name` or `data-testid` names them, and the extractor
-leaves out a script button without a locator instead of marking the page incomplete. The
-executor compares strings and acts only when exactly one element matches; more than one
-is a structural mismatch. It clicks buttons, image buttons and script buttons (not a
-disabled button, nor a script button with `aria-disabled="true"`), never links, except a
-recipe's `accountSwitch`, which may be an `<a href>` link (a script link with `href`
-included) named by its rendered text; no other script button is clicked as a switch. A
-switch's text locator names another link only when no shown button or script link has
-that text (a hidden native button holds back only script links), so a switch recipe that
-names a link clicks a button instead if the page later shows one with the same text. The
-extractor gives a link a text locator only on a login page and only when no other link
-and no button shows that text. A click is not tied to the form the previous fill used: a
-page that shows a second, previously hidden button with the same text stops the attempt
-as ambiguous, but if the observed button is removed and another button with the same
-text remains, that one is clicked.
+`data:` or `vbscript:` one, which Chrome never follows from a page), such as
+`<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only
+`href` on a link with an `onclick` attribute or `role="button"`, such as
+`<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts add
+`href="#"` after load). The owner chose on 2026-10-11 that such `href` links are clicked
+as buttons, so pages whose login control is one, such as MyJCB and SMBC Direct, can get
+a generated recipe. A text locator names a script link by its rendered text, but only
+when no native button carries that text, shown or hidden: native buttons are matched
+first, so a login tab such as `<a href="#" onclick="...">Login</a>` never makes the
+`<input type="submit" value="Login">` below it ambiguous, and a text locator waits for a
+hidden native button rather than clicking a script link with its text. A recipe that
+names a script link by text clicks a native button instead if the page later adds one
+with the same text. Other script buttons are often widgets such as menus and toggles, so
+only their `id`, `name` or `data-testid` names them, and the extractor leaves out a
+script button without a locator instead of marking the page incomplete. The executor
+compares strings and acts only when exactly one element matches; more than one is a
+structural mismatch. It clicks buttons, image buttons and script buttons (not a disabled
+button, nor a script button with `aria-disabled="true"`), never links, except a recipe's
+`accountSwitch`, which may be an `<a href>` link (a script link with `href` included)
+named by its rendered text; no other script button is clicked as a switch. A switch's
+text locator names another link only when no shown button or script link has that text
+(a hidden native button holds back only script links), so a switch recipe that names a
+link clicks a button instead if the page later shows one with the same text. A link's
+text is its rendered text or, for an image-only link such as a header icon, its shown
+images' `alt`. The extractor gives a link a text locator only when no other link and no
+button shows that text, and only on a login page (for an account switch) or the
+signed-in page (for a completion marker). A click is not tied to the form the previous
+fill used: a page that shows a second, previously hidden button with the same text stops
+the attempt as ambiguous, but if the observed button is removed and another button with
+the same text remains, that one is clicked.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button

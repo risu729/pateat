@@ -857,12 +857,14 @@ describe("extractSignedInObservation", () => {
   it("never locates by an id or name that carries an email address or a long number", () => {
     page(
       `<a id="acct-0123456789" href="/a">Account</a>
+      <a id="card-0123456789" href="/c">Card 0123456789</a>
       <button name="alice@example.com" type="button">Profile</button>
       <button id="logout" name="user-123456" type="button">Sign out</button>`,
     );
-    // The link has no other locator, so it is left out; the buttons fall back to their
-    // text and id.
+    // The first link falls back to its text; the second has no other locator, so it is
+    // left out; the buttons fall back to their text and id.
     expect(summary(signedIn())).toEqual([
+      { role: "link", target: { by: "text", value: "Account" }, label: "Account" },
       { role: "button", target: { by: "text", value: "Profile" }, label: "Profile" },
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
     ]);
@@ -885,6 +887,76 @@ describe("extractSignedInObservation", () => {
     // The field comes last in the page, yet it is kept; the last links are dropped.
     expect(observation.candidates.at(-1)).toMatchObject({ role: "text", target: { value: "q" } });
     expect(observation.candidates.at(-2)).toMatchObject({ target: { value: "link46" } });
+  });
+
+  // Shaped like a points site's top page after sign-in (ポイントインカム, 2026-10-12):
+  // carousels, ads and news tabs, with the account links in the header carrying no id.
+  const pointsSite = (header: string) => {
+    const slides = Array.from(
+      { length: 16 },
+      (_, index) => `<a id="splide04-slide${index + 1}" href="/ad/${index}">${index + 1} of 16</a>`,
+    ).join("");
+    const ads = Array.from(
+      { length: 40 },
+      (_, index) => `<a href="/ad/detail.php?id=${index}">広告${index}で最大ポイント還元</a>`,
+    ).join("");
+    const tabs = ["総合", "芸能", "社会", "スポーツ", "経済", "国際", "IT", "ライフ"]
+      .map((tab) => `<button type="button">${tab}</button>`)
+      .join("");
+    return `<a id="recommen_fab" href="/ad/fab">本日のイチオシ広告</a>
+      <div><button id="splide02-slide01" type="button">Go to slide 1</button>${slides}</div>
+      <h2>新着広告</h2>${ads}${tabs}${header}
+      <div id="cbox"><button id="cboxClose" type="button">close</button></div>`;
+  };
+  const icon = (alt: string) => `<img src="data:," alt="${alt}" width="24" height="24">`;
+
+  it("keeps the account links of a busy page ahead of its carousels, ads and tabs", () => {
+    page(
+      pointsSite(
+        `<header><form><input id="search" type="text" placeholder="広告名で探す"></form>
+          <a href="/my/">マイページ</a><a href="/my/bankbook.php">${icon("通帳")}</a>
+          <a href="/logout.php">${icon("")}</a></header>`,
+      ),
+      "ポイ活するなら【ポイントサイト】",
+    );
+    const observation = signedIn();
+    expect(observation.candidates).toHaveLength(48);
+    const kept = summary(observation);
+    // The header comes last in the page, after more than 48 controls, yet its field and
+    // its links, located by their text or image, are kept in document order; the ads past
+    // the limit, the news tabs and the pop-up's close button are left out. The sign-out
+    // icon has neither text nor `alt`, so nothing can locate it.
+    expect(kept.slice(-3)).toEqual([
+      {
+        role: "text",
+        target: { by: "id", value: "search" },
+        placeholder: "広告名で探す",
+        group: "f1",
+      },
+      { role: "link", target: { by: "text", value: "マイページ" }, label: "マイページ" },
+      { role: "link", target: { by: "text", value: "通帳" }, label: "通帳" },
+    ]);
+    expect(kept[0]).toMatchObject({ target: { by: "id", value: "recommen_fab" } });
+    // The executor finds each kept link by the same locator.
+    for (const entry of kept)
+      expect(findTargets(document, entry.target, { links: true }), entry.target.value).toHaveLength(
+        1,
+      );
+  });
+
+  it("keeps a sign-out link outside the header by its text or path", () => {
+    page(
+      pointsSite(`<footer><a href="/member/settings">設定</a>
+        <a href="/auth/logout">${icon("Sign out")}</a><a href="/help">ヘルプ</a></footer>`),
+    );
+    const kept = summary(signedIn());
+    expect(kept).toEqual(
+      expect.arrayContaining([
+        { role: "link", target: { by: "text", value: "設定" }, label: "設定" },
+        { role: "link", target: { by: "text", value: "Sign out" }, label: "Sign out" },
+      ]),
+    );
+    expect(kept.some((entry) => entry.label === "ヘルプ")).toBe(false);
   });
 
   it("marks a page incomplete when a field cannot be described", () => {

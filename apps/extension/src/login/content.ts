@@ -17,8 +17,8 @@ import {
 } from "./wire";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
-function matches(target: LoginTarget): Element[] {
-  return findTargets(document, target);
+function matches(target: LoginTarget, links = false): Element[] {
+  return findTargets(document, target, { links });
 }
 function writable(element: Element | undefined): element is HTMLInputElement {
   return (
@@ -343,7 +343,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       respond({
         path: location.pathname,
         targets: command.targets.map((target, index) => {
-          const found = matches(target);
+          const found = matches(target, command.links?.[index] === true);
           if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
           const require = command.require?.[index];
           return (require === "writable" && !writable(found[0])) ||
