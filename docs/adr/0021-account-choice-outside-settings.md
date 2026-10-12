@@ -211,13 +211,15 @@ watching page as `login.refused` `not-started` with `stopped-login` and the aski
 
 Constraint, set by the owner on 2026-10-12 (07:41 UTC): a site session that only expired
 must never make the user press the site's button. Pateat cannot tell an expiry from a
-logout it did not see, so a tab treats a login form as a logout only after this tab's
-own login (finished, or stopped after a submission as above) or while another tab of the
-site asks after its logout. A session carried over from a login in another tab, or from
-an earlier browser session, is therefore not detected: after a logout there, Pateat logs
-in again automatically. Rejected for this reason: counting a signed-in marker seen in
-the tab (it would make every expiry after such a page ask), and counting another tab's
-finished login (also against ADR 0022's choice that a new tab logs in).
+logout it did not see, and timing does not help: some banks end the session as soon as a
+page is opened out of their expected order (owner, 07:42 UTC), so a tab treats a login
+form as a logout only after this tab's own login (finished, or stopped after a
+submission as above) or while another tab of the site asks after its logout. A session
+carried over from a login in another tab, or from an earlier browser session, is
+therefore not detected: after a logout there, Pateat logs in again automatically.
+Rejected for this reason: counting a signed-in marker seen in the tab (it would make
+every expiry after such a page ask), and counting another tab's finished login (also
+against ADR 0022's choice that a new tab logs in).
 
 Known gaps:
 
