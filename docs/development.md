@@ -471,9 +471,9 @@ The sign-ins the check reads are kept per tab in `chrome.storage.session`
   one was more than five minutes ago), `not-listed` (no listed credential is a passkey
   Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
   could not be searched, as when the vault is locked), `not-configured` (the site is
-  excluded or the settings could not be read), `vault-unavailable` or `timeout` (the
-  lookup failed or took too long), `invalid-request`, `invalid-origin`, `invalid-rp-id`,
-  `rp-id-mismatch` or `busy`;
+  excluded or the settings could not be read), `vault-unavailable` (the sign-in records
+  or the lookup failed) or `timeout` (the lookup took too long), `invalid-request`,
+  `invalid-origin`, `invalid-rp-id`, `rp-id-mismatch` or `busy`;
 - `rpId` once it is valid for the origin, and `excludeCredentials`: how many
   credentials the site listed;
 - `mediation`: `conditional` (Chrome's automatic passkey upgrade) or `other`, when the

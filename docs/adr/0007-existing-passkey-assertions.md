@@ -319,8 +319,8 @@ script, can obtain a verified assertion for that site without any Pateat site se
 For five minutes after Pateat signs in to a site in a tab, a registration there that
 lists the vault's passkey is refused, so deliberately adding another authenticator to
 that account (Windows Hello, a phone or a security key) fails in that tab during that
-time; another tab, or later, still works. The site sees the same `NotAllowedError` that
-Bitwarden returns after its window is closed today. The check reads the vault only as a
+time; another tab, or later, still works. The site gets Chrome's own `NotAllowedError`,
+as when Chrome's prompt is dismissed. The check reads the vault only as a
 sign-in does, writes nothing and needs no new permission.
 Registration, nonzero-counter writeback, cross-origin frames, related origins and
 extensions remain later work; conditional mediation is answered through a login under

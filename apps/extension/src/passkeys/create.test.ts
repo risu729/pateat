@@ -390,7 +390,7 @@ describe("passkey create check (ADR 0007)", () => {
       });
       expect(await check.handle(create(request()), sender())).toEqual({
         kind: "delegate",
-        reason: expect.any(String),
+        reason: "vault-unavailable",
       });
       expect(check.backing.candidates).not.toHaveBeenCalled();
     });

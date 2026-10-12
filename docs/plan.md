@@ -187,8 +187,8 @@ own accounts, so they stay in the project's files rather than in this repository
   sign-in Wise asks to register a passkey (`navigator.credentials.create`), and its
   `excludeCredentials` lists the passkey Pateat just used, which Bitwarden's vault
   holds. As the owner chose at 20:56 UTC, Pateat now wraps `create` and refuses such a
-  registration with `NotAllowedError`, the answer Bitwarden gives once its window is
-  closed, within five minutes of Pateat's sign-in to that site in the same tab, and
+  registration with Chrome's own `NotAllowedError`, as when Chrome's prompt is
+  dismissed, within five minutes of Pateat's sign-in to that site in the same tab, and
   logs each checked registration as `passkey.create`
   ([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in);
   local tests only). Next, in the owner's Chrome: no "Save passkey" window after Pateat
