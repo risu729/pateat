@@ -85,8 +85,18 @@ export const loginObservationSchema = v.pipe(
     // observation is rejected rather than relying on a model to guess the rest.
     // Text bounded to its length limit or redacted is not counted as dropped.
     complete: v.boolean(),
-    candidates: v.pipe(v.array(observedCandidateSchema), v.minLength(1), v.maxLength(48)),
+    candidates: v.pipe(v.array(observedCandidateSchema), v.maxLength(48)),
+    /**
+     * The entries of a list of accounts on a page without fields (ADR 0028), as their
+     * redacted text, such as `Taro [email] Last used`. Only such a page may have no
+     * candidates: its other controls are context for judging it.
+     */
+    accounts: v.optional(v.pipe(v.array(observedText), v.minLength(1), v.maxLength(8))),
   }),
+  v.check(
+    (observation) => observation.candidates.length > 0 || observation.accounts !== undefined,
+    "An observation needs candidates or an account list",
+  ),
   v.check(
     (observation) => unique(observation.candidates.map((candidate) => candidate.id)),
     "Duplicate candidate IDs",

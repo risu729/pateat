@@ -20,6 +20,7 @@ import {
   renderedText,
   shown,
 } from "../page/text";
+import { accountEntries, entryLike } from "../page/account-list";
 
 /**
  * Why no observation was produced. A page without one is never sent to inference.
@@ -705,7 +706,12 @@ export function extractLoginObservation(
 type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget };
 
 /** Numbers the chosen elements in document order and adds the page's title and headings. */
-function observe(document: Document, chosen: Chosen[], complete: boolean): ObservationResult {
+function observe(
+  document: Document,
+  chosen: Chosen[],
+  complete: boolean,
+  accounts?: readonly string[],
+): ObservationResult {
   const location = document.location!;
   chosen.sort((left, right) =>
     left.draft.element.compareDocumentPosition(right.draft.element) &
@@ -742,6 +748,7 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
       candidate.placeholder ?? "",
       candidate.description ?? "",
     ]),
+    ...(accounts ?? []),
   ];
   const parsed = v.safeParse(loginObservationSchema, {
     version: 1,
@@ -752,10 +759,71 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
     ...(headings.length ? { headings } : {}),
     complete,
     candidates,
+    ...(accounts?.length ? { accounts } : {}),
   });
   return parsed.success
     ? { ok: true, observation: parsed.output }
     : { ok: false, reason: "unsupported-page" };
+}
+
+const maxAccounts = 8;
+const maxListControls = 8;
+/** Elements examined for list controls; a list page is small. */
+const listScanLimit = 4000;
+
+/**
+ * The observation of a page without fields that lists accounts to choose from (ADR 0028),
+ * such as a saved-profile list: each entry's redacted text (`Taro [email] Last used`) and
+ * the other controls outside page chrome, by their text, as context and as the
+ * account-independent button the generator may name. A page showing a fillable field, or
+ * no entry with an email address, is refused: {@link extractLoginObservation} covers the
+ * former, and the latter is no list of accounts.
+ */
+export function extractAccountListObservation(
+  document: Document = globalThis.document,
+): ObservationResult {
+  const location = document.location;
+  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  const fieldShown = [...document.querySelectorAll(fields)].some((element) => {
+    const found = describe(element);
+    return found?.kind === "candidate" && fillTypes[found.draft.role] !== undefined;
+  });
+  if (fieldShown || !document.body) return { ok: false, reason: "no-candidates" };
+  const entries = accountEntries(document);
+  if (entries.length === 0) return { ok: false, reason: "no-candidates" };
+  const accounts = entries
+    .slice(0, maxAccounts)
+    .map((entry) => observedText(renderedText(entry.element, rawLimit, { everyElement: true })))
+    .filter((text) => text !== undefined);
+  let complete = entries.length <= maxAccounts && accounts.length === entries.length;
+  for (const host of document.querySelectorAll("*"))
+    if (host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields)) complete = false;
+
+  // The innermost list controls that are not entries, by their whole text, which must
+  // survive redaction and name one control only.
+  const inEntry = (element: Element) =>
+    entries.some((entry) => entry.element.contains(element) || element.contains(entry.element));
+  const listControls = [...document.body.querySelectorAll("*")]
+    .slice(0, listScanLimit)
+    .filter(
+      (element): element is HTMLElement =>
+        entryLike(element) && !element.closest(landmarks) && !inEntry(element),
+    );
+  const innermost = listControls.filter(
+    (element) => !listControls.some((other) => other !== element && element.contains(other)),
+  );
+  const texts = innermost.map((element) => {
+    const raw = collapseText(renderedText(element, rawLimit) ?? "");
+    return raw && observedText(raw) === raw ? raw : undefined;
+  });
+  const chosen: Chosen[] = innermost.flatMap((element, at) => {
+    const text = texts[at];
+    if (text === undefined || texts.filter((other) => other === text).length !== 1) return [];
+    const target = { by: "text" as const, value: text };
+    if (!v.is(loginTargetSchema, target)) return [];
+    return [{ form: null, draft: { element, role: "button", label: text }, target }];
+  });
+  return observe(document, chosen.slice(0, maxListControls), complete, accounts);
 }
 
 /**

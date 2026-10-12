@@ -43,6 +43,8 @@ export function entryLike(element: Element): element is HTMLElement {
   return pointer(element);
 }
 
+const isEntry = (element: Element): boolean => entryLike(element);
+
 export interface AccountEntry {
   readonly element: HTMLElement;
   /** Email addresses, masked or not, in the entry's rendered text. */
@@ -68,8 +70,9 @@ export function accountEntries(root: Document | Element): AccountEntry[] {
   for (let index = 0; index < textNodeLimit; index += 1) {
     const node = walker.nextNode();
     if (!node) break;
-    let element = node.parentElement;
-    while (element && !entryLike(element)) element = element.parentElement;
+    let element: HTMLElement | null = node.parentElement;
+    // Not the type guard: it would narrow `element` to `never` inside the loop.
+    while (element && !isEntry(element)) element = element.parentElement;
     if (!element || found.has(element) || element.closest(chromeSelector)) continue;
     const text = renderedText(element, entryTextLimit, { everyElement: true }) ?? "";
     const accounts = shownAccounts(text).filter((account) => account.includes("@"));
