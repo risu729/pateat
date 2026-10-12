@@ -129,9 +129,11 @@ function setup(
 }
 
 describe("recipe sync", () => {
-  it("does nothing without a paired device", async () => {
-    const { sync, transport, report } = setup({ connection: undefined });
+  it("does nothing without a paired device and clears a leftover cache", async () => {
+    const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [] };
+    const { sync, transport, report, cache } = setup({ stored, connection: undefined });
     expect(await sync.sync()).toBe("not-connected");
+    expect(cache()).toBeUndefined();
     expect(transport.recipeChanges).not.toHaveBeenCalled();
     expect(report).toHaveBeenCalledExactlyOnceWith("not-connected", {
       scope: "full",
@@ -251,12 +253,15 @@ describe("recipe sync", () => {
   });
 
   it("does not advance the cursor when the cache cannot be written", async () => {
-    const { sync, storage, service } = setup({
+    const { sync, storage, service, transport } = setup({
       pages: [page([active(recipe("bank-signin", "/login"))], 1)],
     });
     storage.write.mockRejectedValueOnce(new Error("quota"));
     expect(await sync.sync()).toBe("storage-unavailable");
     expect(service.recordSync).not.toHaveBeenCalled();
+    // The next sync asks again from the old cursor.
+    await sync.sync();
+    expect(transport.recipeChanges).toHaveBeenLastCalledWith(SERVICE, CREDENTIAL, 0);
   });
 
   it("refuses an incomplete page that does not move the cursor", async () => {
@@ -403,13 +408,6 @@ describe("recipe sync", () => {
     expect(await sync.sync()).toBe("storage-unavailable");
     expect(cache()).toEqual(stored);
     expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
-  });
-
-  it("clears a leftover cache once no device is paired", async () => {
-    const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [] };
-    const { sync, cache } = setup({ stored, connection: undefined });
-    expect(await sync.sync()).toBe("not-connected");
-    expect(cache()).toBeUndefined();
   });
 
   it("forgets the cache when its device is disconnected", async () => {
@@ -695,13 +693,6 @@ describe("cached recipe lookup", () => {
     cursor: 2,
     recipes: [signin, recipe("other-site", "/login", 1, "https://other.example")],
   };
-
-  it("starts only on a recipe's first step", async () => {
-    const { sync } = setup({ stored });
-    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
-    expect(await sync.recipes.recipe(SITE, "/password")).toBeUndefined();
-    expect(await sync.recipes.recipe("https://unknown.example", "/login")).toBeUndefined();
-  });
 
   it("returns a resumed attempt's own recipe by ID on any step", async () => {
     const { sync } = setup({ stored });

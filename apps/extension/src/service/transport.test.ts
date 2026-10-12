@@ -182,13 +182,6 @@ describe("pair", () => {
     );
     expect(await pair(hanging, 10)).toEqual({ kind: "failed", error: "unreachable" });
   });
-
-  it("sends no cookies and follows no redirects on device routes", async () => {
-    const fetch = respond(204);
-    await createServiceTransport({ fetch }).revoke(ORIGIN, CREDENTIAL);
-    expect(fetch.mock.calls[0]![1]).toMatchObject({ redirect: "error", credentials: "omit" });
-    expect(fetch.mock.calls[0]![1]!.headers).not.toHaveProperty("X-Requested-With");
-  });
 });
 
 describe("revoke", () => {
@@ -205,6 +198,8 @@ describe("revoke", () => {
       redirect: "error",
       credentials: "omit",
     });
+    // The device routes send no X-Requested-With or other header.
+    expect(init!.headers).toEqual({ Authorization: `Bearer ${CREDENTIAL}` });
   });
 
   it.each(["device_revoked", "device_expired", "unauthorized"])(
