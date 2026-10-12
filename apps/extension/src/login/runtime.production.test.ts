@@ -4658,6 +4658,86 @@ describe("production login document admission", () => {
           expect(service.available).not.toHaveBeenCalled();
           expect(service.generateEntry).not.toHaveBeenCalled();
         });
+
+        describe("on a page that also lists accounts (ADR 0028)", () => {
+          const listPage = {
+            ok: true,
+            observation: { ...entryPage.observation, accounts: ["[account]"] },
+          };
+          /** The document announces both a list of accounts and a page without a sign-in input. */
+          const bothHello = (
+            h: ReturnType<typeof harness>,
+            names?: string[],
+            from: Record<string, unknown> = {},
+          ) =>
+            h.login.handle(
+              {
+                version: 1,
+                type: "login.document.ready",
+                token: "synthetic-token",
+                list: { path: "/", ...(names ? { names } : {}) },
+                entry: { path: "/" },
+              },
+              sender(from),
+            );
+
+          it("sends a page that lists an account by email as a list, never also as an entry", async () => {
+            const { service, h, reports } = setup();
+            fake.state.extracted = { entry: entryPage, accounts: listPage };
+            expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
+            expect(await bothHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(reports("generation")).toHaveLength(2));
+            expect(sent("login.extract")).toEqual([expect.objectContaining({ page: "accounts" })]);
+            expect(service.generate).toHaveBeenCalledTimes(1);
+            expect(service.generateEntry).not.toHaveBeenCalled();
+            expect(reports("generation")).toEqual([
+              expect.objectContaining({ outcome: "sent", page: "accounts" }),
+              expect.objectContaining({ outcome: "abstained", page: "accounts" }),
+            ]);
+          });
+
+          it("sends the page as an entry when no listed short text names a matching item", async () => {
+            const { service, h, reports } = setup();
+            fake.state.extracted = { entry: entryPage, accounts: listPage };
+            h.fields.mockImplementation(async ({ fieldId }) =>
+              fieldId === "login.username" ? "synthetic-user" : "synthetic-secret",
+            );
+            expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
+            expect(await bothHello(h, ["Help", "Create account"])).toEqual({
+              ok: false,
+              reason: "generating",
+            });
+            await vi.waitFor(() => expect(service.generateEntry).toHaveBeenCalledTimes(1));
+            expect(service.generate).not.toHaveBeenCalled();
+            expect(sent("login.extract")).toEqual([expect.objectContaining({ page: "entry" })]);
+            await vi.waitFor(() => expect(reports("generation")).toHaveLength(2));
+            expect(reports("generation")).toEqual([
+              expect.objectContaining({ outcome: "sent", page: "entry" }),
+              expect.objectContaining({ outcome: "abstained", page: "entry" }),
+            ]);
+          });
+
+          it("sends neither after a password form was submitted, logging it once", async () => {
+            const { service, h, reports } = setup();
+            fake.state.extracted = { entry: entryPage, accounts: listPage };
+            await h.login.handle(
+              { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+              sender(),
+            );
+            const from = { documentId: "after-sign-in" };
+            expect(await h.hello(from, false)).toMatchObject({ entry: true });
+            expect(await bothHello(h, ["Help"], from)).not.toEqual({
+              ok: false,
+              reason: "generating",
+            });
+            expect(service.generate).not.toHaveBeenCalled();
+            expect(service.generateEntry).not.toHaveBeenCalled();
+            expect(sent("login.extract")).toEqual([]);
+            expect(reports("generation")).toEqual([
+              expect.objectContaining({ outcome: "skipped", reason: "after-sign-in" }),
+            ]);
+          });
+        });
       });
 
       describe("pressing the entry", () => {
@@ -4769,6 +4849,41 @@ describe("production login document admission", () => {
             "a link the page changed before the click",
             { press: { ok: false, reason: "target-changed" } },
             "target-changed",
+          ],
+          [
+            "a page that navigated between the check and the click",
+            { press: { ok: false, reason: "page-changed" } },
+            "page-changed",
+          ],
+          [
+            "a document that went away before the click",
+            { press: { ok: false, reason: "cancelled" } },
+            "cancelled",
+          ],
+          [
+            "a page inspected on another origin of the site",
+            { inspect: { url: "https://accounts.login.example/?return_to=%2Fbookmarks" } },
+            "page-changed",
+          ],
+          [
+            "a page inspected on another path of the origin",
+            { inspect: { url: `${origin}/other?return_to=%2Fbookmarks` } },
+            "page-changed",
+          ],
+          [
+            "a link whose userinfo names the site",
+            { inspect: { href: "https://login.example@other.example/login" } },
+            "link-off-site",
+          ],
+          [
+            "a link naming another site in a second query value",
+            { inspect: { href: `${loginUrl}?next=%2Fok&next=https%3A%2F%2Fother.example%2F` } },
+            "link-query-off-site",
+          ],
+          [
+            "a link whose `href` does not parse",
+            { inspect: { href: "not a URL" } },
+            "link-off-site",
           ],
         ] as const)("refuses %s, logging why", async (_label, options, reason) => {
           const option = options as {
@@ -4964,6 +5079,88 @@ describe("production login document admission", () => {
           expect(sent("login.entry.press")).toEqual([]);
           expect(reports("entry")).toHaveLength(1);
         });
+
+        it("counts a press whose document went with the click, and limits the tab's next one", async () => {
+          fake.state.entry.inspect = inspected();
+          // The click navigated the document away before it could answer.
+          fake.state.onPress = () => {
+            throw new Error("Could not establish connection. Receiving end does not exist.");
+          };
+          const { h, reports } = setup({ entries: [entryRecipe] });
+          expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+          expect(reports("entry")[0]).toMatchObject({ outcome: "pressed" });
+          expect(presses()).toEqual([
+            expect.objectContaining({ tabId: 1, recipeId: entryRecipe.id, revision: 2 }),
+          ]);
+          // The tab comes back to the entry page in a new document: the same worker refuses.
+          fake.state.onPress = undefined;
+          expect(await h.hello({ documentId: "back-again" }, false)).toMatchObject({
+            reason: "entry",
+          });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
+          expect(reports("entry")[1]).toMatchObject({ outcome: "refused", reason: "press-limit" });
+          expect(sent("login.entry.press")).toHaveLength(1);
+        });
+
+        it("refuses, logging why, when the device's blocks cannot be read, and reads them again", async () => {
+          fake.state.entry.inspect = inspected();
+          const local = fake.browser.storage.local;
+          const get = local.get;
+          const failing = vi
+            .spyOn(local, "get")
+            .mockImplementation(async (keys: string[]) =>
+              keys.includes("pateat.login-entry-blocks.v1")
+                ? Promise.reject(new Error("storage unavailable"))
+                : get(keys),
+            );
+          try {
+            const { h, reports } = setup({ entries: [entryRecipe] });
+            expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+            expect(reports("entry")[0]).toMatchObject({
+              outcome: "refused",
+              reason: "storage-unavailable",
+            });
+            expect(sent("login.entry.inspect")).toEqual([]);
+            failing.mockRestore();
+            // A failed read is not kept: the next document reads the blocks again.
+            expect(await h.hello({ documentId: "later" }, false)).toMatchObject({
+              reason: "entry",
+            });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
+            expect(reports("entry")[1]).toMatchObject({ outcome: "pressed" });
+          } finally {
+            failing.mockRestore();
+          }
+        });
+
+        it("refuses, logging why, when the press cannot be stored, and clicks nothing", async () => {
+          fake.state.entry.inspect = inspected();
+          const session = fake.browser.storage.session;
+          const set = session.set;
+          const failing = vi
+            .spyOn(session, "set")
+            .mockImplementation(async (values: Record<string, unknown>) =>
+              Array.isArray(values["pateat.login-entry-presses.v1"]) &&
+              (values["pateat.login-entry-presses.v1"] as unknown[]).length > 0
+                ? Promise.reject(new Error("storage unavailable"))
+                : set(values),
+            );
+          try {
+            const { h, reports } = setup({ entries: [entryRecipe] });
+            expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+            expect(reports("entry")[0]).toMatchObject({
+              outcome: "refused",
+              reason: "storage-unavailable",
+            });
+            expect(sent("login.entry.press")).toEqual([]);
+            expect(presses() ?? []).toEqual([]);
+          } finally {
+            failing.mockRestore();
+          }
+        });
       });
 
       describe("the page after the press", () => {
@@ -5097,6 +5294,104 @@ describe("production login document admission", () => {
           expect(restarted.reports("entry")).toEqual([
             expect.objectContaining({ outcome: "blocked", reason: "sign-up" }),
           ]);
+        });
+
+        it("checks only the pressing tab's top document after the pressed page", async () => {
+          const { h, reports } = await pressed();
+          fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
+          // The pressed document announcing again on the pressed URL is not the next page.
+          await h.hello({}, false);
+          // Nor is a frame of the tab, or a page of the site in another tab.
+          fake.state.pageUrl = loginUrl;
+          await h.hello({ frameId: 3, documentId: "frame", url: loginUrl }, false);
+          fake.state.tabUrls[2] = loginUrl;
+          expect(
+            await h.hello({ tab: { id: 2 }, documentId: "other-tab", url: loginUrl }, false),
+          ).not.toMatchObject({ reason: "entry-blocked" });
+          expect(sent("login.entry.check")).toEqual([]);
+          expect(blocks()).toBeUndefined();
+          expect(presses()).toEqual([expect.not.objectContaining({ checked: true })]);
+          expect(reports("entry")).not.toContainEqual(
+            expect.objectContaining({ outcome: "blocked" }),
+          );
+          // The tab's own next top document is still checked.
+          fake.state.entry.check = { ok: true, signIn: true, start: false, signUp: false };
+          expect(await h.hello(next, false)).not.toMatchObject({ reason: "entry-blocked" });
+          expect(sent("login.entry.check")).toHaveLength(1);
+          expect(presses()).toEqual([expect.objectContaining({ checked: true })]);
+        });
+
+        it("blocks only the pressed revision of its recipe, and presses a newer revision", async () => {
+          const blockedAt = "2026-10-12T07:00:00.000Z";
+          const otherBlock = {
+            recipeId: "other-entry",
+            revision: 2,
+            reason: "left-site",
+            blockedAt,
+          };
+          // A block of an older revision of the same recipe, and one of another recipe.
+          fake.state.storage["pateat.login-entry-blocks.v1"] = [
+            otherBlock,
+            { recipeId: entryRecipe.id, revision: 1, reason: "sign-up", blockedAt },
+          ];
+          const { h, reports } = await pressed();
+          fake.state.entry.check = { ok: true, signIn: true, start: false, signUp: true };
+          fake.state.pageUrl = loginUrl;
+          expect(await h.hello(next, false)).toMatchObject({ reason: "entry-blocked" });
+          // The older revision's block gives way; the other recipe's block stays.
+          expect(blocks()).toEqual([
+            otherBlock,
+            {
+              recipeId: entryRecipe.id,
+              revision: 2,
+              reason: "sign-up",
+              blockedAt: expect.any(String),
+            },
+          ]);
+          // The recipe sync brings revision 3, which the block of revision 2 does not hold.
+          h.recipes.entries.mockResolvedValue([{ ...entryRecipe, revision: 3 }]);
+          fake.state.pageUrl = entryUrl;
+          fake.state.tabUrls[2] = entryUrl;
+          expect(
+            await h.hello({ tab: { id: 2 }, documentId: "revision-3", url: entryUrl }, false),
+          ).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(3));
+          expect(reports("entry")[2]).toMatchObject({ tabId: 2, revision: 3, outcome: "pressed" });
+        });
+
+        it("checks in time a press a restarted worker finds unchecked, and leaves a checked one", async () => {
+          const pressedAt = new Date(Date.now() - 30_000).toISOString();
+          const press = (tabId: number, checked: boolean) => ({
+            tabId,
+            origin,
+            recipeId: entryRecipe.id,
+            revision: 2,
+            pressedAt,
+            documentId: `pressed-${tabId}`,
+            url: entryUrl,
+            ...(checked ? { checked: true } : {}),
+          });
+          fake.state.session["pateat.login-entry-presses.v1"] = [press(1, false), press(2, true)];
+          // Both tabs still show the pressed page; no next page announced before the restart.
+          const { reports } = setup({ entries: [entryRecipe] });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+          expect(reports("entry")).toEqual([
+            {
+              type: "entry",
+              tabId: 1,
+              origin,
+              recipeId: entryRecipe.id,
+              revision: 2,
+              outcome: "blocked",
+              reason: "no-sign-in",
+            },
+          ]);
+          expect(presses()).toEqual([
+            expect.objectContaining({ tabId: 1, checked: true }),
+            expect.objectContaining({ tabId: 2, checked: true }),
+          ]);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          expect(reports("entry")).toHaveLength(1);
         });
       });
     });

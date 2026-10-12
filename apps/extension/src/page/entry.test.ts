@@ -68,6 +68,43 @@ describe("entryElementRefusal", () => {
       `<a id="t" href="https://accounts.synthetic.example/login"><img alt="Login" src="data:,"></a>`,
       "no-text",
     ],
+    [`<a id="t" href="JavaScript:void 0">Login</a>`, "script-link"],
+    [`<a id="t" href=" javascript:void 0">Login</a>`, "script-link"],
+    [`<a id="t" href="java&#9;script:void 0">Login</a>`, "script-link"],
+    [
+      `<a id="t" href="https://accounts.synthetic.example/login" style="opacity: 0">Login</a>`,
+      "hidden",
+    ],
+    [
+      `<div style="display: none"><a id="t" href="https://accounts.synthetic.example/login">Login</a></div>`,
+      "hidden",
+    ],
+    [
+      `<div inert><a id="t" href="https://accounts.synthetic.example/login">Login</a></div>`,
+      "hidden",
+    ],
+    [
+      `<div aria-hidden="true"><a id="t" href="https://accounts.synthetic.example/login">Login</a></div>`,
+      "hidden",
+    ],
+    [
+      `<details><summary>Menu</summary><a id="t" href="https://accounts.synthetic.example/login">Login</a></details>`,
+      "hidden",
+    ],
+    [
+      `<a id="t" href="https://accounts.synthetic.example/login" aria-label="Login"><svg width="10" height="10"></svg></a>`,
+      "no-text",
+    ],
+    [
+      `<a id="t" href="https://accounts.synthetic.example/login"><span hidden>Login</span>&nbsp;</a>`,
+      "no-text",
+    ],
+    // An empty target is refused too: only a missing one or `_self` keeps the press in the tab.
+    [`<a id="t" href="https://accounts.synthetic.example/login" target="">Login</a>`, "new-window"],
+    [
+      `<a id="t" href="https://accounts.synthetic.example/login" target="_parent">Login</a>`,
+      "new-window",
+    ],
   ])("%s", (html, refusal) => {
     document.body.innerHTML = html;
     expect(entryElementRefusal(first("#t"))).toBe(refusal);
@@ -124,6 +161,21 @@ describe("showsSignUp", () => {
     [
       "a hidden confirmation field",
       `<form><input type="password" autocomplete="new-password"><input type="password" hidden></form>`,
+      false,
+    ],
+    [
+      "a new password shown as text, in capitals, beside a password field",
+      `<form><input type="text" autocomplete="New-Password"><input type="password"></form>`,
+      true,
+    ],
+    [
+      "two password fields joined to one form by its `form` attribute",
+      `<form id="f"></form><input type="password" form="f"><input type="password" form="f">`,
+      true,
+    ],
+    [
+      "a sectioned new password beside a confirmation not displayed",
+      `<form><input type="password" autocomplete="section-a new-password"><input type="password" style="display: none"></form>`,
       false,
     ],
   ])("%s", (_label, html, expected) => {
