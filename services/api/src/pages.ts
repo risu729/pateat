@@ -2,11 +2,18 @@ import type { Context } from "hono";
 import { html } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import icon from "../../../apps/extension/icons/icon.svg?raw";
 
-/** Pages carry no script, load nothing and cannot be framed. */
+/**
+ * The extension's logo, inlined so the icon shows on every page whichever Access
+ * application guards it; a separate icon path could sit behind another one.
+ */
+const ICON = `data:image/svg+xml,${encodeURIComponent(icon.trim())}`;
+
+/** Pages carry no script, load nothing but their inline icon and cannot be framed. */
 export const PAGE_HEADERS = {
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
   "Referrer-Policy": "no-referrer",
   "X-Frame-Options": "DENY",
 } as const;
@@ -22,6 +29,7 @@ export function page(c: Context, status: ContentfulStatusCode, title: string, bo
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>${title} · Pateat</title>
+          <link rel="icon" type="image/svg+xml" href="${ICON}" />
           <style>
             body {
               font:

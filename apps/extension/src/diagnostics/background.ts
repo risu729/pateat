@@ -333,13 +333,18 @@ export function createDiagnosticsLog(options: {
             source,
             // A login that stopped, or whose result settled as unknown, did not finish. A resumed
             // attempt that changed nothing repeats what was already logged.
+            // A fill-only login after a logout ends by design without pressing anything.
             level: report.repeat
               ? "debug"
-              : report.state === "blocked" || report.settled
-                ? "warn"
-                : report.state === "authenticated" || report.state === "retryable"
-                  ? "info"
-                  : "debug",
+              : report.state === "blocked" &&
+                  report.outcome === "cancelled" &&
+                  report.reason === "fill-only"
+                ? "info"
+                : report.state === "blocked" || report.settled
+                  ? "warn"
+                  : report.state === "authenticated" || report.state === "retryable"
+                    ? "info"
+                    : "debug",
           },
         );
     },

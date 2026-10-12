@@ -49,6 +49,9 @@ export const observedCandidateSchema = v.strictObject({
   target: loginTargetSchema,
   label: v.optional(observedText),
   placeholder: v.optional(observedText),
+  // Text the page ties to a fill-role field with `aria-describedby`, such as a hint that
+  // the field takes three digits; left out when it repeats the label.
+  description: v.optional(observedText),
   autocomplete: v.optional(
     v.picklist(["username", "email", "current-password", "new-password", "one-time-code", "off"]),
   ),
@@ -109,10 +112,11 @@ export const loginObservationSchema = v.pipe(
           (role !== "number" && (fillRoles as readonly string[]).includes(role)),
       ) &&
       observation.candidates.every(
-        ({ role, inputMode }) =>
-          inputMode === undefined || (fillRoles as readonly string[]).includes(role),
+        ({ role, inputMode, description }) =>
+          (inputMode === undefined && description === undefined) ||
+          (fillRoles as readonly string[]).includes(role),
       ),
-    "Input constraints apply only to fill roles; lengths not to number inputs",
+    "Input constraints and descriptions apply only to fill roles; lengths not to number inputs",
   ),
   v.check(
     (observation) =>
@@ -120,6 +124,14 @@ export const loginObservationSchema = v.pipe(
         ({ role, target }) => target.by !== "text" || role === "button" || role === "link",
       ),
     "Text locators apply only to buttons and links",
+  ),
+  v.check(
+    (observation) =>
+      observation.candidates.every(
+        ({ role, target }) =>
+          target.by !== "autocomplete" || (fillRoles as readonly string[]).includes(role),
+      ),
+    "Autocomplete locators apply only to fields",
   ),
 );
 

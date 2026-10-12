@@ -58,6 +58,11 @@ export const helloSchema = v.strictObject({
    * without a recipe may be sent for generation (ADR 0016).
    */
   signIn: v.optional(v.strictObject({ path })),
+  /**
+   * Such an input shows on this path but no first step is ready; sent once per path, only
+   * for the log of a login that did not start.
+   */
+  shown: v.optional(v.strictObject({ path })),
 });
 /**
  * A refused hello. `starts` lists the first steps of the origin's recipes; the document
@@ -252,6 +257,8 @@ export const stateResultSchema = v.variant("ok", [
       alert: v.boolean(),
       username: v.optional(v.boolean()),
     }),
+    /** Whether the document has finished loading; the login completes only then. */
+    loaded: v.boolean(),
   }),
   v.strictObject({ ok: v.literal(false) }),
 ]);

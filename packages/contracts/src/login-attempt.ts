@@ -6,6 +6,7 @@ import {
   loginDocumentSchema,
   loginItemFactsSchema,
   loginOperationSchema,
+  loginOriginSchema,
   loginOutcomeSchema,
   loginRouteSchema,
   loginStepEffect,
@@ -84,6 +85,11 @@ export const attemptMetadataSchema = v.pipe(
       ),
     ),
     document: loginDocumentSchema,
+    /**
+     * For a frame's login, the origin of the tab's page around it when the login started:
+     * the site the login belongs to (ADR 0022).
+     */
+    pageOrigin: v.optional(loginOriginSchema),
     state: loginAttemptStateSchema,
     stepIndex: integer(MAX_ATTEMPT_STEPS),
     stepCount: v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1)),
@@ -121,10 +127,16 @@ export const attemptMetadataSchema = v.pipe(
      * that has not succeeded holds its origin for a limited time after it (ADR 0022).
      */
     changedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+    /**
+     * After a logout (ADR 0021 D): the attempt fills the page's leading fields and stops
+     * before the first step with an effect, so it never clicks or submits.
+     */
+    fillOnly: v.optional(v.literal(true)),
   }),
   v.check(
     (metadata) =>
       metadata.document.origin === metadata.account.origin &&
+      (metadata.pageOrigin === undefined || metadata.document.frameId !== 0) &&
       metadata.stepIndex <= metadata.stepCount &&
       metadata.submissions <= metadata.maxSubmissions,
     "Inconsistent attempt scope or budget",
@@ -757,7 +769,10 @@ export function createAttemptMetadata(input: {
   choice: LoginRouteChoice;
   facts: LoginItemFacts;
   document: LoginDocument;
+  /** The origin of the tab's page, for a frame's login. */
+  pageOrigin?: string;
   accountSwitched?: boolean;
+  fillOnly?: boolean;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
   if (input.account.origin !== recipe.origin)
@@ -774,6 +789,7 @@ export function createAttemptMetadata(input: {
     facts: input.facts,
     handlers: [],
     document: input.document,
+    ...(input.pageOrigin === undefined ? {} : { pageOrigin: input.pageOrigin }),
     state: "detected",
     stepIndex: 0,
     stepCount: routeSteps(recipe, input.choice).length,
@@ -783,8 +799,14 @@ export function createAttemptMetadata(input: {
     maxRetries: 2,
     usedOperationIds: [],
     ...(input.accountSwitched ? { accountSwitched: true } : {}),
+    ...(input.fillOnly ? { fillOnly: true } : {}),
   });
 }
+/** A step that may advance or submit the page: a click, or a fill whose event may. */
+export const effectfulStep = (step: LoginStep): boolean => {
+  const effect = loginStepEffect(step);
+  return effect !== undefined && effect !== "prepare";
+};
 
 export function transitionLoginAttempt(value: unknown, eventValue: unknown): LoginAttemptMetadata {
   const metadata = parseAttemptMetadata(value);
@@ -910,9 +932,9 @@ export function nextLoginOperation(
   const step = plan?.length === metadata.stepCount ? plan[metadata.stepIndex]?.step : undefined;
   if (
     !step ||
-    (loginStepEffect(step) !== undefined &&
-      loginStepEffect(step) !== "prepare" &&
-      metadata.submissions >= metadata.maxSubmissions)
+    (effectfulStep(step) &&
+      // A fill-only attempt never takes a step with an effect (ADR 0021 D).
+      (metadata.fillOnly === true || metadata.submissions >= metadata.maxSubmissions))
   )
     return undefined;
   return v.parse(loginOperationSchema, {
@@ -945,6 +967,7 @@ export function validateLoginOperation(
       : metadata.state === "executing";
   return (
     readyToExecute &&
+    !(metadata.fillOnly === true && effectfulStep(operation.step)) &&
     (!(operation.step.kind === "fill" || operation.step.kind === "click") ||
       metadata.mutationIntent === true) &&
     operation.attemptId === metadata.id &&

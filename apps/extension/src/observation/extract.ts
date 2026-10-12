@@ -1,4 +1,5 @@
 import {
+  loginAutocompleteTokens,
   loginObservationSchema,
   loginTargetSchema,
   type LoginObservation,
@@ -8,6 +9,7 @@ import {
 import * as v from "valibot";
 import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
+import { autocompleteTokens } from "../page/targets";
 import {
   buttonText,
   collapseText,
@@ -51,7 +53,7 @@ const maxHeadings = 8;
 const maxText = 120;
 const rawLimit = maxText * 4;
 const labelDepth = 3;
-const autocompleteTokens = [
+const observedAutocomplete = [
   "username",
   "email",
   "current-password",
@@ -137,9 +139,13 @@ type LocatorIndex = Map<string, Map<string, number>>;
 /** Counts every locator value once, as the executor's whole-document lookup sees them. */
 function locatorIndex(document: Document): LocatorIndex {
   const index: LocatorIndex = new Map(
-    [...locators.map(([, attribute]) => attribute), "text", "script-text", "link-text"].map(
-      (key) => [key, new Map()],
-    ),
+    [
+      ...locators.map(([, attribute]) => attribute),
+      "autocomplete",
+      "text",
+      "script-text",
+      "link-text",
+    ].map((key) => [key, new Map()]),
   );
   const count = (key: string, value: string) => {
     const counts = index.get(key)!;
@@ -150,6 +156,8 @@ function locatorIndex(document: Document): LocatorIndex {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
     }
+  for (const input of document.querySelectorAll("input[autocomplete]"))
+    for (const token of new Set(autocompleteTokens(input))) count("autocomplete", token);
   for (const element of document.querySelectorAll("button, input, a")) {
     const text = buttonText(element);
     if (text !== undefined) count(isScriptLink(element) ? "script-text" : "text", text);
@@ -162,10 +170,11 @@ function locatorIndex(document: Document): LocatorIndex {
 }
 
 /**
- * Mirrors the executor's lookup: an attribute value, or else a button's text, that
- * matches exactly one element. A script link's text must also name no native button,
- * shown or not, which the executor would take first. Button text is used only when redaction leaves
- * it unchanged, so a locator never carries an email address or a long number. With
+ * Mirrors the executor's lookup: an attribute value, or else a fillable input's
+ * `autocomplete` token, or else a button's text, that matches exactly one element. A
+ * script link's text must also name no native button, shown or not, which the executor
+ * would take first. Button text is used only when redaction leaves it unchanged, so a
+ * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account. With `links`, a link is located by its text too,
  * which only an account switch uses: the text must name no other link and no button.
@@ -182,6 +191,14 @@ function locate(
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
+  // Only a field the login fills; a button is named by its own attributes or text.
+  if (element instanceof HTMLInputElement && fillTypes[element.type])
+    for (const value of autocompleteTokens(element)) {
+      if (!(loginAutocompleteTokens as readonly string[]).includes(value)) continue;
+      if (index.get("autocomplete")!.get(value) !== 1) continue;
+      const target = { by: "autocomplete" as const, value };
+      if (v.is(loginTargetSchema, target)) return target;
+    }
   if (
     element instanceof HTMLAnchorElement &&
     element.hasAttribute("href") &&
@@ -211,14 +228,49 @@ function locate(
   return v.is(loginTargetSchema, target) ? target : undefined;
 }
 
-function referencedText(element: Element): string | undefined {
-  const ids = element.getAttribute("aria-labelledby")?.split(/\s+/u).filter(Boolean) ?? [];
+const idList = (element: Element, attribute: string) =>
+  element.getAttribute(attribute)?.split(/\s+/u).filter(Boolean) ?? [];
+
+/**
+ * Visible text of the elements `ids` name. With `skip`, the text of an element matching
+ * it, or of one inside such an element, is left out.
+ */
+function referencedText(
+  element: Element,
+  ids: readonly string[],
+  skip?: string,
+): string | undefined {
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
-    const text = referenced && visibleText(referenced);
+    if (!referenced || (skip && referenced.closest(skip))) return [];
+    const text = observedText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
     return text ? [text] : [];
   });
   return observedText(parts.join(" "));
+}
+
+/** Regions that announce changes, such as a failed sign-in's message. */
+const liveRegions = [
+  ...["alert", "status", "log", "marquee", "timer"].map((role) => `[role='${role}']`),
+  "[aria-live]:not([aria-live='off'])",
+].join(", ");
+
+/**
+ * A field's `aria-describedby` text, such as a hint that it takes three digits. Error
+ * messages can echo the value the user typed, so a field marked `aria-invalid="true"`
+ * gets none, and an element its `aria-errormessage` names or a live region, around the
+ * description or inside it, never counts.
+ * Text that repeats the label is left out.
+ */
+function fieldDescription(input: HTMLInputElement, label: string | undefined) {
+  if (input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return undefined;
+  const errors = new Set(idList(input, "aria-errormessage"));
+  const text = referencedText(
+    input,
+    idList(input, "aria-describedby").filter((id) => !errors.has(id)),
+    liveRegions,
+  );
+  return text === label ? undefined : text;
 }
 
 /** True for an element that belongs to another control: a control or its `<label for>`. */
@@ -260,7 +312,7 @@ function fieldLabel(input: HTMLInputElement): string | undefined {
     return text ? [text] : [];
   });
   return (
-    referencedText(input) ??
+    referencedText(input, idList(input, "aria-labelledby")) ??
     observedText(input.getAttribute("aria-label")) ??
     observedText(labels.join(" ")) ??
     adjacentText(input) ??
@@ -273,7 +325,7 @@ function actionLabel(element: HTMLElement): string | undefined {
     shown(image) ? [image.getAttribute("alt")] : [],
   );
   return (
-    referencedText(element) ??
+    referencedText(element, idList(element, "aria-labelledby")) ??
     observedText(element.getAttribute("aria-label")) ??
     (element instanceof HTMLInputElement
       ? observedText(element.type === "image" ? element.alt : element.value)
@@ -284,9 +336,9 @@ function actionLabel(element: HTMLElement): string | undefined {
 }
 
 function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
-  const tokens = (input.getAttribute("autocomplete") ?? "").toLowerCase().trim().split(/\s+/u);
+  const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
-  return autocompleteTokens.find((token) => tokens.includes(token));
+  return observedAutocomplete.find((token) => tokens.includes(token));
 }
 
 function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
@@ -331,6 +383,7 @@ function describe(element: Element): Found | undefined {
     if (fillRole) {
       const label = fieldLabel(element);
       const placeholder = observedText(element.placeholder);
+      const description = fieldDescription(element, label);
       const hint = autocomplete(element);
       return {
         kind: "candidate",
@@ -340,6 +393,7 @@ function describe(element: Element): Found | undefined {
           role: fillRole,
           ...(label ? { label } : {}),
           ...(placeholder ? { placeholder } : {}),
+          ...(description ? { description } : {}),
           ...(hint ? { autocomplete: hint } : {}),
           ...constraints(element, fillRole),
         },
@@ -512,10 +566,10 @@ function loginFormsOf(
 
 /**
  * Builds the value-free observation of a top-level page that recipe generation
- * receives. It reads element types, locators, labels, placeholders and declared input
- * constraints, plus the title and visible headings; never input values, hidden inputs,
- * query strings, scripts or markup. Label text comes from label elements, ARIA, or the
- * rendered text next to a field, with private-looking parts redacted.
+ * receives. It reads element types, locators, labels, placeholders, descriptions and
+ * declared input constraints, plus the title and visible headings; never input values,
+ * hidden inputs, query strings, scripts or markup. Label text comes from label elements,
+ * ARIA, or the rendered text next to a field, with private-looking parts redacted.
  *
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
  * links (or, for fields outside any form, every control outside a form). Up to four
@@ -683,7 +737,11 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
   const texts = [
     title ?? "",
     ...headings,
-    ...candidates.flatMap((candidate) => [candidate.label ?? "", candidate.placeholder ?? ""]),
+    ...candidates.flatMap((candidate) => [
+      candidate.label ?? "",
+      candidate.placeholder ?? "",
+      candidate.description ?? "",
+    ]),
   ];
   const parsed = v.safeParse(loginObservationSchema, {
     version: 1,

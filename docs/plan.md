@@ -57,9 +57,13 @@ Chrome, on a production build of main.
   same path, as an identifier-first form that swaps in its password form in place,
   already continues ([#252](https://github.com/risu729/pateat/pull/252)).
 - [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
-  local sign-in state of the page after a submission as `login.state`, next to today's
-  result, with no change in behaviour. After the owner reviews those logs from the
-  daily-site passes, delivery 2 settles logins by it, with the judge as a fallback.
+  local sign-in state of the page after a submission as `login.state`. Delivery 2's
+  first part is implemented: evidence of a sign-in that a second reading a second later
+  confirms completes a `password`-route login without a model call (owner's choice,
+  2026-10-12 06:58 UTC, after アパホテル's login stayed unknown though its marker
+  showed). Still to do: the other rows of the ADR's outcome table (a failure next to the
+  fields rejects; no sign and no evidence asks the judge once and completes when it
+  cannot decide).
 - Installed-Chrome checks still open:
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the
@@ -90,6 +94,15 @@ Chrome, on a production build of main.
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
   planned on 2026-10-11, and the base design tokens set with Claude Design.
+- Prune low-value tests with OpenClaw's `test-audit` agent skill, alongside the UI
+  polish once the daily-use sites are done (owner, 2026-10-12 07:43 UTC; the
+  [survey](research/2026-10-12-test-pruning-skills.md) compares the alternatives). The
+  skill is copied into the repository with its OpenClaw-specific validation replaced by
+  `mise run check`. The owner asked for care not to remove needed tests: every deletion
+  names the test that still covers its contract, and an independent subagent compares
+  the deleted tests with the kept ones before each batch merges, as the skill's
+  preservation review does. The suite's size and CI times in the survey are a 2026-10-12
+  snapshot; re-measure them when the work starts and after each batch.
 - `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged (the retry
   window is 10 minutes since 2026-10-12), so the first recipe names both its password
   and passkey routes. A recipe generated earlier gets no routes
@@ -125,6 +138,10 @@ Chrome, on a production build of main.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
+- If field or button mapping gets worse on real pages, consider observing more of the
+  text around a control, which the extractor leaves out today
+  ([AI evaluation harness progress](#ai-evaluation-harness-progress)); not before
+  (owner, 2026-10-12 05:57 UTC).
 
 ### Phase 3: public release
 
@@ -246,6 +263,10 @@ still open on 2026-10-11.
   [research note](research/2026-10-11-clef-finite-choice.md) covers its API, where it
   would fit in recipe generation, cost, and the open questions (Japanese, calibration,
   who pays, abstention handover).
+- An agent skill for pruning the low-value tests agents write (owner, 2026-10-12 07:32
+  UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills;
+  the owner chose OpenClaw's `test-audit` (07:43 UTC), planned in
+  [phase 1](#phase-1-usable).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -284,10 +305,11 @@ SideBySide assembly on one local Windows host. On 2026-10-11 a clean `windows-20
 runner launched the Playwright-downloaded Chromium and
 [passed all 92 packaged-extension tests at that head](https://github.com/risu729/pateat/actions/runs/38118250919/job/114407461875),
 so the failure did not reproduce on a clean Windows host; CI now runs these tests on
-Windows on every PR, with browser profiles on the runner's work drive to avoid
-system-drive I/O stalls. The later installed-Chrome synthetic probe passed the early
-login gate; broader coexistence remains a separate M1 gate. Code Quality is not used,
-and normal merges need no bypass; see [merging](delivery.md#merging).
+Windows on main pushes and manual runs (not on PRs since 2026-10-12), with browser
+profiles on the runner's work drive to avoid system-drive I/O stalls. The later
+installed-Chrome synthetic probe passed the early login gate; broader coexistence
+remains a separate M1 gate. Code Quality is not used, and normal merges need no bypass;
+see [merging](delivery.md#merging).
 
 ## Local settings progress
 
@@ -1584,15 +1606,15 @@ added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
-locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
-title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
-strings, and refuses a path that may carry a session ID or another token: a segment,
-percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET part such as
-`(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
-`/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
-contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
-that contains a digit and switches case or between letters and digits often. Each
-segment is checked as it is and percent-decoded up to three times.
+locators, labels, placeholders, descriptions, `autocomplete` and declared input
+constraints, plus the title and visible `h1`-`h3`. It never reads input values, hidden
+inputs or query strings, and refuses a path that may carry a session ID or another
+token: a segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an
+ASP.NET part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's
+base64-encoded `/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and
+digits that contains a digit, or a base64url-like run of 16 or more letters, digits, `-`
+and `_` that contains a digit and switches case or between letters and digits often.
+Each segment is checked as it is and percent-decoded up to three times.
 `extractSignedInObservation` refuses the same paths. The rule is a heuristic: it misses
 tokens shorter than 16 characters and some plain-looking ones, and it also refuses paths
 that carry no session, such as Microsoft Entra tenant IDs
@@ -1626,48 +1648,67 @@ context links to the 48-candidate limit or to shared text. Hidden, collapsed,
 `aria-hidden` and before-the-page-start inputs are skipped as likely traps. Labels come
 from `aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
 table cell, `<dt>` or sibling, at most three levels up, never across another control or
-its label), then `title`; image `alt` names buttons, including `<input type="image">`.
-Text is redacted as [architecture](architecture.md#declarative-recipes-and-ai)
-describes. Each target is the first of `id`, `name` and `data-testid` that matches
-exactly one element, as the executor resolves it; a button without one gets a text
-locator when its text matches exactly one button and redaction leaves it unchanged, and
-a script link when its text matches no button and exactly one script link. In a login
-form, a field, button or checkbox without a target, a control the executor cannot act on
-(a select, radio, text area, another input type, or a read-only, disabled, transparent
-or tiny field) or a control in a shadow root makes the observation incomplete, as do
-more than 48 candidates, so inference rejects it; a page without a field, or where
-nothing in a login form can be located or acted on, is refused. The
-login forms are those with one password field that is not `new-password`, or with a
-`username` or `one-time-code` field, as ADR 0016 detects a login; failing that, any with
-a password field; otherwise every form that holds a field. Any other form with such a
-control, such as a search form with a category select or a sign-up form with a
-birth-date select, is left out entirely, so every form the observation describes is
-complete. On the 233 observed Formasaurus login pages of the real-page corpus
-(2026-10-11), this cut the incomplete ones from 108 to 52: 55 became complete, each
-still showing the form Formasaurus labels as the login form, and one whose login form
-has no locatable control now gives no observation. A field in any open shadow root marks
-it incomplete too, as it may be the real login. Links are context only: the plan check
-accepts only a button as the page action. Known limits: a read-only username shown again
-on a password step makes that step incomplete, and honeypot inputs moved to the right or
-clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
-the page after a generated recipe's final submission the same way, but over the whole
-page: every field, then buttons and links up to 48 candidates, listed in document order.
-A field it cannot describe marks it incomplete, except a read-only, transparent or tiny
-field that does not look like a sign-in field, which is left out since 2026-10-12: the
-page after アパホテル's login was logged as `unfillable-field` and never judged, and a
-read-only date picker of its hotel search is the inferred cause, not yet confirmed in
-the owner's Chrome. Buttons and links past the limit or without a locator are left out,
-since they are only possible sign-in markers. Links are located by their text too, and
-those in a page header or navigation, where account menus usually sit, are kept first;
-the rank reads only the page's structure, never words of one language. A text locator
-with a digit, such as a points balance or an unread count, never names a marker there,
-and the judge is told to pick a marker whose text is the same for every account and
-visit, never the person's name, a count or a balance: its text is stored in the recipe
-and must match every later sign-in. On ポイントインカム (2026-10-12) the page after
-sign-in gave 21 candidates, all carousel controls, news tabs and an ad's close button,
-because its header links have no `id`; the judge answered `unclear`. A synthetic page of
-that shape now keeps the header's links. There, an attribute locator that redaction
-would change counts as no locator, so an account number in an `id` is never sent.
+its label), then `title`; image `alt` names buttons, including `<input type="image">`. A
+text, email, tel, number or password field also gets a `description`: the rendered text
+of the elements its `aria-describedby` names, such as `半角数字3桁` under a branch
+number field, left out when it equals the label. Error messages can echo what the user
+typed, so a field marked `aria-invalid="true"` gets no description, and neither an
+element the field's `aria-errormessage` names nor the text of an alert, status or other
+live region, around the description or inside it, ever counts. An error message with
+none of these marks is still read. The description reaches the generation, finite-choice
+and completion roles as untrusted page text, like labels. The owner chose on 2026-10-12
+to add only this now and to consider the rest only if field or button mapping gets worse
+on real pages. Not observed today: text after a field that no `aria-describedby` names
+(a hint printed under an input), a second label source once one is found (the text next
+to a field when a `<label>` exists), text around a button (a line above a passkey
+button, or which `h1`-`h3` heading a button sits under) and a button's
+`aria-describedby`, the `pattern` attribute, and whether a button is disabled. Whatever
+the model saw, the executor still checks a field's `maxlength` and `minlength` before it
+fills and the browser's validation, `pattern` included, before it clicks. Text is
+redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
+target is the first of `id`, `name` and `data-testid` that matches exactly one element,
+as the executor resolves it, and for an input without one, its first `autocomplete`
+token that is `username`, `email`, `current-password` or `one-time-code` and that no
+other input carries; a button without one gets a text locator when its text
+matches exactly one button and redaction leaves it unchanged, and a script link when its
+text matches no button and exactly one script link. In a login form, a field, button or
+checkbox without a target, a control the executor cannot act on (a select, radio, text
+area, another input type, or a read-only, disabled, transparent or tiny field) or a
+control in a shadow root makes the observation incomplete, as do more than 48
+candidates, so inference rejects it; a page without a field, or where nothing in a login
+form can be located or acted on, is refused. The login forms are those with one password
+field that is not `new-password`, or with a `username` or `one-time-code` field, as ADR
+0016 detects a login; failing that, any with a password field; otherwise every form that
+holds a field. Any other form with such a control, such as a search form with a category
+select or a sign-up form with a birth-date select, is left out entirely, so every form
+the observation describes is complete. On the 233 observed Formasaurus login pages of
+the real-page corpus (2026-10-11), this cut the incomplete ones from 108 to 52: 55
+became complete, each still showing the form Formasaurus labels as the login form, and
+one whose login form has no locatable control now gives no observation. A field in any
+open shadow root marks it incomplete too, as it may be the real login. Links are context
+only: the plan check accepts only a button as the page action. Known limits: a read-only
+username shown again on a password step makes that step incomplete, and honeypot inputs
+moved to the right or clipped by `overflow: hidden` stay candidates.
+`extractSignedInObservation` describes the page after a generated recipe's final
+submission the same way, but over the whole page: every field, then buttons and links up
+to 48 candidates, listed in document order. A field it cannot describe marks it
+incomplete, except a read-only, transparent or tiny field that does not look like a
+sign-in field, which is left out since 2026-10-12: the page after アパホテル's login was
+logged as `unfillable-field` and never judged, and a read-only date picker of its hotel
+search is the inferred cause. In the owner's Chrome on 2026-10-12 (06:17 UTC) the page
+after the login was then judged `signed-in` with the ログアウト button as its marker.
+Buttons and links past the limit or without a locator are left out, since they are only
+possible sign-in markers. Links are located by their text too, and those in a page
+header or navigation, where account menus usually sit, are kept first; the rank reads
+only the page's structure, never words of one language. A text locator with a digit,
+such as a points balance or an unread count, never names a marker there, and the judge
+is told to pick a marker whose text is the same for every account and visit, never the
+person's name, a count or a balance: its text is stored in the recipe and must match
+every later sign-in. On ポイントインカム (2026-10-12) the page after sign-in gave 21
+candidates, all carousel controls, news tabs and an ad's close button, because its
+header links have no `id`; the judge answered `unclear`. A synthetic page of that shape
+now keeps the header's links. There, an attribute locator that redaction would change
+counts as no locator, so an account number in an `id` is never sent.
 `mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
 pages.
 
@@ -1748,13 +1789,17 @@ still showing does not count until it shows again. When a first step then shows,
 tab's record for that origin is released and the tab asks with reason `logged-out`: the
 badge and popup list the saved default first and every URI match, even a single one. The
 tab and origin are kept in `pateat.login-logouts.v1` in `chrome.storage.session`, so a
-reload or a restarted worker asks again until a pick logs in. Another tab's record that
-still holds the site (running, or ended without success in a way that still holds, such
-as a refused password; 2026-10-12) blocks it with `origin-busy`, and the tab's tooltip
-says so; while the tab asks, other tabs of the site that show a first step ask as well
-(2026-10-11). If the URI matches cannot be listed, the saved default alone is offered. A
-login whose result is still `reconciling` is resumed, not taken as a logout. Frame
-logins and sites whose logout page shows only a password step are not detected.
+reload or a restarted worker asks again until a pick logs in. Since 2026-10-12, when one
+account is to be used (the saved default or the only match), each such document is first
+filled once without pressing anything, and then asks; filled documents are kept in
+`pateat.login-logout-fills.v1` so a restarted worker does not fill them again. Another
+tab's record that still holds the site (running, or ended without success in a way that
+still holds, such as a refused password; 2026-10-12) blocks it with `origin-busy`, and
+the tab's tooltip says so; while that tab keeps its logout state, other tabs of the site
+that show a first step ask (and are filled) as well (2026-10-11). If the URI matches
+cannot be listed, the saved default alone is offered. A login whose result is still
+`reconciling` is resumed, not taken as a logout. Frame logins and sites whose logout
+page shows only a password step are not detected.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

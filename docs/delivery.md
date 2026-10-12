@@ -8,10 +8,11 @@ mode without the service are planned for [phase 3](plan.md#phase-3-public-releas
 ## Current foundation workflows
 
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
-and main push, split over the jobs below, and repeats the packaged-extension browser
-tests on Windows. The packaged-extension suite (`tests/extension`, 123 tests at the
-time, one after another in one worker) took about six minutes on Linux and seven on
-Windows, the longest step of every run (about 8.5 minutes in total on 2026-10-11). It
+(except a documentation-only one, see `Changes` below) and main push, split over the
+jobs below, and repeats the packaged-extension browser tests on Windows on main pushes
+and manual runs, not on PRs. The packaged-extension suite (`tests/extension`, 123 tests
+at the time, one after another in one worker) took about six minutes on Linux and seven
+on Windows, the longest step of every run (about 8.5 minutes in total on 2026-10-11). It
 therefore runs as six shards, in `Linux browser (1/6)` to `(6/6)` and
 `Windows browser (1/6)` to `(6/6)`: each shard sets
 `PATEAT_E2E_SHARD=<current>/<total>`, which `tests/extension/playwright.config.ts` turns
@@ -23,21 +24,41 @@ the rest of the graph (lint, typecheck, unit and component tests, build checks) 
 no-op there; without that variable, as in a local `mise run check`, the suite runs
 whole. With four shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37
 runs on 2026-10-11 and 12), where each Linux shard still repeated the rest of the graph;
-`Verify` and the Linux shards run side by side now. A run is 14 jobs (up to 13 at once),
-so a PR run that overlaps a main run or another PR's run can queue on GitHub's
-concurrent-job limit; that delays it without failing it. `CI Check` requires `Verify`
-and every shard of both browser jobs to succeed, including when an upstream job failed,
-skipped or was cancelled. A newer push to a PR cancels its older run, but each main push
-finishes its own run; otherwise frequent merges would cancel every main run before it
-could package a release and start `deploy-server.yml`. `codeql.yml` analyzes
-TypeScript/JavaScript and Actions separately. Linux jobs pin `ubuntu-26.04`; the
-`CI Check` aggregate only compares results, so it runs on the single-CPU `ubuntu-slim`
-runner. CodeQL needs no Actions cache: dependency caching is off by default in advanced
-setup and its TRAP cache is disabled, so the workflow sets `cache-mode: none`. In
-`ci.yml` the three jobs share their checkout, mise and Bun install steps through YAML
-anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in `ci.yml`;
-zizmor warns that it audits anchored workflows on a best-effort basis. GitHub Code
-Quality is not used: since its
+`Verify` and the Linux shards run side by side now. With six shards and `Verify` split
+out, 16 PR runs on 2026-10-12 between 06:11 and 07:24 UTC (JST 15:11 to 16:24) took
+4m06s on average (3m19s to 5m28s) and 11 successful main runs 4m44s (3m28s to 8m00s);
+the slowest ones overlapped other runs. One Windows shard timed out once in a test that
+usually takes about 8 s (a 30 s hang with no trace; Windows system-drive I/O stalls are
+the known cause of such timeouts, but this one was not confirmed), and a re-run is the
+response. A main or manual run is 15 jobs (up to 13 at once), so it can queue on
+GitHub's concurrent-job limit when runs overlap; that delays it without failing it. A PR
+run skips the Windows shards (the owner's decision on 2026-10-12): it is 9 jobs, or 3
+for a documentation-only PR (`Changes`, `Verify`, `CI Check`). A Windows-only failure
+therefore shows first on the main run, which then packages no release and starts no
+deployment; run the workflow manually (`workflow_dispatch`) on a branch to get the
+Windows shards before merging. `CI Check` requires `Verify` and every Linux shard to
+succeed (see `Changes` below) and every Windows shard to succeed on main pushes and
+manual runs (skipped on PRs), including when an upstream job failed or was cancelled. A
+`Changes` job (no checkout, on `ubuntu-slim`) decides whether a PR needs the browser
+tests: a PR whose changed files are all under `docs/` or are `AGENTS.md` or `README.md`
+skips the Linux shards, runs only `Verify` (which still checks the documentation) and
+passes `CI Check` with the shards skipped; any other change, every main push and every
+manual run runs them. The owner chose
+[dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
+2026-10-12 because on a `pull_request` event it reads the changed files through the API,
+so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
+filters are not used because a skipped workflow reports no `CI Check`. If the `Changes`
+job fails, `CI Check` fails. `Changes` adds a few seconds before the Linux shards start.
+A newer push to a PR cancels its older run, but each main push finishes its own run;
+otherwise frequent merges would cancel every main run before it could package a release
+and start `deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and Actions
+separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares
+results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions
+cache: dependency caching is off by default in advanced setup and its TRAP cache is
+disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the three jobs share
+their checkout, mise and Bun install steps through YAML anchors (`&checkout`, `&mise`,
+`&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits anchored
+workflows on a best-effort basis. GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
@@ -84,18 +105,18 @@ The owner decided these on 2026-10-11, following the kogane repository:
   such as an agent's cloud computer, may pair permanently
   ([ADR 0030](adr/0030-pairing-without-warp.md)). A third self-hosted Access
   application, "pateat pair", covers `pateat.takuk.me` with path `pair` (and the paths
-  below it) and takes precedence there. Its Login methods are the host-wide
-  application's identity provider and One-time PIN. Policy 1 is the same reusable
-  policy as the host-wide application (email domain and WARP); Policy 2 includes the
-  owner's email address only and requires the One-time PIN login method, without WARP.
+  below it) and takes precedence there. Its Login method is One-time PIN, the team's
+  only identity provider (checked 2026-10-12), as on the host-wide application.
+  Policy 1 is the same reusable policy as the host-wide application (email domain and
+  WARP); Policy 2 includes the owner's email address only and requires the One-time PIN
+  login method, without WARP.
   Session Duration is 15 minutes, and Cookie Path Attribute and Binding Cookie are on.
   Its Application Audience (AUD) Tag is the `ACCESS_PAIR_AUD` Worker secret; the
   Worker accepts it on `/pair` and `/pair/signed-in` only, and an empty value turns
   it off while "pateat pair" does not exist; once it exists, Access issues only its
   audience on `/pair`, so emptying the secret then stops all pairing. `/manage` keeps
-  requiring WARP. One-time PIN must be enabled under
-  Integrations, Identity providers; enabling it also offers it to every Access
-  application whose Login methods accept all identity providers. After pairing on a
+  requiring WARP. If another identity provider is added under Integrations, Identity
+  providers, Policy 2 still admits One-time PIN sign-ins only. After pairing on a
   vendor's machine, open `/cdn-cgi/access/logout` there.
 - Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
   `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a

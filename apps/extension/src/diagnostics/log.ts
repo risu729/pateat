@@ -339,7 +339,14 @@ export function createLogger(deps: LoggerDependencies) {
   let sites: { at: number; value: Promise<KnownSites> } | undefined;
   const windows = new Map<
     string,
-    { start: number; count: number; dropped: number; reported: number; origin: string }
+    {
+      start: number;
+      count: number;
+      dropped: number;
+      reported: number;
+      origin: string;
+      debug: boolean;
+    }
   >();
   // The debug deadline once read, so a debug event can be skipped without queueing.
   let knownDebugUntil: number | undefined;
@@ -475,8 +482,13 @@ export function createLogger(deps: LoggerDependencies) {
       const pending = window.dropped - window.reported;
       if (pending > 0) {
         window.reported = window.dropped;
+        // Losing debug detail is itself debug detail; losing more is a problem.
         void serial(() =>
-          record("log.dropped", { origin: window.origin, count: pending }, "warn"),
+          record(
+            "log.dropped",
+            { origin: window.origin, count: pending },
+            window.debug ? "debug" : "warn",
+          ),
         ).catch(() => undefined);
       }
       if (ended) windows.delete(key);
@@ -485,14 +497,17 @@ export function createLogger(deps: LoggerDependencies) {
 
   /**
    * Counts a page-caused event against its tab and origin; false when over the limit.
+   * `debug` events have an allowance of their own, so they never crowd out the rest.
    * The first drop in a window is logged at once, since a stopped worker loses the rest.
    */
-  function admit(source: { tabId: number; origin: string }): boolean {
+  function admit(source: { tabId: number; origin: string }, debug: boolean): boolean {
     flushDrops();
     const at = now();
-    let key = `${source.tabId}\u0000${source.origin}`;
+    const band = debug ? "debug" : "rest";
+    let key = `${source.tabId}\u0000${source.origin}\u0000${band}`;
     // Pages that open many tabs or origins share one window once too many are open.
-    if (!windows.has(key) && windows.size >= MAX_WINDOWS) key = OVERFLOW_WINDOW;
+    const overflow = !windows.has(key) && windows.size >= MAX_WINDOWS;
+    if (overflow) key = `${OVERFLOW_WINDOW}\u0000${band}`;
     let window = windows.get(key);
     if (!window) {
       window = {
@@ -500,7 +515,8 @@ export function createLogger(deps: LoggerDependencies) {
         count: 0,
         dropped: 0,
         reported: 0,
-        origin: key === OVERFLOW_WINDOW ? "" : source.origin,
+        origin: overflow ? "" : source.origin,
+        debug,
       };
       windows.set(key, window);
     }
@@ -526,7 +542,7 @@ export function createLogger(deps: LoggerDependencies) {
     // Checked before queueing, so a stalled database cannot collect page events.
     if (level === "debug" && knownDebugUntil !== undefined && now() >= knownDebugUntil)
       return Promise.resolve();
-    if (options.source && !admit(options.source)) return Promise.resolve();
+    if (options.source && !admit(options.source, level === "debug")) return Promise.resolve();
     // A log failure never changes what the caller does.
     return serial(() => record(event, fields, level)).catch(() => undefined);
   }

@@ -191,6 +191,59 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("takes field descriptions from aria-describedby, never errors or text the label repeats", () => {
+    page(
+      `<label for="branch">店番</label>
+      <input id="branch" aria-describedby="branch-hint gone">
+      <p id="branch-hint">半角数字3桁</p>
+      <input id="same" aria-labelledby="pin-label" aria-describedby="pin-label">
+      <span id="pin-label">暗証番号</span>
+      <input id="hidden-hint" aria-label="Code" aria-describedby="secret">
+      <p id="secret" hidden>Ignored</p>
+      <input id="mail" aria-label="Mail" aria-describedby="mail-hint">
+      <p id="mail-hint">Use taro@example.com or 0312345678</p>
+      <input id="invalid" aria-label="User" aria-describedby="user-hint" aria-invalid="true">
+      <p id="user-hint">User taro_y is not registered</p>
+      <input id="errors" aria-label="ID" aria-describedby="id-hint id-error id-alert"
+        aria-errormessage="id-error">
+      <p id="id-hint">6-12 letters</p><p id="id-error">taro_y is taken</p>
+      <div role="alert"><p id="id-alert">taro_y is locked</p></div>
+      <input id="nested" aria-label="PIN" aria-describedby="pin-desc">
+      <div id="pin-desc"><p>4 digits</p><p aria-live="polite">taro_y is locked</p></div>
+      <button id="go" aria-describedby="branch-hint">ログイン</button>`,
+    );
+    expect(summary(observe())).toEqual([
+      {
+        role: "text",
+        target: { by: "id", value: "branch" },
+        label: "店番",
+        description: "半角数字3桁",
+      },
+      { role: "text", target: { by: "id", value: "same" }, label: "暗証番号" },
+      { role: "text", target: { by: "id", value: "hidden-hint" }, label: "Code" },
+      {
+        role: "text",
+        target: { by: "id", value: "mail" },
+        label: "Mail",
+        description: "Use [email] or [number]",
+      },
+      { role: "text", target: { by: "id", value: "invalid" }, label: "User" },
+      {
+        role: "text",
+        target: { by: "id", value: "errors" },
+        label: "ID",
+        description: "6-12 letters",
+      },
+      {
+        role: "text",
+        target: { by: "id", value: "nested" },
+        label: "PIN",
+        description: "4 digits",
+      },
+      { role: "button", target: { by: "id", value: "go" }, label: "ログイン" },
+    ]);
+  });
+
   it("does not borrow a label across another field's area", () => {
     page(`<div><span>Customer number</span><input id="one"><input id="two"></div>`);
     expect(summary(observe())).toEqual([
@@ -240,6 +293,46 @@ describe("extractLoginObservation", () => {
       { by: "name", value: "other" },
       { by: "name", value: "pin" },
       { by: "id", value: "go" },
+    ]);
+  });
+
+  it("locates an input without id or name by its autocomplete token, as on pixiv's login page", () => {
+    page(
+      `<form><input type="text" autocomplete="username webauthn" placeholder="メールアドレスまたはpixiv ID">
+        <input type="password" autocomplete="current-password webauthn" placeholder="パスワード">
+        <button type="submit" disabled>ログイン</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "username" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "ログイン" },
+    ]);
+    for (const { target } of observation.candidates)
+      expect(findTargets(document, target)).toHaveLength(1);
+    // Case and repeats do not matter; a field whose id is shared falls back to its token.
+    page(
+      `<form><input id="dup" autocomplete="Username username"><input id="dup" type="password">
+        <button id="go">Go</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "username" },
+      { by: "id", value: "go" },
+    ]);
+    // A button carrying the token makes it ambiguous and is never named by it.
+    page(
+      `<form><input autocomplete="username"><input type="submit" value="Go" autocomplete="username"></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([{ by: "text", value: "Go" }]);
+    // A token two inputs carry, even a hidden one, names neither; nor does new-password.
+    page(
+      `<form><input autocomplete="username"><input type="password" autocomplete="new-password">
+        <button>ログイン</button></form><input autocomplete="username" hidden>`,
+    );
+    expect(observe().complete).toBe(false);
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "ログイン" },
     ]);
   });
 

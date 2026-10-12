@@ -290,7 +290,8 @@ function Logs({
         </Row>
       </dl>
       <div className="mb-4 flex flex-wrap gap-3">
-        <Button id="download-logs" type="button" onClick={() => void open(false)}>
+        {/* Sites and recipes are shown unless the person hides them (owner, 2026-10-12). */}
+        <Button id="download-logs" type="button" onClick={() => void open(true)}>
           Download logs
         </Button>
         <Button
@@ -352,12 +353,12 @@ function Logs({
           </p>
           <label className="mb-3 flex items-center gap-2">
             <input
-              id="include-sites"
+              id="hide-sites"
               type="checkbox"
-              checked={pending ?? preview.includeSites}
-              onChange={(event) => void open(event.target.checked)}
+              checked={!(pending ?? preview.includeSites)}
+              onChange={(event) => void open(!event.target.checked)}
             />
-            Include site addresses and recipe IDs
+            Hide site addresses and recipe IDs
           </label>
           <pre id="logs-preview" className="max-h-96 overflow-auto text-xs whitespace-pre-wrap">
             {preview.text}
@@ -481,8 +482,8 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
         <section aria-labelledby="preview-heading" className="panel">
           <h2 id="preview-heading">Bug report text</h2>
           <p className="note">
-            This exact text is copied. Check it before posting. Sites are numbered here separately
-            from <strong>Download logs</strong>, so <code>site-1</code> may differ.
+            This exact text is copied. Check it before posting. Sites are numbered here, separately
+            from a hidden <strong>Download logs</strong>, so <code>site-1</code> may differ.
           </p>
           <pre id="report-preview" className="overflow-x-auto text-sm whitespace-pre-wrap">
             {preview}

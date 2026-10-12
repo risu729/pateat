@@ -325,6 +325,9 @@ describe("signed-in page", () => {
     const body = await response.text();
     expect(body).toContain("<h1>Signed in</h1>");
     expect(body).toContain(SIGNED_IN_TEXT);
+    // The icon is inlined, so no request reaches a path another Access application guards.
+    expect(body).toContain('<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,');
+    expect(response.headers.get("Content-Security-Policy")).toContain("img-src data:");
     // A browser without WARP could not open /manage, so the page does not link to it.
     expect(body).not.toContain("/manage");
     expect(body).not.toContain("<script");

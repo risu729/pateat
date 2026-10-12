@@ -58,6 +58,10 @@ describe("observation contract", () => {
     // A link may be an account switch, located by its text.
     const link = { ...button, role: "link", target: { by: "text", value: "Use another account" } };
     expect(parse({ ...base, candidates: [candidate, link] })).toBe(true);
+    // An autocomplete token names a field only.
+    const token = { by: "autocomplete", value: "username" };
+    expect(parse({ ...base, candidates: [{ ...candidate, target: token }] })).toBe(true);
+    expect(parse({ ...base, candidates: [candidate, { ...button, target: token }] })).toBe(false);
     expect(parse({ ...base, path: "/login?next=/" })).toBe(false);
     expect(parse({ ...base, origin: "https://shop.example.test/login" })).toBe(false);
     expect(parse({ ...base, html: "<form></form>" })).toBe(false);
@@ -117,6 +121,19 @@ describe("observation contract", () => {
     expect(withConstraints({ role: "number", inputMode: "numeric" })).toBe(true);
     expect(withConstraints({ role: "button", maxLength: 3 })).toBe(false);
     expect(withConstraints({ role: "link", inputMode: "text" })).toBe(false);
+  });
+
+  it("takes descriptions only on fill roles, as bounded page text", () => {
+    const candidate = base.candidates[0]!;
+    const withDescription = (extra: object) =>
+      parse({ ...base, candidates: [{ ...candidate, ...extra }] });
+    expect(withDescription({ description: "半角数字3桁" })).toBe(true);
+    expect(withDescription({ role: "number", description: "3 digits" })).toBe(true);
+    expect(withDescription({ role: "button", description: "3 digits" })).toBe(false);
+    expect(withDescription({ role: "checkbox", description: "3 digits" })).toBe(false);
+    expect(withDescription({ description: "" })).toBe(false);
+    expect(withDescription({ description: "x".repeat(121) })).toBe(false);
+    expect(withDescription({ description: "a\u202eb" })).toBe(false);
   });
 });
 

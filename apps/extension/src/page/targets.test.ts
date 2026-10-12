@@ -26,6 +26,20 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, { by: "id", value: "a" }))).toEqual(["a"]);
   });
 
+  it("matches inputs by one of their autocomplete tokens, hidden ones included", () => {
+    page(
+      `<input id="a" autocomplete="username webauthn"><input id="b" autocomplete="Current-Password">
+      <textarea id="c" autocomplete="email"></textarea><input id="d" autocomplete="email" hidden>
+      <input id="e" autocomplete="section-x email">`,
+    );
+    expect(ids(findTargets(document, { by: "autocomplete", value: "username" }))).toEqual(["a"]);
+    expect(ids(findTargets(document, { by: "autocomplete", value: "current-password" }))).toEqual([
+      "b",
+    ]);
+    // The caller rejects the two inputs rather than picking the shown one.
+    expect(ids(findTargets(document, { by: "autocomplete", value: "email" }))).toEqual(["d", "e"]);
+  });
+
   it("matches links by text only when asked and no button shows the text, for an account switch", () => {
     page(
       `<a id="a" href="/switch"> Use another <b>account</b> </a><a id="b">Use another account</a>
