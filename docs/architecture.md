@@ -899,8 +899,20 @@ besides its identity, revision and origin is `chooser`: the path where a list of
 accounts shows, the optional `other` and `continue` buttons, and the optional
 `afterAccount` and `afterOther` branches, each a login recipe under the chooser's own
 ID, revision and origin. The entry to click is never stored. Like an entry recipe, it
-is validated, stored, synced, listed and revoked, never started, and answers
-`recipe-conflict` to generation; nothing writes one yet.
+is validated, stored, synced, listed and revoked, and the extension never starts it yet.
+The service writes one when the model answers that a page with `accounts` is an account
+list, naming the list's `other` and `continue` controls by reference; the controls must
+be buttons or links of the page whose text holds no `[email]`, `[masked]`, `[number]`,
+`@` or run of four digits. A request with `branch` (`account` or `other`) and the
+chooser as `base` generates that branch's next page: its first page when the branch is
+absent, with no alternatives and no passkey route as for any later page, or an append
+after the branch's final `advance`. The page judgement takes the same `branch` and
+learns a completion or handler into that branch, with the list's path among the login
+paths, and a list shown again is never judged. Each answer is the whole chooser at its
+next revision; a branch's page that loses its write to the other branch is written once
+more onto the newer chooser. Generation attempts and judged pages are keyed by branch
+too. A form page, or a route recipe's next page, whose stored recipe is a chooser still
+answers `recipe-conflict`. The extension sends neither a list nor a branch yet.
 
 A generated recipe has no completion target until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor

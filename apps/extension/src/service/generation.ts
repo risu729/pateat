@@ -1,5 +1,6 @@
 import {
   genericSlotIdSchema,
+  isLoginRouteRecipe,
   recipeSlots,
   slotsForPage,
   syncRecipeIdSchema,
@@ -364,6 +365,10 @@ export function createLoginGeneration(options: {
         // The mapping arrives only with the answer that wrote the recipe; the login binds
         // the custom slots from it until a binding is saved (ADR 0027).
         const { customSlots, change } = result;
+        // A chooser recipe (ADR 0028) answers only a list or a branch, which this device
+        // does not send yet.
+        if (!isLoginRouteRecipe(change.recipe))
+          return { outcome: "unavailable", reason: "recipe-conflict" };
         const fields = customSlots && slotFieldsOf(request, customSlots);
         if (fields)
           await rememberSlots(
@@ -420,7 +425,9 @@ export function createLoginGeneration(options: {
       // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
       if (result?.status === "challenge" && result.change) {
         void refresh().catch(() => undefined);
-        return { verdict: "challenge", recipe: result.change.recipe };
+        // Only a route recipe's login sends its pages here yet.
+        if (isLoginRouteRecipe(result.change.recipe))
+          return { verdict: "challenge", recipe: result.change.recipe };
       }
       if (
         result?.status === "signed-in" ||

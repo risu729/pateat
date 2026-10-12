@@ -1,5 +1,7 @@
 import {
+  chooserBranch,
   isLoginRouteRecipe,
+  loginChooserRecipeSchema,
   loginStepEffect,
   recipeHasRoute,
   recipeSlots,
@@ -8,7 +10,10 @@ import {
   routeSignInTargets,
   sameLoginTarget,
   storedRecipeStartPath,
+  withChooserBranch,
+  type ChooserBranch,
   type GenerationUnavailableReason,
+  type LoginChooserRecipe,
   type LoginRecipe,
   type LoginTarget,
   type RecipeCompletionRequest,
@@ -33,6 +38,7 @@ import {
   type InferenceErrorCode,
 } from "@pateat/inference";
 import { and, count, eq, gt, gte, lt } from "drizzle-orm";
+import * as v from "valibot";
 import type { DeviceScope } from "../auth";
 import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS } from "../claude/calls";
 import { generationAttempts, pageJudgements } from "../db/schema";
@@ -81,46 +87,90 @@ const failureOf = (error: InferenceErrorCode): Failure =>
 const active = (change: SyncRecipeChange | null) =>
   change?.state === "active" ? change : undefined;
 /**
- * An active head with a login route, the only kind a generation or judgement answers
- * with; an entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is never one.
+ * An active head a generation or judgement answers with: a route recipe, or a chooser
+ * recipe (ADR 0028) for an account list or one of its branches. An entry recipe (ADR 0031)
+ * is never one.
  */
-const activeRoute = (change: SyncRecipeChange | null) => {
+const answerable = (
+  change: SyncRecipeChange | null,
+): Extract<RecipeGenerationResult, { status: "recipe" }>["change"] | undefined => {
   const head = active(change);
-  return head && isLoginRouteRecipe(head.recipe) ? { ...head, recipe: head.recipe } : undefined;
+  return head && !("entry" in head.recipe) ? { ...head, recipe: head.recipe } : undefined;
 };
+/** The branch's route recipe of a chooser head, or the head's own route recipe without one. */
+function routeOf(
+  recipe: StoredLoginRecipe,
+  branch: ChooserBranch | undefined,
+): LoginRecipe | undefined {
+  if (branch) return "chooser" in recipe ? chooserBranch(recipe, branch) : undefined;
+  return isLoginRouteRecipe(recipe) ? recipe : undefined;
+}
+/**
+ * A route recipe changed for a page, written back under its chooser for a branch, or
+ * `undefined` when the chooser it makes fails its own schema, so devices never get a
+ * recipe they refuse to sync.
+ */
+function stored(
+  head: StoredLoginRecipe,
+  branch: ChooserBranch | undefined,
+  next: LoginRecipe,
+): StoredLoginRecipe | undefined {
+  if (!branch || !("chooser" in head)) return next;
+  const chooser = withChooserBranch(head, branch, next);
+  return v.is(loginChooserRecipeSchema, chooser) ? chooser : undefined;
+}
+/** Whether two route recipes are the same apart from their revision, absent ones included. */
+const sameRoute = (left: LoginRecipe | undefined, right: LoginRecipe | undefined) =>
+  left === right ||
+  (left !== undefined &&
+    right !== undefined &&
+    JSON.stringify({ ...left, revision: 0 }) === JSON.stringify({ ...right, revision: 0 }));
 
 /**
  * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe other
  * than one generated for this origin, which the route answers as a bad request.
+ *
+ * A page that lists accounts (ADR 0028) starts a chooser recipe; a page sent with a
+ * `branch` is the next page of that chooser branch: its first, after the click on the
+ * list, or a later one after an advance. Either answers with the chooser.
  */
 export async function generateRecipe(
   env: GenerationEnv,
   scope: DeviceScope,
   request: RecipeGenerationRequest,
 ): Promise<RecipeGenerationResult | undefined> {
-  const { observation, slots, base } = request;
+  const { observation, slots, base, branch } = request;
   const { origin, path } = observation;
   // A first page starts its own recipe; a later page continues the one in `base`.
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
   if (!/^gen-[0-9a-f]{32}$/u.test(recipeId)) return undefined;
   if (!observation.complete) return failed("incomplete-observation");
-  // The model cannot answer that a page lists accounts yet (ADR 0028), so such a page
-  // costs no call.
-  if (observation.accounts) return failed("invalid-request");
+  // A list of accounts is only ever a recipe's first page.
+  const list = observation.accounts !== undefined;
+  if (list && base) return failed("invalid-request");
   /** Whether a stored recipe is the one generated for this origin under this ID. */
   const generatedHere = async (recipe: StoredLoginRecipe) =>
     recipe.origin === origin &&
     recipe.id === recipeId &&
     (await generatedRecipeId(origin, storedRecipeStartPath(recipe))) === recipeId;
+  /** Whether a stored recipe is the kind this request writes: a chooser, or a route. */
+  const fits = (recipe: StoredLoginRecipe) =>
+    list || branch ? "chooser" in recipe : isLoginRouteRecipe(recipe);
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
-   * recipe to continue (`undefined` for a first page). Checked again under the lock.
+   * route to continue (`undefined` for a first page) with the chooser it belongs to for a
+   * branch. Checked again under the lock.
    */
   const decide = async (
     head: SyncRecipeChange | null,
   ): Promise<
-    { answer: RecipeGenerationResult } | { base: LoginRecipe | undefined; revoked?: number }
+    | { answer: RecipeGenerationResult }
+    | {
+        base: LoginRecipe | undefined;
+        chooser?: LoginChooserRecipe;
+        revoked?: number;
+      }
   > => {
     // A revoked recipe is generated again from its first page, as the revision after its
     // tombstone (owner, 2026-10-12); a later page never continues it.
@@ -130,32 +180,49 @@ export async function generateRecipe(
         ? { base: undefined, revoked: head.revision }
         : { answer: unavailable("recipe-limit") };
     }
-    const stored = active(head);
+    const current = active(head);
     // Only the recipe generated here answers; a device write under the ID cannot redirect it.
-    if (stored && !(await generatedHere(stored.recipe)))
+    if (current && !(await generatedHere(current.recipe)))
       return { answer: unavailable("recipe-conflict") };
-    // An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) of this origin and path is
-    // no login recipe to answer with; generating either is not implemented yet.
-    const current = activeRoute(head);
-    if (stored && !current) return { answer: unavailable("recipe-conflict") };
-    if (current && (!base || current.revision !== base.revision))
+    // An entry recipe (ADR 0031), a chooser for a form or a route recipe for a list of this
+    // origin and path is no recipe to answer with.
+    const answer = answerable(head);
+    if (current && (!answer || !fits(answer.recipe)))
+      return { answer: unavailable("recipe-conflict") };
+    if (answer && (!base || answer.revision !== base.revision))
       // Another device already generated it, or appended this page first: use that.
-      return { answer: { version: 1, status: "recipe", change: current } };
+      return { answer: { version: 1, status: "recipe", change: answer } };
     // A first page adds a recipe, so the owner needs room for one before any model call.
     if (!base)
       return (await hasRecipeRoom(env.DB, scope.ownerId))
         ? { base: undefined }
         : { answer: unavailable("recipe-limit") };
-    const last = current?.recipe.steps.at(-1);
-    if (!current || current.recipe.completion || !last || loginStepEffect(last) !== "advance")
+    if (!current) return { answer: unavailable("recipe-conflict") };
+    const chooser = "chooser" in current.recipe ? current.recipe : undefined;
+    // The other branch starts only with the chooser's button for it.
+    if (branch === "other" && !chooser?.chooser.other)
       return { answer: unavailable("recipe-conflict") };
-    return { base: current.recipe };
+    const route = routeOf(current.recipe, branch);
+    // A branch's first page has nothing to continue yet.
+    if (chooser && !route) return { base: undefined, chooser };
+    const last = route?.steps.at(-1);
+    if (!route || route.completion || !last || loginStepEffect(last) !== "advance")
+      return { answer: unavailable("recipe-conflict") };
+    return { base: route, ...(chooser ? { chooser } : {}) };
   };
+  /** The revision a decision's write replaces, which keys its attempt. */
+  const revisionOf = (decision: {
+    base?: LoginRecipe | undefined;
+    chooser?: LoginChooserRecipe | undefined;
+    revoked?: number | undefined;
+  }) => decision.chooser?.revision ?? decision.base?.revision ?? decision.revoked ?? 0;
   const before = await decide(await readHead(env.DB, scope.ownerId, recipeId));
   if ("answer" in before) return before.answer;
   const baseRecipe = before.base;
+  const chooser = before.chooser;
   // The attempt key and the write follow the revision the new one replaces.
-  const baseRevision = baseRecipe?.revision ?? before.revoked ?? 0;
+  const baseRevision = revisionOf(before);
+  const attemptBranch = branch ?? "";
   let raced: RecipeGenerationResult | undefined;
 
   const call = await callClaude(env, scope.ownerId, {
@@ -172,7 +239,7 @@ export async function generateRecipe(
         return "recipe-conflict";
       }
       // A recipe generated and revoked meanwhile would make this call's write fail.
-      if ((latest.base?.revision ?? latest.revoked ?? 0) !== baseRevision) return "recipe-conflict";
+      if (revisionOf(latest) !== baseRevision) return "recipe-conflict";
       const [recent] = await db
         .select()
         .from(generationAttempts)
@@ -180,6 +247,7 @@ export async function generateRecipe(
           and(
             eq(generationAttempts.ownerId, scope.ownerId),
             eq(generationAttempts.recipeId, recipeId),
+            eq(generationAttempts.branch, attemptBranch),
             eq(generationAttempts.path, path),
             eq(generationAttempts.baseRevision, baseRevision),
             gt(generationAttempts.attemptedAt, now - ATTEMPT_WINDOW_MS),
@@ -194,6 +262,7 @@ export async function generateRecipe(
         .values({
           ownerId: scope.ownerId,
           recipeId,
+          branch: attemptBranch,
           origin,
           path,
           baseRevision,
@@ -203,6 +272,7 @@ export async function generateRecipe(
           target: [
             generationAttempts.ownerId,
             generationAttempts.recipeId,
+            generationAttempts.branch,
             generationAttempts.path,
             generationAttempts.baseRevision,
           ],
@@ -218,20 +288,29 @@ export async function generateRecipe(
         ),
     ],
     invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots }),
-    logValue: ({ fields, action, accountSwitch, alternatives, passkeyButton }) => ({
-      fields,
-      action,
-      ...(accountSwitch ? { accountSwitch } : {}),
-      ...(passkeyButton ? { passkeyButton } : {}),
-      ...(alternatives?.length
-        ? {
-            alternatives: alternatives.map((entry) => ({
-              fields: entry.fields,
-              action: entry.action,
-            })),
-          }
-        : {}),
-    }),
+    logValue: (value) => {
+      if ("accountList" in value)
+        return {
+          accountList: true,
+          ...(value.other ? { other: value.other.candidate } : {}),
+          ...(value.continue ? { continue: value.continue.candidate } : {}),
+        };
+      const { fields, action, accountSwitch, alternatives, passkeyButton } = value;
+      return {
+        fields,
+        action,
+        ...(accountSwitch ? { accountSwitch } : {}),
+        ...(passkeyButton ? { passkeyButton } : {}),
+        ...(alternatives?.length
+          ? {
+              alternatives: alternatives.map((entry) => ({
+                fields: entry.fields,
+                action: entry.action,
+              })),
+            }
+          : {}),
+      };
+    },
   });
   if (call.status === "unavailable") return raced ?? unavailable(call.reason);
   const { outcome } = call;
@@ -252,18 +331,84 @@ export async function generateRecipe(
           ? outcome.reason
           : "insufficient-evidence",
     };
+  /**
+   * Writes the recipe after `baseRevision` and answers with it, with `customSlots` when
+   * given, or with what won the race: only the recipe this call wrote has a mapping to
+   * answer with. A branch's page lost to a write of the chooser's other branch, or of a
+   * judgement there, is written once more onto that head, so the paid answer is kept.
+   */
+  const save = async (
+    recipe: StoredLoginRecipe,
+    customSlots: { slot: string; offered: string }[] = [],
+    rebase?: (head: SyncRecipeChange | null) => Promise<StoredLoginRecipe | undefined>,
+  ): Promise<RecipeGenerationResult> => {
+    let next = recipe;
+    let expectedRevision = baseRevision;
+    for (let tries = 0; ; tries += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const written = await writeRecipe(
+        env.DB,
+        scope.ownerId,
+        recipeId,
+        { version: 1, state: "active", expectedRevision, recipe: next },
+        scope.deviceId,
+      );
+      if (written.ok) {
+        const change = answerable(written.change);
+        if (!change) return unavailable("recipe-conflict");
+        return {
+          version: 1,
+          status: "recipe",
+          change,
+          ...(customSlots.length ? { customSlots } : {}),
+        };
+      }
+      if (written.limited) return unavailable("recipe-limit");
+      // eslint-disable-next-line no-await-in-loop
+      const moved = tries === 0 ? await rebase?.(written.current) : undefined;
+      if (!moved) {
+        // A write lost to another device answers with that device's recipe, as above.
+        // eslint-disable-next-line no-await-in-loop
+        const lost = await decide(written.current);
+        return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
+      }
+      next = moved;
+      expectedRevision = moved.revision - 1;
+    }
+  };
+  const { value } = outcome;
+  // The role answers a list only for a list and a plan only for a form; checked again here.
+  if ("accountList" in value !== list) return failed("invalid-output");
+  if ("accountList" in value) {
+    // The list becomes a chooser recipe without branches; each branch is generated once a
+    // login takes it (ADR 0028). A recipe generated again follows its tombstone's revision.
+    const recipe = v.safeParse(loginChooserRecipeSchema, {
+      version: 1,
+      id: recipeId,
+      revision: baseRevision + 1,
+      origin,
+      chooser: {
+        path,
+        ...(value.other ? { other: value.other.target } : {}),
+        ...(value.continue ? { continue: value.continue.target } : {}),
+      },
+    });
+    return recipe.success ? save(recipe.output) : failed("recipe-invalid");
+  }
 
   // Each custom-field slot the model named, in any identifier set: the recipe stores only
   // the generic name, and the extension maps it back to the offered field (ADR 0027). A
   // requested slot has one name in every set, so each name appears once. Every variant
   // starts on the start page, so a continuation's alternatives are dropped rather than
   // failing a call that was already paid for. So is the passkey sign-in button, which
-  // becomes the `passkey` route of a recipe's first page only.
-  const alternatives = baseRecipe ? [] : (outcome.value.alternatives ?? []);
-  const passkey = baseRecipe ? undefined : outcome.value.passkeyTarget;
+  // becomes the `passkey` route of a recipe's first page only. A chooser branch's pages
+  // all follow the click on the list, so none of them is a start page.
+  const later = baseRecipe !== undefined || chooser !== undefined;
+  const alternatives = later ? [] : (value.alternatives ?? []);
+  const passkey = later ? undefined : value.passkeyTarget;
   const customSlots = [
     ...new Map(
-      [outcome.value, ...alternatives]
+      [value, ...alternatives]
         .flatMap((plan) => plan.fields)
         .flatMap(({ slot, name }) => (name === undefined ? [] : [[name, slot] as const])),
     ),
@@ -275,9 +420,9 @@ export async function generateRecipe(
   const assembled = appendPageSteps(baseRecipe, {
     id: recipeId,
     origin,
-    steps: outcome.value.steps,
+    steps: value.steps,
     ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
-    ...(outcome.value.switchTarget ? { accountSwitch: outcome.value.switchTarget } : {}),
+    ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
     ...(passkey ? { passkey } : {}),
   });
   // A page that fills one of the recipe's slots again, as its identifier form shown again
@@ -286,29 +431,24 @@ export async function generateRecipe(
     return assembled.reason === "invalid-recipe" || assembled.reason === "slot-refilled"
       ? failed("recipe-invalid")
       : unavailable("recipe-conflict");
-  const written = await writeRecipe(
-    env.DB,
-    scope.ownerId,
-    recipeId,
-    {
-      version: 1,
-      state: "active",
-      expectedRevision: baseRevision,
-      // A recipe generated again follows its tombstone's revision.
-      recipe: { ...assembled.recipe, revision: baseRevision + 1 },
-    },
-    scope.deviceId,
-  );
-  // A write lost to another device answers with that device's recipe, as above.
-  if (!written.ok) {
-    if (written.limited) return unavailable("recipe-limit");
-    const lost = await decide(written.current);
-    return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
-  }
-  const change = activeRoute(written.change);
-  if (!change) return unavailable("recipe-conflict");
-  // Only the recipe this call wrote has a mapping to answer with.
-  return { version: 1, status: "recipe", change, ...(customSlots.length ? { customSlots } : {}) };
+  // A recipe generated again follows its tombstone's revision.
+  const next = { ...assembled.recipe, revision: baseRevision + 1 };
+  if (!chooser || !branch) return save(next, customSlots);
+  const written = stored(chooser, branch, next);
+  if (!written) return failed("recipe-invalid");
+  return save(written, customSlots, async (head) => {
+    // Only a head whose own branch is still the one this page continues takes the page.
+    const current = active(head);
+    if (
+      !current ||
+      !("chooser" in current.recipe) ||
+      !(await generatedHere(current.recipe)) ||
+      (branch === "other" && !current.recipe.chooser.other) ||
+      !sameRoute(chooserBranch(current.recipe, branch), baseRecipe)
+    )
+      return undefined;
+    return stored(current.recipe, branch, { ...next, revision: current.revision + 1 });
+  });
 }
 
 /**
@@ -337,18 +477,17 @@ export async function judgeCompletion(
   const head = await readHead(env.DB, scope.ownerId, recipeId);
   if (!head) return undefined;
   if (head.state === "revoked") return unavailable("recipe-revoked");
-  const { recipe } = head;
-  const { observation, route } = request;
-  if (observation.origin !== recipe.origin) return null;
-  // Only a page of the revision that ran, on a route the stored recipe has, is judged; an
-  // entry or chooser recipe (ADR 0031, ADR 0028) has no route of its own.
-  if (
-    !isLoginRouteRecipe(recipe) ||
-    head.revision !== request.revision ||
-    !recipeHasRoute(recipe, route)
-  )
+  const { observation, route, branch } = request;
+  if (observation.origin !== head.recipe.origin) return null;
+  // Only a page of the revision that ran, on a route the stored recipe has, is judged: the
+  // recipe's own, or for a chooser (ADR 0028) the route of the branch the login took. An
+  // entry recipe (ADR 0031) has no route.
+  const recipe = routeOf(head.recipe, branch);
+  if (!recipe || head.revision !== request.revision || !recipeHasRoute(recipe, route))
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
+  // A list of accounts shown again is the sign-in's start, not its result (ADR 0028).
+  if (observation.accounts) return unavailable("not-judgeable");
   // The checks use the stored recipe, never the request: a page that still shows one of
   // the password route's fill fields, of any variant and on any path, or the completion
   // marker is not judged. The request never names the variant the login ran. The passkey
@@ -370,9 +509,11 @@ export async function judgeCompletion(
   )
     return unavailable("not-judgeable");
 
-  // The login paths come from the stored recipe, never from the request.
+  // The login paths come from the stored recipe, never from the request; a branch's
+  // login started on its chooser's list.
   const loginPaths = [
     ...new Set([
+      ...("chooser" in head.recipe ? [head.recipe.chooser.path] : []),
       ...routeSignInPaths(recipe, route),
       ...(recipe.handlers ?? []).map((handler) => handler.path),
     ]),
@@ -381,6 +522,8 @@ export async function judgeCompletion(
     eq(pageJudgements.ownerId, scope.ownerId),
     eq(pageJudgements.recipeId, recipeId),
   );
+  // Each branch of a chooser is judged on its own; its limit per day is the chooser's.
+  const judgedBranch = branch ?? "";
   const call = await callClaude(env, scope.ownerId, {
     role: "judge",
     promptVersion: await completionPromptVersion(),
@@ -397,6 +540,7 @@ export async function judgeCompletion(
         .where(
           and(
             ofRecipe,
+            eq(pageJudgements.branch, judgedBranch),
             eq(pageJudgements.revision, head.revision),
             eq(pageJudgements.path, observation.path),
           ),
@@ -417,6 +561,7 @@ export async function judgeCompletion(
         .values({
           ownerId: scope.ownerId,
           recipeId,
+          branch: judgedBranch,
           revision: head.revision,
           path: observation.path,
           judgedAt: now,
@@ -468,15 +613,16 @@ export async function judgeCompletion(
       });
     }
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
-    if (!changed) return { version: 1, status: "challenge" };
+    const withHandlers = changed && stored(head.recipe, branch, changed);
+    if (!withHandlers) return { version: 1, status: "challenge" };
     const written = await writeRecipe(
       env.DB,
       scope.ownerId,
       recipeId,
-      { version: 1, state: "active", expectedRevision: head.revision, recipe: changed },
+      { version: 1, state: "active", expectedRevision: head.revision, recipe: withHandlers },
       scope.deviceId,
     );
-    const change = written.ok ? activeRoute(written.change) : undefined;
+    const change = written.ok ? answerable(written.change) : undefined;
     return { version: 1, status: "challenge", ...(change ? { change } : {}) };
   }
   // A completion is learned once; a later signed-in page needs no change.
@@ -487,18 +633,15 @@ export async function judgeCompletion(
     return learned.reason === "already-complete"
       ? unavailable("recipe-conflict")
       : failed("invalid-output");
+  const learnedRecipe = stored(head.recipe, branch, learned.recipe);
+  if (!learnedRecipe) return failed("recipe-invalid");
   const written = await writeRecipe(
     env.DB,
     scope.ownerId,
     recipeId,
-    {
-      version: 1,
-      state: "active",
-      expectedRevision: head.revision,
-      recipe: learned.recipe,
-    },
+    { version: 1, state: "active", expectedRevision: head.revision, recipe: learnedRecipe },
     scope.deviceId,
   );
-  const change = written.ok ? activeRoute(written.change) : undefined;
+  const change = written.ok ? answerable(written.change) : undefined;
   return change ? { version: 1, status: "signed-in", change } : unavailable("recipe-conflict");
 }

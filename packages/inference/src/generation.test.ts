@@ -4,7 +4,12 @@ import { evaluationCorpus } from "./corpus/cases";
 import { japanesePageCorpus } from "./corpus/real";
 import { evaluateRole } from "./evaluate";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import { createRecipeGenerator, generatedPlanSchema, generationInstructions } from "./generation";
+import {
+  asPagePlan,
+  createRecipeGenerator,
+  generatedPlanSchema,
+  generationInstructions,
+} from "./generation";
 import {
   generationRequest,
   oracleGenerator,
@@ -52,7 +57,8 @@ describe("recipe generation role", () => {
     const generate = createRecipeGenerator({ model, limits, maxOutputTokens: 512 });
     const report = await evaluateRole({
       cases: evaluationCorpus,
-      run: (entry) => generate({ observation: entry.observation, slots: entry.slots }),
+      run: async (entry) =>
+        asPagePlan(await generate({ observation: entry.observation, slots: entry.slots })),
     });
     expect(report.semanticAccuracy).toBe(1);
     expect(report.falseSubmits).toBe(0);
@@ -73,7 +79,8 @@ describe("recipe generation role", () => {
       calls: 1,
       usage: { inputTokens: 120, outputTokens: 30 },
     });
-    if (outcome.status !== "ok") throw new Error("expected a plan");
+    if (outcome.status !== "ok" || "accountList" in outcome.value)
+      throw new Error("expected a plan");
     expect(outcome.value.steps).toEqual([
       {
         kind: "fill",
@@ -94,7 +101,8 @@ describe("recipe generation role", () => {
       plan([["password", "password"]], "sign-in", "submit", "register"),
     );
     const outcome = await generate(request);
-    if (outcome.status !== "ok") throw new Error("expected a plan");
+    if (outcome.status !== "ok" || "accountList" in outcome.value)
+      throw new Error("expected a plan");
     expect(outcome.value).toMatchObject({
       accountSwitch: "register",
       switchTarget: { by: "id", value: "register" },
@@ -256,7 +264,8 @@ describe("recipe generation role", () => {
       action: { candidate: "login", purpose: "submit" },
     };
     const outcome = await answer(byContract);
-    if (outcome.status !== "ok") throw new Error("expected a plan");
+    if (outcome.status !== "ok" || "accountList" in outcome.value)
+      throw new Error("expected a plan");
     expect(outcome.value.alternatives?.map((entry) => entry.steps)).toEqual([
       [
         {
@@ -347,14 +356,14 @@ describe("recipe generation role", () => {
       });
     const sign = { observation: myjcb.observation, slots: myjcb.slots };
     const named = await generatorReturning(answer("c5")).generate(sign);
-    if (named.status !== "ok") throw new Error("expected a plan");
+    if (named.status !== "ok" || "accountList" in named.value) throw new Error("expected a plan");
     expect(named.value).toMatchObject({
       passkeyButton: "c5",
       passkeyTarget: { by: "id", value: "passkeyLoginButtonAD" },
     });
     // A link about passkeys is not a sign-in button; the plan stays and the button goes.
     const link = await generatorReturning(answer("c6")).generate(sign);
-    if (link.status !== "ok") throw new Error("expected a plan");
+    if (link.status !== "ok" || "accountList" in link.value) throw new Error("expected a plan");
     expect(link.value).not.toHaveProperty("passkeyButton");
     expect(link.value.steps).toEqual(named.value.steps);
   });
@@ -586,5 +595,91 @@ describe("recipe generation role", () => {
         maxOutputTokens: 512,
       }),
     ).toThrow(TypeError);
+  });
+});
+
+describe("account lists (ADR 0028)", () => {
+  const list = {
+    version: 1,
+    origin: "https://dash.example.test",
+    path: "/login",
+    language: "en",
+    complete: true,
+    candidates: [
+      { id: "c1", role: "button", target: { by: "text", value: "Sign in with another profile" } },
+      { id: "c2", role: "button", target: { by: "text", value: "Log back in" } },
+      { id: "c3", role: "link", target: { by: "text", value: "Help" } },
+    ],
+    accounts: ["[email] Last used", "[masked]"],
+  };
+  const answer = (controls: Record<string, string>) =>
+    JSON.stringify({ result: { decision: "account-list", ...controls } });
+  const run = (observation: unknown, text: string) =>
+    generatorReturning(text).generate({ observation, slots: page.slots });
+
+  it("answers the list's other and continue controls by their locators", async () => {
+    expect(await run(list, answer({ other: "c1", continue: "c2" }))).toMatchObject({
+      status: "ok",
+      value: {
+        accountList: true,
+        other: { candidate: "c1", target: { by: "text", value: "Sign in with another profile" } },
+        continue: { candidate: "c2", target: { by: "text", value: "Log back in" } },
+      },
+    });
+    const bare = await run(list, answer({}));
+    expect(bare).toMatchObject({ status: "ok", value: { accountList: true } });
+    if (bare.status === "ok") expect(bare.value).not.toHaveProperty("other");
+  });
+
+  it("refuses a list answer that cannot be clicked safely, keeping only references", async () => {
+    const refused = async (observation: unknown, text: string, detail: string) =>
+      expect(await run(observation, text)).toMatchObject({
+        status: "failed",
+        error: "invalid-output",
+        detail,
+      });
+    await refused(list, answer({ other: "c9" }), "unknown-candidate");
+    await refused(list, answer({ other: "c1", continue: "c1" }), "duplicate-candidate");
+    const marked = {
+      ...list,
+      candidates: [
+        ...list.candidates,
+        { id: "c4", role: "button", target: { by: "text", value: "[email] Last used" } },
+        { id: "c5", role: "button", target: { by: "id", value: "p" }, label: "Taro [masked]" },
+        { id: "c6", role: "email", target: { by: "id", value: "email" } },
+      ],
+    };
+    await refused(marked, answer({ other: "c4" }), "account-text");
+    await refused(marked, answer({ continue: "c5" }), "account-text");
+    await refused(marked, answer({ other: "c6" }), "incompatible-role");
+    // A form gets no list answer, and a list gets no form plan.
+    const form = await run(page.observation, answer({ other: "c1" }));
+    expect(form).toMatchObject({ detail: "unexpected-account-list" });
+    expect(await run(list, plan([["email", "c1"]]))).toMatchObject({
+      status: "failed",
+      detail: "unexpected-plan",
+    });
+    // The log keeps only candidate IDs the request holds.
+    const unknown = await run(list, answer({ other: "Sign in", continue: "c2" }));
+    expect(unknown).toMatchObject({
+      output: { result: { decision: "account-list", other: "?", continue: "c2" } },
+    });
+  });
+
+  it("scores a list answer on a form as refused output", async () => {
+    const outcome = await run(page.observation, answer({}));
+    expect(outcome).toMatchObject({ status: "failed", detail: "unexpected-account-list" });
+    const listed = await run(list, answer({}));
+    expect(asPagePlan(listed)).toMatchObject({
+      status: "failed",
+      error: "invalid-output",
+      detail: "unexpected-account-list",
+      calls: 1,
+    });
+  });
+
+  it("tells the model about lists in one sentence without example texts", () => {
+    expect(generationInstructions).toContain("answer account-list");
+    expect(generationInstructions).toContain("Never choose an account.");
   });
 });

@@ -55,10 +55,13 @@ Chrome, on a production build of main.
   beside separate buttons (Wise, Instagram) is in
   [#323](https://github.com/risu729/pateat/pull/323), and the service stores, syncs and
   lists a chooser recipe, which the extension caches but never starts
-  ([#327](https://github.com/risu729/pateat/pull/327)); the trigger, answer,
-  recipe and execution build on continuing a generated recipe after an `advance` step
-  (listed under [AI evaluation harness progress](#ai-evaluation-harness-progress)) and
-  the start-only recipe of [ADR 0031](adr/0031-sign-in-entry-pages.md).
+  ([#327](https://github.com/risu729/pateat/pull/327)). The service now answers a list
+  page with a chooser recipe and generates and judges each branch's pages into it (local
+  tests only). Next, the extension sends list pages (the trigger, the skip after a
+  manual sign-in, and hiding non-email account names as `[account]`), then runs the
+  chooser: the account's entry, the `continue` button or `other`, then the branch,
+  continued as any recipe after an `advance` step
+  ([#332](https://github.com/risu729/pateat/pull/332)).
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads

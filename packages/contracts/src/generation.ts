@@ -1,6 +1,12 @@
 import * as v from "valibot";
 import { genericSlotIdSchema, loginObservationSchema, semanticSlotsSchema } from "./observation";
-import { loginRecipeSchema, loginRouteSchema, recipeSlots } from "./login";
+import {
+  chooserBranchSchema,
+  loginChooserRecipeSchema,
+  loginRecipeSchema,
+  loginRouteSchema,
+  storedRecipeSlots,
+} from "./login";
 import { syncRecipeIdSchema } from "./sync";
 
 // Contracts for the service's recipe generation routes (ADR 0018). Requests carry the
@@ -20,13 +26,17 @@ const writtenRevision = v.pipe(
   v.minValue(1),
   v.maxValue(Number.MAX_SAFE_INTEGER - 1),
 );
-/** The active variant of `syncRecipeChangeSchema`, with the same identity check. */
+/**
+ * The active variant of `syncRecipeChangeSchema`, with the same identity check: a route
+ * recipe, or a chooser recipe (ADR 0028) for an account list or one of its branches.
+ */
 const activeChange = v.pipe(
   v.strictObject({
     recipeId: syncRecipeIdSchema,
     revision: writtenRevision,
     state: v.literal("active"),
-    recipe: loginRecipeSchema,
+    // An entry recipe (ADR 0031) is never an answer yet.
+    recipe: v.union([loginRecipeSchema, loginChooserRecipeSchema]),
   }),
   v.check(
     (change) => change.recipe.id === change.recipeId && change.recipe.revision === change.revision,
@@ -95,13 +105,21 @@ export const generationOutputRejectionSchema = v.variant("check", [
   v.strictObject({ check: v.literal("plan"), reason: rejectionCode }),
 ]);
 
-/** `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance. */
-export const recipeGenerationRequestSchema = v.strictObject({
-  version: v.literal(1),
-  observation: loginObservationSchema,
-  slots: semanticSlotsSchema,
-  base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
-});
+/**
+ * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance. With
+ * `branch`, `base` is a chooser recipe (ADR 0028) and the page is the next one of that
+ * branch: its first page, after the click on the list, or a later one.
+ */
+export const recipeGenerationRequestSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    observation: loginObservationSchema,
+    slots: semanticSlotsSchema,
+    base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
+    branch: v.optional(chooserBranchSchema),
+  }),
+  v.check((request) => !request.branch || request.base !== undefined, "A branch needs a base"),
+);
 
 export const recipeGenerationResultSchema = v.pipe(
   v.variant("status", [
@@ -163,7 +181,7 @@ export const recipeGenerationResultSchema = v.pipe(
     (result) =>
       result.status !== "recipe" ||
       (result.customSlots ?? []).every((entry) =>
-        recipeSlots(result.change.recipe).includes(entry.slot),
+        storedRecipeSlots(result.change.recipe).includes(entry.slot),
       ),
     "Custom slots must be recipe slots",
   ),
@@ -179,6 +197,8 @@ export const recipeCompletionRequestSchema = v.strictObject({
   revision: writtenRevision,
   /** The login's route; the service checks the stored recipe has it. */
   route: loginRouteSchema,
+  /** For a chooser recipe (ADR 0028): the branch the login took, whose route is judged. */
+  branch: v.optional(chooserBranchSchema),
   observation: loginObservationSchema,
 });
 

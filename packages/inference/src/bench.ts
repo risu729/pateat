@@ -1,7 +1,7 @@
 import { wrapLanguageModel } from "ai";
 import { evaluationCorpus, type EvaluationCase } from "./corpus/cases";
 import { evaluateRole, type EvaluationReport } from "./evaluate";
-import { createRecipeGenerator } from "./generation";
+import { asPagePlan, createRecipeGenerator } from "./generation";
 import { heuristicPlan } from "./heuristic";
 import {
   claudeGeneration,
@@ -75,7 +75,7 @@ export async function runClaudeBenchmark(options: {
     run: async (testCase) => {
       const outcome = await generate({ observation: testCase.observation, slots: testCase.slots });
       spent += estimateClaudeCostUsd(outcome.usage) ?? outcome.calls * worstCaseCallUsd;
-      return outcome;
+      return asPagePlan(outcome);
     },
   });
   return {
