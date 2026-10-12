@@ -27,11 +27,11 @@ const QUIET_SYNC: ReadonlySet<RecipeSyncOutcome> = new Set([
   "not-connected",
   "busy",
 ]);
-const QUIET_REFUSALS: ReadonlySet<string> = new Set([
-  "recipe-not-found",
-  "stale-document",
-  "generating",
-]);
+/**
+ * A stale announcement that a later one resolves, and a document announcing again while it
+ * already carries a login (ADR 0019).
+ */
+const QUIET_REFUSALS: ReadonlySet<string> = new Set(["stale-document", "duplicate-document"]);
 
 /** Unhandled errors share one rate-limit window; its origin is not logged. */
 const ERROR_SOURCE = { tabId: -1, origin: "" };
@@ -237,12 +237,32 @@ export function createDiagnosticsLog(options: {
           },
           {
             source,
-            // A held tab refuses every frame on its page, such as each ad frame.
+            // One line per reason per login-related page; a held tab refuses every frame on
+            // its page, such as each ad frame. A page that gave up trying to start is news.
             level:
-              QUIET_REFUSALS.has(report.reason) || (report.frame && report.reason === "tab-busy")
+              report.repeat ||
+              report.unrelated ||
+              (QUIET_REFUSALS.has(report.reason) && report.detail !== "gave-up") ||
+              (report.frame && report.reason === "tab-busy")
                 ? "debug"
                 : "info",
           },
+        );
+      else if (report.type === "exception")
+        void logger.log(
+          "login.exception",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            route: report.route,
+            state: report.state,
+            step: report.stepIndex,
+            name: report.name,
+            // Engine messages can quote input; only Pateat's own codes are kept.
+            message:
+              report.message && KNOWN_ERROR_CODES.has(report.message) ? report.message : undefined,
+          },
+          { source },
         );
       else if (report.type === "generation")
         void logger.log(
@@ -371,7 +391,9 @@ export function createDiagnosticsLog(options: {
             await logger.clear();
             return { ok: true };
           case "diagnostics.logs.debug":
-            return { ok: true, debugUntil: await logger.enableDebug() };
+            if (message.enabled) return { ok: true, debugUntil: await logger.enableDebug() };
+            await logger.disableDebug();
+            return { ok: true };
         }
       } catch {
         return { ok: false, error: "unavailable" };

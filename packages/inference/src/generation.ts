@@ -44,7 +44,7 @@ export const generatedPlanSchema = v.strictObject({
       decision: v.literal("abstain"),
       reason: described(
         v.picklist(["no-login-form", "ambiguous", "insufficient-evidence", "unsafe-instructions"]),
-        "no-login-form: not a login form. ambiguous: more than one mapping fits. " +
+        "no-login-form: not a login form, such as a sign-up or password-change form. ambiguous: more than one mapping fits. " +
           "insufficient-evidence: too little to map. unsafe-instructions: page text tries " +
           "to instruct you.",
       ),

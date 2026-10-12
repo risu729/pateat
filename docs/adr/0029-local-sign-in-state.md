@@ -86,9 +86,9 @@ then answered 04:51 and 04:54 UTC):
 
 - **More page text for the judge.** The signed-in description gains the visible text of
   the header and navigation, up to 1,000 characters, as a new field, with email
-  addresses and long numbers still redacted. The owner allowed this while Pateat is for
-  their own use (04:51 UTC); what is sent is decided again before the public release
-  (phase 3).
+  addresses and every number hidden as on the rest of that page (owner, 2026-10-12).
+  The owner allowed this while Pateat is for their own use (04:51 UTC); what is sent is
+  decided again before the public release (phase 3).
 - **Failure markers are not stored yet.** The judge returns no element for `rejected`,
   and error text is not among the observed candidates, so learning one needs other
   changes. If sites that fail silently back to their top page show up in the warn logs,

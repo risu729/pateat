@@ -162,6 +162,28 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("keeps personal-data autocomplete tokens, which mark a sign-up form", () => {
+    page(
+      `<form id="f">
+        <input id="last" autocomplete="family-name">
+        <input id="phone" type="tel" autocomplete="section-a shipping tel">
+        <input id="birth" autocomplete="BDAY">
+        <input id="u" autocomplete="username">
+        <input id="p" type="password" autocomplete="new-password">
+        <input id="other" autocomplete="cc-number">
+        <button id="go">Join</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.autocomplete)).toEqual([
+      "family-name",
+      "tel",
+      "bday",
+      "username",
+      "new-password",
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("takes labels from ARIA, label elements, definition lists and title", () => {
     page(
       `<span id="lead">会員</span><span id="tail">番号</span>
@@ -1054,6 +1076,41 @@ describe("extractSignedInObservation", () => {
       { role: "link", target: { by: "id", value: "home" }, label: "Home" },
       { role: "link", target: { by: "id", value: "account" }, label: "Account [number]-[number]" },
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
+    ]);
+  });
+
+  it("hides every number in a signed-in page's text, whatever its length", () => {
+    page(
+      `<header><a id="points" href="/points">保有ポイント 1,234,567pt</a>
+        <a id="miles" href="/miles">850 ポイント ①</a>
+        <button id="inbox" type="button" aria-label="Inbox ٣ new">✉</button></header>
+      <h1>Balance 12.50</h1><h2>Balance 7.25</h2><h3>Balance 1234.56</h3>
+      <form><input id="note" type="text" aria-label="Step 2" placeholder="e.g. 7"
+          aria-describedby="note-hint">
+        <span id="note-hint">Step 3</span>
+        <input id="memo" type="text" aria-label="Memo" aria-describedby="memo-hint">
+        <span id="memo-hint">Up to 20 characters</span></form>`,
+      "Account 3",
+    );
+    const observation = signedIn();
+    // Headings that differ only in their numbers become one.
+    expect(observation).toMatchObject({
+      title: "Account [number]",
+      headings: ["Balance [number]"],
+    });
+    expect(
+      observation.candidates.map(({ label, placeholder, description }) => [
+        label,
+        placeholder,
+        description,
+      ]),
+    ).toEqual([
+      ["保有ポイント [number]pt", undefined, undefined],
+      ["[number] ポイント [number]", undefined, undefined],
+      ["Inbox [number] new", undefined, undefined],
+      // A description that repeats the label once hidden is left out.
+      ["Step [number]", "e.g. [number]", undefined],
+      ["Memo", undefined, "Up to [number] characters"],
     ]);
   });
 

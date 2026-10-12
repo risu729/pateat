@@ -116,7 +116,7 @@ test("a Hidden vault field refuses a plain text input before any fill", async ()
         .poll(async () =>
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
         )
-        .toContain("structural-mismatch");
+        .toContain("retry-limit");
       await expect(page.locator("#branch")).toHaveValue("");
       await expect(page.locator("#account")).toHaveValue("");
       expect(fixture.evidence(runId).posts).toBe(0);

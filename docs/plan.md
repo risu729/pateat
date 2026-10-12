@@ -50,10 +50,18 @@ Chrome, on a production build of main.
   Cloudflare's saved profiles at `https://dash.cloudflare.com/login`, Wise's "Welcome
   back" page and Instagram's saved profiles
   ([ADR 0028](adr/0028-account-chooser-login-pages.md), accepted 2026-10-12). The owner
-  asked for it now at 07:44 UTC 2026-10-12. Finding entries and the observation are in
+  asked for it at 07:44 UTC 2026-10-12. Finding entries and the observation are in
   [#314](https://github.com/risu729/pateat/pull/314); the trigger, answer, recipe and
   execution build on the `advance` continuation below and the start-only recipe of
-  ADR 0031, whose docs PR is in review.
+  [ADR 0031](adr/0031-sign-in-entry-pages.md).
+- Press a site's sign-in link on a page the site sent the visitor to before signing in,
+  shown by a query value naming another path of the same site, such as pixiv's top page
+  `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads
+  to `https://accounts.pixiv.net/login`
+  ([ADR 0031](adr/0031-sign-in-entry-pages.md), accepted 2026-10-12). Generation on that
+  login page succeeds since build `e9144a6` (2026-10-12 07:24 UTC). Next, a recipe that
+  starts without a fill step (only `entry` here, `chooser` in ADR 0028), delivered once
+  for both, then the press, verified on pixiv in the owner's Chrome.
 - Continue a generated recipe on the page after an `advance` step (email, then Next,
   then password): generate the steps after Next through the generation route's `base`,
   as listed under [AI evaluation harness progress](#ai-evaluation-harness-progress). The
@@ -271,6 +279,10 @@ still open on 2026-10-11.
   UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills;
   the owner chose OpenClaw's `test-audit` (07:43 UTC), planned in
   [phase 1](#phase-1-usable).
+- Moving from Bun to aube for monorepo support (owner, 2026-10-12 07:58 UTC): the
+  [research note](research/2026-10-12-package-manager-aube.md) compares Bun 1.4.3, pnpm
+  12 and aube 2.7.0 and records trial installs; it proposes staying on Bun, with pnpm as
+  the fallback if a pnpm-only feature is needed (not decided).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -308,9 +320,10 @@ installed shell status, and document-start/inactive-tab identity probe;
 SideBySide assembly on one local Windows host. On 2026-10-11 a clean `windows-2025`
 runner launched the Playwright-downloaded Chromium and
 [passed all 92 packaged-extension tests at that head](https://github.com/risu729/pateat/actions/runs/38118250919/job/114407461875),
-so the failure did not reproduce on a clean Windows host; CI now runs these tests on
-Windows on main pushes and manual runs (not on PRs since 2026-10-12), with browser
-profiles on the runner's work drive to avoid system-drive I/O stalls. The later
+so the failure did not reproduce on a clean Windows host. CI ran these tests on
+Windows on every PR and main push from 2026-10-11, then only on main pushes and manual
+runs, until the owner dropped Windows from CI later on 2026-10-12 (no Windows-only
+Pateat defect was found). The later
 installed-Chrome synthetic probe passed the early login gate; broader coexistence
 remains a separate M1 gate. Code Quality is not used, and normal merges need no bypass;
 see [merging](delivery.md#merging).
@@ -347,7 +360,9 @@ replays an uncertain mutation or pending submit. Another tab's attempt of the sa
 origin that is running or ended without success holds the origin until that tab closes
 or its record has not changed for 5 minutes;
 an `authenticated` one, or one Pateat itself stopped with nothing in flight, does not,
-and a tab keeps one record per origin
+and a new page of a tab whose login Pateat stopped before any submission logs in as a
+new tab would. A tab keeps one record per
+origin
 ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
 
 The shared synthetic site verifies field values, click counts and server-observed
@@ -1217,7 +1232,9 @@ rejected before inference. The generation/repair role uses AI SDK
 structured output and the finite-choice role uses the SDK decision contract with an
 explicit none option per question. Both resolve observation-local candidate IDs, check
 slot/role compatibility, joint mapping uniqueness and same-form grouping, refuse secrets
-in new-password fields, and apply the shared recipe step contract. They return explicit
+in new-password fields except a sign-in form's lone one beside the identifier the plan
+fills ([ADR 0018](adr/0018-recipe-generation-route.md#decision), owner decision of
+2026-10-12), and apply the shared recipe step contract. They return explicit
 ok, abstained or failed outcomes. Usage sums every attempt, including failed retries;
 one attempt without reported usage makes the total unknown. Retries default to none and
 are bounded; timeouts, caller cancellation and byte limits on the sent instructions,
@@ -1608,15 +1625,16 @@ added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
-locators, labels, placeholders, descriptions, `autocomplete` and declared input
-constraints, plus the title and visible `h1`-`h3`. It never reads input values, hidden
-inputs or query strings, and refuses a path that may carry a session ID or another
-token: a segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an
-ASP.NET part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's
-base64-encoded `/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and
-digits that contains a digit, or a base64url-like run of 16 or more letters, digits, `-`
-and `_` that contains a digit and switches case or between letters and digits often.
-Each segment is checked as it is and percent-decoded up to three times.
+locators, labels, placeholders, descriptions, `autocomplete` (the sign-in tokens, `off`,
+and the personal-data tokens that mark a sign-up form) and declared input constraints,
+plus the title and visible `h1`-`h3`. It never reads input values, hidden inputs or
+query strings, and refuses a path that may carry a session ID or another token: a
+segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET
+part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
+`/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
+contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
+that contains a digit and switches case or between letters and digits often. Each
+segment is checked as it is and percent-decoded up to three times.
 `extractSignedInObservation` refuses the same paths. The rule is a heuristic: it misses
 tokens shorter than 16 characters and some plain-looking ones, and it also refuses paths
 that carry no session, such as Microsoft Entra tenant IDs
@@ -1671,9 +1689,9 @@ redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
 as the executor resolves it, and for an input without one, its first `autocomplete`
 token that is `username`, `email`, `current-password` or `one-time-code` and that no
-other input carries; a button without one gets a text locator when its text
-matches exactly one button and redaction leaves it unchanged, and a script link when its
-text matches no button and exactly one script link. In a login form, a field, button or
+other input carries; a button without one gets a text locator when its text matches
+exactly one button and redaction leaves it unchanged, and a script link when its text
+matches no button and exactly one script link. In a login form, a field, button or
 checkbox without a target, a control the executor cannot act on (a select, radio, text
 area, another input type, or a read-only, disabled, transparent or tiny field) or a
 control in a shadow root makes the observation incomplete, as do more than 48
@@ -1704,15 +1722,18 @@ possible sign-in markers. Links are located by their text too, and those in a pa
 header or navigation, where account menus usually sit, are kept first; the rank reads
 only the page's structure, never words of one language. A text locator with a digit,
 such as a points balance or an unread count, never names a marker there, and the judge
-is told to pick a marker whose text is the same for every account and visit, never the
-person's name, a count or a balance: its text is stored in the recipe and must match
-every later sign-in. On ポイントインカム (2026-10-12) the page after sign-in gave 21
-candidates, all carousel controls, news tabs and an ad's close button, because its
-header links have no `id`; the judge answered `unclear`. A synthetic page of that shape
-now keeps the header's links. There, an attribute locator that redaction would change
-counts as no locator, so an account number in an `id` is never sent.
-`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
-pages.
+is told that the marker must show on every signed-in visit of every account, and that a
+marker located by its text keeps that text in the recipe, so it must read the same
+everywhere, never the person's name, a count or a balance. A marker located by `id`
+stores no text: on リクルートID (2026-10-12, 08:07 UTC) the judge named the points
+balance `{"by":"id","value":"total-point1"}`, which the earlier wording forbade although
+nothing private is stored, so the rule now names text targets only. On ポイントインカム
+(2026-10-12) the page after sign-in gave 21 candidates, all carousel controls, news tabs
+and an ad's close button, because its header links have no `id`; the judge answered
+`unclear`. A synthetic page of that shape now keeps the header's links. There, an
+attribute locator that redaction would change counts as no locator, so an account number
+in an `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in
+Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
@@ -1800,8 +1821,14 @@ still holds, such as a refused password; 2026-10-12) blocks it with `origin-busy
 the tab's tooltip says so; while that tab keeps its logout state, other tabs of the site
 that show a first step ask (and are filled) as well (2026-10-11). If the URI matches
 cannot be listed, the saved default alone is offered. A login whose result is still
-`reconciling` is resumed, not taken as a logout. Frame logins and sites whose logout
-page shows only a password step are not detected.
+`reconciling` is resumed, not taken as a logout. Since 2026-10-12 a tab whose own login
+stopped after a submission asks the same way, in that tab only, once a later page shows
+the login form after the record's 5-minute hold on other tabs has ended
+(`pateat.login-stopped-asks.v1`). Frame logins and sites whose logout
+page shows only a password step are not detected. By the owner's constraint (2026-10-12)
+a session that only expired never needs a manual press, so a logout of a session carried
+over from another tab's login or an earlier browser session is not detected either:
+Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

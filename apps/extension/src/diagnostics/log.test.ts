@@ -125,6 +125,20 @@ describe("diagnostics log", () => {
     expect((await restarted.summary()).debugUntil).toBeUndefined();
   });
 
+  it("turns debug logging off before the 24 hours end, across workers", async () => {
+    const { logger, deps } = setup();
+    await logger.enableDebug();
+    await logger.disableDebug();
+    await logger.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    const restarted = createLogger(deps);
+    await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    expect((await restarted.summary()).debugUntil).toBeUndefined();
+    expect((await restarted.entries()).map((entry) => [entry.event, entry.fields])).toEqual([
+      ["log.debug", { enabled: true, until: NOW + DEBUG_LOGGING_MS }],
+      ["log.debug", { enabled: false }],
+    ]);
+  });
+
   it("limits page-caused events per tab and origin and counts the rest", async () => {
     const { logger, advance } = setup();
     const source = { tabId: 4, origin: "https://bank.example" };
@@ -929,6 +943,72 @@ describe("unhandled errors", () => {
     ]);
     expect(entries[2]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
     expect((await log.logger.summary()).recentWarnings).toBe(1);
+    vi.restoreAllMocks();
+  });
+
+  it("logs a reason once per login-related page and warns for an exception", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const site = { tabId: 4, origin: "https://login.example" };
+    log.login({ type: "refused", ...site, reason: "site-excluded" });
+    log.login({ type: "refused", ...site, reason: "site-excluded", repeat: true });
+    log.login({ type: "refused", ...site, reason: "recipe-not-found", unrelated: true });
+    log.login({ type: "refused", ...site, reason: "stale-document" });
+    log.login({ type: "refused", ...site, reason: "stale-document", detail: "gave-up" });
+    log.login({ type: "refused", ...site, reason: "duplicate-document" });
+    // A framed login's refusal is logged like the page's.
+    log.login({ type: "refused", ...site, reason: "default-not-set", frame: true });
+    for (const message of ["storage-failed", "password=hunter2"])
+      log.login({
+        type: "exception",
+        ...site,
+        recipeId: "synthetic-recipe",
+        route: "password",
+        state: "reconciling",
+        stepIndex: 1,
+        name: "Error",
+        message,
+      });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(10));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(
+      entries.map((entry) => [
+        entry.event,
+        entry.level,
+        entry.fields["reason"] ?? entry.fields["message"],
+      ]),
+    ).toEqual([
+      ["login.refused", "info", "site-excluded"],
+      ["login.refused", "debug", "site-excluded"],
+      ["login.refused", "debug", "recipe-not-found"],
+      ["login.refused", "debug", "stale-document"],
+      ["login.refused", "info", "stale-document"],
+      ["login.refused", "debug", "duplicate-document"],
+      ["login.refused", "info", "default-not-set"],
+      ["login.exception", "warn", "storage-failed"],
+      ["login.exception", "warn", undefined],
+    ]);
+    expect(entries.at(-1)?.fields).toEqual({
+      // No settings or recipe names the site in this test, so it is a pseudonym.
+      origin: expect.stringMatching(/^origin:/),
+      recipe: "synthetic-recipe",
+      route: "password",
+      state: "reconciling",
+      step: 1,
+      name: "Error",
+    });
+    expect(JSON.stringify(entries)).not.toContain("hunter2");
     vi.restoreAllMocks();
   });
 

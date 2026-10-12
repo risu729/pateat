@@ -149,6 +149,18 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { origin: "origin", reason: "code", detail: "code", frame: "flag" },
   },
+  "login.exception": {
+    level: "warn",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      route: "code",
+      state: "code",
+      step: "count",
+      name: "name",
+      message: "code",
+    },
+  },
   "recipe.generate": {
     level: "info",
     fields: {
@@ -195,7 +207,7 @@ export const LOG_EVENTS = {
     fields: { source: "code", name: "name", message: "code", stack: "stack" },
   },
   "log.dropped": { level: "warn", fields: { origin: "origin", count: "count" } },
-  "log.debug": { level: "info", fields: { until: "time" } },
+  "log.debug": { level: "info", fields: { enabled: "flag", until: "time" } },
 } as const satisfies Record<string, EventDefinition>;
 export type LogEventName = keyof typeof LOG_EVENTS;
 type FieldValue = string | number | boolean;
@@ -693,8 +705,16 @@ export function createLogger(deps: LoggerDependencies) {
         await putMeta(DEBUG_KEY, until);
         debugUntil = Promise.resolve(until);
         knownDebugUntil = until;
-        await record("log.debug", { until }, "info");
+        await record("log.debug", { enabled: true, until }, "info");
         return until;
+      }),
+    /** Stops recording `debug` entries before the 24 hours end; those written are kept. */
+    disableDebug: () =>
+      serial(async () => {
+        await putMeta(DEBUG_KEY, 0);
+        debugUntil = Promise.resolve(0);
+        knownDebugUntil = 0;
+        await record("log.debug", { enabled: false }, "info");
       }),
   };
 }

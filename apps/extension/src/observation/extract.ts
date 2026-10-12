@@ -2,6 +2,7 @@ import {
   loginAutocompleteTokens,
   loginObservationSchema,
   loginTargetSchema,
+  observedAutocompleteTokens,
   type LoginObservation,
   type LoginTarget,
   type ObservedCandidate,
@@ -54,13 +55,6 @@ const maxHeadings = 8;
 const maxText = 120;
 const rawLimit = maxText * 4;
 const labelDepth = 3;
-const observedAutocomplete = [
-  "username",
-  "email",
-  "current-password",
-  "new-password",
-  "one-time-code",
-] as const;
 const inputModes = ["none", "text", "decimal", "numeric", "tel", "search", "email", "url"] as const;
 const fillTypes: Record<string, ObservedCandidate["role"]> = {
   text: "text",
@@ -113,7 +107,11 @@ function observedText(raw: string | null | undefined): string | undefined {
   // they cannot split a digit run.
   let text = collapseText(raw);
   for (const [pattern, replacement] of redactions) text = text.replace(pattern, replacement);
-  text = text.replace(/\s+/gu, " ").trim();
+  return bounded(text.replace(/\s+/gu, " ").trim());
+}
+
+/** At most 120 UTF-16 code units, without splitting a surrogate pair. */
+function bounded(text: string): string | undefined {
   if (text.length > maxText) {
     text = text.slice(0, maxText);
     if (/[\uD800-\uDBFF]$/u.test(text)) text = text.slice(0, -1);
@@ -121,6 +119,17 @@ function observedText(raw: string | null | undefined): string | undefined {
   }
   return text || undefined;
 }
+
+/**
+ * Observed text of a signed-in page with every number replaced by one `[number]`, whatever
+ * its length or script, digit groups joined by `.`, `,` or `'` included, and a long run
+ * the login-page rule already replaced (owner decision, 2026-10-12): such a page can show
+ * balances and points in any form, and judging whether it is signed in needs none of
+ * them. Numerals written as letters, such as most kanji, are not numbers to Unicode and stay.
+ */
+const numberPart = String.raw`(?:\p{Number}+|\[number\])`;
+const numbers = new RegExp(`${numberPart}(?:[.,，．'\u2019]${numberPart})*`, "gu");
+const withoutNumbers = (text: string) => bounded(text.replace(numbers, "[number]")) ?? "[number]";
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
@@ -343,7 +352,7 @@ function actionLabel(element: HTMLElement): string | undefined {
 function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
   const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
-  return observedAutocomplete.find((token) => tokens.includes(token));
+  return observedAutocompleteTokens.find((token) => tokens.includes(token));
 }
 
 function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
@@ -714,6 +723,7 @@ function observe(
   document: Document,
   chosen: Chosen[],
   complete: boolean,
+  hide: (text: string) => string = (text) => text,
   accounts?: readonly string[],
 ): ObservationResult {
   const location = document.location!;
@@ -725,22 +735,36 @@ function observe(
   );
 
   const groups = new Map<HTMLFormElement, string>();
-  const candidates = chosen.map(({ form, draft: { element: _element, ...rest }, target }, at) => {
-    if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
-    return {
-      id: `c${at + 1}`,
-      ...rest,
-      target,
-      ...(form ? { group: groups.get(form)! } : {}),
-    } satisfies ObservedCandidate;
-  });
+  const candidates = chosen.map(
+    (
+      { form, draft: { element: _element, label, placeholder, description, ...rest }, target },
+      at,
+    ) => {
+      if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
+      const shownLabel = label && hide(label);
+      const shownDescription = description && hide(description);
+      return {
+        id: `c${at + 1}`,
+        ...rest,
+        ...(shownLabel ? { label: shownLabel } : {}),
+        ...(placeholder ? { placeholder: hide(placeholder) } : {}),
+        // Still left out when it repeats the label once hidden.
+        ...(shownDescription && shownDescription !== shownLabel
+          ? { description: shownDescription }
+          : {}),
+        target,
+        ...(form ? { group: groups.get(form)! } : {}),
+      } satisfies ObservedCandidate;
+    },
+  );
 
-  const title = observedText(document.title);
+  const pageTitle = observedText(document.title);
+  const title = pageTitle && hide(pageTitle);
   const headings = [
     ...new Set(
       [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) => {
         const text = visibleText(heading);
-        return text ? [text] : [];
+        return text ? [hide(text)] : [];
       }),
     ),
   ].slice(0, maxHeadings);
@@ -839,7 +863,7 @@ export function extractAccountListObservation(
     return [{ form: null, draft: { element, role: "button", label: text }, target }];
   });
   if (chosen.length > maxListControls) complete = false;
-  return observe(document, chosen.slice(0, maxListControls), complete, accounts);
+  return observe(document, chosen.slice(0, maxListControls), complete, undefined, accounts);
 }
 
 /**
@@ -909,11 +933,11 @@ export function extractSignedInObservation(
   }
   const index = locatorIndex(document);
   // A marker's text locator is stored and must match every later sign-in, so text with a
-  // digit, such as a balance or an unread count, never names one.
+  // number character, such as a balance or an unread count, never names one.
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { redactAttributes: true, links: true });
-      return target && !(target.by === "text" && /\p{Decimal_Number}/u.test(target.value))
+      return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
         ? [{ ...entry, target }]
         : [];
     });
@@ -930,6 +954,6 @@ export function extractSignedInObservation(
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
-  const result = observe(document, chosen, gap === undefined);
+  const result = observe(document, chosen, gap === undefined, withoutNumbers);
   return result.ok && gap ? { ...result, gap } : result;
 }

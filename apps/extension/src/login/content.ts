@@ -5,7 +5,7 @@ import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts"
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
 import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
-import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
+import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
@@ -13,6 +13,7 @@ import {
   commandSchema,
   LOGIN_STEP_WAIT_MS,
   readySchema,
+  START_TRIES,
   reconnectSchema,
   type LoginReadiness,
   type TargetState,
@@ -124,6 +125,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const used = new Set<string>();
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
   let submitted: SubmittedPage | undefined;
+  /**
+   * Inputs this document's fills wrote to since the last click of the same attempt, and
+   * the password inputs that were writable when the first of those fills began, for the
+   * check before a click.
+   */
+  let filled = new WeakSet<HTMLInputElement>();
+  let shownBefore: WeakSet<HTMLInputElement> | undefined;
+  let filledAttempt: string | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
@@ -224,7 +233,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   function retry(): void {
     if (!observer) return;
     retries += 1;
-    if (retries > 3) return;
+    if (retries >= START_TRIES) return;
     announced = false;
     clearTimeout(timer);
     timer = setTimeout(check, 500);
@@ -463,6 +472,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return fail("cancelled");
       used.add(operation.operationId);
       const step = operation.step;
+      // Another attempt in this document starts from nothing filled.
+      if (operation.attemptId !== filledAttempt) {
+        filled = new WeakSet();
+        shownBefore = undefined;
+        filledAttempt = operation.attemptId;
+      }
       // With an advance whose next step is on its path, that step's elements just before
       // the click or the first input; the answer reports them (ADR 0013).
       const measureNext = () => {
@@ -581,6 +596,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
+            shownBefore ??= new WeakSet(
+              [...document.querySelectorAll("input")].filter(
+                (other) => other.type === "password" && writable(other),
+              ),
+            );
+            filled.add(input);
             setter.call(input, value.value);
             if (step.effect === "prepare") {
               // The code goes in now; the page's own reaction is measured from here.
@@ -591,6 +612,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               input.dispatchEvent(new Event(step.event!, { bubbles: true }));
             }
             value.value = "";
+          }
+          // A fill that submits through its own event ends what the next click checks.
+          if (step.effect !== "prepare") {
+            filled = new WeakSet();
+            shownBefore = undefined;
           }
           // A code page that submits the code by itself must not get a click as well: the
           // button is clicked only when nothing showed a submission during the watch. Its
@@ -631,18 +657,30 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
         if (!clickable(element)) return fail("structural-mismatch");
+        // The click's form's inputs, or the page's for an element outside a form.
+        const form = isButton(element) ? element.form : element.closest("form");
+        const formInputs = [...(form ? form.elements : document.querySelectorAll("input"))].filter(
+          (input) => input instanceof HTMLInputElement,
+        );
+        const fills = filled;
+        const passwordsBefore = shownBefore;
+        // The next fills are checked against the next click.
+        filled = new WeakSet();
+        shownBefore = undefined;
+        // The page changed the form under the fill: never send it without its values.
+        if (
+          unreadyForm(formInputs, {
+            filled: (input) => fills.has(input),
+            shownBefore: (input) => passwordsBefore?.has(input) === true,
+            writable,
+            submit: step.purpose === "submit",
+          })
+        )
+          return fail("structural-mismatch");
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();
-        // The click's form's inputs, or the page's for a button outside a form.
-        submitted = submittedPage(
-          document,
-          [
-            ...(isButton(element) && element.form
-              ? element.form.elements
-              : document.querySelectorAll("input")),
-          ].filter(writable),
-        );
+        submitted = submittedPage(document, formInputs.filter(writable));
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };

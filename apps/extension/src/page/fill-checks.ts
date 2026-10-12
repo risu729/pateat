@@ -127,3 +127,41 @@ export function rejectsFill(
   const texts = feedbackTexts(inputs, statuses ? "all" : "alert");
   return rejected || [...texts].some((text) => !before.texts.has(text));
 }
+
+/**
+ * Whether a form Pateat filled since the last click is not ready for the next one: the
+ * page emptied a shown input Pateat filled, or, for a submitting click, a shown password
+ * input that was not shown when the filling began is empty. `inputs` are the clicked
+ * element's form's inputs. A page that switches its form as the first value goes in, as
+ * St.George's logon with a remembered access number does (it clears every field and shows
+ * a Security Number field), would otherwise be sent without its credentials. Forms Pateat
+ * filled nothing in since the last click are not checked, so a passkey button beside an
+ * empty password field is still clicked, and so is a form whose other password fields
+ * (a registration panel, an off-screen trap) showed before the fill.
+ */
+export function unreadyForm(
+  inputs: readonly HTMLInputElement[],
+  {
+    filled,
+    shownBefore,
+    writable,
+    submit,
+  }: {
+    filled: (input: HTMLInputElement) => boolean;
+    shownBefore: (input: HTMLInputElement) => boolean;
+    writable: (input: HTMLInputElement) => boolean;
+    submit: boolean;
+  },
+): boolean {
+  const ours = inputs.filter(filled);
+  if (ours.length === 0) return false;
+  const empty = (input: HTMLInputElement) => input.value === "" && writable(input);
+  return (
+    ours.some(empty) ||
+    (submit &&
+      inputs.some(
+        (input) =>
+          input.type === "password" && !filled(input) && !shownBefore(input) && empty(input),
+      ))
+  );
+}

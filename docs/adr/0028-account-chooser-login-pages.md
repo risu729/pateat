@@ -10,6 +10,14 @@ form plan) and the recipe contract in `packages/contracts/src/login.ts`.
 
 Date: 2026-10-12
 
+Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
+quoted below as "at most one generation per origin and path in 24 hours" and "once a day
+per path" is condition 4 of [ADR 0016](0016-recipe-generation-trigger.md); on
+2026-10-12, after this ADR was accepted, the owner lifted the 24-hour rule and a
+10-minute window replaced it ([#269](https://github.com/risu729/pateat/pull/269)). ADR
+0031's recipe with only `entry` also starts without a fill step, so the contract change
+that allows such a recipe is delivered once for both.
+
 ## Context
 
 On 2026-10-12, after a sign-out, `https://dash.cloudflare.com/login` showed Cloudflare's

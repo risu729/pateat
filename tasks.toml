@@ -1,0 +1,55 @@
+#:schema https://mise.jdx.dev/schema/mise-task.json
+
+[install]
+description = "Install the frozen workspace dependencies."
+run = "bun install --frozen-lockfile"
+
+[check]
+description = "Run all static, runtime and browser checks through hk."
+run = "hk check --all --no-fail-fast"
+
+[fix]
+description = "Apply repository formatting and lint fixes."
+run = "hk fix --all --no-fail-fast"
+
+["check:runtime"]
+description = "Run implementation checks without recursing into hk."
+# Every project's typecheck and tests, the server's build output checks, and the root tool tests.
+depends = [
+  "//...:typecheck",
+  "//...:test",
+  "//services/api:check:*",
+  "test:tools",
+]
+
+["check:docs"]
+run = "node scripts/check-docs.mjs"
+
+["check:sdk-source"]
+description = "Fail when the SDK source records differ from the locked SDK."
+run = "node scripts/check-sdk-source.mjs"
+
+["test:tools"]
+run = "node --test .github/scripts/*.test.mjs"
+
+["browser:install"]
+usage = 'flag "--with-deps" help="Install Linux system dependencies as well."'
+run = "node node_modules/@playwright/test/cli.js install {% if usage.with_deps %}--with-deps{% endif %} chromium"
+
+["probe:login"]
+description = "Serve synthetic login fixtures for installed Chrome acceptance."
+run = "node scripts/login-fixture.mjs"
+
+["probe:passkeys"]
+description = "Serve the synthetic passkey relying party for installed Chrome acceptance."
+run = "node scripts/passkey-fixture.mjs"
+
+["render:icons"]
+description = "Render the extension icon SVG sources into the committed PNG sizes."
+run = "node scripts/render-icons.mjs"
+
+["generate:oidc-key"]
+description = "Print a new ES256 key set for the OIDC_SIGNING_KEYS Worker secret."
+usage = 'arg "[kid]" help="Key ID; defaults to the current date."'
+# The argument arrives as `usage_kid`: quoting it in `run` breaks under the Windows shell.
+run = "node scripts/server/oidc-key.mjs"
