@@ -118,6 +118,19 @@ describe("observation contract", () => {
     expect(withConstraints({ role: "button", maxLength: 3 })).toBe(false);
     expect(withConstraints({ role: "link", inputMode: "text" })).toBe(false);
   });
+
+  it("takes descriptions only on fill roles, as bounded page text", () => {
+    const candidate = base.candidates[0]!;
+    const withDescription = (extra: object) =>
+      parse({ ...base, candidates: [{ ...candidate, ...extra }] });
+    expect(withDescription({ description: "半角数字3桁" })).toBe(true);
+    expect(withDescription({ role: "number", description: "3 digits" })).toBe(true);
+    expect(withDescription({ role: "button", description: "3 digits" })).toBe(false);
+    expect(withDescription({ role: "checkbox", description: "3 digits" })).toBe(false);
+    expect(withDescription({ description: "" })).toBe(false);
+    expect(withDescription({ description: "x".repeat(121) })).toBe(false);
+    expect(withDescription({ description: "a\u202eb" })).toBe(false);
+  });
 });
 
 describe("code fields on a generated page (ADR 0027)", () => {

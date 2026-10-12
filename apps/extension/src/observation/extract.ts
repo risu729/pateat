@@ -211,14 +211,49 @@ function locate(
   return v.is(loginTargetSchema, target) ? target : undefined;
 }
 
-function referencedText(element: Element): string | undefined {
-  const ids = element.getAttribute("aria-labelledby")?.split(/\s+/u).filter(Boolean) ?? [];
+const idList = (element: Element, attribute: string) =>
+  element.getAttribute(attribute)?.split(/\s+/u).filter(Boolean) ?? [];
+
+/**
+ * Visible text of the elements `ids` name. With `skip`, the text of an element matching
+ * it, or of one inside such an element, is left out.
+ */
+function referencedText(
+  element: Element,
+  ids: readonly string[],
+  skip?: string,
+): string | undefined {
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
-    const text = referenced && visibleText(referenced);
+    if (!referenced || (skip && referenced.closest(skip))) return [];
+    const text = observedText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
     return text ? [text] : [];
   });
   return observedText(parts.join(" "));
+}
+
+/** Regions that announce changes, such as a failed sign-in's message. */
+const liveRegions = [
+  ...["alert", "status", "log", "marquee", "timer"].map((role) => `[role='${role}']`),
+  "[aria-live]:not([aria-live='off'])",
+].join(", ");
+
+/**
+ * A field's `aria-describedby` text, such as a hint that it takes three digits. Error
+ * messages can echo the value the user typed, so a field marked `aria-invalid="true"`
+ * gets none, and an element its `aria-errormessage` names or a live region, around the
+ * description or inside it, never counts.
+ * Text that repeats the label is left out.
+ */
+function fieldDescription(input: HTMLInputElement, label: string | undefined) {
+  if (input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return undefined;
+  const errors = new Set(idList(input, "aria-errormessage"));
+  const text = referencedText(
+    input,
+    idList(input, "aria-describedby").filter((id) => !errors.has(id)),
+    liveRegions,
+  );
+  return text === label ? undefined : text;
 }
 
 /** True for an element that belongs to another control: a control or its `<label for>`. */
@@ -260,7 +295,7 @@ function fieldLabel(input: HTMLInputElement): string | undefined {
     return text ? [text] : [];
   });
   return (
-    referencedText(input) ??
+    referencedText(input, idList(input, "aria-labelledby")) ??
     observedText(input.getAttribute("aria-label")) ??
     observedText(labels.join(" ")) ??
     adjacentText(input) ??
@@ -273,7 +308,7 @@ function actionLabel(element: HTMLElement): string | undefined {
     shown(image) ? [image.getAttribute("alt")] : [],
   );
   return (
-    referencedText(element) ??
+    referencedText(element, idList(element, "aria-labelledby")) ??
     observedText(element.getAttribute("aria-label")) ??
     (element instanceof HTMLInputElement
       ? observedText(element.type === "image" ? element.alt : element.value)
@@ -331,6 +366,7 @@ function describe(element: Element): Found | undefined {
     if (fillRole) {
       const label = fieldLabel(element);
       const placeholder = observedText(element.placeholder);
+      const description = fieldDescription(element, label);
       const hint = autocomplete(element);
       return {
         kind: "candidate",
@@ -340,6 +376,7 @@ function describe(element: Element): Found | undefined {
           role: fillRole,
           ...(label ? { label } : {}),
           ...(placeholder ? { placeholder } : {}),
+          ...(description ? { description } : {}),
           ...(hint ? { autocomplete: hint } : {}),
           ...constraints(element, fillRole),
         },
@@ -512,10 +549,10 @@ function loginFormsOf(
 
 /**
  * Builds the value-free observation of a top-level page that recipe generation
- * receives. It reads element types, locators, labels, placeholders and declared input
- * constraints, plus the title and visible headings; never input values, hidden inputs,
- * query strings, scripts or markup. Label text comes from label elements, ARIA, or the
- * rendered text next to a field, with private-looking parts redacted.
+ * receives. It reads element types, locators, labels, placeholders, descriptions and
+ * declared input constraints, plus the title and visible headings; never input values,
+ * hidden inputs, query strings, scripts or markup. Label text comes from label elements,
+ * ARIA, or the rendered text next to a field, with private-looking parts redacted.
  *
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
  * links (or, for fields outside any form, every control outside a form). Up to four
@@ -683,7 +720,11 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
   const texts = [
     title ?? "",
     ...headings,
-    ...candidates.flatMap((candidate) => [candidate.label ?? "", candidate.placeholder ?? ""]),
+    ...candidates.flatMap((candidate) => [
+      candidate.label ?? "",
+      candidate.placeholder ?? "",
+      candidate.description ?? "",
+    ]),
   ];
   const parsed = v.safeParse(loginObservationSchema, {
     version: 1,
