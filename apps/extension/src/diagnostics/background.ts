@@ -248,6 +248,33 @@ export function createDiagnosticsLog(options: {
                 : "info",
           },
         );
+      else if (report.type === "start")
+        void logger.log(
+          "login.start",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            route: report.route,
+            variant: report.variant,
+            account: report.account,
+            candidates: report.candidates,
+            item: report.itemId,
+            fillOnly: report.fillOnly,
+          },
+          { source },
+        );
+      else if (report.type === "logout")
+        void logger.log(
+          "login.logout",
+          { origin: report.origin, recipe: report.recipeId },
+          { source },
+        );
+      else if (report.type === "choice")
+        void logger.log(
+          "login.choice",
+          { origin: report.origin, outcome: report.outcome },
+          { source },
+        );
       else if (report.type === "exception")
         void logger.log(
           "login.exception",

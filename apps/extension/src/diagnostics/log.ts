@@ -149,6 +149,21 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { origin: "origin", reason: "code", detail: "code", frame: "flag" },
   },
+  "login.start": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      route: "code",
+      variant: "count",
+      account: "code",
+      candidates: "count",
+      item: "item",
+      fillOnly: "flag",
+    },
+  },
+  "login.logout": { level: "info", fields: { origin: "origin", recipe: "recipe" } },
+  "login.choice": { level: "info", fields: { origin: "origin", outcome: "code" } },
   "login.exception": {
     level: "warn",
     fields: {
