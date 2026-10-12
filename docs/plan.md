@@ -59,8 +59,9 @@ Chrome, on a production build of main.
     [#234](https://github.com/risu729/pateat/pull/234)).
   - Choosing again after a logout on the password side
     ([#210](https://github.com/risu729/pateat/pull/210)).
-  - A long wait in the passkey chooser
-    ([#232](https://github.com/risu729/pateat/pull/232)).
+  - The passkey chooser staying open across a settings sync
+    ([#232](https://github.com/risu729/pateat/pull/232)); see
+    [passkey progress](#passkey-progress).
   - Changing a site's exclusion or default in the toolbar popup.
   - The badge and popup choice on a site with two matches
     ([#187](https://github.com/risu729/pateat/pull/187)).
@@ -184,6 +185,22 @@ still open on 2026-10-11.
   has no Japanese address model, and no widely used extension covers them. It recommends
   Japanese forms as the first candidate if identity filling is designed later (not
   decided).
+- Cloudflare Clef for the finite-choice role, chosen for
+  [phase 3](#phase-3-public-release) but not planned until the corpus of real pages
+  grows (owner, 2026-10-11 17:48 UTC): the
+  [research note](research/2026-10-11-clef-finite-choice.md) covers its API, where it
+  would fit in recipe generation, cost, and the open questions (Japanese, calibration,
+  who pays, abstention handover).
+- Earlier research kept as dated notes:
+  [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
+  [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
+  [device credential expiry](research/2026-10-11-device-credential-expiry.md) behind the
+  90-day idle expiry, with how a Chrome Web Store item might keep the current extension
+  ID;
+  [Bitwarden passkey wrapper coexistence](research/2026-10-10-bitwarden-passkey-coexistence.md)
+  behind ADR 0007's outermost wrapper;
+  [limits on automating installed Chrome](research/2026-10-10-real-chrome-automation-limits.md);
+  and [Claude Design](research/2026-10-11-claude-design.md) for the UI polish.
 
 ### To consider, not planned
 
@@ -247,7 +264,8 @@ journal precedes every fill and click; input-triggered advance/submission declar
 effect and event explicitly. Recovery observes the current document and never blindly
 replays an uncertain mutation or pending submit. Another tab's attempt of the same
 origin that is running or ended without success holds the origin until that tab closes;
-an `authenticated` one does not, and a tab keeps one record per origin
+an `authenticated` one, or one Pateat itself stopped with nothing in flight, does not,
+and a tab keeps one record per origin
 ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
 
 The shared synthetic site verifies field values, click counts and server-observed
@@ -1075,8 +1093,25 @@ at main `8581f1d`, on `https://accounts.pixiv.net` (two pixiv passkey items):
   `/manage` shortly before. That settings change cancelled the waiting request, and the
   page then handed it to the browser. Since then a settings change leaves the window
   open, and a wait that runs out fails the request with `NotAllowedError` instead of
-  handing it to the browser (ADR 0021 part C); neither is checked in installed Chrome
-  yet.
+  handing it to the browser (ADR 0021 part C).
+
+Evidence, 2026-10-11 and 2026-10-12, after
+[#232](https://github.com/risu729/pateat/pull/232), same Chrome, account and site, no
+site default:
+
+- Choosing after waiting about 30 s logged in (production build `b4c2ec1`, 02:15 UTC):
+  `passkey.request` outcome `assertion`, chooser `chosen`. No sync landed while the
+  window was open, so staying open across a sync is covered only by the Playwright test.
+- Closing the window with its close button handed the request to the browser as
+  designed (`b4c2ec1`, 02:12 UTC): outcome `delegate`, reason `chooser-closed`, chooser
+  `closed`. Bitwarden's window and then Windows Security appeared, and cancelling them
+  ended in pixiv's own error.
+- Leaving the window unanswered (`b4c2ec1`, 02:35 UTC): exactly 2 minutes after the
+  click, the window closed by itself with no Bitwarden or Windows prompt, and pixiv
+  showed its own error, "Failed to log in with passkey. Please use a different method to
+  log in." The log shows outcome `not-allowed`, chooser `timeout`. The origin had a
+  site default by then, and the window still opened because of `signedBefore`: Pateat
+  had signed in from that tab before (ADR 0021 part D).
 
 ## AI evaluation harness progress
 
@@ -1609,12 +1644,12 @@ tab's record for that origin is released and the tab asks with reason `logged-ou
 badge and popup list the saved default first and every URI match, even a single one. The
 tab and origin are kept in `pateat.login-logouts.v1` in `chrome.storage.session`, so a
 reload or a restarted worker asks again until a pick logs in. Another tab's record that
-still holds the site (running, or ended without success) blocks it with `origin-busy`,
-and the tab's tooltip says so; while the tab asks, other tabs of the site that show a
-first step ask as well (2026-10-11). If the URI matches cannot be
-listed, the saved default alone is offered. A login whose result is still `reconciling`
-is resumed, not taken as a logout. Frame logins and sites whose logout page shows only a
-password step are not detected.
+still holds the site (running, or ended without success in a way that still holds, such
+as a refused password; 2026-10-12) blocks it with `origin-busy`, and the tab's tooltip
+says so; while the tab asks, other tabs of the site that show a first step ask as well
+(2026-10-11). If the URI matches cannot be listed, the saved default alone is offered. A
+login whose result is still `reconciling` is resumed, not taken as a logout. Frame
+logins and sites whose logout page shows only a password step are not detected.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

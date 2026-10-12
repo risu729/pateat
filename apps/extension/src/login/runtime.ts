@@ -221,6 +221,24 @@ const finishedLogin = (metadata: LoginAttemptMetadata) =>
     ["credential-rejected", "wrong-account", "left-origin", "interrupted"].includes(
       metadata.outcome ?? "",
     ));
+/**
+ * A login Pateat itself stopped with nothing in flight: a withdrawn authorization, a
+ * cancel, a value the page would not take, or another account shown. It does not hold the origin
+ * against other tabs (ADR 0022). A refusal by the site, a second-factor challenge, a
+ * submission limit, an operation the page may have received or a result that may still
+ * arrive keeps holding.
+ */
+const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
+  metadata.state === "blocked" &&
+  (["policy-changed", "value-mismatch", "wrong-account", "account-switched"].includes(
+    metadata.outcome ?? "",
+  ) ||
+    // A frame login whose page went away also ends `cancelled`; after a submission that
+    // is the tab leaving, which holds like `interrupted`.
+    (metadata.outcome === "cancelled" && metadata.submissions === 0)) &&
+  metadata.mutationIntent !== true &&
+  metadata.settled !== true &&
+  !(metadata.operationKind === "click" && metadata.operationId !== undefined);
 type PendingChoice = v.InferOutput<typeof pendingChoiceSchema>;
 type Execution = {
   metadata: LoginAttemptMetadata;
@@ -228,6 +246,8 @@ type Execution = {
   live: LiveDocument;
   running: boolean;
   operation?: LoginOperation;
+  /** `operation` was sent to the page, so its effect may have started. */
+  delivered?: boolean;
   /** Saved only once this attempt reaches `authenticated`. */
   choice?: UnsavedChoice;
   /**
@@ -828,9 +848,9 @@ export function createLoginRuntime(
   /**
    * Whether another tab's login still holds the origin. Cookies can be shared across tabs,
    * so a login that is running, awaits its result, or ended without success there keeps this
-   * tab from submitting until that tab closes (ADR 0022). One that authenticated, or ended
-   * without ever submitting, does not: the login form showing in this tab then means the
-   * site's session has ended.
+   * tab from submitting until that tab closes (ADR 0022). One that authenticated, ended
+   * without ever submitting, or was stopped by Pateat with nothing in flight does not: the
+   * login form showing in this tab then means the site's session has ended.
    */
   function heldElsewhere(tabId: number, siteOrigin: string): boolean {
     return [...persisted.values()].some(
@@ -838,7 +858,8 @@ export function createLoginRuntime(
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
         entry.state !== "authenticated" &&
-        !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions),
+        !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
+        !stoppedByPateat(entry),
     );
   }
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
@@ -1029,9 +1050,33 @@ export function createLoginRuntime(
     policy?: PolicyChange,
   ): Promise<void> {
     if (!current(run)) return;
-    const previous = run.metadata.state;
-    run.metadata = transitionLoginAttempt(run.metadata, event);
-    if (run.metadata.state !== previous) reportAttempt(run.metadata, run.recipe, policy);
+    // A stop before the page received the prepared operation takes its effect back, so the
+    // record does not hold the origin as if a submission were in flight (ADR 0022).
+    const undelivered =
+      event.type === "POLICY_CHANGED" &&
+      run.operation &&
+      !run.delivered &&
+      run.operation.operationId === run.metadata.operationId
+        ? run.operation.operationId
+        : undefined;
+    const previous = run.metadata;
+    run.metadata = transitionLoginAttempt(
+      run.metadata,
+      undelivered ? { type: "POLICY_CHANGED", undelivered } : event,
+    );
+    if (run.metadata.state !== previous.state)
+      // The log still names the step that was withdrawn.
+      reportAttempt(
+        undelivered
+          ? {
+              ...run.metadata,
+              operationKind: previous.operationKind,
+              operationEffect: previous.operationEffect,
+            }
+          : run.metadata,
+        run.recipe,
+        policy,
+      );
     if (
       import.meta.env.MODE === "probe" &&
       armed === "intent-write-failure" &&
@@ -2323,6 +2368,9 @@ export function createLoginRuntime(
         // only if they were not usable just before it (ADR 0013).
         const inPlace = inPlaceNext(run.recipe, run.metadata, operation.stepIndex);
         delete run.inPlace;
+        // Known before its intent is recorded, so a stop in between takes the intent back.
+        run.operation = operation;
+        run.delivered = false;
         await change(run, {
           type: "PREPARE",
           operationId: operation.operationId,
@@ -2333,7 +2381,6 @@ export function createLoginRuntime(
           await change(run, { type: "SUBMIT_INTENT", operationId: operation.operationId });
         else if (operation.step.kind === "fill")
           await change(run, { type: "MUTATION_INTENT", operationId: operation.operationId });
-        run.operation = operation;
         const authorized = await allowed(run);
         if (!authorized) return;
         if (
@@ -2439,6 +2486,7 @@ export function createLoginRuntime(
             after?.kind === "click"
               ? after.target
               : undefined;
+          run.delivered = true;
           response = await send(run.live, {
             type: "login.execute",
             operation,

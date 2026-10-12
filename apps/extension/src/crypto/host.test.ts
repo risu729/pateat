@@ -464,6 +464,132 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(await h.host.catalog(session)).toEqual({ ok: false, error: { code: "crypto-locked" } });
   });
 
+  it("delivers one job per session at a time instead of refusing a concurrent one", async () => {
+    // A passkey signed while a login matches the page's URI uses the same session's Worker.
+    const h = harness();
+    const a = await h.open();
+    const b = await h.open("synthetic-other-connection");
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    const other = h.host.matchUris(b, url);
+    const firstCommand = await h.command(2);
+    // Another session's job is not held back by this one.
+    const otherCommand = await h.command(3);
+    expect(firstCommand.operation).toMatchObject({ kind: "match-uris", session: a });
+    expect(otherCommand.operation).toMatchObject({ kind: "match-uris", session: b });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(h.commands).toHaveLength(4);
+    const otherCandidates = { ...uriCandidates, connectionId: "synthetic-other-connection" };
+    h.reply(otherCommand, { ok: true, data: otherCandidates });
+    expect(await other).toEqual({ ok: true, data: otherCandidates });
+    h.reply(firstCommand, { ok: true, data: uriCandidates });
+    expect(await first).toEqual({ ok: true, data: uriCandidates });
+    const secondCommand = await h.command(4);
+    expect(secondCommand.operation).toMatchObject({ kind: "match-uris", session: a });
+    h.reply(secondCommand, { ok: true, data: uriCandidates });
+    expect(await second).toEqual({ ok: true, data: uriCandidates });
+    expect(h.host.status()).toMatchObject({ pending: 0 });
+  });
+
+  it("lets a session's next job go once a waiting earlier job is cancelled", async () => {
+    const h = harness();
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const controller = new AbortController();
+    const waiting = h.host.matchUris(a, url, controller.signal);
+    const third = h.host.matchUris(a, url);
+    const firstCommand = await h.command(1);
+    controller.abort();
+    expect(await waiting).toEqual({ ok: false, error: { code: "cancelled" } });
+    // The cancelled job never reaches the Worker, and the third still waits for the first.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(h.commands).toHaveLength(2);
+    h.reply(firstCommand, { ok: true, data: uriCandidates });
+    expect(await first).toEqual({ ok: true, data: uriCandidates });
+    const thirdCommand = await h.command(2);
+    h.reply(thirdCommand, { ok: true, data: uriCandidates });
+    expect(await third).toEqual({ ok: true, data: uriCandidates });
+    expect(h.commands).toHaveLength(3);
+    expect(
+      h.posted.filter((message) => (message as { type: string }).type === "crypto.cancel"),
+    ).toHaveLength(0);
+  });
+
+  it("gives a job that waited for its turn a full budget once it is delivered", async () => {
+    const h = harness({ timeoutMs: 300 });
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    const firstCommand = await h.command(1);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    h.reply(firstCommand, { ok: true, data: uriCandidates });
+    expect(await first).toEqual({ ok: true, data: uriCandidates });
+    const secondCommand = await h.command(2);
+    // Past the budget counted from admission, but within the one counted from delivery.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    h.reply(secondCommand, { ok: true, data: uriCandidates });
+    expect(await second).toEqual({ ok: true, data: uriCandidates });
+  });
+
+  it("refuses a job whose wait for its turn times out and keeps the session open", async () => {
+    const h = harness({ timeoutMs: 300 });
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    const third = h.host.matchUris(a, url);
+    const firstCommand = await h.command(1);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    h.reply(firstCommand, { ok: true, data: uriCandidates });
+    expect(await first).toEqual({ ok: true, data: uriCandidates });
+    const secondCommand = await h.command(2);
+    // The third has waited its whole budget behind the second, without reaching the Worker.
+    expect(await third).toEqual({ ok: false, error: { code: "resource-limit" } });
+    h.reply(secondCommand, { ok: true, data: uriCandidates });
+    expect(await second).toEqual({ ok: true, data: uriCandidates });
+    const next = h.host.matchUris(a, url);
+    h.reply(await h.command(3), { ok: true, data: uriCandidates });
+    expect(await next).toEqual({ ok: true, data: uriCandidates });
+    expect(h.commands).toHaveLength(4);
+  });
+
+  it("fails a session's waiting jobs without delivering them when it is locked", async () => {
+    const h = harness();
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    await h.command(1);
+    const locking = h.host.lock(a);
+    expect(await first).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(await second).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    const lockCommand = await h.command(2);
+    expect(lockCommand.operation).toEqual({ kind: "lock", session: a });
+    h.reply(lockCommand, { ok: true, data: null });
+    expect(await locking).toMatchObject({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(h.commands.map((command) => command.operation.kind)).toEqual([
+      "open",
+      "match-uris",
+      "lock",
+    ]);
+  });
+
+  it("releases a session's waiting job when the job ahead of it fails", async () => {
+    const h = harness();
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    h.reply(await h.command(1), { ok: false, error: { code: "crypto-failed" } });
+    expect(await first).toEqual({ ok: false, error: { code: "crypto-failed" } });
+    expect(await second).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(h.host.status()).toMatchObject({ pending: 0 });
+  });
+
   it("forwards an unavailable URI context as its own result", async () => {
     const h = harness();
     const session = await h.open();
@@ -715,13 +841,15 @@ describe("cancellation, deadlines and host loss", () => {
     const a = await h.open();
     const b = await h.open("synthetic-other-connection");
     const pending = Array.from({ length: 8 }, () => h.host.decryptCipher(b, itemId));
-    await h.command(9);
+    // The session's jobs take turns: only the first is delivered, the rest wait.
+    await h.command(2);
+    expect(h.host.status()).toMatchObject({ pending: 8 });
     expect(await h.host.decryptCipher(a, itemId)).toEqual({
       ok: false,
       error: { code: "resource-limit" },
     });
     const locking = h.host.lock(a);
-    const command = await h.command(10);
+    const command = await h.command(3);
     expect(command.operation).toEqual({ kind: "lock", session: a });
     h.reply(command, { ok: true, data: null });
     expect(await locking).toMatchObject({ ok: true });
