@@ -335,9 +335,9 @@ still open on 2026-10-11.
   them too (owner, 2026-10-12 15:52 UTC). Today Pateat acts only on logged-out login
   flows, and [ADR 0021](adr/0021-account-choice-outside-settings.md) lists a
   re-authentication form while signed in as a known gap.
-  - The owner also wants these prompts classified, with a permission per settings
-    profile ([ADR 0024](adr/0024-settings-profiles.md)) for each class (owner,
-    2026-10-12 15:54 UTC). Examples: allow logins but refuse re-verification after
+  - The owner also wants these prompts classified, with a permission for each class
+    set per site in a settings profile ([ADR 0024](adr/0024-settings-profiles.md))
+    (owner, 2026-10-12 15:54 UTC). Examples: allow logins but refuse re-verification after
     them, such as before a money transfer or a change of registered details; allow
     personal details. The classes and permissions are still to be designed and need
     the owner's approval before an ADR.
