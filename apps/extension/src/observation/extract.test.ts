@@ -191,7 +191,7 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("takes field descriptions from aria-describedby, apart from text the label repeats", () => {
+  it("takes field descriptions from aria-describedby, never errors or text the label repeats", () => {
     page(
       `<label for="branch">店番</label>
       <input id="branch" aria-describedby="branch-hint gone">
@@ -202,6 +202,12 @@ describe("extractLoginObservation", () => {
       <p id="secret" hidden>Ignored</p>
       <input id="mail" aria-label="Mail" aria-describedby="mail-hint">
       <p id="mail-hint">Use taro@example.com or 0312345678</p>
+      <input id="invalid" aria-label="User" aria-describedby="user-hint" aria-invalid="true">
+      <p id="user-hint">User taro_y is not registered</p>
+      <input id="errors" aria-label="ID" aria-describedby="id-hint id-error id-alert"
+        aria-errormessage="id-error">
+      <p id="id-hint">6-12 letters</p><p id="id-error">taro_y is taken</p>
+      <div role="alert"><p id="id-alert">taro_y is locked</p></div>
       <button id="go" aria-describedby="branch-hint">ログイン</button>`,
     );
     expect(summary(observe())).toEqual([
@@ -218,6 +224,13 @@ describe("extractLoginObservation", () => {
         target: { by: "id", value: "mail" },
         label: "Mail",
         description: "Use [email] or [number]",
+      },
+      { role: "text", target: { by: "id", value: "invalid" }, label: "User" },
+      {
+        role: "text",
+        target: { by: "id", value: "errors" },
+        label: "ID",
+        description: "6-12 letters",
       },
       { role: "button", target: { by: "id", value: "go" }, label: "ログイン" },
     ]);

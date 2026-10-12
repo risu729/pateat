@@ -211,17 +211,41 @@ function locate(
   return v.is(loginTargetSchema, target) ? target : undefined;
 }
 
+const idList = (element: Element, attribute: string) =>
+  element.getAttribute(attribute)?.split(/\s+/u).filter(Boolean) ?? [];
+
+/** Visible text of the elements `ids` name, skipping those `skip` rejects. */
 function referencedText(
   element: Element,
-  attribute: "aria-labelledby" | "aria-describedby" = "aria-labelledby",
+  ids: readonly string[],
+  skip: (referenced: Element) => boolean = () => false,
 ): string | undefined {
-  const ids = element.getAttribute(attribute)?.split(/\s+/u).filter(Boolean) ?? [];
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
-    const text = referenced && visibleText(referenced);
+    const text = referenced && !skip(referenced) && visibleText(referenced);
     return text ? [text] : [];
   });
   return observedText(parts.join(" "));
+}
+
+/** Regions that announce changes, such as a failed sign-in's message. */
+const liveRegions = "[role='alert'], [role='status'], [aria-live]:not([aria-live='off'])";
+
+/**
+ * A field's `aria-describedby` text, such as a hint that it takes three digits. Error
+ * messages can echo the value the user typed, so a field marked `aria-invalid="true"`
+ * gets none, and an element its `aria-errormessage` names or a live region never counts.
+ * Text that repeats the label is left out.
+ */
+function fieldDescription(input: HTMLInputElement, label: string | undefined) {
+  if (input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return undefined;
+  const errors = new Set(idList(input, "aria-errormessage"));
+  const text = referencedText(
+    input,
+    idList(input, "aria-describedby").filter((id) => !errors.has(id)),
+    (referenced) => referenced.closest(liveRegions) !== null,
+  );
+  return text === label ? undefined : text;
 }
 
 /** True for an element that belongs to another control: a control or its `<label for>`. */
@@ -263,7 +287,7 @@ function fieldLabel(input: HTMLInputElement): string | undefined {
     return text ? [text] : [];
   });
   return (
-    referencedText(input) ??
+    referencedText(input, idList(input, "aria-labelledby")) ??
     observedText(input.getAttribute("aria-label")) ??
     observedText(labels.join(" ")) ??
     adjacentText(input) ??
@@ -276,7 +300,7 @@ function actionLabel(element: HTMLElement): string | undefined {
     shown(image) ? [image.getAttribute("alt")] : [],
   );
   return (
-    referencedText(element) ??
+    referencedText(element, idList(element, "aria-labelledby")) ??
     observedText(element.getAttribute("aria-label")) ??
     (element instanceof HTMLInputElement
       ? observedText(element.type === "image" ? element.alt : element.value)
@@ -334,8 +358,7 @@ function describe(element: Element): Found | undefined {
     if (fillRole) {
       const label = fieldLabel(element);
       const placeholder = observedText(element.placeholder);
-      const described = referencedText(element, "aria-describedby");
-      const description = described === label ? undefined : described;
+      const description = fieldDescription(element, label);
       const hint = autocomplete(element);
       return {
         kind: "candidate",
@@ -518,10 +541,10 @@ function loginFormsOf(
 
 /**
  * Builds the value-free observation of a top-level page that recipe generation
- * receives. It reads element types, locators, labels, placeholders, `aria-describedby`
- * descriptions and declared input constraints, plus the title and visible headings; never input values, hidden inputs,
- * query strings, scripts or markup. Label text comes from label elements, ARIA, or the
- * rendered text next to a field, with private-looking parts redacted.
+ * receives. It reads element types, locators, labels, placeholders, descriptions and
+ * declared input constraints, plus the title and visible headings; never input values,
+ * hidden inputs, query strings, scripts or markup. Label text comes from label elements,
+ * ARIA, or the rendered text next to a field, with private-looking parts redacted.
  *
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
  * links (or, for fields outside any form, every control outside a form). Up to four

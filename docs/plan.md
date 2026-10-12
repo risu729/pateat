@@ -1631,13 +1631,17 @@ table cell, `<dt>` or sibling, at most three levels up, never across another con
 its label), then `title`; image `alt` names buttons, including `<input type="image">`. A
 text, email, tel, number or password field also gets a `description`: the rendered text
 of the elements its `aria-describedby` names, such as `半角数字3桁` under a branch
-number field, left out when it equals the label. It reaches the generation,
+number field, left out when it equals the label. Error messages can echo what the user
+typed, so a field marked `aria-invalid="true"` gets no description, and an element the
+field's `aria-errormessage` names or one inside an alert, status or live region never
+counts. It reaches the generation,
 finite-choice and completion roles as untrusted page text, like labels. The owner chose
 on 2026-10-12 to add only this now and to consider the rest only if field or button
 mapping gets worse on real pages. Not observed today: text after a field that no
 `aria-describedby` names (a hint printed under an input), a second label source once one
 is found (the text next to a field when a `<label>` exists), text around a button (a
-line above a passkey button, the heading of its section) and a button's
+line above a passkey button, or which `h1`-`h3` heading a button sits under) and a
+button's
 `aria-describedby`, the `pattern` attribute, and whether a button is disabled. Whatever
 the model saw, the executor still checks a field's `maxlength` and `minlength` before it
 fills and the browser's validation, `pattern` included, before it clicks. Text is
