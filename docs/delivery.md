@@ -24,20 +24,26 @@ the rest of the graph (lint, typecheck, unit and component tests, build checks) 
 no-op there; without that variable, as in a local `mise run check`, the suite runs
 whole. With four shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37
 runs on 2026-10-11 and 12), where each Linux shard still repeated the rest of the graph;
-`Verify` and the Linux shards run side by side now. A main or manual run is 15 jobs (up
-to 13 at once), so it can queue on GitHub's concurrent-job limit when runs overlap; that
-delays it without failing it. A PR run skips the Windows shards (the owner's decision on
-2026-10-12): it is 9 jobs, or 3 for a documentation-only PR (`Changes`, `Verify`,
-`CI Check`). A Windows-only failure therefore shows first on the main run, which then
-packages no release and starts no deployment; run the workflow manually
-(`workflow_dispatch`) on a branch to get the Windows shards before merging. `CI Check`
-requires `Verify` and every Linux shard to succeed (see `Changes` below) and every
-Windows shard to succeed on main pushes and manual runs (skipped on PRs), including when
-an upstream job failed or was cancelled. A `Changes` job (no checkout, on `ubuntu-slim`)
-decides whether a PR needs the browser tests: a PR whose changed files are all under
-`docs/` or are `AGENTS.md` or `README.md` skips the Linux shards, runs only `Verify`
-(which still checks the documentation) and passes `CI Check` with the shards skipped;
-any other change, every main push and every manual run runs them. The owner chose
+`Verify` and the Linux shards run side by side now. With six shards and `Verify` split
+out, 16 PR runs on 2026-10-12 between 06:11 and 07:24 UTC (JST 15:11 to 16:24) took
+4m06s on average (3m19s to 5m28s) and 11 successful main runs 4m44s (3m28s to 8m00s);
+the slowest ones overlapped other runs. One Windows shard timed out once in a test that
+usually takes about 8 s (a 30 s hang with no trace; Windows system-drive I/O stalls are
+the known cause of such timeouts, but this one was not confirmed), and a re-run is the
+response. A main or manual run is 15 jobs (up to 13 at once), so it can queue on
+GitHub's concurrent-job limit when runs overlap; that delays it without failing it. A PR
+run skips the Windows shards (the owner's decision on 2026-10-12): it is 9 jobs, or 3
+for a documentation-only PR (`Changes`, `Verify`, `CI Check`). A Windows-only failure
+therefore shows first on the main run, which then packages no release and starts no
+deployment; run the workflow manually (`workflow_dispatch`) on a branch to get the
+Windows shards before merging. `CI Check` requires `Verify` and every Linux shard to
+succeed (see `Changes` below) and every Windows shard to succeed on main pushes and
+manual runs (skipped on PRs), including when an upstream job failed or was cancelled. A
+`Changes` job (no checkout, on `ubuntu-slim`) decides whether a PR needs the browser
+tests: a PR whose changed files are all under `docs/` or are `AGENTS.md` or `README.md`
+skips the Linux shards, runs only `Verify` (which still checks the documentation) and
+passes `CI Check` with the shards skipped; any other change, every main push and every
+manual run runs them. The owner chose
 [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
 2026-10-12 because on a `pull_request` event it reads the changed files through the API,
 so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
