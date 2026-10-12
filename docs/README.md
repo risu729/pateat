@@ -72,6 +72,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0026: Signing in to a site through an identity provider](adr/0026-sign-in-through-identity-providers.md)
 - [0027: Login routes and second-factor pages chosen per account](adr/0027-per-account-login-routes.md)
 - [0028: Login pages that list accounts to choose from](adr/0028-account-chooser-login-pages.md)
+- [0029: Local sign-in state after an effect step, with the judge as a fallback](adr/0029-local-sign-in-state.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

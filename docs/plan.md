@@ -56,6 +56,10 @@ Chrome, on a production build of main.
   owner rated it high priority. An existing recipe whose step after an advance is on the
   same path, as an identifier-first form that swaps in its password form in place,
   already continues ([#252](https://github.com/risu729/pateat/pull/252)).
+- [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 computes
+  the local sign-in state of the page after a submission and logs it next to today's
+  result, with no change in behaviour. After the owner reviews those logs from the
+  daily-site passes, delivery 2 settles logins by it, with the judge as a fallback.
 - Installed-Chrome checks still open:
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the
@@ -172,6 +176,10 @@ still open on 2026-10-11.
   the Worker already decrypts card items, and that it needs a handler that fills a field
   the binding names (ADR 0027's deferred `totp` binding field needs the same naming, but
   makes a code instead of filling a raw value) and a way to link the site to the card.
+- GitHub's optional "Verify your two-factor authentication (2FA) settings" page after a
+  login: Pateat should complete it itself (owner, 2026-10-12 04:08 UTC). Until then,
+  [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there and
+  leaves the page to the person.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles

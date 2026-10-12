@@ -16,6 +16,8 @@ per route), [ADR 0018](0018-recipe-generation-route.md) (when a page is judged a
 judge's limits) and [ADR 0026](0026-sign-in-through-identity-providers.md) (SSO as a
 route). Each part lands in its own PR (see [Delivery](#delivery)); the ADR 0010 and ADR
 0016 status notes land with the custom-field part.
+When a page after a step is judged is amended by
+[ADR 0029](0029-local-sign-in-state.md), which is not implemented yet.
 
 Date: 2026-10-11
 
