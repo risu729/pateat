@@ -191,8 +191,8 @@ describe("withoutUsernames", () => {
         <button id="logout" type="button">Sign out</button>`;
       const page = extractSignedInObservation();
       if (!page.ok) throw new Error(page.reason);
-      const text = hidden(page.observation, ["taro.yamada"]).headerText!;
-      expect(text, String(filler)).not.toMatch(/taro|\bt[a-z.]*$/u);
+      const sent = hidden(page.observation, ["taro.yamada"]).headerText!;
+      expect(sent, String(filler)).not.toMatch(/taro|\bt[a-z.]*$/u);
     }
     const long = `${"a ".repeat(498)}taro.yamada`;
     expect(header(long)!.length).toBeLessThanOrEqual(1000);
