@@ -222,9 +222,9 @@ synthetic responses cover those. After a release that contains
    [Corresponding Source](sdk-source.md), pair from the settings page while signed in to
    Access; the device appears on `/manage` with its label.
 3. Sign out at `https://pateat.takuk.me/cdn-cgi/access/logout` and pair again: one
-   sign-in tab opens on `/manage`, and pairing completes after coming back or after
-   **Try again**. Then confirm that the first sync completes, disconnect, and check
-   that `/manage` shows the device revoked.
+   sign-in tab opens on `/pair/signed-in`, and pairing completes after coming back or
+   after **Try again**. Then confirm that the first sync completes, disconnect, and
+   check that `/manage` shows the device revoked.
 
 Record the date, Chrome version, commit, the Access application's cookie settings and
 the results in the [plan](plan.md#remaining-m4-service-gaps). This is service-pairing
