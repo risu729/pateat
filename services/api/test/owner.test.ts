@@ -122,6 +122,10 @@ describe("Access verification", () => {
       body: new URLSearchParams({ action: "save" }),
     });
     expect(claudeForm.status).toBe(403);
+    // Refused by Access, not by the form's own origin or body checks.
+    const claudeFormBody = await claudeForm.text();
+    expect(claudeFormBody).toContain("Access denied");
+    expect(claudeFormBody).toContain("Your sign-in could not be verified.");
 
     const apiResponses = await Promise.all([
       manageApi("/manage/api/devices", viaPair.token, "GET"),

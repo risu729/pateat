@@ -332,6 +332,25 @@ describe("signed-in page", () => {
     expect(await ownerIdFor(by.subject)).toBeNull();
   });
 
+  it.each([
+    ["the host-wide application", owner],
+    ["the pairing-only application", pairOwner],
+  ])("answers HEAD through the guarded page for %s", async (_, as) => {
+    const by = await as();
+    const response = await request("/pair/signed-in", { method: "HEAD", access: by.token });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
+    expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(corsHeaders(response)).toEqual([]);
+    expect(await response.text()).toBe("");
+  });
+
+  it("refuses HEAD without a token", async () => {
+    const response = await request("/pair/signed-in", { method: "HEAD" });
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("");
+  });
+
   it("asks for a sign-in without a token", async () => {
     const response = await request("/pair/signed-in");
     expect(response.status).toBe(401);
