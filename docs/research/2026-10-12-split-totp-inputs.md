@@ -4,10 +4,9 @@ Researched: 2026-10-12, from the repository at `33a8ac9` (main). The phase 1 row
 TOTP code split into one-digit inputs" lost its site when Resend turned out to have
 one code input. This note records which sites' authenticator-app code pages split the
 code, to find a replacement; which of them the owner uses stays in the project's
-files. Nobody signed in: the code pages were read from each site's public
-JavaScript or HTML, fetched without an account, from open-source code, or from public
-help pages. No page was rendered after a password step, so every verdict below still
-needs a real-Chrome check.
+files. Nobody signed in: the code pages were read from each site's public JavaScript
+or HTML, fetched without an account, or from open-source code. No page was rendered
+after a password step, so every verdict below still needs a real-Chrome check.
 
 ## What Pateat accepts today
 
@@ -17,9 +16,9 @@ and an attribute locator, each accepted by the TOTP fill rule
 with a `maxlength` of 1 to 10; `apps/extension/src/login/inputs.ts`), and no other
 code input in that form
 ([ADR 0027](../adr/0027-per-account-login-routes.md#implementation-choices)). An input
-without a `maxlength` attribute does not count, however it is drawn. A route is chosen
-as passkey, then SSO, then password, so an item with a passkey on a site whose
-sign-in page offers one never reaches the code page.
+without a `maxlength` attribute does not count, however it is drawn. An item with a
+discoverable passkey, on a recipe with a passkey route, takes that route and never
+reaches the code page.
 
 ## Split inputs found
 
@@ -30,20 +29,13 @@ sign-in page offers one never reaches the code page.
 | Tigerair Taiwan (`membership.tigerairtw.com`) | One Quasar `q-input` per digit, `type="number"`, `mask="#"`; no `maxlength` seen; shared by app and email codes | Probably not: no `maxlength` | Public bundle `membership.tigerairtw.com/js/2375.*.js` |
 | Luma (`luma.com`) | One input per digit, `type="text"`, `inputMode="numeric"`, `autoComplete` only on the first; no `maxLength` | No: no `maxlength` | Public login bundle (`MultiCodeInput`) |
 | SmartHR (`app.smarthr.jp`) | 6 inputs `otp_digit_0` to `otp_digit_5`; no `maxlength` | No: no `maxlength` | Public bundle (`OtpForm`) |
-| Uber (`auth.uber.com`) | Per-digit boxes on the SMS code page; the TOTP page is assumed to share them | Unknown | Inferred; the page answered 403 |
 
-## One input (or one real input under drawn boxes)
+## One input
 
-Checked in public or open-source code: Supabase (`SignInMfaForm.tsx`, one `code`
-input), Termius, Visit Japan Web (Cognito), Lenovo ID, Typst (in-app form; `/signin`
-answered 502), Figma, JetBrains (a split component exists in the bundle but not on the
-TOTP form), VRChat, Vercel, Wise, マネーフォワード ID, Qantas, Logi ID (split cells
-only on phone confirmation), and Stripe (six drawn boxes over one `one-time-code`
-input). XServer's help page shows one box. Inferred as one input, without seeing the
-page: Docker and HashiCorp (Auth0), e-Gov, Qiita, Ably, SEGA ID, Slack (split boxes
-are its email confirmation page), OpenLearning, ImmiAccount, Instagram, Reddit, Canva,
-Notion, Discord, X and Nintendo. Epic Games (likely split boxes) and Service NSW
-stayed unknown.
+About 35 other sites had one code input (some of them one real input under drawn
+boxes): about half checked in their public or open-source code, the rest inferred
+without seeing the page. Two stayed unknown because their pages answered 403 or
+redirected.
 
 ## Result
 
