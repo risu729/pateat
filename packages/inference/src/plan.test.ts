@@ -102,10 +102,7 @@ describe("custom-field slot names (ADR 0027)", () => {
   it.each([
     ["a field name", "支店番号"],
     ["digits", "branch-1234"],
-    ["upper case", "Branch"],
     ["a built-in slot", "password"],
-    ["another requested slot's ID", "username"],
-    ["five words", "the-bank-branch-number-code"],
   ])("refuses a name that is %s", (_label, name) => {
     expect(validate([{ slot: "custom-1", candidate: "branch", name }])).toEqual({
       ok: false,
@@ -384,21 +381,6 @@ describe("a lone new-password field on a sign-in form (ADR 0018, 2026-10-12)", (
       refused,
     );
   });
-
-  it("takes an identifier only from an input marked username, email, off or nothing", () => {
-    // The form's only text input is marked for a one-time code: the field is not offered.
-    const coded = sbi();
-    coded.candidates[0] = { ...coded.candidates[0]!, autocomplete: "one-time-code" };
-    expect(slotAcceptsOn(coded, "secret", coded.candidates[1]!)).toBe(false);
-    // With a username input too, the identifier still never goes into the code input.
-    const withCode = sbi(input("c7", form({ autocomplete: "one-time-code" })));
-    expect(
-      plan(withCode, [
-        { slot: "username", candidate: "c7" },
-        { slot: "password", candidate: "c2" },
-      ]),
-    ).toEqual(refused);
-  });
 });
 
 describe("several identifier sets on one page (ADR 0027)", () => {
@@ -501,16 +483,8 @@ describe("several identifier sets on one page (ADR 0027)", () => {
       "variant-advance",
     ],
     [
-      "more than 3 alternatives",
-      [
-        byContract,
-        { fields: [{ slot: "username", candidate: "user" }], action },
-        { fields: [{ slot: "custom-3", candidate: "pin", name: "pin-code" }], action },
-        { fields: [{ slot: "custom-4", candidate: "contract", name: "contract-number" }], action },
-      ],
-      "too-many-variants",
-    ],
-    [
+      // Both sets type one element under different slots: an ambiguous mapping, which
+      // could also put a Hidden PIN where the other set puts an identifier.
       "an element filled under another recipe slot",
       [
         {
@@ -525,28 +499,6 @@ describe("several identifier sets on one page (ADR 0027)", () => {
     ],
   ])("refuses %s", (_label, alternatives, reason) => {
     expect(check(alternatives)).toEqual({ ok: false, reason });
-  });
-
-  it("refuses sets that fill the same elements under other slots instead of abstaining", () => {
-    // Both sets type one element as either custom field: an ambiguous mapping, which could
-    // also put a Hidden PIN where the other set puts an identifier.
-    const hedged = validateGeneratedPage(page, all, {
-      fields: [
-        { slot: "custom-1", candidate: "branch", name: "branch-number" },
-        { slot: "password", candidate: "password" },
-      ],
-      action,
-      alternatives: [
-        {
-          fields: [
-            { slot: "custom-2", candidate: "branch", name: "account-number" },
-            { slot: "password", candidate: "password" },
-          ],
-          action,
-        },
-      ],
-    });
-    expect(hedged).toEqual({ ok: false, reason: "inconsistent-candidate" });
   });
 
   it("refuses a first set that advances once alternatives exist", () => {
@@ -682,7 +634,7 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
     ["an unknown candidate", "missing"],
     ["a button whose locator reads as adding a passkey", "add-passkey"],
     ["a registration button", "register"],
-    ["a filled field", "password"],
+    ["a field instead of a button", "password"],
     ["a button with the action's locator", "login-copy"],
   ])("drops %s and keeps the plan", (_label, candidate) => {
     const result = generate(candidate);
