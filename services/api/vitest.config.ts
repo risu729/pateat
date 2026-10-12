@@ -39,6 +39,8 @@ export default defineConfig({
           TEST_MIGRATIONS: migrations,
           ACCESS_TEAM_DOMAIN: "pateat-test.cloudflareaccess.com",
           ACCESS_AUD: "pateat-test-audience",
+          // The synthetic "pateat pair" application's audience (ADR 0029).
+          ACCESS_PAIR_AUD: "pateat-test-pair-audience",
           OIDC_ISSUER: "https://pateat.invalid",
           OIDC_SIGNING_KEYS: oidcSigningKeys,
           // A synthetic extension ID; Pateat's own is listed only in production.
