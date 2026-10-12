@@ -14863,6 +14863,79 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
     });
 
+    it("keeps a request whose choice is offered again soon after a pick that started no login", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await loggedOut();
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      // The pick's reconnect gets no announcement, so it starts nothing.
+      fake.state.onReconnect = async () => ({ ok: false });
+      expect(await pick(h)).toEqual({ ok: false, reason: "not-started" });
+      // The document announces again a moment later and is asked again.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({
+        ok: false,
+        reason: "logged-out",
+      });
+      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: true });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      const filled = fills();
+      fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId: otherItemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        account: { connectionId, itemId: otherItemId },
+      });
+      expect(fills()).toBe(filled);
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("hands on a request of a document asked without a logout, even while its pick is pending", async () => {
+      vi.useFakeTimers();
+      const { h } = start(recipe, matching, { siteDefaults: [], bindings: [] });
+      // Several accounts match and none is the default: the popup asks, with no logout.
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+      expect(await choice(h)).toMatchObject({ ok: true, documentId: "synthetic-document" });
+      expect(await choice(h)).not.toHaveProperty("logout");
+      const request = ask(h);
+      await flush();
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(request.decided()).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+      expect(await choice(h)).toMatchObject({ ok: true, documentId: "synthetic-document" });
+      // A second request is picked for meanwhile; the page announces again only later.
+      const again = ask(h);
+      await flush();
+      fake.state.onReconnect = () =>
+        new Promise((resolve) => setTimeout(() => resolve(h.hello()), 5_000));
+      signsInOnClick();
+      const picking = pick(h, { documentId: "synthetic-document" });
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(again.decided()).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(again.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await picking).toEqual({ ok: true });
+      // The pick's login, finding no request, takes the password.
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "password",
+        account: { connectionId, itemId: otherItemId },
+      });
+    });
+
     it("keeps a request of a document asked after the tab's stopped login, and answers it with the pick", async () => {
       vi.useFakeTimers();
       const first = start(recipe, matching);
