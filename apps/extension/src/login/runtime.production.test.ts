@@ -1114,6 +1114,22 @@ describe("production login document admission", () => {
       fake.state.tabUrls[1] = top;
       return { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top }, ...overrides };
     };
+    it("never names the tab's page URL in the reports of a login in a same-site frame", async () => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const signin = fake.state.pageUrl;
+      const top = "https://login.example/elsewhere?next=1";
+      fake.state.pageUrl = top;
+      const h = harness({}, { report, urls: true });
+      expect(await h.hello()).toMatchObject({ ok: false, reason: "recipe-not-found" });
+      fake.state.pageUrl = signin;
+      expect(await h.hello(framed(top))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      const reports = report.mock.calls
+        .map(([entry]) => entry)
+        .filter((entry) => entry.type !== "refused");
+      expect(reports.map((entry) => entry.type)).toContain("attempt");
+      expect(reports.filter((entry) => entry.url !== undefined)).toEqual([]);
+    });
     it("logs in when the item also allows the tab's page", async () => {
       const h = harness();
       expect(await h.hello(framed("https://login.example/home"))).toEqual({ ok: true });

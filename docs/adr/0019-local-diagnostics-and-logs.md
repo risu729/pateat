@@ -249,8 +249,10 @@ URLs:
 
 - For the tab's own page of an origin that is logged in full, the log records the URL's
   path, query and fragment. A pseudonymized origin (`origin:7d2b91aa`) gets no URL.
-- Queries and fragments can carry one-time codes or tokens that sites put in links; the
-  owner accepted that. The value is cut at 512 characters like any field.
+- Queries and fragments can carry one-time codes or tokens that sites put in links, a
+  username or email address, or another site's address; the owner accepted that. The
+  value is cut at 512 characters; unlike other fields it keeps its first 512
+  characters instead of becoming `[truncated]`.
 - **Hide site addresses and recipe IDs** also leaves the URL out of an export. The bug
   report's recent lines never carry it.
 

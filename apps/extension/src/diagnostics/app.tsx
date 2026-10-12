@@ -279,7 +279,9 @@ function Logs({
       <p className="note">
         Kept on this device for 14 days. A site you had not set up when an entry was written is
         stored as <code>origin:7d2b91aa</code> or <code>rp:7d2b91aa</code>, so it stays pseudonymous
-        even with site addresses included.
+        even with site addresses included. With them, an entry also names its page&apos;s path,
+        query and fragment, which can hold a code, an email address or another site&apos;s address;
+        check the preview before sharing a download.
       </p>
       <dl>
         <Row term="Entries" id="diagnostics-logs">

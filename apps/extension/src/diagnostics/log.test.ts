@@ -115,6 +115,8 @@ describe("diagnostics log", () => {
       // A pseudonymized origin gets no URL, and a URL of another origin is left out.
       ["https://shop.example", "https://shop.example/signin?next=%2Fcart"],
       ["https://bank.example", "https://other.example/signin"],
+      // A blob URL names its inner origin but has no path of its own.
+      ["https://bank.example", "blob:https://bank.example/1234"],
       ["https://bank.example", long],
     ])
       // oxlint-disable-next-line no-await-in-loop -- entries are written in order
@@ -127,6 +129,7 @@ describe("diagnostics log", () => {
     const entries = await logger.entries();
     expect(entries.map((entry) => entry.fields["url"])).toEqual([
       "/signin?next=%2Fhome#top",
+      undefined,
       undefined,
       undefined,
       `/signin?return=${"a".repeat(600)}`.slice(0, 512),

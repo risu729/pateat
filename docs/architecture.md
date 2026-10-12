@@ -787,11 +787,14 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `log.debug` | info | whether debug logging was turned on or off, and when it ends |
 
 The login, judgement, handler and generation events also carry `url`, the tab's page
-URL when the report is made, for an event on that page's own origin and not about a
-frame. Only its path, query and fragment are kept, cut at 512 characters, and only
-when the origin is recorded in full; a pseudonymized origin gets no URL. A query or
-fragment may hold a one-time code or token that a site put in a link, which the owner
-accepted (ADR 0019). **Hide site addresses and recipe IDs** leaves `url` out of a
+URL as of its last announcement, for an event on that page's own origin and not about
+a frame, including a login running in a frame of the same site. Only its path, query
+and fragment are kept, cut at 512 characters, and only when the origin is recorded in
+full; a pseudonymized origin gets no URL. A query or fragment may hold a one-time code
+or token that a site put in a link, a username or email address (such as
+`login_hint`), or another site's address (such as a `redirect_uri` or `continue`
+target), which the owner accepted (ADR 0019). The diagnostics page says so above the
+download. **Hide site addresses and recipe IDs** leaves `url` out of a
 download, and the bug report's recent lines never carry it.
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only

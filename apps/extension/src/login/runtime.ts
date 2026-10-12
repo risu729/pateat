@@ -797,14 +797,15 @@ export function createLoginRuntime(
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
-  const report = (value: LoginReport) => {
+  /** Reports about `source`'s document; only the tab's own page gets its URL (ADR 0019). */
+  const report = (source: { frameId: number }, value: LoginReport) => {
     try {
       // A report that names its page's URL, even as none, keeps it.
       const page = documents.get(frameKey({ tabId: value.tabId, frameId: 0 }));
       const url =
         "url" in value
           ? value.url
-          : page && page.document.origin === value.origin && !("frame" in value && value.frame)
+          : source.frameId === 0 && page && page.document.origin === value.origin
             ? page.url
             : undefined;
       const { url: _named, ...rest } = value;
@@ -824,7 +825,7 @@ export function createLoginRuntime(
       recipe && metadata.handlers.length
         ? attemptPlan(recipe, metadata)?.[metadata.stepIndex]?.handler
         : undefined;
-    report({
+    report(metadata.document, {
       type: "attempt",
       tabId: metadata.document.tabId,
       origin: metadata.document.origin,
@@ -1396,7 +1397,7 @@ export function createLoginRuntime(
       offerChoice(document, run.asked, true);
       run.live.state = "denied";
       run.live.reason = "logged-out";
-      report({
+      report(document, {
         type: "refused",
         tabId: document.tabId,
         origin: document.origin,
@@ -1429,7 +1430,7 @@ export function createLoginRuntime(
     const { account: used } = run.metadata;
     if (!choice || !settings.update) return;
     const outcome = (value: Extract<LoginReport, { type: "choice" }>["outcome"]) =>
-      report({
+      report(run.metadata.document, {
         type: "choice",
         tabId: run.metadata.document.tabId,
         origin: run.metadata.document.origin,
@@ -2401,7 +2402,7 @@ export function createLoginRuntime(
       }
     /* eslint-enable no-await-in-loop */
     if (!reading) return undefined;
-    report({
+    report(run.live.document, {
       type: "state",
       tabId: run.live.document.tabId,
       origin: run.live.document.origin,
@@ -2594,7 +2595,7 @@ export function createLoginRuntime(
       entry: (typeof entries)[number],
       outcome: Extract<LoginReport, { type: "handler" }>["outcome"],
     ) =>
-      report({
+      report(run.live.document, {
         type: "handler",
         tabId: run.live.document.tabId,
         origin: run.live.document.origin,
@@ -2719,7 +2720,7 @@ export function createLoginRuntime(
     if (!generation || !effectful(metadata) || !operationId) return false;
     // Why the page was not sent, as a code for diagnostics: never page text.
     const notSent = (reason: string) => {
-      report({
+      report(run.live.document, {
         type: "judge",
         tabId: run.live.document.tabId,
         origin: run.live.document.origin,
@@ -2794,7 +2795,7 @@ export function createLoginRuntime(
       verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
       detail: { reason?: string; takenOver?: boolean } = {},
     ) =>
-      report({
+      report(run.live.document, {
         type: "judge",
         tabId: run.live.document.tabId,
         origin: run.live.document.origin,
@@ -2922,7 +2923,7 @@ export function createLoginRuntime(
     } catch (error) {
       if (current(run) && !terminal(run.metadata)) {
         run.metadata = recoverLoginAttempt(run.metadata);
-        report({
+        report(run.metadata.document, {
           type: "exception",
           tabId: run.metadata.document.tabId,
           origin: run.metadata.document.origin,
@@ -3470,7 +3471,7 @@ export function createLoginRuntime(
   function skipGeneration(live: LiveDocument, reason: string): void {
     if (live.generationSkip === reason) return;
     live.generationSkip = reason;
-    report({
+    report(live.document, {
       type: "generation",
       tabId: live.document.tabId,
       origin: live.document.origin,
@@ -3540,7 +3541,7 @@ export function createLoginRuntime(
         })
         .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
       sent = true;
-      report({
+      report(live.document, {
         type: "generation",
         tabId: live.document.tabId,
         origin: live.document.origin,
@@ -3614,7 +3615,7 @@ export function createLoginRuntime(
       if (noted.size <= 256) break;
       noted.delete(old);
     }
-    report({
+    report(document, {
       type: "refused",
       tabId: document.tabId,
       origin: document.origin,
@@ -3933,7 +3934,7 @@ export function createLoginRuntime(
     const notStarted = (detail: string) => {
       if (shown?.path !== live.path || live.notStarted === detail) return;
       live.notStarted = detail;
-      report({
+      report(document, {
         type: "refused",
         tabId: document.tabId,
         origin: document.origin,
@@ -4041,7 +4042,7 @@ export function createLoginRuntime(
       }
       // Logged once the logout is stored; a failed store undoes it, and the page's next
       // announcement recognizes it again.
-      report({
+      report(document, {
         type: "logout",
         tabId: document.tabId,
         origin: document.origin,
@@ -4377,7 +4378,7 @@ export function createLoginRuntime(
       run.inPlace = before.inPlace;
     attempts.set(document.tabId, run);
     if (!previous)
-      report({
+      report(document, {
         type: "start",
         tabId: document.tabId,
         origin: document.origin,

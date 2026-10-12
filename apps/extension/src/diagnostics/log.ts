@@ -508,7 +508,8 @@ export function createLogger(deps: LoggerDependencies) {
       if (raw === undefined) continue;
       const value =
         kind === "url"
-          ? pagePath(raw, recorded["origin"])
+          ? // Every event lists `origin` before `url`, so the origin is already recorded.
+            pagePath(raw, recorded["origin"])
           : // oxlint-disable-next-line no-await-in-loop -- fields are few; pseudonyms are cached keys
             await recordValue(kind, raw);
       if (value !== undefined) recorded[key] = value;
@@ -789,7 +790,8 @@ function pagePath(raw: FieldValue, origin: FieldValue | undefined): string | und
   } catch {
     return undefined;
   }
-  if (url.origin !== origin) return undefined;
+  // A `blob:` or similar URL reports its inner origin but no path of its own.
+  if (url.origin !== origin || !url.pathname.startsWith("/")) return undefined;
   return `${url.pathname}${url.search}${url.hash}`.slice(0, MAX_FIELD_LENGTH);
 }
 
