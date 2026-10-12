@@ -142,6 +142,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // after loading; a form shown only later, for example after a click, is not sent.
   let generate = false;
   let offered = false;
+  // Paths where a sign-in input stayed shown without a ready first step, reported once
+  // each so the background can log a login that did not start.
+  const shown = new Set<string>();
+  let shownTimer: ReturnType<typeof setTimeout> | undefined;
   let offerTimer: ReturnType<typeof setTimeout> | undefined;
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -152,6 +156,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   function unwatch(): void {
     clearTimeout(offerTimer);
     offerTimer = undefined;
+    clearTimeout(shownTimer);
+    shownTimer = undefined;
     observer?.disconnect();
     observer = undefined;
     clearTimeout(timer);
@@ -238,7 +244,34 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         offered = true;
         void announce(false, true).catch(() => undefined);
       }
+      noteShown();
     }
+  }
+  /**
+   * Reports, for the log only, a sign-in input that still shows without a ready first step
+   * after the step wait, once per path. A page that renders its form in parts starts its
+   * login before then and is not reported. The reply changes nothing here: the page keeps
+   * watching, and no generation is offered for it.
+   */
+  function noteShown(): void {
+    const path = location.pathname;
+    if (shownTimer || shown.has(path) || !showsSignIn()) return;
+    shownTimer = setTimeout(() => {
+      shownTimer = undefined;
+      if (
+        !observer ||
+        cancelled ||
+        location.pathname !== path ||
+        shown.has(path) ||
+        starts.some(ready) ||
+        !showsSignIn()
+      )
+        return;
+      shown.add(path);
+      void browser.runtime
+        .sendMessage({ version: 1, type: "login.document.ready", token, shown: { path } })
+        .catch(() => undefined);
+    }, LOGIN_STEP_WAIT_MS);
   }
   async function announce(start: boolean, signIn = false): Promise<unknown> {
     announced = start;

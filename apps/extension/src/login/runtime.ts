@@ -179,6 +179,8 @@ type LiveDocument = {
   topMatch?: { connectionId: string; itemId: string; snapshotId: string };
   /** Why generation last skipped this document, so each reason is logged once. */
   generationSkip?: string;
+  /** Why this document's sign-in input last did not start a login, logged once. */
+  notStarted?: string;
 };
 /** Documents are tracked per frame; a tab still runs at most one attempt. */
 const frameKey = (document: { tabId: number; frameId: number }) =>
@@ -573,7 +575,8 @@ export type LoginReport =
       frame?: true;
       /**
        * For `no-route` on a recipe with several password variants: why its first variant
-       * did not fit, such as `binding-not-found` (ADR 0027).
+       * did not fit, such as `binding-not-found` (ADR 0027). For `logged-out`, which tab
+       * logged out; for `not-started`, why a shown sign-in input did not start a login.
        */
       detail?: string;
     }
@@ -3189,6 +3192,7 @@ export function createLoginRuntime(
     token: string,
     start?: { path: string },
     signIn?: { path: string },
+    shown?: { path: string },
   ): Promise<Readiness> {
     // Admission is async; a later hello from the same frame must not be overtaken by an older one.
     const helloKey = `${sender.tab?.id}:${sender.frameId}`;
@@ -3199,7 +3203,7 @@ export function createLoginRuntime(
     const admission = (async () => {
       const leave = await options.vault?.enter(start !== undefined);
       try {
-        return await admitFresh(sender, token, helloKey, sequence, start, signIn);
+        return await admitFresh(sender, token, helloKey, sequence, start, signIn, shown);
       } finally {
         leave?.();
       }
@@ -3222,12 +3226,13 @@ export function createLoginRuntime(
     sequence: number,
     start?: { path: string },
     signIn?: { path: string },
+    shown?: { path: string },
     tries = 0,
   ): Promise<Readiness> {
-    const result = await admit(sender, token, helloKey, sequence, start, signIn);
+    const result = await admit(sender, token, helloKey, sequence, start, signIn, shown);
     if (result.reason !== CHOICE_SAVED) return result;
     return tries < 2
-      ? admitFresh(sender, token, helloKey, sequence, start, signIn, tries + 1)
+      ? admitFresh(sender, token, helloKey, sequence, start, signIn, shown, tries + 1)
       : { ok: false, reason: "stale-document" };
   }
   /** Resolves once no account choice is being saved. */
@@ -3243,6 +3248,7 @@ export function createLoginRuntime(
     sequence: number,
     start?: { path: string },
     signIn?: { path: string },
+    shown?: { path: string },
   ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
@@ -3368,6 +3374,9 @@ export function createLoginRuntime(
       ...(sameDocument && oldLive.path === path && oldLive.generationSkip
         ? { generationSkip: oldLive.generationSkip }
         : {}),
+      ...(sameDocument && oldLive.path === path && oldLive.notStarted
+        ? { notStarted: oldLive.notStarted }
+        : {}),
     };
     documents.set(key, live);
     const refuse = async (reason: string, detail?: string) => {
@@ -3384,7 +3393,23 @@ export function createLoginRuntime(
       await publish(live);
       return { ok: false, reason };
     };
-    if (busy) return refuse("tab-busy");
+    // A sign-in input shows on this path, but the page only watches: logged once per
+    // document and path, so a login that silently does not start can be told apart.
+    const notStarted = (detail: string) => {
+      if (shown?.path !== live.path || live.notStarted === detail) return;
+      live.notStarted = detail;
+      report({
+        type: "refused",
+        tabId: document.tabId,
+        origin: document.origin,
+        reason: "not-started",
+        detail,
+        ...(document.frameId === 0 ? {} : { frame: true as const }),
+      });
+    };
+    // A report sent only for the log does not log the tab's hold again.
+    if (busy)
+      return shown && !start && !signIn ? { ok: false, reason: "tab-busy" } : refuse("tab-busy");
     if (!storageHealthy) return refuse("storage-unavailable");
     const holder = tabAttempt(document.tabId);
     if (holder && !terminal(holder) && holder.document.frameId === 0 && leftSite(holder)) {
@@ -3419,6 +3444,8 @@ export function createLoginRuntime(
       if (start?.path !== live.path) {
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
+        notStarted("logged-in");
         return { ok: false, reason: "logged-in", starts };
       }
       // It shows again after a finished login: a logout. Only this tab's record for this
@@ -3494,6 +3521,8 @@ export function createLoginRuntime(
         offer = false;
       }
       if (!recipe && !starts.length && !offer) return refuse("recipe-not-found");
+      // Only an origin with a recipe: elsewhere every sign-in page would be logged.
+      if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
       live.state = "watching";
       delete live.reason;
       await publish(live);
@@ -3567,7 +3596,17 @@ export function createLoginRuntime(
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates)
         offerChoice(document, plan.candidates, "logout" in plan && plan.logout === true);
-      const refused = await refuse(plan.reason, "detail" in plan ? plan.detail : undefined);
+      const refused = await refuse(
+        plan.reason,
+        "detail" in plan
+          ? plan.detail
+          : plan.reason === "logged-out"
+            ? // Which tab logged out: this one, or another tab of the site (ADR 0021 D).
+              logouts.has(logoutKey)
+              ? "this-tab"
+              : "other-tab"
+            : undefined,
+      );
       // Asked while the page still holds vault replacement off, so a check started by
       // this page's announcement cannot apply before the miss is registered.
       if (!previous && !switched && "noUriMatch" in plan && plan.noUriMatch)
@@ -3771,7 +3810,13 @@ export function createLoginRuntime(
     const hello = v.safeParse(helloSchema, message);
     if (hello.success) {
       options.vault?.refreshIfStale();
-      return ready(sender, hello.output.token, hello.output.start, hello.output.signIn);
+      return ready(
+        sender,
+        hello.output.token,
+        hello.output.start,
+        hello.output.signIn,
+        hello.output.shown,
+      );
     }
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
