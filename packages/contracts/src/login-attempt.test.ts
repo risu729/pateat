@@ -2625,7 +2625,24 @@ describe("route changes for a page's own passkey request (ADR 0034)", () => {
     });
   });
 
-  it("refuses a switch that is not between steps of an unsubmitted, plain login", () => {
+  it("switches a login on a chooser's list before its click on the list", () => {
+    const listed = transitionLoginAttempt(
+      create({ route: "password", variant: 0 }, { chooser: "other" }),
+      { type: "RESOLVE" },
+    );
+    const switched = transitionLoginAttempt(listed, toPasskey);
+    expect(switched).toMatchObject({
+      state: "ready",
+      route: "passkey",
+      variant: 0,
+      stepIndex: 0,
+      stepCount: 1,
+      submissions: 0,
+      chooser: { click: "other" },
+    });
+  });
+
+  it("refuses a switch that is not between steps of an unsubmitted login", () => {
     const ready = transitionLoginAttempt(create({ route: "password", variant: 0 }), {
       type: "RESOLVE",
     });
@@ -2648,17 +2665,21 @@ describe("route changes for a page's own passkey request (ADR 0034)", () => {
     expect(transitionLoginAttempt(filling, toPasskey)).toEqual(filling);
     // A submission, even before its result.
     expect(transitionLoginAttempt(submitting(), toPasskey)).toEqual(submitting());
-    // A login that only fills after a logout, or one on a chooser's list.
+    // A login that only fills after a logout.
     const fillOnly = transitionLoginAttempt(
       create({ route: "password", variant: 0 }, { fillOnly: true }),
       { type: "RESOLVE" },
     );
     expect(transitionLoginAttempt(fillOnly, toPasskey)).toEqual(fillOnly);
+    // A login on a chooser's list once its click on the list, its first submission, went out.
     const listed = transitionLoginAttempt(
       create({ route: "password", variant: 0 }, { chooser: "other" }),
       { type: "RESOLVE" },
     );
-    expect(transitionLoginAttempt(listed, toPasskey)).toEqual(listed);
+    expect(transitionLoginAttempt({ ...listed, submissions: 1 }, toPasskey)).toEqual({
+      ...listed,
+      submissions: 1,
+    });
     // A ready login with a submission behind it, or an entered handler.
     expect(transitionLoginAttempt({ ...ready, submissions: 1 }, toPasskey)).toMatchObject({
       route: "password",

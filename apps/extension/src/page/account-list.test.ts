@@ -12,6 +12,7 @@ import {
   namedAccounts,
   namesUsername,
   pickEntry,
+  showsOtherAccountControl,
 } from "./account-list";
 
 afterEach(() => {
@@ -211,6 +212,46 @@ describe("besideAccounts", () => {
       <div><p>a@example.com</p><button>1</button><button>2</button><button>3</button><button>4</button></div>
       <button disabled><span>b@example.com</span></button>`;
     expect(besideAccounts(document).map((account) => account.text)).toEqual([]);
+  });
+});
+
+describe("showsOtherAccountControl", () => {
+  it("finds a control to sign in with another account by its words, whatever its element type", () => {
+    document.body.innerHTML = instagram;
+    expect(showsOtherAccountControl(document)).toBe(true);
+    for (const text of [
+      "Switch accounts",
+      "Log into another account",
+      "別のアカウントでログイン",
+      "ユーザーを切り替える",
+    ]) {
+      document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><a href="/x">${text}</a>`;
+      expect(showsOtherAccountControl(document)).toBe(true);
+    }
+  });
+
+  it("leaves out a control whose text holds a shown name, which the page sent hides", () => {
+    document.body.innerHTML = instagram;
+    expect(showsOtherAccountControl(document, ["taro.yamada"])).toBe(true);
+    document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><button>Not taro? Switch accounts</button>`;
+    expect(showsOtherAccountControl(document, ["taro"])).toBe(false);
+    document.body.innerHTML = `<div><h1>ログイン</h1><button>続ける</button></div><button>別のアカウントでログイン</button>`;
+    expect(showsOtherAccountControl(document, ["ログイン"])).toBe(false);
+    document.body.innerHTML = `<div><span>taro</span><button>Go</button></div><div role="button" aria-label="Switch from taro">Switch accounts</div>`;
+    expect(showsOtherAccountControl(document, ["taro"])).toBe(false);
+  });
+
+  it("leaves out other controls, page chrome and long texts", () => {
+    for (const html of [
+      `<div><span>taro</span><button>Continue</button></div><button>Other ways to sign in</button>`,
+      `<div><span>taro</span><button>Continue</button></div><button>Create new account</button>`,
+      `<header><button>Switch account</button></header><div><span>taro</span><button>Go</button></div>`,
+      `<div><span>taro</span><button>Go</button></div><button>${"Use another account ".repeat(4)}</button>`,
+      `<div><span>taro</span><button>Go</button></div><button disabled>Use another profile</button>`,
+    ]) {
+      document.body.innerHTML = html;
+      expect(showsOtherAccountControl(document)).toBe(false);
+    }
   });
 });
 

@@ -367,7 +367,12 @@ const logCode = (reason: string) =>
  * the short texts that may name an account by a username that is not an email, and why a
  * shown email address is not a list entry, for the log only.
  */
-type ListOffer = { path: string; names?: string[] | undefined; missed?: EntryMiss | undefined };
+type ListOffer = {
+  path: string;
+  names?: string[] | undefined;
+  other?: true | undefined;
+  missed?: EntryMiss | undefined;
+};
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
 const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
   entry.state !== "authenticated" &&
@@ -2782,12 +2787,13 @@ export function createLoginRuntime(
   async function waitFor(
     run: Execution,
     readiness: LoginReadiness,
+    timeoutMs = LOGIN_STEP_WAIT_MS,
   ): Promise<"ready" | "timeout" | "gone"> {
     try {
       const response = await send(run.live, {
         type: "login.await",
         readiness,
-        timeoutMs: LOGIN_STEP_WAIT_MS,
+        timeoutMs,
       });
       const parsed = v.safeParse(awaitResultSchema, response);
       if (!parsed.success) return "gone";
@@ -2913,9 +2919,20 @@ export function createLoginRuntime(
       // the assertion in this document for a while, then the login falls back to its
       // password variant (ADR 0034).
       if (inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
-        const form = await observe(run, stepTargets(inFlight.step), ["shown"]);
-        if (!form) return undefined;
-        if (form.path === inFlight.step.path && form.targets[0] === "unique") {
+        let shows: boolean;
+        if (run.chooser) {
+          // A chooser login's start page is its list, read as its click's wait reads it,
+          // since the click's target names no element by itself (ADR 0028).
+          if (!(await allowed(run))) return undefined;
+          const list = await waitFor(run, listReadiness(run.chooser), 1);
+          if (!current(run) || list === "gone") return undefined;
+          shows = list === "ready";
+        } else {
+          const form = await observe(run, stepTargets(inFlight.step), ["shown"]);
+          if (!form) return undefined;
+          shows = form.path === inFlight.step.path && form.targets[0] === "unique";
+        }
+        if (shows) {
           if (run.answeredAt !== undefined && Date.now() - run.answeredAt < REQUEST_HOLD_MS)
             return "held";
           await fallBack(run, "sign-in-shown");
@@ -4174,6 +4191,9 @@ export function createLoginRuntime(
           return;
         }
         if (waited !== "ready" || !(await allowed(run))) return;
+        // A request the page made while the step waited still decides the route before the
+        // first submission, as a chooser login's click on its list is (ADR 0034).
+        if (await switchToPasskey(run)) continue;
       }
       const operation = nextLoginOperation(
         run.metadata,
@@ -5913,9 +5933,9 @@ export function createLoginRuntime(
       // The page right after a sign-in is never sent as a list of accounts (ADR 0028) or as
       // a sign-in entry.
       if (offer && listing && afterSignIn.get(document.tabId) === document.documentId) {
-        // Logged for a list with an email or an offered entry only: short texts alone are
-        // ordinary browsing.
-        if (!listing.names || entryOffer) skipGeneration(live, "after-sign-in");
+        // Logged for a list with an email, one with a control for another account, or an
+        // offered entry only: short texts alone are ordinary browsing.
+        if (!listing.names || listing.other || entryOffer) skipGeneration(live, "after-sign-in");
         offer = false;
       }
       // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
@@ -5936,11 +5956,17 @@ export function createLoginRuntime(
             ? await listedNames(live.document.origin, scope, listing.names)
             : undefined;
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        if (scope && (!listing?.names || names?.length)) {
+        // Or the page shows a control to sign in with another account (ADR 0028, owner
+        // 2026-10-12 19:11 UTC), as Instagram's list of a profile whose username is not the
+        // item's: then every shown text is hidden from the page sent, as a possible account
+        // name, and the login continues through that control.
+        const otherOnly =
+          !names?.length && listing?.names && listing.other ? listing.names : undefined;
+        if (scope && (!listing?.names || names?.length || otherOnly)) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateFor(live, scope, listing ? { names: names ?? [] } : undefined);
+          void generateFor(live, scope, listing ? { names: otherOnly ?? names ?? [] } : undefined);
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, the vault could not tell, or no shown text names
@@ -6054,10 +6080,9 @@ export function createLoginRuntime(
     const filledKey = `${document.tabId} ${document.documentId}`;
     const fill = asking && !previous && !switched && !logoutFills.has(filledKey);
     // A new login answers the page's own passkey request when its item holds a passkey
-    // (ADR 0034), as one picked in the popup after a logout does; a chooser's list has no
-    // such route, and a login that only fills after a logout keeps its password form.
-    const pageRequest =
-      !previous && !chooser && document.frameId === 0 && parkedFor(document) !== undefined;
+    // (ADR 0034), as one picked in the popup after a logout and one on a chooser's list do,
+    // instead of clicking there; a login that only fills after a logout keeps its form.
+    const pageRequest = !previous && document.frameId === 0 && parkedFor(document) !== undefined;
     let plan = await planFor(snapshot, live, recipe, {
       asking,
       fill,
@@ -6114,7 +6139,10 @@ export function createLoginRuntime(
         if (!route) return refuse("recipe-not-found");
         // Another branch's route has other slots, and is planned again for the same account.
         if (click === "other") {
-          const replanned = await planFor(snapshot, live, route, { asking });
+          const replanned = await planFor(snapshot, live, route, {
+            asking,
+            ...(pageRequest ? { pageRequest } : {}),
+          });
           if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
           if (!replanned.ok) return refuse(replanned.reason);
           // The click was chosen for the planned account; another one is not logged in.
@@ -7278,7 +7306,8 @@ export function createLoginRuntime(
   }
   /**
    * Whether a login takes the `passkey` route because its page asked for a passkey by
-   * itself (ADR 0034): only before anything was submitted, on a recipe without a passkey
+   * itself (ADR 0034): only before anything was submitted, so a chooser login only before
+   * its click on the list, on a recipe without a passkey
    * button, for an item that held a discoverable passkey when the login started. Fields
    * already filled stay as they are.
    */
@@ -7287,7 +7316,6 @@ export function createLoginRuntime(
     if (
       metadata.route !== "password" ||
       !passkeyAnswersRequest(run.recipe) ||
-      run.chooser ||
       run.passkeyFailed ||
       metadata.fillOnly ||
       !metadata.facts.discoverablePasskey ||
