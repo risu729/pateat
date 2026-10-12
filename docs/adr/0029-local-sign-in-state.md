@@ -108,7 +108,9 @@ then answered 04:51 and 04:54 UTC):
 ## Implementation notes
 
 Delivery 1 (2026-10-12) reads the page once, when the attempt's result would settle as
-unknown today (3 seconds after a submission, 10 after an advance), just before the judge
+unknown today (3 seconds after a submission, 10 after an advance; after an answer to the
+page's own passkey request, not before 15 seconds pass while the page is on its start
+path: [ADR 0034](0034-answer-page-passkey-requests.md)), just before the judge
 is asked; the re-check comes with delivery 2. It writes one `login.state` entry with the
 signs that show and the ADR's outcome ([architecture](../architecture.md)). A login in a
 frame is not read. The sign-in page's URL for E3 is the URL of the document the

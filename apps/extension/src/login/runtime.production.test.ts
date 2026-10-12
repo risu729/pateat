@@ -14934,6 +14934,105 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(executed()).toEqual([]);
   });
 
+  describe("while the site may still be on the start page's path after the answer", () => {
+    const homePage = {
+      ok: true,
+      observation: {
+        version: 1,
+        origin,
+        path: "/home",
+        language: "en",
+        complete: true,
+        candidates: [{ id: "c1", role: "button", target: target("logout"), label: "Sign out" }],
+      },
+    };
+    /** A recipe without a signed-in marker, so only the judge can settle the page. */
+    function judged(verdict: "signed-in" | "unclear", change: Partial<LoginRecipe> = {}) {
+      const { completion: _unlearned, ...unlearned } = { ...recipe, ...change };
+      const service = {
+        available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+        generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+          outcome: "skipped",
+          reason: "sent",
+        })),
+        judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+          args[4]?.();
+          return { verdict };
+        }),
+        generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+        slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+      };
+      const used = parseLoginRecipe(unlearned);
+      return { service, ...start(used, { generation: service }) };
+    }
+
+    it("judges only the page the site moves to a few seconds after the answer", async () => {
+      vi.useFakeTimers();
+      const { h, service } = judged("signed-in");
+      const request = ask(h);
+      await flush();
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      // The form goes while the site exchanges the assertion on the start page's path.
+      fake.state.present = new Set();
+      answerOf(request.decided()).answered(true);
+      setTimeout(() => {
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        fake.state.extracted = { "signed-in": homePage };
+      }, 6_000);
+      await vi.advanceTimersByTimeAsync(5_500);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result", route: "passkey" });
+      expect(service.judge).not.toHaveBeenCalled();
+      // The page on another path is judged at once, well before the hold ends.
+      await until(settled("authenticated"), 8_000);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(service.judge.mock.calls[0]![3]).toEqual(homePage.observation);
+      expect(executed()).toEqual([]);
+    });
+
+    it("settles a page that stays on the start page's path once fifteen seconds passed", async () => {
+      vi.useFakeTimers();
+      const { h, service } = judged("unclear");
+      const request = ask(h);
+      await flush();
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      fake.state.present = new Set();
+      answerOf(request.decided()).answered(true);
+      await vi.advanceTimersByTimeAsync(14_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result", route: "passkey" });
+      expect(service.judge).not.toHaveBeenCalled();
+      // Anything the passkey route does not prove ends as a challenge.
+      await until(settled("blocked", "challenge"), 20_000);
+      expect(executed()).toEqual([]);
+    });
+
+    it("judges a page on the start path at once after falling back to the password", async () => {
+      vi.useFakeTimers();
+      const { h, service } = judged("signed-in", { rejection: target("rejected") });
+      const request = ask(h);
+      await flush();
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      // The site refuses the passkey, and its form goes once the password is submitted.
+      fake.state.present = new Set(["password", "login", "rejected"]);
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind === "click" && step.target.value === "login") {
+          fake.state.present = new Set(["logout"]);
+          fake.state.extracted = {
+            "signed-in": { ...homePage, observation: { ...homePage.observation, path: "/signin" } },
+          };
+        }
+      };
+      answerOf(request.decided()).answered(true);
+      await until(settled("authenticated"), 10_000);
+      expect(status()![0]).toMatchObject({ route: "password" });
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(clicks("login")).toBe(1);
+    });
+  });
   it("withholds a request that waited for a password login that signed in", async () => {
     // The item's passkey is a second factor only, so the login takes the password route.
     const { h, report } = start(recipe, { passkeys: secondFactor() });

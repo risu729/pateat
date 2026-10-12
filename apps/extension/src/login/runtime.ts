@@ -2958,6 +2958,20 @@ export function createLoginRuntime(
       if (continued === "moved") return undefined;
     }
     if (!settleUnknown) return undefined;
+    // After answering the page's own request, a page still on the start page's path may be
+    // exchanging the assertion before the site moves on, with its form already gone: it is
+    // not judged until the request's hold ends (ADR 0034).
+    const answered = plan[run.metadata.stepIndex];
+    if (
+      run.metadata.route === "passkey" &&
+      passkeyAnswersRequest(run.recipe) &&
+      answered !== undefined &&
+      answered.handler === undefined &&
+      observed.path === answered.step.path &&
+      run.answeredAt !== undefined &&
+      Date.now() - run.answeredAt < REQUEST_HOLD_MS
+    )
+      return "held";
     const state = effectful(run.metadata) ? await signInState(run) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
     // Evidence of a sign-in completes the login without a model call, and a failure shown
