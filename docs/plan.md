@@ -50,6 +50,14 @@ Chrome, on a production build of main.
   Cloudflare's saved profiles at `https://dash.cloudflare.com/login`
   ([ADR 0028](adr/0028-account-chooser-login-pages.md), accepted 2026-10-12). It builds
   on the `advance` continuation below.
+- Press a site's sign-in entry on a page the site sent the visitor to before signing in,
+  shown by a same-site return target in its URL, such as pixiv's top page
+  `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads
+  to `https://accounts.pixiv.net/login`
+  ([ADR 0031](adr/0031-sign-in-entry-pages.md), accepted 2026-10-12). Generation on that
+  login page succeeds since build `e9144a6` (2026-10-12 07:24 UTC). Next, the recipe
+  that starts without a fill step, shared with ADR 0028, then the entry press, verified
+  on pixiv in the owner's Chrome.
 - Continue a generated recipe on the page after an `advance` step (email, then Next,
   then password): generate the steps after Next through the generation route's `base`,
   as listed under [AI evaluation harness progress](#ai-evaluation-harness-progress). The

@@ -9,6 +9,13 @@ form plan) and the recipe contract in `packages/contracts/src/login.ts`.
 
 Date: 2026-10-12
 
+Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
+quoted below as "at most one generation per origin and path in 24 hours" and "once a day
+per path" is condition 4 of [ADR 0016](0016-recipe-generation-trigger.md), which the
+owner shortened to 10 minutes on 2026-10-12; the 10-minute window applies. ADR 0031
+shares this ADR's recipe that starts without a fill step (the start-only member), which
+is delivered once for both.
+
 ## Context
 
 On 2026-10-12, after a sign-out, `https://dash.cloudflare.com/login` showed Cloudflare's
