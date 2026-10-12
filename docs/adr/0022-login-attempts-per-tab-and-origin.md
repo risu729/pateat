@@ -82,7 +82,8 @@ fix them now; the SSO policy itself is recorded separately.
   frame never logged in in a tab used for another site's login, and after a restart the
   next site's page did not either. A document of the left site's own origin, such as a
   frame of it on the new page, still resumes that origin's ended record and never
-  submits there again. While the tab's latest record belongs to the page's site, it
+  submits there again, unless Pateat stopped that record before any submission, which
+  releases it as above. While the tab's latest record belongs to the page's site, it
   still holds the page's other frames with `tab-busy`. Frame attempts keep ADR 0017's
   rule: a whole-tab navigation ends them `blocked` with outcome `cancelled`. A frame
   that itself moves to another origin does not end its attempt; it ends with the next
