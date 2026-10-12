@@ -6942,7 +6942,107 @@ describe("production login document admission", () => {
         alert: false,
       };
 
-      it("logs a failure shown next to the sign-in fields, comparing the username in the page", async () => {
+      /**
+       * Logs in on the generated recipe; the click leads to `/home` with `signs`, and the
+       * judge answers `answer`.
+       */
+      async function judged(
+        answer: Awaited<ReturnType<LoginGeneration["judge"]>>,
+        signs: typeof noSigns = noSigns,
+        answering?: () => void,
+      ) {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = signs;
+        const service = generation({
+          judge: async () => {
+            answering?.();
+            return answer;
+          },
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 8_000 });
+        const judges = () =>
+          report.mock.calls.flatMap(([value]) =>
+            value.type === "judge" && value.verdict !== "sent" ? [value] : [],
+          );
+        return { judges };
+      }
+
+      it.each([undefined, "already-judged", "judgement-limit", "daily-limit", "monthly-limit"])(
+        "completes a page with no sign and no evidence the judge did not decide (%s)",
+        async (reason) => {
+          const { judges } = await judged({ verdict: "unclear", ...(reason ? { reason } : {}) });
+          await vi.waitFor(() =>
+            expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]),
+          );
+          expect(judges()).toEqual([
+            expect.objectContaining({ verdict: "unclear", completed: true }),
+          ]);
+        },
+        12_000,
+      );
+
+      it("keeps a page undecided when the request failed", async () => {
+        const { judges } = await judged({ verdict: "unclear", reason: "timeout" });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+        );
+        expect(judges()[0]).not.toHaveProperty("completed");
+      }, 12_000);
+
+      it("never completes on a page judged challenge before", async () => {
+        await judged({ verdict: "unclear", reason: "judged-challenge" });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+      }, 12_000);
+
+      it.each(["judged-rejected", "judgement-unanswered"])(
+        "never completes on %s",
+        async (reason) => {
+          const { judges } = await judged({ verdict: "unclear", reason });
+          await vi.waitFor(() =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          );
+          expect(judges()[0]).not.toHaveProperty("completed");
+        },
+        12_000,
+      );
+
+      it("keeps a page undecided when a sign shows by the time the judge answers", async () => {
+        const { judges } = await judged({ verdict: "unclear" }, noSigns, () => {
+          fake.state.signs = { ...noSigns, code: true };
+        });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+        );
+        expect(judges()[0]).not.toHaveProperty("completed");
+      }, 12_000);
+
+      it("leaves another sign-in step the judge did not decide to the person", async () => {
+        const { judges } = await judged({ verdict: "unclear" }, { ...noSigns, code: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        expect(judges()[0]).not.toHaveProperty("completed");
+      }, 12_000);
+
+      it("rejects on a failure shown next to the sign-in fields, comparing the username in the page", async () => {
         fake.state.extracted = { "signed-in": homePage };
         fake.state.signs = { ...noSigns, password: true, alert: true, username: false };
         const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
@@ -6957,10 +7057,11 @@ describe("production login document admission", () => {
         h.recipes.recipe.mockResolvedValue(generated);
         fake.state.present = new Set(["user", "password", "login"]);
         expect(await h.hello()).toEqual({ ok: true });
+        // A second reading agrees, so the login is rejected without asking the judge.
         await vi.waitFor(
           () =>
-            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
-          { timeout: 6_000 },
+            expect(status()).toMatchObject([{ state: "blocked", outcome: "credential-rejected" }]),
+          { timeout: 8_000 },
         );
         expect(report).toHaveBeenCalledWith({
           type: "state",
@@ -6972,7 +7073,7 @@ describe("production login document admission", () => {
           ...{ e1: false, e2: false, e3: false },
           decision: "rejected",
         });
-        // The username goes to the page for its comparison; what happens is unchanged.
+        // The username goes to the page for its comparison only.
         expect(fake.state.messages.find((entry) => entry.type === "login.state")?.account).toEqual({
           username: "synthetic-secret",
         });
@@ -7551,6 +7652,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
+    fake.state.signs = undefined;
   });
 
   const securityKey = { by: "text" as const, value: "Use security key" };
@@ -9959,7 +10061,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       reports.mockClear();
       fake.state.signs = quiet;
       onClick({ login: { path: "/approve", present: [], extracted: described("/approve") } });
-      const service = generation(async () => ({ verdict: "unclear" }));
+      // A failed request leaves the page undecided without completing it (ADR 0029).
+      const service = generation(async () => ({ verdict: "unclear", reason: "timeout" }));
       const h = harness({}, { passkeys: withPasskey, generation: service, report: reports });
       h.recipes.recipe.mockResolvedValue(plain);
       expect(await h.hello()).toEqual({ ok: true });
@@ -10036,6 +10139,7 @@ describe("password route variants (ADR 0027)", () => {
     fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
+    fake.state.signs = undefined;
   });
 
   const set = (slots: string[]) => ({
@@ -10551,6 +10655,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
+    fake.state.signs = undefined;
   });
 
   const button = { by: "text" as const, value: "Sign in with a passkey" };
@@ -11311,6 +11416,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
+    fake.state.signs = undefined;
   });
 
   const identifierFirst = (steps?: unknown[]) =>
@@ -12138,6 +12244,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
+    fake.state.signs = undefined;
   });
 
   /** A recipe generated from the email page: it fills the email address and clicks Next. */
@@ -12699,6 +12806,29 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     ]);
     expect(reports.filter((entry) => entry.type === "judge")).toEqual([
       expect.objectContaining({ verdict: "not-sent", reason: "continuation", recipeRevision: 1 }),
+    ]);
+  });
+
+  it("settles a sign-in page it does not continue on as unknown, whatever its signs (ADR 0029)", async () => {
+    inPlace(() => {
+      fake.state.unusable = new Set(["email", "next", "password", "login"]);
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.signs = {
+        password: true,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+    });
+    const service = generation();
+    const reports: LoginReport[] = [];
+    const h = start(service, { report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(reports.filter((entry) => entry.type === "state")).toEqual([
+      expect.objectContaining({ s1: false, s2: true, decision: "continuing" }),
     ]);
   });
 

@@ -76,6 +76,18 @@ export const generationUnavailableReasonSchema = v.picklist([
   "recently-tried",
   /** This recipe revision's page on this path was already judged once (ADR 0027). */
   "already-judged",
+  /**
+   * As `already-judged`, and that judgement was `challenge`: the page asks for a step the
+   * person takes, so it never completes a login (ADR 0029).
+   */
+  "judged-challenge",
+  /** As `judged-challenge`, for a judgement of `rejected` (ADR 0029). */
+  "judged-rejected",
+  /**
+   * As `already-judged`, and that request has no verdict: it failed, or it is still being
+   * judged after the owner's lock expired (ADR 0029).
+   */
+  "judgement-unanswered",
   /** The recipe's pages were judged 20 times this UTC day (ADR 0027). */
   "judgement-limit",
   /**

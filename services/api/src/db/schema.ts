@@ -236,6 +236,9 @@ export const generationAttempts = sqliteTable(
   ],
 );
 
+/** What the judge answered for a page; `unclear` when the model abstained (ADR 0029). */
+export const pageJudgementVerdicts = ["signed-in", "challenge", "rejected", "unclear"] as const;
+export type PageJudgementVerdict = (typeof pageJudgementVerdicts)[number];
 /**
  * Pages sent to the judge per recipe revision and path (ADR 0027): each is judged at most
  * once across devices and Worker restarts, and a recipe at most 20 times a UTC day.
@@ -252,6 +255,11 @@ export const pageJudgements = sqliteTable(
     revision: integer("revision").notNull(),
     path: text("path").notNull(),
     judgedAt: integer("judged_at").notNull(),
+    /**
+     * The model's verdict once it answered (ADR 0029); empty while the page is being
+     * judged, or when the request failed.
+     */
+    verdict: text("verdict", { enum: pageJudgementVerdicts }),
   },
   (table) => [
     primaryKey({

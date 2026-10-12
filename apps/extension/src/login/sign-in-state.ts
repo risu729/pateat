@@ -1,5 +1,5 @@
 // The sign-in state of ADR 0029 for the page after an effect step that no check explained.
-// A confirmed `signed-in` completes the login (delivery 2); the rest is logged only.
+// On the `password` route a confirmed decision acts (delivery 2); `unknown` only logs.
 
 /** The signs read from the page (ADR 0029). */
 export interface SignInSigns {

@@ -196,6 +196,28 @@ const PASSKEY_MOVE_READINGS = 5;
  */
 const WATCH_MS = 10 * 60_000;
 const WATCH_SETTLE_MS = 3000;
+/**
+ * The sign-in state of ADR 0029 for a page no check explained, and whether a later reading
+ * in the fully loaded document agreed, which every outcome but logging needs.
+ */
+type SignInReading = { decision: SignInDecision; confirmed: boolean };
+/** A confirmed sign of another sign-in step (S2 to S5) without the sign-in fields. */
+const continuing = (reading: SignInReading | undefined) =>
+  reading?.confirmed === true && reading.decision === "continuing";
+/**
+ * Why the judge gave no verdict that still completes a page with no sign and no evidence
+ * (ADR 0029): the model could not decide (no reason), the path was judged before, or a
+ * spending or judgement limit applies. A page judged `challenge` or `rejected` before
+ * (`judged-challenge`, `judged-rejected`), one whose earlier request has no verdict
+ * (`judgement-unanswered`), a failure, a conflict or a missing service does not.
+ */
+const UNDECIDED_COMPLETES = new Set([
+  undefined,
+  "already-judged",
+  "judgement-limit",
+  "daily-limit",
+  "monthly-limit",
+]);
 /** Sign-in entry presses per tab, until the tab closes (ADR 0031). */
 const ENTRY_PRESSES_KEY = "pateat.login-entry-presses.v1";
 /** Entry recipe revisions blocked on this device after a press that led nowhere (ADR 0031). */
@@ -1011,6 +1033,11 @@ export type LoginReport = (
       takenOver?: boolean;
       /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
       watched?: true;
+      /**
+       * The judge could not decide a page with no sign and no evidence, so the login
+       * completed on it (ADR 0029).
+       */
+      completed?: true;
     }
   | ({
       type: "state";
@@ -2875,15 +2902,21 @@ export function createLoginRuntime(
     if (!settleUnknown) return undefined;
     const state = effectful(run.metadata) ? await signInState(run) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
-    // Evidence of a sign-in completes the login without a model call (ADR 0029).
-    if (state === "signed-in") {
-      await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
+    // Evidence of a sign-in completes the login without a model call, and a failure shown
+    // next to the sign-in fields rejects it (ADR 0029).
+    if (state?.confirmed && (state.decision === "signed-in" || state.decision === "rejected")) {
+      await change(run, {
+        type: "OBSERVED",
+        result: state.decision === "signed-in" ? "authenticated" : "credential-rejected",
+        document: run.live.document,
+      });
       return undefined;
     }
     // A sign-in page after the final advance is never judged: the judge cannot learn
     // anything from it (ADR 0018).
     if (continued === "qualified") notJudged(run, "continuation");
-    else if (await learn(run)) return undefined;
+    else if (await learn(run, state)) return undefined;
+    // A page that was not judged settles as unknown, whatever its signs (ADR 0029).
     await change(run, {
       type: "OBSERVED",
       result: unproven(run, "unknown"),
@@ -2893,29 +2926,33 @@ export function createLoginRuntime(
   }
   /**
    * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
-   * and what the ADR does with it. Returns `signed-in` only when a later reading, a second
-   * apart, agrees in the fully loaded document; the login then completes. On the passkey
-   * route, where anything the route's checks do not prove ends `challenge`, and for the
-   * other decisions, the reading is logged only, as in delivery 1. A login in a frame is
-   * not read, as the ADR reads the top document.
+   * and what the ADR does with it. Returns the decision, `confirmed` only when a later
+   * reading, a second apart, agrees in the fully loaded document. On the passkey route,
+   * where anything the route's checks do not prove ends `challenge`, the reading is not
+   * read again and never confirmed, so it is logged only. A login in a frame is not read,
+   * as the ADR reads the top document.
    */
-  async function signInState(run: Execution): Promise<SignInDecision | undefined> {
+  async function signInState(run: Execution): Promise<SignInReading | undefined> {
     let reading = await readSignInState(run);
     let confirmed = false;
-    // Evidence counts once a later reading agrees in a fully loaded document; a document
-    // still loading is read again, a second apart, up to `SIGN_IN_RECHECKS` times. Each
-    // reading depends on the time passed since the last, so they run one after another.
+    // A decision counts once a later reading agrees in a fully loaded document, so a page
+    // that is still redirecting or about to ask for a second factor is not settled; a
+    // document still loading is read again, a second apart, up to `SIGN_IN_RECHECKS` times.
+    // `unknown` changes nothing and is not read again. Each reading depends on the time
+    // passed since the last, so they run one after another.
     /* eslint-disable no-await-in-loop */
     if (run.metadata.route !== "passkey")
       for (
         let recheck = 0;
-        reading?.decision === "signed-in" && recheck < SIGN_IN_RECHECKS;
+        reading !== undefined && reading.decision !== "unknown" && recheck < SIGN_IN_RECHECKS;
         recheck++
       ) {
         await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
         if (!current(run) || terminal(run.metadata)) return undefined;
-        reading = await readSignInState(run);
-        if (reading?.decision === "signed-in" && reading.loaded) {
+        const next = await readSignInState(run);
+        const agrees = next?.decision === reading.decision && next.loaded;
+        reading = next;
+        if (agrees) {
           confirmed = true;
           break;
         }
@@ -2932,7 +2969,7 @@ export function createLoginRuntime(
       decision: reading.decision,
       ...(run.metadata.settled ? { settled: true as const } : {}),
     });
-    return reading.decision === "signed-in" && !confirmed ? undefined : reading.decision;
+    return { decision: reading.decision, confirmed };
   }
   /**
    * The page's signs of ADR 0029 and the decision they give, and whether the document has
@@ -3276,7 +3313,7 @@ export function createLoginRuntime(
     }
     return readUsernames(run.live.document.origin, reads);
   }
-  async function learn(run: Execution): Promise<boolean> {
+  async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
     if (!generation || !effectful(metadata) || !operationId) return false;
@@ -3350,7 +3387,7 @@ export function createLoginRuntime(
     const watchedPage = run.metadata.watch !== undefined;
     const reportJudge = (
       verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
-      detail: { reason?: string; takenOver?: boolean } = {},
+      detail: { reason?: string; takenOver?: boolean; completed?: true } = {},
     ) =>
       report(run.live.document, {
         type: "judge",
@@ -3387,6 +3424,28 @@ export function createLoginRuntime(
     }
     // A temporary refusal, such as a busy service, gives the page back.
     if (verdict === "retry") await change(run, { type: "UNJUDGED", operationId });
+    // A page with no sign and no evidence completes when the judge cannot decide, unless
+    // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
+    // person, as does a page judged `challenge` before (ADR 0029).
+    const undecided = verdict === "unclear";
+    let completes =
+      undecided &&
+      reading?.confirmed === true &&
+      reading.decision === "judge" &&
+      run.metadata.watch === undefined &&
+      run.metadata.route !== "passkey" &&
+      UNDECIDED_COMPLETES.has(reason);
+    // The judge's answer can take a while: the page completes only if, once the answer is
+    // back, it has loaded and still shows no sign of a sign-in going on.
+    if (completes) {
+      const again = await readSignInState(run);
+      if (!current(run)) {
+        reportJudge(verdict, { ...(reason ? { reason } : {}) });
+        return true;
+      }
+      completes =
+        again?.loaded === true && (again.decision === "judge" || again.decision === "signed-in");
+    }
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
     // A watched login only reads its pages; it never runs a learned handler (ADR 0027).
@@ -3403,18 +3462,21 @@ export function createLoginRuntime(
       reportJudge(verdict, {
         ...(reason ? { reason } : {}),
         ...(added ? { takenOver: false } : {}),
+        ...(completes ? { completed: true } : {}),
       });
     if (movedOn || !current(run)) return true;
     await change(run, {
       type: "OBSERVED",
       result:
-        verdict === "signed-in"
+        verdict === "signed-in" || completes
           ? "authenticated"
           : unproven(
               run,
               verdict === "rejected"
                 ? "credential-rejected"
-                : verdict === "challenge"
+                : verdict === "challenge" ||
+                    reason === "judged-challenge" ||
+                    (undecided && continuing(reading))
                   ? "challenge"
                   : "unknown",
             ),
@@ -3939,12 +4001,13 @@ export function createLoginRuntime(
     if (!watching()) return;
     const state = await signInState(run);
     if (!watching()) return;
-    if (state === "signed-in") {
+    if (state?.decision === "signed-in" && state.confirmed) {
       await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
       return;
     }
-    // Only a page with no sign of a sign-in going on is judged.
-    if (state === "judge") await learn(run);
+    // Only a page with no sign of a sign-in going on is judged; an undecided answer never
+    // completes a watched login.
+    if (state?.decision === "judge") await learn(run);
   }
   async function drive(run: Execution): Promise<void> {
     if (run.running) return;

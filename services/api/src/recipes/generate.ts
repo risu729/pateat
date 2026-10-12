@@ -47,10 +47,11 @@ import {
   type InferenceOutcome,
 } from "@pateat/inference";
 import { and, count, eq, gt, gte, lt } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
 import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS, type ClaudeCall } from "../claude/calls";
-import { generationAttempts, pageJudgements } from "../db/schema";
+import { generationAttempts, pageJudgements, type PageJudgementVerdict } from "../db/schema";
 import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
@@ -689,7 +690,17 @@ export async function judgeCompletion(
           ),
         )
         .limit(1);
-      if (judged) return "already-judged";
+      // A later login of the revision completes on the path only after a `signed-in` or
+      // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
+      // judged, or whose request failed does not.
+      if (judged)
+        return judged.verdict === "challenge"
+          ? "judged-challenge"
+          : judged.verdict === "rejected"
+            ? "judged-rejected"
+            : judged.verdict === null
+              ? "judgement-unanswered"
+              : "already-judged";
       const [today] = await db
         .select({ value: count() })
         .from(pageJudgements)
@@ -726,8 +737,32 @@ export async function judgeCompletion(
   if (call.status === "unavailable") return unavailable(call.reason);
   const { outcome } = call;
   if (outcome.status === "failed") return failed(failureOf(outcome.error));
-  if (outcome.status === "abstained") return { version: 1, status: "unclear" };
+  // The verdict goes on the path's row, which tells a later login of the revision what
+  // the page was (ADR 0029). A row left without one never completes a login, so a failed
+  // write only costs that.
+  const keepVerdict = async (verdict: PageJudgementVerdict) => {
+    try {
+      await drizzle(env.DB)
+        .update(pageJudgements)
+        .set({ verdict })
+        .where(
+          and(
+            ofRecipe,
+            eq(pageJudgements.branch, judgedBranch),
+            eq(pageJudgements.revision, head.revision),
+            eq(pageJudgements.path, observation.path),
+          ),
+        );
+    } catch {
+      console.warn("Page judgement verdict not kept", { recipeId, verdict });
+    }
+  };
+  if (outcome.status === "abstained") {
+    await keepVerdict("unclear");
+    return { version: 1, status: "unclear" };
+  }
   const judgement = outcome.value;
+  await keepVerdict(judgement.decision);
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
   if (judgement.decision === "challenge") {
     // A page may offer both a security key and an authenticator app code; each handler

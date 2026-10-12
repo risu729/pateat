@@ -85,6 +85,13 @@
       "when": 1791803728313,
       "tag": "0011_chooser_branches",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1791815166153,
+      "tag": "0012_page_judgement_verdicts",
+      "breakpoints": true
     }
   ]
 }
