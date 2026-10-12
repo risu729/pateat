@@ -86,6 +86,19 @@ describe("pageSigns", () => {
       '<div aria-live="assertive"><button>Signing in…</button></div>',
     );
     expect(pageSigns(document, { submitted })).toEqual(none);
+    // An alert with a close button still counts by its own text.
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div role="alert">Wrong password <button aria-label="Close">×</button></div>',
+    );
+    expect(pageSigns(document, { submitted })).toEqual({ ...none, alert: true });
+    document.body.lastElementChild!.remove();
+    // A status region of another form, such as a search form, does not count.
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<form><input><p role="status">3 results</p></form>',
+    );
+    expect(pageSigns(document, { submitted })).toEqual(none);
     // Without the submitted document, nothing is compared.
     expect(pageSigns(document)).toEqual(none);
   });

@@ -1,5 +1,5 @@
 import { visible } from "./code-submission";
-import { renderedText } from "./text";
+import { collapseText, renderedText } from "./text";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
 // read here, including the username compared with the header, leaves the content script:
@@ -31,24 +31,27 @@ export interface PageSigns {
 }
 
 // As the fill check reads them: alerts anywhere, status and polite live regions only
-// inside a form or when a sign-in input names them. A region around an input or button
-// changes with any text of the form, such as a button that reads "Signing in…".
+// inside a sign-in input's form or when one names them. A region around a sign-in input
+// changes with any text of the form, and a button's own text, such as "Signing in…" or a
+// close button's "×", is not a message.
 const alertSelector = '[role="alert"], [aria-live="assertive"]';
 const statusSelector = '[role="status"], [aria-live="polite"]';
 const landmarkSelector = 'header, nav, [role="banner"], [role="navigation"]';
+/** How much of an alert is read. */
+const alertReadLimit = 1000;
 /** How much of the header and navigation is read for the username. */
 const landmarkReadLimit = 4000;
 /** Shorter usernames match too much unrelated text. */
 const minUsernameLength = 3;
 /**
- * Frames of the CAPTCHA services: reCAPTCHA (`google.com/recaptcha`, `recaptcha.net`),
- * hCaptcha and Cloudflare Turnstile.
+ * Frames of the CAPTCHA services, by host and path: reCAPTCHA (`google.com/recaptcha/`,
+ * `recaptcha.net/recaptcha/`), hCaptcha and Cloudflare Turnstile.
  */
-const captchaHosts = [
-  /^(?:www\.)?google\.com$/u,
-  /^(?:www\.)?recaptcha\.net$/u,
-  /(?:^|\.)hcaptcha\.com$/u,
-  /^challenges\.cloudflare\.com$/u,
+const captchaFrames: readonly { host: RegExp; path: string }[] = [
+  { host: /^(?:www\.)?google\.com$/u, path: "/recaptcha/" },
+  { host: /^(?:www\.)?recaptcha\.net$/u, path: "/recaptcha/" },
+  { host: /(?:^|\.)hcaptcha\.com$/u, path: "/" },
+  { host: /^challenges\.cloudflare\.com$/u, path: "/" },
 ];
 /** A CAPTCHA frame this small is a badge or an invisible check, not a widget to solve. */
 const minCaptchaSide = 30;
@@ -73,21 +76,19 @@ function alertTexts(document: Document, fields: readonly HTMLInputElement[]): Se
       ),
     ),
   );
+  const forms = new Set(fields.flatMap((input) => (input.form ? [input.form] : [])));
   const regions = [
     ...document.querySelectorAll(alertSelector),
     ...[...document.querySelectorAll(statusSelector)].filter(
-      (element) => element.closest("form") !== null || named.has(element.id),
+      (element) => [...forms].some((form) => form.contains(element)) || named.has(element.id),
     ),
   ];
   const texts = new Set<string>();
   for (const element of regions) {
-    if (
-      !(element instanceof HTMLElement) ||
-      element.querySelector("input, button, select, textarea") !== null ||
-      !element.checkVisibility({ visibilityProperty: true })
-    )
-      continue;
-    const text = element.innerText.replace(/\s+/gu, " ").trim();
+    if (fields.some((input) => element.contains(input))) continue;
+    const text = collapseText(
+      renderedText(element, alertReadLimit, { skip: 'button, [role="button"]' }) ?? "",
+    );
     if (text) texts.add(text);
   }
   return texts;
@@ -148,8 +149,11 @@ function showsCaptcha(document: Document): boolean {
     } catch {
       return false;
     }
-    if (!captchaHosts.some((host) => host.test(url.hostname))) return false;
-    if (url.hostname.endsWith("google.com") && !url.pathname.startsWith("/recaptcha/"))
+    if (
+      !captchaFrames.some(
+        ({ host, path }) => host.test(url.hostname) && url.pathname.startsWith(path),
+      )
+    )
       return false;
     if (url.searchParams.get("size") === "invisible") return false;
     const box = frame.getBoundingClientRect();
