@@ -3369,9 +3369,13 @@ export function createLoginRuntime(
       if (current(run) && !terminal(run.metadata)) notSent("unreachable");
       return false;
     }
+    // A route's sign-in field shows on another path too (S1): such a page is never complete
+    // (ADR 0029), and the description may leave the field out when no locator names it.
     if (
-      paths.includes(remaining.path) &&
-      remaining.targets.slice(0, fills.length).some((state) => state !== "missing")
+      reading?.decision === "unknown" ||
+      reading?.decision === "rejected" ||
+      (paths.includes(remaining.path) &&
+        remaining.targets.slice(0, fills.length).some((state) => state !== "missing"))
     )
       return notSent("sign-in-shown");
     // A marker shows, but the completion check did not prove the sign-in: more than one
@@ -3492,7 +3496,7 @@ export function createLoginRuntime(
       added !== undefined &&
       run.metadata.state !== "watching" &&
       current(run) &&
-      (await takeOver(run, added, observation.path, () => {
+      (await takeOver(run, added, remaining.path, () => {
         reported = true;
         reportJudge(verdict, { takenOver: true });
       }));

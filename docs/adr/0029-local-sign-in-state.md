@@ -194,17 +194,20 @@ uses.
 Pages that could not be sent (owner, 2026-10-12 19:23 UTC): logins on Cloudflare,
 Grafana Cloud and Wise really signed in on build `a8350f5`, and on JP BANKカードWEB on
 `206f2a0` (an optional password change page), but every page after the submission was
-logged `recipe.judge not-sent` (`unsupported-page` on Cloudflare's
-`/<account ID>/home`, `unlocated-field` on the others), so each login stayed unknown.
-The owner chose to make such pages sendable rather than complete without the judge:
-the judged page's path carries `[id]` in place of each segment that may hold a token
-(the rule that refuses such a path on a login page), and a field that no locator can
-name is left out unless it may be a sign-in field, as a read-only one is. A password
-field counts as one unless S2 would skip it (a new password, or a form with two or
-more password fields). A page on a path with `[id]` never gets a handler, since the
-handler's path would match no page; its signed-in markers have no path and are learned
-as on any page. Which field was unlocated on each site is inferred; Cloudflare's reason
-is inferred from its path.
+logged `recipe.judge not-sent` (`unsupported-page` on Cloudflare's `/<account ID>/home`,
+`unlocated-field` on the others), so each login stayed unknown. The owner chose to make
+such pages sendable rather than complete without the judge: the judged page's path
+carries `[id]` in place of each segment that may hold a token (the rule that refuses
+such a path on a login page), and a field that no locator can name is left out unless it
+may be a sign-in field, as a read-only one is. A password field counts as one unless S2
+would skip it (a new password, or a form with two or more password fields). A page on a
+path with `[id]` never gets a handler, since the handler's path would match no page; its
+signed-in markers have no path and are learned as on any page. Pages that differ only in
+such a segment share one judgement row, and a locator on a judged page never uses an
+attribute value that may be a token. Since a sign-in field left out of the description
+could no longer be seen by the service, a page where S1 holds, on any path, is not sent
+to the judge. Which field was unlocated on each site is inferred; Cloudflare's reason is
+inferred from its path.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on

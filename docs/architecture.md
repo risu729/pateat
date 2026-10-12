@@ -668,24 +668,26 @@ device, or a request that failed before the model). Permanent refusals such as
 rate limit, a timeout and an unexpected answer, which may follow a model call; so a
 settled login sends at most 2 counted pages per effect step plus retries after temporary
 refusals. A page whose description is incomplete, failed or of another path is not sent
-and does not count. Its path carries `[id]` in place of each segment that may hold a
-token, and a field no locator names is left out unless it may be a sign-in field (ADR
-0029); no handler is learned on a path with `[id]`. A handler's click is a new effect
-step. A `challenge` verdict that added a handler hands back the newer revision: the
-attempt takes it over (`REVISED`) when it only adds handlers or signed-in markers, and
-runs the handler on the page it is on. A resumed attempt accepts a newer cached revision
-on the same terms only while the worker still holds its recorded revision; after a
-worker restart only the recorded revision resumes. What the judge answers settles the
-login on the `password` route as the ADR's outcome table says: `signed-in` completes it,
-`rejected` ends it `credential-rejected`, and `challenge` ends it `challenge`. An
-`unclear` answer completes it, as a warning marked `completed`, only when the page
-confirmed no sign and no evidence (S1 to S5, E1 to E3) before the request and still
-shows none in the loaded document after the answer, the login is not watched, and the
-model abstained or the service answered `already-judged`, `judgement-limit`,
-`daily-limit` or `monthly-limit`. An `unclear` answer on a page with a confirmed sign of
-another sign-in step (S2 to S5), or the service's `judged-challenge` for a path judged
-`challenge` before in the revision, ends it `challenge`. Anything else, including the
-service's `judged-rejected` for a path judged `rejected` before, its
+and does not count. A judged page's path carries `[id]` in place of each segment that
+may hold a token, so pages that differ only there share one judgement, its locators
+never use an attribute value that may be a token, and a field no locator names is left
+out unless it may be a sign-in field (ADR 0029); no handler is learned on a path with
+`[id]`. A page where a route's sign-in field shows (S1), on any path, is not sent. A
+handler's click is a new effect step. A `challenge` verdict that added a handler hands
+back the newer revision: the attempt takes it over (`REVISED`) when it only adds
+handlers or signed-in markers, and runs the handler on the page it is on. A resumed
+attempt accepts a newer cached revision on the same terms only while the worker still
+holds its recorded revision; after a worker restart only the recorded revision resumes.
+What the judge answers settles the login on the `password` route as the ADR's outcome
+table says: `signed-in` completes it, `rejected` ends it `credential-rejected`, and
+`challenge` ends it `challenge`. An `unclear` answer completes it, as a warning marked
+`completed`, only when the page confirmed no sign and no evidence (S1 to S5, E1 to E3)
+before the request and still shows none in the loaded document after the answer, the
+login is not watched, and the model abstained or the service answered `already-judged`,
+`judgement-limit`, `daily-limit` or `monthly-limit`. An `unclear` answer on a page with
+a confirmed sign of another sign-in step (S2 to S5), or the service's `judged-challenge`
+for a path judged `challenge` before in the revision, ends it `challenge`. Anything
+else, including the service's `judged-rejected` for a path judged `rejected` before, its
 `judgement-unanswered` for a path whose earlier request has no verdict, and a page that
 was not sent, leaves it unknown. After a recipe's final `advance` step on its first
 `password` variant, a page that has loaded and shows, for a second on one path, a

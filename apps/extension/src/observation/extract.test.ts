@@ -1259,6 +1259,12 @@ describe("extractSignedInObservation", () => {
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
     ]);
 
+    // Nor one that may be a token, such as an account ID.
+    page(`<button id="acct-0123456789abcdef0123" type="button">Account</button>`);
+    expect(summary(signedIn())).toEqual([
+      { role: "button", target: { by: "text", value: "Account" }, label: "Account" },
+    ]);
+
     page(`<form><input id="mail-0123456789" type="email" aria-label="Email"></form>
       <button id="logout" type="button">Sign out</button>`);
     // A field that may be a sign-in field and cannot be located safely makes the
@@ -1368,6 +1374,8 @@ describe("extractSignedInObservation", () => {
       `<input autocomplete="username"><input autocomplete="username">`,
       `<input inputmode="numeric" maxlength="6">`,
       `<input class="q"><input class="q" type="password">`,
+      // One password field of its form, beside one of another form.
+      `<form><input type="password"></form><form><input type="password"></form>`,
     ]) {
       page(`<button id="logout">Sign out</button>${field}`);
       expect(gap(), field).toEqual([false, "unlocated-field"]);
@@ -1387,6 +1395,9 @@ describe("extractSignedInObservation", () => {
       expect(gap(), field).toEqual([true, undefined]);
       expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
     }
+    // Outside any form, the fields count as one form.
+    page(`<button id="logout">Sign out</button><input type="password"><input type="password">`);
+    expect(gap()).toEqual([true, undefined]);
     page(`<button id="logout">Sign out</button><input id="pin" type="password" readonly>`);
     expect(gap()).toEqual([false, "unfillable-field"]);
     // A disabled field may be a code field waiting for a timer or a sent code.

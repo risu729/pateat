@@ -225,7 +225,8 @@ function locatorIndex(document: Document): LocatorIndex {
  * would take first. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
- * and names often carry the account. With `links`, a link is located by its text too,
+ * and names often carry the account, and a value that may be a token (`tokenSegment`),
+ * such as an account ID, is skipped too. With `links`, a link is located by its text too,
  * which only an account switch uses: the text must name no other link and no button.
  */
 function locate(
@@ -236,7 +237,7 @@ function locate(
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
     if (value === null || index.get(attribute)!.get(value) !== 1) continue;
-    if (redactAttributes && observedText(value) !== value) continue;
+    if (redactAttributes && (observedText(value) !== value || tokenSegment(value))) continue;
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
@@ -1187,7 +1188,7 @@ export function extractSignedInObservation(
                 other.draft.element.type === "password",
             ).length >= 2)
         ) &&
-        !fieldsFound.some((found) => found.draft.element === element),
+        !fieldsFound.some((kept) => kept.draft.element === element),
     )
   )
     gap ??= "unlocated-field";

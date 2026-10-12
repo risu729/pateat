@@ -6875,6 +6875,70 @@ describe("production login document admission", () => {
       );
     }, 10_000);
 
+    it("sends a page whose path may carry a token with that segment as [id]", async () => {
+      const accountHome = page("/[id]/home", [
+        { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
+      ]);
+      fake.state.extracted = { "signed-in": accountHome };
+      const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      h.recipes.recipe.mockResolvedValue(generated);
+      fake.state.present = new Set(["user", "password", "login"]);
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+        fake.state.present = new Set(["logout"]);
+        fake.state.observedPath = "/0123456789abcdef0123456789abcdef/home";
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(service.judge).toHaveBeenCalledWith(
+        generated.id,
+        generated.revision,
+        "password",
+        accountHome.observation,
+        expect.any(Function),
+      );
+    }, 10_000);
+
+    it("does not send a page that shows a sign-in field on another path (S1)", async () => {
+      fake.state.extracted = { "signed-in": homePage };
+      fake.state.signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+      const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(generated);
+      fake.state.present = new Set(["user", "password", "login"]);
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+        // The form shows again elsewhere; its field may be left out of the description.
+        fake.state.present = new Set(["user"]);
+        fake.state.observedPath = "/home";
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () => expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+        { timeout: 6_000 },
+      );
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "sign-in-shown" }),
+      );
+    }, 10_000);
+
     describe("the sign-in state (ADR 0029)", () => {
       it("logs a passkey request after the submission, but not one before it", async () => {
         fake.state.extracted = { "signed-in": homePage };
