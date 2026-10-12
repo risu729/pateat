@@ -234,7 +234,8 @@ new owner decision:
   (ADR 0025), and saving another tab's account choice or a passkey site default.
   Unlike the bridge, a login whose result settled as unknown counts again while the
   extension checks or judges one of its pages, so a judgement that adds a handler is not
-  cut off. Its record stays until the tab closes; if it counted, the settings sync's
+  cut off. Its record can stay until the tab closes (a top-level `password` login's
+  until its watch ends, below); if it counted, the settings sync's
   two-minute wait would run out once and never restart, so every later login would be
   stopped by the next settings write, and the vault's two-minute deferral would likewise
   force its replacement into later logins. A policy write while a login is settled stops
@@ -589,9 +590,11 @@ code by a subagent):
   held click that never cleared), or settles as unknown. The `passkey` route and logins
   in a frame keep ending at once.
 - **Watching.** For 10 minutes from that moment, each new page of the same tab and
-  origin is read only, never filled or clicked. A `challenge` login waits in its own
-  state, `watching`; a login whose result settled as unknown keeps its checks of later
-  pages (its next step, a handler, a continuation), as before.
+  origin is checked. A `challenge` login waits in its own state, `watching`, where pages
+  are read only, never filled or clicked. A login whose result settled as unknown keeps
+  what it did before: its recipe's next step, a handler or a continuation showing on a
+  later page still runs, since its result was never known to stop there; the watch adds
+  only the judged pages, the release and the 10-minute limit below.
 - **Completing.** The login completes on the recipe's completion, on evidence of a
   sign-in confirmed as in [ADR 0029](0029-local-sign-in-state.md) (E1 to E3), or when
   the judge answers `signed-in` for a page with no sign of a sign-in going on (no S1 to
@@ -605,11 +608,18 @@ code by a subagent):
   approval, releases the record as a logout does: the tab asks for an account and, with
   one account to use, fills without pressing anything, and the site's other tabs ask
   until a pick in the toolbar popup. Unlike #292, nothing is submitted again, so an
-  expired QR code never sends another approval request by itself.
+  expired QR code never sends another approval request by itself. The same release
+  happens when the first step shows in a new page of another tab of the site, where the
+  person may start over after closing the expired page (the owner's request after the
+  check above, 2026-10-12 13:49 UTC): that tab asks and fills only, instead of being
+  refused `origin-busy` until the watched tab's hold ends. Another tab's page without
+  the first step stays refused while the hold lasts.
 - **After the watch.** The next page of the tab ends the login where it stopped
   (`blocked` with `challenge`, or `unknown-submit` for a settled one) without changing
-  the record's time, so it no longer holds the site, and the rules for a login stopped
-  after a submission apply (ADR 0021 D, 07:41 UTC amendment).
+  the record's last change time, so it holds the site only until 5 minutes after that
+  time, and the rules for a login stopped after a submission apply (ADR 0021 D, 07:41
+  UTC amendment), also to a page the watch already followed, other than the one it
+  began in.
 
 Implementation: the attempt contract has the `watching` state, the `WATCH_ENDED` event
 and a `watch` on the record (its start, the document it began in and its judged pages),

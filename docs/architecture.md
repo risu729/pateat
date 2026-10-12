@@ -692,14 +692,18 @@ handler, a continuation), and its judged pages also count against the watch's 2.
 login is watched, each later page of its tab gets the origin's first steps to watch for,
 and when one of them is ready in a new document the record is released as after a logout
 ([ADR 0021 D](adr/0021-account-choice-outside-settings.md)): the tab asks and, with one
-account to use, fills without pressing anything, and the site's other tabs ask too. When
-the watch is over, the next page of the tab ends the login where it stopped
-(`WATCH_ENDED`: `blocked` with `challenge` or `unknown-submit`) without changing the
-record's time, so it no longer holds the site; a login stopped after a submission is
-then handled as before. A restart keeps the watch. Leaving the origin ends it as for any
-submitted login (`left-origin`), and a settings change ends it `policy-changed`. A login
-in a frame and the `passkey` route still end `challenge` at once. The attempt store is
-`pateat.login-attempts.v4`; the v3 store is removed on load.
+account to use, fills without pressing anything, and the site's other tabs ask too. A
+first step ready in a new top-level document of another tab of the site releases it the
+same way, so a person who starts over in a new tab is asked rather than refused
+`origin-busy`. When the watch is over, the next page of the tab ends the login where it
+stopped (`WATCH_ENDED`: `blocked` with `challenge` or `unknown-submit`) without changing
+the record's last change time, so it holds the site only until 5 minutes after that
+time; a login stopped after a submission is then handled as before, also on a page the
+watch already followed, other than the one it began in. A restart keeps the watch.
+Leaving the origin ends it as for any submitted login (`left-origin`), and a settings
+change ends it `policy-changed`. A login in a frame and the `passkey` route still end
+`challenge` at once. The attempt store is `pateat.login-attempts.v4`; the v3 store is
+removed on load.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already
@@ -832,7 +836,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID, route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, the signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown. Logged for a page after an effect step that no check explained, before the judge is asked. On the `password` route a `signed-in` page is read again a second later, and a second apart while it loads (at most ten times), and the last reading is the one logged; when it is `signed-in` in the fully loaded document, the login completes without the judge (ADR 0029 delivery 2, first part). E1 does not count on the completion's own path while one of its `absent` elements is there, even hidden. The other decisions change nothing yet. A login in a frame is not read |
 | `login.refused` | info for the first time a reason shows on a login-related page (the tab's page when its origin has a recipe or a login is in progress in the tab, or a frame whose own origin has a recipe, such as a login form embedded in the page); debug for the same reason again on the same document and path, for a page that is not login-related (such as `recipe-not-found` on an origin without a recipe), for `stale-document` and `duplicate-document` (a document announcing again while it carries a login), and for `tab-busy` in a frame (a held tab refuses every frame on its page, such as ad frames); `stale-document` with `gave-up` is info | origin, reason, `frame` for a frame; for `account-ambiguous` and `logged-out`, how many accounts the tab may ask with (`candidates`, at most 100 for `logged-out`); `no-uri-match` as the detail of `default-not-set` when no vault item's URI matches the page, or of `item-origin-mismatch` when the saved default's item no longer matches it; `site-excluded`, `no-site-access` or `settings-unavailable` when the tab's page of a login-related site is not admitted; `stale-document` with `gave-up` when a document's fourth try in a row to start (about half a second apart, each within 2 s of the last answer) was stale and it waits until its form goes, an estimate since the worker does not see the form go and come back between tries; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail; for `logged-out`, which tab logged out (`this-tab` or `other-tab`), or `stopped-login` when this tab's own login stopped after a submission and its form showed again; `not-started` when a page of an origin with a recipe shows a visible password, username or one-time-code input for 10 seconds without a ready first step and only watches, once per document and path, with why: the tab's earlier login of the origin finished and this form is not a recipe's first step on its path, so it is not taken as a logout (`logged-in`), a recipe starts on this path but its first step's elements are not found (`first-step-missing`), or the origin's recipes start only on other paths (`no-recipe-on-path`), or the tab's login of the origin stopped after a submission and the page watches for its form (`stopped-login`) |
 | `login.start` | info | origin, recipe ID, route and `password` variant of a new login; how its account was chosen (`default` for the saved site default, `match` for the only provider URI match, `pick` for a pick in the popup); for `match` the candidate count and the item as a pseudonym; for a login that only fills the page after a logout (`fillOnly`), the count of accounts the tab asks with |
-| `login.logout` | info | origin and recipe ID, when the recipe's first step shows again in the tab's page after a finished login (ADR 0021 D); `watched` when it showed in a new page while the login was watched (ADR 0027) |
+| `login.logout` | info | origin and recipe ID, when the recipe's first step shows again in the tab's page after a finished login (ADR 0021 D); `watched` when it showed in a new page while the login was watched (ADR 0027), then the tab is the watched login's, also when the page was in another tab |
 | `login.choice` | info | origin and whether the account a login authenticated with was saved afterwards: `saved`, `already-saved`, or why not: `account-changed`, `login-in-progress` (another login runs, and saving would stop it), `settings-unavailable` or `write-failed`; logged only when the login's site default or binding was not saved yet: an account found by URI match, one picked to become the default, or a saved default whose binding is new |
 | `login.exception` | warn | origin, recipe ID, route, the state the login was left in and its step, the exception's class name, and its message only when it is a Pateat error code; logged when an exception stops a running login |
 | `recipe.generate` | debug for `skipped` with `no-vault-match`, warn for `failed`, else info | origin, outcome (`sent` when the page goes out, then `recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match`, `incomplete-observation`, the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a refused path or a description that fails its schema, `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `exception` when reading the page or the vault for it threw while the page still shows, `no-slots`, `not-connected`, `storage-unavailable`, and for the page after a final `advance` step `scope-incomplete` while the vault match could not evaluate every item); for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to three reads a second apart; for the page after a final `advance` step, the recipe ID and the revision it continues, and for a returned revision whether this login took it over, left out when the page that asked was left before the answer |
@@ -962,8 +966,10 @@ just answered (ADR 0022); otherwise a submission ends `credential-rejected`, mov
 later step, or stays unknown (`unknown-submit`), so no account choice is saved. An
 unknown attempt stays in `reconciling` until its tab closes or, for a top-level attempt,
 until the tab shows a page of another origin that Pateat may run on (`left-origin`, ADR
-0022): meanwhile it holds the origin. The extension sends a page no check explains to be
-judged, which settles such attempts
+0022): meanwhile it holds the origin. A top-level `password` attempt ends sooner, after
+its 10-minute watch or when its first step shows again in a new page
+([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)). The
+extension sends a page no check explains to be judged, which settles such attempts
 ([Background execution](#background-execution)).
 
 A login in progress keeps off the writes that would stop it. A passkey chosen in the
@@ -974,8 +980,9 @@ the settings sync's local write, for at most two minutes, counted from the first
 deferred write until a sync runs with no login in progress. An attempt counts until it
 ends or its result settles as unknown, also between pages and after a worker restart,
 and a settled one counts again only while the extension checks or judges one of its
-pages. A settled attempt stays until its tab closes, so counting it would use up the two
-minutes for every later login. A policy write while an attempt is settled stops it as
+pages. A settled attempt can stay until its tab closes (a top-level `password` one for
+at most its 10-minute watch), so counting it would use up the two minutes for every
+later login. A policy write while an attempt is settled stops it as
 `POLICY_CHANGED`, so its later pages are no longer judged
 ([ADR 0027](adr/0027-per-account-login-routes.md)). A watched login counts the same way.
 

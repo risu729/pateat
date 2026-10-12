@@ -1940,10 +1940,15 @@ describe("production login document admission", () => {
               ...rest,
               // A record's age is taken when the case runs, not when the table was built.
               ...(age === undefined ? {} : { changedAt: Date.now() - age }),
-              // A result settled as unknown is watched (ADR 0027).
+              // A result settled as unknown is watched (ADR 0027). Here the watch is over,
+              // since another tab's first step releases a login still watched.
               ...(state === "reconciling" && "settled" in rest
                 ? {
-                    watch: { since: Date.now(), documentId: record!.document.documentId, pages: 0 },
+                    watch: {
+                      since: Date.now() - 10 * 60_000 - 1000,
+                      documentId: record!.document.documentId,
+                      pages: 0,
+                    },
                   }
                 : {}),
             },
@@ -7741,12 +7746,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
     it("stays watched on undecided pages, two at most, with a warning", async () => {
       const { h, service } = await watched(["unclear", "challenge"]);
+      const { changedAt } = status()![0]!;
       await open(h, "/next");
       await open(h, "/later");
       await open(h, "/last");
       expect(service.judge).toHaveBeenCalledTimes(3);
+      // Judged pages do not prolong the hold on the site (ADR 0022).
       expect(status()).toMatchObject([
-        { state: "watching", outcome: "challenge", watch: { pages: 2 } },
+        { state: "watching", outcome: "challenge", watch: { pages: 2 }, changedAt },
       ]);
       expect(judges().slice(1)).toMatchObject(
         [
@@ -7791,6 +7798,39 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(status() ?? []).toEqual([]);
     });
 
+    it("releases the login when the person starts over in another tab", async () => {
+      const { h } = await watched();
+      const steps = executed().length;
+      // The approval expired and the person opened the sign-in page in a new tab.
+      fake.state.pageUrl = `${origin}/signin`;
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(reports).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "logout", tabId: 1, watched: true }),
+      );
+      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
+      // The new tab fills the form once, without pressing anything, and holds nothing.
+      expect(
+        executed()
+          .slice(steps)
+          .map((step) => step.kind),
+      ).toEqual(["fill"]);
+      expect(status() ?? []).toEqual([]);
+    });
+
+    it("keeps holding the site against another tab's page that is not the first step", async () => {
+      const { h } = await watched();
+      fake.state.pageUrl = `${origin}/home`;
+      fake.state.observedPath = "/home";
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      await h.hello({ tab: { id: 2 }, documentId: "other-tab" }, false);
+      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+      expect(status()).toMatchObject([{ state: "watching", document: { tabId: 1 } }]);
+    });
+
     it("releases a login whose result settled as unknown the same way", async () => {
       vi.useFakeTimers();
       reports.mockClear();
@@ -7811,6 +7851,26 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(reports).toHaveBeenCalledWith(
         expect.objectContaining({ type: "logout", watched: true }),
       );
+      expect(status() ?? []).toEqual([]);
+    });
+
+    it("asks on a page the watch followed once its first step shows after the watch", async () => {
+      const { h } = await watched(["unclear"]);
+      await open(h, "/next");
+      const steps = executed().length;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      // The same page now shows the sign-in form, as a site that renders it in place.
+      fake.state.pageUrl = `${origin}/signin`;
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["password", "login"]);
+      expect(await h.hello({ documentId: "document-next" })).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+      expect(
+        executed()
+          .slice(steps)
+          .map((step) => step.kind),
+      ).toEqual(["fill"]);
       expect(status() ?? []).toEqual([]);
     });
 

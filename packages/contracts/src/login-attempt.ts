@@ -879,7 +879,6 @@ function createLoginAttemptMachine() {
           FAILED: [{ guard: "staleFailure" }, { target: "retryable", actions: "record" }],
           OBSERVED: [
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
-            { guard: "observedWatched", target: "watching", actions: "record" },
             { guard: "observedRejected", target: "blocked", actions: "record" },
           ],
           NOT_LISTED: {

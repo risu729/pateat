@@ -7,7 +7,7 @@ account defaults and exclusions are edited, and manual choices before they are s
 Each part lands in its own PR. All four parts, A to D, are implemented. Amended on
 2026-10-12 by [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge):
 in D, a watched login is released like a finished one when its first step shows in a new
-page (implemented).
+page of its tab or of another tab of the site (implemented).
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
@@ -163,8 +163,10 @@ while the paragraph below and the code never did). Since
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge) (owner,
 2026-10-12 13:08 UTC), a top-level `password` login that ends `challenge` or settles as
 unknown is watched for 10 minutes, and during the watch the first step showing in a new
-page of the tab releases it the same way as a logout here, `login.logout` marked
-`watched`.
+page of the tab, or of another tab of the site, releases it the same way as a logout
+here, `login.logout` marked `watched`. Such a release in another tab is the exception to
+the rule below that only a tab's own record is released: a watched login is never
+submitted again by itself, and the page there is filled without pressing anything.
 On that appearance Pateat does not log in automatically. It asks for an account as in B,
 with the default listed first.
 

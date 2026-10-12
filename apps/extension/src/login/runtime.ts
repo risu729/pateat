@@ -4943,7 +4943,7 @@ export function createLoginRuntime(
       recorded = undefined;
     }
     /**
-     * Releases this tab's record for this origin as after a logout: the tab asks for an
+     * Releases a tab's record for this origin as after a logout: that tab asks for an
      * account, and so do the site's other tabs (ADR 0021 D). Returns a refusal when it could
      * not, else undefined.
      */
@@ -4951,28 +4951,29 @@ export function createLoginRuntime(
       released: LoginAttemptMetadata,
       watchedLogin: boolean,
     ): Promise<Readiness | undefined> => {
-      if (attempts.get(document.tabId)?.metadata.id === released.id)
-        attempts.delete(document.tabId);
-      if (picked.get(document.tabId)?.attemptId === released.id) picked.delete(document.tabId);
+      const { tabId } = released.document;
+      const releasedKey = recordKey(tabId, document.origin);
+      if (attempts.get(tabId)?.metadata.id === released.id) attempts.delete(tabId);
+      if (picked.get(tabId)?.attemptId === released.id) picked.delete(tabId);
       // The tab must keep asking after a restart, so its logout is stored first.
-      logouts.add(logoutKey);
+      logouts.add(releasedKey);
       try {
         await saveSession();
       } catch {
-        logouts.delete(logoutKey);
+        logouts.delete(releasedKey);
         return refuse("storage-unavailable");
       }
       // Logged once the logout is stored; a failed store undoes it, and the page's next
       // announcement recognizes it again.
       report(document, {
         type: "logout",
-        tabId: document.tabId,
+        tabId,
         origin: document.origin,
         recipeId: released.recipeId,
         ...(watchedLogin ? { watched: true as const } : {}),
       });
       try {
-        await forget(logoutKey);
+        await forget(releasedKey);
       } catch {
         return refuse("storage-unavailable");
       }
@@ -4981,7 +4982,11 @@ export function createLoginRuntime(
     };
     // A watch that ran out ends the login where it stopped (ADR 0027). Its record keeps its
     // time, so it does not hold the site again.
+    // The page a watch that ran out began in; another page that shows the first step then
+    // asks as after a stopped login (below).
+    let watchEnded: string | undefined;
     if (recorded && watchOver(recorded, Date.now())) {
+      watchEnded = recorded.watch?.documentId;
       const run = attempts.get(document.tabId);
       const own = run?.metadata.id === recorded.id ? run : undefined;
       const ended = transitionLoginAttempt(own?.metadata ?? recorded, { type: "WATCH_ENDED" });
@@ -5008,6 +5013,32 @@ export function createLoginRuntime(
       const refused = await releaseAsLogout(recorded, true);
       if (refused) return refused;
       recorded = undefined;
+    }
+    // The same holds when the person starts over in another tab, such as after closing a
+    // code page that expired: another tab's watched login of the site is released as after
+    // a logout, so this tab asks and fills without pressing anything instead of waiting
+    // for that login's hold to end (ADR 0027).
+    if (!recorded && document.frameId === 0 && start?.path === live.path) {
+      const now = Date.now();
+      const watched = [...persisted.values()]
+        .map((entry) => {
+          const run = attempts.get(entry.document.tabId);
+          return run?.metadata.id === entry.id ? run.metadata : entry;
+        })
+        .filter(
+          (entry) =>
+            entry.watch &&
+            !watchOver(entry, now) &&
+            entry.account.origin === document.origin &&
+            entry.document.tabId !== document.tabId,
+        );
+      // One at a time: each release stores the logout before it forgets the record.
+      /* eslint-disable no-await-in-loop */
+      for (const entry of watched) {
+        const refused = await releaseAsLogout(entry, true);
+        if (refused) return refused;
+      }
+      /* eslint-enable no-await-in-loop */
     }
     if (
       recorded &&
@@ -5065,7 +5096,9 @@ export function createLoginRuntime(
       recorded.submissions > 0 &&
       recorded.document.frameId === 0 &&
       document.frameId === 0 &&
-      recorded.document.documentId !== document.documentId &&
+      // A page the watch already followed is this login's too, but not the one it began in.
+      (recorded.document.documentId !== document.documentId ||
+        (watchEnded !== undefined && watchEnded !== document.documentId)) &&
       // While it still holds the site against other tabs, it is resumed as before.
       !holdsSite(recorded, Date.now())
     ) {
