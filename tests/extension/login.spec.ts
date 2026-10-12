@@ -1840,3 +1840,45 @@ test("an unrelated frame beside the form does not disturb the page's login", asy
     await fixture.close();
   }
 });
+
+test("a page that shows a CAPTCHA gets the password but leaves the login button to the person (ADR 0029)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      // The CAPTCHA widget's frame is served here; no request leaves the test browser.
+      await context.route("https://www.google.com/recaptcha/**", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: '<!doctype html><html lang="en"><title>Synthetic CAPTCHA</title></html>',
+        }),
+      );
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/single?captcha`);
+      const status = async () =>
+        (await send(options, { version: 1, type: "login.probe.status" })) as {
+          attempts: { state: string; submissions: number }[];
+        };
+      await expect
+        .poll(async () => (await status()).attempts)
+        .toMatchObject([{ state: "awaiting-result", submissions: 1 }]);
+      await expect(page.locator("#password")).not.toHaveValue("");
+      // Cover several reconciliation checks before the negative assertions.
+      await page.waitForTimeout(3000);
+      expect(await clicks(page)).toBe(0);
+      await expect(page.locator("#authenticated")).toHaveCount(0);
+      expect((await status()).attempts).toMatchObject([{ state: "awaiting-result" }]);
+      // The person solves the CAPTCHA and presses the button; the held click observes it.
+      await page.locator("#login").click();
+      await expect(page.locator("#authenticated")).toBeVisible();
+      await expect
+        .poll(async () => (await status()).attempts)
+        .toMatchObject([{ state: "authenticated", submissions: 1 }]);
+      expect(await clicks(page)).toBe(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});

@@ -10,6 +10,9 @@ Amended on 2026-10-12 (13:08 UTC, owner's choice) by
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
 login watched after `challenge` or an unknown result; see the end of the implementation
 notes.
+Amended on 2026-10-12 by the owner's choice at 20:23 UTC (「入力だけ」, fill only): a
+click that would run while S4 shows is left to the person, after Q-move's login page
+showed a CAPTCHA before its submission; see S4 below.
 Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
 generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
 page is judged).
@@ -60,7 +63,14 @@ then answered 04:51 and 04:54 UTC):
     registration form, where the current password must never go).
   - S3: a code field (`isCodeField`: `one-time-code`, or a group of one-digit boxes).
   - S4: a visible CAPTCHA widget, recognised by the reCAPTCHA, hCaptcha or Turnstile
-    frame origin; invisible ones do not count.
+    frame origin; invisible ones do not count. Pateat does not solve CAPTCHAs
+    ([plan](../plan.md)). When S4 shows in the document as a click step is about to run,
+    the form stays filled and the button is not pressed (owner, 20:23 UTC): the person
+    solves the CAPTCHA and presses it. The login then waits as for a held click
+    ([ADR 0027](0027-per-account-login-routes.md)): while the button shows, the page is
+    neither judged nor settled for up to two minutes, then the login ends `challenge`,
+    watched as below; once the person's press moves the page on, it is read as after
+    Pateat's own click. A chooser's click on its list is not held.
   - S5: the page requested a passkey after the submission, outside conditional
     mediation, in the top frame.
 - **Signs of a failure**, only while S1 holds and the document is the one that was

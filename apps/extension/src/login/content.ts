@@ -29,7 +29,7 @@ import {
   type EntryMiss,
 } from "../page/account-list";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
-import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
+import { pageSigns, showsCaptcha, submittedPage, type SubmittedPage } from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
 import {
   commandSchema,
@@ -700,7 +700,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           | "wrong-account"
           | "value-mismatch"
           | "fill-rejected"
-          | "submitted",
+          | "submitted"
+          | "captcha",
         detail?: ExecutionDetail,
       ) => ({
         ok: false,
@@ -988,6 +989,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // is what the page shows before it (ADR 0029).
         measureNext();
         submitted = submittedPage(document, formInputs.filter(writable));
+        // A CAPTCHA the page shows is left to the person, who presses the button after
+        // solving it; the background reads the page as after a click (ADR 0029, S4).
+        if (!command.list && showsCaptcha(document)) return fail("captcha");
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };
@@ -1021,7 +1025,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         (result) =>
           respond({
             ...result,
-            ...(before && result.ok ? { before } : {}),
+            ...(before && (result.ok || ("reason" in result && result.reason === "captcha"))
+              ? { before }
+              : {}),
             operationId: command.operation.operationId,
             documentId: command.operation.document.documentId,
           }),

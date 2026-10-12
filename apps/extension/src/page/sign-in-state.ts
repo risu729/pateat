@@ -141,7 +141,7 @@ function showsCode(document: Document): boolean {
 }
 
 /** S4: a shown frame of a CAPTCHA service large enough to be solved. */
-function showsCaptcha(document: Document): boolean {
+export function showsCaptcha(document: Document): boolean {
   return [...document.querySelectorAll("iframe")].some((frame) => {
     let url: URL;
     try {

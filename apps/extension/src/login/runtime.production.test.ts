@@ -8098,6 +8098,66 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     });
   });
 
+  describe("under a CAPTCHA before a click (ADR 0029, S4)", () => {
+    /** The page shows a CAPTCHA, so its document leaves the login button to the person. */
+    const captchaOnLogin = () => {
+      fake.state.onExecute = async (message) => {
+        const step = (
+          message["operation"] as { step: { kind: string; target?: { value: string } } }
+        ).step;
+        fake.state.executeReply =
+          step.kind === "click" && step.target?.value === "login"
+            ? { ok: false, reason: "captcha" }
+            : undefined;
+      };
+    };
+
+    it("leaves the click to the person and judges the page only once the button is gone", async () => {
+      vi.useFakeTimers();
+      captchaOnLogin();
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { generation: service, report });
+      h.recipes.recipe.mockResolvedValue(plain);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks("login") === 1);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result", submissions: 1 });
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "attempt",
+          state: "awaiting-result",
+          cause: "captcha-shown",
+        }),
+      );
+      // The person solves the CAPTCHA and presses the button.
+      fake.state.executeReply = undefined;
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set(["logout"]);
+      fake.state.extracted = { "signed-in": homePage };
+      await until(settled("authenticated"));
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(service.judge.mock.calls[0]![3]).toEqual(homePage.observation);
+      expect(clicks("login")).toBe(1);
+    });
+
+    it("ends as a challenge when the button still shows after two minutes", async () => {
+      vi.useFakeTimers();
+      captchaOnLogin();
+      const service = generation();
+      const h = harness({}, { generation: service });
+      h.recipes.recipe.mockResolvedValue(plain);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks("login") === 1);
+      await vi.advanceTimersByTimeAsync(115_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+      await until(settled("watching", "challenge"), 10_000);
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(clicks("login")).toBe(1);
+    });
+  });
+
   describe("on the page after an effect step", () => {
     it("clicks the security-key button once and signs in through the completion", async () => {
       onClick({ login: toWebauthn, "Use security key": toHome });
