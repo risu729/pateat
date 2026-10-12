@@ -10482,6 +10482,60 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(status()).toMatchObject([{ state: "watching" }]);
     });
 
+    it("keeps watching when another site's account choice is saved, as LinkedIn's was", async () => {
+      const { h, service } = await watched(["signed-in"]);
+      // 2026-10-12: a save for another site bumped the settings revision during LinkedIn's
+      // watch, which ended it as a policy change though its account was still chosen.
+      h.settings.settings.siteDefaults.push({
+        origin: "https://other.example",
+        provider: "bitwarden",
+        userId,
+        itemId: otherItemId,
+      });
+      h.settings.revision += 1;
+      const { changedAt } = status()![0]!;
+      await vi.advanceTimersByTimeAsync(60_000);
+      h.login.settingsChanged("saved");
+      await vi.advanceTimersByTimeAsync(1000);
+      // Taking the newer settings over does not prolong the hold on the site (ADR 0022).
+      expect(status()).toMatchObject([{ state: "watching", policyRevision: 2, changedAt }]);
+      await open(h, "/home");
+      expect(service.judge).toHaveBeenCalledTimes(2);
+      expect(status()).toMatchObject([{ state: "authenticated", policyRevision: 2 }]);
+    });
+
+    it("stops a watched login once newer settings no longer allow its account", async () => {
+      const { h, service } = await watched(["signed-in"]);
+      h.settings.settings.connections[0]!.enabled = false;
+      h.settings.revision += 1;
+      h.login.settingsChanged("saved");
+      await open(h, "/home");
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(status()).toMatchObject([{ state: "blocked", outcome: "policy-changed" }]);
+      expect(reports).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "policy-changed", cause: "plan" }),
+      );
+    });
+
+    it("keeps watching after a worker restart finds newer settings that keep its account", async () => {
+      const { service } = await watched(["signed-in"]);
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = harness(
+          {},
+          { passkeys: withPasskey, generation: service, report: reports },
+        );
+        restarted.recipes.recipe.mockResolvedValue(plain);
+        restarted.settings.revision = 2;
+        await open(restarted, "/home");
+        expect(service.judge).toHaveBeenCalledTimes(2);
+        expect(status()).toMatchObject([{ state: "authenticated", policyRevision: 2 }]);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+
     it("releases the login when its first step shows in a new page, and only fills", async () => {
       const { h } = await watched();
       const steps = executed().length;
