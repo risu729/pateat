@@ -11,6 +11,9 @@ const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 export const loginSecretKinds = ["password", "otp", "hidden"] as const;
 export type LoginSecretKind = (typeof loginSecretKinds)[number];
 const path = v.pipe(v.string(), v.minLength(1), v.maxLength(300));
+/** One target's state: no element, exactly one usable element, several, or one unusable. */
+export const targetStateSchema = v.picklist(["missing", "unique", "ambiguous", "unusable"]);
+export type TargetState = v.InferOutput<typeof targetStateSchema>;
 /**
  * Elements a step needs before it can run: each target matches exactly one element that
  * is a writable input (`fill`), an enabled visible button (`click`) or simply present.
@@ -122,6 +125,12 @@ export const commandSchema = v.variant("type", [
      * fill then watches for the page submitting the code by itself before it answers.
      */
     code: v.optional(v.strictObject({ submit: loginTargetSchema })),
+    /**
+     * With an advance whose next step is on its own path (ADR 0013): that step's elements,
+     * measured in the same task as the click or the fill's first input, just before it. The
+     * answer reports them as `before`.
+     */
+    next: v.optional(loginReadinessSchema),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -188,6 +197,11 @@ export const executionResultSchema = v.strictObject({
    * with `login.switch`. Nothing was filled or clicked.
    */
   switchable: v.optional(v.literal(true)),
+  /**
+   * With the command's `next`: each of its targets just before the click or the fill's
+   * first input, in the same task.
+   */
+  before: v.optional(v.pipe(v.array(targetStateSchema), v.maxLength(20))),
 });
 export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),
@@ -200,10 +214,7 @@ export const extractResultSchema = v.variant("ok", [
 ]);
 export const observationSchema = v.strictObject({
   path: v.string(),
-  targets: v.pipe(
-    v.array(v.picklist(["missing", "unique", "ambiguous", "unusable"])),
-    v.maxLength(24),
-  ),
+  targets: v.pipe(v.array(targetStateSchema), v.maxLength(24)),
 });
 export const configureSchema = v.strictObject({
   version: v.literal(1),

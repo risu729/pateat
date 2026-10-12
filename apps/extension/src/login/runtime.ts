@@ -87,6 +87,7 @@ import {
   HELD_CLICK_WAIT_MS,
   LOGIN_STEP_WAIT_MS,
   type LoginReadiness,
+  type TargetState,
   type LoginSecretKind,
 } from "./wire";
 import {
@@ -254,6 +255,13 @@ type Execution = {
    * or the `passkey` route's. Its page is not judged while the clicked button still shows.
    */
   heldClick?: number;
+  /**
+   * The elements of the step after an advance on the same path, as the document measured
+   * them in the same task as the advance, just before it (ADR 0013): only elements that
+   * were not usable then confirm it. Kept in memory and carried to the attempt's next
+   * document, never stored.
+   */
+  inPlace?: { operationId: string; before: TargetState[] };
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -432,6 +440,39 @@ const effectful = (metadata: LoginAttemptMetadata) =>
   metadata.operationEffect === "submit";
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
+/**
+ * What confirms the route step at `index` when it is an advance whose next route step is
+ * on the same path, as an identifier-first form that swaps in its password form in place
+ * (ADR 0013): the next step's elements, as that step waits for them. Undefined when no
+ * element could confirm it: a next step that needs none, one that shares an element with
+ * the advance, or a handler's step, which keeps its own rules (ADR 0027).
+ */
+function inPlaceNext(
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+  index: number,
+): LoginReadiness | undefined {
+  const plan = attemptPlan(recipe, metadata);
+  const done = plan?.[index];
+  const next = plan?.[index + 1];
+  if (
+    !done ||
+    !next ||
+    done.handler !== undefined ||
+    next.handler !== undefined ||
+    loginStepEffect(done.step) !== "advance" ||
+    done.step.path !== next.step.path
+  )
+    return undefined;
+  const readiness = loginReadiness(next.step);
+  const own = stepTargets(done.step);
+  if (
+    !readiness.targets.length ||
+    readiness.targets.some((target) => own.some((other) => sameLoginTarget(other, target)))
+  )
+    return undefined;
+  return readiness;
+}
 const probeMode = import.meta.env.MODE === "probe";
 /** The order in which handlers shown together are tried: a passkey types nothing. */
 const handlerOrder = { passkey: 0, totp: 1 } as const satisfies Record<
@@ -1795,11 +1836,24 @@ export function createLoginRuntime(
         : run.metadata.stepIndex;
     const plan = attemptPlan(run.recipe, run.metadata) ?? [];
     const next = plan[nextIndex]?.step;
-    const nextTargets = next ? stepTargets(next) : [];
+    // An advance on the next step's own path is confirmed only by that step's elements
+    // being ready, as it waits for them, and only if they were not ready before it ran.
+    const inPlace =
+      run.metadata.operationEffect === "advance"
+        ? inPlaceNext(run.recipe, run.metadata, run.metadata.stepIndex)
+        : undefined;
+    const nextTargets = inPlace ? inPlace.targets : next ? stepTargets(next) : [];
     const { completion, rejection } = run.recipe;
     const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
-    const targets = [...proof, ...(rejection ? [rejection] : []), ...nextTargets];
-    const observed = await observe(run, targets);
+    const checks = [...proof, ...(rejection ? [rejection] : [])];
+    const targets = [...checks, ...nextTargets];
+    const observed = await observe(
+      run,
+      targets,
+      inPlace
+        ? [...checks.map(() => "present" as const), ...nextTargets.map(() => inPlace.require)]
+        : undefined,
+    );
     if (!observed) return undefined;
     // Without a completion target nothing proves a sign-in, so the attempt can settle
     // only as rejected, continued or unknown.
@@ -1827,9 +1881,15 @@ export function createLoginRuntime(
       observed.path === next.path &&
       nextTargets.length &&
       observed.targets.slice(offset).every((state) => state === "unique") &&
-      // A pending click advances only after evidence of its configured next page.
+      // A pending click advances only after evidence of its configured next page: another
+      // path, or on the same path, next elements the advance made ready. A click that
+      // submits never continues on its own path.
       (!(run.metadata.operationKind === "click" || run.metadata.operationEffect === "advance") ||
-        plan[run.metadata.stepIndex]?.step.path !== next.path)
+        plan[run.metadata.stepIndex]?.step.path !== next.path ||
+        (inPlace !== undefined &&
+          run.inPlace !== undefined &&
+          run.inPlace.operationId === run.metadata.operationId &&
+          run.inPlace.before.every((state) => state === "missing" || state === "unusable")))
     ) {
       const continuation: LoginAttemptEvent = {
         type: "OBSERVED",
@@ -2304,6 +2364,10 @@ export function createLoginRuntime(
           await change(run, { type: "FAILED", reason: "structural-mismatch" });
           return;
         }
+        // An advance whose next step is on its path is confirmed by that step's elements
+        // only if they were not usable just before it (ADR 0013).
+        const inPlace = inPlaceNext(run.recipe, run.metadata, operation.stepIndex);
+        delete run.inPlace;
         // Known before its intent is recorded, so a stop in between takes the intent back.
         run.operation = operation;
         run.delivered = false;
@@ -2434,6 +2498,9 @@ export function createLoginRuntime(
               : {}),
             // A `totp` handler's code fill watches for the page submitting the code itself.
             ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
+            // An advance whose next step is on its path has the document measure that step
+            // just before its effect, in the same task (ADR 0013).
+            ...(inPlace ? { next: inPlace } : {}),
           });
         } finally {
           for (const entry of values) entry.value = "";
@@ -2449,6 +2516,14 @@ export function createLoginRuntime(
           result.success &&
           result.output.operationId === operation.operationId &&
           result.output.documentId === run.live.document.documentId;
+        // Without the measurement the advance can only be confirmed on another path.
+        if (
+          matchedResult &&
+          result.output.ok &&
+          inPlace &&
+          result.output.before?.length === inPlace.targets.length
+        )
+          run.inPlace = { operationId: operation.operationId, before: result.output.before };
         if (
           matchedResult &&
           !result.output.ok &&
@@ -3277,6 +3352,15 @@ export function createLoginRuntime(
         ? { choice: plan.choice }
         : {}),
     };
+    // A new document after an advance on the same path, as a form posted back to its own
+    // path, is checked against what the advancing document showed before it (ADR 0013).
+    const before = attempts.get(document.tabId);
+    if (
+      before?.inPlace &&
+      before.metadata.id === metadata.id &&
+      before.inPlace.operationId === metadata.operationId
+    )
+      run.inPlace = before.inPlace;
     attempts.set(document.tabId, run);
     reportAttempt(metadata, recipe, resumedPolicy);
     clearChoice(document.tabId);
