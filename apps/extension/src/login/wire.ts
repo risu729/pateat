@@ -257,6 +257,8 @@ export const stateResultSchema = v.variant("ok", [
       alert: v.boolean(),
       username: v.optional(v.boolean()),
     }),
+    /** Whether the document has finished loading; the login completes only then. */
+    loaded: v.boolean(),
   }),
   v.strictObject({ ok: v.literal(false) }),
 ]);

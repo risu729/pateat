@@ -408,6 +408,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 ...(submitted ? { submitted } : {}),
                 ...(username === undefined ? {} : { username }),
               }),
+              loaded: document.readyState === "complete",
             },
       );
       return false;

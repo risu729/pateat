@@ -250,7 +250,7 @@ export const loginRecipeSchema = v.pipe(
      */
     passkey: v.optional(v.strictObject({ path, target: loginTargetSchema })),
     // A generated recipe has no completion until the page after its first sign-in is
-    // judged (ADR 0018); until then no attempt with it can end authenticated.
+    // judged (ADR 0018); until then only the sign-in state of ADR 0029 completes a login.
     completion: v.optional(
       v.strictObject({
         path,
