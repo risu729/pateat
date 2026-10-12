@@ -2201,7 +2201,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v3"] = [
+        fake.state.storage["pateat.login-attempts.v4"] = [
           {
             ...record!,
             state: "blocked",
@@ -2240,7 +2240,7 @@ describe("production login document admission", () => {
         expect(at(origin)).toMatchObject({ id: record!.id, outcome: "challenge" });
         // A login that stopped before any submission is not the hold's case: a restarted
         // worker resumes it in its own page without this line.
-        fake.state.storage["pateat.login-attempts.v3"] = [
+        fake.state.storage["pateat.login-attempts.v4"] = [
           { ...stored()[0]!, submissions: 0, document: { ...record!.document } },
         ];
         const again = twoSites({ report });
@@ -4319,7 +4319,7 @@ describe("production login document admission", () => {
         cache(h, recipe);
         expect(await h.hello({ tab: { id: 2 }, documentId: "done" })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
             { state: "authenticated" },
           ]),
         );
