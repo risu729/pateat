@@ -27,7 +27,8 @@ export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 
 // The last-known-good copy of the owner's active recipes (ADR 0013). The cursor and
 // recipes are written together, so a failed write leaves the previous consistent copy.
-// Entry recipes (ADR 0031) are cached with the rest, but no lookup returns them yet.
+// Entry and chooser recipes (ADR 0031, ADR 0028) are cached with the rest, but no lookup
+// returns them yet.
 const cacheSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
@@ -345,8 +346,9 @@ export function createRecipeSync(options: {
       if (!connection) return [];
       const cache = await load(connection);
       if (!cache) return [];
-      // Every variant starts on the recipe's start path (ADR 0027). An entry recipe (ADR
-      // 0031) is left out: nothing presses it yet, so its path is not a start.
+      // Every variant starts on the recipe's start path (ADR 0027). An entry or chooser
+      // recipe (ADR 0031, ADR 0028) is left out: nothing starts it yet, so its path is not
+      // a start.
       return loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
         path: recipe.steps[0]!.path,
         steps: recipeStartSteps(recipe),

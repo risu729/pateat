@@ -267,6 +267,7 @@ test("shows a chooser recipe's buttons and branches, which devices do not use ye
     'Shown accountClick text "Log back in"',
     'Another accountClick text "Use another account"',
     "After an accountNot generated yet",
+    "After another accountNot generated yet",
     '"chooser": {',
   ])
     // oxlint-disable-next-line no-await-in-loop -- one element, checked in order

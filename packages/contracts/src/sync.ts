@@ -51,7 +51,7 @@ export const syncSettingsWriteSchema = v.strictObject({
 
 /**
  * The stored recipe carries the sync identity, so a cached copy cannot drift from it. It is
- * a login route recipe or an entry recipe (ADR 0031).
+ * a login route recipe, an entry recipe (ADR 0031) or a chooser recipe (ADR 0028).
  */
 export const syncRecipeChangeSchema = v.pipe(
   v.variant("state", [

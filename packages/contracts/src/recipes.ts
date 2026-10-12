@@ -12,8 +12,8 @@ import {
 
 /**
  * Every recipe with a login route for one exact origin, in cache order. An entry recipe
- * (ADR 0031) is left out: nothing presses its entry yet, and it never starts or resumes a
- * login.
+ * (ADR 0031) or a chooser recipe (ADR 0028) is left out: nothing starts either yet, and
+ * neither starts or resumes a login.
  */
 export function loginRecipesForOrigin(
   recipes: readonly StoredLoginRecipe[],

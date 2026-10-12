@@ -1,7 +1,9 @@
 # ADR 0028: Login pages that list accounts to choose from
 
 Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC), and extended to a
-single shown account and to usernames that are not emails at 08:36 UTC. Not implemented.
+single shown account and to usernames that are not emails at 08:36 UTC. Partly
+implemented: finding entries and shown accounts, the observation, and the stored chooser
+recipe; nothing sends a list page or starts a chooser yet.
 Delivery depends on the extension's `advance` continuation of
 [ADR 0018](0018-recipe-generation-route.md), which is not implemented yet. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can be
