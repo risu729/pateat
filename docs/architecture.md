@@ -863,22 +863,28 @@ hidden native button rather than clicking a script link with its text. A recipe 
 names a script link by text clicks a native button instead if the page later adds one
 with the same text. Other script buttons are often widgets such as menus and toggles, so
 only their `id`, `name` or `data-testid` names them, and the extractor leaves out a
-script button without a locator instead of marking the page incomplete. The executor
-compares strings and acts only when exactly one element matches; more than one is a
-structural mismatch. It clicks buttons, image buttons and script buttons (not a disabled
-button, nor a script button with `aria-disabled="true"`), never links, except a recipe's
-`accountSwitch`, which may be an `<a href>` link (a script link with `href` included)
-named by its rendered text; no other script button is clicked as a switch. A switch's
-text locator names another link only when no shown button or script link has that text
-(a hidden native button holds back only script links), so a switch recipe that names a
-link clicks a button instead if the page later shows one with the same text. A link's
-text is its rendered text or, for an image-only link such as a header icon, its shown
-images' `alt`. The extractor gives a link a text locator only when no other link and no
-button shows that text, and only on a login page (for an account switch) or the
-signed-in page (for a completion marker). A click is not tied to the form the previous
-fill used: a page that shows a second, previously hidden button with the same text stops
-the attempt as ambiguous, but if the observed button is removed and another button with
-the same text remains, that one is clicked.
+script button without a locator instead of marking the page incomplete. It does the same
+for an icon button that never submits (`type="button"` with no text of its own), such as
+the eye that shows the password on モッピー's and LinkedIn's sign-in pages (2026-10-12),
+whose only name is an `aria-label`, but only when its form has another located button:
+an icon-only button may be the form's script-run submit. A `type="button"` button with
+text, such as `<input type="button" value="Login">` submitting by script, still marks
+the page incomplete when it has no unique locator. The executor compares strings and
+acts only when exactly one element matches; more than one is a structural mismatch. It
+clicks buttons, image buttons and script buttons (not a disabled button, nor a script
+button with `aria-disabled="true"`), never links, except a recipe's `accountSwitch`,
+which may be an `<a href>` link (a script link with `href` included) named by its
+rendered text; no other script button is clicked as a switch. A switch's text locator
+names another link only when no shown button or script link has that text (a hidden
+native button holds back only script links), so a switch recipe that names a link clicks
+a button instead if the page later shows one with the same text. A link's text is its
+rendered text or, for an image-only link such as a header icon, its shown images' `alt`.
+The extractor gives a link a text locator only when no other link and no button shows
+that text, and only on a login page (for an account switch) or the signed-in page (for a
+completion marker). A click is not tied to the form the previous fill used: a page that
+shows a second, previously hidden button with the same text stops the attempt as
+ambiguous, but if the observed button is removed and another button with the same text
+remains, that one is clicked.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button

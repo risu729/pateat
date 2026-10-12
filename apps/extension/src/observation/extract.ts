@@ -385,6 +385,16 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
+/**
+ * An icon button that never submits its form on its own, such as the eye that shows the
+ * password: `type="button"` and no text of its own, so no text locator either. One with
+ * text, such as an `<input type="button" value="Login">` that submits by script, is not.
+ */
+const iconButton = (element: Element) =>
+  (element instanceof HTMLButtonElement || element instanceof HTMLInputElement) &&
+  element.type === "button" &&
+  buttonText(element) === undefined;
+
 /** True when an open shadow root holds a visible match, which the executor cannot reach. */
 function inShadow(shadow: ShadowRoot, selector: string): boolean {
   return (
@@ -504,7 +514,9 @@ function loginFormsOf(
  * links (or, for fields outside any form, every control outside a form). Up to four
  * buttons outside every form but near a login form with a password field
  * (`besideDepth`), such as a passkey button, are kept when they can be located and never
- * make the observation incomplete. A field or button that cannot be located, a control
+ * make the observation incomplete. A field or button that cannot be located (other than
+ * a script button, or an icon button that never submits in a form with another button,
+ * which is left out), a control
  * the executor cannot act on or a control in a shadow root marks the observation
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
@@ -549,6 +561,9 @@ export function extractLoginObservation(
   // `<a>` ones, so one without a locator is left out rather than marking the page
   // incomplete.
   const scripted: typeof required = [];
+  // Icon buttons follow the same rule, but only in a form that has another button to
+  // submit with: an icon-only button may itself be the form's script submit.
+  const icons: typeof required = [];
   const links: typeof required = [];
   const beside: typeof required = [];
   // Only a form with a password field has such neighbours; a search form does not.
@@ -582,6 +597,7 @@ export function extractLoginObservation(
     else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
     } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
+    else if (iconButton(entry.draft.element)) icons.push(entry);
     else required.push(entry);
   }
 
@@ -593,16 +609,25 @@ export function extractLoginObservation(
       if (!target && !optional) flawed.add(entry.form);
       return target ? [{ ...entry, target }] : [];
     });
+  const keep = <Entry extends (typeof required)[number]>(entries: Entry[]) =>
+    entries.filter((entry) => !flawed.has(entry.form) || loginForms.has(entry.form));
   const kept = (entries: typeof required, options?: { optional: boolean }) =>
-    located(entries, options).filter(
-      (entry) => !flawed.has(entry.form) || loginForms.has(entry.form),
-    );
-  const described = kept(required);
+    keep(located(entries, options));
+  const requiredFound = located(required);
+  const iconsFound = located(icons, { optional: true });
+  const submitting = new Set(
+    requiredFound.filter((entry) => entry.draft.role === "button").map((entry) => entry.form),
+  );
+  for (const entry of icons)
+    if (!submitting.has(entry.form) && !iconsFound.some((icon) => icon.draft === entry.draft))
+      flawed.add(entry.form);
+  const described = keep(requiredFound);
   if ([...flawed].some((form) => loginForms.has(form)) || described.length > maxCandidates)
     complete = false;
   const buttons = [
     ...described,
     ...kept(scripted, { optional: true }),
+    ...keep(iconsFound),
     // More than a few is page content around the form, not its alternatives.
     ...(beside.length <= maxBeside ? located(beside, { optional: true }) : []),
   ].slice(0, maxCandidates);

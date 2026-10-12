@@ -634,6 +634,47 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  it("leaves out a show-password icon button without a locator, such as モッピー's and LinkedIn's", () => {
+    const toggle = `<button type="button" aria-label="Show password"><svg width="16" height="16"></svg></button>`;
+    page(
+      `<form><input name="mail"><input name="pass" type="password">${toggle}
+        <button type="submit">Log in</button></form>`,
+    );
+    let observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "mail",
+      "pass",
+      "Log in",
+    ]);
+    page(
+      `<div><input id="u"><input id="p" type="password">${toggle}<button type="button">Sign in</button></div>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "Sign in",
+    ]);
+    // A script-submitted button with text but no unique locator still does, as on a
+    // page with two sign-in forms and two "Login" buttons.
+    page(
+      `<form><input name="u1"><input name="p1" type="password"><input type="button" value="Login"></form>
+      <form><input name="u2"><input name="p2" type="password"><input type="button" value="Login"></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    // An icon button may be the form's only, script-run submit, so there it still does.
+    page(`<form><input name="mail"><input name="pass" type="password">${toggle}</form>`);
+    expect(observe().complete).toBe(false);
+    // A submit button without a locator still marks the login form incomplete.
+    page(
+      `<form><input name="mail"><input name="pass" type="password">
+        <button type="submit"><svg width="16" height="16"></svg></button></form>`,
+    );
+    expect(observe().complete).toBe(false);
+  });
+
   it("judges completeness by the login form and leaves out other flawed forms", () => {
     const login = `<form id="f"><input id="u"><input id="p" type="password"><button id="go">Log in</button></form>`;
     const targets = () => observe().candidates.map((candidate) => candidate.target.value);
