@@ -1624,7 +1624,12 @@ Remaining M4 AI work:
   TOTP fact and the fixed code `012345`; no paid judge call, real authenticator code or
   real-account login has used it. A binding that names a custom field for the code is
   deferred and ends `challenge`. Its real-Chrome check is listed with the phase 1
-  installed-Chrome checks.
+  installed-Chrome checks. A code split into 6 to 8 one-digit inputs is learned too,
+  with the first input as the field, and typed one digit per input (owner decision,
+  2026-10-12 19:21 UTC, after Resend's code page stopped the login); three probe E2E
+  specs (one Verify click, a page that submits on its last digit, Verify disabled until
+  the code is in) cover it with the same synthetic fact. Its real-Chrome check is
+  Resend's code page.
 - Continuing a generated recipe on the page after an `advance` step, through the
   generation route's `base`, is implemented
   ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)). A

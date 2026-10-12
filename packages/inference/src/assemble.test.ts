@@ -534,6 +534,26 @@ describe("judged totp handler (ADR 0027)", () => {
     });
   });
 
+  it("accepts the first input of a code split into one input per digit, and no other", () => {
+    const boxes = Array.from({ length: 6 }, (_, index) =>
+      codeInput(`otp-${index + 1}`, { maxLength: 1 }),
+    );
+    const split = {
+      origin,
+      path: "/two-factor",
+      candidates: [...boxes, candidate("verify", verify)],
+    };
+    const added = addHandler(recipe, split, totp(target("otp-1")));
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      { kind: "totp", path: "/two-factor", field: target("otp-1"), target: verify },
+    ]);
+    expect(addHandler(recipe, split, totp(target("otp-2")))).toEqual({
+      ok: false,
+      reason: "not-code-field",
+    });
+  });
+
   it("accepts the route's submit button on that path when the code field is new", () => {
     // A sign-in form that asks for the code after the password, with the same button.
     const sameForm = {

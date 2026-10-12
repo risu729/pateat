@@ -5,7 +5,12 @@ import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts"
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
 import { identifierInput } from "../page/identifier-field";
-import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
+import {
+  CODE_SETTLE_MS,
+  splitCodeInputs,
+  visible,
+  watchCodeSubmission,
+} from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
 import {
   extractAccountListObservation,
@@ -796,21 +801,32 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             return fail("wrong-account");
           }
         }
+        // A `totp` handler's code split into one input per digit goes in one digit per
+        // input (ADR 0027, owner decision 2026-10-12 19:21 UTC).
+        const split =
+          command.code && step.effect === "prepare" && step.fields.length === 1
+            ? splitCodeInputs(writableInputs[0]!, command.values[0]!.value.length, writable)
+            : undefined;
+        const fits = (input: HTMLInputElement, value: string) =>
+          split
+            ? split.every((digit, index) => inputValueMismatch(digit, value[index]!) === undefined)
+            : inputValueMismatch(input, value) === undefined;
         // Every value must fit its input before anything is filled (ADR 0010).
         if (
           step.fields.some(
             (field, index) =>
-              inputValueMismatch(
+              !fits(
                 writableInputs[index]!,
                 command.values.find((entry) => entry.slot === field.slot)!.value,
-              ) !== undefined,
+              ),
           )
         )
           return fail("value-mismatch");
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         if (!setter) return fail("structural-mismatch", "unsupported-input");
         // Messages already shown are not the page's answer to this fill.
-        const baseline = step.effect === "prepare" ? fillBaseline(writableInputs) : undefined;
+        const baseline =
+          step.effect === "prepare" ? fillBaseline(split ?? writableInputs) : undefined;
         // A code field fills alone; its watch starts before the code goes in (ADR 0027).
         const code =
           command.code && step.effect === "prepare" && step.fields.length === 1
@@ -836,7 +852,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               !writable(input) ||
               input.form !== form ||
               !acceptsSecret(input, value.secret) ||
-              inputValueMismatch(input, value.value) !== undefined
+              !fits(input, value.value)
             )
               return fail(
                 "cancelled",
@@ -859,15 +875,30 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 (other) => other.type === "password" && writable(other),
               ),
             );
-            filled.add(input);
-            setter.call(input, value.value);
-            if (step.effect === "prepare") {
-              // The code goes in now; the page's own reaction is measured from here.
-              code?.typed();
-              input.dispatchEvent(new Event("input", { bubbles: true }));
-              input.dispatchEvent(new Event("change", { bubbles: true }));
+            if (split) {
+              // As typed: the code is in with its last digit.
+              for (const [place, digit] of split.entries()) {
+                if (cancelled || location.pathname !== step.path)
+                  return fail("cancelled", cancelled ? "document-cancelled" : "page-changed");
+                if (!writable(digit) || digit.form !== form)
+                  return fail("cancelled", "field-changed");
+                filled.add(digit);
+                setter.call(digit, value.value[place]!);
+                if (place === split.length - 1) code?.typed();
+                digit.dispatchEvent(new Event("input", { bubbles: true }));
+                digit.dispatchEvent(new Event("change", { bubbles: true }));
+              }
             } else {
-              input.dispatchEvent(new Event(step.event!, { bubbles: true }));
+              filled.add(input);
+              setter.call(input, value.value);
+              if (step.effect === "prepare") {
+                // The code goes in now; the page's own reaction is measured from here.
+                code?.typed();
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+                input.dispatchEvent(new Event("change", { bubbles: true }));
+              } else {
+                input.dispatchEvent(new Event(step.event!, { bubbles: true }));
+              }
             }
             value.value = "";
           }
@@ -890,7 +921,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             }
             if (cancelled) return fail("cancelled", "document-cancelled");
             if (code.submitted()) return fail("submitted");
-            if (rejectsFill(writableInputs, baseline, { statuses: false }))
+            if (rejectsFill(split ?? writableInputs, baseline, { statuses: false }))
               return fail("fill-rejected");
             return { ok: true, mutation: "possible" };
           }

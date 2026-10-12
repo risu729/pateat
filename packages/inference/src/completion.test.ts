@@ -380,7 +380,7 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
   it("treats elements outside any form as one form", async () => {
     const loose = [field({ group: undefined }), submit({ group: undefined })];
     expect(await judged(loose, answer())).toMatchObject({ value: { totp: kept } });
-    // Two loose code fields are split digits as well.
+    // Two loose code fields are two code fields in one form.
     const split = [
       ...loose,
       field({ id: "d2", target: { by: "id", value: "d2" }, group: undefined }),
@@ -398,6 +398,74 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
     const outcome = await judged([field(), submit()], answer(code));
     expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
     expect(hasTotp(outcome)).toBe(false);
+  });
+
+  describe("a code split into one input per digit (owner decision 2026-10-12)", () => {
+    const boxes = (count: number, extra: Record<string, unknown> = {}) =>
+      Array.from({ length: count }, (_, index) =>
+        field({
+          id: `d${index + 1}`,
+          target: { by: "id", value: `otp-${index + 1}` },
+          label: `Digit ${index + 1}`,
+          maxLength: 1,
+          ...extra,
+        }),
+      );
+    const first = { field: { by: "id", value: "otp-1" }, target: { by: "id", value: "verify" } };
+
+    it.each([
+      [6, "d1"],
+      [6, "d6"],
+      [7, "d4"],
+      [8, "d8"],
+    ])("keeps the first of %i one-digit inputs when %s is named", async (count, named) => {
+      expect(await judged([...boxes(count), submit()], answer({ field: named }))).toMatchObject({
+        status: "ok",
+        value: { decision: "challenge", totp: first },
+      });
+    });
+
+    it("keeps one-digit inputs marked only as one-time codes or as tel inputs", async () => {
+      const hinted = boxes(6, { inputMode: undefined, autocomplete: "one-time-code" });
+      expect(await judged([...hinted, submit()], answer({ field: "d1" }))).toMatchObject({
+        value: { totp: first },
+      });
+      const tel = boxes(6, { inputMode: undefined, role: "tel" });
+      expect(await judged([...tel, submit()], answer({ field: "d1" }))).toMatchObject({
+        value: { totp: first },
+      });
+    });
+
+    it.each([
+      ["five inputs", boxes(5)],
+      ["nine inputs", boxes(9)],
+      [
+        "an input taking two characters",
+        [...boxes(5), field({ id: "d6", target: { by: "id", value: "otp-6" }, maxLength: 2 })],
+      ],
+      [
+        "a six-character code input beside them",
+        [...boxes(6), field({ id: "whole", target: { by: "id", value: "whole" } })],
+      ],
+      ["inputs that are no code fields", boxes(6, { inputMode: undefined })],
+      [
+        "inputs in two forms",
+        [
+          ...boxes(3),
+          ...boxes(6)
+            .slice(3)
+            .map((box) => ({ ...box, group: "form-2" })),
+        ],
+      ],
+    ])("drops a code split into %s", async (_label, candidates) => {
+      expect(hasTotp(await judged([...candidates, submit()], answer({ field: "d1" })))).toBe(false);
+    });
+
+    it("drops a split code whose button is in another form", async () => {
+      expect(
+        hasTotp(await judged([...boxes(6), submit({ group: "form-2" })], answer({ field: "d1" }))),
+      ).toBe(false);
+    });
   });
 
   it.each(["text", "checkbox"])("drops a submit that is a %s input", async (role) => {

@@ -1,6 +1,7 @@
 import {
   isTotpCode,
   loginObservationSchema,
+  splitCodeInputs,
   loginPathSchema,
   type LoginAttributeTarget,
   type LoginObservation,
@@ -47,8 +48,9 @@ export const judgedPageSchema = v.strictObject({
             submit: reference,
             source: v.picklist(["authenticator-app", "sms", "email", "unknown"]),
           }),
-          "When the page asks for a code: its input (field), the button that submits it " +
-            "(submit) and where the code comes from (source; unknown unless the page says).",
+          "When the page asks for a code: its input (field; the first box when the code " +
+            "takes one box per digit), the button that submits it (submit) and where the " +
+            "code comes from (source; unknown unless the page says).",
         ),
       ),
     }),
@@ -99,14 +101,16 @@ export type SignInJudgement =
 /**
  * The judge's code answer as a `totp` handler, or nothing (ADR 0027): only a code the page
  * says comes from an authenticator app, in a field and with a button that `isTotpCode`
- * accepts.
+ * accepts. A code split into one input per digit is named by its first input, whichever
+ * of them the answer names.
  */
 function totpCode(
   page: LoginObservation,
   code: { field: string; submit: string; source: string } | undefined,
 ): { field: LoginAttributeTarget; target: LoginTarget } | undefined {
   if (code?.source !== "authenticator-app") return undefined;
-  const field = page.candidates.find((candidate) => candidate.id === code.field);
+  const named = page.candidates.find((candidate) => candidate.id === code.field);
+  const field = named && (splitCodeInputs(page, named)?.[0] ?? named);
   const submit = page.candidates.find((candidate) => candidate.id === code.submit);
   if (!field || !submit || field.target.by === "text" || !isTotpCode(page, field, submit))
     return undefined;

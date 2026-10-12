@@ -359,25 +359,53 @@ export function isCodeField(candidate: ObservedCandidate): boolean {
 }
 
 /**
+ * The inputs of a code split into one input per digit that `field` is one of (ADR 0027,
+ * owner decision 2026-10-12 19:21 UTC), in page order: every fill-role input of its form
+ * that {@link isCodeField} accepts, when there are 6 to 8, each takes one character
+ * (`maxlength` 1) and each has an attribute locator. Undefined for any other field.
+ */
+export function splitCodeInputs(
+  page: Pick<LoginObservation, "candidates">,
+  field: ObservedCandidate,
+): ObservedCandidate[] | undefined {
+  const inputs = page.candidates.filter(
+    (candidate) =>
+      candidate.group === field.group &&
+      (fillRoles as readonly string[]).includes(candidate.role) &&
+      isCodeField(candidate),
+  );
+  return inputs.includes(field) &&
+    inputs.length >= 6 &&
+    inputs.length <= 8 &&
+    inputs.every((input) => input.maxLength === 1 && input.target.by !== "text")
+    ? inputs
+    : undefined;
+}
+
+/**
  * Whether `field` and `button` of this page may be a `totp` handler's code field and the
  * button that submits it (ADR 0027): a fill-role input located by an attribute that
- * {@link isCodeField} accepts, with at least 6 characters when it limits them, and the only
- * such input in its form, so split one-digit inputs never qualify; and a button of that
- * form. The judge and the recipe assembly both check this.
+ * {@link isCodeField} accepts, either with at least 6 characters when it limits them and
+ * the only such input in its form, or the first of a code split into one input per digit
+ * ({@link splitCodeInputs}), which the executor fills one digit per input; and a button
+ * of that form. The judge and the recipe assembly both check this.
  */
 export function isTotpCode(
   page: Pick<LoginObservation, "candidates">,
   field: ObservedCandidate,
   button: ObservedCandidate,
 ): boolean {
+  const split = splitCodeInputs(page, field);
   return (
     (fillRoles as readonly string[]).includes(field.role) &&
     field.target.by !== "text" &&
     isCodeField(field) &&
-    (field.maxLength === undefined || field.maxLength >= 6) &&
-    !page.candidates.some(
-      (other) => other !== field && other.group === field.group && isCodeField(other),
-    ) &&
+    (split
+      ? split[0] === field
+      : (field.maxLength === undefined || field.maxLength >= 6) &&
+        !page.candidates.some(
+          (other) => other !== field && other.group === field.group && isCodeField(other),
+        )) &&
     button.role === "button" &&
     button.group === field.group
   );
