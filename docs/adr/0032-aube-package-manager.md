@@ -1,8 +1,8 @@
 # ADR 0032: aube installs the workspace dependencies
 
-Status: accepted by the owner on 2026-10-12 (08:25 to 08:27 UTC). Supersedes the Bun
-package-manager part of [ADR 0002](0002-toolchain.md); Bun stays a mise tool for the two
-scripts that run on it.
+Status: accepted by the owner on 2026-10-12 (08:25 to 08:27 UTC; the lockfile at 13:04
+UTC). Supersedes the Bun package-manager part of [ADR 0002](0002-toolchain.md); Bun
+stays a mise tool for the two scripts that run on it.
 
 Date: 2026-10-12
 
@@ -28,12 +28,13 @@ can update, preferring `pnpm-lock.yaml` over Bun's or npm's.
 - **mise installs its `npm:` tools with aube.** `[settings.npm] package_manager` is
   gone from `mise.toml`, so mise picks aube, and `mise lock` writes an aube lockfile per
   tool under `.mise/locks/` (oxlint, TypeScript, oxfmt), referenced from `mise.lock`.
-- **The lockfile stays `bun.lock`, and Bun writes it.** aube installs from it, and
-  Renovate's Bun manager keeps updating it. Add, remove or update a dependency with
-  `bun add --exact`, `bun remove` or `bun update`, each with `--lockfile-only` so that
-  Bun neither installs packages nor runs their build scripts outside aube's controls,
-  then `mise run install`; do not let aube write the lockfile. On 2026-10-12, aube 2.7.0
-  had a workspace bug in both formats it could share with Renovate:
+- **The lockfile stays `bun.lock`, and Bun writes it** (the owner's choice at 13:04 UTC,
+  over `pnpm-lock.yaml` and `aube-lock.yaml`, after the bugs below). aube installs from
+  it, and Renovate's Bun manager keeps updating it. Add, remove or update a dependency
+  with `bun add --exact`, `bun remove` or `bun update`, each with `--lockfile-only` so
+  that Bun neither installs packages nor runs their build scripts outside aube's
+  controls, then `mise run install`; do not let aube write the lockfile. On 2026-10-12,
+  aube 2.7.0 had a workspace bug in both formats it could share with Renovate:
   - In `bun.lock` it dropped the `@pateat/*` entries of `packages` (such as
     `"@pateat/bitwarden": ["@pateat/bitwarden@workspace:packages/bitwarden"]`), and its
     own `aube install --frozen-lockfile` then refused the file ("lockfile is out of date
