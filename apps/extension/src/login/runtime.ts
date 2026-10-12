@@ -164,6 +164,8 @@ const HOLD_MS = 5 * 60_000;
  */
 const EXTRACT_READS = 3;
 const EXTRACT_RETRY_MS = 1000;
+/** How soon after a password submission the tab's next page counts as right after it (ADR 0028). */
+const AFTER_SIGN_IN_MS = 60_000;
 /**
  * How long after evidence of a sign-in the page is read again before the login completes
  * on it (ADR 0029), so a page that is still redirecting or about to ask for a second
@@ -1185,10 +1187,12 @@ export function createLoginRuntime(
   const hellos = new Map<string, number>();
   /**
    * Per tab, the document that last submitted a form with a password input, and the
-   * tab's next document of that origin: the page right after a sign-in, which is never
-   * sent as a list of accounts (ADR 0028). Kept in memory only.
+   * tab's next document of that origin when it loads within a minute of the submission:
+   * the page right after a sign-in, which is never sent as a list of accounts (ADR 0028).
+   * A later load, such as a reload after a logout in a single-page app, is not one. Kept
+   * in memory only.
    */
-  const passwordSubmits = new Map<number, { origin: string; documentId: string }>();
+  const passwordSubmits = new Map<number, { origin: string; documentId: string; at: number }>();
   const afterSignIn = new Map<number, string>();
   /** The latest announcement of each frame while it is admitted, by the same key. */
   const admitting = new Map<string, Promise<unknown>>();
@@ -4629,7 +4633,8 @@ export function createLoginRuntime(
     if (submitted && document.frameId === 0 && submitted.documentId !== document.documentId) {
       // Only the tab's next page counts: one of another origin ends the skip.
       passwordSubmits.delete(document.tabId);
-      if (submitted.origin === document.origin)
+      // A clock that went back keeps the skip: sending the page is the less safe outcome.
+      if (submitted.origin === document.origin && Date.now() - submitted.at < AFTER_SIGN_IN_MS)
         afterSignIn.set(document.tabId, document.documentId);
     }
     // A new page in the tab replaces the document that waited for a choice.
@@ -5433,7 +5438,11 @@ export function createLoginRuntime(
           ? documents.get(frameKey({ tabId: document.tabId, frameId: 0 }))?.document
           : document;
       if (page)
-        passwordSubmits.set(page.tabId, { origin: page.origin, documentId: page.documentId });
+        passwordSubmits.set(page.tabId, {
+          origin: page.origin,
+          documentId: page.documentId,
+          at: Date.now(),
+        });
       return undefined;
     }
     const hello = v.safeParse(helloSchema, message);
