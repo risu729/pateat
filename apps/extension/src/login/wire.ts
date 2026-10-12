@@ -212,7 +212,6 @@ export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),
   reason: v.optional(v.picklist(["timeout", "cancelled"])),
 });
-/** The page description; validated again against `loginObservationSchema` by the caller. */
 /** Why a signed-in page's observation is incomplete; see `ObservationGap`. */
 export const observationGaps = [
   "shadow-field",
@@ -220,6 +219,7 @@ export const observationGaps = [
   "unlocated-field",
   "too-many-fields",
 ] as const;
+/** The page description; validated again against `loginObservationSchema` by the caller. */
 export const extractResultSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(true),
