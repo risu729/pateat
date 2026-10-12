@@ -1173,6 +1173,8 @@ describe("unhandled errors", () => {
         stepIndex: 1,
         name: "Error",
         message,
+        // The message line is dropped; only the extension's own positions are kept.
+        stack: `Error: ${message}\n    at send (chrome-extension://${EXTENSION}/background.js:12:34)`,
       });
     await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(10));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
@@ -1201,6 +1203,7 @@ describe("unhandled errors", () => {
       state: "reconciling",
       step: 1,
       name: "Error",
+      stack: "background.js:12:34",
     });
     expect(JSON.stringify(entries)).not.toContain("hunter2");
     vi.restoreAllMocks();

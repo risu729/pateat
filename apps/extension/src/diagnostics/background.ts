@@ -334,6 +334,7 @@ export function createDiagnosticsLog(options: {
             // Engine messages can quote input; only Pateat's own codes are kept.
             message:
               report.message && KNOWN_ERROR_CODES.has(report.message) ? report.message : undefined,
+            stack: stackPositions(report.stack),
           },
           { source },
         );

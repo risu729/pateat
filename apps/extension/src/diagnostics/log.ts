@@ -207,6 +207,7 @@ export const LOG_EVENTS = {
       step: "count",
       name: "name",
       message: "code",
+      stack: "stack",
       url: "url",
     },
   },
