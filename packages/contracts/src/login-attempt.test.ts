@@ -795,16 +795,21 @@ describe("submission and failure reconciliation", () => {
         undefined,
       );
       expect(recoverLoginAttempt(parseAttemptMetadata(left))).toEqual(left);
+      // A move the runtime confirmed as the sign-in completes the attempt instead.
+      expect(
+        transitionLoginAttempt(submitted, { type: "NAVIGATED", document: away, signedIn: true }),
+      ).toMatchObject({ state: "authenticated", outcome: "authenticated", document: top });
     }
-    // Nothing was possibly submitted: the attempt is only interrupted.
+    // Nothing was possibly submitted: the attempt is only interrupted, confirmed or not.
     for (const unsubmitted of [
       ready,
       transitionLoginAttempt(filled, { type: "OPERATION_OK", operationId: "fill-one" }),
       prepared,
     ])
-      expect(
-        transitionLoginAttempt(unsubmitted, { type: "NAVIGATED", document: away }),
-      ).toMatchObject({ state: "blocked", outcome: "interrupted", document: top });
+      for (const signedIn of [{}, { signedIn: true as const }])
+        expect(
+          transitionLoginAttempt(unsubmitted, { type: "NAVIGATED", document: away, ...signedIn }),
+        ).toMatchObject({ state: "blocked", outcome: "interrupted", document: top });
     // A navigation within the origin still reconciles the same attempt.
     const next = { ...top, documentId: "document-next" };
     expect(transitionLoginAttempt(awaiting, { type: "NAVIGATED", document: next })).toMatchObject({

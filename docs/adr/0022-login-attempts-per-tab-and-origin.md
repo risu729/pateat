@@ -28,6 +28,13 @@ github.com's saved default stopped that tab's login as `policy-changed`; after a
 the page was refused for several matching accounts, but it had resumed the stopped
 record, so the toolbar popup offered no account choice and the tab never logged in again
 until it was closed.
+Amended again on 2026-10-12 (08:22 UTC, owner's choice on a decision card, proposal in
+the project notes `jal-same-site-completion-proposal.md`): a move to the site of a
+passkey Pateat has just answered completes the attempt; see "Leaving the origin after a
+possible submission ends the attempt" below. Evidence: in the owner's Chrome, JMB's
+sign-in page `jallogin.jal.co.jp` asked for a passkey after the username step, Pateat
+answered, and the site moved to `www.jal.co.jp` signed in, but the login ended
+`left-origin`, so it held the site for 5 minutes and saved no account choice.
 
 ## Context
 
@@ -98,6 +105,28 @@ fix them now; the SSO policy itself is recorded separately.
   account choice is saved, and neither is retried. For the logout detection of
   [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
   like unknown outcomes.
+  - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
+    `authenticated` instead when all of these hold: after its last effect step and at
+    most 30 seconds before the move, Pateat returned an assertion to a passkey request
+    of the attempt's page (its tab and origin); the new top page is HTTPS and its host
+    is the passkey's RP ID or a subdomain of it, so `jallogin.jal.co.jp` may move to
+    `www.jal.co.jp` for RP ID `jal.co.jp`; and that page, read when it announces itself,
+    shows no password field, code input or CAPTCHA and makes no passkey request of its
+    own, in two readings a second apart once it has loaded (at most 5 readings). The
+    readings are the page signs of [ADR 0029](0029-local-sign-in-state.md); Pateat fills
+    and clicks nothing there. A username-only form is not among those signs, and the
+    failure signs next to the sign-in fields cannot apply to a new page. The page's
+    announcement waits for the readings. A frame of the new page that announces first
+    leaves the move to the top page (it is refused `tab-busy` while the attempt still
+    runs), and one that announces during the readings waits for them. The completion
+    saves an automatic account choice and releases the origin like any other
+    `authenticated` attempt; it is the one completion that needs neither a completion
+    check, ADR 0029 evidence nor the judge, also on the `passkey` route of
+    [ADR 0027](0027-per-account-login-routes.md). The answer is kept in memory only, so
+    after a worker restart, or with any condition not met, the attempt ends
+    `left-origin` as before. A site that rejects the assertion and sends the tab to a
+    quiet page of the same site is counted as signed in; other tabs may then log in
+    there again.
 - **Holding the origin in other tabs** (amended 2026-10-11 and three times on
   2026-10-12). Cookies can be shared across tabs, so another tab's record of the origin
   refuses a new attempt with `origin-busy` until that tab closes or the record has not
@@ -160,6 +189,11 @@ fix them now; the SSO policy itself is recorded separately.
   (`accounts.google.com/AddSession`), is therefore logged in to with the saved default
   even while the first tab is open, as it already was with no other tab. Telling such
   pages apart is later work with low priority.
+- **Complete any move to the same site after a submission.** Not chosen (2026-10-12):
+  a second-factor or error page on another origin of the site is such a move. The owner
+  chose the passkey case only, where Pateat's own answer and the quiet new page tell it
+  from one; the same for a return URL the sign-in page names was not chosen, as sites
+  also return there after a cancel or failure.
 - **Release the origin hold on `left-origin`.** Rejected: moving to another origin is
   not proof of success (an identity provider can forward to a second factor on another
   origin, or to an error page). Another tab could then submit the same password again,

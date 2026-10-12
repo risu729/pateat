@@ -1506,6 +1506,94 @@ describe("production login document admission", () => {
       expect(await h.login.active()).toBe(false);
       expect(executes()).toHaveLength(2);
     });
+    describe("after Pateat answered the site's passkey request (ADR 0022)", () => {
+      const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+      /** Submits on the site, then has the passkey bridge answer for `rpId` at `answerAt`. */
+      const submitted = async (rpId = "login.example") => {
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        h.login.passkeyAnswered(1, origin, rpId);
+        fake.state.signs = quiet;
+        return h;
+      };
+      it("completes when the tab moves on to the passkey's site and its page is quiet", async () => {
+        const h = await submitted();
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+        expect(await h.login.active()).toBe(false);
+        expect(executes()).toHaveLength(2);
+      });
+      it("waits until the new page has loaded", async () => {
+        const h = await submitted();
+        fake.state.loaded = false;
+        setTimeout(() => (fake.state.loaded = true), 1_500);
+        const reads = () => fake.state.messages.filter((entry) => entry.type === "login.state");
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+        // Two readings while loading, then two once loaded.
+        expect(reads().length).toBeGreaterThanOrEqual(4);
+      }, 10_000);
+      /** A frame of the new page at https://www.login.example/home. */
+      const homeFrame = {
+        frameId: 3,
+        documentId: "home-frame",
+        url: "https://widgets.login.example/panel",
+        tab: { id: 1, url: "https://www.login.example/home" },
+      };
+      it("leaves the move to the new top page when its frame announces first", async () => {
+        const h = await submitted();
+        fake.state.tabUrls[1] = homeFrame.tab.url;
+        await h.hello(homeFrame, false);
+        expect(at(origin)).toMatchObject({ state: "submit-intent" });
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("lets a frame that announces while the top page is read wait for it", async () => {
+        const h = await submitted();
+        const top = navigate(h, "https://www.login.example/home", "home-document", false);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        await h.hello(homeFrame, false);
+        expect(await top).not.toEqual({ ok: false, reason: "stale-document" });
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("ends left-origin when the new page shows a password field", async () => {
+        const h = await submitted();
+        fake.state.signs = { ...quiet, password: true };
+        await navigate(h, "https://www.login.example/signin", "signin-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the new page still asks for a code", async () => {
+        const h = await submitted();
+        fake.state.signs = { ...quiet, code: true };
+        await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the new page asks for a passkey again", async () => {
+        const h = await submitted();
+        // The new page's own request, as the bridge reports it before the page announces.
+        h.login.passkeyRequested(1, "https://www.login.example");
+        await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin on a host outside the passkey's RP ID", async () => {
+        const h = await submitted("www.login.example");
+        await navigate(h, "https://account.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the answer came before the submission", async () => {
+        holdClicks(origin);
+        const h = twoSites();
+        h.login.passkeyAnswered(1, origin, "login.example");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        fake.state.signs = quiet;
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+    });
     it("fills without submitting when the site's form shows again after it left", async () => {
       // site -> identity provider -> back to the site's login form (ADR 0021 D, ADR 0022).
       holdClicks(origin, second);

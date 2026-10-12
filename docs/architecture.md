@@ -379,18 +379,18 @@ half of this is not implemented yet. Automatic logout/relogin when the user pick
 another account while logged in stays later. Cookies may be shared across tabs even
 during initial login. Another tab's login of the origin that is running or ended without
 success holds the origin until that tab closes or its record has not changed for 5
-minutes; an `authenticated` one, one that
-ended `interrupted` without submitting, or one Pateat itself stopped with nothing in
-flight (such as `policy-changed`) does not. A tab keeps one attempt record per
-origin and runs one attempt at a time; a page resumes only its own origin's record,
-except that a new page releases one Pateat itself stopped with nothing in flight
-before any submission and logs in as a new tab would, and
-a top-level attempt that may have submitted ends `left-origin` when the tab moves to
-another origin. An ended record of a site the tab left, including a frame's login on
-that site's page, never holds the new site's page or its frames
-([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider
-shared-session domains need explicit coordination before broader support, not a guessed
-relationship between origins.
+minutes; an `authenticated` one, one that ended `interrupted` without submitting, or one
+Pateat itself stopped with nothing in flight (such as `policy-changed`) does not. A tab
+keeps one attempt record per origin and runs one attempt at a time; a page resumes only
+its own origin's record, except that a new page releases one Pateat itself stopped with
+nothing in flight before any submission and logs in as a new tab would, and a top-level
+attempt that may have submitted ends `left-origin` when the tab moves to another origin,
+or `authenticated` when that origin belongs to a passkey Pateat has just answered and
+its page shows no sign-in. An ended record of a site the tab left, including a frame's
+login on that site's page, never holds the new site's page or its frames
+([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
+domains need explicit coordination before broader support, not a guessed relationship
+between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic
@@ -838,7 +838,8 @@ judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executo
 reports `authenticated` with it only when the sign-in state of
 [ADR 0029](adr/0029-local-sign-in-state.md) shows confirmed evidence of a sign-in on the
 `password` route (the username in the header or navigation, or the return target the
-sign-in page's URL named); otherwise a submission ends `credential-rejected`, moves to a
+sign-in page's URL named), or when the tab moves on to the site of a passkey Pateat has
+just answered (ADR 0022); otherwise a submission ends `credential-rejected`, moves to a
 later step, or stays unknown (`unknown-submit`), so no account choice is saved. An
 unknown attempt stays in `reconciling` until its tab closes or, for a top-level attempt,
 until the tab shows a page of another origin that Pateat may run on (`left-origin`, ADR
