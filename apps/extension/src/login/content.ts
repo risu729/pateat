@@ -4,7 +4,7 @@ import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
-import { fillBaseline, inputValueMismatch, rejectsFill, showsNewStatus } from "../page/fill-checks";
+import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { acceptsSecret } from "./inputs";
 import {
@@ -103,8 +103,8 @@ const fillSettleMs = 500;
 /**
  * How long a `totp` handler's code fill watches for the page submitting the code by itself
  * before its button may be clicked (ADR 0027). A code input that submits on its last digit
- * usually shows it at once (a submit event, a navigation, a disabled or busy form, a
- * "Verifying" status); 2 seconds also covers one that verifies first and then moves on.
+ * usually shows it at once (a submit event, a navigation, a disabled or busy form or
+ * button); 2 seconds also covers one that verifies first and then moves on.
  */
 const codeSettleMs = 2_000;
 const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
@@ -112,9 +112,10 @@ const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
  * Watches the page for signs that it submits a code by itself, from before the code is
  * typed (ADR 0027): a submit event of the field's form, the document starting to unload or
  * navigate, the field or form disabled, read-only, removed or replaced, the field cleared,
- * the submit button disabled, busy or replaced, a new busy indicator in the form, or a new
- * status message of the form. `submitted` reads the page once the code is in; `stop`
- * removes the listeners.
+ * the submit button gone, hidden, busy or disabled after it was enabled, or a new busy
+ * indicator in the form. A button the page renders again at the same locator, still shown
+ * and enabled, and a status message alone, such as a digit counter or "Looks good", are
+ * not signs. `submitted` reads the page once the code is in; `stop` removes the listeners.
  */
 function watchCodeSubmission(
   input: HTMLInputElement,
@@ -123,16 +124,17 @@ function watchCodeSubmission(
   path: string,
 ): { submitted: () => boolean; stop: () => void } {
   const form = input.form;
-  const found = matches(submit);
-  const button = found.length === 1 ? found[0] : undefined;
-  const flags = (element: Element | undefined) => ({
-    disabled: element?.matches(":disabled") === true,
-    ariaDisabled: element?.getAttribute("aria-disabled") === "true",
-    busy: element?.getAttribute("aria-busy") === "true",
+  const flags = (element: Element) => ({
+    enabled: !element.matches(":disabled") && element.getAttribute("aria-disabled") !== "true",
+    busy: element.getAttribute("aria-busy") === "true",
   });
-  const buttonBefore = flags(button);
+  // A button disabled until the code is typed counts as disabled by the page only once it
+  // was enabled; one busy from the start never counts as newly busy.
+  const found = matches(submit);
+  const initial = found.length === 1 ? flags(found[0]!) : undefined;
+  let enabledSeen = initial?.enabled === true;
+  let idleSeen = initial !== undefined && !initial.busy;
   const busyBefore = new Set(form ? form.querySelectorAll(busySelector) : []);
-  const statuses = fillBaseline([input]);
   let event = false;
   const mark = () => {
     event = true;
@@ -166,18 +168,18 @@ function watchCodeSubmission(
           ))
       )
         return true;
-      if (button) {
-        const now = matches(submit);
-        if (now.length !== 1 || now[0] !== button) return true;
-        const after = flags(button);
-        if (
-          (after.disabled && !buttonBefore.disabled) ||
-          (after.ariaDisabled && !buttonBefore.ariaDisabled) ||
-          (after.busy && !buttonBefore.busy)
-        )
-          return true;
-      }
-      return showsNewStatus([input], statuses);
+      const buttons = matches(submit);
+      if (buttons.length === 0) return true;
+      // Several matches leave the click step to refuse the button.
+      if (buttons.length > 1) return false;
+      const button = buttons[0]!;
+      if (!(button instanceof HTMLElement) || !visible(button)) return true;
+      const now = flags(button);
+      if (now.enabled) enabledSeen = true;
+      else if (enabledSeen) return true;
+      if (!now.busy) idleSeen = true;
+      else if (idleSeen) return true;
+      return false;
     },
     stop: () => {
       document.removeEventListener("submit", onSubmit, true);
@@ -444,7 +446,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
           const require = command.require?.[index];
           return (require === "writable" && !writable(found[0])) ||
-            (require === "clickable" && !clickable(found[0]))
+            (require === "clickable" && !clickable(found[0])) ||
+            (require === "shown" && !(found[0] instanceof HTMLElement && visible(found[0])))
             ? "unusable"
             : "unique";
         }),

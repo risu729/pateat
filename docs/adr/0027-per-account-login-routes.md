@@ -449,13 +449,16 @@ new owner decision:
   on a page of a `totp` handler's path that shows its code field, as on the sign-in
   page, and generation maps a one-time-code slot only to an input the TOTP fill rule
   accepts.
-- **Entering handlers.** A handler is entered when all its elements are unique and
-  usable on its path: a `totp` handler's field a shown writable input and its button,
-  like a `passkey` handler's, a shown enabled one. A code input rendered hidden with the
-  sign-in form therefore never stands for a code page. A `totp` handler whose button is
-  also a route step's click target on that path is entered only while none of the
-  route's fill fields there shows, since the page is still the sign-in page while one
-  does. When several shown
+- **Entering handlers.** A handler that has not run is entered when all its elements
+  are unique and usable on its path: a `totp` handler's field a shown writable input,
+  and its button, like a `passkey` handler's, a shown one, enabled or not, since many
+  code pages keep Verify disabled until the code is typed; the click step still waits
+  for the button to be enabled. A code input rendered hidden with the sign-in form
+  therefore never stands for a code page. A `totp` handler whose button is also a route
+  step's click target on that path is entered only while none of the route's fill
+  fields there shows, since the page is still the sign-in page while one does. A
+  handler that already ran counts as shown again when its elements are merely present,
+  hidden or disabled, so its page never goes to the judge instead. When several shown
   handlers qualify, a `passkey` handler goes first, as the routes put the passkey first
   and it types nothing. A handler is passed over when it already ran (`shown-again`),
   the item lacks its fact (`missing-fact`), or, for a `totp` handler, the login already
@@ -477,9 +480,9 @@ new owner decision:
   excluded or removed after the handler was entered stops the login as a policy change.
 - **Code fill rule.** A `totp` handler's fill always uses the TOTP fill rule
   (`autocomplete=one-time-code` or a short numeric input), whatever field it reads. A
-  new status message in the code's form during the fill is the page's own submission,
-  not a refusal of the code; a new alert or an invalid mark on the field still refuses
-  it (`fill-rejected`).
+  new status message in the code's form during the fill, such as a digit counter, "Looks
+  good" or "Verifying…", never refuses the code; a new alert or an invalid mark on the
+  field still does (`fill-rejected`).
 - **A page that submits the code itself.** Some code inputs submit once the last digit
   is in. The handler's click then counts as done (`AUTO_SUBMITTED`, one submission) and
   the page is held and settled as after a click: while the button still shows in that
@@ -489,9 +492,12 @@ new owner decision:
   before it is typed, and the login treats the code as submitted on any of: a `submit`
   event of the field's form; `beforeunload`, `pagehide` or a Navigation API `navigate`
   event; a change of path; the field or its form disabled, read-only, inert, busy,
-  removed or replaced; the field cleared; the button disabled, busy or replaced; a new
-  visible busy indicator (`aria-busy`, `progressbar`, `progress`) or a new status
-  message in the form. It also does so when, before the click, the page has left the
+  removed or replaced; the field cleared; the button gone, hidden, busy, or disabled
+  after it was enabled; or a new visible busy indicator (`aria-busy`, `progressbar`,
+  `progress`) in the form. A button the page renders again at the same locator, still
+  shown, enabled and not busy, is not a sign, nor is a status message on its own, since
+  ordinary pages count digits or confirm the format in live regions. It also does so
+  when, before the click, the page has left the
   path or shows the completion or the rejection without the button, and when a new
   document of the tab resumes a login whose code fill went in, or may have, and whose
   click has not run. Only a button that still shows after a quiet watch is clicked,
@@ -508,8 +514,9 @@ new owner decision:
   below describes; so does one that submitted the code itself. A new document that
   shows the code page again ends `challenge` at once.
 - **Known limitation: a silent submission.** A code page that submits the code itself
-  with a background request and changes nothing the watch sees, in the DOM, the path or
-  the navigation, for 2 seconds is clicked as well, and so gets the code twice.
+  with a background request and shows none of the signs above for 2 seconds is clicked
+  as well, and so gets the code twice. That includes a page that only writes
+  "Verifying…" into a status region while its field and button stay as they were.
 - **Known limitation: a same-form code page that keeps the password input.** A form that
   asks for the code after the password and still shows the password input is a sign-in
   page to the service (`not-judgeable`) and to the extension, so its `totp` handler is

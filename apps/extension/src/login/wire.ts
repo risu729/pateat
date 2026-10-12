@@ -87,11 +87,11 @@ export const commandSchema = v.variant("type", [
     targets: v.pipe(v.array(loginTargetSchema), v.maxLength(24)),
     /**
      * Per target, what its one element must be to count as `unique`: a shown writable
-     * input or a shown enabled button; otherwise it is `unusable`. Without it, any one
-     * element counts, hidden or not.
+     * input, a shown enabled button, or any shown element; otherwise it is `unusable`.
+     * Without it, any one element counts, hidden or not.
      */
     require: v.optional(
-      v.pipe(v.array(v.picklist(["writable", "clickable", "present"])), v.maxLength(24)),
+      v.pipe(v.array(v.picklist(["writable", "clickable", "shown", "present"])), v.maxLength(24)),
     ),
   }),
   v.strictObject({

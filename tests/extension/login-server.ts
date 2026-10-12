@@ -249,13 +249,18 @@ export async function startLoginFixture(
         if (fixtureUrl.searchParams.has(flag)) flags.set(flag, "");
       const spa = fixtureUrl.searchParams.get("spa");
       if (spa === "status" || spa === "replace") flags.set("spa", spa);
+      const ui = fixtureUrl.searchParams.get("ui");
+      if (ui === "disabled" || ui === "rerender" || ui === "counter") flags.set("ui", ui);
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?wrong` shows it again after Verify, `?auto` submits the
       // code by itself on its sixth digit, as some sites do. With `?auto`, `slow` verifies
       // it for 1.2 seconds before the next document loads, `spa=status` says "Verifying…"
-      // in the form for that long and `spa=replace` renders the form again as verifying,
-      // before both sign in without a new document.
+      // in the form and disables Verify for that long and `spa=replace` renders the form
+      // again as verifying, before both sign in without a new document. Without `?auto`,
+      // `ui` makes an ordinary page that only Verify submits: `disabled` keeps Verify
+      // disabled until six digits are in, `rerender` replaces it on every input, and
+      // `counter` counts the digits in a polite live region.
       response.end(
         html(
           '<h1>Synthetic sign-in with a code</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
@@ -273,10 +278,11 @@ export async function startLoginFixture(
       const auto = fixtureUrl.searchParams.has("auto");
       const slow = fixtureUrl.searchParams.has("slow");
       const spa = fixtureUrl.searchParams.get("spa");
+      const ui = fixtureUrl.searchParams.get("ui");
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          '<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form"><label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label><button id="verify" type="button">Verify</button><p role="status" id="code-status"></p></form>',
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form"><label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label><button id="verify" type="button"${ui === "disabled" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
           `const code = document.getElementById('code');
           function count(name) {
             sessionStorage.setItem(name, String(Number(sessionStorage.getItem(name) || 0) + 1));
@@ -291,7 +297,8 @@ export async function startLoginFixture(
                 ? `${
                     spa === "replace"
                       ? `document.getElementById('code-form').innerHTML = '<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" disabled><button id="verify" type="button" disabled>Verify</button><p>Verifying…</p>';`
-                      : `document.getElementById('code-status').textContent = 'Verifying…';`
+                      : `document.getElementById('code-status').textContent = 'Verifying…';
+                        document.getElementById('verify').disabled = true;`
                   }
                 setTimeout(() => {
                   history.pushState({}, '', '/authenticated');
@@ -302,11 +309,17 @@ export async function startLoginFixture(
                 : `location.href = ${slow ? "'/totp-verify?to=' + encodeURIComponent(signedIn ? '/authenticated' : " + JSON.stringify(again) + ")" : `signedIn ? '/authenticated' : ${JSON.stringify(again)}`};`
             }
           }
+          function wire(button) {
+            button.addEventListener('click', () => submitCode('verifyClicks'));
+          }
           code.addEventListener('input', () => {
             count('codeInputs');
+            ${ui === "disabled" ? "document.getElementById('verify').disabled = code.value.length !== 6;" : ""}
+            ${ui === "rerender" ? "const old = document.getElementById('verify'); const button = old.cloneNode(true); old.replaceWith(button); wire(button);" : ""}
+            ${ui === "counter" ? "document.getElementById('code-counter').textContent = code.value.length + ' of 6 digits';" : ""}
             ${auto ? "if (code.value.length === 6) submitCode('autoSubmits');" : ""}
           });
-          document.getElementById('verify').addEventListener('click', () => submitCode('verifyClicks'));`,
+          wire(document.getElementById('verify'));`,
         ),
       );
     } else if (path === "/password") {

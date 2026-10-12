@@ -29,9 +29,7 @@ const statusSelector = '[role="status"], [aria-live="polite"]';
 
 /** What the page showed before a fill, to compare with once its handlers ran. */
 export interface FillBaseline {
-  /** Alert texts, then relevant status and polite live region texts. */
   readonly texts: ReadonlySet<string>;
-  readonly statuses: ReadonlySet<string>;
   /** Per filled input: whether it was marked invalid, and its custom validity message. */
   readonly inputs: readonly { ariaInvalid: boolean; customError: string }[];
 }
@@ -53,7 +51,7 @@ const ariaInvalid = (input: HTMLInputElement) =>
 
 function feedbackTexts(
   inputs: readonly HTMLInputElement[],
-  regions: "all" | "alert" | "status" = "all",
+  regions: "all" | "alert" = "all",
 ): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
   const form = inputs[0]?.form;
@@ -65,7 +63,7 @@ function feedbackTexts(
     ),
   );
   const shown = [
-    ...(regions === "status" ? [] : root.querySelectorAll(alertSelector)),
+    ...root.querySelectorAll(alertSelector),
     ...(regions === "alert" ? [] : [...root.querySelectorAll(statusSelector)]).filter(
       (element) => form?.contains(element) || named.has(element.id),
     ),
@@ -89,7 +87,6 @@ function feedbackTexts(
 export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline {
   return {
     texts: feedbackTexts(inputs),
-    statuses: feedbackTexts(inputs, "status"),
     inputs: inputs.map((input) => ({
       ariaInvalid: ariaInvalid(input),
       customError: input.validity.customError ? input.validationMessage : "",
@@ -129,13 +126,4 @@ export function rejectsFill(
   // new message.
   const texts = feedbackTexts(inputs, statuses ? "all" : "alert");
   return rejected || [...texts].some((text) => !before.texts.has(text));
-}
-
-/**
- * Whether a status or polite live region of the filled form, or one a filled input names,
- * shows text that none showed before the fill, such as "Verifying…" once a code input
- * submitted by itself (ADR 0027).
- */
-export function showsNewStatus(inputs: readonly HTMLInputElement[], before: FillBaseline): boolean {
-  return [...feedbackTexts(inputs, "status")].some((text) => !before.statuses.has(text));
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { fillBaseline, inputValueMismatch, rejectsFill, showsNewStatus } from "./fill-checks";
+import { fillBaseline, inputValueMismatch, rejectsFill } from "./fill-checks";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -82,15 +82,13 @@ describe("rejectsFill", () => {
 });
 
 describe("a code fill's status messages (ADR 0027)", () => {
-  it("reads a new status of the form as the page's own submission, not a rejection", () => {
+  it("never reads a new status of the form as a rejection of the code", () => {
     document.body.innerHTML =
       '<form><input id="code" autocomplete="one-time-code"><p role="status" id="state"></p></form>';
     const code = document.querySelector<HTMLInputElement>("#code")!;
     const before = fillBaseline([code]);
     code.value = "012345";
-    expect(showsNewStatus([code], before)).toBe(false);
-    document.querySelector("#state")!.textContent = "Verifying…";
-    expect(showsNewStatus([code], before)).toBe(true);
+    document.querySelector("#state")!.textContent = "6 of 6 digits";
     expect(rejectsFill([code], before, { statuses: false })).toBe(false);
     // A fill whose statuses count still reads it as a rejection, and alerts always count.
     expect(rejectsFill([code], before)).toBe(true);

@@ -1695,7 +1695,7 @@ export function createLoginRuntime(
   async function observe(
     run: Execution,
     targets: LoginTarget[],
-    require?: ("writable" | "clickable" | "present")[],
+    require?: ("writable" | "clickable" | "shown" | "present")[],
   ) {
     // Exclusion/default/policy checks precede even metadata observation.
     if (!(await allowed(run))) return undefined;
@@ -1847,11 +1847,14 @@ export function createLoginRuntime(
    * no room for it.
    */
   async function enterHandler(run: Execution, path: string): Promise<boolean> {
-    // A handler's elements must be usable: its code field a shown writable input and its
-    // button a shown enabled one, so a hidden code input rendered with the sign-in form
-    // never stands for a code page. A `totp` handler whose button is also a route step's on
-    // this path, as in a form that asks for the code after the password, needs every fill
-    // field of the route there gone: while one shows, the page is still the sign-in page.
+    // A fresh handler's elements must be usable: its code field a shown writable input and
+    // its button shown, enabled or not, as a Verify button disabled until the code is typed
+    // is; so a hidden code input rendered with the sign-in form never stands for a code
+    // page. The click step itself waits for the button to be enabled. A `totp` handler whose
+    // button is also a route step's on this path, as in a form that asks for the code after
+    // the password, needs every fill field of the route there gone: while one shows, the
+    // page is still the sign-in page. A handler that already ran counts as shown again
+    // whenever its elements are there, hidden or disabled, so it never runs twice.
     const routeFields = passwordVariants(run.recipe)
       .flatMap((variant) => variant.steps)
       .filter((step) => step.path === path)
@@ -1865,7 +1868,9 @@ export function createLoginRuntime(
       .flatMap((step) => (step.kind === "click" ? [step.target] : []));
     const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
       if (handler.path !== path) return [];
+      const ran = run.metadata.handlers.some((entered) => entered.index === index);
       const sameForm =
+        !ran &&
         handler.kind === "totp" &&
         routeClicks.some((target) => sameLoginTarget(target, handler.target));
       const targets = handlerTargets(handler);
@@ -1875,9 +1880,11 @@ export function createLoginRuntime(
           index,
           targets: [...targets, ...(sameForm ? routeFields : [])],
           require: [
-            ...(handler.kind === "totp"
-              ? (["writable", "clickable"] as const)
-              : (["clickable"] as const)),
+            ...(ran
+              ? targets.map(() => "present" as const)
+              : handler.kind === "totp"
+                ? (["writable", "shown"] as const)
+                : (["shown"] as const)),
             ...(sameForm ? routeFields.map(() => "writable" as const) : []),
           ],
           own: targets.length,

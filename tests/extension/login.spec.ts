@@ -890,8 +890,37 @@ test("a code page that submits on its last digit signs in without a click (ADR 0
 });
 
 for (const [mode, query] of [
+  ["a Verify button disabled until the code is in", "ui=disabled"],
+  ["a Verify button rendered again on every digit", "ui=rerender"],
+  ["a digit counter in a live region", "ui=counter"],
+] as const)
+  test(`an ordinary code page gets the code and one Verify click: ${mode} (ADR 0027)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin, true, undefined, true);
+        const status = async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/totp?${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        await expect.poll(status).toContain('"authenticated"');
+        expect(await codeEvidence(page)).toEqual({
+          codeInputs: 1,
+          verifyClicks: 1,
+          autoSubmits: 0,
+          codeMatched: "true",
+        });
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+for (const [mode, query] of [
   ["a new document after a slow verification", "auto&slow"],
-  ["a status message in the same document", "auto&spa=status"],
+  ["a status message and a disabled button in the same document", "auto&spa=status"],
   ["a form rendered again as verifying", "auto&spa=replace"],
 ] as const)
   test(`a code page that verifies its own submission for over a second is never clicked: ${mode} (ADR 0027)`, async () => {

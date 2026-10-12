@@ -543,12 +543,15 @@ variant's reason as the logged refusal's detail. A running or resumed login chec
 its recorded variant and never reads the facts again
 ([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). After each
 effect step the executor checks the completion, the rejection and the plan's next step,
-then the recipe's handlers on the page's path: a handler all of whose elements are
-unique and usable (a shown writable code field, a shown enabled button) is entered once
-per login, its steps follow the effect step and grow the attempt's step and submission
-budget (at most 4 handlers, 40 steps and 12 submissions). A `totp` handler whose button
-is also a route step's on that path is entered only while none of the route's fill
-fields there shows. The `passkey` handler clicks a button such as "Use security key"
+then the recipe's handlers on the page's path. A handler that has not run is entered
+once per login when all its elements are unique and usable: its code field a shown
+writable input, its button shown, enabled or not, since many code pages enable Verify
+only once the code is typed (the click step waits for it to be enabled). Its steps
+follow the effect step and grow the attempt's step and submission budget (at most 4
+handlers, 40 steps and 12 submissions). A `totp` handler whose button is also a route
+step's on that path is entered only while none of the route's fill fields there shows. A
+handler that already ran counts as shown again when its elements are present at all,
+hidden or disabled. The `passkey` handler clicks a button such as "Use security key"
 only for an item with a usable passkey. The `totp` handler fills a code from the item's
 built-in TOTP field into its code field under the TOTP fill rule and clicks its button
 once; it needs the TOTP fact and that field allowed for the account, and a binding that
@@ -560,36 +563,38 @@ item lacks its fact, or, for a `totp` handler, the login already types a TOTP co
 over, the attempt ends `challenge`. After the code goes in, the content script watches
 the page for 2 seconds before the click: a submit event, the document unloading or
 navigating, the field or form disabled, removed or replaced, the field cleared, the
-button disabled, busy or replaced, a new busy indicator or a new status message in the
-form each mean the page submitted the code by itself. So do a page that leaves the path
-or shows the completion or the rejection without the button before the click, and a new
-document after the fill. Each counts as the handler's click (`AUTO_SUBMITTED`); the code
-is never filled again or followed by a click. While a handler's or the `passkey` route's
-clicked button, or the button of a code the page submitted itself, still shows in that
-document, the page is neither judged nor settled for up to two minutes; then it ends
-`challenge`. A new document of the tab that shows the `passkey` route's button again
-ends `challenge` at once, and so does one that shows only handlers that already ran or
-are passed over; a handler shown there that still qualifies, such as a `totp` handler
-beside a `passkey` handler that already ran, is entered. When the result settles, a page
-no check explains is sent to be judged unless it still shows a fill field of any of the
-route's variants on a route path or the completion marker (on the `passkey` route, its
-button or a fill field of any `password` variant on its path or a `password` route
-path); this applies to later documents of the tab too, while the attempt has not ended.
-At most 2 pages count per effect step: the attempt counts a page once its complete
-description is in hand, before the request, so a restart during the request cannot
-resend without bound. A page is given back only after a temporary refusal before any
-model call (a busy service, the service's own 429, an unreachable service, no paired
-service, a rejected device, or a request that failed before the model). Permanent
-refusals such as `already-judged`, `not-judgeable` or `recipe-conflict` count, and so do
-the provider's rate limit, a timeout and an unexpected answer, which may follow a model
-call; so a settled login sends at most 2 counted pages per effect step plus retries
-after temporary refusals. A page whose description is incomplete, failed or of another
-path is not sent and does not count. A handler's click is a new effect step. A
-`challenge` verdict that added a handler hands back the newer revision: the attempt
-takes it over (`REVISED`) when it only adds handlers or a completion, and runs the
-handler on the page it is on. A resumed attempt accepts a newer cached revision on the
-same terms only while the worker still holds its recorded revision; after a worker
-restart only the recorded revision resumes.
+button gone, hidden, busy or disabled after it was enabled, or a new busy indicator in
+the form each mean the page submitted the code by itself. So do a page that leaves the
+path or shows the completion or the rejection without the button before the click, and a
+new document after the fill. Each counts as the handler's click (`AUTO_SUBMITTED`); the
+code is never filled again or followed by a click. A button rendered again at the same
+locator and a status message alone, such as a digit counter, are not signs, and a status
+message never refuses the code. While a handler's or the `passkey` route's clicked
+button, or the button of a code the page submitted itself, still shows in that document,
+the page is neither judged nor settled for up to two minutes; then it ends `challenge`.
+A new document of the tab that shows the `passkey` route's button again ends `challenge`
+at once, and so does one that shows a handler that already ran and no other that
+qualifies; a handler shown there that still qualifies, such as a `totp` handler beside a
+`passkey` handler that already ran, is entered. When the result settles, a page no check
+explains is sent to be judged unless it still shows a fill field of any of the route's
+variants on a route path or the completion marker (on the `passkey` route, its button or
+a fill field of any `password` variant on its path or a `password` route path); this
+applies to later documents of the tab too, while the attempt has not ended. At most 2
+pages count per effect step: the attempt counts a page once its complete description is
+in hand, before the request, so a restart during the request cannot resend without
+bound. A page is given back only after a temporary refusal before any model call (a busy
+service, the service's own 429, an unreachable service, no paired service, a rejected
+device, or a request that failed before the model). Permanent refusals such as
+`already-judged`, `not-judgeable` or `recipe-conflict` count, and so do the provider's
+rate limit, a timeout and an unexpected answer, which may follow a model call; so a
+settled login sends at most 2 counted pages per effect step plus retries after temporary
+refusals. A page whose description is incomplete, failed or of another path is not sent
+and does not count. A handler's click is a new effect step. A `challenge` verdict that
+added a handler hands back the newer revision: the attempt takes it over (`REVISED`)
+when it only adds handlers or a completion, and runs the handler on the page it is on. A
+resumed attempt accepts a newer cached revision on the same terms only while the worker
+still holds its recorded revision; after a worker restart only the recorded revision
+resumes.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already

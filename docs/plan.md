@@ -1247,11 +1247,13 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   itself counts as the click and is held while it verifies. A judged completion is
   never a page of a handler's path that shows its code field, and generation maps a
   one-time-code slot only to an input the TOTP fill rule accepts. Unit, service
-  and extension runtime tests and seven probe E2E specs (the code filled and verified, a
+  and extension runtime tests and ten probe E2E specs (the code filled and verified, a
   wrong code ending `challenge` after one click, an item without TOTP leaving the field
-  untouched, a page that submits on the last digit, and three pages that verify their
-  own submission for over a second: a new document, a status message and a form
-  rendered again) cover it with a synthetic TOTP fact and the fixed code `012345`; no
+  untouched, a page that submits on the last digit, three pages that verify their own
+  submission for over a second: a new document, a status message with a disabled
+  button and a form rendered again, and three ordinary pages clicked once: Verify
+  disabled until the code is in, Verify rendered again on every digit and a digit
+  counter) cover it with a synthetic TOTP fact and the fixed code `012345`; no
   paid judge call, real authenticator code or real-account login has used it. A
   binding that names a custom field for the code is deferred and ends `challenge`. Its
   real-Chrome check is listed with the phase 1 installed-Chrome checks.

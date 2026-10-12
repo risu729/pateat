@@ -135,8 +135,9 @@ const fake = vi.hoisted(() => {
               ? (message["targets"] as { value: string }[]).map((entry, index) =>
                   !state.present!.has(entry.value)
                     ? "missing"
-                    : (message["require"] as string[] | undefined)?.[index] !== undefined &&
-                        state.unusable.has(entry.value)
+                    : [undefined, "present"].includes(
+                          (message["require"] as string[] | undefined)?.[index],
+                        ) === false && state.unusable.has(entry.value)
                       ? "unusable"
                       : "unique",
                 )
@@ -4441,7 +4442,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect.objectContaining({
           type: "login.observe",
           targets: [target("app-code"), target("verify")],
-          require: ["writable", "clickable"],
+          require: ["writable", "shown"],
         }),
       );
       expect(codeFills()).toEqual([]);
@@ -4516,27 +4517,35 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ]);
     }, 10_000);
 
-    it("leaves the code page shown again in a new document to the person", async () => {
-      vi.useFakeTimers();
-      onClick({ login: toCode, verify: toCode });
-      const report = vi.fn<(report: LoginReport) => void>();
-      const h = harness({}, { passkeys: noPasskey, report });
-      withTotp(h);
-      codes(h);
-      h.recipes.recipe.mockResolvedValue(coded);
-      expect(await h.hello()).toEqual({ ok: true });
-      await until(() => clicks("verify") === 1);
-      // A wrong code: the page loads the code form again.
-      fake.state.pageUrl = `${origin}/two-factor`;
-      await h.hello({ documentId: "again" }, false);
-      await until(settled("blocked", "challenge"), 5_000);
-      expect(codeFills()).toHaveLength(1);
-      expect(clicks("verify")).toBe(1);
-      expect(handlerReports(report)).toEqual([
-        [0, "totp", "entered", 2],
-        [0, "totp", "shown-again", 2],
-      ]);
-    });
+    it.each([
+      ["", false],
+      [" with its field disabled", true],
+    ])(
+      "leaves the code page shown again in a new document%s to the person",
+      async (_label, unusable) => {
+        vi.useFakeTimers();
+        onClick({ login: toCode, verify: toCode });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => clicks("verify") === 1);
+        // A wrong code: the page loads the code form again. A handler that ran counts as
+        // shown again whatever state its elements are in.
+        if (unusable) fake.state.unusable = new Set(["app-code", "verify"]);
+        fake.state.pageUrl = `${origin}/two-factor`;
+        await h.hello({ documentId: "again" }, false);
+        await until(settled("blocked", "challenge"), 5_000);
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(1);
+        expect(handlerReports(report)).toEqual([
+          [0, "totp", "entered", 2],
+          [0, "totp", "shown-again", 2],
+        ]);
+      },
+    );
 
     describe("a code page that submits by itself", () => {
       it("settles a form replaced by the code fill without a click", async () => {
