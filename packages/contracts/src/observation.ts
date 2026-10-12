@@ -405,20 +405,40 @@ export function isTotpCode(
   field: ObservedCandidate,
   button: ObservedCandidate,
 ): boolean {
+  return totpCodeRefusal(page, field, button) === undefined;
+}
+
+/**
+ * Why {@link isTotpCode} refuses `field` and `button`, for the log, or undefined when it
+ * accepts them: the field is no fill-role input (`not-input`), is located by its text
+ * (`text-locator`), is no code input (`not-code-field`), limits the code below 6
+ * characters (`code-too-short`), is one of several code inputs of its form that are no
+ * split code, or not the first of one (`several-code-fields`), or the button is no button
+ * (`submit-not-button`) or not of the field's form (`submit-other-form`).
+ */
+export function totpCodeRefusal(
+  page: Pick<LoginObservation, "candidates">,
+  field: ObservedCandidate,
+  button: ObservedCandidate,
+): string | undefined {
+  if (!(fillRoles as readonly string[]).includes(field.role)) return "not-input";
+  if (field.target.by === "text") return "text-locator";
+  if (!isCodeField(field)) return "not-code-field";
   const split = splitCodeInputs(page, field);
-  return (
-    (fillRoles as readonly string[]).includes(field.role) &&
-    field.target.by !== "text" &&
-    isCodeField(field) &&
-    (split
-      ? split[0] === field
-      : (field.maxLength === undefined || field.maxLength >= 6) &&
-        !page.candidates.some(
-          (other) => other !== field && other.group === field.group && isCodeField(other),
-        )) &&
-    button.role === "button" &&
-    button.group === field.group
-  );
+  if (split) {
+    if (split[0] !== field) return "several-code-fields";
+  } else {
+    if (field.maxLength !== undefined && field.maxLength < 6) return "code-too-short";
+    if (
+      page.candidates.some(
+        (other) => other !== field && other.group === field.group && isCodeField(other),
+      )
+    )
+      return "several-code-fields";
+  }
+  if (button.role !== "button") return "submit-not-button";
+  if (button.group !== field.group) return "submit-other-form";
+  return undefined;
 }
 
 /** Whether the page shows an input the executor would fill a TOTP code into. */

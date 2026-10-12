@@ -1,5 +1,5 @@
 import {
-  isTotpCode,
+  totpCodeRefusal,
   loginObservationSchema,
   splitCodeInputs,
   loginPathSchema,
@@ -96,6 +96,13 @@ export type SignInJudgement =
       decision: "challenge";
       passkey?: LoginTarget;
       totp?: { field: LoginAttributeTarget; target: LoginTarget };
+      /**
+       * Why a code the model named was not kept as `totp`, for the log: its source when
+       * that is not an authenticator app (`source-sms`, `source-email`, `source-unknown`),
+       * `unknown-field` or `unknown-submit` for an ID that is no element of the page, or
+       * the refusal of `totpCodeRefusal`. Never an element, label or value.
+       */
+      totpDropped?: string;
     };
 
 /**
@@ -107,14 +114,20 @@ export type SignInJudgement =
 function totpCode(
   page: LoginObservation,
   code: { field: string; submit: string; source: string } | undefined,
-): { field: LoginAttributeTarget; target: LoginTarget } | undefined {
-  if (code?.source !== "authenticator-app") return undefined;
+):
+  | { totp: { field: LoginAttributeTarget; target: LoginTarget } }
+  | { totpDropped: string }
+  | undefined {
+  if (!code) return undefined;
+  if (code.source !== "authenticator-app") return { totpDropped: `source-${code.source}` };
   const named = page.candidates.find((candidate) => candidate.id === code.field);
   const field = named && (splitCodeInputs(page, named)?.[0] ?? named);
   const submit = page.candidates.find((candidate) => candidate.id === code.submit);
-  if (!field || !submit || field.target.by === "text" || !isTotpCode(page, field, submit))
-    return undefined;
-  return { field: field.target, target: submit.target };
+  if (!field) return { totpDropped: "unknown-field" };
+  if (!submit) return { totpDropped: "unknown-submit" };
+  const refusal = totpCodeRefusal(page, field, submit);
+  if (refusal || field.target.by === "text") return { totpDropped: refusal ?? "text-locator" };
+  return { totp: { field: field.target, target: submit.target } };
 }
 
 export type CompletionRequest = {
@@ -195,7 +208,7 @@ export function createCompletionJudge(config: {
             value: {
               decision: "challenge",
               ...(button ? { passkey: button.target } : {}),
-              ...(totp ? { totp } : {}),
+              ...totp,
             },
           };
         }
