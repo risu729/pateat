@@ -18,9 +18,9 @@ export const ROW_CLASSES = "flex flex-wrap items-center gap-3 px-4 py-3";
 /** A row's title and secondary line; the row's controls follow it. */
 export function RowMain({ title, sub }: { title: ReactNode; sub?: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-[1_1_8rem] flex-col">
+    <div className="flex min-w-0 flex-[1_1_6rem] flex-col">
       <span className="font-semibold [overflow-wrap:anywhere]">{title}</span>
-      {sub && <span className="text-[13px]/5 text-ink-muted [overflow-wrap:anywhere]">{sub}</span>}
+      {sub && <div className="text-[13px]/5 text-ink-muted [overflow-wrap:anywhere]">{sub}</div>}
     </div>
   );
 }
@@ -49,7 +49,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-md px-2 text-xs/5 font-semibold whitespace-nowrap ${BADGE_TONES[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-md px-2 max-w-full text-xs/5 font-semibold [overflow-wrap:anywhere] [&>svg]:flex-none ${BADGE_TONES[tone]}`}
     >
       {children}
     </span>
@@ -67,6 +67,41 @@ export function Line({ icon, children }: { icon: ReactNode; children: ReactNode 
       {icon}
       <span>{children}</span>
     </li>
+  );
+}
+
+/** A titled section of a page (the design system's Panel). */
+export function Panel({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section
+      aria-labelledby={id}
+      className="space-y-4 rounded-xl border border-border bg-surface p-4 shadow-[var(--shadow-panel)] sm:p-6"
+    >
+      {/* Focus lands here when the control the owner used is gone. */}
+      <h2 id={id} tabIndex={-1} className="text-xl/7 font-[650] outline-none">
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+/** Label and value pairs, one per line (the design system's KeyValue). */
+export function KeyValues({ entries }: { entries: [label: string, value: ReactNode][] }) {
+  return (
+    <dl>
+      {entries.map(([label, value]) => (
+        <div
+          key={label}
+          className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-t border-border py-2.5 first:border-t-0 first:pt-0"
+        >
+          <dt className="text-sm text-ink-muted">{label}</dt>
+          <dd className="font-mono text-[13px]/5 [overflow-wrap:anywhere] sm:text-right">
+            {value}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

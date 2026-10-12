@@ -1,17 +1,16 @@
 import type { SavedLoginBinding } from "@pateat/contracts";
-import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
-import { useSettings, useSettingsEdit, vaultAccountLabel } from "./settings";
-import { PAGE_TITLE_CLASSES } from "./ui";
+import { vaultAccountLabel, type SettingsEdit } from "./settings";
+import { Panel, ROW_CLASSES, RowList, RowMain } from "./ui";
 
 type FieldReference = SavedLoginBinding["slots"][number]["field"];
 
 function describeField(field: FieldReference): string {
-  if (field === "username") return "Username";
-  if (field === "password") return "Password";
-  if (field === "totp") return "TOTP";
+  if (field === "username") return "the username";
+  if (field === "password") return "the password";
+  if (field === "totp") return "the TOTP";
   const position = field.position ? ` (${field.position} of ${field.count})` : "";
-  return `Custom field "${field.custom}"${position}`;
+  return `custom field "${field.custom}"${position}`;
 }
 
 const bindingKey = (binding: SavedLoginBinding) =>
@@ -23,109 +22,65 @@ const bindingKey = (binding: SavedLoginBinding) =>
     binding.itemId,
   ]);
 
-export function BindingsPage({ client }: { client: ManageClient }) {
-  const settings = useSettings(client);
-  const edit = useSettingsEdit(client);
-
-  if (settings.isPending)
-    return (
-      <output id="settings-status" className="block">
-        Loading settings…
-      </output>
-    );
-  if (settings.isError)
-    return (
-      <p role="alert" id="settings-status" className="text-danger">
-        {describeError(settings.error)}
-      </p>
-    );
-  const bindings = settings.data.settings?.bindings ?? [];
-
+/**
+ * Which vault field fills each part of a recipe for one item, on one site. Removing a
+ * binding makes that item use only its username, password and TOTP.
+ */
+export function SiteBindings({
+  bindings,
+  busy,
+  edit,
+}: {
+  bindings: SavedLoginBinding[];
+  busy: boolean;
+  edit: (change: SettingsEdit) => void;
+}) {
   return (
-    <section aria-labelledby="bindings-heading" className="space-y-4">
-      <h1 id="bindings-heading" className={PAGE_TITLE_CLASSES}>
-        Account bindings
-      </h1>
-      <p className="text-ink-muted">
-        Which vault field fills each part of a recipe for one item. Removing a binding makes that
-        item use only its username, password and TOTP; a recipe that needs other fields then stops
-        until a new binding is made.
-      </p>
-      <output id="settings-saved" className="block text-ink-muted">
-        {edit.isSuccess && edit.variables.done}
-      </output>
-      {edit.isError && (
-        <p role="alert" id="settings-error" className="text-danger">
-          {describeError(edit.error)}
-        </p>
-      )}
+    <Panel id="bindings-heading" title="Account bindings">
       {bindings.length === 0 ? (
-        <p>No account bindings are saved.</p>
+        <p>No account bindings</p>
       ) : (
-        <table id="bindings" className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b border-border-strong">
-              <th scope="col" className="py-2 pr-4">
-                Recipe
-              </th>
-              <th scope="col" className="py-2 pr-4">
-                Item
-              </th>
-              <th scope="col" className="py-2 pr-4">
-                Fields
-              </th>
-              <th scope="col" className="py-2">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {bindings.map((binding) => (
-              <tr key={bindingKey(binding)} className="border-b border-border align-top">
-                <td className="py-2 pr-4">
-                  {binding.recipeId}
-                  <br />
-                  <span className="text-ink-muted">{binding.origin}</span>
-                </td>
-                <td className="py-2 pr-4">
-                  {binding.itemName}
-                  <br />
-                  <span className="text-ink-muted">{vaultAccountLabel(binding)}</span>
-                </td>
-                <td className="py-2 pr-4">
-                  <ul>
-                    {binding.slots.map((entry) => (
-                      <li key={entry.slot}>
-                        {entry.slot}: {describeField(entry.field)}
-                      </li>
-                    ))}
-                  </ul>
-                </td>
-                <td className="py-2">
-                  <Button
-                    variant="outline"
-                    aria-label={`Remove binding of ${binding.itemName} for ${binding.recipeId} on ${binding.origin}`}
-                    disabled={edit.isPending}
-                    onClick={() =>
-                      edit.mutate({
-                        apply: (value) => ({
-                          ...value,
-                          bindings: value.bindings.filter(
-                            (saved) => bindingKey(saved) !== bindingKey(binding),
-                          ),
-                        }),
-                        done: `Removed the binding of ${binding.itemName} for ${binding.recipeId}.`,
-                      })
-                    }
-                  >
-                    Remove
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <RowList id="bindings">
+          {bindings.map((binding) => (
+            <li key={bindingKey(binding)} className={ROW_CLASSES}>
+              <RowMain
+                title={binding.itemName}
+                sub={
+                  <>
+                    {vaultAccountLabel(binding)}, recipe{" "}
+                    <span className="font-mono">{binding.recipeId}</span>
+                    <ul>
+                      {binding.slots.map((entry) => (
+                        <li key={entry.slot}>
+                          {entry.slot} from {describeField(entry.field)}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                }
+              />
+              <Button
+                variant="danger"
+                aria-label={`Remove binding of ${binding.itemName} for ${binding.recipeId} on ${binding.origin}`}
+                disabled={busy}
+                onClick={() =>
+                  edit({
+                    apply: (value) => ({
+                      ...value,
+                      bindings: value.bindings.filter(
+                        (saved) => bindingKey(saved) !== bindingKey(binding),
+                      ),
+                    }),
+                    done: `Binding of ${binding.itemName} for ${binding.recipeId} removed`,
+                  })
+                }
+              >
+                Remove
+              </Button>
+            </li>
+          ))}
+        </RowList>
       )}
-    </section>
+    </Panel>
   );
 }

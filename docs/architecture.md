@@ -1580,9 +1580,11 @@ the typed code on 2026-10-11. Credential idle expiry has local tests only so far
 
 ### Owner web UI
 
-Status: design approved by the owner on 2026-10-11. The app, its Access-checked assets
-and API, and the devices, sites, account bindings and recipes pages are implemented,
-tested locally and deployed with the service. It replaces the extension's settings page
+Status: design approved by the owner on 2026-10-11, and its reorganisation into Sites
+and Devices tabs with a page per site on 2026-10-12 (21:08 UTC). The app, its
+Access-checked assets and API, and the devices, sites and site pages are implemented and
+tested locally; the deployed service still has the earlier sites, account bindings and
+recipes pages until the next deployment. It replaces the extension's settings page
 for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)), except item selection,
 field exclusions and custom-field review, which need the device's vault catalog
@@ -1590,15 +1592,31 @@ field exclusions and custom-field review, which need the device's vault catalog
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
-  Worker as static assets. The first version has these pages:
-  - Devices: the current list and revocation, moved into the app.
-  - Sites: add and delete `excludedSites` entries; list and delete `siteDefaults`
-    entries. Deleting a default restores the automatic single-match choice.
-  - Account bindings: list and delete `bindings` entries. Deleting one makes that item
-    fall back to the built-in-slot binding.
-  - Recipes: list active and revoked recipes, show one recipe's steps, signed-in markers
-    and rejection target, or an entry recipe's entry, and its JSON, and revoke it with a
-    tombstone. A generated recipe may have no marker yet (ADR 0018).
+  Worker as static assets. Its header shows the logo and two tabs, Sites and Devices,
+  and its footer the version, links to the source and the GPL text at the built commit
+  and to the third-party notices, and the Theme select. Each page is its own path, a
+  full page load that the Worker serves only for these paths:
+  - Devices (`/manage`): the current list and revocation, moved into the app.
+  - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
+    `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
+    count, its default account ("<item> in <account>") and its binding count, and
+    opening the site's page; then each `excludedSites` rule (a hostname, optionally with
+    its subdomains) with Allow, which deletes it, and a form to add one. Below them,
+    Revoked recipes lists each tombstone with its revision and time; a tombstone keeps
+    no origin, so it belongs to no site.
+  - A site (`/manage/sites/<scheme>/<host>`, one exact origin, the key of defaults,
+    recipes and bindings; the Worker serves the app for any host under `http` or
+    `https`, and the app shows "No such page." for one that is not a canonical origin):
+    a "Pateat on this site" switch with the popup's semantics (turning it off adds a
+    rule for the origin's canonical hostname alone, turning it on deletes that rule, and
+    a rule that includes subdomains disables it with the reason, since that rule covers
+    other sites too); the default account with Remove, which restores the automatic
+    single-match choice, and a pointer to the popup for choosing another; the origin's
+    active recipes, each with its ID, revision, slots, signed-in markers, rejection
+    target, steps, or an entry or chooser recipe's entry, and its JSON, and revocation
+    with a tombstone after a confirmation that names the revision shown; and the
+    origin's `bindings` entries with Remove, which makes that item fall back to the
+    built-in-slot binding. A generated recipe may have no marker yet (ADR 0018).
 
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI
