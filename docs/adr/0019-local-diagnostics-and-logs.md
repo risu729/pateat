@@ -271,7 +271,7 @@ Limits:
 Delivery, one pull request each: debug logging on and off; reasons for doing nothing
 (including an exception that stops a login); decisions; URLs; requests and sync
 results; finer reasons; limits. The page limit per level (#291), debug logging on and
-off, reasons for doing nothing, and decisions are done.
+off, reasons for doing nothing, decisions and URLs are done.
 
 When reasons for doing nothing were delivered, frame refusals were read as the
 proposal's example put it, refusals of embedded frames such as ads: a frame whose own

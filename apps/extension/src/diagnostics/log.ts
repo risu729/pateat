@@ -43,6 +43,8 @@ export const TRUNCATED = "[truncated]";
  * - `origin`, `rpId`: recorded in full only for sites the settings or recipes name.
  * - `connection`, `item`: always pseudonyms.
  * - `stack`: extension script positions such as `background.js:12:345`.
+ * - `url`: a page URL's path, query and fragment, kept only when the entry's `origin` is
+ *   the URL's own and is recorded in full (ADR 0019); cut at the field length.
  */
 type FieldKind =
   | "code"
@@ -56,7 +58,8 @@ type FieldKind =
   | "rpId"
   | "connection"
   | "item"
-  | "stack";
+  | "stack"
+  | "url";
 
 type EventDefinition = { level: LogLevel; fields: Readonly<Record<string, FieldKind>> };
 
@@ -112,6 +115,7 @@ export const LOG_EVENTS = {
       cause: "code",
       reason: "code",
       settled: "flag",
+      url: "url",
     },
   },
   "login.handler": {
@@ -123,6 +127,7 @@ export const LOG_EVENTS = {
       kind: "code",
       outcome: "code",
       steps: "count",
+      url: "url",
     },
   },
   "login.state": {
@@ -143,11 +148,12 @@ export const LOG_EVENTS = {
       e2: "flag",
       e3: "flag",
       settled: "flag",
+      url: "url",
     },
   },
   "login.refused": {
     level: "info",
-    fields: { origin: "origin", reason: "code", detail: "code", frame: "flag" },
+    fields: { origin: "origin", reason: "code", detail: "code", frame: "flag", url: "url" },
   },
   "login.start": {
     level: "info",
@@ -160,10 +166,11 @@ export const LOG_EVENTS = {
       candidates: "count",
       item: "item",
       fillOnly: "flag",
+      url: "url",
     },
   },
-  "login.logout": { level: "info", fields: { origin: "origin", recipe: "recipe" } },
-  "login.choice": { level: "info", fields: { origin: "origin", outcome: "code" } },
+  "login.logout": { level: "info", fields: { origin: "origin", recipe: "recipe", url: "url" } },
+  "login.choice": { level: "info", fields: { origin: "origin", outcome: "code", url: "url" } },
   "login.exception": {
     level: "warn",
     fields: {
@@ -174,6 +181,7 @@ export const LOG_EVENTS = {
       step: "count",
       name: "name",
       message: "code",
+      url: "url",
     },
   },
   "recipe.generate": {
@@ -185,6 +193,7 @@ export const LOG_EVENTS = {
       check: "code",
       detail: "code",
       path: "code",
+      url: "url",
     },
   },
   "recipe.judge": {
@@ -197,6 +206,7 @@ export const LOG_EVENTS = {
       verdict: "code",
       reason: "code",
       takenOver: "flag",
+      url: "url",
     },
   },
   "passkey.request": {
@@ -248,7 +258,7 @@ export const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set([
 
 const integer = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER));
 const KIND_SCHEMAS: Record<
-  Exclude<FieldKind, "origin" | "rpId" | "connection" | "item">,
+  Exclude<FieldKind, "origin" | "rpId" | "connection" | "item" | "url">,
   v.GenericSchema<unknown, FieldValue>
 > = {
   code: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
@@ -281,6 +291,7 @@ const STORED_SCHEMAS: Record<FieldKind, v.GenericSchema<unknown, FieldValue>> = 
   rpId: rpIdValueSchema,
   connection: pseudonymSchema("bitwarden", 6),
   item: pseudonymSchema("item", 8),
+  url: v.pipe(v.string(), v.startsWith("/"), v.maxLength(MAX_FIELD_LENGTH)),
 };
 
 const entrySchema = v.object({
@@ -463,6 +474,9 @@ export function createLogger(deps: LoggerDependencies) {
           : undefined;
       case "item":
         return typeof raw === "string" ? `item:${await deps.pseudonym("item", raw, 8)}` : undefined;
+      case "url":
+        // Recorded after the entry's origin, by `pagePath`.
+        return undefined;
       default: {
         const parsed = v.safeParse(KIND_SCHEMAS[kind], raw);
         return parsed.success ? parsed.output : undefined;
@@ -488,11 +502,15 @@ export function createLogger(deps: LoggerDependencies) {
     if (level === "debug" && now() >= (await debugDeadline())) return;
     const definition: EventDefinition = LOG_EVENTS[event];
     const recorded: Record<string, FieldValue> = {};
+    const raws = fields as Record<string, FieldValue | undefined>;
     for (const [key, kind] of Object.entries(definition.fields)) {
-      const raw = (fields as Record<string, FieldValue | undefined>)[key];
+      const raw = raws[key];
       if (raw === undefined) continue;
-      // oxlint-disable-next-line no-await-in-loop -- fields are few; pseudonyms are cached keys
-      const value = await recordValue(kind, raw);
+      const value =
+        kind === "url"
+          ? pagePath(raw, recorded["origin"])
+          : // oxlint-disable-next-line no-await-in-loop -- fields are few; pseudonyms are cached keys
+            await recordValue(kind, raw);
       if (value !== undefined) recorded[key] = value;
     }
     const entry: LogEntry = { time: now(), level, event, fields: recorded };
@@ -759,6 +777,22 @@ function siteSubstitution(): Substitute {
   };
 }
 
+/**
+ * A page URL's path, query and fragment, when `origin` is the URL's own as recorded in full;
+ * a pseudonymized origin gets none (ADR 0019).
+ */
+function pagePath(raw: FieldValue, origin: FieldValue | undefined): string | undefined {
+  if (typeof raw !== "string" || typeof origin !== "string") return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  if (url.origin !== origin) return undefined;
+  return `${url.pathname}${url.search}${url.hash}`.slice(0, MAX_FIELD_LENGTH);
+}
+
 /** Only allowlisted fields that still pass their stored-value check leave the page. */
 function exportedFields(entry: LogEntry, substitute?: Substitute): Record<string, FieldValue> {
   const kinds: Readonly<Record<string, FieldKind>> = LOG_EVENTS[entry.event].fields;
@@ -766,6 +800,8 @@ function exportedFields(entry: LogEntry, substitute?: Substitute): Record<string
   for (const [key, value] of Object.entries(entry.fields)) {
     const kind = kinds[key];
     if (!kind || (value !== TRUNCATED && !v.is(STORED_SCHEMAS[kind], value))) continue;
+    // Hiding sites leaves page URLs out, and the bug report never carries them.
+    if (substitute && kind === "url") continue;
     fields[key] =
       substitute &&
       typeof value === "string" &&

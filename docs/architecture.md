@@ -786,6 +786,14 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `log.dropped` | warn; debug when only `debug` events were dropped | origin, events dropped over the page limit |
 | `log.debug` | info | whether debug logging was turned on or off, and when it ends |
 
+The login, judgement, handler and generation events also carry `url`, the tab's page
+URL when the report is made, for an event on that page's own origin and not about a
+frame. Only its path, query and fragment are kept, cut at 512 characters, and only
+when the origin is recorded in full; a pseudonymized origin gets no URL. A query or
+fragment may hold a one-time code or token that a site put in a link, which the owner
+accepted (ADR 0019). **Hide site addresses and recipe IDs** leaves `url` out of a
+download, and the bug report's recent lines never carry it.
+
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
 when a site default, binding, excluded site or cached recipe names it; any other
 becomes `origin:7d2b91aa` or `rp:7d2b91aa`. The rule applies when the entry is

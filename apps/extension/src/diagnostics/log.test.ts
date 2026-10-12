@@ -107,6 +107,43 @@ describe("diagnostics log", () => {
     expect(entries[0]).toMatchObject({ time: NOW, level: "info", event: "passkey.request" });
   });
 
+  it("keeps a page URL's path, query and fragment only for a site named in full", async () => {
+    const { logger } = setup();
+    const long = `https://bank.example/signin?return=${"a".repeat(600)}`;
+    for (const [origin, url] of [
+      ["https://bank.example", "https://bank.example/signin?next=%2Fhome#top"],
+      // A pseudonymized origin gets no URL, and a URL of another origin is left out.
+      ["https://shop.example", "https://shop.example/signin?next=%2Fcart"],
+      ["https://bank.example", "https://other.example/signin"],
+      ["https://bank.example", long],
+    ])
+      // oxlint-disable-next-line no-await-in-loop -- entries are written in order
+      await logger.log("login.refused", { origin, reason: "default-not-set", url });
+    await logger.log("login.exception", {
+      origin: "https://bank.example",
+      name: "Error",
+      url: "https://bank.example/signin?next=%2Fhome#top",
+    });
+    const entries = await logger.entries();
+    expect(entries.map((entry) => entry.fields["url"])).toEqual([
+      "/signin?next=%2Fhome#top",
+      undefined,
+      undefined,
+      `/signin?return=${"a".repeat(600)}`.slice(0, 512),
+      "/signin?next=%2Fhome#top",
+    ]);
+    expect(JSON.stringify(entries)).not.toContain("cart");
+    // Hiding sites leaves URLs out of a download, and the bug report never carries them.
+    const context = { version: "0.1.0", revision: "1c42ad3", exportedAt: NOW };
+    expect(formatLogExport(entries, { ...context, includeSites: true })).toContain(
+      "/signin?next=%2Fhome#top",
+    );
+    expect(formatLogExport(entries, { ...context, includeSites: false })).not.toContain("/signin");
+    const recent = recentLog(entries, NOW);
+    expect(recent.problems).toHaveLength(1);
+    expect(JSON.stringify(recent)).not.toContain("/signin");
+  });
+
   it("records debug entries only while debug logging is on, across workers", async () => {
     const { logger, deps, advance } = setup();
     await logger.log("service.sync", { outcome: "synced" }, { level: "debug" });

@@ -231,6 +231,7 @@ export function createDiagnosticsLog(options: {
           "login.refused",
           {
             origin: report.origin,
+            url: report.url,
             reason: report.reason,
             detail: report.detail,
             frame: report.frame,
@@ -253,6 +254,7 @@ export function createDiagnosticsLog(options: {
           "login.start",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             route: report.route,
             variant: report.variant,
@@ -266,13 +268,13 @@ export function createDiagnosticsLog(options: {
       else if (report.type === "logout")
         void logger.log(
           "login.logout",
-          { origin: report.origin, recipe: report.recipeId },
+          { origin: report.origin, recipe: report.recipeId, url: report.url },
           { source },
         );
       else if (report.type === "choice")
         void logger.log(
           "login.choice",
-          { origin: report.origin, outcome: report.outcome },
+          { origin: report.origin, outcome: report.outcome, url: report.url },
           { source },
         );
       else if (report.type === "exception")
@@ -280,6 +282,7 @@ export function createDiagnosticsLog(options: {
           "login.exception",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             route: report.route,
             state: report.state,
@@ -296,6 +299,7 @@ export function createDiagnosticsLog(options: {
           "recipe.generate",
           {
             origin: report.origin,
+            url: report.url,
             outcome: report.outcome,
             reason: "reason" in report ? report.reason : undefined,
             // For refused model output: which check refused it, and why.
@@ -315,6 +319,7 @@ export function createDiagnosticsLog(options: {
           "recipe.judge",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
             route: report.route,
@@ -330,6 +335,7 @@ export function createDiagnosticsLog(options: {
           "login.state",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             route: report.route,
             decision: report.decision,
@@ -349,6 +355,7 @@ export function createDiagnosticsLog(options: {
           "login.handler",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             handler: report.handler,
             kind: report.kind,
@@ -362,6 +369,7 @@ export function createDiagnosticsLog(options: {
           "login.attempt",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             route: report.route,
             variant: report.variant,

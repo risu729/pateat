@@ -593,7 +593,7 @@ export type AccountSource = "default" | "match" | "pick";
  * origin and recipe ID are reduced there; no account ID is included, and the only item ID,
  * a `start`'s, is logged as a pseudonym.
  */
-export type LoginReport =
+export type LoginReport = (
   | {
       type: "attempt";
       tabId: number;
@@ -736,7 +736,15 @@ export type LoginReport =
        */
       outcome: "entered" | "shown-again" | "missing-fact" | "code-used" | "no-room";
       steps: number;
-    };
+    }
+) & {
+  /**
+   * The tab's page URL when the report is made, for a report on the page's own origin and
+   * not about a frame (ADR 0019). The log keeps its path, query and fragment only for a
+   * site it names in full.
+   */
+  url?: string | undefined;
+};
 /**
  * What withdrew a running login's authorization (`POLICY_CHANGED`): a settings sync or a
  * save on the settings page; a settings revision other than the login's, or settings that
@@ -791,7 +799,16 @@ export function createLoginRuntime(
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
   const report = (value: LoginReport) => {
     try {
-      options.report?.(value);
+      // A report that names its page's URL, even as none, keeps it.
+      const page = documents.get(frameKey({ tabId: value.tabId, frameId: 0 }));
+      const url =
+        "url" in value
+          ? value.url
+          : page && page.document.origin === value.origin && !("frame" in value && value.frame)
+            ? page.url
+            : undefined;
+      const { url: _named, ...rest } = value;
+      options.report?.(url ? { ...rest, url } : rest);
     } catch {
       // A report must never change the answer.
     }
@@ -3581,12 +3598,12 @@ export function createLoginRuntime(
    */
   function note(
     document: LoginDocument,
-    path: string,
+    url: string,
     reason: string,
     detail?: string,
     unrelated?: boolean,
   ): void {
-    const key = `${document.tabId} ${document.documentId} ${path}`;
+    const key = `${document.tabId} ${document.documentId} ${new URL(url).pathname}`;
     const reasons = noted.get(key) ?? new Set<string>();
     const id = `${reason} ${detail ?? ""}`;
     const repeat = reasons.has(id);
@@ -3606,6 +3623,8 @@ export function createLoginRuntime(
       ...(document.frameId === 0 ? {} : { frame: true as const }),
       ...(repeat ? { repeat: true as const } : {}),
       ...(unrelated ? { unrelated: true as const } : {}),
+      // The refused page's own URL, which may not be the tab's admitted page yet.
+      url: document.frameId === 0 ? url : undefined,
     });
   }
   /**
@@ -3647,7 +3666,7 @@ export function createLoginRuntime(
       if (!(await loginRelated(tabId, 0, url.origin))) return;
       note(
         { tabId, frameId: 0, documentId: sender.documentId, origin: url.origin },
-        url.pathname,
+        url.href,
         refusal,
       );
     } catch {
@@ -3693,7 +3712,7 @@ export function createLoginRuntime(
       const url = new URL(sender.url);
       note(
         { tabId, frameId: sender.frameId, documentId: sender.documentId, origin: url.origin },
-        url.pathname,
+        url.href,
         "stale-document",
         "gave-up",
       );
@@ -3881,7 +3900,7 @@ export function createLoginRuntime(
       (oldLive.token !== token ||
         (carried?.live === oldLive && !(document.frameId === 0 && finishedLogin(carried.metadata))))
     ) {
-      note(document, new URL(url).pathname, "duplicate-document");
+      note(document, url, "duplicate-document");
       return { ok: false, reason: "duplicate-document" };
     }
     if (oldLive && !sameDocument)
@@ -3903,7 +3922,7 @@ export function createLoginRuntime(
     };
     documents.set(key, live);
     const refuse = async (reason: string, detail?: string, unrelated?: boolean) => {
-      note(document, live.path, reason, detail, unrelated);
+      note(document, live.url, reason, detail, unrelated);
       live.state = "denied";
       live.reason = reason;
       await publish(live);
