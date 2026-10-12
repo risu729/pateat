@@ -32,6 +32,11 @@ export const LOG_PROBLEM_LIMIT = 1_000;
 export const PRUNE_EVERY_WRITES = 500;
 /** Events other than `debug` caused by a web page, per tab and origin; a login writes 6 to 8. */
 export const PAGE_EVENTS_PER_MINUTE = 30;
+/**
+ * A login attempt's state changes (`login.attempt` other than `debug`) per tab and origin,
+ * counted on their own so a long login still logs how it ended; one attempt writes a few.
+ */
+export const PAGE_ATTEMPT_EVENTS_PER_MINUTE = 60;
 /** `debug` events caused by a web page, per tab and origin, counted on their own. */
 export const PAGE_DEBUG_EVENTS_PER_MINUTE = 20;
 export const MAX_FIELD_LENGTH = 512;
@@ -607,18 +612,18 @@ export function createLogger(deps: LoggerDependencies) {
 
   /**
    * Counts a page-caused event against its tab and origin; false when over the limit.
-   * `debug` events have an allowance of their own, so they never crowd out the rest.
-   * The first drop of each event in a window is logged at once, since a stopped worker
-   * loses the rest. `perMinute` replaces the allowance of events other than `debug`.
+   * `debug` events and a login attempt's state changes have allowances of their own, so
+   * they never crowd out the rest or are crowded out by it. The first drop of each event in
+   * a window is logged at once, since a stopped worker loses the rest. `perMinute` replaces
+   * the allowance of the other events.
    */
   function admit(
     source: { tabId: number; origin: string; perMinute?: number },
-    debug: boolean,
+    band: "debug" | "attempt" | "rest",
     event: string,
   ): boolean {
     flushDrops();
     const at = now();
-    const band = debug ? "debug" : "rest";
     let key = `${source.tabId}\u0000${source.origin}\u0000${band}`;
     // Pages that open many tabs or origins share one window once too many are open.
     const overflow = !windows.has(key) && windows.size >= MAX_WINDOWS;
@@ -629,15 +634,18 @@ export function createLogger(deps: LoggerDependencies) {
         start: at,
         count: 0,
         // The shared overflow window keeps the page allowance, whoever opened it.
-        limit: debug
-          ? PAGE_DEBUG_EVENTS_PER_MINUTE
-          : overflow
-            ? PAGE_EVENTS_PER_MINUTE
-            : (source.perMinute ?? PAGE_EVENTS_PER_MINUTE),
+        limit:
+          band === "debug"
+            ? PAGE_DEBUG_EVENTS_PER_MINUTE
+            : band === "attempt"
+              ? PAGE_ATTEMPT_EVENTS_PER_MINUTE
+              : overflow
+                ? PAGE_EVENTS_PER_MINUTE
+                : (source.perMinute ?? PAGE_EVENTS_PER_MINUTE),
         dropped: new Map(),
         reported: new Map(),
         origin: overflow ? "" : source.origin,
-        debug,
+        debug: band === "debug",
       };
       windows.set(key, window);
     }
@@ -667,8 +675,10 @@ export function createLogger(deps: LoggerDependencies) {
     // Checked before queueing, so a stalled database cannot collect page events.
     if (level === "debug" && knownDebugUntil !== undefined && now() >= knownDebugUntil)
       return Promise.resolve();
-    if (options.source && !admit(options.source, level === "debug", event))
-      return Promise.resolve();
+    // A login attempt's state changes are what its log is read for, so other page events
+    // never crowd them out; its step-by-step detail is debug like any other.
+    const band = level === "debug" ? "debug" : event === "login.attempt" ? "attempt" : "rest";
+    if (options.source && !admit(options.source, band, event)) return Promise.resolve();
     // A log failure never changes what the caller does.
     return serial(() => record(event, fields, level)).catch(() => undefined);
   }

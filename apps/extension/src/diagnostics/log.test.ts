@@ -4,6 +4,7 @@ import {
   DEBUG_LOGGING_MS,
   LOG_EVENTS,
   LOG_RETENTION_MS,
+  PAGE_ATTEMPT_EVENTS_PER_MINUTE,
   PAGE_DEBUG_EVENTS_PER_MINUTE,
   PAGE_EVENTS_PER_MINUTE,
   TRUNCATED,
@@ -409,6 +410,64 @@ describe("diagnostics log", () => {
     ).toEqual([
       ["log.dropped", "debug"],
       ["recipe.judge", "info"],
+    ]);
+  });
+
+  it("keeps a login attempt's state changes apart from the page's other events", async () => {
+    const { logger } = setup();
+    await logger.enableDebug();
+    const source = { tabId: 4, origin: "https://login.example" };
+    const attempt = { origin: source.origin, recipe: "recipe-1", route: "password" };
+    for (let index = 0; index < 5; index += 1)
+      void logger.log("login.attempt", { ...attempt, state: "retryable" }, { source });
+    for (let index = 0; index < PAGE_EVENTS_PER_MINUTE + 1; index += 1)
+      void logger.log(
+        "login.refused",
+        { origin: source.origin, reason: "origin-busy" },
+        { source },
+      );
+    // The outcome after the page's allowance is spent, as on a long login.
+    void logger.log(
+      "login.attempt",
+      { ...attempt, state: "blocked", outcome: "timeout" },
+      { level: "warn", source },
+    );
+    void logger.log(
+      "login.attempt",
+      { ...attempt, state: "authenticated", settled: true },
+      { level: "warn", source },
+    );
+    void logger.log("login.attempt", { ...attempt, state: "authenticated" }, { source });
+    // Step-by-step detail still has the debug allowance.
+    for (let index = 0; index < PAGE_DEBUG_EVENTS_PER_MINUTE + 1; index += 1)
+      void logger.log(
+        "login.attempt",
+        { ...attempt, state: "filling", step: index },
+        { level: "debug", source },
+      );
+    // A page that keeps starting attempts, as a redirect loop, still meets a limit.
+    for (let index = 8; index <= PAGE_ATTEMPT_EVENTS_PER_MINUTE; index += 1)
+      void logger.log("login.attempt", { ...attempt, state: "retryable" }, { source });
+    await logger.log("log.debug", { enabled: false });
+    const entries = await logger.entries();
+    const attempts = entries.filter((entry) => entry.event === "login.attempt");
+    expect(attempts.filter((entry) => entry.level !== "debug")).toHaveLength(
+      PAGE_ATTEMPT_EVENTS_PER_MINUTE,
+    );
+    expect(attempts.filter((entry) => entry.level === "debug")).toHaveLength(
+      PAGE_DEBUG_EVENTS_PER_MINUTE,
+    );
+    expect(entries.filter((entry) => entry.event === "login.refused")).toHaveLength(
+      PAGE_EVENTS_PER_MINUTE,
+    );
+    expect(
+      entries
+        .filter((entry) => entry.event === "log.dropped")
+        .map((entry) => [entry.level, entry.fields["dropped"], entry.fields["count"]]),
+    ).toEqual([
+      ["warn", "login.refused", 1],
+      ["debug", "login.attempt", 1],
+      ["warn", "login.attempt", 1],
     ]);
   });
 

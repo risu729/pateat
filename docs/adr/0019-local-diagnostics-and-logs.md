@@ -280,3 +280,19 @@ When reasons for doing nothing were delivered, frame refusals were read as the
 proposal's example put it, refusals of embedded frames such as ads: a frame whose own
 origin has a recipe, as a login form embedded in a page, is logged like the tab's page,
 as it already was, so a framed login's refusal stays `info`.
+
+## Amendment: a login attempt's state changes are never dropped
+
+On 2026-10-12 a Microsoft login on an agent's browser used up its page's 30 events
+within a minute, and three `login.attempt` lines and a `login.refused` line at the
+login's outcome were dropped, so the log could not tell what happened.
+
+- `login.attempt` entries other than `debug` (state changes such as `blocked`,
+  `watching`, `authenticated` and a settled result) neither count against the page's 30
+  nor are dropped by it. They have an allowance of their own, 60 per minute per tab and
+  origin; a drop there is a `warn` `log.dropped`.
+- That allowance stays because one attempt writes only a few, but a page can keep
+  starting attempts: after a logout, each new document runs a fill-only login, so a
+  redirect loop would otherwise write one entry per document load.
+- Step-by-step `login.attempt` detail is `debug` and keeps the `debug` allowance; every
+  other page event keeps the page's 30.
