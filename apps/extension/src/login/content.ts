@@ -537,7 +537,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             // and so is what the page shows before an effect (ADR 0029).
             if (index === 0) {
               measureNext();
-              if (step.effect !== "prepare") submitted = submittedPage(document);
+              if (step.effect !== "prepare") submitted = submittedPage(document, writableInputs);
             }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
@@ -594,7 +594,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();
-        submitted = submittedPage(document);
+        // The click's form's inputs, or the page's for a button outside a form.
+        submitted = submittedPage(
+          document,
+          [
+            ...(isButton(element) && element.form
+              ? element.form.elements
+              : document.querySelectorAll("input")),
+          ].filter(writable),
+        );
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };

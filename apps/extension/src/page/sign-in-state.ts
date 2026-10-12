@@ -7,6 +7,9 @@ import { renderedText } from "./text";
 
 /** What the page showed when an effect step ran, to compare with afterwards (F1, F2). */
 export interface SubmittedPage {
+  /** The step's sign-in inputs: the ones it filled, or those of the form it clicked in. */
+  readonly fields: readonly HTMLInputElement[];
+  /** Those of `fields` already marked invalid. */
   readonly invalid: ReadonlySet<HTMLInputElement>;
   readonly alerts: ReadonlySet<string>;
 }
@@ -19,7 +22,7 @@ export interface PageSigns {
   readonly code: boolean;
   /** S4: a shown CAPTCHA widget. */
   readonly captcha: boolean;
-  /** F1: an input became `aria-invalid="true"` since the effect step, in its document. */
+  /** F1: a sign-in input of the effect step became `aria-invalid="true"`, in its document. */
   readonly invalid: boolean;
   /** F2: an alert shows text it did not show at the effect step, in its document. */
   readonly alert: boolean;
@@ -27,7 +30,11 @@ export interface PageSigns {
   readonly username?: boolean;
 }
 
+// As the fill check reads them: alerts anywhere, status and polite live regions only
+// inside a form or when a sign-in input names them. A region around an input or button
+// changes with any text of the form, such as a button that reads "Signing in…".
 const alertSelector = '[role="alert"], [aria-live="assertive"]';
+const statusSelector = '[role="status"], [aria-live="polite"]';
 const landmarkSelector = 'header, nav, [role="banner"], [role="navigation"]';
 /** How much of the header and navigation is read for the username. */
 const landmarkReadLimit = 4000;
@@ -58,10 +65,27 @@ const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().spl
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
-function alertTexts(document: Document): Set<string> {
+function alertTexts(document: Document, fields: readonly HTMLInputElement[]): Set<string> {
+  const named = new Set(
+    fields.flatMap((input) =>
+      ["aria-describedby", "aria-errormessage"].flatMap((name) =>
+        (input.getAttribute(name) ?? "").split(/\s+/u).filter(Boolean),
+      ),
+    ),
+  );
+  const regions = [
+    ...document.querySelectorAll(alertSelector),
+    ...[...document.querySelectorAll(statusSelector)].filter(
+      (element) => element.closest("form") !== null || named.has(element.id),
+    ),
+  ];
   const texts = new Set<string>();
-  for (const element of document.querySelectorAll(alertSelector)) {
-    if (!(element instanceof HTMLElement) || !element.checkVisibility({ visibilityProperty: true }))
+  for (const element of regions) {
+    if (
+      !(element instanceof HTMLElement) ||
+      element.querySelector("input, button, select, textarea") !== null ||
+      !element.checkVisibility({ visibilityProperty: true })
+    )
       continue;
     const text = element.innerText.replace(/\s+/gu, " ").trim();
     if (text) texts.add(text);
@@ -69,40 +93,49 @@ function alertTexts(document: Document): Set<string> {
   return texts;
 }
 
-/** The marks and alerts the page shows now, taken just before an effect step. */
-export function submittedPage(document: Document): SubmittedPage {
+/**
+ * The marks and alerts the page shows now, taken just before an effect step with its
+ * sign-in inputs.
+ */
+export function submittedPage(
+  document: Document,
+  fields: readonly HTMLInputElement[],
+): SubmittedPage {
   return {
-    invalid: new Set([...document.querySelectorAll("input")].filter(ariaInvalid)),
-    alerts: alertTexts(document),
+    fields,
+    invalid: new Set(fields.filter(ariaInvalid)),
+    alerts: alertTexts(document, fields),
   };
 }
 
 /**
  * S2: a shown password input, except one for a new password and those of a form with two
- * or more password inputs (a password change or a registration), where the current
- * password must never go.
+ * or more shown password inputs (a password change or a registration), where the current
+ * password must never go. Inputs outside any form count as one form.
  */
 function showsPassword(document: Document): boolean {
   const passwords = [...document.querySelectorAll("input")].filter(
-    (input) => input.type === "password" || tokens(input).includes("current-password"),
+    (input) =>
+      (input.type === "password" || tokens(input).includes("current-password")) &&
+      writableInput(input),
   );
   return passwords.some(
     (input) =>
-      writableInput(input) &&
       !tokens(input).includes("new-password") &&
-      passwords.filter((other) => other.form === input.form && input.form !== null).length < 2,
+      passwords.filter((other) => other.form === input.form).length < 2,
   );
 }
 
 /** S3: a shown input that the executor would type a one-time code into. */
 function showsCode(document: Document): boolean {
+  // As the executor's `acceptsSecret` for a code; the attributes first, as they cost less.
   return [...document.querySelectorAll("input")].some(
     (input) =>
-      writableInput(input) &&
       (tokens(input).includes("one-time-code") ||
         ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
           input.maxLength >= 1 &&
-          input.maxLength <= 10)),
+          input.maxLength <= 10)) &&
+      writableInput(input),
   );
 }
 
@@ -151,14 +184,15 @@ export function pageSigns(
   document: Document,
   { submitted, username }: { submitted?: SubmittedPage; username?: string } = {},
 ): PageSigns {
+  // A sign-in input of the step newly marked invalid.
   const invalid =
     submitted !== undefined &&
-    [...document.querySelectorAll("input")].some(
-      (input) => ariaInvalid(input) && writableInput(input) && !submitted.invalid.has(input),
+    submitted.fields.some(
+      (input) => ariaInvalid(input) && !submitted.invalid.has(input) && writableInput(input),
     );
   const alert =
     submitted !== undefined &&
-    [...alertTexts(document)].some((text) => !submitted.alerts.has(text));
+    [...alertTexts(document, submitted.fields)].some((text) => !submitted.alerts.has(text));
   return {
     password: showsPassword(document),
     code: showsCode(document),

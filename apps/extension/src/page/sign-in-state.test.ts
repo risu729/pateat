@@ -19,6 +19,13 @@ describe("pageSigns", () => {
     expect(pageSigns(document)).toEqual(none);
     document.body.innerHTML = '<form><input type="password" style="display:none"></form>';
     expect(pageSigns(document)).toEqual(none);
+    // A hidden second password input, as a honeypot, does not make it a change form.
+    document.body.innerHTML =
+      '<form><input type="password"><input type="password" style="display:none"></form>';
+    expect(pageSigns(document)).toEqual({ ...none, password: true });
+    // Inputs outside any form count as one form.
+    document.body.innerHTML = '<input type="password"><input type="password">';
+    expect(pageSigns(document)).toEqual(none);
   });
 
   it("reads a code input and a CAPTCHA widget large enough to solve", () => {
@@ -51,19 +58,34 @@ describe("pageSigns", () => {
 
   it("reads new invalid marks and alerts only against the submitted document", () => {
     document.body.innerHTML =
-      '<form><input id="user"><input id="old" aria-invalid="true"></form><p role="alert">Cookies are off</p>';
+      '<form><input id="user"><input id="old" aria-invalid="true"><p id="status" role="status"></p></form><input id="search"><p role="alert">Cookies are off</p>';
     expect(pageSigns(document)).toEqual(none);
-    const submitted = submittedPage(document);
+    const fields = [...document.querySelectorAll<HTMLInputElement>("form input")];
+    const submitted = submittedPage(document, fields);
     // Marks and messages the page already showed are not its answer.
     expect(pageSigns(document, { submitted })).toEqual(none);
     document.querySelector("#user")!.setAttribute("aria-invalid", "true");
     expect(pageSigns(document, { submitted })).toEqual({ ...none, invalid: true });
     document.querySelector("#user")!.removeAttribute("aria-invalid");
+    // Only the step's sign-in inputs count, not a search box.
+    document.querySelector("#search")!.setAttribute("aria-invalid", "true");
+    expect(pageSigns(document, { submitted })).toEqual(none);
+    // A status region inside the form counts.
+    document.querySelector("#status")!.textContent = "Wrong password";
+    expect(pageSigns(document, { submitted })).toEqual({ ...none, alert: true });
+    document.querySelector("#status")!.textContent = "";
     document.body.insertAdjacentHTML(
       "beforeend",
       '<div aria-live="assertive">Wrong password</div>',
     );
     expect(pageSigns(document, { submitted })).toEqual({ ...none, alert: true });
+    document.body.lastElementChild!.remove();
+    // A live region around a button changes with its text, which is not an answer.
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div aria-live="assertive"><button>Signing in…</button></div>',
+    );
+    expect(pageSigns(document, { submitted })).toEqual(none);
     // Without the submitted document, nothing is compared.
     expect(pageSigns(document)).toEqual(none);
   });

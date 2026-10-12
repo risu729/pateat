@@ -104,11 +104,18 @@ Delivery 1 (2026-10-12) reads the page once, when the attempt's result would set
 unknown today (3 seconds after a submission, 10 after an advance), just before the judge
 is asked; the re-check comes with delivery 2. It writes one `login.state` entry with the
 signs that show and the ADR's outcome ([architecture](../architecture.md)). A login in a
-frame is not read. The start URL for E3 is kept in the background's memory, so a worker
-restart during the login leaves E3 unread, and so are S5's times. For S5 the passkey
-bridge tells the login of each request of a top document that is not for conditional
-mediation, whether Pateat answers it or leaves it to the browser; one at or after the
-time the step was sent to the page counts.
+frame is not read. The sign-in page's URL for E3 is the URL of the document the
+attempt's first fill ran in, compared with the document's current path, so a single-page
+site's route change after the submission counts. It and S5's times are kept in the
+background's memory, so a worker restart during the login leaves E3 and S5 unread. For
+S5 the passkey bridge tells the login of each request of a top document that is not for
+conditional mediation, whether Pateat answers it or leaves it to the browser; one at or
+after the time the step was sent to the page counts, except after a step that asks for a
+passkey itself (the `passkey` route, or a `passkey` handler's click). S2 counts only
+shown password inputs for the two-or-more rule, and inputs outside any form as one form.
+F1 reads the step's sign-in inputs (the ones it filled, or those of the form it clicked
+in); F2 reads alerts anywhere and status regions inside a form or named by a sign-in
+input, as the fill check does, but no region around an input or button.
 
 ## Consequences
 

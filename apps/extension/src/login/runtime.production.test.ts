@@ -3351,7 +3351,7 @@ describe("production login document admission", () => {
         ).toEqual([expect.objectContaining({ s1: false, s5: true, decision: "continuing" })]);
       }, 10_000);
 
-      it("does not count a passkey request of another origin or before the submission", async () => {
+      it("does not count a passkey request made before the submission", async () => {
         fake.state.extracted = { "signed-in": homePage };
         fake.state.signs = {
           password: false,
@@ -3372,6 +3372,38 @@ describe("production login document admission", () => {
         h.recipes.recipe.mockResolvedValue(generated);
         fake.state.present = new Set(["user", "password", "login"]);
         h.login.passkeyRequested(1, origin);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
+        ).toEqual([expect.objectContaining({ s5: false, decision: "judge" })]);
+      }, 10_000);
+
+      it("does not count a passkey request of another origin", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
         fake.state.onExecute = async (message) => {
           if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
           fake.state.present = new Set();

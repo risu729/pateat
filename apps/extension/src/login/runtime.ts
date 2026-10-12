@@ -266,11 +266,6 @@ type Execution = {
    * document, never stored.
    */
   inPlace?: { operationId: string; before: TargetState[] };
-  /**
-   * The URL of the document the attempt started in, for ADR 0029's E3. Kept in memory and
-   * carried to the attempt's next document, never stored.
-   */
-  startUrl?: string;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -705,10 +700,16 @@ export function createLoginRuntime(
   let probeTotp = false;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
-  /** By tab: when the attempt last delivered an effect step, for ADR 0029's S5. */
-  const effects = new Map<number, { attemptId: string; at: number }>();
-  /** By tab: the last passkey request of its top document, outside conditional mediation. */
-  const passkeyRequests = new Map<number, { origin: string; at: number }>();
+  // ADR 0029's sign-in state reads these, kept in memory only and never stored.
+  /**
+   * By tab: when the attempt last delivered an effect step, and whether the step itself asks
+   * for a passkey (the `passkey` route, or a `passkey` handler's click), so S5 skips it.
+   */
+  const effects = new Map<number, { attemptId: string; at: number; passkey: boolean }>();
+  /** By tab: the URL of the document the attempt's first fill ran in, for E3. */
+  const signInUrls = new Map<number, { attemptId: string; url: string }>();
+  /** By tab and origin: the last passkey request of the top document, outside conditional mediation. */
+  const passkeyRequests = new Map<string, number>();
   /** By `recordKey`, in the order they were last written. */
   const persisted = new Map<string, LoginAttemptMetadata>();
   const picked = new Map<number, PickedAccount>();
@@ -2077,8 +2078,10 @@ export function createLoginRuntime(
     if (!parsed.success || !parsed.output.ok) return;
     const page = parsed.output.signs;
     const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
-    const effect = effects.get(run.live.document.tabId);
-    const request = passkeyRequests.get(run.live.document.tabId);
+    const { tabId, origin: pageOrigin } = run.live.document;
+    const effect = effects.get(tabId);
+    const requested = passkeyRequests.get(`${tabId} ${pageOrigin}`);
+    const signInUrl = signInUrls.get(tabId);
     const signs: SignInSigns = {
       s1,
       s2: page.password,
@@ -2086,16 +2089,22 @@ export function createLoginRuntime(
       s4: page.captcha,
       s5:
         effect?.attemptId === metadata.id &&
-        request?.origin === run.live.document.origin &&
-        request.at >= effect.at,
+        !effect.passkey &&
+        requested !== undefined &&
+        requested >= effect.at,
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
       e1: marker.length > 0 && observed.targets[fills.length] === "unique",
       e2: page.username === true,
+      // The document's path now, which follows a route change of a single-page site.
       e3:
-        run.startUrl !== undefined &&
-        reachedReturnTarget(run.startUrl, run.live.url, routeSignInPaths(recipe, metadata.route)),
+        signInUrl?.attemptId === metadata.id &&
+        reachedReturnTarget(
+          signInUrl.url,
+          `${pageOrigin}${observed.path}`,
+          routeSignInPaths(recipe, metadata.route),
+        ),
     };
     report({
       type: "state",
@@ -2680,11 +2689,25 @@ export function createLoginRuntime(
               ? after.target
               : undefined;
           run.delivered = true;
+          const { tabId } = run.live.document;
           if (
             operation.step.kind === "click" ||
             (operation.step.kind === "fill" && operation.step.effect !== "prepare")
+          ) {
+            const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+            effects.set(tabId, {
+              attemptId: run.metadata.id,
+              at: Date.now(),
+              passkey:
+                run.metadata.route === "passkey" ||
+                (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
+            });
+          }
+          if (
+            operation.step.kind === "fill" &&
+            signInUrls.get(tabId)?.attemptId !== run.metadata.id
           )
-            effects.set(run.live.document.tabId, { attemptId: run.metadata.id, at: Date.now() });
+            signInUrls.set(tabId, { attemptId: run.metadata.id, url: run.live.url });
           response = await send(run.live, {
             type: "login.execute",
             operation,
@@ -3597,10 +3620,6 @@ export function createLoginRuntime(
       before.inPlace.operationId === metadata.operationId
     )
       run.inPlace = before.inPlace;
-    // The URL the login started on, for ADR 0029's E3, follows the attempt in memory.
-    if (!previous) run.startUrl = live.url;
-    else if (before?.metadata.id === metadata.id && before.startUrl !== undefined)
-      run.startUrl = before.startUrl;
     attempts.set(document.tabId, run);
     // Each new document of the tab resumes the attempt; only a change is news.
     reportAttempt(
@@ -3749,7 +3768,9 @@ export function createLoginRuntime(
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
     attempts.delete(tabId);
     effects.delete(tabId);
-    passkeyRequests.delete(tabId);
+    signInUrls.delete(tabId);
+    for (const key of passkeyRequests.keys())
+      if (key.startsWith(`${tabId} `)) passkeyRequests.delete(key);
     void sessionLoaded.then(async () => {
       let changed = pending.delete(tabId);
       if (picked.delete(tabId)) changed = true;
@@ -3828,7 +3849,7 @@ export function createLoginRuntime(
   }
   /** The passkey bridge saw a request of this tab's top document (ADR 0029: S5). */
   function passkeyRequested(tabId: number, siteOrigin: string): void {
-    passkeyRequests.set(tabId, { origin: siteOrigin, at: Date.now() });
+    passkeyRequests.set(`${tabId} ${siteOrigin}`, Date.now());
   }
   return { handle, settingsChanged, active, loginAccount, passkeyRequested };
 }
