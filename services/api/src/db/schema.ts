@@ -252,6 +252,11 @@ export const pageJudgements = sqliteTable(
     revision: integer("revision").notNull(),
     path: text("path").notNull(),
     judgedAt: integer("judged_at").notNull(),
+    /**
+     * `challenge` or `rejected` once the model judged the page so (ADR 0029); other
+     * verdicts are not kept.
+     */
+    verdict: text("verdict", { enum: ["challenge", "rejected"] }),
   },
   (table) => [
     primaryKey({

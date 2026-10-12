@@ -1344,7 +1344,7 @@ describe("custom-field slots (ADR 0027)", () => {
 });
 
 describe("completion judgement", () => {
-  it("passes rejection through without storing anything", async () => {
+  it("passes rejection through, keeping only the verdict", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
     replies.push({ text: JSON.stringify({ result: { decision: "rejected" } }) });
@@ -1366,6 +1366,18 @@ describe("completion judgement", () => {
       change.recipeId,
     );
     expect(head).toEqual({ revision: 2 });
+    // A path judged `rejected` is answered so again; one the model could not decide is
+    // only `already-judged` (ADR 0029).
+    const calls = sent.length;
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-rejected",
+    });
+    expect(
+      (await complete(device, change.recipeId, 2, { ...homePage, path: "/welcome" })).body,
+    ).toEqual({ version: 1, status: "unavailable", reason: "already-judged" });
+    expect(sent).toHaveLength(calls);
   });
 
   it("logs which check refused a judgement's output, as codes only", async () => {
@@ -1609,10 +1621,11 @@ describe("page judgement (ADR 0027)", () => {
       status: "challenge",
     });
     const calls = sent.length;
+    // The earlier judgement was `challenge`, so the page never completes a login (ADR 0029).
     expect((await complete(device, change.recipeId, 2)).body).toEqual({
       version: 1,
       status: "unavailable",
-      reason: "already-judged",
+      reason: "judged-challenge",
     });
     expect(sent).toHaveLength(calls);
     // Another path of the same revision is judged; here it adds a handler.

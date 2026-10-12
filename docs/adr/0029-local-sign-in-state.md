@@ -2,7 +2,9 @@
 
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
 logged only, as `login.state`) is implemented. The owner started delivery 2 (acting on
-it) on 2026-10-12 at 06:58 UTC; its first part, completing on evidence, is implemented.
+it) on 2026-10-12 at 06:58 UTC; its outcome table is implemented (completing on
+evidence first, the other rows on 2026-10-12 after 14:22 UTC). The header and
+navigation text for the judge and the list of learned markers are not implemented yet.
 Amended on 2026-10-12 (13:08 UTC, owner's choice) by
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
 login watched after `challenge` or an unknown result; see the end of the implementation
@@ -139,8 +141,27 @@ unknown too. On the `passkey` route the reading is still only logged, since the 
 above keeps that route's rule that anything its checks do not prove ends `challenge`. E1
 does not count on the completion's own path while one of the completion's `absent`
 elements is there, even hidden, as the completion check counts it: a sign-in form that
-hides itself again after a failure on that path is not a sign-in. The other rows of the
-outcome table still only log.
+hides itself again after a failure on that path is not a sign-in.
+
+The other rows act since 2026-10-12, on the `password` route only (the `passkey` route
+still logs them). Every decision but S1 alone is acted on only once a reading a second
+later agrees in the fully loaded document, read again while it loads as for evidence;
+otherwise the page is judged and settles as before. S1 with F1 or F2 ends the login
+`credential-rejected` without a model call. A page with S2 to S5 and no S1 is judged as
+before; when the judge does not decide, the login ends `challenge`, and when the page is
+not sent it stays unknown. A page with no sign and no evidence is judged, and the login
+completes when the judge cannot decide: the model abstains (`unclear` with no reason),
+the path was judged before (`already-judged`), or a limit applies (`judgement-limit`,
+`daily-limit`, `monthly-limit`), and the page still shows no sign and no evidence once
+the answer is back. Its `recipe.judge` entry is then a warning marked `completed`. A
+failed request, a conflict, a missing service or a page that cannot be described or was
+not sent leaves the login unknown, as before. The service keeps a `challenge` or
+`rejected` verdict on the path's judgement row (`page_judgements.verdict`) and answers a
+later request for that revision and path `judged-challenge` or `judged-rejected` instead
+of `already-judged`; the login then ends `challenge`, or stays unknown after
+`judged-rejected`, since an earlier rejection does not prove this one. A login that
+reaches the path while the first request is still being judged is told `already-judged`.
+A watched login (below) never completes on an undecided answer.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on
@@ -148,10 +169,10 @@ Watched logins (owner, 2026-10-12 13:08 UTC,
 falls in the "No S, no E" row, and the judge answered `challenge`. The pages after such
 a `challenge`, and after a result settled as unknown, are read for 10 minutes. A watched
 `challenge` login's page is judged only in the "No S, no E" row, and there `unclear`,
-`already-judged` and the limits never complete it, unlike the row above. A rule for the
-rest of delivery 2: when that row is implemented, a path the judge answered `challenge`
-for in a recipe revision is never completed by a later `already-judged` for it, so the
-second login on 三菱UFJ銀行 does not complete on its QR page.
+`already-judged` and the limits never complete it, unlike the row above. A path the
+judge answered `challenge` for in a recipe revision is never completed by a later
+request for it (`judged-challenge`, above), so the second login on 三菱UFJ銀行 does not
+complete on its QR page.
 
 ## Consequences
 

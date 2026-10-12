@@ -266,10 +266,11 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
 
 Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision and page path, so a repeat answers
-`already-judged`, and a recipe judged 20 times since the start of the UTC day answers
-`judgement-limit`. The row is written with the spend reservation, so a request the role
-then refuses locally still uses it. Rows of older revisions are deleted once their UTC
-day is over.
+`already-judged`, or `judged-challenge` or `judged-rejected` when the model judged that
+page `challenge` or `rejected` (its `verdict`, ADR 0029), and a recipe judged 20 times
+since the start of the UTC day answers `judgement-limit`. The row is written with the
+spend reservation, so a request the role then refuses locally still uses it. Rows of
+older revisions are deleted once their UTC day is over.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
 (`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both

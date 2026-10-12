@@ -47,6 +47,7 @@ import {
   type InferenceOutcome,
 } from "@pateat/inference";
 import { and, count, eq, gt, gte, lt } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
 import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS, type ClaudeCall } from "../claude/calls";
@@ -689,7 +690,14 @@ export async function judgeCompletion(
           ),
         )
         .limit(1);
-      if (judged) return "already-judged";
+      // A page judged `challenge` or `rejected` stays one for the revision, so a later
+      // login of the revision does not complete on it (ADR 0029).
+      if (judged)
+        return judged.verdict === "challenge"
+          ? "judged-challenge"
+          : judged.verdict === "rejected"
+            ? "judged-rejected"
+            : "already-judged";
       const [today] = await db
         .select({ value: count() })
         .from(pageJudgements)
@@ -728,8 +736,26 @@ export async function judgeCompletion(
   if (outcome.status === "failed") return failed(failureOf(outcome.error));
   if (outcome.status === "abstained") return { version: 1, status: "unclear" };
   const judgement = outcome.value;
-  if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
+  // Kept so the path is never taken as signed in for this revision (ADR 0029). A login of
+  // the revision that reaches the path before this write is told `already-judged`.
+  const keepVerdict = (verdict: "challenge" | "rejected") =>
+    drizzle(env.DB)
+      .update(pageJudgements)
+      .set({ verdict })
+      .where(
+        and(
+          ofRecipe,
+          eq(pageJudgements.branch, judgedBranch),
+          eq(pageJudgements.revision, head.revision),
+          eq(pageJudgements.path, observation.path),
+        ),
+      );
+  if (judgement.decision === "rejected") {
+    await keepVerdict("rejected");
+    return { version: 1, status: "rejected" };
+  }
   if (judgement.decision === "challenge") {
+    await keepVerdict("challenge");
     // A page may offer both a security key and an authenticator app code; each handler
     // that passes its checks is kept, in one revision (ADR 0027).
     let changed: LoginRecipe | undefined;
