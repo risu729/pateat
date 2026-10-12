@@ -137,17 +137,14 @@ vault, no pairing and no login:
 
 Later on 2026-10-12 the owner checked whether the install lasts:
 
-- After the computer had gone to sleep ("The computer is asleep. Click to wake up."),
-  waking it showed Pateat 0.1.0 still listed and enabled in `chrome://extensions`.
+- After the computer had gone to sleep, waking it showed Pateat 0.1.0 still listed
+  and enabled in `chrome://extensions`.
 - The owner then ran **Update** under Grok Bot app Settings, Updates, Grok Bot's
-  Computer. The app describes it as "Your files and logins stay, but installed apps and
-  packages are removed". Pateat was still listed and enabled afterwards. The build sat
-  in `/workspace` and was loaded into the browser profile, so it probably counts as
-  files rather than an installed app there (inferred, not documented). The neighbouring
-  **Reset** ("rebuilt from your last saved snapshot") was not tried.
-- On that screen the WebAuthn proxy's toggle was off and greyed out with no **Remove**
-  button, which suggests it is controlled by policy. While it is off it cannot interfere
-  with Pateat's passkey handling; passkeys from Pateat come from its own vault, not from
+  Computer. Pateat was still listed and enabled afterwards. **Reset** on the same
+  screen was not tried.
+- The WebAuthn proxy's toggle was off and greyed out with no **Remove** button, which
+  suggests it is controlled by policy. While it is off it cannot interfere with
+  Pateat's passkey handling; passkeys from Pateat come from its own vault, not from
   that proxy.
 
 Not yet checked: anything that needs pairing. Pairing from this browser is refused
