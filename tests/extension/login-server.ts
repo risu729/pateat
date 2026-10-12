@@ -330,13 +330,18 @@ export async function startLoginFixture(
         ui === "rerender" ||
         ui === "counter" ||
         ui === "disauto" ||
-        ui === "flicker"
+        ui === "flicker" ||
+        ui === "partial" ||
+        ui === "mutate" ||
+        ui === "seven"
       )
         flags.set("ui", ui);
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?split` asks for it in six one-digit inputs, the first of
-      // them `#code`, `?wrong` shows it again after Verify, `?auto` submits the
+      // them `#code` (with `ui=seven`, seven; with `ui=partial`, Verify is disabled only
+      // while some but not all digits are in; with `ui=mutate`, the first digit makes the
+      // second input a plain text input), `?wrong` shows it again after Verify, `?auto` submits the
       // code by itself on its sixth digit, as some sites do. With `?auto`, `slow` verifies
       // it for 1.2 seconds before the next document loads, `spa=status` says "Verifying…"
       // in the form and disables Verify for that long and `spa=replace` renders the form
@@ -370,7 +375,7 @@ export async function startLoginFixture(
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${[2, 3, 4, 5, 6].map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
           `const digits = [...document.querySelectorAll('#code-form input')];
           const codeValue = () => digits.map((digit) => digit.value).join('');
           function count(name) {
@@ -404,6 +409,8 @@ export async function startLoginFixture(
           for (const digit of digits) digit.addEventListener('input', () => {
             count('codeInputs');
             ${ui === "disabled" ? "document.getElementById('verify').disabled = codeValue().length !== 6;" : ""}
+            ${ui === "partial" ? "document.getElementById('verify').disabled = codeValue().length > 0 && codeValue().length < 6;" : ""}
+            ${ui === "mutate" ? "if (codeValue().length === 1) document.getElementById('code-2')?.removeAttribute('inputmode');" : ""}
             ${ui === "rerender" ? "const old = document.getElementById('verify'); const button = old.cloneNode(true); old.replaceWith(button); wire(button);" : ""}
             ${ui === "counter" ? "document.getElementById('code-counter').textContent = codeValue().length + ' of 6 digits';" : ""}
             ${auto ? "if (codeValue().length === 6) submitCode('autoSubmits');" : ""}

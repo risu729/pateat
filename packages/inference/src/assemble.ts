@@ -11,6 +11,7 @@ import {
   refillsLoginSlot,
   routeFillTargets,
   sameLoginTarget as sameTarget,
+  splitCodeInputs,
   type LoginAttributeTarget,
   type LoginEntryRecipe,
   type LoginObservation,
@@ -320,9 +321,11 @@ export function addHandler(
     // (ADR 0013), and one per form with its button.
     if (!isTotpCode(page, field, button)) return { ok: false, reason: "not-code-field" };
     const fills = routeFillTargets(base, "password");
+    // A split code's other inputs are filled too.
+    const filled = (splitCodeInputs(page, field) ?? [field]).map((input) => input.target);
     if (
       [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
-        sameTarget(element, handler.field),
+        filled.some((input) => sameTarget(element, input)),
       ) ||
       [
         ...fills,

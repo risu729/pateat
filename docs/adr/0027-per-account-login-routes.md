@@ -543,15 +543,23 @@ new owner decision:
   of no form) that the TOTP fill rule accepts, each with `maxlength` 1 and an attribute
   locator, with no other code input in that form. The handler's field is the first of
   them in page order, whichever one the judge names; the prompt asks for the first. The
-  service checks the same rule. When the code's length equals the number of such inputs,
-  that field first and each shown and writable, the code goes in one digit per input, in
-  order, each with its own `input` and `change` event, and the code counts as typed with
-  its last digit; the submission watch and the single click then work as for one input,
-  and the alert and invalid-mark check covers every digit's input. Otherwise the fill is
-  refused as before (`value-mismatch`). Not covered: inputs without `maxlength` 1 or
-  without a numeric, `tel` or `one-time-code` hint and a code split across forms, which
-  end `challenge` as before, and a page that reads the digits only from key events or a
-  paste, which does not see the code.
+  service checks the same rule, and refuses the handler when any of the inputs is an
+  element a route step uses on its path (`step-target`). When the code's length equals
+  the number of the form's shown, writable inputs with `maxlength` 1 that the TOTP fill
+  rule accepts, that field first, the code goes in one digit per input, in order, each
+  with its own `input` and `change` event, and the code counts as typed with its last
+  digit. Each input is checked again just before its digit, since the page may change it
+  after an earlier one; an input that no longer takes a digit under the fill rule stops
+  the fill without a click (`field-changed`). What the page does to the button or the
+  form's busy indicators before the last digit, such as disabling Verify while the code
+  is partial, is not a sign of a submission. The submission watch and the single click
+  then work as for one input, and the alert and invalid-mark check covers every digit's
+  input. When the number does not match, the fill is refused as before
+  (`value-mismatch`). Not covered: inputs disabled until the previous digit is in, which
+  are refused (`value-mismatch`), inputs without `maxlength` 1 or without a numeric,
+  `tel` or `one-time-code` hint and a code split across forms, which end `challenge` as
+  before, and a page that reads the digits only from key events or a paste, which does
+  not see the code.
 - **Known limitation: a wrong code on the same document.** A code page that shows the
   form again in the same document after a wrong code keeps the clicked button, so the
   login holds for two minutes before it ends `challenge`, as the held-click limitation

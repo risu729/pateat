@@ -552,6 +552,20 @@ describe("judged totp handler (ADR 0027)", () => {
       ok: false,
       reason: "not-code-field",
     });
+    // Every input of the code is filled, so none may be a route step's element.
+    const routed = {
+      origin,
+      path: "/pw",
+      candidates: [
+        ...boxes.slice(0, 5),
+        codeInput("pw", { maxLength: 1 }),
+        candidate("in", signIn),
+      ],
+    };
+    expect(addHandler(recipe, routed, totp(target("otp-1"), signIn))).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
   });
 
   it("accepts the route's submit button on that path when the code field is new", () => {

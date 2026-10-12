@@ -68,7 +68,9 @@ const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
  * and from the old values its records carry, so neither a late poll in a background tab,
  * whose timers Chrome throttles, or on a busy page, nor an enable that lasts only until the
  * page disables the button again to check the code, is missed. Polling reads the rest and
- * stands in for the observer. `typed` marks the code going in, just before its input event;
+ * stands in for the observer. `typed` marks the code going in, just before its input event
+ * (for a split code, its last digit's), from when the button's states and the busy
+ * indicators are read afresh;
  * `submitted` reads the page; `stop` disconnects the observer and removes the listeners.
  */
 export function watchCodeSubmission(
@@ -152,7 +154,18 @@ export function watchCodeSubmission(
   navigation?.addEventListener("navigate", mark);
   return {
     typed: () => {
-      typedAt ??= now();
+      if (typedAt !== undefined) return;
+      // What the page did while the earlier digits of a split code went in answers a
+      // partial code, such as Verify disabled until the code is whole, not a submission:
+      // the button's states and the busy indicators count from the last digit.
+      feed(observer.takeRecords());
+      changed = false;
+      enabledSeen = false;
+      idleSeen = false;
+      const shown = button();
+      if (shown) see(isEnabled(shown), isBusy(shown));
+      if (form) for (const element of form.querySelectorAll(busySelector)) busyBefore.add(element);
+      typedAt = now();
     },
     submitted: () => {
       const at = now();

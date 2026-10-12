@@ -880,7 +880,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               for (const [place, digit] of split.entries()) {
                 if (cancelled || location.pathname !== step.path)
                   return fail("cancelled", cancelled ? "document-cancelled" : "page-changed");
-                if (!writable(digit) || digit.form !== form)
+                // The page's handlers for an earlier digit may have changed this input.
+                if (
+                  !writable(digit) ||
+                  digit.form !== form ||
+                  digit.maxLength !== 1 ||
+                  !acceptsSecret(digit, value.secret) ||
+                  inputValueMismatch(digit, value.value[place]!) !== undefined
+                )
                   return fail("cancelled", "field-changed");
                 filled.add(digit);
                 setter.call(digit, value.value[place]!);

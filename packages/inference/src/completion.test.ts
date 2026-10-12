@@ -461,6 +461,13 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       expect(hasTotp(await judged([...candidates, submit()], answer({ field: "d1" })))).toBe(false);
     });
 
+    it("keeps a split code outside any form with a button outside any form", async () => {
+      const loose = boxes(6, { group: undefined });
+      expect(
+        await judged([...loose, submit({ group: undefined })], answer({ field: "d3" })),
+      ).toMatchObject({ value: { totp: first } });
+    });
+
     it("drops a split code whose button is in another form", async () => {
       expect(
         hasTotp(await judged([...boxes(6), submit({ group: "form-2" })], answer({ field: "d1" }))),
