@@ -1,5 +1,6 @@
 name: CI
-# No path filters: every PR must receive the required aggregate result.
+# No workflow-level path filters: every PR must receive the required aggregate result. The
+# `changes` job decides instead which jobs a PR needs.
 
 on:
   pull_request:
@@ -20,6 +21,30 @@ env:
   WRANGLER_SEND_METRICS: "false"
   PATEAT_REVISION: ${{ github.sha }}
 jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read # List the changed files of the pull request.
+    outputs:
+      # Only a pull request that changes nothing but documentation skips the browser tests;
+      # main pushes and manual runs always run them.
+      browser: ${{ github.event_name != 'pull_request' || steps.filter.outputs.browser == 'true' }}
+    steps:
+      # No checkout: on a pull_request event the action lists the changed files through the API.
+      - name: Find what the pull request changes
+        id: filter
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            browser:
+              - '**'
+              - '!docs/**'
+              - '!AGENTS.md'
+              - '!README.md'
   verify:
     name: Verify
     runs-on: ubuntu-26.04
@@ -62,6 +87,8 @@ jobs:
           retention-days: 14
   linux-browser:
     name: Linux browser (${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: [changes]
+    if: ${{ needs.changes.outputs.browser == 'true' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
@@ -125,7 +152,7 @@ jobs:
           retention-days: 7
   ci-check:
     name: CI Check
-    needs: [verify, linux-browser, windows-browser]
+    needs: [changes, verify, linux-browser, windows-browser]
     if: ${{ always() }}
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -133,12 +160,16 @@ jobs:
     steps:
       - name: Require all verification to succeed
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
           VERIFY_RESULT: ${{ needs.verify.result }}
           LINUX_BROWSER_RESULT: ${{ needs.linux-browser.result }}
+          # The Linux shards are skipped on a documentation-only pull request and nowhere else.
+          LINUX_BROWSER_EXPECTED: ${{ needs.changes.outputs.browser == 'true' && 'success' || 'skipped' }}
           WINDOWS_BROWSER_RESULT: ${{ needs.windows-browser.result }}
           # The Windows shards are skipped on pull requests and nowhere else.
           WINDOWS_BROWSER_EXPECTED: ${{ github.event_name == 'pull_request' && 'skipped' || 'success' }}
         run: |
+          test "${CHANGES_RESULT}" = success
           test "${VERIFY_RESULT}" = success
-          test "${LINUX_BROWSER_RESULT}" = success
+          test "${LINUX_BROWSER_RESULT}" = "${LINUX_BROWSER_EXPECTED}"
           test "${WINDOWS_BROWSER_RESULT}" = "${WINDOWS_BROWSER_EXPECTED}"
