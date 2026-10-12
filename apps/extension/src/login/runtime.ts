@@ -1023,7 +1023,8 @@ export type StopCause =
 /**
  * A message to a login document that went unanswered, mostly because the document is gone:
  * a submit or a redirect replaced it, or its tab closed. Its replacement resumes the login.
- * `reason` keeps what the browser said: no listener was left (`no-receiver`), the listener
+ * `reason` keeps what the browser said: no listener was left, or the page went into the
+ * back/forward cache (`no-receiver`), the listener
  * did not answer, as when the document unloads while it handles the message or a content
  * script fault leaves it unanswered (`port-closed`), or anything else (`send-failed`).
  */
@@ -1033,7 +1034,7 @@ class DocumentGone extends Error {
   constructor(cause: unknown) {
     super("document-gone");
     const message = cause instanceof Error ? cause.message : "";
-    this.reason = message.includes("Receiving end does not exist")
+    this.reason = /Receiving end does not exist|back\/forward cache/u.test(message)
       ? "no-receiver"
       : /message (?:port|channel) closed/u.test(message)
         ? "port-closed"
@@ -3700,7 +3701,8 @@ export function createLoginRuntime(
         if (error instanceof DocumentGone)
           reportAttempt(run.metadata, run.recipe, undefined, {
             stop: "document-gone",
-            reason: error.reason,
+            // A fill-only login keeps `fill-only` as its reason.
+            ...(run.metadata.fillOnly ? {} : { reason: error.reason }),
           });
         else
           report(run.metadata.document, {
