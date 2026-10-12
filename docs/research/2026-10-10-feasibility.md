@@ -6,16 +6,23 @@ inference, deployment, or real-account login. The subsequent foundation work
 built a synthetic extension shell and health-only Worker locally; the narrower
 implementation evidence below does not establish product compatibility.
 
+The 2026-10-10 sections were written by Codex before the project moved to Claude Code
+([#21](https://github.com/risu729/pateat/pull/21)). In them, "Codex's Chrome extension"
+is OpenAI's extension through which the Codex app drove the owner's Chrome, not Claude
+in Chrome. Later documents use "Chrome use" for any AI agent that drives the owner's
+Chrome, such as Claude in Chrome or ChatGPT's agent ([plan](../plan.md)).
+
 ## Browser and vault findings
 
-- Locally inspected Chrome use extension code creates inactive tabs and uses
+- Locally inspected code of Codex's Chrome extension creates inactive tabs and uses
   chrome.debugger/CDP. Locally inspected Bitwarden autofill selected active tabs
   and inserted extension-origin inline-menu frames. These are implementation
   observations, not a controlled end-to-end coexistence test.
 - Chrome 154.0.8037.98 source checks child frames when authorizing an extension debugger
   and rejects another extension's URL. Hiding an iframe or placing it inside closed
-  Shadow DOM does not remove that origin. The Chrome use runtime inspected still handled
-  this error. Therefore avoid this UI pattern; do not claim the old failure is fixed.
+  Shadow DOM does not remove that origin. The Codex Chrome extension runtime inspected
+  still handled this error. Therefore avoid this UI pattern; do not claim the old
+  failure is fixed.
   [Chromium source](https://github.com/chromium/chromium/blob/154.0.8037.98/chrome/browser/extensions/api/debugger/debugger_api.cc)
 - Native content-script targeting supports explicit tab/frame/document identity.
   Focus-independent addressing is feasible; live/background execution still needs
@@ -33,13 +40,13 @@ implementation evidence below does not establish product compatibility.
 
 ### Settings and future inline UI
 
-The installed Enhancer for YouTube 3.0.19 manifest identified its options page.
-Opening that `chrome-extension://` URL through the current Chrome use connection
-was rejected before page access: only HTTP and HTTPS protocols were allowed.
-This verifies that route's URL policy, not a debugger failure inside the options
-page. Human use of an extension settings page remains distinct from AI browser
-access. Initial Pateat settings are human-operated; inline account choice is
-deferred, and neither alternative has passed a Pateat coexistence test.
+The installed Enhancer for YouTube 3.0.19 manifest identified its options page. Opening
+that `chrome-extension://` URL through the Codex Chrome extension connection then in use
+was rejected before page access: only HTTP and HTTPS protocols were allowed. This
+verifies that route's URL policy, not a debugger failure inside the options page. Human
+use of an extension settings page remains distinct from AI browser access. Initial
+Pateat settings are human-operated; inline account choice is deferred, and neither
+alternative has passed a Pateat coexistence test.
 
 Read-only inspection of mature upstream projects found useful patterns, not
 feature code to copy:
@@ -165,8 +172,8 @@ Sources: [WXT](https://registry.npmjs.org/wxt),
 WXT's [unit-test helper](https://wxt.dev/guide/essentials/unit-testing) provides
 mocked extension APIs; it does not prove MV3 behavior. Playwright's
 [extension guide](https://playwright.dev/docs/chrome-extensions) uses bundled
-Chromium because ordinary Chrome/Edge side-loading flags changed. Installed
-Chrome use acceptance remains a separate gate.
+Chromium because ordinary Chrome/Edge side-loading flags changed. Acceptance in
+installed Chrome alongside Codex's Chrome extension remains a separate gate.
 
 Use WebCrypto where it implements the exact needed algorithm. Argon2id remains
 a dependency decision: [noble-hashes](https://github.com/paulmillr/noble-hashes)
@@ -236,9 +243,9 @@ inactive tab with identity checked across navigation.
 [CodeQL](https://github.com/risu729/pateat/actions/runs/37969704219) also passed. The
 two Windows browser cases remain blocked before Chromium launch by a missing SideBySide
 assembly; Linux success does not resolve that host issue. These isolated synthetic tests
-do not establish actual installed Chrome use coexistence, which had not yet been tested
-at that head. The later early acceptance result is recorded below.
-Complete M1 and deployed service acceptance remain separate gates in
+do not establish coexistence with Codex's Chrome extension in installed Chrome, which
+had not yet been tested at that head. The later early acceptance result is recorded
+below. Complete M1 and deployed service acceptance remain separate gates in
 [the plan](../plan.md).
 
 ## Inference and Anthropic credit
@@ -363,14 +370,14 @@ operation. No such test was run.
 
 At approximately 06:24-06:34 UTC, the owner manually installed the frozen synthetic
 probe built from `b96fc146e6d73dcef5fcf969734d67e2bcad04bc`. Its nine artifact hashes
-were checked before use. In the owner's existing connected Chrome profile, Pateat
-completed multi-page and single-page login, input/change-triggered submission and
-input-triggered page advance using loopback-only synthetic credentials. The
-controller navigated and observed; it did not fill fields or click login controls.
-Fixture-side value matches and POST/click counts verified exactly one intended
-submission. Rejection and unknown outcomes did not cause duplicate clicks; a
-concurrent tab stayed empty while the original attempt retained ownership, and
-ambiguous duplicate fields stayed empty.
+were checked before use. In the owner's existing Chrome profile, connected to Codex's
+Chrome extension, Pateat completed multi-page and single-page login,
+input/change-triggered submission and input-triggered page advance using loopback-only
+synthetic credentials. The controller (Codex, through that extension) navigated and
+observed; it did not fill fields or click login controls. Fixture-side value matches and
+POST/click counts verified exactly one intended submission. Rejection and unknown
+outcomes did not cause duplicate clicks; a concurrent tab stayed empty while the
+original attempt retained ownership, and ambiguous duplicate fields stayed empty.
 
 A background multi-page run completed with each page's first script recording
 hidden and unfocused state before extension execution. This is stronger evidence
