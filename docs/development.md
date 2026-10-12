@@ -553,7 +553,10 @@ approved choices enter with their owning features and compatibility checks; appr
 does not claim that they are installed. The owner subsequently approved the official
 OSS Bitwarden SDK for local cryptography with GPL compliance in
 [ADR 0005](adr/0005-bitwarden-local-crypto.md). Further major additions or
-replacements still require the owner's decision.
+replacements still require the owner's decision. On 2026-10-12 (14:31 UTC) the owner
+chose i18next with react-i18next for the extension's UI text, so that the language can
+be chosen in Pateat's settings rather than only following Chrome's
+([comparison](research/2026-10-12-extension-ui-translation.md)).
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
 use.
@@ -575,6 +578,7 @@ use.
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
+| UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
 ### Integration conditions (pending candidates remain conditional)

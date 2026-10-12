@@ -209,14 +209,14 @@ Once the fixes have settled:
 
 - First, before the work below that makes Pateat public: Japanese alongside English for
   Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the extension's
-  UI text. The service's pages, such as `/manage`, come later. Which library or
-  mechanism translates the extension's UI text is the owner's choice and has not been
-  made; the [comparison](research/2026-10-12-extension-ui-translation.md) recommends
-  `@wxt-dev/i18n` if Chrome's language is enough, otherwise i18next. The owner chose
-  (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing pages,
-  including those the docs website below adds; ADRs, this plan and research notes stay
-  in English. AGENTS.md's English rule gets an exception for the Japanese pages when
-  they land.
+  UI text. The service's pages, such as `/manage`, come later. The owner chose i18next
+  with react-i18next (2026-10-12 14:31 UTC), so that the language can be chosen in
+  Pateat's settings ([comparison](research/2026-10-12-extension-ui-translation.md),
+  [dependency policy](development.md#dependency-policy)); where that setting is stored
+  is not decided yet. The owner chose (2026-10-12 14:14 UTC) that "the docs" means the
+  README and the user-facing pages, including those the docs website below adds; ADRs,
+  this plan and research notes stay in English. AGENTS.md's English rule gets an
+  exception for the Japanese pages when they land.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
