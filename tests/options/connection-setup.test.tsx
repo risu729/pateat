@@ -329,8 +329,8 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
         resolveSave = resolve;
       }),
     );
-    await page.getByLabelText("Hostname", { exact: true }).fill("draft.example");
-    await page.getByRole("button", { name: "Add excluded site", exact: true }).click();
+    await page.getByLabelText("Origin", { exact: true }).fill("draft.example");
+    await page.getByRole("button", { name: "Exclude site", exact: true }).click();
     await fillNew();
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
     await vi.waitFor(() => expect(connection.begin).toHaveBeenCalledTimes(1));
@@ -341,18 +341,18 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     await expect
       .element(page.getByText(/Vault metadata changed while settings were being saved/))
       .toBeVisible();
-    expect(document.getElementById("excluded-sites")?.textContent).toContain("draft.example");
+    expect(document.getElementById("site-list")?.textContent).toContain("draft.example");
     expect(settings.getSettings).toHaveBeenCalledTimes(1);
     // Editing further cannot unblock a draft based on potentially replaced vault metadata.
-    await page.getByLabelText("Hostname", { exact: true }).fill("next-draft.example");
-    await page.getByRole("button", { name: "Add excluded site", exact: true }).click();
+    await page.getByLabelText("Origin", { exact: true }).fill("next-draft.example");
+    await page.getByRole("button", { name: "Exclude site", exact: true }).click();
     expect(settings.saveSettings).toHaveBeenCalledTimes(1);
     settings.getSettings.mockResolvedValue(saved(7));
     await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
     await expect.element(page.getByText("Saved settings loaded. Revision 7")).toBeVisible();
-    expect(document.getElementById("excluded-sites")?.textContent).not.toContain("draft.example");
-    await page.getByLabelText("Hostname", { exact: true }).fill("reviewed.example");
-    await page.getByRole("button", { name: "Add excluded site", exact: true }).click();
+    expect(document.getElementById("site-list")?.textContent).not.toContain("draft.example");
+    await page.getByLabelText("Origin", { exact: true }).fill("reviewed.example");
+    await page.getByRole("button", { name: "Exclude site", exact: true }).click();
     await vi.waitFor(() => expect(settings.saveSettings).toHaveBeenCalledTimes(2));
     expect(settings.saveSettings.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 7 });
   },

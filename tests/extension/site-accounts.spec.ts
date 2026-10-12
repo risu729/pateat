@@ -49,27 +49,27 @@ for (const [variant, matched] of [
       await options.reload();
       await expect(options.locator("#settings-status")).toContainText("Saved settings loaded");
 
-      await options.locator("#default-origin").fill("https://other.example");
+      await options.locator("#site-origin").fill("https://other.example");
       await expect(options.locator("#default-account-note")).toContainText("No vault item matches");
       await expect(options.locator("#default-account")).toBeDisabled();
 
-      await options.locator("#default-origin").fill(site);
+      await options.locator("#site-origin").fill(site);
       await expect(options.locator("#default-account-note")).toContainText("1 matching item");
       // The matched item shows its login username, decrypted only for this answer.
       expect(await accountOptions(options)).toEqual([
         [value, `My test login · test_username (${matched})`],
       ]);
       await options.locator("#add-default").click();
-      await expect(options.locator("#site-defaults")).toContainText(site);
-      // The saved line shows how the item matches, and as whom, instead of a mismatch.
-      await expect(options.locator("#site-defaults")).toContainText(
-        `My test login · test_username`,
-      );
-      await expect(options.locator("#site-defaults")).toContainText(
+      await expect(options.locator("#site-list")).toContainText(site);
+      // The saved row shows how the item matches, and as whom, instead of a mismatch.
+      await expect(
+        options.getByRole("combobox", { name: `Default account for ${site}`, exact: true }),
+      ).toContainText(`My test login · test_username`);
+      await expect(options.locator("#site-list")).toContainText(
         `Matches this origin by ${matched}; checked again on each login`,
       );
       // The same item saved for an origin it does not match gets no username.
-      await options.locator("#default-origin").fill("https://other.example");
+      await options.locator("#site-origin").fill("https://other.example");
       await expect(options.locator("#default-account-note")).toContainText("No vault item matches");
       await options.locator("#default-account-all").check();
       await options.locator("#default-account").selectOption(value);
@@ -86,7 +86,9 @@ for (const [variant, matched] of [
       await options.reload();
       // Both rows look up their origin at once against the one vault.
       const row = (origin: string) =>
-        options.locator("#site-defaults li").filter({ hasText: `${origin} →` });
+        options
+          .locator("#site-list > li")
+          .filter({ has: options.getByText(origin, { exact: true }) });
       await expect(row(site)).toContainText("My test login · test_username");
       await expect(row(site)).toContainText(`Matches this origin by ${matched}`);
       await expect(row("https://other.example")).toContainText(

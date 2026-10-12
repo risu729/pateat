@@ -301,24 +301,6 @@ body {
     line-height: 1.5;
     font-weight: 400;
   }
-  .add-row {
-    max-width: 36rem;
-    padding-top: 0.5rem;
-  }
-  .saved-list {
-    list-style: none;
-    padding: 0;
-    margin: 1rem 0;
-  }
-  .saved-list > li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.9rem 0;
-    border-bottom: 1px solid var(--border);
-    overflow-wrap: anywhere;
-  }
   .validation-error {
     color: var(--danger);
     font-size: 0.9rem;
@@ -337,10 +319,6 @@ body {
 @media (max-width: 36rem) {
   .panel {
     padding: 1rem;
-  }
-  .saved-list > li {
-    align-items: start;
-    flex-direction: column;
   }
   dl > div {
     flex-direction: column;

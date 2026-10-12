@@ -182,44 +182,44 @@ test("probe options support keyboard policy validation and pass accessibility ch
       .analyze();
     expect(initial.violations).toEqual([]);
 
-    await page.locator("#site-hostname").fill("https://invalid.example/path");
-    await page.locator("#site-hostname").press("Enter");
-    await expect(page.locator("#site-hostname")).toHaveAttribute("aria-invalid", "true");
-    await expect(page.locator("#site-hostname")).toBeFocused();
+    await page.locator("#site-origin").fill("https://invalid.example/path");
+    await page.locator("#add-site").click();
+    await expect(page.locator("#site-origin")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.locator("#site-origin")).toBeFocused();
     await expect(page.getByRole("alert")).toBeVisible();
-    await page.locator("#site-hostname").fill("keyboard.example");
-    await page.locator("#site-hostname").press("Enter");
-    await expect(page.locator("#excluded-sites")).toContainText("keyboard.example");
-    await expect(page.locator("#site-hostname")).toHaveValue("");
-    await expect(page.locator("#site-hostname")).toBeFocused();
-    await page.getByRole("button", { name: /Remove.*keyboard.example/i }).click();
-    await expect(page.locator("#site-hostname")).toBeFocused();
+    await page.locator("#site-origin").fill("keyboard.example");
+    await page.locator("#add-site").click();
+    await expect(page.locator("#site-list")).toContainText("keyboard.example");
+    await expect(page.locator("#site-origin")).toHaveValue("");
+    await expect(page.locator("#site-origin")).toBeFocused();
+    await page.getByRole("button", { name: "Allow keyboard.example", exact: true }).click();
+    await expect(page.locator("#site-origin")).toBeFocused();
 
     await page
       .getByLabel("Demo personal vault: Item access", { exact: true })
       .selectOption("selected");
     await expand(page, "Demo personal vault", "Included groups and items");
     await page.getByLabel("Demo personal vault: Include group Everyday", { exact: true }).check();
-    await page.locator("#default-origin").fill("https://bank.example");
+    await page.locator("#site-origin").fill("https://bank.example");
     await page
       .locator("#default-account")
       .selectOption(JSON.stringify(["demo-personal", "primary"]));
-    await page.locator("#default-origin").fill("https://bank.example/path");
-    await page.locator("#default-origin").press("Enter");
-    await expect(page.locator("#default-origin")).toHaveAttribute("aria-invalid", "true");
-    await expect(page.locator("#default-origin")).toBeFocused();
+    await page.locator("#site-origin").fill("https://bank.example/path");
+    await page.locator("#site-origin").press("Enter");
+    await expect(page.locator("#site-origin")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.locator("#site-origin")).toBeFocused();
     // Axe skips closed disclosures, so open the exclusions before scanning.
     await expand(page, "Demo personal vault", "Item and field exclusions", "Demo primary account");
     const invalid = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
       .analyze();
     expect(invalid.violations).toEqual([]);
-    await page.locator("#default-origin").fill("https://bank.example");
+    await page.locator("#site-origin").fill("https://bank.example");
     // The matching accounts are listed again for the corrected origin before it is added.
     await expect(page.locator("#default-account-note")).toContainText("matching item");
-    await page.locator("#default-origin").press("Enter");
-    await expect(page.locator("#site-defaults")).toContainText("https://bank.example");
-    await expect(page.locator("#default-origin")).toBeFocused();
+    await page.locator("#site-origin").press("Enter");
+    await expect(page.locator("#site-list")).toContainText("https://bank.example");
+    await expect(page.locator("#site-origin")).toBeFocused();
     expect(pageErrors).toEqual([]);
   });
 });
@@ -506,10 +506,10 @@ test("local policies and account defaults survive a browser restart", async () =
             exact: true,
           })
           .check();
-        await page.locator("#site-hostname").fill("excluded.example");
+        await page.locator("#site-origin").fill("excluded.example");
         await page.locator("#site-subdomains").check();
         await page.locator("#add-site").click();
-        await page.locator("#default-origin").fill("https://bank.example");
+        await page.locator("#site-origin").fill("https://bank.example");
         await page
           .locator("#default-account")
           .selectOption(JSON.stringify(["demo-personal", "primary"]));
@@ -588,15 +588,15 @@ test("a stale settings page preserves its draft and cannot overwrite newer polic
         await expect(page.locator("#settings-status")).toContainText("Saved settings loaded");
       }),
     );
-    await first.locator("#site-hostname").fill("protected.example");
+    await first.locator("#site-origin").fill("protected.example");
     await first.locator("#add-site").click();
     await expect(first.locator("#settings-status")).toContainText("saved locally");
-    await second.locator("#site-hostname").fill("draft.example");
+    await second.locator("#site-origin").fill("draft.example");
     await second.locator("#add-site").click();
     await expect(second.locator("#settings-status")).toContainText("Reload");
-    await expect(second.locator("#excluded-sites")).toContainText("draft.example");
+    await expect(second.locator("#site-list")).toContainText("draft.example");
     await second.locator("#reload-settings").click();
-    await expect(second.locator("#excluded-sites")).toContainText("protected.example");
-    await expect(second.locator("#excluded-sites")).not.toContainText("draft.example");
+    await expect(second.locator("#site-list")).toContainText("protected.example");
+    await expect(second.locator("#site-list")).not.toContainText("draft.example");
   });
 });

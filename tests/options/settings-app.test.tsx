@@ -88,9 +88,9 @@ async function mount(client: SettingsClient = mockClient()) {
 }
 
 async function addSite(hostname: string) {
-  await control("site-hostname").fill(hostname);
+  await control("site-origin").fill(hostname);
   await control("add-site").click();
-  await expect.element(control("excluded-sites")).toMatchTextContent(hostname);
+  await expect.element(control("site-list")).toMatchTextContent(hostname);
 }
 
 /** Vault-wide lists start collapsed; tests open them like the owner would. */
@@ -135,9 +135,9 @@ test("each change is saved at once and refreshes never replace a pending draft",
   await queryClient.refetchQueries({ queryKey: SETTINGS_QUERY_KEY });
   expect(client.getSettings).toHaveBeenCalledTimes(2);
   queryClient.setQueryData(SETTINGS_QUERY_KEY, saved(5, "cached.example"));
-  await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
-  await expect.element(control("excluded-sites")).not.toMatchTextContent("remote.example");
-  await expect.element(control("excluded-sites")).not.toMatchTextContent("cached.example");
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
+  await expect.element(control("site-list")).not.toMatchTextContent("remote.example");
+  await expect.element(control("site-list")).not.toMatchTextContent("cached.example");
 
   write.resolve(saved(1, "draft.example"));
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
@@ -159,7 +159,7 @@ test("an unknown save outcome is never retried and requires a successful explici
   const { queryClient } = await mount(client);
   await addSite("draft.example");
   await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
-  await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
   // Further edits stay in the draft without another save.
   await addSite("second.example");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
@@ -173,15 +173,15 @@ test("an unknown save outcome is never retried and requires a successful explici
   await expect
     .poll(() => control("settings-status").element().textContent)
     .toMatch(/unable|failed|unavailable/i);
-  await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
   await addSite("third.example");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 
   client.getSettings.mockResolvedValue(saved(1, "committed.example"));
   await control("reload-settings").click();
   await expect.element(control("settings-status")).toMatchTextContent("Saved settings loaded");
-  await expect.element(control("excluded-sites")).toMatchTextContent("committed.example");
-  await expect.element(control("excluded-sites")).not.toMatchTextContent("draft.example");
+  await expect.element(control("site-list")).toMatchTextContent("committed.example");
+  await expect.element(control("site-list")).not.toMatchTextContent("draft.example");
   client.saveSettings.mockImplementation(async (request) => ({
     ...saved(request.expectedRevision + 1),
     snapshot: { version: 1, revision: request.expectedRevision + 1, settings: request.settings },
@@ -267,7 +267,7 @@ test("revision conflicts preserve all draft edits until the owner reloads", asyn
     .selectOptions("selected");
   await expand("Demo personal vault", "Included groups and items");
   await page.getByLabelText("Demo personal vault: Include group Everyday", { exact: true }).click();
-  await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
   await expect
     .element(page.getByLabelText("Demo personal vault: Item access", { exact: true }))
     .toHaveValue("selected");
@@ -278,8 +278,8 @@ test("revision conflicts preserve all draft edits until the owner reloads", asyn
   expect(client.getSettings).toHaveBeenCalledTimes(1);
   client.getSettings.mockResolvedValue(saved(2, "protected.example"));
   await control("reload-settings").click();
-  await expect.element(control("excluded-sites")).toMatchTextContent("protected.example");
-  await expect.element(control("excluded-sites")).not.toMatchTextContent("draft.example");
+  await expect.element(control("site-list")).toMatchTextContent("protected.example");
+  await expect.element(control("site-list")).not.toMatchTextContent("draft.example");
 });
 
 test("edits during a pending save are saved after it, and reloads cannot overlap it", async () => {
@@ -302,45 +302,44 @@ test("edits during a pending save are saved after it, and reloads cannot overlap
       excludedSites: [{ hostname: "pending.example" }, { hostname: "later.example" }],
     },
   });
-  await expect.element(control("excluded-sites")).toMatchTextContent("later.example");
+  await expect.element(control("site-list")).toMatchTextContent("later.example");
   await expect.element(control("reload-settings")).toBeEnabled();
 
   const read = deferred<SettingsResponse>();
   client.getSettings.mockReturnValue(read.promise);
   await control("reload-settings").click();
   await expect.element(control("reload-settings")).toBeDisabled();
-  await expect.element(control("site-hostname")).toBeDisabled();
+  await expect.element(control("site-origin")).toBeDisabled();
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.getSettings).toHaveBeenCalledTimes(2);
   read.resolve(saved(3, "reloaded.example"));
-  await expect.element(control("excluded-sites")).toMatchTextContent("reloaded.example");
+  await expect.element(control("site-list")).toMatchTextContent("reloaded.example");
   await addSite("next-draft.example");
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 4");
 });
 
-test("keyboard add forms validate locally and recover input focus after add and removal", async () => {
+test("the add form validates locally and keeps focus on the origin after adds and removals", async () => {
   const client = mockClient();
   await mount(client);
-  await control("site-hostname").fill("https://invalid.example/path");
-  await control("site-hostname").click();
-  await userEvent.keyboard("{Enter}");
-  await expect.element(control("site-hostname")).toHaveAttribute("aria-invalid", "true");
-  await expect.element(control("site-hostname")).toHaveFocus();
+  await control("site-origin").fill("https://invalid.example/path");
+  await control("add-site").click();
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "true");
+  await expect.element(control("site-origin")).toHaveFocus();
   await expect.element(page.getByRole("alert")).toBeVisible();
   expect(client.saveSettings).not.toHaveBeenCalled();
 
-  await control("site-hostname").fill("keyboard.example");
-  await userEvent.keyboard("{Enter}");
-  await expect.element(control("excluded-sites")).toMatchTextContent("keyboard.example");
-  await expect.element(control("site-hostname")).toHaveValue("");
-  await expect.element(control("site-hostname")).toHaveFocus();
-  await page.getByRole("button", { name: /Remove.*keyboard.example/i }).click();
-  await expect.element(control("site-hostname")).toHaveFocus();
-  await expect.element(control("excluded-sites")).not.toMatchTextContent("keyboard.example");
+  await control("site-origin").fill("keyboard.example");
+  await control("add-site").click();
+  await expect.element(control("site-list")).toMatchTextContent("keyboard.example");
+  await expect.element(control("site-origin")).toHaveValue("");
+  await expect.element(control("site-origin")).toHaveFocus();
+  await page.getByRole("button", { name: "Allow keyboard.example", exact: true }).click();
+  await expect.element(control("site-origin")).toHaveFocus();
+  await expect.element(control("site-list")).not.toMatchTextContent("keyboard.example");
 
   // Only items matching the entered origin are offered.
   await expect.element(control("default-account")).toBeDisabled();
-  await control("default-origin").fill("https://mail.example");
+  await control("site-origin").fill("https://mail.example");
   await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
   await expect
     .poll(() =>
@@ -349,7 +348,7 @@ test("keyboard add forms validate locally and recover input focus after add and 
       ),
     )
     .toEqual([JSON.stringify(["demo-personal", "secondary"])]);
-  await control("default-origin").fill("https://none.example");
+  await control("site-origin").fill("https://none.example");
   await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
   await expect.element(control("default-account")).toBeDisabled();
   // A rule on a longer path does not match the origin, so every item can still be listed.
@@ -357,22 +356,24 @@ test("keyboard add forms validate locally and recover input focus after add and 
   await expect.element(control("default-account")).toBeEnabled();
   await expect.element(control("default-account")).toMatchTextContent("no match for this origin");
   await control("default-account-all").click();
-  await control("default-origin").fill("https://bank.example");
+  await control("site-origin").fill("https://bank.example");
   await control("default-account").selectOptions(JSON.stringify(["demo-personal", "primary"]));
-  await control("default-origin").fill("https://bank.example/path");
-  await control("default-origin").click();
+  await control("site-origin").fill("https://bank.example/path");
+  await control("site-origin").click();
   await userEvent.keyboard("{Enter}");
-  await expect.element(control("default-origin")).toHaveAttribute("aria-invalid", "true");
-  await expect.element(control("default-origin")).toHaveFocus();
-  await control("default-origin").fill("https://bank.example");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "true");
+  await expect.element(control("site-origin")).toHaveFocus();
+  await control("site-origin").fill("https://bank.example");
   await userEvent.keyboard("{Enter}");
-  await expect.element(control("site-defaults")).toMatchTextContent("https://bank.example");
+  await expect.element(control("site-list")).toMatchTextContent("https://bank.example");
   // The default names the account, and is shown through this device's connection.
-  await expect.element(control("site-defaults")).toMatchTextContent("Demo personal vault");
-  await expect.element(control("default-origin")).toHaveFocus();
+  await expect
+    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .toHaveDisplayValue("Demo primary account in Demo personal vault");
+  await expect.element(control("site-origin")).toHaveFocus();
   // Each add and removal was saved without moving focus.
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
-  await expect.element(control("default-origin")).toHaveFocus();
+  await expect.element(control("site-origin")).toHaveFocus();
   expect(client.saveSettings).toHaveBeenCalledTimes(3);
   // The saved default keeps the connection's label and the item's name for display.
   expect(client.saveSettings.mock.calls[2]?.[0].settings.siteDefaults).toEqual([
@@ -385,6 +386,214 @@ test("keyboard add forms validate locally and recover input focus after add and 
       accountName: "Demo personal vault",
     },
   ]);
+});
+
+test("an origin row changes its default only on Save, and No default removes it", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "secondary",
+    itemName: "Demo secondary account",
+    accountName: "Demo personal vault",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  const select = page.getByRole("combobox", {
+    name: "Default account for https://bank.example",
+    exact: true,
+  });
+  const save = page.getByRole("button", { name: "Save default for https://bank.example" });
+  // Every account that matches the origin is offered, with the saved one chosen.
+  await expect
+    .poll(() =>
+      [...(select.element() as HTMLSelectElement).options].map((option) => option.textContent),
+    )
+    .toEqual([
+      "Demo primary account in Demo personal vault",
+      "Demo secondary account in Demo personal vault",
+      "Demo team account in Demo work vault",
+      "No default",
+    ]);
+  await expect.element(select).toHaveValue(JSON.stringify(["demo-personal", "secondary"]));
+  await expect.element(save).toBeDisabled();
+  await select.selectOptions(JSON.stringify(["demo-work", "primary"]));
+  expect(client.saveSettings).not.toHaveBeenCalled();
+  await expect.element(save).toBeEnabled();
+  await save.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.siteDefaults).toEqual([
+    {
+      origin: "https://bank.example",
+      provider: "dummy",
+      userId: "demo-work-account",
+      itemId: "primary",
+      itemName: "Demo team account",
+      accountName: "Demo work vault",
+    },
+  ]);
+  await expect.element(save).toBeDisabled();
+  await select.selectOptions("No default");
+  await save.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.siteDefaults).toEqual([]);
+  await expect.element(select).not.toBeInTheDocument();
+  // The row is gone, so focus moves to the add form.
+  await expect.element(control("site-origin")).toHaveFocus();
+});
+
+test("excluding an origin keeps its default unused under the rule until it is allowed", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "primary",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await page
+    .getByRole("button", { name: "Exclude https://bank.example, all schemes and ports" })
+    .click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
+    excludedSites: [{ hostname: "bank.example", includeSubdomains: false }],
+    siteDefaults: [{ origin: "https://bank.example" }],
+  });
+  await expect
+    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(control("site-list"))
+    .toMatchTextContent("Default for https://bank.example kept, unused while excluded");
+  await page.getByRole("button", { name: "Allow bank.example", exact: true }).click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
+  await expect
+    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .toBeVisible();
+});
+
+test("a default kept under a rule is listed once and can be removed", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.excludedSites.push(
+    { hostname: "example", includeSubdomains: true },
+    { hostname: "bank.example", includeSubdomains: false },
+  );
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "primary",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  const remove = page.getByRole("button", { name: "Remove default for https://bank.example" });
+  // Both rules exclude the origin; it is listed under the more specific one only.
+  await expect.element(remove).toBeVisible();
+  expect(
+    control("site-list")
+      .element()
+      .textContent?.match(/Default for https:\/\/bank\.example kept/g),
+  ).toHaveLength(1);
+  await remove.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
+    excludedSites: [
+      { hostname: "example", includeSubdomains: true },
+      { hostname: "bank.example", includeSubdomains: false },
+    ],
+    siteDefaults: [],
+  });
+  await expect.element(remove).not.toBeInTheDocument();
+  await expect.element(control("site-origin")).toHaveFocus();
+});
+
+test("an origin with a trailing dot is excluded by its hostname without the dot", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://bank.example.",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "primary",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await page
+    .getByRole("button", { name: "Exclude https://bank.example., all schemes and ports" })
+    .click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.excludedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: false },
+  ]);
+  await expect
+    .element(control("site-list"))
+    .toMatchTextContent("Default for https://bank.example. kept, unused while excluded");
+  await expect
+    .element(page.getByRole("button", { name: "Remove default for https://bank.example." }))
+    .toBeVisible();
+});
+
+test("the add form excludes the entered origin's host, with its subdomains when asked", async () => {
+  const client = mockClient();
+  await mount(client);
+  await expect
+    .element(page.getByText("No excluded sites or default accounts", { exact: true }))
+    .toBeVisible();
+  await control("site-origin").fill("http://localhost:8080");
+  await control("add-site").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  await control("site-origin").fill("bank.example");
+  await control("site-subdomains").click();
+  await control("add-site").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.excludedSites).toEqual([
+    { hostname: "localhost", includeSubdomains: false },
+    { hostname: "bank.example", includeSubdomains: true },
+  ]);
+  // Rules and origins share one list, by hostname.
+  await expect
+    .poll(() =>
+      [...control("site-list").element().querySelectorAll(":scope > li")].map(
+        (row) => row.querySelector("span > span")?.textContent,
+      ),
+    )
+    .toEqual(["bank.example and subdomains", "localhost"]);
+  await expect
+    .element(page.getByText("No excluded sites or default accounts", { exact: true }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("button", { name: "Allow bank.example and subdomains", exact: true }))
+    .toBeVisible();
+  await expect.element(control("site-subdomains")).not.toBeChecked();
+});
+
+test("an origin row names why its default cannot be used", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  const work = response.snapshot.settings.connections[1]!;
+  work.selection = { mode: "selected", groupIds: [], itemIds: [] };
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-work-account",
+    itemId: "primary",
+    itemName: "Demo team account",
+    accountName: "Demo work vault",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await expect
+    .element(control("site-list"))
+    .toMatchTextContent("This account is outside the selected groups and items.");
+  await expect
+    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .toHaveDisplayValue("Demo team account in Demo work vault (unavailable)");
 });
 
 test("a rejected draft is not saved again until the next change", async () => {
@@ -420,7 +629,7 @@ test("an edit made during a save that conflicts stays in the draft unsaved", asy
     error: { code: "revision-conflict", message: "Synthetic newer revision exists." },
   });
   await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
-  await expect.element(control("excluded-sites")).toMatchTextContent("later.example");
+  await expect.element(control("site-list")).toMatchTextContent("later.example");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 });
 
@@ -447,11 +656,14 @@ test("a default for an account not connected here shows its saved names", async 
   client.getSettings.mockResolvedValue(response);
   await mount(client);
   await expect
-    .element(control("site-defaults"))
-    .toMatchTextContent("account another-account (not available here) / Remote bank login");
+    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .toHaveDisplayValue("Remote bank login in account another-account (not available here)");
   await expect
-    .element(control("site-defaults"))
-    .toMatchTextContent("Other device vault (not available here) / Remote mail login");
+    .element(page.getByRole("combobox", { name: "Default account for https://mail.example" }))
+    .toHaveDisplayValue("Remote mail login in Other device vault (not available here)");
+  await expect
+    .element(control("site-list"))
+    .toMatchTextContent("The vault connection is unavailable.");
 });
 
 test("malformed save responses are rejected at the runtime boundary and keep the draft blocked", async () => {
@@ -469,8 +681,8 @@ test("malformed save responses are rejected at the runtime boundary and keep the
   await addSite("draft.example");
   await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
   await addSite("second.example");
-  await expect.element(control("excluded-sites")).toMatchTextContent("draft.example");
-  await expect.element(control("excluded-sites")).not.toMatchTextContent("malformed.example");
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
+  await expect.element(control("site-list")).not.toMatchTextContent("malformed.example");
   expect(
     send.mock.calls.filter(([request]) => (request as { type: string }).type === "settings.save"),
   ).toHaveLength(1);

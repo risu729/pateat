@@ -109,21 +109,29 @@ export function StatusLines({
   lines,
   id,
   muted = false,
+  small = false,
 }: {
   lines: { tone: Tone; icon: LucideIcon; text: ReactNode }[];
   id?: string;
   muted?: boolean;
+  /** Secondary lines under a row's title. */
+  small?: boolean;
 }) {
   return (
-    <ul id={id} className="m-0 flex list-none flex-col gap-2 p-0">
+    <ul id={id} className={`m-0 flex list-none flex-col p-0 ${small ? "gap-1" : "gap-2"}`}>
       {lines.map(({ tone, icon: Icon, text }, index) => (
         <li
           // The lines are fixed per render; their order is their identity.
           // oxlint-disable-next-line react/no-array-index-key
           key={index}
-          className={`flex items-start gap-2 text-sm leading-5 ${toneClass[tone]}`}
+          className={`flex items-start gap-2 leading-5 ${small ? "text-[0.8125rem]" : "text-sm"} ${toneClass[tone]}`}
         >
-          <Icon aria-hidden size={16} strokeWidth={2} className="mt-0.5 flex-none" />
+          <Icon
+            aria-hidden
+            size={small ? 14 : 16}
+            strokeWidth={2}
+            className={`flex-none ${small ? "mt-[3px]" : "mt-0.5"}`}
+          />
           <span className={muted ? "text-ink-muted" : "text-ink"}>{text}</span>
         </li>
       ))}
