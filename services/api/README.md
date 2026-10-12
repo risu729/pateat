@@ -218,23 +218,23 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and
-  which never has `base` (400 otherwise). Its instructions are the generation role's
-  plus one entry line, which no request with slots gets, and the model answers
-  `{ "result": { "decision": "entry", "entry": "c2" } }` or abstains. The plan check
-  accepts `entry` only for such a request and only for a `link` candidate whose label
-  and locator value hold no `@`, `[email]`, `[masked]`, `[number]` or run of four
-  digits, the rule of a chooser's `other` button (`account-text`); otherwise the call
-  fails `invalid-output` with `unexpected-entry` (a request with slots),
+  which has no other key, such as `base` or `branch` (400 otherwise). Its instructions
+  are the generation role's plus one entry line, which no request with slots gets, and
+  the model answers `{ "result": { "decision": "entry", "entry": "c2" } }` or abstains.
+  The plan check accepts `entry` only for such a request and only for a `link` candidate
+  whose label and locator value hold no `@`, `[email]`, `[masked]`, `[number]` or run of
+  four digits, the rule of a chooser's `other` button (`account-text`); otherwise the
+  call fails `invalid-output` with `unexpected-entry` (a request with slots),
   `unexpected-plan` or `unexpected-account-list` (an entry request answered with a plan
-  or an account list), `unknown-candidate` or `incompatible-role`. The answer is
-  stored as the generated recipe of the page's origin and path,
+  or an account list), `unknown-candidate` or `incompatible-role`. The answer is stored
+  as the generated recipe of the page's origin and path,
   `{ version: 1, id, revision, origin, entry: { path, target } }` with the candidate's
   locator, and returned as `recipe`; an active entry recipe there is returned as is, and
-  a login or chooser recipe there answers `recipe-conflict`, as a request with slots
-  does when an entry or chooser recipe starts on its path or is its `base`. The retry
-  window, attempt row, spend limits, request log and revocation apply as for a first
-  page; the log row has the entry request's own prompt version and records `{ entry }`
-  with the candidate ID.
+  a login or chooser recipe there answers `recipe-conflict`, as a form request does when
+  an entry or chooser recipe starts on its path or is its `base`. The retry window,
+  attempt row, spend limits, request log and revocation apply as for a first page; the
+  log row has the entry request's own prompt version and records `{ entry }` with the
+  candidate ID.
 - `POST /v1/recipes/:recipeId/completion` takes
   `{ version: 1, revision, route, observation }` for a page an effect step of that
   revision led to, on the recipe's origin

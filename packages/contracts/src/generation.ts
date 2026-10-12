@@ -33,15 +33,15 @@ const writtenRevision = v.pipe(
   v.minValue(1),
   v.maxValue(Number.MAX_SAFE_INTEGER - 1),
 );
-/**
- * The active variant of `syncRecipeChangeSchema`, with the same identity check: a route
- * recipe, or a chooser recipe (ADR 0028) for an account list or one of its branches.
- */
 const sameIdentity = (change: {
   recipeId: string;
   revision: number;
   recipe: { id: string; revision: number };
 }) => change.recipe.id === change.recipeId && change.recipe.revision === change.revision;
+/**
+ * The active variant of `syncRecipeChangeSchema`, with the same identity check: a route
+ * recipe, or a chooser recipe (ADR 0028) for an account list or one of its branches.
+ */
 const activeChange = v.pipe(
   v.strictObject({
     recipeId: syncRecipeIdSchema,
