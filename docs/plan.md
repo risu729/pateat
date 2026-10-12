@@ -97,7 +97,8 @@ Chrome, on a production build of main.
   `mise run check`. The owner asked for care not to remove needed tests: every deletion
   names the test that still covers its contract, and an independent subagent compares
   the deleted tests with the kept ones before each batch merges, as the skill's
-  preservation review does.
+  preservation review does. The suite's size and CI times in the survey are a 2026-10-12
+  snapshot; re-measure them when the work starts and after each batch.
 - `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged (the retry
   window is 10 minutes since 2026-10-12), so the first recipe names both its password
   and passkey routes. A recipe generated earlier gets no routes

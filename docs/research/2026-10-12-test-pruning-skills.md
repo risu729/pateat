@@ -8,10 +8,31 @@ the values the pages showed on 2026-10-12. The owner chose OpenClaw's `test-audi
 
 ## Pateat's test suite today
 
-At `e902ef3`, 123 tracked `*.test.ts(x)` and `*.spec.ts(x)` files hold 58,717 lines and
-about 2,150 `it(`/`test(` declarations (including `.each`), against 45,889 lines in the
-other tracked TypeScript files. Coverage and CI duration are handled separately in the
-roadmap; this note only covers the skill.
+These numbers are a snapshot to compare against, not a target. The pruning work
+re-measures them (counts and CI times) on the current main when it starts and again
+after each batch (owner, 2026-10-12 07:48 UTC).
+
+Counted at `e902ef3` from tracked `*.test.ts(x)` and `*.spec.ts(x)` files; "tests" are
+`it(`/`test(` declarations including `.each`. Together they are 123 files, 58,717 lines
+and about 2,150 tests, against 45,889 lines in the other tracked TypeScript files.
+
+| Kind | Tool | Where | Files | Lines | Tests |
+| --- | --- | --- | --- | --- | --- |
+| Unit, in Node | Vitest | `apps/extension` (outside the three folders below), `packages/bitwarden`, `packages/contracts`, `packages/inference` | 78 | 40,292 | 1,601 (74%) |
+| Service | Vitest with `@cloudflare/vitest-plugin` (Workers runtime, local D1) | `services/api` | 9 | 5,443 | 196 (9%) |
+| In-browser component | Vitest Browser Mode on Playwright's Chromium | `apps/extension/src/{observation,page,diagnostics}`, `tests/options`, `tests/manage` | 21 | 6,610 | 232 (11%) |
+| End-to-end, packaged extension | Playwright | `tests/extension` | 15 | 6,372 | 121 (6%) |
+
+The suite is not end-to-end heavy; the largest single group is the extension's Node unit
+tests (38 files, 23,806 lines, 888 tests).
+
+In CI run [38219015105](https://github.com/risu729/pateat/actions/runs/38219015105)
+(main at `e2ba5d1`), the whole workflow took 3 min 48 s. The `Verify` job, which runs
+lint, typecheck, builds and every Vitest suite, took 2 min 58 s. The end-to-end tests
+ran in six Linux shards of 52 s to 1 min 55 s each, and six Windows shards of 1 min 6 s
+to 2 min 20 s, which run only on main since
+[#300](https://github.com/risu729/pateat/pull/300). Coverage and CI duration are handled
+separately in the roadmap; this note only covers the skill.
 
 ## Candidates
 
