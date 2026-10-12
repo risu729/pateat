@@ -33,6 +33,8 @@ export const choiceResponseSchema = v.variant("ok", [
     ),
     /** The tab logged out of the site after a Pateat login (ADR 0021 D). */
     logout: v.optional(v.literal(true)),
+    /** Another tab's login holds the site, so a pick cannot start yet (ADR 0022). */
+    held: v.optional(v.literal(true)),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-choice") }),
 ]);
@@ -40,7 +42,13 @@ export const pickResponseSchema = v.variant("ok", [
   v.strictObject({ ok: v.literal(true) }),
   v.strictObject({
     ok: v.literal(false),
-    reason: v.picklist(["no-choice", "not-a-candidate", "document-gone", "not-started"]),
+    reason: v.picklist([
+      "no-choice",
+      "not-a-candidate",
+      "document-gone",
+      "not-started",
+      "origin-busy",
+    ]),
   }),
 ]);
 export type ChoiceResponse = v.InferOutput<typeof choiceResponseSchema>;

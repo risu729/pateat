@@ -71,8 +71,9 @@ export function SiteApp({
     queryFn: () => choices.get(tabId!),
     enabled: tabId !== undefined && origin !== undefined,
     // The page may be refused only after the popup opened, or announce again after a
-    // restarted worker; asking again while open shows the choice once it waits.
-    refetchInterval: (query) => (query.state.data?.ok ? false : 1000),
+    // restarted worker; asking again while open shows the choice once it waits, and
+    // once another tab's login no longer holds the site.
+    refetchInterval: (query) => (query.state.data?.ok && !query.state.data.held ? false : 1000),
     staleTime: 0,
     gcTime: 0,
   });
@@ -149,6 +150,10 @@ export function SiteApp({
         return;
       } else if (response.reason === "document-gone")
         setMessage("The page changed, so nothing was started. Reload it to choose again.");
+      else if (response.reason === "origin-busy")
+        setMessage(
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, then choose again.",
+        );
       else if (response.reason === "not-started")
         setMessage(
           `Pateat could not log in with ${selected.label} on this page. Reload the page to choose again.`,
@@ -205,6 +210,9 @@ export function SiteApp({
       ? chosen
       : (currentOption?.value ?? options[0]?.value ?? "");
     const offered = choice.data?.ok && choice.data.origin === origin ? choice.data : undefined;
+    // The choice shows once the site's matches are listed, so each account is named by its
+    // username from the first frame rather than by a shortened item ID.
+    const labelled = !accounts.isEnabled || !accounts.isPending;
     // The refused login's candidates, labelled like the default list; usernames come from
     // the site's matches when they include the item.
     const matches: Extract<SiteAccountsResponse, { ok: true }> | undefined = offered && {
@@ -282,7 +290,10 @@ export function SiteApp({
         {choice.isPending && choice.isEnabled && (
           <p id="popup-choice-checking">Checking whether this page waits for an account choice…</p>
         )}
-        {offered && pickOptions.length > (offered.logout ? 0 : 1) && (
+        {offered && !labelled && (
+          <p id="popup-choice-checking">Listing the accounts that match this page…</p>
+        )}
+        {offered && labelled && pickOptions.length > (offered.logout ? 0 : 1) && (
           <section aria-labelledby="popup-choice-heading">
             <h2 id="popup-choice-heading">Choose an account</h2>
             <p>
@@ -318,10 +329,17 @@ export function SiteApp({
               />
               Make it the default for this site
             </label>
+            {offered.held && (
+              <p id="popup-pick-held">
+                {
+                  "Another tab's login to this site is running or did not succeed. Close that tab to log in here."
+                }
+              </p>
+            )}
             <Button
               id="popup-pick"
               type="button"
-              disabled={busy}
+              disabled={busy || offered.held}
               onClick={() => {
                 const selected = pickOptions.find((entry) => entry.value === shownPick);
                 if (selected) void pick(offered, selected, asDefault);

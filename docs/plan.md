@@ -75,7 +75,9 @@ Chrome, on a production build of main.
     ([#187](https://github.com/risu729/pateat/pull/187)). On 2026-10-12 on github.com
     with three matches, the first popup open showed no choice and a reopen did; recheck
     after the fix that keeps asking and waits for a restarted worker's newer
-    announcement.
+    announcement. The recheck that day showed shortened item IDs before the usernames
+    and a silent stop when another tab's login held the site; recheck both after the
+    fix that waits for the usernames and names the hold.
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
