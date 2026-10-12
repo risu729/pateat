@@ -14,6 +14,7 @@ import type {
   ConnectionSetupDependencies,
   SetupReply,
 } from "./types";
+import { newId } from "@pateat/contracts/ids";
 
 const error = (code: Extract<SetupReply, { ok: false }>["error"]["code"]): SetupReply => ({
   ok: false,
@@ -54,7 +55,7 @@ type Flow = {
 /** Only the exact trusted options Port gets a caller. Secrets never enter a metadata query cache. */
 export function createConnectionSetupService(deps: ConnectionSetupDependencies) {
   const now = deps.nowMs ?? Date.now;
-  const random = deps.randomId ?? (() => crypto.randomUUID());
+  const random = deps.randomId ?? newId;
   const active = new Map<string, Flow>();
   const disabling = new Set<string>();
   const connectionEpoch = new Map<string, number>();

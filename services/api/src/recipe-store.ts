@@ -8,6 +8,7 @@ import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import { owners, recipeHeads, recipeRevisions } from "./db/schema";
 import { KEPT_RECIPE_REVISIONS, MAX_ACTIVE_RECIPES } from "./limits";
+import { newId } from "@pateat/contracts/ids";
 
 type HeadRow = {
   recipeId: string;
@@ -92,7 +93,7 @@ export async function writeRecipe(
 > {
   const orm = drizzle(db);
   const now = Date.now();
-  const writeId = crypto.randomUUID();
+  const writeId = newId();
   const revision = write.expectedRevision + 1;
   const document = write.state === "active" ? write.recipe : null;
   // Sequences grow per owner; batches run serially in one transaction.

@@ -1637,6 +1637,24 @@ field exclusions and custom-field review, which need the device's vault catalog
   `Origin` equal to its own. The page's
   Content Security Policy allows scripts from its own origin only, with no framing.
 
+## Identifiers
+
+Every ID that Pateat's production code creates is a UUIDv7 from `newId()` in
+[`packages/contracts/src/ids.ts`](../packages/contracts/src/ids.ts): D1 rows such as
+`owners.id`, `devices.id` and `inference_log.id`, write and lock IDs, login attempt and
+operation IDs, vault and session revisions, connection IDs, the `deviceIdentifier` sent
+to Bitwarden and message correlation tokens. UUIDv7 starts with its creation time in
+milliseconds, so IDs from one place sort in creation order; code still orders rows by
+their `sequence` or time columns. The time is readable by whoever receives an ID, such
+as the owner ID in the Claude credential JWT's `sub`. Three kinds of value are not
+created IDs and stay as they are: secrets (device tokens and digest keys are random
+bytes), content-derived IDs that devices must agree on (generated recipe IDs
+`gen-<32 hex>` hash the origin and start path, so devices generating together converge
+on one recipe) and log pseudonyms (`bitwarden:5c1e9a` is an HMAC of the connection ID).
+IDs from Bitwarden or sites are kept as given, and synthetic probes, tests and the
+hosted smoke check may use `crypto.randomUUID()`. Rows created before 2026-10-12 keep
+their UUIDv4 IDs; both validate as UUIDs.
+
 ## Deferred interfaces and challenges
 
 Settings read/update, permitted selection, execution requests, status, cancel,

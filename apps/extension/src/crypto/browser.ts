@@ -1,13 +1,14 @@
 import { browser } from "wxt/browser";
 import { createCryptoHost, type CryptoHostPort, type CryptoHostDependencies } from "./host";
 import { OFFSCREEN_PATH } from "./wire";
+import { newId } from "@pateat/contracts/ids";
 
 export function createBrowserCryptoHost(
   options: Pick<CryptoHostDependencies, "checkpoint" | "requestTimeoutMs"> = {},
 ) {
   // The browser-owned sender URL also fences Ports left over from a prior broker.
   // The nonce is not authority: host admission additionally checks native context identity.
-  const query = `?host=${crypto.randomUUID()}`;
+  const query = `?host=${newId()}`;
   const offscreenPath = `${OFFSCREEN_PATH.slice(1)}${query}`;
   const offscreenUrl = `${browser.runtime.getURL(OFFSCREEN_PATH)}${query}`;
   const listeners = new Map<(port: CryptoHostPort) => void, (port: CryptoHostPort) => void>();

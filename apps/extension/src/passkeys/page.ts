@@ -12,6 +12,7 @@ import {
 import type { BridgedCreateRequest } from "./create";
 import type { BridgedGetRequest } from "./request";
 import type { PasskeyAssertion } from "./assertion";
+import { newId } from "@pateat/contracts/ids";
 
 type PageScope = Window & typeof globalThis;
 const MAX_ALLOW_CREDENTIALS = 64;
@@ -348,7 +349,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
     signal: AbortSignal | undefined,
     limit: number | undefined,
   ) => {
-    const id = crypto.randomUUID();
+    const id = newId();
     return new Promise<PageResult | { kind: "aborted" }>((resolve) => {
       const finish = (outcome: PageResult | { kind: "aborted" }) => {
         if (!pending.delete(id)) return;

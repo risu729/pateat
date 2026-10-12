@@ -6,9 +6,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./extension-id": "./src/extension-id.ts"
+    "./extension-id": "./src/extension-id.ts",
+    "./ids": "./src/ids.ts"
   },
   "dependencies": {
+    "uuid": "14.0.3",
     "valibot": "1.5.0",
     "xstate": "5.33.2"
   }

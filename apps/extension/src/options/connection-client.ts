@@ -3,6 +3,7 @@ import * as v from "valibot";
 import { providerPermissionOrigins } from "../connections/permissions";
 import { SETUP_PORT, parseSetupReply, setupRequestSchema } from "../connections/wire";
 import type { SetupBegin, SetupContinuation, SetupReply } from "../connections/types";
+import { newId } from "@pateat/contracts/ids";
 
 export interface ConnectionClient {
   /** Call synchronously from a human gesture, before any async work. */
@@ -95,7 +96,7 @@ export function createConnectionClient(api: {
   }
   function send(input: RequestInput): Promise<SetupReply> {
     return new Promise((resolve, reject) => {
-      const requestId = crypto.randomUUID();
+      const requestId = newId();
       const fail = () => reject(new Error("Connection operation could not be confirmed."));
       const timer = setTimeout(close, 120_000);
       pending.set(requestId, { resolve, reject: fail, timer });
