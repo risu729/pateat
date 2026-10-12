@@ -8452,6 +8452,22 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     });
 
+    it("sends a page whose marker is hidden, as in a closed menu (ADR 0029)", async () => {
+      vi.useFakeTimers();
+      const learned = parseLoginRecipe({ ...unlearned, completion: home });
+      fake.state.unusable = new Set(["logout"]);
+      onTestFinished(() => {
+        fake.state.unusable = new Set();
+      });
+      onClick({ login: toHome });
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const h = harness({}, { passkeys: withPasskey, generation: service });
+      h.recipes.recipe.mockResolvedValue(learned);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(service.judge).toHaveBeenCalledTimes(1);
+    });
+
     it("does not send a page that shows a marker the completion check cannot count", async () => {
       vi.useFakeTimers();
       const learned = parseLoginRecipe({ ...unlearned, completion: home });

@@ -3343,10 +3343,11 @@ export function createLoginRuntime(
     const paths = routeSignInPaths(recipe, metadata.route);
     const marker = (recipe.completion ?? []).map((entry) => entry.target);
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
+    // A hidden marker proves nothing and does not keep the page from the judge.
     const remaining = await observe(
       run,
       [...fills, ...marker],
-      undefined,
+      [...fills.map(() => "present" as const), ...marker.map(() => "shown" as const)],
       marker.length > 0 ? [...fills.map(() => false), ...marker.map(() => true)] : undefined,
     );
     if (!remaining) {
@@ -3361,7 +3362,11 @@ export function createLoginRuntime(
       return notSent("sign-in-shown");
     // A marker shows, but the completion check did not prove the sign-in: more than one
     // match, or an element it needs gone is there.
-    if (remaining.targets.slice(fills.length).some((state) => state !== "missing"))
+    if (
+      remaining.targets
+        .slice(fills.length)
+        .some((state) => state === "unique" || state === "ambiguous")
+    )
       return notSent("marker-shown");
     let observation: LoginObservation | undefined;
     let unsent = "unreachable";
