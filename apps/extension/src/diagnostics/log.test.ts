@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
+  LOG_EVENTS,
   LOG_RETENTION_MS,
+  PAGE_DEBUG_EVENTS_PER_MINUTE,
   PAGE_EVENTS_PER_MINUTE,
   TRUNCATED,
   createLogger,
@@ -107,6 +109,46 @@ describe("diagnostics log", () => {
     expect(entries[0]).toMatchObject({ time: NOW, level: "info", event: "passkey.request" });
   });
 
+  it("keeps a page URL's path, query and fragment only for a site named in full", async () => {
+    const { logger } = setup();
+    const long = `https://bank.example/signin?return=${"a".repeat(600)}`;
+    for (const [origin, url] of [
+      ["https://bank.example", "https://bank.example/signin?next=%2Fhome#top"],
+      // A pseudonymized origin gets no URL, and a URL of another origin is left out.
+      ["https://shop.example", "https://shop.example/signin?next=%2Fcart"],
+      ["https://bank.example", "https://other.example/signin"],
+      // A blob URL names its inner origin but has no path of its own.
+      ["https://bank.example", "blob:https://bank.example/1234"],
+      ["https://bank.example", long],
+    ])
+      // oxlint-disable-next-line no-await-in-loop -- entries are written in order
+      await logger.log("login.refused", { origin, reason: "default-not-set", url });
+    await logger.log("login.exception", {
+      origin: "https://bank.example",
+      name: "Error",
+      url: "https://bank.example/signin?next=%2Fhome#top",
+    });
+    const entries = await logger.entries();
+    expect(entries.map((entry) => entry.fields["url"])).toEqual([
+      "/signin?next=%2Fhome#top",
+      undefined,
+      undefined,
+      undefined,
+      `/signin?return=${"a".repeat(600)}`.slice(0, 512),
+      "/signin?next=%2Fhome#top",
+    ]);
+    expect(JSON.stringify(entries)).not.toContain("cart");
+    // Hiding sites leaves URLs out of a download, and the bug report never carries them.
+    const context = { version: "0.1.0", revision: "1c42ad3", exportedAt: NOW };
+    expect(formatLogExport(entries, { ...context, includeSites: true })).toContain(
+      "/signin?next=%2Fhome#top",
+    );
+    expect(formatLogExport(entries, { ...context, includeSites: false })).not.toContain("/signin");
+    const recent = recentLog(entries, NOW);
+    expect(recent.problems).toHaveLength(1);
+    expect(JSON.stringify(recent)).not.toContain("/signin");
+  });
+
   it("records debug entries only while debug logging is on, across workers", async () => {
     const { logger, deps, advance } = setup();
     await logger.log("service.sync", { outcome: "synced" }, { level: "debug" });
@@ -125,15 +167,31 @@ describe("diagnostics log", () => {
     expect((await restarted.summary()).debugUntil).toBeUndefined();
   });
 
+  it("turns debug logging off before the 24 hours end, across workers", async () => {
+    const { logger, deps } = setup();
+    await logger.enableDebug();
+    await logger.disableDebug();
+    await logger.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    const restarted = createLogger(deps);
+    await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    expect((await restarted.summary()).debugUntil).toBeUndefined();
+    expect((await restarted.entries()).map((entry) => [entry.event, entry.fields])).toEqual([
+      ["log.debug", { enabled: true, until: NOW + DEBUG_LOGGING_MS }],
+      ["log.debug", { enabled: false }],
+    ]);
+  });
+
   it("limits page-caused events per tab and origin and counts the rest", async () => {
     const { logger, advance } = setup();
     const source = { tabId: 4, origin: "https://bank.example" };
-    for (let index = 0; index < PAGE_EVENTS_PER_MINUTE + 5; index += 1)
+    for (let index = 0; index < PAGE_EVENTS_PER_MINUTE + 3; index += 1)
       void logger.log(
         "login.refused",
         { origin: source.origin, reason: "origin-busy" },
         { source },
       );
+    for (let index = 0; index < 2; index += 1)
+      void logger.log("recipe.judge", { origin: source.origin, verdict: "not-sent" }, { source });
     // Another tab has its own allowance.
     await logger.log(
       "login.refused",
@@ -142,24 +200,58 @@ describe("diagnostics log", () => {
     );
     // The first drop is logged at once, in case the worker stops before the window ends.
     const first = await logger.entries();
-    expect(first).toHaveLength(PAGE_EVENTS_PER_MINUTE + 2);
+    expect(first).toHaveLength(PAGE_EVENTS_PER_MINUTE + 4);
+    // Each dropped event is named; another event's first drop also counts the drops so far.
     expect(
       first.filter((entry) => entry.event === "log.dropped").map((entry) => entry.fields),
-    ).toEqual([{ origin: source.origin, count: 1 }]);
+    ).toEqual([
+      { origin: source.origin, dropped: "login.refused", count: 1 },
+      { origin: source.origin, dropped: "login.refused", count: 2 },
+      { origin: source.origin, dropped: "recipe.judge", count: 1 },
+    ]);
     advance(60_000);
     await logger.log("login.refused", { origin: source.origin, reason: "tab-busy" }, { source });
     const entries = await logger.entries();
     expect(entries.slice(-2).map((entry) => [entry.event, entry.fields])).toEqual([
-      ["log.dropped", { origin: source.origin, count: 4 }],
+      ["log.dropped", { origin: source.origin, dropped: "recipe.judge", count: 1 }],
       ["login.refused", { origin: source.origin, reason: "tab-busy" }],
     ]);
+    // A download keeps the entry's own event name next to the dropped one.
+    const context = { version: "0.1.0", revision: "1c42ad3", exportedAt: NOW };
+    const exported = formatLogExport(entries, { ...context, includeSites: true })
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line["dropped"] !== undefined);
+    expect(exported.map((line) => [line["event"], line["dropped"]])).toContainEqual([
+      "log.dropped",
+      "recipe.judge",
+    ]);
+  });
+
+  it("names no field like an export line's own keys, and every event passes the code check", () => {
+    for (const [event, definition] of Object.entries(LOG_EVENTS)) {
+      expect(event).toMatch(/^[a-z0-9][a-z0-9.:-]{0,63}$/u);
+      for (const reserved of ["time", "level", "event"])
+        expect(Object.keys(definition.fields)).not.toContain(reserved);
+    }
+  });
+
+  it("keeps a caller's own allowance, as unhandled errors share 20 a minute", async () => {
+    const { logger } = setup();
+    const source = { tabId: -1, origin: "", perMinute: 20 };
+    for (let index = 0; index < 25; index += 1)
+      void logger.log("error.unhandled", { source: "error", name: "TypeError" }, { source });
+    await logger.log("log.debug", { enabled: false });
+    const entries = await logger.entries();
+    expect(entries.filter((entry) => entry.event === "error.unhandled")).toHaveLength(20);
   });
 
   it("keeps a page's debug events from crowding out the rest", async () => {
     const { logger } = setup();
     await logger.enableDebug();
     const source = { tabId: 4, origin: "https://hotel.example" };
-    for (let index = 0; index < PAGE_EVENTS_PER_MINUTE + 3; index += 1)
+    for (let index = 0; index < PAGE_DEBUG_EVENTS_PER_MINUTE + 3; index += 1)
       void logger.log(
         "login.refused",
         { origin: source.origin, reason: "tab-busy", frame: true },
@@ -172,7 +264,7 @@ describe("diagnostics log", () => {
     );
     const entries = (await logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.filter((entry) => entry.event === "login.refused")).toHaveLength(
-      PAGE_EVENTS_PER_MINUTE,
+      PAGE_DEBUG_EVENTS_PER_MINUTE,
     );
     // Only debug detail was lost, so the drop is debug detail too.
     expect(
@@ -701,6 +793,25 @@ describe("unhandled errors", () => {
       verdict: "unclear",
       reason: "already-judged",
     });
+    for (const reason of ["unreachable", "not-connected"])
+      log.login({
+        type: "judge",
+        ...page,
+        recipeRevision: 1,
+        route: "password",
+        verdict: "retry",
+        reason,
+      });
+    // A continuation names the revision it continued and whether the login took it over.
+    log.login({
+      type: "generation",
+      tabId: 3,
+      origin: recipeOrigin,
+      outcome: "recipe",
+      recipeId: "synthetic-recipe",
+      baseRevision: 1,
+      takenOver: true,
+    });
     log.login({
       type: "handler",
       ...page,
@@ -761,16 +872,17 @@ describe("unhandled errors", () => {
       check: "plan",
       detail: "incompatible-role",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(12));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(15));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
       ["service.sync", "debug", { outcome: "synced", scope: "full" }],
       ["service.sync", "info", { outcome: "synced", scope: "recipes", updated: 1 }],
       ["settings.changed", "info", { source: "synced", revision: 7 }],
+      // A judgement request is info: it is all that is left when no answer comes.
       [
         "recipe.judge",
-        "debug",
+        "info",
         {
           origin: recipeOrigin,
           recipe: expect.any(String),
@@ -789,6 +901,42 @@ describe("unhandled errors", () => {
           route: "password",
           verdict: "unclear",
           reason: "already-judged",
+        },
+      ],
+      // A request that failed is a problem; with no paired service nothing was sent.
+      [
+        "recipe.judge",
+        "warn",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          verdict: "retry",
+          reason: "unreachable",
+        },
+      ],
+      [
+        "recipe.judge",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          verdict: "retry",
+          reason: "not-connected",
+        },
+      ],
+      [
+        "recipe.generate",
+        "info",
+        {
+          origin: recipeOrigin,
+          outcome: "recipe",
+          recipe: expect.any(String),
+          baseRevision: 1,
+          takenOver: true,
         },
       ],
       [
@@ -841,7 +989,7 @@ describe("unhandled errors", () => {
       ],
       [
         "recipe.generate",
-        "info",
+        "warn",
         {
           origin: recipeOrigin,
           outcome: "failed",
@@ -853,7 +1001,7 @@ describe("unhandled errors", () => {
       ],
       [
         "recipe.generate",
-        "info",
+        "warn",
         {
           origin: recipeOrigin,
           outcome: "failed",
@@ -929,6 +1077,168 @@ describe("unhandled errors", () => {
     ]);
     expect(entries[2]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
     expect((await log.logger.summary()).recentWarnings).toBe(1);
+    vi.restoreAllMocks();
+  });
+
+  it("logs a reason once per login-related page and warns for an exception", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const site = { tabId: 4, origin: "https://login.example" };
+    log.login({ type: "refused", ...site, reason: "site-excluded" });
+    log.login({ type: "refused", ...site, reason: "site-excluded", repeat: true });
+    log.login({ type: "refused", ...site, reason: "recipe-not-found", unrelated: true });
+    log.login({ type: "refused", ...site, reason: "stale-document" });
+    log.login({ type: "refused", ...site, reason: "stale-document", detail: "gave-up" });
+    log.login({ type: "refused", ...site, reason: "duplicate-document" });
+    // A framed login's refusal is logged like the page's.
+    log.login({ type: "refused", ...site, reason: "default-not-set", frame: true });
+    for (const message of ["storage-failed", "password=hunter2"])
+      log.login({
+        type: "exception",
+        ...site,
+        recipeId: "synthetic-recipe",
+        route: "password",
+        state: "reconciling",
+        stepIndex: 1,
+        name: "Error",
+        message,
+      });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(10));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(
+      entries.map((entry) => [
+        entry.event,
+        entry.level,
+        entry.fields["reason"] ?? entry.fields["message"],
+      ]),
+    ).toEqual([
+      ["login.refused", "info", "site-excluded"],
+      ["login.refused", "debug", "site-excluded"],
+      ["login.refused", "debug", "recipe-not-found"],
+      ["login.refused", "debug", "stale-document"],
+      ["login.refused", "info", "stale-document"],
+      ["login.refused", "debug", "duplicate-document"],
+      ["login.refused", "info", "default-not-set"],
+      ["login.exception", "warn", "storage-failed"],
+      ["login.exception", "warn", undefined],
+    ]);
+    expect(entries.at(-1)?.fields).toEqual({
+      // No settings or recipe names the site in this test, so it is a pseudonym.
+      origin: expect.stringMatching(/^origin:/),
+      recipe: "synthetic-recipe",
+      route: "password",
+      state: "reconciling",
+      step: 1,
+      name: "Error",
+    });
+    expect(JSON.stringify(entries)).not.toContain("hunter2");
+    vi.restoreAllMocks();
+  });
+
+  it("logs each automatic vault check and why a refresh was not sent", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const connectionId = "50000000-0000-4000-8000-000000000001";
+    // A repeated result, such as a sign-in that still needs the password, is only detail.
+    const outcomes = [
+      "unchanged",
+      "synced",
+      "deferred",
+      "deferred",
+      "reauthentication-required",
+      "reauthentication-required",
+    ] as const;
+    outcomes.forEach((outcome, index) =>
+      log.vaultCheck({ connectionId, outcome, previous: outcomes[index - 1] }),
+    );
+    log.vaultRefresh({ connectionId, outcome: "not-sent", cause: "no-refresh-token" });
+    log.recipeSync("busy", { scope: "full", added: 0, updated: 0, removed: 0 });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(
+      entries.map((entry) => [
+        entry.event,
+        entry.level,
+        entry.fields["outcome"],
+        entry.fields["cause"],
+      ]),
+    ).toEqual([
+      ["vault.check", "debug", "unchanged", undefined],
+      ["vault.check", "info", "synced", undefined],
+      ["vault.check", "info", "deferred", undefined],
+      ["vault.check", "debug", "deferred", undefined],
+      ["vault.check", "warn", "reauthentication-required", undefined],
+      ["vault.check", "debug", "reauthentication-required", undefined],
+      ["vault.refresh", "info", "not-sent", "no-refresh-token"],
+      ["service.sync", "info", "busy", undefined],
+    ]);
+    expect(JSON.stringify(entries)).not.toContain(connectionId);
+    vi.restoreAllMocks();
+  });
+
+  it("logs a login's start, the account choice and a logout at info", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const site = { tabId: 4, origin: "https://login.example" };
+    const itemId = "80000000-0000-4000-8000-000000000001";
+    log.login({
+      type: "start",
+      ...site,
+      recipeId: "synthetic-recipe",
+      route: "password",
+      variant: 0,
+      account: "match",
+      candidates: 1,
+      itemId,
+    });
+    log.login({ type: "choice", ...site, outcome: "saved" });
+    log.login({ type: "logout", ...site, recipeId: "synthetic-recipe" });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    const entries = await log.logger.entries();
+    expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
+      ["login.start", "info"],
+      ["login.choice", "info"],
+      ["login.logout", "info"],
+    ]);
+    expect(entries[0]?.fields).toMatchObject({
+      route: "password",
+      variant: 0,
+      account: "match",
+      candidates: 1,
+      item: expect.stringMatching(/^item:[0-9a-f]{8}$/),
+    });
+    expect(JSON.stringify(entries)).not.toContain(itemId);
     vi.restoreAllMocks();
   });
 

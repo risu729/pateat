@@ -81,6 +81,29 @@ describe("recipe sync contract", () => {
     expect(accepts(syncRecipeWriteSchema, { ...write, recipe: recipe(3) })).toBe(false);
   });
 
+  it("syncs an entry recipe (ADR 0031) with the same identity checks, and never a mixed one", () => {
+    const entry = {
+      version: 1,
+      id: "bank-login",
+      revision: 2,
+      origin: "https://bank.example",
+      entry: { path: "/", target: { by: "text", value: "Login" } },
+    };
+    const change = { recipeId: "bank-login", revision: 2, state: "active", recipe: entry };
+    expect(accepts(syncRecipeChangeSchema, change)).toBe(true);
+    expect(accepts(syncRecipeChangeSchema, { ...change, recipeId: "other-login" })).toBe(false);
+    const write = { version: 1, expectedRevision: 1, state: "active", recipe: entry };
+    expect(accepts(syncRecipeWriteSchema, write)).toBe(true);
+    expect(accepts(syncRecipeWriteSchema, { ...write, expectedRevision: 0 })).toBe(false);
+    const { slots, steps, maxSubmissions } = recipe(2);
+    expect(
+      accepts(syncRecipeWriteSchema, {
+        ...write,
+        recipe: { ...entry, slots, steps, maxSubmissions },
+      }),
+    ).toBe(false);
+  });
+
   it("only tombstones a recipe that already has a revision", () => {
     expect(
       accepts(syncRecipeWriteSchema, { version: 1, expectedRevision: 1, state: "revoked" }),

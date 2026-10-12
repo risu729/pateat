@@ -1,12 +1,22 @@
-import type {
-  LoginObservation,
-  ObservedCandidate,
-  RecipeCompletionResult,
-  RecipeGenerationResult,
-  SemanticSlot,
+import {
+  isLoginRouteRecipe,
+  type EntryGenerationResult,
+  type LoginObservation,
+  type LoginRecipe,
+  type ObservedCandidate,
+  type RecipeCompletionResult,
+  type RecipeGenerationResult,
+  type SemanticSlot,
+  type StoredLoginRecipe,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
-import { completionPromptVersion, generationPromptVersion } from "@pateat/inference";
+import {
+  completionPromptVersion,
+  entryGenerationInstructions,
+  entryGenerationPromptVersion,
+  entryInstruction,
+  generationPromptVersion,
+} from "@pateat/inference";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
@@ -58,6 +68,11 @@ const homePage = observation("/home", [
   element("help", "link", "Help"),
 ]);
 
+/** A stored recipe that must be a route recipe, as every form page's answer is. */
+const route = (recipe: StoredLoginRecipe): LoginRecipe => {
+  if (!isLoginRouteRecipe(recipe)) throw new Error("Expected a route recipe");
+  return recipe;
+};
 const plan = (fields: [string, string][], action: string, purpose: "advance" | "submit") =>
   JSON.stringify({
     result: {
@@ -224,7 +239,7 @@ describe("recipe generation", () => {
       },
     });
     if (first.status !== "recipe") return;
-    expect(first.change.recipe.completion).toBeUndefined();
+    expect(route(first.change.recipe).completion).toBeUndefined();
     // The access token from the exchange is the credential; no API key is sent.
     expect(sent[0]).toMatchObject({ authorization: "Bearer synthetic-access-token", apiKey: null });
 
@@ -415,10 +430,12 @@ describe("recipe generation", () => {
   it("names the check that refused the output and logs the refused plan by reference", async () => {
     const device = await owner();
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    // A password for an input the page marks `new-password`: the plan check refuses it.
+    // A password for a sign-up form's `new-password` input, which a confirmation field
+    // follows: the plan check refuses it.
     const page = observation("/login", [
       element("email", "email", "Email"),
       { ...element("password", "password", "Password"), autocomplete: "new-password" },
+      { ...element("confirm", "password", "Confirm password"), autocomplete: "new-password" },
       element("sign-in", "button", "Sign in"),
     ]);
     const refused = JSON.stringify({
@@ -562,6 +579,28 @@ describe("recipe generation", () => {
       slots,
     });
     expect(await again.json()).toMatchObject({ status: "recipe", change: { revision: 2 } });
+  });
+
+  it("fails a continuation that fills one of the recipe's slots again, storing nothing", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    await generate(device, emailPage);
+    // The email form shown again where it posted, as after an unknown account.
+    const again = { ...emailPage, path: "/login/identifier" };
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, again, { recipeId, revision: 1 })).toEqual({
+      version: 1,
+      status: "failed",
+      error: "recipe-invalid",
+    });
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        recipeId,
+      ),
+    ).toEqual([{ revision: 1 }]);
   });
 
   it("answers with another device's recipe stored during the call", async () => {
@@ -722,6 +761,107 @@ describe("recipe generation", () => {
       reason: "recipe-conflict",
     });
     expect(sent).toEqual([]);
+  });
+
+  it("never generates, continues or judges an entry recipe stored under the page's ID", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    // ADR 0031: a recipe whose only member is `entry`, written by a device for now.
+    const entry = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      entry: { path: "/login", target: { by: "text", value: "Login" } },
+    };
+    const stored = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 0, state: "active", recipe: entry },
+      "PUT",
+    );
+    expect(stored.status).toBe(200);
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    expect(await generate(device, emailPage)).toEqual(conflict);
+    expect(await generate(device, passwordPage, { recipeId, revision: 1 })).toEqual(conflict);
+    expect(await complete(device, recipeId, 1)).toEqual({ status: 200, body: conflict });
+    expect(sent).toEqual([]);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
+  it("never answers a form page, a route's next page or its judgement with a chooser recipe", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    // ADR 0028: a recipe whose only member is `chooser`, written by a device for now.
+    const chooser = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      chooser: { path: "/login", other: { by: "text", value: "Use another account" } },
+    };
+    const stored = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 0, state: "active", recipe: chooser },
+      "PUT",
+    );
+    expect(stored.status).toBe(200);
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    expect(await generate(device, emailPage)).toEqual(conflict);
+    expect(await generate(device, passwordPage, { recipeId, revision: 1 })).toEqual(conflict);
+    expect(await complete(device, recipeId, 1)).toEqual({ status: 200, body: conflict });
+    expect(sent).toEqual([]);
+  });
+
+  it("generates a first page beside an entry recipe of another path, and after one is revoked", async () => {
+    const device = await owner();
+    const entryWrite = (id: string, path: string) => ({
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: {
+        version: 1,
+        id,
+        revision: 1,
+        origin: ORIGIN,
+        entry: { path, target: { by: "text", value: "Login" } },
+      },
+    });
+    const loginId = await generatedRecipeId(ORIGIN, "/login");
+    // The top page's entry recipe leaves the login page's own recipe to be generated.
+    const topId = await generatedRecipeId(ORIGIN, "/");
+    expect((await post(device, `/v1/recipes/${topId}`, entryWrite(topId, "/"), "PUT")).status).toBe(
+      200,
+    );
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: loginId, revision: 1 },
+    });
+    expect(sent).toHaveLength(1);
+
+    // A revoked entry recipe is generated again from its page as the revision after its
+    // tombstone, as any revoked recipe is.
+    const other = await owner();
+    expect(
+      (await post(other, `/v1/recipes/${loginId}`, entryWrite(loginId, "/login"), "PUT")).status,
+    ).toBe(200);
+    const revoked = await post(
+      other,
+      `/v1/recipes/${loginId}`,
+      { version: 1, expectedRevision: 1, state: "revoked" },
+      "PUT",
+    );
+    expect(revoked.status).toBe(200);
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(other, emailPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: loginId, revision: 3, recipe: { revision: 3, slots: ["email"] } },
+    });
+    expect(sent).toHaveLength(2);
   });
 
   it("refuses an incomplete page without recording an attempt", async () => {
@@ -1028,7 +1168,7 @@ describe("custom-field slots (ADR 0027)", () => {
     if (first.status !== "recipe") return;
     // The recipe never carries the vault field names.
     expect(JSON.stringify(first.change)).not.toContain("Synthetic");
-    expect(first.change.recipe.steps[0]).toMatchObject({
+    expect(route(first.change.recipe).steps[0]).toMatchObject({
       fields: [
         { slot: "email", target: { by: "id", value: "email" } },
         { slot: "branch-number", target: { by: "id", value: "branch" } },
@@ -1564,7 +1704,7 @@ describe("page judgement (ADR 0027)", () => {
           state: "active",
           recipe: {
             revision: 3,
-            steps: change.recipe.steps,
+            steps: route(change.recipe).steps,
             handlers: [
               { kind: "passkey", path: "/login/webauthn", target: { by: "id", value: "key" } },
             ],
@@ -1642,7 +1782,7 @@ describe("page judgement (ADR 0027)", () => {
         revision: 3,
         recipe: {
           revision: 3,
-          steps: change.recipe.steps,
+          steps: route(change.recipe).steps,
           handlers: [
             { kind: "passkey", path: "/login/mfa", target: { by: "id", value: "key" } },
             {
@@ -1798,7 +1938,7 @@ describe("page judgement (ADR 0027)", () => {
       const second = await complete(device, change.recipeId, 3, plain);
       expect(second.body).toMatchObject({ change: { revision: 4 } });
       if (!("change" in second.body) || !second.body.change) throw new Error("no change");
-      expect(second.body.change.recipe.handlers?.map((handler) => handler.kind)).toEqual([
+      expect(route(second.body.change.recipe).handlers?.map((handler) => handler.kind)).toEqual([
         "totp",
         "passkey",
       ]);
@@ -1829,7 +1969,7 @@ describe("page judgement (ADR 0027)", () => {
         change: {
           revision: 3,
           recipe: {
-            steps: change.recipe.steps,
+            steps: route(change.recipe).steps,
             handlers: [
               {
                 kind: "totp",
@@ -2238,7 +2378,7 @@ describe("the passkey route (ADR 0027)", () => {
     const result = await generate(device, signInPage);
     if (result.status !== "recipe") throw new Error(result.status);
     expect(result.change.recipe).not.toHaveProperty("passkey");
-    expect(result.change.recipe.slots).toEqual(["email", "password"]);
+    expect(route(result.change.recipe).slots).toEqual(["email", "password"]);
     // The log keeps nothing the plan check dropped.
     const [logged] = await rows(
       "SELECT result FROM inference_log WHERE owner_id = ? AND role = 'generate'",
@@ -2409,7 +2549,10 @@ describe("the passkey route (ADR 0027)", () => {
     if (second.status !== "recipe") throw new Error(second.status);
     const { recipeId, revision } = second.change;
     // The continuation keeps the start page's route.
-    expect(second.change.recipe.passkey).toEqual({ path: "/login", target: passkeyButton.target });
+    expect(route(second.change.recipe).passkey).toEqual({
+      path: "/login",
+      target: passkeyButton.target,
+    });
     const rejected = JSON.stringify({ result: { decision: "rejected" } });
     replies.push({ text: rejected });
     expect(await judge(device, recipeId, revision, homePage)).toEqual({
@@ -2432,5 +2575,808 @@ describe("the passkey route (ADR 0027)", () => {
       // `/home`, on the passkey route
       { route: "passkey", loginPaths: ["/login", "/password"] },
     ]);
+  });
+});
+
+describe("account lists and chooser branches (ADR 0028)", () => {
+  const listPage: LoginObservation = {
+    ...observation("/login", [
+      element("other", "button", "Sign in with another profile"),
+      element("help", "link", "Help"),
+    ]),
+    accounts: ["[email] Last used", "[email]"],
+  };
+  const listAnswer = (controls: { other?: string; continue?: string }) =>
+    JSON.stringify({ result: { decision: "account-list", ...controls } });
+  const judgeReply = (result: unknown) => ({ text: JSON.stringify({ result }) });
+  async function branchGenerate(
+    device: Device,
+    page: LoginObservation,
+    base: { recipeId: string; revision: number },
+    branch: string,
+  ) {
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: page,
+      slots,
+      base,
+      branch,
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()) as RecipeGenerationResult;
+  }
+  /** Stores the list as a chooser with an `other` button and returns its change. */
+  async function chooser(device: Device) {
+    replies.push({ text: listAnswer({ other: "other" }) });
+    const answer = await generate(device, listPage);
+    if (answer.status !== "recipe") throw new Error(answer.status);
+    return answer.change;
+  }
+
+  it("stores a list of accounts as a chooser recipe and logs its controls by reference", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    const change = await chooser(device);
+    expect(change).toEqual({
+      recipeId,
+      revision: 1,
+      state: "active",
+      recipe: {
+        version: 1,
+        id: recipeId,
+        revision: 1,
+        origin: ORIGIN,
+        chooser: { path: "/login", other: { by: "id", value: "other" } },
+      },
+    });
+    // The page went to the model with its accounts as the observation redacted them.
+    expect(JSON.stringify(sent[0]!.body)).toContain(
+      String.raw`\"accounts\":[\"[email] Last used\",\"[email]\"]`,
+    );
+    const [logged] = await rows(
+      "SELECT outcome, result FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(logged!.outcome).toBe("ok");
+    expect(JSON.parse(String(logged!.result))).toEqual({ accountList: true, other: "other" });
+    expect(
+      await rows(
+        "SELECT recipe_id, branch, path, base_revision FROM generation_attempts WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ recipe_id: recipeId, branch: "", path: "/login", base_revision: 0 }]);
+    // Another device sending the list gets the chooser without a call; a form page on the
+    // same path gets no recipe from it.
+    expect(await generate(device, listPage)).toEqual({ version: 1, status: "recipe", change });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-conflict",
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("stores a shown account's continue button beside the other one", async () => {
+    const device = await owner();
+    const wise = {
+      ...observation("/login", [
+        element("log-back-in", "button", "Log back in"),
+        element("another", "button", "Use another account"),
+      ]),
+      accounts: ["[masked]"],
+    };
+    replies.push({ text: listAnswer({ other: "another", continue: "log-back-in" }) });
+    expect(await generate(device, wise)).toMatchObject({
+      status: "recipe",
+      change: {
+        recipe: {
+          chooser: {
+            path: "/login",
+            other: { by: "id", value: "another" },
+            continue: { by: "id", value: "log-back-in" },
+          },
+        },
+      },
+    });
+  });
+
+  it("refuses a plan for a list, a list for a form and controls that may be accounts", async () => {
+    const expectRefused = async (page: LoginObservation, text: string, reason: string) => {
+      const device = await owner();
+      replies.push({ text });
+      expect(await generate(device, page)).toEqual({
+        version: 1,
+        status: "failed",
+        error: "invalid-output",
+        rejection: { check: "plan", reason },
+      });
+      expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", device.ownerId)).toEqual(
+        [],
+      );
+    };
+    await expectRefused(
+      { ...listPage, candidates: [...listPage.candidates, element("email", "email", "Email")] },
+      plan([["email", "email"]], "other", "advance"),
+      "unexpected-plan",
+    );
+    await expectRefused(emailPage, listAnswer({ other: "next" }), "unexpected-account-list");
+    await expectRefused(listPage, listAnswer({ other: "missing" }), "unknown-candidate");
+    await expectRefused(
+      listPage,
+      listAnswer({ other: "other", continue: "other" }),
+      "duplicate-candidate",
+    );
+    await expectRefused(
+      {
+        ...listPage,
+        candidates: [...listPage.candidates, element("profile", "button", "[email] Last used")],
+      },
+      listAnswer({ other: "profile" }),
+      "account-text",
+    );
+  });
+
+  it("generates each branch's pages into the chooser, with attempts kept apart", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    // The page after a listed profile: the password alone.
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const account = await branchGenerate(
+      device,
+      passwordPage,
+      { recipeId, revision: 1 },
+      "account",
+    );
+    const afterAccount = {
+      version: 1,
+      id: recipeId,
+      revision: 2,
+      origin: ORIGIN,
+      slots: ["password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/password",
+          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+          effect: "prepare",
+        },
+        {
+          kind: "click",
+          path: "/password",
+          target: { by: "id", value: "sign-in" },
+          purpose: "submit",
+        },
+      ],
+      maxSubmissions: 1,
+    };
+    expect(account).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { revision: 2, chooser: { afterAccount } } },
+    });
+    // The other button's branch starts with the email form, and continues after it.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const other = await branchGenerate(device, emailPage, { recipeId, revision: 2 }, "other");
+    expect(other).toMatchObject({
+      status: "recipe",
+      change: {
+        revision: 3,
+        recipe: {
+          chooser: {
+            afterAccount: { ...afterAccount, revision: 3 },
+            afterOther: { revision: 3, slots: ["email"], maxSubmissions: 1 },
+          },
+        },
+      },
+    });
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const next = await branchGenerate(device, passwordPage, { recipeId, revision: 3 }, "other");
+    expect(next).toMatchObject({
+      status: "recipe",
+      change: {
+        revision: 4,
+        recipe: {
+          chooser: {
+            afterOther: { revision: 4, slots: ["email", "password"], maxSubmissions: 2 },
+          },
+        },
+      },
+    });
+    // The account branch has submitted, so nothing continues it.
+    expect(await branchGenerate(device, homePage, { recipeId, revision: 4 }, "account")).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-conflict",
+    });
+    expect(
+      await rows(
+        "SELECT branch, path, base_revision FROM generation_attempts WHERE owner_id = ? ORDER BY base_revision",
+        device.ownerId,
+      ),
+    ).toEqual([
+      { branch: "", path: "/login", base_revision: 0 },
+      { branch: "account", path: "/password", base_revision: 1 },
+      { branch: "other", path: "/login", base_revision: 2 },
+      { branch: "other", path: "/password", base_revision: 3 },
+    ]);
+    expect(sent).toHaveLength(4);
+  });
+
+  it("tries each branch's page on its own within the retry window", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    replies.push({
+      text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+    });
+    expect(
+      await branchGenerate(device, emailPage, { recipeId, revision: 1 }, "account"),
+    ).toMatchObject({ status: "abstained" });
+    // The same path and revision on the other branch is another page.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(
+      await branchGenerate(device, emailPage, { recipeId, revision: 1 }, "other"),
+    ).toMatchObject({ status: "recipe", change: { revision: 2 } });
+    expect(sent).toHaveLength(3);
+  });
+
+  it("refuses a branch the chooser cannot take, without a model call", async () => {
+    const device = await owner();
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    // A chooser without an `other` button has no other branch.
+    replies.push({ text: listAnswer({}) });
+    const bare = await generate(device, listPage);
+    if (bare.status !== "recipe") throw new Error(bare.status);
+    const { recipeId } = bare.change;
+    expect(await branchGenerate(device, emailPage, { recipeId, revision: 1 }, "other")).toEqual(
+      conflict,
+    );
+    // A route recipe has no branches.
+    const routeOwner = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(
+      routeOwner,
+      observation("/start", [
+        element("email", "email", "Email"),
+        element("next", "button", "Next"),
+      ]),
+    );
+    if (first.status !== "recipe") throw new Error(first.status);
+    expect(
+      await branchGenerate(
+        routeOwner,
+        passwordPage,
+        { recipeId: first.change.recipeId, revision: 1 },
+        "account",
+      ),
+    ).toEqual(conflict);
+    // A list is only ever a first page, and a branch needs a base.
+    expect(await generate(device, listPage, { recipeId, revision: 1 })).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-request",
+    });
+    const unbased = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: emailPage,
+      slots,
+      branch: "account",
+    });
+    expect(unbased.status).toBe(400);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("judges a branch's pages and learns into that branch only", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    await branchGenerate(device, passwordPage, { recipeId, revision: 1 }, "account");
+    const judge = (branch?: string) =>
+      post(device, `/v1/recipes/${recipeId}/completion`, {
+        version: 1,
+        revision: 2,
+        route: "password",
+        ...(branch ? { branch } : {}),
+        observation: homePage,
+      }).then(async (response) => response.json());
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    // The chooser has no route of its own, and the other branch has none yet.
+    expect(await judge()).toEqual(conflict);
+    expect(await judge("other")).toEqual(conflict);
+    const calls = sent.length;
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    expect(await judge("account")).toMatchObject({
+      status: "signed-in",
+      change: {
+        revision: 3,
+        recipe: {
+          chooser: {
+            path: "/login",
+            afterAccount: {
+              revision: 3,
+              completion: { path: "/home", target: { by: "id", value: "logout" } },
+            },
+          },
+        },
+      },
+    });
+    expect(sent).toHaveLength(calls + 1);
+    // The judge is told the list's path as a login path too.
+    expect(JSON.stringify(sent.at(-1)!.body)).toContain(
+      String.raw`\"loginPaths\":[\"/login\",\"/password\"]`,
+    );
+    expect(
+      await rows(
+        "SELECT branch, revision, path FROM page_judgements WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ branch: "account", revision: 2, path: "/home" }]);
+  });
+
+  it("keeps a branch's page written during the call onto the other branch's newer chooser", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const account = await branchGenerate(
+      device,
+      passwordPage,
+      { recipeId, revision: 1 },
+      "account",
+    );
+    if (account.status !== "recipe" || !("chooser" in account.change.recipe))
+      throw new Error(account.status);
+    const atTwo = account.change.recipe;
+    // While the other branch's page is generated, a judgement of the account branch on
+    // another device stores revision 3.
+    const judged = {
+      ...atTwo,
+      revision: 3,
+      chooser: {
+        ...atTwo.chooser,
+        afterAccount: {
+          ...atTwo.chooser.afterAccount!,
+          revision: 3,
+          completion: { path: "/home", target: { by: "id", value: "logout" } },
+        },
+      },
+    };
+    during = async () => {
+      const put = await post(
+        device,
+        `/v1/recipes/${recipeId}`,
+        { version: 1, expectedRevision: 2, state: "active", recipe: judged },
+        "PUT",
+      );
+      expect(put.status).toBe(200);
+    };
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(
+      await branchGenerate(device, emailPage, { recipeId, revision: 2 }, "other"),
+    ).toMatchObject({
+      status: "recipe",
+      change: {
+        revision: 4,
+        recipe: {
+          revision: 4,
+          chooser: {
+            afterAccount: { revision: 4, completion: judged.chooser.afterAccount.completion },
+            afterOther: { revision: 4, slots: ["email"] },
+          },
+        },
+      },
+    });
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        recipeId,
+      ),
+    ).toEqual([{ revision: 4 }]);
+  });
+
+  it("adds a handler into a branch and never judges the list shown again", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    await branchGenerate(device, passwordPage, { recipeId, revision: 1 }, "account");
+    const judge = (page: LoginObservation) =>
+      post(device, `/v1/recipes/${recipeId}/completion`, {
+        version: 1,
+        revision: 2,
+        route: "password",
+        branch: "account",
+        observation: page,
+      }).then(async (response) => response.json());
+    const calls = sent.length;
+    expect(await judge(listPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "not-judgeable",
+    });
+    expect(sent).toHaveLength(calls);
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    expect(
+      await judge(
+        observation("/login/webauthn", [
+          element("key", "button", "Use security key"),
+          element("recovery", "link", "Use a recovery code"),
+        ]),
+      ),
+    ).toMatchObject({
+      status: "challenge",
+      change: {
+        revision: 3,
+        recipe: {
+          chooser: {
+            path: "/login",
+            other: { by: "id", value: "other" },
+            afterAccount: {
+              revision: 3,
+              handlers: [
+                { kind: "passkey", path: "/login/webauthn", target: { by: "id", value: "key" } },
+              ],
+            },
+          },
+        },
+      },
+    });
+  });
+});
+
+describe("sign-in entry pages (ADR 0031)", () => {
+  // A synthetic top page the site sent the visitor to before signing in: no field, a
+  // sign-up link, the sign-in link and a button.
+  const link = (id: string, text: string) => ({
+    id,
+    role: "link" as const,
+    target: { by: "text" as const, value: text },
+  });
+  const topPage = observation("/en/", [
+    link("c1", "Create account"),
+    link("c2", "Login"),
+    { id: "c3", role: "button", target: { by: "text", value: "Search" } },
+  ]);
+  const entryAnswer = (candidate: string) =>
+    JSON.stringify({ result: { decision: "entry", entry: candidate } });
+  const abstain = JSON.stringify({ result: { decision: "abstain", reason: "no-login-form" } });
+
+  async function generateEntry(device: Device, page: LoginObservation) {
+    const response = await post(device, "/v1/recipes/generate", { version: 1, observation: page });
+    expect(response.status).toBe(200);
+    return (await response.json()) as EntryGenerationResult;
+  }
+
+  it("stores the named link as the entry recipe of the page's origin and path", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    replies.push({ text: entryAnswer("c2") });
+    const recipe = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      entry: { path: "/en/", target: { by: "text", value: "Login" } },
+    };
+    const answer = await generateEntry(device, topPage);
+    expect(answer).toEqual({
+      version: 1,
+      status: "recipe",
+      change: { recipeId, revision: 1, state: "active", recipe },
+    });
+    // The entry line goes into this request only, and no slot is sent.
+    const body = sent[0]!.body as {
+      system: { text: string }[];
+      messages: { content: { text: string }[] }[];
+    };
+    expect(body.system.map((part) => part.text)).toEqual([entryGenerationInstructions]);
+    expect(entryGenerationInstructions).toContain(entryInstruction);
+    expect(JSON.parse(body.messages[0]!.content[0]!.text)).toEqual({
+      task: "entry",
+      observation: topPage,
+    });
+
+    // Asking again answers with the stored recipe without a call.
+    expect(await generateEntry(device, topPage)).toEqual(answer);
+    expect(sent).toHaveLength(1);
+    const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
+      headers: { Authorization: `Bearer ${device.token}` },
+    });
+    expect(await feed.json()).toMatchObject({ changes: [{ recipeId, revision: 1, recipe }] });
+
+    const log = await rows(
+      "SELECT role, path, outcome, prompt_version, request, result FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(
+      log.map((row) => ({
+        ...row,
+        request: JSON.parse(String(row.request)),
+        result: JSON.parse(String(row.result)),
+      })),
+    ).toEqual([
+      {
+        role: "generate",
+        path: "/en/",
+        outcome: "ok",
+        prompt_version: await entryGenerationPromptVersion(),
+        request: { instructions: entryGenerationInstructions, observation: topPage },
+        result: { entry: "c2" },
+      },
+    ]);
+    expect(await entryGenerationPromptVersion()).not.toBe(await generationPromptVersion());
+    expect(
+      await rows(
+        "SELECT recipe_id, path, base_revision FROM generation_attempts WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ recipe_id: recipeId, path: "/en/", base_revision: 0 }]);
+
+    // A page request never gets the entry line.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    expect(JSON.stringify(sent[1]!.body)).not.toContain("If the page has no sign-in fields");
+  });
+
+  it("refuses an entry for a page request and a plan for an entry request", async () => {
+    const device = await owner();
+    replies.push({ text: entryAnswer("next") });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason: "unexpected-entry" },
+    });
+    const other = await owner();
+    replies.push({ text: plan([["email", "c2"]], "c3", "submit") });
+    expect(await generateEntry(other, topPage)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason: "unexpected-plan" },
+    });
+    const logged = async (each: Device) =>
+      (
+        await rows(
+          "SELECT outcome, prompt_version, result FROM inference_log WHERE owner_id = ?",
+          each.ownerId,
+        )
+      ).map((row) => ({ ...row, result: JSON.parse(String(row.result)) }));
+    expect(await logged(device)).toEqual([
+      {
+        outcome: "invalid-output",
+        prompt_version: await generationPromptVersion(),
+        result: {
+          rejection: { check: "plan", reason: "unexpected-entry" },
+          output: { result: { decision: "entry", entry: "next" } },
+        },
+      },
+    ]);
+    // The plan is kept by reference; its slot is not one the request offered.
+    expect(await logged(other)).toEqual([
+      {
+        outcome: "invalid-output",
+        prompt_version: await entryGenerationPromptVersion(),
+        result: {
+          rejection: { check: "plan", reason: "unexpected-plan" },
+          output: {
+            result: {
+              fields: [{ slot: "?", candidate: "c2" }],
+              action: { candidate: "c3", purpose: "submit" },
+            },
+          },
+        },
+      },
+    ]);
+    // Neither stored anything, and both count toward the retry window.
+    expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", other.ownerId)).toEqual([]);
+    expect(await generateEntry(other, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recently-tried",
+    });
+  });
+
+  it.each([
+    ["a button", "c3", topPage, "incompatible-role"],
+    ["an unknown candidate", "Login", topPage, "unknown-candidate"],
+    [
+      "a link whose text may name an account",
+      "c4",
+      observation("/en/", [link("c2", "Login"), link("c4", "Continue as [email]")]),
+      "account-text",
+    ],
+    [
+      "a link whose label holds a number",
+      "c4",
+      observation("/en/", [
+        link("c2", "Login"),
+        {
+          id: "c4",
+          role: "link",
+          target: { by: "id", value: "account" },
+          label: "Member [number]",
+        },
+      ]),
+      "account-text",
+    ],
+    [
+      "a link whose label holds a masked value",
+      "c4",
+      observation("/en/", [
+        link("c2", "Login"),
+        { ...link("c4", "Account"), label: "Account [masked]" },
+      ]),
+      "account-text",
+    ],
+  ] as const)("refuses an entry that names %s", async (_name, candidate, page, reason) => {
+    const device = await owner();
+    replies.push({ text: entryAnswer(candidate) });
+    expect(await generateEntry(device, page)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason },
+    });
+    const [row] = await rows("SELECT result FROM inference_log WHERE owner_id = ?", device.ownerId);
+    // A name that is no candidate of the page is not kept.
+    expect(JSON.parse(String(row!.result))).toMatchObject({
+      output: { result: { decision: "entry", entry: candidate === "Login" ? "?" : candidate } },
+    });
+    expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", device.ownerId)).toEqual([]);
+  });
+
+  it("refuses an entry request with a field, accounts or a base before any call", async () => {
+    const device = await owner();
+    const send = (body: unknown) => post(device, "/v1/recipes/generate", body);
+    const bodies = [
+      { version: 1, observation: emailPage },
+      {
+        version: 1,
+        observation: { ...topPage, accounts: ["[email]"] },
+      },
+      {
+        version: 1,
+        observation: topPage,
+        base: { recipeId: await generatedRecipeId(ORIGIN, "/en/"), revision: 1 },
+      },
+      { version: 1, observation: topPage, slots: [] },
+    ];
+    expect((await Promise.all(bodies.map(send))).map((response) => response.status)).toEqual(
+      bodies.map(() => 400),
+    );
+    expect(await generateEntry(device, { ...topPage, complete: false })).toEqual({
+      version: 1,
+      status: "failed",
+      error: "incomplete-observation",
+    });
+    expect(sent).toEqual([]);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
+  it("logs an abstention and tries the page again only after ten minutes", async () => {
+    const device = await owner();
+    replies.push({ text: abstain });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "abstained",
+      reason: "no-login-form",
+    });
+    const log = await rows(
+      "SELECT outcome, result FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(log.map((row) => ({ ...row, result: JSON.parse(String(row.result)) }))).toEqual([
+      { outcome: "abstained", result: { reason: "no-login-form" } },
+    ]);
+    expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", device.ownerId)).toEqual([]);
+    // The window is per origin and path, whatever kind of request tried it.
+    expect(await generateEntry(device, topPage)).toMatchObject({ reason: "recently-tried" });
+    expect(await generate(device, { ...emailPage, path: "/en/" })).toMatchObject({
+      reason: "recently-tried",
+    });
+    expect(sent).toHaveLength(1);
+
+    await env.DB.prepare("UPDATE generation_attempts SET attempted_at = ? WHERE owner_id = ?")
+      .bind(Date.now() - ATTEMPT_WINDOW_MS - 1, device.ownerId)
+      .run();
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toMatchObject({
+      status: "recipe",
+      change: { revision: 1, recipe: { entry: { path: "/en/" } } },
+    });
+  });
+
+  it("answers recipe-conflict when a login recipe starts on the entry page's path", async () => {
+    const device = await owner();
+    // A page with a form on `/en/` generated a login recipe there first.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, { ...emailPage, path: "/en/" })).toMatchObject({
+      status: "recipe",
+    });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-conflict",
+    });
+    // So does a chooser recipe (ADR 0028) stored there.
+    const other = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    const chooser = {
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: {
+        version: 1,
+        id: recipeId,
+        revision: 1,
+        origin: ORIGIN,
+        chooser: { path: "/en/", other: { by: "text", value: "Use another account" } },
+      },
+    };
+    expect((await post(other, `/v1/recipes/${recipeId}`, chooser, "PUT")).status).toBe(200);
+    expect(await generateEntry(other, topPage)).toMatchObject({ reason: "recipe-conflict" });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("never generates a login page on, or continues, a generated entry recipe", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toMatchObject({ status: "recipe" });
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    expect(await generate(device, { ...emailPage, path: "/en/" })).toEqual(conflict);
+    expect(await generate(device, passwordPage, { recipeId, revision: 1 })).toEqual(conflict);
+    expect(await complete(device, recipeId, 1)).toEqual({ status: 200, body: conflict });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("generates a revoked entry recipe again as the revision after its tombstone", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toMatchObject({ status: "recipe" });
+    const revoked = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 1, state: "revoked" },
+      "PUT",
+    );
+    expect(revoked.status).toBe(200);
+    await env.DB.prepare("UPDATE generation_attempts SET attempted_at = ? WHERE owner_id = ?")
+      .bind(Date.now() - ATTEMPT_WINDOW_MS - 1, device.ownerId)
+      .run();
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId, revision: 3, recipe: { revision: 3 } },
+    });
+  });
+
+  it("answers with the entry recipe another device stored while the call ran", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    const theirs = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      entry: { path: "/en/", target: { by: "text", value: "Sign in" } },
+    } as const;
+    during = async () => {
+      const written = await writeRecipe(
+        env.DB,
+        device.ownerId,
+        recipeId,
+        { version: 1, state: "active", expectedRevision: 0, recipe: theirs },
+        device.deviceId,
+      );
+      expect(written.ok).toBe(true);
+    };
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "recipe",
+      change: { recipeId, revision: 1, state: "active", recipe: theirs },
+    });
   });
 });

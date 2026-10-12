@@ -103,6 +103,12 @@ test("production diagnostics show the build, checks and a value-free bug report"
     });
     await page.getByRole("button", { name: "Copy all" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Copy failed. Use Save file instead.");
+    // Debug logging turns off at once, before its 24 hours end.
+    await page.getByRole("button", { name: "Disable debug logging" }).click();
+    await expect(page.locator("#logs-status")).toHaveText("Debug logging is off.");
+    await expect(
+      page.getByRole("button", { name: "Enable debug logging for 24 hours" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Clear logs" }).click();
     await page.getByRole("button", { name: "Delete all log entries" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Logs cleared.");

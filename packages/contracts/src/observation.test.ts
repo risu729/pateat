@@ -32,6 +32,14 @@ const base = {
 const parse = (value: unknown) => v.safeParse(loginObservationSchema, value).success;
 
 describe("observation contract", () => {
+  it("carries sign-in and personal-data autocomplete tokens only", () => {
+    const candidate = base.candidates[0]!;
+    for (const autocomplete of ["username", "new-password", "off", "given-name", "tel", "bday"])
+      expect(parse({ ...base, candidates: [{ ...candidate, autocomplete }] })).toBe(true);
+    for (const autocomplete of ["cc-number", "webauthn", "shipping tel"])
+      expect(parse({ ...base, candidates: [{ ...candidate, autocomplete }] })).toBe(false);
+  });
+
   it("rejects values, oversized or control-character text and unsafe structure", () => {
     expect(parse(base)).toBe(true);
     const candidate = base.candidates[0]!;
@@ -134,6 +142,17 @@ describe("observation contract", () => {
     expect(withDescription({ description: "" })).toBe(false);
     expect(withDescription({ description: "x".repeat(121) })).toBe(false);
     expect(withDescription({ description: "a\u202eb" })).toBe(false);
+  });
+});
+
+describe("account lists (ADR 0028)", () => {
+  it("allows no candidates only with an account list of 1 to 8 texts", () => {
+    const list = { ...base, candidates: [] };
+    expect(parse({ ...list, accounts: ["Taro [email] Last used"] })).toBe(true);
+    expect(parse(list)).toBe(false);
+    expect(parse({ ...list, accounts: [] })).toBe(false);
+    expect(parse({ ...list, accounts: Array.from({ length: 9 }, () => "[email]") })).toBe(false);
+    expect(parse({ ...list, accounts: ["x".repeat(121)] })).toBe(false);
   });
 });
 

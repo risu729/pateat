@@ -1,13 +1,26 @@
 # ADR 0028: Login pages that list accounts to choose from
 
-Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC). Not implemented.
-Delivery depends on the extension's `advance` continuation of
-[ADR 0018](0018-recipe-generation-route.md), which is not implemented yet. Amends
+Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC), and extended to a
+single shown account and to usernames that are not emails at 08:36 UTC. Partly
+implemented: finding entries and shown accounts, the observation, the stored chooser
+recipe, the service's account-list answer with branch-aware generation and judgement,
+and the extension sending list pages and storing the answer; the extension starts no
+chooser yet. It builds on the
+extension's `advance` continuation of [ADR 0018](0018-recipe-generation-route.md)
+([#332](https://github.com/risu729/pateat/pull/332)). Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can be
 sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
 form plan) and the recipe contract in `packages/contracts/src/login.ts`.
 
 Date: 2026-10-12
+
+Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
+quoted below as "at most one generation per origin and path in 24 hours" and "once a day
+per path" is condition 4 of [ADR 0016](0016-recipe-generation-trigger.md); on
+2026-10-12, after this ADR was accepted, the owner lifted the 24-hour rule and a
+10-minute window replaced it ([#269](https://github.com/risu729/pateat/pull/269)). ADR
+0031's recipe with only `entry` also starts without a fill step, so the contract change
+that allows such a recipe is delivered once for both.
 
 ## Context
 
@@ -51,8 +64,11 @@ An entry is the innermost visible, enabled element whose rendered text holds the
 token and that is one of: a `<button>` or button-type `<input>`; an `<a>`, whose `href`,
 if any, stays on the page's origin; an element with `role` `button`, `link`, `option`,
 `menuitem` or `radio`; an element with `tabindex` 0 or more; or an element whose
-computed `cursor` is `pointer`. This deliberately wider rule applies only to list
-entries and the `other` button, not to the executor's other click steps.
+computed `cursor` is `pointer`. A link, button or element with one of those roles around
+the text that fails the rule (another origin, disabled) means the text has no entry,
+since a click on an element around it would land on that control. This deliberately
+wider rule applies only to list entries and the `other` button, not to the executor's
+other click steps.
 
 ### Which pages are sent
 
@@ -73,8 +89,43 @@ input is submitted in a tab, the next page of that origin in the tab (a new docu
 a same-document URL change) is skipped. The submission is used only for this skip and is
 not recorded anywhere else.
 
-The observation lists the page's entries as candidates. Email-like text is redacted to
-`[email]` as in every observation, so the AI never sees the profiles' addresses.
+The observation lists the page's entries apart from its candidates: up to 8 entry texts
+as `accounts`, and the page's other controls outside page chrome, by their text, as
+candidates the AI may name as the other-account button. An entry is never a candidate,
+since its redacted text cannot name it and the AI does not pick an account. Email-like
+text, fullwidth included, is redacted to `[email]` as in every observation, so the AI
+never sees the profiles' addresses; a text in which an `@` survives is left out. Such
+an observation is only ever a recipe's first page: sent with a `base`, the service
+refuses it as `invalid-request` without a model call.
+
+As implemented in the extension: the content script checks once, when its ten seconds to
+offer a page for generation end, and announces a list with the page's path. Without an
+email listed, it hands over up to 32 short texts instead: those beside at most three
+buttons, each at most 64 characters and without an `@`; a control's own text is never
+one. Many ordinary pages show such a text, so on a site with a vault match the worker
+reads the matching items' usernames, email usernames included, one at a time on each
+such page, and sends the page only when a text names one; a page offered only by such
+texts that is not sent is not logged, as ordinary browsing. The worker passes the naming
+texts back with the request to describe the page. The observation then lists each as
+`[account]`, and hides the name wherever it shows, with or without a leading `@`, in any
+width or case, such as in a heading; a name starting or ending with a Latin letter or
+digit is not found inside a longer Latin word, but is found beside kana or kanji, as in
+`taro.yamadaさん`. A control whose text or label holds it is left out, and so is the
+page when its path holds it. Every other text beside the buttons, which may name an
+account that is not in the vault, is shown as `[account]` when it is a whole heading or
+the title, and a control with such a text is left out. Not covered yet: such another
+name inside a longer text, such as "Continue as" and that name, or as a control's own
+text, still reaches the AI; and a list whose rows are buttons showing only a username,
+with no text beside them, is not found. The page right after a submitted password form
+is skipped: the content script skips its own next path, and the worker the tab's next
+document, kept in memory only, so a restart of the worker in between forgets it. A
+submission in a frame counts for the tab's page, and a next page of another origin ends
+the skip; after a submission in a frame, a same-document URL change of the tab's page is
+not skipped, since only the frame saw the submission. A stored chooser's path counts as
+a recipe start, so the page is not sent again, though nothing starts there yet. The
+local log names a list's generation with `page: accounts`, and the skips of a list with
+an email as `after-sign-in` or `no-vault-match`. The service's check of the answer also
+refuses a control whose text holds `[account]`.
 
 ### What the AI answers
 
@@ -89,33 +140,70 @@ refuses it when its text holds an email address,
 The prompt gains one short, language-neutral sentence for this, which describes the
 other-account button by its meaning only, with no example text in any language.
 
+As implemented, the answer is `{"decision":"account-list","other":"c1","continue":"c2"}`
+with optional candidate IDs, and the instructions say: "An observation with accounts
+lists saved accounts and has no fields: answer account-list when choosing one of them
+leads on to signing in, else abstain. Never choose an account." The service checks the
+answer before writing anything: the page must have `accounts` (and a form page's answer
+must be a plan), and each named control must be a button or link of the page, not the
+other control, with no `[email]`, `[masked]`, `[number]`, `@` or run of four digits in
+its text or label. A refused answer fails as `invalid-output` with its check's code,
+such as `unexpected-plan` or `account-text`. The extension's own check of the control
+on the page comes with execution.
+
 ### Recipe shape
 
 The answer is saved as a recipe whose start is the list on its path, with the steps
 after each choice kept apart, because the form after a profile (password only on
-Cloudflare) and the form after "another profile" (email and password) differ. Field
-names are settled in the implementation; the shape is:
+Cloudflare) and the form after "another profile" (email and password) differ. The
+contract in `packages/contracts/src/login.ts` (`loginChooserRecipeSchema`) has this
+shape:
 
 ```json
 {
   "chooser": {
     "path": "/login",
     "other": { "by": "text", "value": "Sign in with another profile" },
-    "afterAccount": [],
-    "afterOther": []
+    "continue": { "by": "text", "value": "Log back in" },
+    "afterAccount": { "...": "a login recipe" },
+    "afterOther": { "...": "a login recipe" }
   }
 }
 ```
 
-Each branch starts empty and its steps are generated the first time a login takes it, as
-an ADR 0018 continuation of the page the click led to. A chooser recipe may therefore
-have no slots until a branch is generated. [ADR 0027](0027-per-account-login-routes.md)
+`continue` is the button for a shown account beside it (Wise, below). Each branch is the
+login recipe of the page the click leads to, under the chooser's own ID, revision and
+origin, so the executor and the continuation handle it as any login recipe. A branch is
+absent until a login takes it and its page is generated as an ADR 0018 continuation, so
+a chooser recipe may have no slots at first; `afterOther` needs `other`. The entry to
+click is never stored. [ADR 0027](0027-per-account-login-routes.md)
 `alternatives` cannot hold the branches: a continuation cannot add a variant, a
 password-only set is a subset of the email and password set, and the executor picks a
 variant from the item's binding, not from the page. The continuation contract
 (`continuesRecipe` in `packages/contracts/src/login.ts`, the service's `appendPageSteps`
-and the extension's `continuable`) accepts only a linear append today, so it gains
+and the extension's `continuable`) accepts only a linear append, so it gains
 branch-aware appends for this recipe.
+
+As implemented in the service: a generation request names the branch the login took
+beside its `base`, which is the chooser (`"branch":"account"` or `"other"`). Without the
+branch's recipe, the page is the branch's first page, assembled as a recipe's first page
+but without alternatives or a passkey route, since the page follows the click on the
+list; with it, the page is appended after the branch's final `advance` as any
+continuation. The judgement request names the branch too, and its completion or handler
+is learned into that branch, with the list's path among the login paths the judge is
+told. Each write is the whole chooser at its next revision, so the other branch, if any,
+moves to that revision unchanged. A branch's generated page whose write loses to a write
+of the other branch meanwhile is written once more onto that newer chooser, as long as
+its own branch is unchanged there; a judgement that loses the same way is answered
+without a change, and a request sent against the older revision is answered with the
+newer chooser without a model call, which the extension sends the page again against
+when the chooser still lacks the page's branch step. A list of accounts shown again
+after a branch's step is never judged (`not-judgeable`). A form page on the chooser's
+own path, as when no profile is saved, gets no recipe of its own (`recipe-conflict`): it
+is reached only as the `other` branch. The service's retry window and its
+once-per-revision judgement are kept per branch as well. The service sends the
+`accounts` texts as they come, so the extension must hide a non-email account name as
+`[account]` before it sends any list.
 
 ### Execution
 
@@ -155,6 +243,49 @@ is not a signed-in state for the logout check of
 run, or are generated first. The existing check before a password fill still stops the
 login when the form then shows a different full email.
 
+### A shown account with a separate button, and usernames that are not emails
+
+On 2026-10-12 around 08:40 UTC the owner's Chrome showed two more pages without a field,
+neither with a password field (structure only, in the project notes):
+
+- `https://wise.com/login` ("Welcome back"): one container holds, as siblings, the
+  initials, the display name in an `<h3>`, the masked email (`w***@…`, one visible
+  character before `@`) in a `<p>`, a "Log back in" `<button>` and a "Use another
+  account" `<button>`. No button holds the account text.
+- Instagram after a logout (`https://www.instagram.com/`): the saved profile shows its
+  Instagram username, not an email, in a `<span>` beside a `div[role=button]` whose
+  visible text is "Continue" and whose `aria-label` starts with "Continue" (likely
+  "Continue as" and the username), then "Use another profile" and "Create new account".
+
+Neither has an entry whose text holds an email, so neither is sent. The owner decided
+at 08:36 UTC, from descriptions of these pages given before the capture:
+
+- **A shown account with a separate button (Wise).** Besides a page with an entry that
+  holds an email, a page is sent when an email-shaped token, in a text of at most 64
+  characters outside page chrome, a footer and `mailto:` links, sits in a container that
+  also holds at most three elements meeting the [list entry](#list-entries) rule apart
+  from its email requirement, none of which holds the token; the container is the
+  token's nearest ancestor that holds such an element. The AI's account-list answer may
+  then also name the button that continues with the shown account, by meaning as for
+  `other`. Pateat clicks it only when the page shows exactly one account and that
+  account fits the chosen item's username by the [execution](#execution) rule; otherwise
+  it clicks `other`, or ends `account-not-listed` without one. With Wise's `w***@…`,
+  fewer than 3 characters are visible, so Pateat continues through "Use another
+  account".
+- **Usernames that are not emails (Instagram).** When the chosen item's username is not
+  email-shaped, a shown account fits when its whole text equals the username, ignoring
+  case and a leading `@`; masked text never fits such a username. A shown account is an
+  entry's text, or a text beside a separate continue button as in the previous point,
+  which on Instagram is the `<span>` beside "Continue". To decide whether to send a page
+  without an email-shaped token, the content script hands the background those texts
+  outside page chrome, at most 64 characters each, and the background compares them with
+  the usernames of the items that match the origin. The usernames never reach the page,
+  and the AI sees each such text as `[account]`, so neither the matched username nor
+  other listed names reach it. This reads the vault before any recipe exists, which
+  ADR 0016 otherwise avoids. The check before a password fill compares only email and
+  all-digit usernames, so for these usernames the exact match is the only check; one
+  username names one account on a site.
+
 ## Consequences
 
 - Cloudflare logs in with the site default's profile and no action from the owner after
@@ -166,6 +297,10 @@ login when the form then shows a different full email.
 - A profile that resumes SSO or social sign-in leads to the identity provider, where
   Pateat does not act before [ADR 0026](0026-sign-in-through-identity-providers.md) is
   delivered (phase 4).
+- With the 08:36 UTC extension, a page that shows an email next to at most three
+  buttons, such as a signed-in settings page, can also be sent once a day per path, and
+  on sites whose usernames are not emails the vault is read on pages without a field to
+  compare the shown texts.
 - Google's "Choose an account" list is expected to qualify through the entry rule, but
   its page and DOM are unverified.
 

@@ -501,6 +501,100 @@ export const loginRecipeSchema = v.pipe(
     );
   }, "Passkey target is a step, handler, completion, rejection or account switch target"),
 );
+/**
+ * A recipe whose only member is `entry` (ADR 0031): the start path of a page without a
+ * login form, and the control there that opens the site's login page, such as "Login" on
+ * a top page the site sent the visitor to before signing in. It has no slots, steps,
+ * submission budget or login route members, reads no vault field and never gains steps.
+ * Only an `<a href>` link is to be pressed, which a `text` target names by its rendered
+ * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
+ * locator, never `autocomplete`.
+ *
+ * The service generates it for an entry request (`entryGenerationRequestSchema`) and
+ * stores it; devices cache it, but nothing sends such a request or presses it yet, it
+ * starts no login and its path is not a path where a login recipe starts.
+ */
+export const loginEntryRecipeSchema = v.strictObject({
+  version: v.literal(1),
+  id: identifier,
+  revision,
+  origin: loginOriginSchema,
+  entry: v.strictObject({
+    path,
+    // A link or button locator; `autocomplete` names only inputs, which are never pressed.
+    target: v.variant("by", [
+      loginAttributeTargetSchema.options[0],
+      loginAttributeTargetSchema.options[1],
+      loginTextTargetSchema,
+    ]),
+  }),
+});
+/** A list control's locator: never `autocomplete`, which names only inputs. */
+const chooserTargetSchema = v.variant("by", [
+  loginAttributeTargetSchema.options[0],
+  loginAttributeTargetSchema.options[1],
+  loginTextTargetSchema,
+]);
+/**
+ * A recipe that starts on a page listing accounts to choose from (ADR 0028), such as
+ * Cloudflare's saved profiles: `chooser.path` is where the list shows. `other` is the
+ * button that continues without a listed account ("Sign in with another profile"), and
+ * `continue` the one that continues with the one account a page shows beside it ("Log
+ * back in" on Wise). The entry to click is never stored: it is found on the page from
+ * the chosen item's username each time.
+ *
+ * Each branch is the route recipe for the page the click leads to, after a listed or
+ * shown account (`afterAccount`) or after `other` (`afterOther`), under the chooser's own
+ * ID, origin and revision. A branch is absent until a login takes it and its page is
+ * generated as an ADR 0018 continuation.
+ *
+ * Not implemented yet: devices cache and the service stores it, but nothing starts it.
+ */
+export const loginChooserRecipeSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    id: identifier,
+    revision,
+    origin: loginOriginSchema,
+    chooser: v.strictObject({
+      path,
+      other: v.optional(chooserTargetSchema),
+      continue: v.optional(chooserTargetSchema),
+      afterAccount: v.optional(loginRecipeSchema),
+      afterOther: v.optional(loginRecipeSchema),
+    }),
+  }),
+  v.check(
+    ({ id, revision: current, origin, chooser }) =>
+      [chooser.afterAccount, chooser.afterOther].every(
+        (branch) =>
+          !branch || (branch.id === id && branch.revision === current && branch.origin === origin),
+      ),
+    "A chooser branch has the chooser's ID, revision and origin",
+  ),
+  v.check(
+    ({ chooser }) =>
+      !chooser.other ||
+      !chooser.continue ||
+      JSON.stringify(chooser.other) !== JSON.stringify(chooser.continue),
+    "The chooser's other and continue buttons differ",
+  ),
+  v.check(
+    ({ chooser }) => !chooser.afterOther || chooser.other !== undefined,
+    "A chooser has an other-account branch only with its button",
+  ),
+);
+/**
+ * Any recipe the service stores and devices sync: a recipe with a login route
+ * (`loginRecipeSchema`, which every login runs), an entry recipe (ADR 0031) or a chooser
+ * recipe (ADR 0028). Strict objects keep them apart, so `entry` or `chooser` is never
+ * beside `slots`, `steps` or another login route member.
+ */
+export const storedLoginRecipeSchema = v.union([
+  loginRecipeSchema,
+  loginEntryRecipeSchema,
+  loginChooserRecipeSchema,
+]);
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
   connectionId: identifier,
@@ -572,6 +666,79 @@ export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
   return step.kind === "fill" ? step.effect : step.kind === "click" ? step.purpose : undefined;
 }
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
+export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
+export type LoginChooserRecipe = v.InferOutput<typeof loginChooserRecipeSchema>;
+export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
+/** Whether a stored recipe has a login route: its own `steps`. */
+export const isLoginRouteRecipe = (recipe: StoredLoginRecipe): recipe is LoginRecipe =>
+  "steps" in recipe;
+/**
+ * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
+ * or its first step's. The service keeps one generated recipe per origin and start path
+ * either way. Each kind of stored recipe is named, so a new kind has to say where it
+ * starts.
+ */
+export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
+  if ("entry" in recipe) return recipe.entry.path;
+  if ("chooser" in recipe) return recipe.chooser.path;
+  if ("steps" in recipe) return recipe.steps[0]!.path;
+  const unknown: never = recipe;
+  throw new Error(`Unknown stored recipe kind: ${JSON.stringify(unknown)}`);
+}
+/**
+ * A branch of a chooser recipe (ADR 0028): the page after a listed or shown account
+ * (`account`), or after the `other` button (`other`).
+ */
+export const chooserBranchSchema = v.picklist(["account", "other"]);
+export type ChooserBranch = v.InferOutput<typeof chooserBranchSchema>;
+const branchMember = { account: "afterAccount", other: "afterOther" } as const;
+/** A chooser's route recipe for one branch, if a login generated it already. */
+export function chooserBranch(
+  recipe: LoginChooserRecipe,
+  branch: ChooserBranch,
+): LoginRecipe | undefined {
+  return recipe.chooser[branchMember[branch]];
+}
+/**
+ * The chooser with one branch replaced by `next`, as the revision `next` carries: the
+ * other branch, if any, moves to that revision unchanged, since every branch has its
+ * chooser's revision.
+ */
+export function withChooserBranch(
+  recipe: LoginChooserRecipe,
+  branch: ChooserBranch,
+  next: LoginRecipe,
+): LoginChooserRecipe {
+  const other = chooserBranch(recipe, branch === "account" ? "other" : "account");
+  return {
+    ...recipe,
+    revision: next.revision,
+    chooser: {
+      ...recipe.chooser,
+      ...(other
+        ? {
+            [branchMember[branch === "account" ? "other" : "account"]]: {
+              ...other,
+              revision: next.revision,
+            },
+          }
+        : {}),
+      [branchMember[branch]]: next,
+    },
+  };
+}
+/** The slots a stored recipe's routes fill: none for an entry, its branches' for a chooser. */
+export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
+  if ("steps" in recipe) return recipeSlots(recipe);
+  if ("entry" in recipe) return [];
+  return [
+    ...new Set(
+      [recipe.chooser.afterAccount, recipe.chooser.afterOther].flatMap((branch) =>
+        branch ? recipeSlots(branch) : [],
+      ),
+    ),
+  ];
+}
 export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
 
@@ -782,6 +949,61 @@ export function extendsRecipe(previous: LoginRecipe, next: LoginRecipe): boolean
     before.every((handler, index) => canonicalJson(handler) === canonicalJson(after[index])) &&
     (previous.completion === undefined ||
       canonicalJson(previous.completion) === canonicalJson(next.completion))
+  );
+}
+/**
+ * Whether `added` steps fill a slot that `steps` already fill. A later page appended to a
+ * recipe never fills such a slot again (ADR 0018): a page that asks for the same account
+ * again, such as the identifier form shown again with an error, is not a next page.
+ */
+export function refillsLoginSlot(
+  steps: readonly LoginStep[],
+  added: readonly LoginStep[],
+): boolean {
+  const filled = new Set(
+    steps.flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.slot) : [])),
+  );
+  return added.some(
+    (step) => step.kind === "fill" && step.fields.some((field) => filled.has(field.slot)),
+  );
+}
+/**
+ * Whether `next` continues `previous` on the page after its final `advance` step (ADR
+ * 0018): a newer revision of the same recipe whose steps are `previous`'s steps followed by
+ * at least one more, none of which fills a slot `previous`'s steps already fill.
+ * `previous` has no completion and no alternatives and ends in an advance; `next` has no
+ * alternatives. The `passkey` route and the rejection are unchanged, the handlers extend
+ * the old ones in order, the account switch is unchanged or newly added, and a completion
+ * may be new. A running login at its final advance takes over only such a revision, so
+ * the steps it ran keep their meaning.
+ */
+export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
+  const last = previous.steps.at(-1);
+  if (
+    next.id !== previous.id ||
+    next.origin !== previous.origin ||
+    next.revision <= previous.revision ||
+    previous.completion !== undefined ||
+    previous.alternatives !== undefined ||
+    next.alternatives !== undefined ||
+    !last ||
+    loginStepEffect(last) !== "advance" ||
+    next.steps.length <= previous.steps.length
+  )
+    return false;
+  const same = (left: unknown, right: unknown) => canonicalJson(left) === canonicalJson(right);
+  const before = previous.handlers ?? [];
+  const after = next.handlers ?? [];
+  return (
+    previous.steps.every((step, index) => same(step, next.steps[index])) &&
+    !refillsLoginSlot(previous.steps, next.steps.slice(previous.steps.length)) &&
+    previous.slots.every((slot) => next.slots.includes(slot)) &&
+    next.maxSubmissions >= previous.maxSubmissions &&
+    same(previous.passkey ?? null, next.passkey ?? null) &&
+    same(previous.rejection ?? null, next.rejection ?? null) &&
+    (previous.accountSwitch === undefined || same(previous.accountSwitch, next.accountSwitch)) &&
+    after.length >= before.length &&
+    before.every((handler, index) => same(handler, after[index]))
   );
 }
 /** JSON with object keys sorted, so equal values compare equal whatever their key order. */

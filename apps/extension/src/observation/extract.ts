@@ -2,6 +2,7 @@ import {
   loginAutocompleteTokens,
   loginObservationSchema,
   loginTargetSchema,
+  observedAutocompleteTokens,
   type LoginObservation,
   type LoginTarget,
   type ObservedCandidate,
@@ -20,6 +21,14 @@ import {
   renderedText,
   shown,
 } from "../page/text";
+import {
+  accountEntries,
+  besideEmails,
+  chromeSelector,
+  entryLike,
+  foldName,
+  namedAccounts,
+} from "../page/account-list";
 
 /**
  * Why no observation was produced. A page without one is never sent to inference.
@@ -41,7 +50,7 @@ export type ObservationResult =
 
 const maxCandidates = 48;
 /** Where account menus usually sit: the page's header and navigation. */
-const landmarks = "header, nav, [role='banner'], [role='navigation']";
+const landmarks = chromeSelector;
 /**
  * How far above a login form a button outside every form still counts as the form's,
  * such as a passkey button beside the password form (SBI Securities: form, list item,
@@ -53,13 +62,6 @@ const maxHeadings = 8;
 const maxText = 120;
 const rawLimit = maxText * 4;
 const labelDepth = 3;
-const observedAutocomplete = [
-  "username",
-  "email",
-  "current-password",
-  "new-password",
-  "one-time-code",
-] as const;
 const inputModes = ["none", "text", "decimal", "numeric", "tel", "search", "email", "url"] as const;
 const fillTypes: Record<string, ObservedCandidate["role"]> = {
   text: "text",
@@ -92,7 +94,11 @@ const locators = [
  * more digits, ASCII or fullwidth, become `[number]`.
  */
 const redactions: readonly (readonly [RegExp, string])[] = [
-  [/[A-Za-z0-9._%+\-*●•＊]+[@＠][A-Za-z0-9.\-*●•＊]+/gu, "[email]"],
+  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`.
+  [
+    /[A-Za-z0-9._%+\-*●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠][A-Za-z0-9.\-*●•＊Ａ-Ｚａ-ｚ０-９．－]+/gu,
+    "[email]",
+  ],
   [/[*●•＊]{3,}/gu, "[masked]"],
   [/[0-9０-９]{4,}/gu, "[number]"],
 ];
@@ -108,7 +114,11 @@ function observedText(raw: string | null | undefined): string | undefined {
   // they cannot split a digit run.
   let text = collapseText(raw);
   for (const [pattern, replacement] of redactions) text = text.replace(pattern, replacement);
-  text = text.replace(/\s+/gu, " ").trim();
+  return bounded(text.replace(/\s+/gu, " ").trim());
+}
+
+/** At most 120 UTF-16 code units, without splitting a surrogate pair. */
+function bounded(text: string): string | undefined {
   if (text.length > maxText) {
     text = text.slice(0, maxText);
     if (/[\uD800-\uDBFF]$/u.test(text)) text = text.slice(0, -1);
@@ -116,6 +126,17 @@ function observedText(raw: string | null | undefined): string | undefined {
   }
   return text || undefined;
 }
+
+/**
+ * Observed text of a signed-in page with every number replaced by one `[number]`, whatever
+ * its length or script, digit groups joined by `.`, `,` or `'` included, and a long run
+ * the login-page rule already replaced (owner decision, 2026-10-12): such a page can show
+ * balances and points in any form, and judging whether it is signed in needs none of
+ * them. Numerals written as letters, such as most kanji, are not numbers to Unicode and stay.
+ */
+const numberPart = String.raw`(?:\p{Number}+|\[number\])`;
+const numbers = new RegExp(`${numberPart}(?:[.,，．'\u2019]${numberPart})*`, "gu");
+const withoutNumbers = (text: string) => bounded(text.replace(numbers, "[number]")) ?? "[number]";
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
@@ -338,7 +359,7 @@ function actionLabel(element: HTMLElement): string | undefined {
 function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
   const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
-  return observedAutocomplete.find((token) => tokens.includes(token));
+  return observedAutocompleteTokens.find((token) => tokens.includes(token));
 }
 
 function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
@@ -583,16 +604,34 @@ function loginFormsOf(
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
  * incomplete too, and inference rejects an incomplete observation. A page without a
  * field is refused, and so is one where nothing can be located.
+ *
+ * `known` names the fields a recipe already fills on this path, for a page that continues
+ * it after an `advance` step (ADR 0018). Such a field shown read-only or disabled, as an
+ * email address shown again beside the password, is left out instead: the recipe has
+ * filled it, and no step of this page needs it.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
+  known: readonly LoginTarget[] = [],
 ): ObservationResult {
   const location = document.location;
   if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
 
+  const index = locatorIndex(document);
+  const filled = (field: HTMLInputElement) =>
+    (field.readOnly || field.disabled) &&
+    known.some((target) => {
+      const attribute = locators.find(([by]) => by === target.by)?.[1];
+      return (
+        attribute !== undefined &&
+        field.getAttribute(attribute) === target.value &&
+        index.get(attribute)!.get(target.value) === 1
+      );
+    });
   const found = [...document.querySelectorAll(observed)]
     .map(describe)
-    .filter((entry) => entry !== undefined);
+    .filter((entry) => entry !== undefined)
+    .filter((entry) => !(entry.kind === "unsupported" && entry.field && filled(entry.field)));
   const fieldForms = new Set(
     found.flatMap((entry) =>
       (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
@@ -662,7 +701,6 @@ export function extractLoginObservation(
     else required.push(entry);
   }
 
-  const index = locatorIndex(document);
   // Links and script buttons without a locator are left out without flawing their form.
   let unlocated = false;
   const located = (entries: typeof required, { optional = false } = {}) =>
@@ -705,7 +743,13 @@ export function extractLoginObservation(
 type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget };
 
 /** Numbers the chosen elements in document order and adds the page's title and headings. */
-function observe(document: Document, chosen: Chosen[], complete: boolean): ObservationResult {
+function observe(
+  document: Document,
+  chosen: Chosen[],
+  complete: boolean,
+  hide: (text: string) => string = (text) => text,
+  accounts?: readonly string[],
+): ObservationResult {
   const location = document.location!;
   chosen.sort((left, right) =>
     left.draft.element.compareDocumentPosition(right.draft.element) &
@@ -715,22 +759,36 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
   );
 
   const groups = new Map<HTMLFormElement, string>();
-  const candidates = chosen.map(({ form, draft: { element: _element, ...rest }, target }, at) => {
-    if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
-    return {
-      id: `c${at + 1}`,
-      ...rest,
-      target,
-      ...(form ? { group: groups.get(form)! } : {}),
-    } satisfies ObservedCandidate;
-  });
+  const candidates = chosen.map(
+    (
+      { form, draft: { element: _element, label, placeholder, description, ...rest }, target },
+      at,
+    ) => {
+      if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
+      const shownLabel = label && hide(label);
+      const shownDescription = description && hide(description);
+      return {
+        id: `c${at + 1}`,
+        ...rest,
+        ...(shownLabel ? { label: shownLabel } : {}),
+        ...(placeholder ? { placeholder: hide(placeholder) } : {}),
+        // Still left out when it repeats the label once hidden.
+        ...(shownDescription && shownDescription !== shownLabel
+          ? { description: shownDescription }
+          : {}),
+        target,
+        ...(form ? { group: groups.get(form)! } : {}),
+      } satisfies ObservedCandidate;
+    },
+  );
 
-  const title = observedText(document.title);
+  const pageTitle = observedText(document.title);
+  const title = pageTitle && hide(pageTitle);
   const headings = [
     ...new Set(
       [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) => {
         const text = visibleText(heading);
-        return text ? [text] : [];
+        return text ? [hide(text)] : [];
       }),
     ),
   ].slice(0, maxHeadings);
@@ -742,6 +800,7 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
       candidate.placeholder ?? "",
       candidate.description ?? "",
     ]),
+    ...(accounts ?? []),
   ];
   const parsed = v.safeParse(loginObservationSchema, {
     version: 1,
@@ -752,10 +811,196 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
     ...(headings.length ? { headings } : {}),
     complete,
     candidates,
+    ...(accounts?.length ? { accounts } : {}),
   });
   return parsed.success
     ? { ok: true, observation: parsed.output }
     : { ok: false, reason: "unsupported-page" };
+}
+
+const maxAccounts = 8;
+const atSign = /[@＠]/u;
+const maxListControls = 8;
+/** Elements examined for list controls; a list page is small. */
+const listScanLimit = 4000;
+
+/**
+ * The observation of a page without fields that lists accounts to choose from (ADR 0028),
+ * such as a saved-profile list: each entry's redacted text (`Taro [email] Last used`) and
+ * the other controls outside page chrome, by their text, as context and as the
+ * account-independent button the generator may name. An email shown beside at most three
+ * separate buttons, as on Wise's "Welcome back" card, counts as a listed account too. A
+ * page showing a fillable field, or no email address in an entry or beside buttons, is
+ * refused: {@link extractLoginObservation} covers the
+ * former, and the latter is no list of accounts.
+ */
+export function extractAccountListObservation(
+  document: Document = globalThis.document,
+  names: readonly string[] = [],
+): ObservationResult {
+  const location = document.location;
+  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  const fieldShown = [...document.querySelectorAll(fields)].some((element) => {
+    const found = describe(element);
+    return found?.kind === "candidate" && fillTypes[found.draft.role] !== undefined;
+  });
+  if (fieldShown || !document.body) return { ok: false, reason: "no-candidates" };
+  const entries = accountEntries(document);
+  // An account shown beside separate buttons, as on Wise's "Welcome back" card.
+  const listed = [
+    ...entries.map((entry) => entry.element),
+    // An entry that the beside text holds, or that holds it, is listed once, as the entry.
+    ...besideEmails(document)
+      .map((account) => account.element)
+      .filter(
+        (element) =>
+          !entries.some(
+            (entry) => entry.element.contains(element) || element.contains(entry.element),
+          ),
+      ),
+  ];
+  // A shown text that equals a matching item's username that is not an email (ADR 0028),
+  // and the other texts beside buttons, which may name accounts not in the vault.
+  const beside = names.length ? namedAccounts(document, names) : { named: [], others: [] };
+  const named = beside.named.filter(
+    (element) => !listed.some((other) => other.contains(element) || element.contains(other)),
+  );
+  listed.push(...named);
+  if (listed.length === 0) return { ok: false, reason: "no-candidates" };
+  // A text in which an address survived redaction is left out, never sent; a name is sent
+  // only as `[account]`.
+  const accounts = listed
+    .slice(0, maxAccounts)
+    .map((element) =>
+      named.includes(element)
+        ? "[account]"
+        : observedText(renderedText(element, rawLimit, { everyElement: true })),
+    )
+    .filter((text): text is string => text !== undefined && !atSign.test(text));
+  let complete = listed.length <= maxAccounts && accounts.length === listed.length;
+  for (const host of document.querySelectorAll("*"))
+    if (host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields)) complete = false;
+
+  // The innermost list controls that are not entries, by their whole text, which must
+  // survive redaction and name one control only.
+  const inEntry = (element: Element) =>
+    [...entries.map((entry) => entry.element), ...named].some(
+      (entry) => entry.contains(element) || element.contains(entry),
+    );
+  const scanned = [...document.body.querySelectorAll("*")];
+  if (scanned.length > listScanLimit) complete = false;
+  const listControls = scanned
+    .slice(0, listScanLimit)
+    .filter(
+      (element): element is HTMLElement =>
+        entryLike(element) && !element.closest(landmarks) && !inEntry(element),
+    );
+  // A control holding another one is not innermost; marking ancestors keeps this linear.
+  const outer = new Set<Element>();
+  for (const element of listControls) {
+    let parent = element.parentElement;
+    while (parent && !outer.has(parent)) {
+      outer.add(parent);
+      parent = parent.parentElement;
+    }
+  }
+  const innermost = listControls.filter((element) => !outer.has(element));
+  const texts = innermost.map((element) => {
+    const raw = collapseText(renderedText(element, rawLimit) ?? "");
+    return raw && observedText(raw) === raw && !atSign.test(raw) ? raw : undefined;
+  });
+  const chosen: Chosen[] = innermost.flatMap((element, at) => {
+    const text = texts[at];
+    if (text === undefined || texts.filter((other) => other === text).length !== 1) return [];
+    const target = { by: "text" as const, value: text };
+    if (!v.is(loginTargetSchema, target)) return [];
+    return [{ form: null, draft: { element, role: "button", label: text }, target }];
+  });
+  if (chosen.length > maxListControls) complete = false;
+  const result = observe(document, chosen.slice(0, maxListControls), complete, undefined, accounts);
+  if (!result.ok || !names.length) return result;
+  const hidden = beside.others.map((element) =>
+    collapseText(renderedText(element, rawLimit) ?? ""),
+  );
+  return withoutNames(result.observation, names, hidden);
+}
+
+/** The page texts of a candidate, apart from its ID, role and locator kind, one per line. */
+function textsOf(value: unknown, key = ""): string {
+  if (typeof value === "string") return ["id", "role", "by"].includes(key) ? "" : value;
+  if (Array.isArray(value)) return value.map((entry) => textsOf(entry)).join("\n");
+  if (value && typeof value === "object")
+    return Object.entries(value)
+      .map(([name, entry]) => textsOf(entry, name))
+      .join("\n");
+  return "";
+}
+/**
+ * The observation of a list shown by names (ADR 0028) with no name in it: `names`, the
+ * texts that name a matching item's username, become `[account]` wherever they show as a
+ * whole word, with or without a leading `@` and in any width or case, and a candidate
+ * whose text holds one is left out; a text that is wholly one of `hidden`, the other
+ * texts beside buttons, which may name accounts not in the vault, becomes `[account]`,
+ * and a candidate with such a text is left out. A path that holds a name is not sent.
+ */
+function withoutNames(
+  observation: LoginObservation,
+  names: readonly string[],
+  hidden: readonly string[],
+): ObservationResult {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  // Longest first, so a name inside a longer one never leaves part of the longer one.
+  const folded = [...new Set(names.map(foldName).filter(Boolean))].sort(
+    (left, right) => right.length - left.length,
+  );
+  // A name is a word of its own script: a Latin name may touch kana or kanji, as in
+  // "taro.yamadaさん", but not another Latin letter or digit, as in "another".
+  const word = /[\p{Script=Latin}\p{N}]/u;
+  const edge = "[\\p{Script=Latin}\\p{N}]";
+  const source = folded
+    .map(
+      (name) =>
+        `${word.test(name[0]!) ? `(?<!${edge})` : ""}@?${escape(name)}${
+          word.test(name.at(-1)!) ? `(?!${edge})` : ""
+        }`,
+    )
+    .join("|");
+  const holds = new RegExp(source, "iu");
+  const pattern = new RegExp(source, "giu");
+  const others = new Set(hidden.map(foldName).filter(Boolean));
+  const shows = (text: string) => holds.test(text.normalize("NFKC"));
+  const whole = (text: string) => others.has(foldName(text));
+  if (shows(decodeURIComponentSafe(observation.path)))
+    return { ok: false, reason: "unsupported-page" };
+  const kept = {
+    ...observation,
+    candidates: observation.candidates.filter((candidate) => {
+      const text = textsOf(candidate);
+      return !shows(text) && !text.split("\n").some(whole);
+    }),
+  };
+  const hide = (text: string) => {
+    if (whole(text)) return "[account]";
+    const normal = text.normalize("NFKC");
+    return holds.test(normal) ? normal.replace(pattern, "[account]") : text;
+  };
+  const replaced: unknown = JSON.parse(JSON.stringify(kept), (key, value: unknown) =>
+    typeof value === "string" && !["origin", "path", "language", "id", "role", "by"].includes(key)
+      ? hide(value)
+      : value,
+  );
+  const parsed = v.safeParse(loginObservationSchema, replaced);
+  return parsed.success
+    ? { ok: true, observation: parsed.output }
+    : { ok: false, reason: "unsupported-page" };
+}
+/** A path as it reads, or as it is when it does not decode. */
+function decodeURIComponentSafe(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }
 
 /**
@@ -825,11 +1070,11 @@ export function extractSignedInObservation(
   }
   const index = locatorIndex(document);
   // A marker's text locator is stored and must match every later sign-in, so text with a
-  // digit, such as a balance or an unread count, never names one.
+  // number character, such as a balance or an unread count, never names one.
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { redactAttributes: true, links: true });
-      return target && !(target.by === "text" && /\p{Decimal_Number}/u.test(target.value))
+      return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
         ? [{ ...entry, target }]
         : [];
     });
@@ -846,6 +1091,6 @@ export function extractSignedInObservation(
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
-  const result = observe(document, chosen, gap === undefined);
+  const result = observe(document, chosen, gap === undefined, withoutNumbers);
   return result.ok && gap ? { ...result, gap } : result;
 }

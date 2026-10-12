@@ -112,7 +112,9 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
    rejection, the route's next step, then a handler whose path matches and whose first
    element is present.
    - Each handler runs at most once per login, so a wrong TOTP code is never retried
-     into a lockout.
+     into a lockout. A click on the code's button that failed without changing the page
+     is not retried either, since a late click could submit an expired code: the login
+     ends `retry-limit` (2026-10-12).
    - If the item lacks the handler's fact, the login ends `challenge`.
    - After a click (a handler's or the `passkey` route's), the page is not judged while
      the clicked button is still there. This waits out a slow WebAuthn exchange or a
@@ -182,6 +184,11 @@ These rules work from any account, in any order.
   only when its routes and route steps are unchanged and it only adds handlers or a
   completion; any other revision still makes a resumed login answer
   `recipe-not-found`.
+- **First login after an advance** (owner, 04:11 UTC 2026-10-12): a running login also
+  takes over a revision that appends route steps continuing its final `advance` step,
+  the continuation of
+  [ADR 0018](0018-recipe-generation-route.md#continuing-after-an-advance), which is used
+  immediately; only for that case.
 
 ### What the model receives
 

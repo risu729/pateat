@@ -3,19 +3,22 @@ import {
   fillRoles,
   handlerTargets,
   isTotpCode,
+  loginEntryRecipeSchema,
   loginRecipeSchema,
   loginStepEffect,
   passwordVariants,
+  refillsLoginSlot,
   routeFillTargets,
   sameLoginTarget as sameTarget,
   type LoginAttributeTarget,
+  type LoginEntryRecipe,
   type LoginObservation,
   type LoginRecipe,
   type LoginStep,
   type LoginTarget,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { registersPasskey } from "./plan";
+import { registersPasskey, type EntryTarget } from "./plan";
 
 // Generated recipes are built one page at a time (ADR 0018): each validated page plan is
 // appended as steps, and the completion target is added once the first sign-in is judged.
@@ -25,6 +28,11 @@ export type AssemblyRejection =
   | "already-complete"
   /** The recipe's last step submits, so no later page belongs to it. */
   | "not-advancing"
+  /**
+   * The later page fills a slot the recipe already fills, as an identifier form shown
+   * again where it posted: it is not the next page of this sign-in.
+   */
+  | "slot-refilled"
   | "origin-mismatch"
   /** The result breaks the recipe contract, such as its step, slot or submission bounds. */
   | "invalid-recipe";
@@ -74,6 +82,30 @@ const filledSlots = (steps: readonly LoginStep[]) =>
   steps.flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.slot) : []));
 
 /**
+ * The recipe of a page's sign-in entry (ADR 0031): its origin, the page's path and the
+ * link's locator, and nothing else. It never gains steps, so it is always built whole;
+ * the caller stores it with a conditional write at `revision`.
+ */
+export function entryRecipe(page: {
+  id: string;
+  revision: number;
+  origin: string;
+  path: string;
+  target: EntryTarget;
+}): { ok: true; recipe: LoginEntryRecipe } | { ok: false; reason: "invalid-recipe" } {
+  const recipe = v.safeParse(loginEntryRecipeSchema, {
+    version: 1,
+    id: page.id,
+    revision: page.revision,
+    origin: page.origin,
+    entry: { path: page.path, target: page.target },
+  });
+  return recipe.success
+    ? { ok: true, recipe: recipe.output }
+    : { ok: false, reason: "invalid-recipe" };
+}
+
+/**
  * Starts a recipe from the first page's steps, or appends a later page's steps to a
  * recipe whose last step advances. Slots are the ones the steps fill, so a binding
  * never has to cover a slot the recipe does not use. A first page may also bring
@@ -105,6 +137,7 @@ export function appendPageSteps(
       return { ok: false, reason: "not-advancing" };
     // Variants and routes all start on the start page, so a later page never brings its own.
     if (alternatives.length || page.passkey) return { ok: false, reason: "invalid-recipe" };
+    if (refillsLoginSlot(base.steps, page.steps)) return { ok: false, reason: "slot-refilled" };
   }
   const steps = [...(base?.steps ?? []), ...page.steps];
   const variants = [steps, ...alternatives];

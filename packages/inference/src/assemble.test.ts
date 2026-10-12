@@ -1,4 +1,5 @@
 import {
+  continuesRecipe,
   extendsRecipe,
   type LoginAttributeTarget,
   type LoginRecipe,
@@ -51,6 +52,9 @@ describe("generated recipe assembly", () => {
       maxSubmissions: 2,
     });
     expect(second.recipe.steps).toHaveLength(4);
+    // A login running the first revision at its final advance can take this one over.
+    expect(continuesRecipe(first, second.recipe)).toBe(true);
+    expect(extendsRecipe(first, second.recipe)).toBe(false);
   });
 
   it("takes slots from the steps and keeps the base's other fields", () => {
@@ -113,6 +117,13 @@ describe("generated recipe assembly", () => {
       ok: false,
       reason: "origin-mismatch",
     });
+    // The identifier form shown again where it posted is not the next page.
+    expect(
+      appendPageSteps(advancing, {
+        ...next,
+        steps: page("/login/identifier", "username", "advance"),
+      }),
+    ).toEqual({ ok: false, reason: "slot-refilled" });
     expect(appendPageSteps(advancing, { ...next, steps: [] })).toEqual({
       ok: true,
       recipe: expect.objectContaining({ revision: 2 }),

@@ -29,10 +29,16 @@ function html(body: string, script = ""): string {
   </script></body></html>`;
 }
 
-/** `password` selects the expected synthetic value, such as a fixture vault's login password. */
+/**
+ * `password` selects the expected synthetic value, such as a fixture vault's login password;
+ * `accountName` the synthetic account name the generated identifier pages expect.
+ */
 export async function startLoginFixture(
   port = 0,
-  { password = "Pateat-synthetic-only!" }: { password?: string } = {},
+  {
+    password = "Pateat-synthetic-only!",
+    accountName,
+  }: { password?: string; accountName?: string } = {},
 ): Promise<{
   server: Server;
   origin: string;
@@ -212,17 +218,20 @@ export async function startLoginFixture(
       // later, shows the password form in the same document on the same path. `?push`
       // also changes the URL with `history.pushState`, keeping the path, and `?shown` shows
       // the password form from the start. `?unknown` shows the account form again with an
-      // unknown-account error instead, the password form still hidden. Only those known
-      // flags are read, and the query is never written into the page.
+      // unknown-account error instead, the password form still hidden. `?account` expects the
+      // `accountName` option instead and signs in to /account, as a generated recipe's site
+      // (ADR 0018). Only those known flags are read, and the query is never written into the
+      // page.
       const push = fixtureUrl.searchParams.has("push");
       const shown = fixtureUrl.searchParams.has("shown");
       const unknown = fixtureUrl.searchParams.has("unknown");
+      const toAccount = fixtureUrl.searchParams.has("account");
       response.end(
         html(
           `<h1>Synthetic identifier-first sign-in</h1><form id="account-form"><label>Account<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form><p id="account-error" hidden>Unknown account</p><form id="password-form"${shown ? "" : " hidden"}><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>`,
           `document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
-          sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === '00001234'));
+          sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === ${JSON.stringify(toAccount ? accountName : "00001234")}));
           document.getElementById('account-form').hidden = true;
           ${push ? "history.pushState({}, '', '/identifier-first?push=1&step=password');" : ""}
           ${
@@ -235,7 +244,34 @@ export async function startLoginFixture(
         document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
-          location.href = '/authenticated';
+          location.href = ${toAccount ? "'/account'" : "'/authenticated'"};
+        });`,
+        ),
+      );
+    } else if (path === "/identifier" || path === "/identifier/again") {
+      // An identifier page whose Next opens the password page as a new document (ADR 0018).
+      // `?again` opens /identifier/again instead, which shows the identifier form again
+      // with an unknown-account error, as a site that did not know the account. Only that
+      // known flag is read, and the query is never written into the page.
+      const again = fixtureUrl.searchParams.has("again");
+      response.end(
+        html(
+          `<h1>Synthetic identifier page</h1>${path === "/identifier/again" ? '<p id="account-error">Unknown account</p>' : ""}<form><label>Username<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form>`,
+          `document.getElementById('next').addEventListener('click', () => {
+          sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
+          sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === ${JSON.stringify(accountName)}));
+          location.href = ${again || path === "/identifier/again" ? "'/identifier/again'" : "'/identifier/password'"};
+        });`,
+        ),
+      );
+    } else if (path === "/identifier/password") {
+      response.end(
+        html(
+          '<h1>Synthetic password page</h1><form><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          location.href = '/account';
         });`,
         ),
       );
@@ -443,7 +479,12 @@ export async function startLoginFixture(
             }[fixtureUrl.searchParams.get("password-input") ?? ""] ?? 'type="password"'
           }${
             maxLength !== null && /^\d{1,3}$/u.test(maxLength) ? ` maxlength="${maxLength}"` : ""
-          }></label><button id="login" type="button">Log in</button>${
+          }></label>${
+            // `?reject-fill=switch-form` keeps a second password field hidden until a fill.
+            fixtureUrl.searchParams.get("reject-fill") === "switch-form"
+              ? '<label>Security number<input id="security" type="password" hidden></label>'
+              : ""
+          }<button id="login" type="button">Log in</button>${
             // `?ad` embeds an unrelated frame beside the form, like an advertisement.
             fixtureUrl.searchParams.has("ad")
               ? '<iframe id="ad" title="Synthetic advertisement" src="/ad"></iframe>'
@@ -461,6 +502,10 @@ export async function startLoginFixture(
                 "document.getElementById('password').addEventListener('change', (event) => event.target.setCustomValidity('Not accepted'));",
               shown:
                 "document.getElementById('password').addEventListener('input', () => { document.getElementById('notice').innerHTML = '<p role=\"alert\">Your session expired</p>'; });",
+              // Switches the form under the fill, as St.George's logon with a remembered
+              // access number does: every field is cleared and another one shows.
+              "switch-form":
+                "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
           }
           document.getElementById('login').addEventListener('click', () => {
@@ -619,7 +664,7 @@ export async function startLoginFixture(
       response.end(
         html(
           "<h1>Synthetic account</h1>",
-          `document.body.insertAdjacentHTML('afterbegin', sessionStorage.getItem('passwordMatched') === 'true'
+          `document.body.insertAdjacentHTML('afterbegin', sessionStorage.getItem('passwordMatched') === 'true' && sessionStorage.getItem('identityMatched') !== 'false'
           ? ${JSON.stringify(`<h2 id="signed-in">Your synthetic account</h2>${marker}`)}
           : '<h2 id="rejected">Credentials rejected</h2>');`,
         ),

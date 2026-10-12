@@ -105,9 +105,14 @@ a way through without WARP should stay once it works, not only for a test (05:17
 
 - With Cookie Path Attribute on, the owner's Chrome may send two `CF_Authorization`
   cookies to `/pair`, the host-wide application's and "pateat pair"'s. Cloudflare's
-  documentation does not say which one Access checks.
+  documentation does not say which one Access checks. Checked on 2026-10-12 in the
+  owner's Chrome after "pateat pair" was created: after the One-time PIN sign-in,
+  `GET /pair/signed-in` answered 200 with the "Signed in" page, `/manage` still opened
+  without another sign-in, and the already paired extension kept syncing (full syncs at
+  06:35 and 06:40 UTC, no warnings or errors after 06:33 UTC).
 - Whether `POST /pair` from the extension's service worker passes with Binding Cookie
-  on.
+  on. Not checked yet: the owner's Chrome is already paired, so the first `POST /pair`
+  through "pateat pair" is the next new pairing, on an agent's computer or in the
+  owner's Chrome. A failure there may come from Binding Cookie.
 
-Both are checked in the owner's Chrome before the first pairing without WARP, as
 ADR 0020 asks for a cookie probe whenever cookie settings change.

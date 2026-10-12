@@ -2,10 +2,16 @@ export * from "./outcome";
 export * from "./plan";
 export { classifyInferenceError } from "./errors";
 export {
+  asPagePlan,
+  createEntryGenerator,
   createRecipeGenerator,
+  entryGenerationInstructions,
+  entryGenerationPromptVersion,
+  entryInstruction,
   generatedPlanSchema,
   generationInstructions,
   generationPromptVersion,
+  type EntryGenerationRequest,
   type GenerationRequest,
 } from "./generation";
 export { buildFieldQuestions, createFieldMappingDecider, type FiniteChoiceModel } from "./decision";
@@ -25,6 +31,7 @@ export {
   addCompletion,
   addHandler,
   appendPageSteps,
+  entryRecipe,
   type AssemblyRejection,
   type CompletionRejection,
   type HandlerRejection,

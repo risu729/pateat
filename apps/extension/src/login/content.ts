@@ -5,15 +5,22 @@ import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts"
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
 import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
-import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
-import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
+import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
+import {
+  extractAccountListObservation,
+  extractLoginObservation,
+  extractSignedInObservation,
+} from "../observation/extract";
+import { accountEntries, accountNames, besideEmails, listControls } from "../page/account-list";
 import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
 import {
   commandSchema,
   LOGIN_STEP_WAIT_MS,
   readySchema,
+  START_TRIES,
   reconnectSchema,
+  type ExecutionDetail,
   type LoginReadiness,
   type TargetState,
 } from "./wire";
@@ -78,9 +85,20 @@ function targetState(
     ? "unusable"
     : "unique";
 }
+/** Whether the page lists an account by its email, masked or not (ADR 0028). */
+function listsAccounts(): boolean {
+  return accountEntries(document).length > 0 || besideEmails(document).length > 0;
+}
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
   if (location.pathname !== readiness.path) return false;
+  // A chooser's list (ADR 0028): one of its buttons, or an account it lists by email.
+  if (readiness.accounts)
+    return (
+      !showsSignIn() &&
+      (readiness.targets.some((target) => listControls(document, target).length === 1) ||
+        listsAccounts())
+    );
   return readiness.targets.every((target) => {
     const found = matches(target);
     if (found.length !== 1) return false;
@@ -105,6 +123,44 @@ function showsSignIn(): boolean {
     );
   });
 }
+/**
+ * The sign-in inputs the page shows that a generated recipe can continue on after its final
+ * `advance` step (ADR 0018), other than the recipe's own `targets`: `password`, a visible
+ * writable password input; `identifier`, a visible writable email input or one marked for a
+ * username or an email address. An input marked `new-password` or `one-time-code`, and
+ * every input of a form that holds one, never counts: a sign-up, password change or code
+ * form is not a sign-in page to continue on, and a code page is judged instead (ADR 0027).
+ */
+function credentialInputs(targets: readonly LoginTarget[]): {
+  password: boolean;
+  identifier: boolean;
+} {
+  const own = new Set(targets.flatMap((target) => matches(target)));
+  const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().split(/\s+/u);
+  const other = (input: HTMLInputElement) =>
+    tokens(input).some((token) => token === "new-password" || token === "one-time-code");
+  const inputs = [...document.querySelectorAll("input")].filter(
+    (input) =>
+      !own.has(input) &&
+      writable(input) &&
+      !other(input) &&
+      // `elements` also holds inputs tied to the form by a `form` attribute.
+      !(
+        input.form &&
+        [...input.form.elements].some(
+          (element) => element instanceof HTMLInputElement && other(element),
+        )
+      ),
+  );
+  return {
+    password: inputs.some((input) => input.type === "password"),
+    identifier: inputs.some(
+      (input) =>
+        input.type === "email" ||
+        tokens(input).some((token) => token === "username" || token === "email"),
+    ),
+  };
+}
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 /**
  * How long a preparing fill waits for the page's own input handlers before checking that
@@ -124,6 +180,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const used = new Set<string>();
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
   let submitted: SubmittedPage | undefined;
+  /**
+   * Inputs this document's fills wrote to since the last click of the same attempt, and
+   * the password inputs that were writable when the first of those fills began, for the
+   * check before a click.
+   */
+  let filled = new WeakSet<HTMLInputElement>();
+  let shownBefore: WeakSet<HTMLInputElement> | undefined;
+  let filledAttempt: string | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
@@ -142,6 +206,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // after loading; a form shown only later, for example after a click, is not sent.
   let generate = false;
   let offered = false;
+  // The path where this document last submitted a form with a password input, and the
+  // next path it showed after it: that page is never offered as a list of accounts.
+  let submitPath: string | undefined;
+  let afterSubmit: string | undefined;
   // Paths where a sign-in input stayed shown without a ready first step, reported once
   // each so the background can log a login that did not start.
   const shown = new Set<string>();
@@ -175,6 +243,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       offerTimer ??= setTimeout(() => {
         offerTimer = undefined;
         offered = true;
+        // A page that shows no sign-in input by now may list accounts (ADR 0028).
+        const accounts = !cancelled && !starts.some(ready) && !showsSignIn() ? listed() : undefined;
+        if (accounts) void announce(false, false, accounts).catch(() => undefined);
         watch(starts);
       }, LOGIN_STEP_WAIT_MS);
     if ((!starts.length && !generate) || cancelled) {
@@ -224,7 +295,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   function retry(): void {
     if (!observer) return;
     retries += 1;
-    if (retries > 3) return;
+    if (retries >= START_TRIES) return;
     announced = false;
     clearTimeout(timer);
     timer = setTimeout(check, 500);
@@ -273,7 +344,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         .catch(() => undefined);
     }, LOGIN_STEP_WAIT_MS);
   }
-  async function announce(start: boolean, signIn = false): Promise<unknown> {
+  /**
+   * What this page offers as a list of accounts (ADR 0028): its path once it lists an
+   * account by email, or else the short texts that may name one by a username that is not
+   * an email. The page right after a submitted password form offers nothing.
+   */
+  function listed(): { path: string; names?: string[] } | undefined {
+    const path = location.pathname;
+    if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
+    if (path === afterSubmit) return undefined;
+    if (listsAccounts()) return { path };
+    const names = accountNames(document);
+    return names.length ? { path, names } : undefined;
+  }
+  async function announce(
+    start: boolean,
+    signIn = false,
+    list?: { path: string; names?: string[] },
+  ): Promise<unknown> {
     announced = start;
     const result: unknown = await browser.runtime.sendMessage({
       version: 1,
@@ -281,6 +369,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       token,
       ...(start ? { start: { path: location.pathname } } : {}),
       ...(signIn ? { signIn: { path: location.pathname } } : {}),
+      ...(list ? { list } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
     if (!parsed.success || parsed.output.ok) {
@@ -388,7 +477,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       let result: unknown;
       try {
         result =
-          command.page === "login" ? extractLoginObservation() : extractSignedInObservation();
+          command.page === "login"
+            ? extractLoginObservation(document, command.known)
+            : command.page === "accounts"
+              ? extractAccountListObservation(document, command.names)
+              : extractSignedInObservation();
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };
@@ -423,6 +516,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         targets: command.targets.map((target, index) =>
           targetState(target, command.require?.[index], command.links?.[index] === true),
         ),
+        ...(command.signIn
+          ? {
+              signIn: {
+                loaded: document.readyState === "complete",
+                ...credentialInputs(command.targets),
+              },
+            }
+          : {}),
       });
       return false;
     }
@@ -440,9 +541,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           | "value-mismatch"
           | "fill-rejected"
           | "submitted",
+        detail?: ExecutionDetail,
       ) => ({
         ok: false,
         reason,
+        ...(detail ? { detail } : {}),
         mutation: mutated ? "possible" : "none",
       });
       const authorized: unknown = await browser.runtime.sendMessage({
@@ -452,17 +555,23 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         attemptId: operation.attemptId,
         operationId: operation.operationId,
       });
+      if (authorized !== true) return fail("cancelled", "not-authorized");
+      if (cancelled) return fail("cancelled", "document-cancelled");
+      if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
+      if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
       if (
-        authorized !== true ||
-        cancelled ||
-        used.has(operation.operationId) ||
-        Date.now() >= operation.expiresAt ||
         operation.document.origin !== location.origin ||
         operation.step.path !== location.pathname
       )
-        return fail("cancelled");
+        return fail("cancelled", "page-changed");
       used.add(operation.operationId);
       const step = operation.step;
+      // Another attempt in this document starts from nothing filled.
+      if (operation.attemptId !== filledAttempt) {
+        filled = new WeakSet();
+        shownBefore = undefined;
+        filledAttempt = operation.attemptId;
+      }
       // With an advance whose next step is on its path, that step's elements just before
       // the click or the first input; the answer reports them (ADR 0013).
       const measureNext = () => {
@@ -475,19 +584,21 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const found = matches(field.target);
           return found.length === 1 ? found[0] : undefined;
         });
-        if (inputs.some((input) => !writable(input))) return fail("structural-mismatch");
+        if (inputs.some((input) => !writable(input)))
+          return fail("structural-mismatch", "target-missing");
         if (
           command.values.length !== step.fields.length ||
           step.fields.some(
             (field) => command.values.filter((entry) => entry.slot === field.slot).length !== 1,
           )
         )
-          return fail("structural-mismatch");
+          return fail("structural-mismatch", "unexpected-values");
         // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
         const writableInputs = inputs as HTMLInputElement[];
         const form = writableInputs[0]!.form;
+        if (writableInputs.some((input) => input.form !== form))
+          return fail("structural-mismatch", "fields-split");
         if (
-          writableInputs.some((input) => input.form !== form) ||
           step.fields.some(
             (field, index) =>
               !acceptsSecret(
@@ -496,7 +607,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               ),
           )
         )
-          return fail("structural-mismatch");
+          return fail("structural-mismatch", "secret-refused");
         // A secret goes only to the account the page shows, when it shows one (owner
         // decision, 2026-10-11). The comparison stays in this content script.
         if (command.account) {
@@ -542,7 +653,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         )
           return fail("value-mismatch");
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        if (!setter) return fail("structural-mismatch");
+        if (!setter) return fail("structural-mismatch", "unsupported-input");
         // Messages already shown are not the page's answer to this fill.
         const baseline = step.effect === "prepare" ? fillBaseline(writableInputs) : undefined;
         // A code field fills alone; its watch starts before the code goes in (ADR 0027).
@@ -555,7 +666,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 step.path,
               )
             : undefined;
-        if (command.code && !code) return fail("structural-mismatch");
+        if (command.code && !code) return fail("structural-mismatch", "code-watch-failed");
         try {
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as HTMLInputElement;
@@ -572,7 +683,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               !acceptsSecret(input, value.secret) ||
               inputValueMismatch(input, value.value) !== undefined
             )
-              return fail("cancelled");
+              return fail(
+                "cancelled",
+                cancelled
+                  ? "document-cancelled"
+                  : location.pathname !== step.path
+                    ? "page-changed"
+                    : "field-changed",
+              );
             // An advance's next step is measured in this task, just before its first input,
             // and so is what the page shows before an effect (ADR 0029).
             if (index === 0) {
@@ -581,6 +699,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
+            shownBefore ??= new WeakSet(
+              [...document.querySelectorAll("input")].filter(
+                (other) => other.type === "password" && writable(other),
+              ),
+            );
+            filled.add(input);
             setter.call(input, value.value);
             if (step.effect === "prepare") {
               // The code goes in now; the page's own reaction is measured from here.
@@ -591,6 +715,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               input.dispatchEvent(new Event(step.event!, { bubbles: true }));
             }
             value.value = "";
+          }
+          // A fill that submits through its own event ends what the next click checks.
+          if (step.effect !== "prepare") {
+            filled = new WeakSet();
+            shownBefore = undefined;
           }
           // A code page that submits the code by itself must not get a click as well: the
           // button is clicked only when nothing showed a submission during the watch. Its
@@ -604,7 +733,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               // eslint-disable-next-line no-await-in-loop
               await pause(50);
             }
-            if (cancelled) return fail("cancelled");
+            if (cancelled) return fail("cancelled", "document-cancelled");
             if (code.submitted()) return fail("submitted");
             if (rejectsFill(writableInputs, baseline, { statuses: false }))
               return fail("fill-rejected");
@@ -614,11 +743,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // the values first. An effectful fill has already submitted through its event.
           if (baseline) {
             await pause(fillSettleMs);
-            if (cancelled) return fail("cancelled");
+            if (cancelled) return fail("cancelled", "document-cancelled");
             // The page replaced the form, perhaps signing in by itself; the background
             // observes the page instead of clicking.
             if (writableInputs.some((input) => !input.isConnected))
-              return fail("structural-mismatch");
+              return fail("structural-mismatch", "form-replaced");
             if (rejectsFill(writableInputs, baseline)) return fail("fill-rejected");
           }
           return { ok: true, mutation: "possible" };
@@ -626,23 +755,35 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           code?.stop();
         }
       }
-      if (command.values.length) return fail("structural-mismatch");
+      if (command.values.length) return fail("structural-mismatch", "unexpected-values");
       if (step.kind === "click") {
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
-        if (!clickable(element)) return fail("structural-mismatch");
+        if (!clickable(element)) return fail("structural-mismatch", "target-missing");
+        // The click's form's inputs, or the page's for an element outside a form.
+        const form = isButton(element) ? element.form : element.closest("form");
+        const formInputs = [...(form ? form.elements : document.querySelectorAll("input"))].filter(
+          (input) => input instanceof HTMLInputElement,
+        );
+        const fills = filled;
+        const passwordsBefore = shownBefore;
+        // The next fills are checked against the next click.
+        filled = new WeakSet();
+        shownBefore = undefined;
+        // The page changed the form under the fill: never send it without its values.
+        if (
+          unreadyForm(formInputs, {
+            filled: (input) => fills.has(input),
+            shownBefore: (input) => passwordsBefore?.has(input) === true,
+            writable,
+            submit: step.purpose === "submit",
+          })
+        )
+          return fail("structural-mismatch", "form-changed");
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();
-        // The click's form's inputs, or the page's for a button outside a form.
-        submitted = submittedPage(
-          document,
-          [
-            ...(isButton(element) && element.form
-              ? element.form.elements
-              : document.querySelectorAll("input")),
-          ].filter(writable),
-        );
+        submitted = submittedPage(document, formInputs.filter(writable));
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };
@@ -652,7 +793,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return step.present ? count === 1 : count === 0;
       };
       if (step.kind === "assert")
-        return satisfied() ? { ok: true, mutation: "none" } : fail("structural-mismatch");
+        return satisfied()
+          ? { ok: true, mutation: "none" }
+          : fail("structural-mismatch", "assert-failed");
       const until = Math.min(operation.expiresAt, Date.now() + step.timeoutMs);
       // Cancellation is set by the independent background message listener.
       // eslint-disable-next-line no-unmodified-loop-condition
@@ -662,7 +805,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // eslint-disable-next-line no-await-in-loop
         await pause(50);
       }
-      return fail(cancelled ? "cancelled" : "timeout");
+      // The page moving to another path ends the wait early; that is not a timeout.
+      return cancelled
+        ? fail("cancelled", "document-cancelled")
+        : location.pathname !== step.path
+          ? fail("timeout", "page-changed")
+          : fail("timeout");
     })()
       // A thrown execution may already have mutated the page. Never advertise a safe retry.
       .then(
@@ -677,6 +825,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           respond({
             ok: false,
             reason: "cancelled",
+            detail: "threw",
             mutation: "possible",
             operationId: command.operation.operationId,
             documentId: command.operation.document.documentId,
@@ -688,11 +837,34 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       });
     return true;
   };
+  /**
+   * A form with a password input submitted in this document: its next path here, and the
+   * tab's next document if it is of the same origin, are not offered as a list of accounts
+   * (ADR 0028).
+   * Pateat's own submissions count too; their pages belong to a login anyway.
+   */
+  const onSubmit = (event: Event) => {
+    const form = event.target;
+    if (
+      !(form instanceof HTMLFormElement) ||
+      ![...form.elements].some(
+        (element) => element instanceof HTMLInputElement && element.type === "password",
+      )
+    )
+      return;
+    submitPath = location.pathname;
+    afterSubmit = undefined;
+    void browser.runtime
+      .sendMessage({ version: 1, type: "login.document.submitted", token })
+      .catch(() => undefined);
+  };
+  document.addEventListener("submit", onSubmit, true);
   browser.runtime.onMessage.addListener(listener);
   void announce(false).catch(() => undefined);
   return () => {
     cancelled = true;
     unwatch();
+    document.removeEventListener("submit", onSubmit, true);
     browser.runtime.onMessage.removeListener(listener);
   };
 }

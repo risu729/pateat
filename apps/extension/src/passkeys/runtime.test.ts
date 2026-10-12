@@ -121,7 +121,8 @@ describe("passkey runtime cancellation", () => {
     });
 
   it("cancels only from the same document", async () => {
-    const runtime = createPasskeyRuntime(slowSign(), { extensionId });
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(slowSign(), { extensionId, report });
     const operationId = crypto.randomUUID();
     const pending = runtime.handle(get(operationId), sender());
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -131,6 +132,9 @@ describe("passkey runtime cancellation", () => {
     });
     expect(await runtime.handle(cancel, sender())).toEqual({ ok: true });
     expect(await pending).toEqual({ kind: "cancelled" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", cause: "page-cancelled" }),
+    );
   });
 
   it("delegates after its deadline and rejects duplicate operation IDs", async () => {
@@ -157,11 +161,51 @@ describe("passkey runtime cancellation", () => {
   });
 
   it("cancels every in-flight operation on a settings change", async () => {
-    const runtime = createPasskeyRuntime(slowSign(), { extensionId });
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(slowSign(), { extensionId, report });
     const pending = [runtime.handle(get(), sender()), runtime.handle(get(), sender())];
     await new Promise((resolve) => setTimeout(resolve, 0));
     runtime.settingsChanged();
     expect(await Promise.all(pending)).toEqual([{ kind: "cancelled" }, { kind: "cancelled" }]);
+    expect(report).toHaveBeenCalledTimes(2);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", cause: "settings-changed" }),
+    );
+  });
+
+  it("names the step that threw when it delegates", async () => {
+    const report = vi.fn();
+    const backing = source({ sign: vi.fn(async () => Promise.reject(new Error("unavailable"))) });
+    const runtime = createPasskeyRuntime(backing, { extensionId, report });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "assertion-failed",
+    });
+    expect(report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ reason: "assertion-failed", cause: "signing" }),
+    );
+    vi.mocked(backing.candidates).mockRejectedValueOnce(new Error("vault-unavailable"));
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "assertion-failed",
+    });
+    expect(report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ reason: "assertion-failed", cause: "passkey-lookup" }),
+    );
+
+    const lookup = vi.fn();
+    const failing = createPasskeyRuntime(source(), {
+      extensionId,
+      report: lookup,
+      loginAccount: async () => Promise.reject(new Error("unavailable")),
+    });
+    expect(await failing.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "assertion-failed",
+    });
+    expect(lookup).toHaveBeenLastCalledWith(
+      expect.objectContaining({ reason: "assertion-failed", cause: "account-lookup" }),
+    );
   });
 });
 
@@ -327,6 +371,18 @@ describe("passkey runtime reports", () => {
     ]);
   });
 
+  it("tells a login of each assertion it returns, with its RP ID", async () => {
+    const answered = vi.fn(() => {
+      throw new Error("a failing listener changes nothing");
+    });
+    const runtime = createPasskeyRuntime(source(), { extensionId, answered });
+    // A delegated request returns nothing from Pateat.
+    await runtime.handle({ ...get(), request: { ...request, mediation: "required" } }, sender());
+    expect(answered).not.toHaveBeenCalled();
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(answered.mock.calls).toEqual([[7, origin, "example.com"]]);
+  });
+
   it("reports no request from an invalid sender or a cancellation", async () => {
     const report = vi.fn();
     const runtime = createPasskeyRuntime(source(), { extensionId, report });
@@ -478,7 +534,11 @@ describe("passkey chooser window", () => {
     expect(await pending).toEqual({ kind: "cancelled" });
     expect(signals[0]!.aborted).toBe(true);
     expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: "cancelled", chooser: "cancelled" }),
+      expect.objectContaining({
+        outcome: "cancelled",
+        chooser: "cancelled",
+        cause: "page-cancelled",
+      }),
     );
   });
 

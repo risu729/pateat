@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { loginIdentifierSchema, loginRecipeSchema } from "./login";
+import { loginIdentifierSchema, storedLoginRecipeSchema } from "./login";
 import { localSettingsSchema } from "./settings";
 
 // Contracts for the optional private settings/recipe service. Synced documents are
@@ -49,14 +49,17 @@ export const syncSettingsWriteSchema = v.strictObject({
   settings: localSettingsSchema,
 });
 
-/** The stored recipe carries the sync identity, so a cached copy cannot drift from it. */
+/**
+ * The stored recipe carries the sync identity, so a cached copy cannot drift from it. It is
+ * a login route recipe, an entry recipe (ADR 0031) or a chooser recipe (ADR 0028).
+ */
 export const syncRecipeChangeSchema = v.pipe(
   v.variant("state", [
     v.strictObject({
       recipeId: syncRecipeIdSchema,
       revision: writtenRevision,
       state: v.literal("active"),
-      recipe: loginRecipeSchema,
+      recipe: storedLoginRecipeSchema,
     }),
     v.strictObject({
       recipeId: syncRecipeIdSchema,
@@ -93,7 +96,7 @@ export const syncRecipeWriteSchema = v.pipe(
       version: v.literal(1),
       expectedRevision: revision,
       state: v.literal("active"),
-      recipe: loginRecipeSchema,
+      recipe: storedLoginRecipeSchema,
     }),
     v.strictObject({
       version: v.literal(1),

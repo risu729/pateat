@@ -24,7 +24,8 @@ export type DiagnosticsClient = {
   copy(text: string): Promise<void>;
   exportLogs(includeSites: boolean): Promise<LogsResponse<"diagnostics.logs.export">>;
   clearLogs(): Promise<LogsResponse<"diagnostics.logs.clear">>;
-  enableDebugLogs(): Promise<LogsResponse<"diagnostics.logs.debug">>;
+  /** Turns debug logging on for 24 hours, or off at once. */
+  setDebugLogs(enabled: boolean): Promise<LogsResponse<"diagnostics.logs.debug">>;
   /** Saves `text` as a file through the browser's download of a `Blob` link. */
   download(text: string, filename: string): void;
 };
@@ -278,7 +279,9 @@ function Logs({
       <p className="note">
         Kept on this device for 14 days. A site you had not set up when an entry was written is
         stored as <code>origin:7d2b91aa</code> or <code>rp:7d2b91aa</code>, so it stays pseudonymous
-        even with site addresses included.
+        even with site addresses included. With them, an entry also names its page&apos;s path,
+        query and fragment, which can hold a code, an email address or another site&apos;s address;
+        check the preview before sharing a download.
       </p>
       <dl>
         <Row term="Entries" id="diagnostics-logs">
@@ -298,20 +301,28 @@ function Logs({
           id="debug-logs"
           type="button"
           variant="outline"
-          onClick={() =>
+          onClick={() => {
+            // On turns itself off after 24 hours; off takes effect at once (owner, 2026-10-12).
+            const enable = logs?.debugUntil === undefined;
             void client
-              .enableDebugLogs()
+              .setDebugLogs(enable)
               .catch(() => undefined)
               .then((response) => {
                 setMessage(
-                  response?.ok ? "Debug logging is on for 24 hours." : "Unable to change logging.",
+                  response?.ok
+                    ? enable
+                      ? "Debug logging is on for 24 hours."
+                      : "Debug logging is off."
+                    : "Unable to change logging.",
                 );
                 changed();
                 return undefined;
-              })
-          }
+              });
+          }}
         >
-          Enable debug logging for 24 hours
+          {logs?.debugUntil === undefined
+            ? "Enable debug logging for 24 hours"
+            : "Disable debug logging"}
         </Button>
         {confirmClear ? (
           <Button

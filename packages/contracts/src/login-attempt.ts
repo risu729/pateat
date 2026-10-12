@@ -38,6 +38,9 @@ const MAX_ATTEMPT_SUBMISSIONS = 12;
 const MAX_ENTERED_HANDLERS = 4;
 /** Pages the model may judge after one effect step (ADR 0027). */
 export const MAX_JUDGED_PAGES = 2;
+/** Steps and effects a continuation may add: one page of a recipe (ADR 0018). */
+const MAX_RECIPE_STEPS = 32;
+const MAX_RECIPE_EFFECTS = 8;
 /** Pages already sent to be judged after effect step `operationId`. */
 export const judgedPages = (
   metadata: Pick<LoginAttemptMetadata, "judged">,
@@ -120,6 +123,12 @@ export const attemptMetadataSchema = v.pipe(
     judged: v.optional(
       v.strictObject({ operationId: identifier, pages: integer(MAX_JUDGED_PAGES) }),
     ),
+    /**
+     * The page after the final `advance` step `operationId` was sent to continue the
+     * recipe (ADR 0018): at most one request per effect step, recorded before the request
+     * so a restart never sends it again.
+     */
+    continuation: v.optional(v.strictObject({ operationId: identifier })),
     /** This attempt follows an account switch in its tab; it never clicks another one. */
     accountSwitched: v.optional(v.literal(true)),
     /**
@@ -160,6 +169,12 @@ export const attemptMetadataSchema = v.pipe(
       metadata.judged === undefined ||
       metadata.usedOperationIds.includes(metadata.judged.operationId),
     "Judged operation ID is not recorded",
+  ),
+  v.check(
+    (metadata) =>
+      metadata.continuation === undefined ||
+      metadata.usedOperationIds.includes(metadata.continuation.operationId),
+    "Continued operation ID is not recorded",
   ),
   v.check(
     (metadata) =>
@@ -210,7 +225,16 @@ export const loginAttemptEventSchema = v.variant("type", [
     ]),
     document: v.optional(loginDocumentSchema),
   }),
-  v.strictObject({ type: v.literal("NAVIGATED"), document: loginDocumentSchema }),
+  /**
+   * `signedIn`: the runtime confirmed that a top-level move to another origin finished the
+   * sign-in, as after a passkey answer for that site (ADR 0022). Only an attempt that may
+   * have submitted then completes; any other move to another origin ends it as before.
+   */
+  v.strictObject({
+    type: v.literal("NAVIGATED"),
+    document: loginDocumentSchema,
+    signedIn: v.optional(v.literal(true)),
+  }),
   v.strictObject({ type: v.literal("INTERRUPTED") }),
   v.strictObject({
     type: v.literal("FAILED"),
@@ -259,6 +283,26 @@ export const loginAttemptEventSchema = v.variant("type", [
   /** The page sent under `JUDGING` reached no model, so it is given back. */
   v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
   /**
+   * The page after the final `advance` step `operationId` is about to be sent to continue
+   * the recipe (ADR 0018). Recorded before the request: one request per effect step.
+   */
+  v.strictObject({ type: v.literal("CONTINUING"), operationId: identifier }),
+  /** The request sent under `CONTINUING` reached no model, so it is given back. */
+  v.strictObject({ type: v.literal("UNCONTINUED"), operationId: identifier }),
+  /**
+   * The attempt takes over the revision that continues its recipe on the page after its
+   * final `advance` step (`continuesRecipe`, ADR 0018): its `steps` follow that step, and
+   * its `effects` grow the submission budget. The runtime checks the revision and that it
+   * resolves to the attempt's account before sending it.
+   */
+  v.strictObject({
+    type: v.literal("CONTINUED"),
+    recipeRevision: integer(Number.MAX_SAFE_INTEGER - 1),
+    steps: v.pipe(integer(MAX_RECIPE_STEPS), v.minValue(1)),
+    effects: v.pipe(integer(MAX_RECIPE_EFFECTS), v.minValue(1)),
+    document: loginDocumentSchema,
+  }),
+  /**
    * After an effect step, the page shows the recipe's handler `handler` (its index in the
    * recipe's handlers): its `steps` follow the effect step, and its `effects` grow the
    * submission budget (ADR 0027).
@@ -278,7 +322,12 @@ export const loginAttemptEventSchema = v.variant("type", [
    * again. The runtime checks that the steps are a `totp` handler's fill and click.
    */
   v.strictObject({ type: v.literal("AUTO_SUBMITTED"), operationId: identifier }),
-  v.strictObject({ type: v.literal("RETRY") }),
+  /**
+   * Tries a step that failed without changing the page again. `final` ends the attempt as
+   * a spent budget does: the runtime never retries a `totp` handler's click once its code
+   * is in, since a late click could submit an expired code (ADR 0027).
+   */
+  v.strictObject({ type: v.literal("RETRY"), final: v.optional(v.literal(true)) }),
   /**
    * The login's authorization was withdrawn. `undelivered` names a prepared operation the
    * page never received, whose reserved effect is taken back so the record shows nothing
@@ -364,8 +413,15 @@ function record(
       };
     case "NAVIGATED":
       if (leftOrigin(context.document, event.document))
-        // The result of a submission on the previous origin cannot be observed here.
-        return { outcome: maySubmit(context) ? "left-origin" : "interrupted" };
+        // The result of a submission on the previous origin cannot be observed here, unless
+        // the runtime confirmed the sign-in.
+        return {
+          outcome: !maySubmit(context)
+            ? "interrupted"
+            : event.signedIn
+              ? "authenticated"
+              : "left-origin",
+        };
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,
         outcome: maySubmit(context) ? "unknown-submit" : "interrupted",
@@ -434,6 +490,26 @@ function record(
           operationId: event.operationId,
           pages: judgedPages(context, event.operationId) - 1,
         },
+      };
+    case "CONTINUING":
+      return { continuation: { operationId: event.operationId } };
+    case "UNCONTINUED":
+      return { continuation: undefined };
+    case "CONTINUED":
+      return {
+        recipeRevision: event.recipeRevision,
+        stepIndex: context.stepIndex + 1,
+        stepCount: context.stepCount + event.steps,
+        maxSubmissions: context.maxSubmissions + event.effects,
+        document: event.document,
+        continuation: undefined,
+        operationId: undefined,
+        operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
+        outcome: undefined,
+        retryRequired: undefined,
+        settled: undefined,
       };
     case "HANDLER":
       return {
@@ -564,7 +640,8 @@ function createLoginAttemptMachine() {
         sameLoginDocument(context.document, event.document) &&
         // Only a preparing fill is checked after filling; an effectful one has submitted.
         (event.stage === "before-fill" || context.operationEffect === "prepare"),
-      retryAvailable: ({ context }) => context.retries < context.maxRetries,
+      retryAvailable: ({ context, event }) =>
+        context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>
         context.operationKind === "click" ||
         (context.mutationIntent === true && !confirmedNoMutation(context, event)),
@@ -576,6 +653,11 @@ function createLoginAttemptMachine() {
         event.type === "NAVIGATED" && sameScope(context.document, event.document),
       leftOrigin: ({ context, event }) =>
         event.type === "NAVIGATED" && leftOrigin(context.document, event.document),
+      leftSignedIn: ({ context, event }) =>
+        event.type === "NAVIGATED" &&
+        event.signedIn === true &&
+        leftOrigin(context.document, event.document) &&
+        maySubmit(context),
       observedAuthenticated: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "authenticated" &&
@@ -621,6 +703,31 @@ function createLoginAttemptMachine() {
         judgedPages(context, event.operationId) < MAX_JUDGED_PAGES,
       canUnjudge: ({ context, event }) =>
         event.type === "UNJUDGED" && judgedPages(context, event.operationId) > 0,
+      // One request per final advance, recorded before it is sent (ADR 0018).
+      canContinue: ({ context, event }) =>
+        event.type === "CONTINUING" &&
+        operationMatches(context, event) &&
+        context.operationEffect === "advance" &&
+        context.mutationIntent === true &&
+        context.submissions > 0 &&
+        context.stepIndex + 1 === context.stepCount &&
+        context.continuation?.operationId !== event.operationId,
+      canUncontinue: ({ context, event }) =>
+        event.type === "UNCONTINUED" && context.continuation?.operationId === event.operationId,
+      // The continued steps follow the final advance whose page was sent, and stay within
+      // the attempt's step and submission caps.
+      continued: ({ context, event }) =>
+        event.type === "CONTINUED" &&
+        event.recipeRevision > context.recipeRevision &&
+        context.operationId !== undefined &&
+        context.continuation?.operationId === context.operationId &&
+        context.operationEffect === "advance" &&
+        context.mutationIntent === true &&
+        context.submissions > 0 &&
+        context.stepIndex + 1 === context.stepCount &&
+        context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
+        context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
+        sameScope(context.document, event.document),
       newerRevision: ({ context, event }) =>
         event.type === "REVISED" && event.recipeRevision > context.recipeRevision,
       // A handler follows only an effect step that may have submitted, runs once per
@@ -668,6 +775,7 @@ function createLoginAttemptMachine() {
       NAVIGATED: [
         { guard: "sameScope", target: ".reconciling", actions: "record" },
         // A top-level attempt ends when its tab leaves the origin; it is never resubmitted.
+        { guard: "leftSignedIn", target: ".authenticated", actions: "record" },
         { guard: "leftOrigin", target: ".blocked", actions: "record" },
         { target: ".blocked", actions: "invalidNavigation" },
       ],
@@ -730,6 +838,9 @@ function createLoginAttemptMachine() {
           OBSERVED: observedTransitions,
           JUDGING: { guard: "canJudge", actions: "record" },
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
+          CONTINUING: { guard: "canContinue", actions: "record" },
+          UNCONTINUED: { guard: "canUncontinue", actions: "record" },
+          CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
         },
@@ -740,6 +851,9 @@ function createLoginAttemptMachine() {
           OBSERVED: observedTransitions,
           JUDGING: { guard: "canJudge", actions: "record" },
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
+          CONTINUING: { guard: "canContinue", actions: "record" },
+          UNCONTINUED: { guard: "canUncontinue", actions: "record" },
+          CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
         },
       },

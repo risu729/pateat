@@ -1,6 +1,7 @@
 // Connects the service worker's existing decisions to the local log (ADR 0019).
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
+import type { VaultSyncOutcome } from "../connections/auto-sync";
 import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
@@ -20,21 +21,23 @@ import type { DiagnosticsRequest, LogsRequestType, LogsResponse } from "./wire";
 type StatusConnection = Extract<SetupReply, { kind: "status" }>["connections"][number];
 type VaultView = Pick<StatusConnection, "state" | "providerSession" | "snapshotId">;
 
-/** Routine results stay out of the log unless debug logging is on. */
+/**
+ * Routine results stay out of the log unless debug logging is on. `busy` (a settings write
+ * that waits for a login, a superseded sync, or attempts that ran out) is logged (ADR 0019).
+ */
 const QUIET_SYNC: ReadonlySet<RecipeSyncOutcome> = new Set([
   "synced",
   "incomplete",
   "not-connected",
-  "busy",
 ]);
-const QUIET_REFUSALS: ReadonlySet<string> = new Set([
-  "recipe-not-found",
-  "stale-document",
-  "generating",
-]);
+/**
+ * A stale announcement that a later one resolves, and a document announcing again while it
+ * already carries a login (ADR 0019).
+ */
+const QUIET_REFUSALS: ReadonlySet<string> = new Set(["stale-document", "duplicate-document"]);
 
-/** Unhandled errors share one rate-limit window; its origin is not logged. */
-const ERROR_SOURCE = { tabId: -1, origin: "" };
+/** Unhandled errors share one rate-limit window of 20 a minute; its origin is not logged. */
+const ERROR_SOURCE = { tabId: -1, origin: "", perMinute: 20 };
 /** States worth an entry even the first time a worker sees a connection. */
 const WARN_STATES: ReadonlySet<string> = new Set([
   "unavailable",
@@ -175,7 +178,38 @@ export function createDiagnosticsLog(options: {
         { level: reply.ok || outcome === "cancelled" ? "info" : "warn" },
       );
     },
-    /** A Bitwarden refresh request: debug when it succeeded, else warn. */
+    /**
+     * An automatic vault check (ADR 0025): debug when nothing changed, info when a sync was
+     * applied or waits for a login, else warn.
+     */
+    vaultCheck(event: {
+      connectionId: string;
+      outcome: VaultSyncOutcome;
+      previous?: VaultSyncOutcome | undefined;
+    }) {
+      // A check repeats every few minutes, also from a newly woken worker; the same stored
+      // result again, such as a sign-in that still needs the password and sends nothing,
+      // is only detail.
+      const repeated = event.previous === event.outcome;
+      void logger.log(
+        "vault.check",
+        { connection: event.connectionId, outcome: event.outcome },
+        {
+          level:
+            event.outcome === "unchanged" ||
+            event.outcome === "skipped" ||
+            (repeated && event.outcome !== "synced")
+              ? "debug"
+              : event.outcome === "synced" || event.outcome === "deferred"
+                ? "info"
+                : "warn",
+        },
+      );
+    },
+    /**
+     * A Bitwarden refresh request: debug when it succeeded, info when none was sent and why,
+     * else warn.
+     */
     vaultRefresh(event: RefreshReport) {
       void logger.log(
         "vault.refresh",
@@ -185,7 +219,14 @@ export function createDiagnosticsLog(options: {
           cause: event.cause,
           status: event.status,
         },
-        { level: event.outcome === "refreshed" ? "debug" : "warn" },
+        {
+          level:
+            event.outcome === "refreshed"
+              ? "debug"
+              : event.outcome === "not-sent"
+                ? "info"
+                : "warn",
+        },
       );
     },
     /** A routine sync is quiet unless it changed the recipe cache. */
@@ -205,7 +246,7 @@ export function createDiagnosticsLog(options: {
             ? changed
               ? "info"
               : "debug"
-            : outcome === "unreachable"
+            : outcome === "unreachable" || outcome === "busy"
               ? "info"
               : "warn",
         },
@@ -231,36 +272,97 @@ export function createDiagnosticsLog(options: {
           "login.refused",
           {
             origin: report.origin,
+            url: report.url,
             reason: report.reason,
             detail: report.detail,
+            candidates: report.candidates,
             frame: report.frame,
           },
           {
             source,
-            // A held tab refuses every frame on its page, such as each ad frame.
+            // One line per reason per login-related page; a held tab refuses every frame on
+            // its page, such as each ad frame. A page that gave up trying to start is news.
             level:
-              QUIET_REFUSALS.has(report.reason) || (report.frame && report.reason === "tab-busy")
+              report.repeat ||
+              report.unrelated ||
+              (QUIET_REFUSALS.has(report.reason) && report.detail !== "gave-up") ||
+              (report.frame && report.reason === "tab-busy")
                 ? "debug"
                 : "info",
           },
+        );
+      else if (report.type === "start")
+        void logger.log(
+          "login.start",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            route: report.route,
+            variant: report.variant,
+            account: report.account,
+            candidates: report.candidates,
+            item: report.itemId,
+            fillOnly: report.fillOnly,
+          },
+          { source },
+        );
+      else if (report.type === "logout")
+        void logger.log(
+          "login.logout",
+          { origin: report.origin, recipe: report.recipeId, url: report.url },
+          { source },
+        );
+      else if (report.type === "choice")
+        void logger.log(
+          "login.choice",
+          { origin: report.origin, outcome: report.outcome, url: report.url },
+          { source },
+        );
+      else if (report.type === "exception")
+        void logger.log(
+          "login.exception",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            route: report.route,
+            state: report.state,
+            step: report.stepIndex,
+            name: report.name,
+            // Engine messages can quote input; only Pateat's own codes are kept.
+            message:
+              report.message && KNOWN_ERROR_CODES.has(report.message) ? report.message : undefined,
+          },
+          { source },
         );
       else if (report.type === "generation")
         void logger.log(
           "recipe.generate",
           {
             origin: report.origin,
+            url: report.url,
             outcome: report.outcome,
-            reason: "reason" in report ? report.reason : undefined,
+            reason: report.reason,
             // For refused model output: which check refused it, and why.
-            check: "check" in report ? report.check : undefined,
-            detail: "check" in report ? report.detail : undefined,
-            path: "check" in report ? report.path : undefined,
+            check: report.check,
+            detail: report.detail,
+            path: report.path,
+            recipe: report.recipeId,
+            baseRevision: report.baseRevision,
+            takenOver: report.takenOver,
+            page: report.page,
           },
-          // A login page without a matching vault item is common and not a problem.
+          // A login page without a matching vault item is common and not a problem; a
+          // request that failed is (ADR 0019).
           {
             source,
             level:
-              report.outcome === "skipped" && report.reason === "no-vault-match" ? "debug" : "info",
+              report.outcome === "skipped" && report.reason === "no-vault-match"
+                ? "debug"
+                : report.outcome === "failed"
+                  ? "warn"
+                  : "info",
           },
         );
       else if (report.type === "judge")
@@ -268,6 +370,7 @@ export function createDiagnosticsLog(options: {
           "recipe.judge",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
             route: report.route,
@@ -275,14 +378,22 @@ export function createDiagnosticsLog(options: {
             reason: report.reason,
             takenOver: report.takenOver,
           },
-          // The answer follows; the request alone matters only when no answer came.
-          { source, level: report.verdict === "sent" ? "debug" : "info" },
+          // The answer follows, but `sent` is what is left when no answer came (ADR 0019).
+          // A request that failed before the model is a problem; with no paired service
+          // nothing was sent.
+          {
+            source,
+            ...(report.verdict === "retry" && report.reason !== "not-connected"
+              ? { level: "warn" as const }
+              : {}),
+          },
         );
       else if (report.type === "state")
         void logger.log(
           "login.state",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             route: report.route,
             decision: report.decision,
@@ -302,6 +413,7 @@ export function createDiagnosticsLog(options: {
           "login.handler",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             handler: report.handler,
             kind: report.kind,
@@ -315,6 +427,7 @@ export function createDiagnosticsLog(options: {
           "login.attempt",
           {
             origin: report.origin,
+            url: report.url,
             recipe: report.recipeId,
             route: report.route,
             variant: report.variant,
@@ -371,7 +484,9 @@ export function createDiagnosticsLog(options: {
             await logger.clear();
             return { ok: true };
           case "diagnostics.logs.debug":
-            return { ok: true, debugUntil: await logger.enableDebug() };
+            if (message.enabled) return { ok: true, debugUntil: await logger.enableDebug() };
+            await logger.disableDebug();
+            return { ok: true };
         }
       } catch {
         return { ok: false, error: "unavailable" };

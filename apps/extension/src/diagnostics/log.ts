@@ -22,13 +22,18 @@ const HOUR_MS = 60 * MINUTE_MS;
 export const LOG_RETENTION_MS = 14 * 24 * HOUR_MS;
 export const DEBUG_RETENTION_MS = 24 * HOUR_MS;
 export const DEBUG_LOGGING_MS = 24 * HOUR_MS;
-/** `debug` and `info` entries kept at most; the oldest `debug` entries go first. */
-export const LOG_ENTRY_LIMIT = 5_000;
+/**
+ * `debug` and `info` entries kept at most; the oldest `debug` entries go first. About 14
+ * days at an estimated 1,000 a day on a testing day (ADR 0019).
+ */
+export const LOG_ENTRY_LIMIT = 14_000;
 /** `warn` and `error` entries have their own allowance, so routine entries cannot evict them. */
 export const LOG_PROBLEM_LIMIT = 1_000;
 export const PRUNE_EVERY_WRITES = 500;
-/** Events caused by a web page, per tab and origin. */
-export const PAGE_EVENTS_PER_MINUTE = 20;
+/** Events other than `debug` caused by a web page, per tab and origin; a login writes 6 to 8. */
+export const PAGE_EVENTS_PER_MINUTE = 30;
+/** `debug` events caused by a web page, per tab and origin, counted on their own. */
+export const PAGE_DEBUG_EVENTS_PER_MINUTE = 20;
 export const MAX_FIELD_LENGTH = 512;
 export const TRUNCATED = "[truncated]";
 
@@ -43,6 +48,8 @@ export const TRUNCATED = "[truncated]";
  * - `origin`, `rpId`: recorded in full only for sites the settings or recipes name.
  * - `connection`, `item`: always pseudonyms.
  * - `stack`: extension script positions such as `background.js:12:345`.
+ * - `url`: a page URL's path, query and fragment, kept only when the entry's `origin` is
+ *   the URL's own and is recorded in full (ADR 0019); cut at the field length.
  */
 type FieldKind =
   | "code"
@@ -56,7 +63,8 @@ type FieldKind =
   | "rpId"
   | "connection"
   | "item"
-  | "stack";
+  | "stack"
+  | "url";
 
 type EventDefinition = { level: LogLevel; fields: Readonly<Record<string, FieldKind>> };
 
@@ -80,6 +88,7 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { connection: "connection", outcome: "code", check: "code" },
   },
+  "vault.check": { level: "info", fields: { connection: "connection", outcome: "code" } },
   "vault.refresh": {
     level: "info",
     fields: { connection: "connection", outcome: "code", cause: "code", status: "count" },
@@ -112,6 +121,7 @@ export const LOG_EVENTS = {
       cause: "code",
       reason: "code",
       settled: "flag",
+      url: "url",
     },
   },
   "login.handler": {
@@ -123,6 +133,7 @@ export const LOG_EVENTS = {
       kind: "code",
       outcome: "code",
       steps: "count",
+      url: "url",
     },
   },
   "login.state": {
@@ -143,11 +154,48 @@ export const LOG_EVENTS = {
       e2: "flag",
       e3: "flag",
       settled: "flag",
+      url: "url",
     },
   },
   "login.refused": {
     level: "info",
-    fields: { origin: "origin", reason: "code", detail: "code", frame: "flag" },
+    fields: {
+      origin: "origin",
+      reason: "code",
+      detail: "code",
+      candidates: "count",
+      frame: "flag",
+      url: "url",
+    },
+  },
+  "login.start": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      route: "code",
+      variant: "count",
+      account: "code",
+      candidates: "count",
+      item: "item",
+      fillOnly: "flag",
+      url: "url",
+    },
+  },
+  "login.logout": { level: "info", fields: { origin: "origin", recipe: "recipe", url: "url" } },
+  "login.choice": { level: "info", fields: { origin: "origin", outcome: "code", url: "url" } },
+  "login.exception": {
+    level: "warn",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      route: "code",
+      state: "code",
+      step: "count",
+      name: "name",
+      message: "code",
+      url: "url",
+    },
   },
   "recipe.generate": {
     level: "info",
@@ -158,6 +206,12 @@ export const LOG_EVENTS = {
       check: "code",
       detail: "code",
       path: "code",
+      recipe: "recipe",
+      baseRevision: "count",
+      takenOver: "flag",
+      // `accounts` for a list of accounts (ADR 0028).
+      page: "code",
+      url: "url",
     },
   },
   "recipe.judge": {
@@ -170,6 +224,7 @@ export const LOG_EVENTS = {
       verdict: "code",
       reason: "code",
       takenOver: "flag",
+      url: "url",
     },
   },
   "passkey.request": {
@@ -188,14 +243,18 @@ export const LOG_EVENTS = {
       complete: "flag",
       chooser: "code",
       signedBefore: "flag",
+      cause: "code",
     },
   },
   "error.unhandled": {
     level: "error",
     fields: { source: "code", name: "name", message: "code", stack: "stack" },
   },
-  "log.dropped": { level: "warn", fields: { origin: "origin", count: "count" } },
-  "log.debug": { level: "info", fields: { until: "time" } },
+  "log.dropped": {
+    level: "warn",
+    fields: { origin: "origin", dropped: "code", count: "count" },
+  },
+  "log.debug": { level: "info", fields: { enabled: "flag", until: "time" } },
 } as const satisfies Record<string, EventDefinition>;
 export type LogEventName = keyof typeof LOG_EVENTS;
 type FieldValue = string | number | boolean;
@@ -221,7 +280,7 @@ export const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set([
 
 const integer = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER));
 const KIND_SCHEMAS: Record<
-  Exclude<FieldKind, "origin" | "rpId" | "connection" | "item">,
+  Exclude<FieldKind, "origin" | "rpId" | "connection" | "item" | "url">,
   v.GenericSchema<unknown, FieldValue>
 > = {
   code: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
@@ -254,6 +313,7 @@ const STORED_SCHEMAS: Record<FieldKind, v.GenericSchema<unknown, FieldValue>> = 
   rpId: rpIdValueSchema,
   connection: pseudonymSchema("bitwarden", 6),
   item: pseudonymSchema("item", 8),
+  url: v.pipe(v.string(), v.startsWith("/"), v.maxLength(MAX_FIELD_LENGTH)),
 };
 
 const entrySchema = v.object({
@@ -342,8 +402,10 @@ export function createLogger(deps: LoggerDependencies) {
     {
       start: number;
       count: number;
-      dropped: number;
-      reported: number;
+      limit: number;
+      /** Events dropped and already logged as dropped, per event name. */
+      dropped: Map<string, number>;
+      reported: Map<string, number>;
       origin: string;
       debug: boolean;
     }
@@ -436,6 +498,9 @@ export function createLogger(deps: LoggerDependencies) {
           : undefined;
       case "item":
         return typeof raw === "string" ? `item:${await deps.pseudonym("item", raw, 8)}` : undefined;
+      case "url":
+        // Recorded after the entry's origin, by `pagePath`.
+        return undefined;
       default: {
         const parsed = v.safeParse(KIND_SCHEMAS[kind], raw);
         return parsed.success ? parsed.output : undefined;
@@ -461,11 +526,16 @@ export function createLogger(deps: LoggerDependencies) {
     if (level === "debug" && now() >= (await debugDeadline())) return;
     const definition: EventDefinition = LOG_EVENTS[event];
     const recorded: Record<string, FieldValue> = {};
+    const raws = fields as Record<string, FieldValue | undefined>;
     for (const [key, kind] of Object.entries(definition.fields)) {
-      const raw = (fields as Record<string, FieldValue | undefined>)[key];
+      const raw = raws[key];
       if (raw === undefined) continue;
-      // oxlint-disable-next-line no-await-in-loop -- fields are few; pseudonyms are cached keys
-      const value = await recordValue(kind, raw);
+      const value =
+        kind === "url"
+          ? // Every event lists `origin` before `url`, so the origin is already recorded.
+            pagePath(raw, recorded["origin"])
+          : // oxlint-disable-next-line no-await-in-loop -- fields are few; pseudonyms are cached keys
+            await recordValue(kind, raw);
       if (value !== undefined) recorded[key] = value;
     }
     const entry: LogEntry = { time: now(), level, event, fields: recorded };
@@ -479,14 +549,15 @@ export function createLogger(deps: LoggerDependencies) {
     for (const [key, window] of windows) {
       const ended = at - window.start >= MINUTE_MS;
       if (!ended && !all) continue;
-      const pending = window.dropped - window.reported;
-      if (pending > 0) {
-        window.reported = window.dropped;
+      for (const [event, dropped] of window.dropped) {
+        const pending = dropped - (window.reported.get(event) ?? 0);
+        if (pending <= 0) continue;
+        window.reported.set(event, dropped);
         // Losing debug detail is itself debug detail; losing more is a problem.
         void serial(() =>
           record(
             "log.dropped",
-            { origin: window.origin, count: pending },
+            { origin: window.origin, dropped: event, count: pending },
             window.debug ? "debug" : "warn",
           ),
         ).catch(() => undefined);
@@ -498,9 +569,14 @@ export function createLogger(deps: LoggerDependencies) {
   /**
    * Counts a page-caused event against its tab and origin; false when over the limit.
    * `debug` events have an allowance of their own, so they never crowd out the rest.
-   * The first drop in a window is logged at once, since a stopped worker loses the rest.
+   * The first drop of each event in a window is logged at once, since a stopped worker
+   * loses the rest. `perMinute` replaces the allowance of events other than `debug`.
    */
-  function admit(source: { tabId: number; origin: string }, debug: boolean): boolean {
+  function admit(
+    source: { tabId: number; origin: string; perMinute?: number },
+    debug: boolean,
+    event: string,
+  ): boolean {
     flushDrops();
     const at = now();
     const band = debug ? "debug" : "rest";
@@ -513,19 +589,26 @@ export function createLogger(deps: LoggerDependencies) {
       window = {
         start: at,
         count: 0,
-        dropped: 0,
-        reported: 0,
+        // The shared overflow window keeps the page allowance, whoever opened it.
+        limit: debug
+          ? PAGE_DEBUG_EVENTS_PER_MINUTE
+          : overflow
+            ? PAGE_EVENTS_PER_MINUTE
+            : (source.perMinute ?? PAGE_EVENTS_PER_MINUTE),
+        dropped: new Map(),
+        reported: new Map(),
         origin: overflow ? "" : source.origin,
         debug,
       };
       windows.set(key, window);
     }
-    if (window.count < PAGE_EVENTS_PER_MINUTE) {
+    if (window.count < window.limit) {
       window.count += 1;
       return true;
     }
-    window.dropped += 1;
-    if (window.dropped === 1) flushDrops(true);
+    const dropped = (window.dropped.get(event) ?? 0) + 1;
+    window.dropped.set(event, dropped);
+    if (dropped === 1) flushDrops(true);
     return false;
   }
 
@@ -536,13 +619,17 @@ export function createLogger(deps: LoggerDependencies) {
   function log<E extends LogEventName>(
     event: E,
     fields: LogFields<E>,
-    options: { level?: LogLevel; source?: { tabId: number; origin: string } } = {},
+    options: {
+      level?: LogLevel;
+      source?: { tabId: number; origin: string; perMinute?: number };
+    } = {},
   ): Promise<void> {
     const level = options.level ?? LOG_EVENTS[event].level;
     // Checked before queueing, so a stalled database cannot collect page events.
     if (level === "debug" && knownDebugUntil !== undefined && now() >= knownDebugUntil)
       return Promise.resolve();
-    if (options.source && !admit(options.source, level === "debug")) return Promise.resolve();
+    if (options.source && !admit(options.source, level === "debug", event))
+      return Promise.resolve();
     // A log failure never changes what the caller does.
     return serial(() => record(event, fields, level)).catch(() => undefined);
   }
@@ -693,8 +780,16 @@ export function createLogger(deps: LoggerDependencies) {
         await putMeta(DEBUG_KEY, until);
         debugUntil = Promise.resolve(until);
         knownDebugUntil = until;
-        await record("log.debug", { until }, "info");
+        await record("log.debug", { enabled: true, until }, "info");
         return until;
+      }),
+    /** Stops recording `debug` entries before the 24 hours end; those written are kept. */
+    disableDebug: () =>
+      serial(async () => {
+        await putMeta(DEBUG_KEY, 0);
+        debugUntil = Promise.resolve(0);
+        knownDebugUntil = 0;
+        await record("log.debug", { enabled: false }, "info");
       }),
   };
 }
@@ -724,6 +819,23 @@ function siteSubstitution(): Substitute {
   };
 }
 
+/**
+ * A page URL's path, query and fragment, when `origin` is the URL's own as recorded in full;
+ * a pseudonymized origin gets none (ADR 0019).
+ */
+function pagePath(raw: FieldValue, origin: FieldValue | undefined): string | undefined {
+  if (typeof raw !== "string" || typeof origin !== "string") return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  // A `blob:` or similar URL reports its inner origin but no path of its own.
+  if (url.origin !== origin || !url.pathname.startsWith("/")) return undefined;
+  return `${url.pathname}${url.search}${url.hash}`.slice(0, MAX_FIELD_LENGTH);
+}
+
 /** Only allowlisted fields that still pass their stored-value check leave the page. */
 function exportedFields(entry: LogEntry, substitute?: Substitute): Record<string, FieldValue> {
   const kinds: Readonly<Record<string, FieldKind>> = LOG_EVENTS[entry.event].fields;
@@ -731,6 +843,8 @@ function exportedFields(entry: LogEntry, substitute?: Substitute): Record<string
   for (const [key, value] of Object.entries(entry.fields)) {
     const kind = kinds[key];
     if (!kind || (value !== TRUNCATED && !v.is(STORED_SCHEMAS[kind], value))) continue;
+    // Hiding sites leaves page URLs out, and the bug report never carries them.
+    if (substitute && kind === "url") continue;
     fields[key] =
       substitute &&
       typeof value === "string" &&

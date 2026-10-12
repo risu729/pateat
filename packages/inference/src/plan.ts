@@ -3,7 +3,9 @@ import {
   genericSlotIdSchema,
   isCodeField,
   loginStepSchema,
+  personalDataAutocompleteTokens,
   sameLoginTarget,
+  type LoginEntryRecipe,
   type LoginObservation,
   type LoginStep,
   type LoginTarget,
@@ -40,7 +42,12 @@ export type PlanRejection =
   | "invalid-slot-name"
   | "duplicate-candidate"
   | "incompatible-role"
-  | "mixed-groups";
+  | "mixed-groups"
+  /**
+   * A secret went into a sign-in form's lone `new-password` field, but the plan fills no
+   * identifier of that form ({@link loneNewPassword}).
+   */
+  | "lone-new-password";
 
 /**
  * A plan whose steps fill each field under its recipe slot: the generic `name` for a
@@ -73,14 +80,89 @@ const hiddenAccepts = (candidate: ObservedCandidate) =>
     candidate.maxLength <= 10);
 
 /**
- * True when a slot may be filled into this element; registration passwords never qualify.
- * A one-time code goes only where the executor fills a TOTP code (ADR 0013).
+ * True when a slot may be filled into this element; registration passwords never qualify
+ * here, though {@link slotAcceptsOn} takes a lone one on a sign-in form. A one-time code
+ * goes only where the executor fills a TOTP code (ADR 0013).
  */
 export const slotAccepts = (kind: SemanticSlot["kind"], candidate: ObservedCandidate) =>
   slotFitsRole(kind, candidate.role) &&
   candidate.autocomplete !== "new-password" &&
   (kind !== "hidden" || hiddenAccepts(candidate)) &&
   (kind !== "one-time-code" || isCodeField(candidate));
+
+const personalData = new Set<string>(personalDataAutocompleteTokens);
+/** Autocomplete values an identifier beside a lone `new-password` field may carry. */
+const signInIdentifierHints = new Set<ObservedCandidate["autocomplete"]>([
+  undefined,
+  "off",
+  "username",
+  "email",
+]);
+/** Whether an element could hold a sign-in identifier next to a lone `new-password` field. */
+const signInIdentifier = (candidate: ObservedCandidate) =>
+  slotAccepts("identifier", candidate) && signInIdentifierHints.has(candidate.autocomplete);
+
+/**
+ * Whether a password input marked `autocomplete="new-password"` may still take a
+ * password, as on a sign-in form that marks its only password field so (owner decision,
+ * 2026-10-12, ADR 0018). Read from the page alone; {@link validatePagePlan} also needs
+ * the plan to fill an identifier beside it. All must hold:
+ *
+ * 1. It is the only password field of its form: no other input of the group is a
+ *    password input or marked `current-password` or `new-password`, so there is no
+ *    confirmation field.
+ * 2. No input of its form carries a personal-data autocomplete token
+ *    ({@link personalDataAutocompleteTokens}), which only a sign-up form asks for.
+ * 3. No input of its form is marked `one-time-code`, as on a password-reset form.
+ * 4. No input outside its form shows a sign-in, as the judge reads one
+ *    (`createCompletionJudge`): a password input other than a `new-password` one, or an
+ *    input marked `username`, `current-password` or `one-time-code`. On such a page that
+ *    form signs in, and the lone field belongs to a sign-up form.
+ * 5. Its form holds an input that can take an identifier and is marked `username`,
+ *    `email`, `off` or nothing. The checks above already refuse every other token the
+ *    observation carries today; this filter keeps any token added later out as well.
+ *
+ * Fields outside any form count as one form, as in plan validation.
+ */
+export function loneNewPassword(
+  page: Pick<LoginObservation, "candidates">,
+  candidate: ObservedCandidate,
+): boolean {
+  if (candidate.role !== "password" || candidate.autocomplete !== "new-password") return false;
+  const others = page.candidates.filter((other) => other.id !== candidate.id);
+  const form = others.filter((other) => other.group === candidate.group);
+  return (
+    !form.some(
+      (other) =>
+        other.role === "password" ||
+        other.autocomplete === "current-password" ||
+        other.autocomplete === "new-password",
+    ) &&
+    !form.some((other) => personalData.has(other.autocomplete ?? "")) &&
+    !form.some((other) => other.autocomplete === "one-time-code") &&
+    !others.some(
+      (other) =>
+        other.group !== candidate.group &&
+        ((other.role === "password" && other.autocomplete !== "new-password") ||
+          other.autocomplete === "username" ||
+          other.autocomplete === "current-password" ||
+          other.autocomplete === "one-time-code"),
+    ) &&
+    form.some(signInIdentifier)
+  );
+}
+
+/**
+ * {@link slotAccepts} on this page: a password or Hidden slot may also go into a lone
+ * `new-password` field of a sign-in form ({@link loneNewPassword}).
+ */
+export const slotAcceptsOn = (
+  page: Pick<LoginObservation, "candidates">,
+  kind: SemanticSlot["kind"],
+  candidate: ObservedCandidate,
+) =>
+  slotAccepts(kind, candidate) ||
+  ((kind === "secret" || kind === "hidden") && loneNewPassword(page, candidate));
 
 /** True when an observed element can carry the page action. */
 export const isActionRole = (role: ObservedCandidate["role"]) =>
@@ -109,7 +191,8 @@ export function validatePagePlan(
     if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
     if (usedSlots.has(field.slot)) return { ok: false, reason: "duplicate-slot" };
     if (usedCandidates.has(field.candidate)) return { ok: false, reason: "duplicate-candidate" };
-    if (!slotAccepts(slot.kind, candidate)) return { ok: false, reason: "incompatible-role" };
+    if (!slotAcceptsOn(observation, slot.kind, candidate))
+      return { ok: false, reason: "incompatible-role" };
     // A custom-field slot is stored under a generic name the model gave it, so the recipe
     // never carries the owner's field names (ADR 0027).
     if (slot.fieldName !== undefined && field.name === undefined)
@@ -139,6 +222,20 @@ export function validatePagePlan(
     ),
   );
   if (groups.size > 1) return { ok: false, reason: "mixed-groups" };
+  // A secret in a lone `new-password` field also needs the plan to fill an identifier of
+  // the same form there, so a form that asks for a new password alone is never signed up
+  // with.
+  if (
+    plan.fields.some(
+      (field) => !slotAccepts(requested.get(field.slot)!.kind, candidates.get(field.candidate)!),
+    ) &&
+    !plan.fields.some(
+      (field) =>
+        requested.get(field.slot)!.kind === "identifier" &&
+        signInIdentifier(candidates.get(field.candidate)!),
+    )
+  )
+    return { ok: false, reason: "lone-new-password" };
   // The switch is clicked instead of signing in: a button or link the plan does not use.
   const accountSwitch =
     plan.accountSwitch === undefined ? undefined : candidates.get(plan.accountSwitch);
@@ -266,7 +363,11 @@ export type GeneratedPageRejection =
   /** More alternatives than {@link MAX_PAGE_ALTERNATIVES}. */
   | "too-many-variants"
   /** A page with several sets has a set whose action advances instead of submitting. */
-  | "variant-advance";
+  | "variant-advance"
+  /** An account-list answer that failed {@link validateAccountList} (ADR 0028). */
+  | AccountListRejection
+  /** A request with slots was answered with a sign-in entry (ADR 0031). */
+  | "unexpected-entry";
 
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks
@@ -441,3 +542,144 @@ function validateGeneratedSets(
     return { ok: false, reason: "duplicate-candidate" };
   return { ok: true, plan: { ...primary.plan, alternatives: validated } };
 }
+
+/**
+ * The generation role's answer that a page lists accounts to choose from (ADR 0028):
+ * the control that continues without a listed account (`other`) and the one that
+ * continues with the one account shown beside it (`continue`), as candidate IDs. The
+ * model never picks an account.
+ */
+export type GeneratedAccountList = {
+  other?: string | undefined;
+  continue?: string | undefined;
+};
+/** A list control the extension clicks, with the locator the chooser recipe stores. */
+type ListControl = { candidate: string; target: Exclude<LoginTarget, { by: "autocomplete" }> };
+/** An account list whose named controls passed {@link validateAccountList}. */
+export type ValidatedAccountList = {
+  accountList: true;
+  other?: ListControl;
+  continue?: ListControl;
+};
+export type AccountListRejection =
+  /** The page lists no accounts, or lists some and the answer is a form plan. */
+  | "unexpected-account-list"
+  | "unexpected-plan"
+  | "unknown-candidate"
+  | "duplicate-candidate"
+  | "incompatible-role"
+  /** A control's text holds an email address, a masked value or a long number. */
+  | "account-text";
+
+/**
+ * Text the observation shows in place of an address, a masked value or a run of four or
+ * more digits; a control holding one may be an account, which is never clicked as `other`
+ * or `continue`.
+ */
+const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
+
+/**
+ * Validates an account-list answer (ADR 0028): the page must list accounts, and each named
+ * control must be a button or link of the page, not hold account text and not be the
+ * other control. Its locator is never `autocomplete`, which names only inputs.
+ */
+export function validateAccountList(
+  observation: LoginObservation,
+  draft: GeneratedAccountList,
+): { ok: true; list: ValidatedAccountList } | { ok: false; reason: AccountListRejection } {
+  if (!observation.accounts) return { ok: false, reason: "unexpected-account-list" };
+  const control = (id: string | undefined): ListControl | AccountListRejection | undefined => {
+    if (id === undefined) return undefined;
+    const candidate = observation.candidates.find((entry) => entry.id === id);
+    if (!candidate) return "unknown-candidate";
+    const { target } = candidate;
+    if (
+      (!isActionRole(candidate.role) && candidate.role !== "link") ||
+      target.by === "autocomplete"
+    )
+      return "incompatible-role";
+    if (
+      [candidate.label, target.value].some((text) => text !== undefined && accountText.test(text))
+    )
+      return "account-text";
+    return { candidate: candidate.id, target };
+  };
+  const other = control(draft.other);
+  const shown = control(draft.continue);
+  for (const result of [other, shown])
+    if (typeof result === "string") return { ok: false, reason: result };
+  const named = [other, shown].filter((entry): entry is ListControl => typeof entry === "object");
+  if (
+    named.length === 2 &&
+    (named[0]!.candidate === named[1]!.candidate ||
+      sameLoginTarget(named[0]!.target, named[1]!.target))
+  )
+    return { ok: false, reason: "duplicate-candidate" };
+  return {
+    ok: true,
+    list: {
+      accountList: true,
+      ...(typeof other === "object" ? { other } : {}),
+      ...(typeof shown === "object" ? { continue: shown } : {}),
+    },
+  };
+}
+
+/** An account-list answer reduced to references the request holds, for the request log. */
+export function redactAccountList(
+  observation: Pick<LoginObservation, "candidates">,
+  draft: GeneratedAccountList,
+): GeneratedAccountList {
+  const candidate = (id: string) =>
+    observation.candidates.some((entry) => entry.id === id) ? id : "?";
+  return {
+    ...(draft.other === undefined ? {} : { other: candidate(draft.other) }),
+    ...(draft.continue === undefined ? {} : { continue: candidate(draft.continue) }),
+  };
+}
+
+/** The locator a sign-in entry is pressed by: never `autocomplete` (ADR 0031). */
+export type EntryTarget = LoginEntryRecipe["entry"]["target"];
+/**
+ * The generation role's entry answer (ADR 0031): the candidate that opens sign-in to an
+ * existing account on a page without a login form, and its locator.
+ */
+export type ValidatedEntry = { entry: string; target: EntryTarget };
+export type EntryRejection = Extract<
+  GeneratedPageRejection,
+  "unknown-candidate" | "incompatible-role" | "account-text"
+>;
+
+/**
+ * Checks the candidate an entry answer names (ADR 0031): a candidate of the page, a
+ * `link` (only an `<a href>` link is pressed), located by `id`, `name`, `test-id` or
+ * `text`, and with no label or locator value that may name an account, by ADR 0028's
+ * rule for the `other` button (`accountText`).
+ */
+export function validateEntry(
+  observation: Pick<LoginObservation, "candidates">,
+  candidateId: string,
+): { ok: true; entry: ValidatedEntry } | { ok: false; reason: EntryRejection } {
+  const candidate = observation.candidates.find((entry) => entry.id === candidateId);
+  if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
+  const { target } = candidate;
+  if (candidate.role !== "link" || target.by === "autocomplete")
+    return { ok: false, reason: "incompatible-role" };
+  if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))
+    return { ok: false, reason: "account-text" };
+  return { ok: true, entry: { entry: candidate.id, target } };
+}
+
+/**
+ * An entry answer reduced to what the request log may keep of it once refused: the
+ * candidate ID when the request holds it, otherwise `?` (as {@link redactGeneratedPage}).
+ */
+export const redactEntry = (
+  observation: Pick<LoginObservation, "candidates">,
+  candidateId: string,
+) => ({
+  decision: "entry" as const,
+  entry: observation.candidates.some((candidate) => candidate.id === candidateId)
+    ? candidateId
+    : "?",
+});

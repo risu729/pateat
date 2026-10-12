@@ -1,7 +1,11 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
+  entryGenerationRequestSchema,
+  entryGenerationResultSchema,
+  generationRequestSchema,
   generationUnavailableReasonSchema,
+  isEntryObservation,
   recipeCompletionRequestSchema,
   recipeCompletionResultSchema,
   recipeGenerationRequestSchema,
@@ -43,12 +47,55 @@ describe("recipe generation contracts", () => {
     expect(v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, base })).toBe(
       true,
     );
+    // A chooser branch's page (ADR 0028) names its chooser as the base.
+    expect(
+      v.is(recipeGenerationRequestSchema, {
+        version: 1,
+        observation,
+        slots,
+        base,
+        branch: "other",
+      }),
+    ).toBe(true);
     for (const invalid of [
       { version: 1, observation, slots, base: { recipeId: "gen-1", revision: 0 } },
       { version: 1, observation, slots: [] },
       { version: 1, observation, slots, item: "vault-item" },
+      { version: 1, observation, slots, branch: "account" },
+      { version: 1, observation, slots, base, branch: "entry" },
     ])
       expect(v.is(recipeGenerationRequestSchema, invalid)).toBe(false);
+  });
+
+  it("answers a chooser recipe for an account list or one of its branches (ADR 0028)", () => {
+    const chooser = {
+      version: 1,
+      id: "gen-1",
+      revision: 2,
+      origin: recipe.origin,
+      chooser: { path: "/login", afterAccount: recipe },
+    };
+    const change = { recipeId: "gen-1", revision: 2, state: "active", recipe: chooser };
+    expect(v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change })).toBe(true);
+    expect(v.is(recipeCompletionResultSchema, { version: 1, status: "signed-in", change })).toBe(
+      true,
+    );
+    // Its branches' slots are the ones a custom slot may name.
+    const customSlots = [{ slot: "email", offered: "custom-1" }];
+    expect(
+      v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change, customSlots }),
+    ).toBe(true);
+    expect(
+      v.is(recipeGenerationResultSchema, {
+        version: 1,
+        status: "recipe",
+        change: { ...change, recipe: { ...chooser, chooser: { path: "/login" } } },
+        customSlots,
+      }),
+    ).toBe(false);
+    const judged = { version: 1, revision: 2, route: "password", observation };
+    expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "account" })).toBe(true);
+    expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "list" })).toBe(false);
   });
 
   it("answers recipes only as active changes whose identity matches", () => {
@@ -58,6 +105,17 @@ describe("recipe generation contracts", () => {
       { recipeId: "gen-1", revision: 2, state: "revoked" },
       { ...change, revision: 3 },
       { ...change, recipeId: "gen-2" },
+      // An entry recipe (ADR 0031) answers only an entry request, never a page or judgement.
+      {
+        ...change,
+        recipe: {
+          version: 1,
+          id: "gen-1",
+          revision: 2,
+          origin: recipe.origin,
+          entry: { path: "/", target: { by: "text", value: "Login" } },
+        },
+      },
     ]) {
       expect(
         v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change: invalid }),
@@ -116,6 +174,128 @@ describe("recipe generation contracts", () => {
         rejection: { check: "json" },
       }),
     ).toBe(false);
+  });
+});
+
+describe("entry requests and answers (ADR 0031)", () => {
+  // A synthetic top page without a login form.
+  const topPage = {
+    version: 1,
+    origin: "https://shop.example.test",
+    path: "/en/",
+    language: "en",
+    complete: true,
+    candidates: [
+      { id: "c1", role: "link", target: { by: "text", value: "Create account" } },
+      { id: "c2", role: "link", target: { by: "text", value: "Login" } },
+      { id: "c3", role: "button", target: { by: "text", value: "Search" } },
+    ],
+  };
+  const entryRecipe = {
+    version: 1,
+    id: "gen-1",
+    revision: 1,
+    origin: "https://shop.example.test",
+    entry: { path: "/en/", target: { by: "text", value: "Login" } },
+  };
+  const entryChange = { recipeId: "gen-1", revision: 1, state: "active", recipe: entryRecipe };
+
+  it("takes a request without slots only for a page without fields or accounts", () => {
+    const request = { version: 1, observation: topPage };
+    expect(v.is(entryGenerationRequestSchema, request)).toBe(true);
+    expect(v.is(generationRequestSchema, request)).toBe(true);
+    // A request without slots is never a page request, and a page request still needs one.
+    expect(v.is(recipeGenerationRequestSchema, request)).toBe(false);
+    expect(v.is(generationRequestSchema, { version: 1, observation, slots })).toBe(true);
+    expect(v.is(entryGenerationRequestSchema, { version: 1, observation, slots })).toBe(false);
+    const withField = {
+      ...topPage,
+      candidates: [
+        ...topPage.candidates,
+        { id: "email", role: "email", target: { by: "id", value: "email" } },
+      ],
+    };
+    for (const invalid of [
+      { version: 1, observation: withField },
+      { version: 1, observation: { ...topPage, accounts: ["[email]"] } },
+      { version: 1, observation: topPage, base: { recipeId: "gen-1", revision: 1 } },
+      { version: 1, observation: topPage, slots: [] },
+      { version: 1, observation: topPage, item: "vault-item" },
+    ])
+      expect(v.is(generationRequestSchema, invalid)).toBe(false);
+    // A checkbox is no field to fill.
+    expect(
+      isEntryObservation({
+        ...topPage,
+        language: "en",
+        candidates: [
+          { id: "c2", role: "link", target: { by: "text", value: "Login" } },
+          { id: "remember", role: "checkbox", target: { by: "id", value: "remember" } },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("answers an entry request with an entry recipe only", () => {
+    expect(
+      v.is(entryGenerationResultSchema, { version: 1, status: "recipe", change: entryChange }),
+    ).toBe(true);
+    const routeChange = { recipeId: "gen-1", revision: 2, state: "active", recipe };
+    for (const invalid of [
+      routeChange,
+      { ...entryChange, revision: 2 },
+      { ...entryChange, recipeId: "gen-2" },
+      {
+        ...entryChange,
+        recipe: {
+          ...entryRecipe,
+          entry: { path: "/en/", target: { by: "autocomplete", value: "username" } },
+        },
+      },
+      {
+        ...entryChange,
+        recipe: {
+          version: 1,
+          id: "gen-1",
+          revision: 1,
+          origin: entryRecipe.origin,
+          chooser: { path: "/en/" },
+        },
+      },
+    ])
+      expect(
+        v.is(entryGenerationResultSchema, { version: 1, status: "recipe", change: invalid }),
+      ).toBe(false);
+    // An entry recipe fills nothing, so no custom slot is mapped.
+    expect(
+      v.is(entryGenerationResultSchema, {
+        version: 1,
+        status: "recipe",
+        change: entryChange,
+        customSlots: [{ slot: "branch-number", offered: "custom-1" }],
+      }),
+    ).toBe(false);
+    expect(
+      v.is(entryGenerationResultSchema, {
+        version: 1,
+        status: "failed",
+        error: "invalid-output",
+        rejection: { check: "plan", reason: "unexpected-plan" },
+      }),
+    ).toBe(true);
+    expect(
+      v.is(entryGenerationResultSchema, {
+        version: 1,
+        status: "failed",
+        error: "timeout",
+        rejection: { check: "json" },
+      }),
+    ).toBe(false);
+    for (const answer of [
+      { version: 1, status: "abstained", reason: "no-login-form" },
+      { version: 1, status: "unavailable", reason: "recently-tried" },
+    ])
+      expect(v.is(entryGenerationResultSchema, answer)).toBe(true);
   });
 });
 

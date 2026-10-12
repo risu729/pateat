@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import type { LoginRecipe } from "./login";
+import { isLoginRouteRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
 import {
   savedLoginBindingSchema,
   type LocalSettings,
@@ -10,12 +10,18 @@ import {
 // Recipe lookup and binding resolution over synced data (ADR 0013). Recipes and
 // bindings come from the service cache; these functions only read them.
 
-/** Every recipe for one exact origin, in cache order. */
+/**
+ * Every recipe with a login route for one exact origin, in cache order. An entry recipe
+ * (ADR 0031) or a chooser recipe (ADR 0028) is left out: nothing starts either yet, and
+ * neither starts or resumes a login.
+ */
 export function loginRecipesForOrigin(
-  recipes: readonly LoginRecipe[],
+  recipes: readonly StoredLoginRecipe[],
   origin: string,
 ): LoginRecipe[] {
-  return recipes.filter((recipe) => recipe.origin === origin);
+  return recipes.filter(
+    (recipe): recipe is LoginRecipe => isLoginRouteRecipe(recipe) && recipe.origin === origin,
+  );
 }
 
 export type LoginRecipeSelection =
@@ -28,7 +34,7 @@ export type LoginRecipeSelection =
  * guess. On-screen step detection can replace this without changing stored data.
  */
 export function selectLoginRecipe(
-  recipes: readonly LoginRecipe[],
+  recipes: readonly StoredLoginRecipe[],
   origin: string,
   path: string,
 ): LoginRecipeSelection {
@@ -42,13 +48,13 @@ export function selectLoginRecipe(
 
 /** A resumed attempt's own recipe: same origin, ID and revision, or nothing. */
 export function findLoginRecipe(
-  recipes: readonly LoginRecipe[],
+  recipes: readonly StoredLoginRecipe[],
   origin: string,
   recipeId: string,
   revision: number,
 ): LoginRecipe | undefined {
-  return recipes.find(
-    (recipe) => recipe.origin === origin && recipe.id === recipeId && recipe.revision === revision,
+  return loginRecipesForOrigin(recipes, origin).find(
+    (recipe) => recipe.id === recipeId && recipe.revision === revision,
   );
 }
 

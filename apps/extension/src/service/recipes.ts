@@ -1,10 +1,10 @@
 import {
   deviceIdSchema,
-  loginRecipeSchema,
   loginRecipesForOrigin,
   recipeStartSteps,
   selectLoginRecipe,
   serviceOriginSchema,
+  storedLoginRecipeSchema,
   type LoginRecipe,
 } from "@pateat/contracts";
 import * as v from "valibot";
@@ -27,13 +27,15 @@ export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 
 // The last-known-good copy of the owner's active recipes (ADR 0013). The cursor and
 // recipes are written together, so a failed write leaves the previous consistent copy.
+// Entry and chooser recipes (ADR 0031, ADR 0028) are cached with the rest; no lookup
+// returns them yet, and only a chooser's path counts as a start.
 const cacheSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
   cursor: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
   recipes: v.pipe(
-    v.array(loginRecipeSchema),
+    v.array(storedLoginRecipeSchema),
     v.check(
       (recipes) => new Set(recipes.map((recipe) => recipe.id)).size === recipes.length,
       "Duplicate cached recipes",
@@ -344,11 +346,28 @@ export function createRecipeSync(options: {
       if (!connection) return [];
       const cache = await load(connection);
       if (!cache) return [];
-      // Every variant starts on the recipe's start path (ADR 0027).
-      return loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
-        path: recipe.steps[0]!.path,
-        steps: recipeStartSteps(recipe),
-      }));
+      // Every variant starts on the recipe's start path (ADR 0027). A chooser recipe (ADR
+      // 0028) starts where its list shows; an entry recipe (ADR 0031) is left out, since
+      // nothing starts it yet.
+      return [
+        ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
+          path: recipe.steps[0]!.path,
+          steps: recipeStartSteps(recipe),
+        })),
+        ...cache.recipes.flatMap((recipe) =>
+          "chooser" in recipe && recipe.origin === origin
+            ? [
+                {
+                  path: recipe.chooser.path,
+                  steps: [],
+                  list: [recipe.chooser.other, recipe.chooser.continue].filter(
+                    (target) => target !== undefined,
+                  ),
+                },
+              ]
+            : [],
+        ),
+      ];
     },
   };
 

@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  loginAttributeTargetSchema,
   loginOperationSchema,
   loginTargetSchema,
   type LoginStep,
@@ -23,6 +24,11 @@ export const loginReadinessSchema = v.strictObject({
   path,
   require: v.picklist(["writable", "clickable", "present"]),
   targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
+  /**
+   * A chooser recipe's start (ADR 0028): ready on its path, without a sign-in input, once
+   * one of `targets` shows or the page lists an account by its email, masked or not.
+   */
+  accounts: v.optional(v.literal(true)),
 });
 export type LoginReadiness = v.InferOutput<typeof loginReadinessSchema>;
 /** What a step waits for; a `wait` or `assert`-absent step does its own waiting. */
@@ -39,6 +45,18 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
     targets,
   };
 }
+/**
+ * How many times a document announces a ready first step before it waits until the form
+ * goes, each try about half a second after a refusal that may pass, such as a stale
+ * announcement. The worker counts them to log the page giving up (ADR 0019).
+ */
+export const START_TRIES = 4;
+/**
+ * How long apart a document's tries of one start may be to count together. The worker
+ * cannot see the form go and come back between tries, so the count is an estimate: a
+ * short window keeps a form that flickers from counting as one that gave up.
+ */
+export const START_TRY_WINDOW_MS = 2000;
 /** How long a started attempt waits for a fill or click step's elements (owner-approved). */
 export const LOGIN_STEP_WAIT_MS = 10000;
 /**
@@ -63,6 +81,29 @@ export const helloSchema = v.strictObject({
    * for the log of a login that did not start.
    */
   shown: v.optional(v.strictObject({ path })),
+  /**
+   * Ten seconds after loading, this path shows no sign-in input but lists accounts (ADR
+   * 0028): an entry or a text beside at most three buttons with an email, masked or not.
+   * Without one, `names` are the short texts that may name an account by a username that
+   * is not an email, for the background to compare with the matching items' usernames.
+   */
+  list: v.optional(
+    v.strictObject({
+      path,
+      names: v.optional(
+        v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(64))), v.maxLength(32)),
+      ),
+    }),
+  ),
+});
+/**
+ * A form with a password input was submitted in this document by anyone, Pateat or the
+ * person: the tab's next page of the origin is never sent as a list of accounts (ADR 0028).
+ */
+export const submittedSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.submitted"),
+  token: id,
 });
 /**
  * A refused hello. `starts` lists the first steps of the origin's recipes; the document
@@ -106,6 +147,11 @@ export const commandSchema = v.variant("type", [
      * account switch: set for a completion marker, which may be a link (ADR 0018).
      */
     links: v.optional(v.pipe(v.array(v.boolean()), v.maxLength(24))),
+    /**
+     * Also answer `signIn`: whether the page has loaded and which sign-in inputs other than
+     * `targets` it shows, to continue a recipe on (ADR 0018).
+     */
+    signIn: v.optional(v.literal(true)),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -168,7 +214,20 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.extract"),
     token: id,
-    page: v.picklist(["login", "signed-in"]),
+    page: v.picklist(["login", "signed-in", "accounts"]),
+    /**
+     * For a list of accounts (ADR 0028): the shown texts that equal a matching item's
+     * username that is not an email, hidden from the observation as `[account]`.
+     */
+    names: v.optional(
+      v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(64))), v.maxLength(32)),
+    ),
+    /**
+     * For a login page that continues a recipe (ADR 0018): the fields the recipe already
+     * fills on this path. One of them shown read-only or disabled, as an email address shown
+     * again beside the password, is left out rather than making the page incomplete.
+     */
+    known: v.optional(v.pipe(v.array(loginAttributeTargetSchema), v.maxLength(24))),
   }),
   /**
    * Reads the page signs of ADR 0029 after an effect step that no check explained. The
@@ -190,6 +249,7 @@ export const commandSchema = v.variant("type", [
     outcome: v.optional(v.string()),
   }),
 ]);
+export type ExecutionDetail = NonNullable<v.InferOutput<typeof executionResultSchema>["detail"]>;
 export const executionResultSchema = v.strictObject({
   ok: v.boolean(),
   operationId: id,
@@ -211,6 +271,35 @@ export const executionResultSchema = v.strictObject({
       "value-mismatch",
       "fill-rejected",
       "submitted",
+    ]),
+  ),
+  /**
+   * Why a step was `cancelled` or failed, for the local log only (ADR 0019): the worker did
+   * not authorize it, this document was cancelled, the operation was used or expired, the
+   * page moved to another path, a field changed under the fill, the step threw; or, for a
+   * failure, the form was replaced, the target is missing or not writable, the form
+   * changed before a click, an `assert` did not hold, the step was sent values it does not
+   * fill, its fields are in different forms, an input refused its secret, the page's inputs
+   * have no value setter, or a code field's submission watch could not start.
+   */
+  detail: v.optional(
+    v.picklist([
+      "not-authorized",
+      "document-cancelled",
+      "operation-used",
+      "operation-expired",
+      "page-changed",
+      "field-changed",
+      "threw",
+      "form-replaced",
+      "target-missing",
+      "form-changed",
+      "assert-failed",
+      "unexpected-values",
+      "fields-split",
+      "secret-refused",
+      "unsupported-input",
+      "code-watch-failed",
     ]),
   ),
   /**
@@ -265,6 +354,15 @@ export const stateResultSchema = v.variant("ok", [
 export const observationSchema = v.strictObject({
   path: v.string(),
   targets: v.pipe(v.array(targetStateSchema), v.maxLength(24)),
+  /**
+   * With `signIn` asked: whether the page has finished loading, and whether it shows a
+   * visible writable password input (`password`) or an email input or one marked for a
+   * username or an email address (`identifier`) that is none of the asked targets, outside
+   * any form with a `new-password` or `one-time-code` input.
+   */
+  signIn: v.optional(
+    v.strictObject({ loaded: v.boolean(), password: v.boolean(), identifier: v.boolean() }),
+  ),
 });
 export const configureSchema = v.strictObject({
   version: v.literal(1),

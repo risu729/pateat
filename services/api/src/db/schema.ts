@@ -222,13 +222,17 @@ export const generationAttempts = sqliteTable(
       .references(() => owners.id),
     /** The generated recipe the page starts or continues; one origin can hold several. */
     recipeId: text("recipe_id").notNull(),
+    /** The chooser branch the page continues (ADR 0028), or empty for any other page. */
+    branch: text("branch").notNull().default(""),
     origin: text("origin").notNull(),
     path: text("path").notNull(),
     baseRevision: integer("base_revision").notNull(),
     attemptedAt: integer("attempted_at").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.ownerId, table.recipeId, table.path, table.baseRevision] }),
+    primaryKey({
+      columns: [table.ownerId, table.recipeId, table.branch, table.path, table.baseRevision],
+    }),
   ],
 );
 
@@ -243,12 +247,16 @@ export const pageJudgements = sqliteTable(
       .notNull()
       .references(() => owners.id),
     recipeId: text("recipe_id").notNull(),
+    /** The chooser branch whose route was judged (ADR 0028), or empty for a route recipe. */
+    branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     path: text("path").notNull(),
     judgedAt: integer("judged_at").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.ownerId, table.recipeId, table.revision, table.path] }),
+    primaryKey({
+      columns: [table.ownerId, table.recipeId, table.branch, table.revision, table.path],
+    }),
     index("page_judgements_day").on(table.ownerId, table.recipeId, table.judgedAt),
   ],
 );

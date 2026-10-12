@@ -1,7 +1,11 @@
 import type { LoginObservation } from "@pateat/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findTargets } from "../page/targets";
-import { extractLoginObservation, extractSignedInObservation } from "./extract";
+import {
+  extractAccountListObservation,
+  extractLoginObservation,
+  extractSignedInObservation,
+} from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
 const page = (html: string, title = "") => {
@@ -155,6 +159,28 @@ describe("extractLoginObservation", () => {
         },
       ],
       ["go", { role: "button", target: { by: "id", value: "go" }, label: "Log in", group: "f1" }],
+    ]);
+  });
+
+  it("keeps personal-data autocomplete tokens, which mark a sign-up form", () => {
+    page(
+      `<form id="f">
+        <input id="last" autocomplete="family-name">
+        <input id="phone" type="tel" autocomplete="section-a shipping tel">
+        <input id="birth" autocomplete="BDAY">
+        <input id="u" autocomplete="username">
+        <input id="p" type="password" autocomplete="new-password">
+        <input id="other" autocomplete="cc-number">
+        <button id="go">Join</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.autocomplete)).toEqual([
+      "family-name",
+      "tel",
+      "bday",
+      "username",
+      "new-password",
+      undefined,
+      undefined,
     ]);
   });
 
@@ -914,6 +940,88 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {
+    // An email address shown again, read-only, beside the password (ADR 0018).
+    const email = { by: "id" as const, value: "email" };
+    for (const state of ["readonly", "disabled"]) {
+      page(
+        `<form id="f"><input id="email" type="email" ${state} autocomplete="username"><input id="p" type="password"><button id="go">Log in</button></form>`,
+      );
+      expect(observe().complete, state).toBe(false);
+      const result = extractLoginObservation(document, [email]);
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.observation.complete, state).toBe(true);
+      expect(result.observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+        "p",
+        "go",
+      ]);
+    }
+    // Another read-only field, a known field under another locator, or a known locator that
+    // names two elements still makes the page incomplete.
+    for (const html of [
+      `<input id="email" readonly><input id="branch" readonly><input id="p" type="password">`,
+      `<input name="email" readonly><input id="p" type="password">`,
+      `<input id="email" readonly><input id="email" readonly><input id="p" type="password">`,
+    ]) {
+      page(`<form id="f">${html}<button id="go">Log in</button></form>`);
+      const result = extractLoginObservation(document, [email]);
+      expect(result.ok && result.observation.complete, html).toBe(false);
+    }
+    // A known field the page still lets the person edit is described as any field is.
+    page(
+      `<form id="f"><input id="email" type="email"><input id="p" type="password"><button id="go">Log in</button></form>`,
+    );
+    const editable = extractLoginObservation(document, [email]);
+    if (!editable.ok) throw new Error(editable.reason);
+    expect(editable.observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "email",
+      "p",
+      "go",
+    ]);
+  });
+
+  it("matches a known field by its name or test ID locator too, exactly (ADR 0018)", () => {
+    const form = (field: string) =>
+      page(
+        `<form id="f">${field}<input id="p" type="password"><button id="go">Log in</button></form>`,
+      );
+    const complete = (known: { by: "id" | "name" | "test-id"; value: string }[]) => {
+      const result = extractLoginObservation(document, known);
+      return result.ok && result.observation.complete;
+    };
+    form(`<input name="login" readonly>`);
+    expect(complete([{ by: "name", value: "login" }])).toBe(true);
+    expect(complete([{ by: "id", value: "login" }])).toBe(false);
+    form(`<input data-testid="login" disabled>`);
+    expect(complete([{ by: "test-id", value: "login" }])).toBe(true);
+    expect(complete([{ by: "name", value: "login" }])).toBe(false);
+    // Values compare exactly.
+    form(`<input id="Email" readonly>`);
+    expect(complete([{ by: "id", value: "email" }])).toBe(false);
+  });
+
+  it("leaves out every known read-only field, but keeps the page's other forms whole", () => {
+    page(
+      `<form id="f"><input id="email" readonly><input id="member" disabled><input id="p" type="password"><button id="go">Log in</button></form>`,
+    );
+    const result = extractLoginObservation(document, [
+      { by: "id", value: "email" },
+      { by: "id", value: "member" },
+    ]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(result.observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "p",
+      "go",
+    ]);
+    // With the known field the only field, the page has nothing to describe.
+    page(`<form id="f"><input id="email" readonly><button id="go">Next</button></form>`);
+    expect(extractLoginObservation(document, [{ by: "id", value: "email" }])).toEqual({
+      ok: false,
+      reason: "no-candidates",
+    });
+  });
+
   it("keeps a disabled submit input as a button", () => {
     page(
       `<form id="f"><input id="u"><input id="go" type="submit" value="ログイン" disabled></form>`,
@@ -1050,6 +1158,41 @@ describe("extractSignedInObservation", () => {
       { role: "link", target: { by: "id", value: "home" }, label: "Home" },
       { role: "link", target: { by: "id", value: "account" }, label: "Account [number]-[number]" },
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
+    ]);
+  });
+
+  it("hides every number in a signed-in page's text, whatever its length", () => {
+    page(
+      `<header><a id="points" href="/points">保有ポイント 1,234,567pt</a>
+        <a id="miles" href="/miles">850 ポイント ①</a>
+        <button id="inbox" type="button" aria-label="Inbox ٣ new">✉</button></header>
+      <h1>Balance 12.50</h1><h2>Balance 7.25</h2><h3>Balance 1234.56</h3>
+      <form><input id="note" type="text" aria-label="Step 2" placeholder="e.g. 7"
+          aria-describedby="note-hint">
+        <span id="note-hint">Step 3</span>
+        <input id="memo" type="text" aria-label="Memo" aria-describedby="memo-hint">
+        <span id="memo-hint">Up to 20 characters</span></form>`,
+      "Account 3",
+    );
+    const observation = signedIn();
+    // Headings that differ only in their numbers become one.
+    expect(observation).toMatchObject({
+      title: "Account [number]",
+      headings: ["Balance [number]"],
+    });
+    expect(
+      observation.candidates.map(({ label, placeholder, description }) => [
+        label,
+        placeholder,
+        description,
+      ]),
+    ).toEqual([
+      ["保有ポイント [number]pt", undefined, undefined],
+      ["[number] ポイント [number]", undefined, undefined],
+      ["Inbox [number] new", undefined, undefined],
+      // A description that repeats the label once hidden is left out.
+      ["Step [number]", "e.g. [number]", undefined],
+      ["Memo", undefined, "Up to [number] characters"],
     ]);
   });
 
@@ -1230,5 +1373,182 @@ describe("extractSignedInObservation", () => {
   it("refuses a page with nothing to describe", () => {
     page(`<p>Loading</p>`);
     expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+});
+
+describe("extractAccountListObservation", () => {
+  it("describes a saved-profile list without its addresses", () => {
+    page(
+      `<header><button>me@example.com</button></header>
+      <h1>Sign in to Example</h1>
+      <div role="list">
+        <div role="link" tabindex="0"><span>Taro</span><span>taro@example.com</span><span>Last used</span></div>
+        <div role="link" tabindex="0"><span>r***@example.com</span></div>
+      </div>
+      <div style="cursor: pointer"><span>Sign in with another profile</span></div>
+      <a href="/signup">Sign up</a>`,
+      "Sign in | Example",
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    const { observation } = result;
+    expect(observation.accounts).toEqual(["Taro [email] Last used", "[email]"]);
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      {
+        role: "button",
+        target: { by: "text", value: "Sign in with another profile" },
+        label: "Sign in with another profile",
+      },
+      { role: "button", target: { by: "text", value: "Sign up" }, label: "Sign up" },
+    ]);
+    expect(JSON.stringify(observation)).not.toContain("example.com");
+  });
+
+  it("hides a saved profile named by a username as [account], everywhere", () => {
+    // Instagram's saved profile on 2026-10-12, with a made-up username.
+    page(
+      `<h1>Welcome back, Taro.Yamada</h1>
+      <div>
+        <div>
+          <div><div role="img"><svg></svg></div><div><span>taro.yamada</span></div></div>
+          <div role="button"><div role="button" aria-label="Continue as taro.yamada">Continue</div></div>
+        </div>
+        <div role="button" aria-label="Use another profile">Use another profile</div>
+        <a role="link" href="/accounts/emailsignup/">Create new account</a>
+      </div>`,
+    );
+    // Without a matching name, nothing is listed.
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    const result = extractAccountListObservation(document, ["taro.yamada"]);
+    if (!result.ok) throw new Error(result.reason);
+    const { observation } = result;
+    expect(observation.accounts).toEqual(["[account]"]);
+    // The heading is a text beside the buttons too, which may name another account.
+    expect(observation.headings).toEqual(["[account]"]);
+    expect(summary(observation).map((candidate) => candidate.target)).toEqual([
+      { by: "text", value: "Continue" },
+      { by: "text", value: "Use another profile" },
+      { by: "text", value: "Create new account" },
+    ]);
+    expect(JSON.stringify(observation).toLowerCase()).not.toContain("taro");
+  });
+
+  it("hides a name in every form it shows in, and other texts beside buttons", () => {
+    page(
+      `<main>
+        <h1>ようこそ＠ＴＡＲＯ.yamadaさん</h1>
+        <section><span>taro.yamada</span><button aria-label="Continue as taro.yamada">Continue</button></section>
+        <section><span>hanako.s</span><button>Switch</button></section>
+        <button>Use another profile</button><button>Use an app</button>
+        <button>taro.yamadaとして続行</button><button>Retaro.yamada2</button>
+      </main>`,
+    );
+    const result = extractAccountListObservation(document, ["taro.yamada"]);
+    if (!result.ok) throw new Error(result.reason);
+    const { observation } = result;
+    expect(observation.accounts).toEqual(["[account]"]);
+    // A Latin name touching kana is still hidden, with its leading @ and in any width.
+    expect(observation.headings).toEqual(["ようこそ[account]さん"]);
+    // A control naming the account is left out; "an" in "another" is not a name, and a
+    // name inside a longer Latin word is not this one.
+    expect(summary(observation).map((candidate) => candidate.label)).toEqual([
+      "Continue",
+      "Switch",
+      "Use another profile",
+      "Use an app",
+      "Retaro.yamada2",
+    ]);
+    const sent = JSON.stringify(observation).normalize("NFKC").toLowerCase();
+    expect(sent.replaceAll("retaro.yamada2", "")).not.toContain("taro");
+    expect(sent).not.toContain("hanako");
+  });
+
+  it("does not send a list whose path names the account", () => {
+    history.replaceState(null, "", "/u/taro/");
+    page(`<div><span>taro</span><button>Continue</button></div>`);
+    expect(extractAccountListObservation(document, ["taro"])).toEqual({
+      ok: false,
+      reason: "unsupported-page",
+    });
+  });
+
+  it("refuses a page with a field or without a shown account", () => {
+    page(`<button>taro@example.com</button><input type="password">`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    page(`<button>Sign in</button><footer>Contact help@example.com</footer>`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    page(
+      `<button>Sign in</button><p>Contact <a href="mailto:help@example.com">help@example.com</a></p>`,
+    );
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    page(`<nav><a href="/me">taro@example.com</a></nav>`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("leaves out controls whose text repeats", () => {
+    page(
+      `<button>a@example.com</button><button>Remove</button><button>Remove</button>
+      <button>Continue</button>`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(summary(result.observation).map((candidate) => candidate.label)).toEqual(["Continue"]);
+  });
+
+  it("never sends a fullwidth address", () => {
+    page(
+      `<button>ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ</button><button>ｔａｒｏ@example.com</button>
+      <button>Not ｈａｎａ＠ｅｘａｍｐｌｅ．ｃｏｍ?</button>`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["[email]", "[email]", "Not [email]?"]);
+    expect(JSON.stringify(result.observation)).not.toMatch(/[@＠]|ｅｘａｍｐｌｅ|example/u);
+  });
+
+  it("takes a contact address in the page's text beside a button, for the AI to judge", () => {
+    page(`<main><button>Sign in</button><p>Contact help@example.com</p></main>`);
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["Contact [email]"]);
+  });
+
+  it("lists an entry inside a beside text once", () => {
+    page(`<p>Signed in: <span tabindex="0">a@example.com</span></p><button>Continue</button>`);
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["[email]"]);
+  });
+
+  it("describes Wise's shown account beside its buttons", () => {
+    page(
+      `<h1>Welcome back</h1>
+      <div><div>TY</div><h3>Taro</h3><p>t***@example.com</p>
+        <button><span>Log back in</span></button><button><span>Use another account</span></button>
+      </div>`,
+      "Log in | Example",
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["[email]"]);
+    expect(summary(result.observation).map((candidate) => candidate.label)).toEqual([
+      "Log back in",
+      "Use another account",
+    ]);
+    expect(JSON.stringify(result.observation)).not.toContain("example.com");
+  });
+
+  it("is incomplete when list controls are left out", () => {
+    page(
+      `<button>a@example.com</button>${Array.from(
+        { length: 9 },
+        (_, index) => `<button>Option ${index}</button>`,
+      ).join("")}`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.candidates).toHaveLength(8);
+    expect(result.observation.complete).toBe(false);
   });
 });
