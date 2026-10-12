@@ -257,10 +257,12 @@ still open on 2026-10-11.
     [Research](#research)): it fills only a page of a login, not a sign-up or checkout.
   - Which part of the guess runs locally, and whether the AI may see the names of card
     or identity items, is left to the design; their values never leave the device.
-- GitHub's optional "Verify your two-factor authentication (2FA) settings" page after a
-  login: Pateat should complete it itself (owner, 2026-10-12 04:08 UTC). Until then,
-  [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there and
-  leaves the page to the person.
+- Optional confirmation pages after a login that only need a press to go on, such as
+  GitHub's "Verify your two-factor authentication (2FA) settings": Pateat should
+  complete them itself (owner, 2026-10-12 04:08 UTC), as a general rule rather than for
+  one site ([ADR 0033](adr/0033-no-site-specific-features.md), owner 13:46 UTC). Until
+  then, [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there
+  and leaves the page to the person.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
