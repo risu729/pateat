@@ -423,6 +423,30 @@ export function createDiagnosticsLog(options: {
           },
           { source },
         );
+      else if (report.type === "entry")
+        void logger.log(
+          "login.entry",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            revision: report.revision,
+            outcome: report.outcome,
+            reason: report.reason,
+          },
+          // A press is info and a refused one debug: an entry page visited while signed in
+          // names no page to return to. An entry that led nowhere is a problem, and its
+          // revision is now blocked (ADR 0031).
+          {
+            source,
+            level:
+              report.outcome === "blocked"
+                ? "warn"
+                : report.outcome === "refused"
+                  ? "debug"
+                  : "info",
+          },
+        );
       else
         void logger.log(
           "login.attempt",

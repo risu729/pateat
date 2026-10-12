@@ -111,7 +111,12 @@ function webUrl(value: string, allowBareHost: boolean): URL | undefined {
   }
 }
 
-function domainKey(url: URL): string | undefined {
+/**
+ * The registrable domain Bitwarden's Domain match compares (public and private suffixes,
+ * from tldts), the host itself for `localhost`, an IP address or an IPv6 literal, or
+ * `undefined` when the host has none, such as a bare public suffix.
+ */
+export function domainKey(url: URL): string | undefined {
   const hostname = url.hostname.replace(/\.$/u, "");
   // URL has already validated and canonicalized the address, including IPv6 brackets.
   if (hostname === "localhost" || hostname.startsWith("[")) return hostname;

@@ -29,6 +29,8 @@ import {
   foldName,
   namedAccounts,
 } from "../page/account-list";
+import { entryElementRefusal, linkUrl, renderedControlText } from "../page/entry";
+import { linkRefusal, type OnSite } from "../login/entry";
 
 /**
  * Why no observation was produced. A page without one is never sent to inference.
@@ -467,6 +469,10 @@ function describe(element: Element): Found | undefined {
   return undefined;
 }
 
+/** Every element the page shows that `describe` accepts, in document order. */
+const describeAll = (document: Document) =>
+  [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
+
 /**
  * An icon button that never submits its form on its own, such as the eye that shows the
  * password: `type="button"` and no text of its own, so no text locator either. One with
@@ -628,10 +634,9 @@ export function extractLoginObservation(
         index.get(attribute)!.get(target.value) === 1
       );
     });
-  const found = [...document.querySelectorAll(observed)]
-    .map(describe)
-    .filter((entry) => entry !== undefined)
-    .filter((entry) => !(entry.kind === "unsupported" && entry.field && filled(entry.field)));
+  const found = describeAll(document).filter(
+    (entry) => !(entry.kind === "unsupported" && entry.field && filled(entry.field)),
+  );
   const fieldForms = new Set(
     found.flatMap((entry) =>
       (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
@@ -1003,12 +1008,66 @@ function decodeURIComponentSafe(path: string): string {
   }
 }
 
+/** Whether a control is enabled, also through a disabled fieldset or an ARIA mark. */
+const enabled = (element: HTMLElement) =>
+  !element.matches(":disabled") && element.closest("[aria-disabled='true' i]") === null;
+
 /**
- * Whether a control may show the signed-in account: those in a page header or navigation
- * rank ahead of the rest of the page, such as carousels, ads and news tabs. The rank
- * reads only the page's structure, never words of one language.
+ * The observation of a page without a login form that a site sent the visitor to before
+ * signing in (ADR 0031), such as pixiv's top page with `?return_to=...`: its shown, enabled
+ * buttons and links that render text of their own, outside every form with a field (a
+ * search or newsletter form), as candidates the generator may name as the page's sign-in
+ * entry. Those in the page header or navigation come first, then the rest in document
+ * order, up to the observation's 48 candidates; the rest are left out without making the
+ * observation incomplete, since one control is all such a page needs. Fields are never
+ * described, so the page is sent without slots.
+ *
+ * A link is left out unless it could be pressed: its parsed `href` must be `https:` on the
+ * page's site (`onSite`, the worker's answer for the hosts `entryHosts` lists), no
+ * query value of it may name a URL on another site, and it opens in the same tab. So a
+ * sign-in through another site never reaches the model. Labels are redacted as in every
+ * observation; neither the page's query nor any `href` is described.
  */
-const accountSignal = (draft: Draft) => (draft.element.closest(landmarks) ? 1 : 0);
+export function extractEntryObservation(
+  document: Document = globalThis.document,
+  onSite: OnSite = () => false,
+): ObservationResult {
+  const location = document.location;
+  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  const index = locatorIndex(document);
+  const shownControls = describeAll(document).flatMap((entry) => {
+    if (entry.kind !== "candidate") return [];
+    const { element, role } = entry.draft;
+    if ((role !== "button" && role !== "link") || !enabled(element)) return [];
+    if (!renderedControlText(element)) return [];
+    // A form with a field holds its own controls, such as a search box's button.
+    if ((entry.form ?? element.closest("form"))?.querySelector(fields)) return [];
+    if (role === "link") {
+      const href = element instanceof HTMLAnchorElement ? linkUrl(element) : undefined;
+      if (!href || linkRefusal(href, onSite) || entryElementRefusal(element)) return [];
+    }
+    const target = locate(element, index, { links: true });
+    return target ? [{ form: entry.form, draft: entry.draft, target }] : [];
+  });
+  const chosen = byLandmark(shownControls).slice(0, maxCandidates);
+  if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
+  return observe(document, chosen, true);
+}
+
+/**
+ * Controls in a page header or navigation first, then the rest of the page, such as
+ * carousels, ads and news tabs, each in document order: on a signed-in page they may show
+ * the account, and on a page without a login form they hold its sign-in entry (ADR 0031).
+ * The rank reads only the page's structure, never words of one language. `observe` lists
+ * the controls kept in document order again.
+ */
+function byLandmark<Entry extends { draft: Draft }>(entries: readonly Entry[]): Entry[] {
+  // A stable sort keeps document order within each rank.
+  return entries
+    .map((entry) => ({ entry, rank: entry.draft.element.closest(landmarks) ? 1 : 0 }))
+    .sort((left, right) => right.rank - left.rank)
+    .map(({ entry }) => entry);
+}
 
 /**
  * Whether a field the executor cannot fill may still be a sign-in field: a password or an
@@ -1031,7 +1090,7 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * which the service judges for a signed-in marker (ADR 0018). It reads the same
  * value-free details as `extractLoginObservation`, but from the whole page: every field,
  * then buttons and links up to the candidate limit, those in the page header or
- * navigation first (`accountSignal`), listed in document order.
+ * navigation first (`byLandmark`), listed in document order.
  *
  * The judge refuses a page that still shows a sign-in field, so every field must be
  * described: a field that cannot be located, a field in a shadow root, or more fields than
@@ -1049,9 +1108,7 @@ export function extractSignedInObservation(
   const location = document.location;
   if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
 
-  const found = [...document.querySelectorAll(observed)]
-    .map(describe)
-    .filter((entry) => entry !== undefined);
+  const found = describeAll(document);
   // One gap is reported (a shadow-root field first); any gap makes it incomplete.
   let gap: ObservationGap | undefined = [...document.querySelectorAll("*")].some(
     (host) => host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields),
@@ -1081,11 +1138,7 @@ export function extractSignedInObservation(
   const fieldsFound = located(fieldEntries);
   if (fieldsFound.length > maxCandidates) gap ??= "too-many-fields";
   else if (fieldsFound.length < fieldEntries.length) gap ??= "unlocated-field";
-  // A stable sort keeps document order within each rank; `observe` restores it overall.
-  const ranked = located(markers)
-    .map((entry) => ({ entry, rank: accountSignal(entry.draft) }))
-    .sort((left, right) => right.rank - left.rank)
-    .map(({ entry }) => entry);
+  const ranked = byLandmark(located(markers));
   const chosen = [
     ...fieldsFound.slice(0, maxCandidates),
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),

@@ -1014,6 +1014,56 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs a pressed sign-in entry, a refused one and a blocked revision at their levels", async () => {
+    const recipeOrigin = "https://login.example";
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => ({
+        revision: 1,
+        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+      }),
+      recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const entry = {
+      type: "entry",
+      tabId: 3,
+      origin: recipeOrigin,
+      recipeId: "synthetic-entry",
+      revision: 2,
+      url: `${recipeOrigin}/?return_to=%2Fbookmarks`,
+    } as const;
+    log.login({ ...entry, outcome: "pressed" });
+    log.login({ ...entry, outcome: "refused", reason: "no-return-target" });
+    log.login({ ...entry, outcome: "refused", reason: "site-held" });
+    log.login({ ...entry, outcome: "blocked", reason: "sign-up" });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((logged) => logged.event === "login.entry"),
+      ).toHaveLength(4),
+    );
+    const entries = (await log.logger.entries()).filter((logged) => logged.event === "login.entry");
+    const fields = {
+      origin: recipeOrigin,
+      recipe: expect.any(String),
+      revision: 2,
+      url: "/?return_to=%2Fbookmarks",
+    };
+    expect(entries.map((logged) => [logged.level, logged.fields])).toEqual([
+      ["info", { ...fields, outcome: "pressed" }],
+      // A refused press is debug: a visit while signed in names no page to return to.
+      ["debug", { ...fields, outcome: "refused", reason: "no-return-target" }],
+      ["debug", { ...fields, outcome: "refused", reason: "site-held" }],
+      ["warn", { ...fields, outcome: "blocked", reason: "sign-up" }],
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("warns once for a login that did not finish and keeps a held tab's frames quiet", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

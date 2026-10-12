@@ -7,6 +7,8 @@ import {
   syncRecipeIdSchema,
   vaultFieldReferenceSchema,
   type ChooserBranch,
+  type EntryGenerationRequest,
+  type EntryGenerationResult,
   type GenerationOutputRejection,
   type LoginBindingTemplate,
   type LoginObservation,
@@ -16,9 +18,14 @@ import {
   type RecipeGenerationResult,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import type { GenerationHold, GenerationOutcome, LoginGeneration } from "../login/runtime";
+import type {
+  EntryGenerationOutcome,
+  GenerationHold,
+  GenerationOutcome,
+  LoginGeneration,
+} from "../login/runtime";
 import type { ServiceConnection } from "./runtime";
-import type { ServiceTransport } from "./transport";
+import type { InferenceResult, ServiceTransport } from "./transport";
 
 /**
  * A page whose request reached the model is not sent again for this long, whatever came of
@@ -148,6 +155,41 @@ function refused(rejection: GenerationOutputRejection) {
 /** Unavailable codes a continuation's later document would get again (ADR 0018). */
 const continuationSpent = new Set(["recipe-revoked", "recipe-conflict"]);
 
+/** An answer that is not a recipe, as an outcome for the login runtime and the log. */
+type NotRecipe = Exclude<RecipeGenerationResult | EntryGenerationResult, { status: "recipe" }>;
+/**
+ * The outcome of an answer that is no recipe: an abstention, a failure or refusal with its
+ * code, or no answer. A page whose request did not reach the model is marked `retry`
+ * (ADR 0016). A continuation of a revoked or since-changed recipe would get the same
+ * answer from any later document, so the login spends it (ADR 0018).
+ */
+function notRecipe(
+  answer: InferenceResult<NotRecipe | { status: "recipe" }>,
+  base: GenerationBase | undefined,
+): Exclude<GenerationOutcome, { outcome: "recipe" }> {
+  const result = answer.kind === "result" ? answer.result : undefined;
+  const reached =
+    result?.status === "abstained" ||
+    (result?.status === "failed" && !failedBeforeModel.has(result.error));
+  const freed = reached ? {} : ({ retry: true } as const);
+  if (!result || result.status === "recipe")
+    return {
+      outcome: "failed",
+      reason: answer.kind === "failed" ? answer.error : "device-rejected",
+      ...freed,
+    };
+  if (result.status === "abstained") return { outcome: "abstained", reason: result.reason };
+  if (result.status === "failed")
+    return result.rejection
+      ? { outcome: "failed", reason: "invalid-output", ...refused(result.rejection) }
+      : { outcome: "failed", reason: result.error, ...freed };
+  return {
+    outcome: "unavailable",
+    reason: result.reason,
+    ...(base && continuationSpent.has(result.reason) ? {} : freed),
+  };
+}
+
 /**
  * The extension side of the recipe generation routes (ADR 0018). Requests go only to the
  * paired service with the device credential; a returned recipe reaches the login runtime
@@ -155,7 +197,7 @@ const continuationSpent = new Set(["recipe-revoked", "recipe-conflict"]);
  */
 export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
-  transport: Pick<ServiceTransport, "generateRecipe" | "judgeCompletion">;
+  transport: Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion">;
   storage: GenerationAttemptStorage;
   /** Generated slot maps, written before a generated recipe is reported. */
   slotStorage: GeneratedSlotStorage;
@@ -278,6 +320,87 @@ export function createLoginGeneration(options: {
     return connection && !connection.rejected ? connection : undefined;
   }
 
+  /**
+   * Claims the page as `sending` and sends it with `call`. The claim is kept for the
+   * retry window only when the answer shows the request reached the model; every other
+   * end frees the page for its next visit: a refusal before any model call, a timeout or
+   * unexpected answer (the service answers `recently-tried` if its model call did happen)
+   * and a thrown error alike (ADR 0016). It is settled as soon as the answer is read, and
+   * only while it is still this request's claim. A page not sent is answered as `skipped`,
+   * marked `retry` when it is left free.
+   */
+  async function claimed<Result extends { status: string; error?: string }>(
+    page: { origin: string; path: string },
+    base: GenerationBase | undefined,
+    branch: ChooserBranch | undefined,
+    sent: (() => void) | undefined,
+    call: (connection: ServiceConnection) => Promise<InferenceResult<Result>>,
+  ): Promise<
+    | { outcome: "skipped"; reason: string; retry?: true }
+    | { connection: ServiceConnection; answer: InferenceResult<Result> }
+  > {
+    const connection = await connected();
+    if (!connection) return { outcome: "skipped", reason: "not-connected", retry: true };
+    const { origin, path } = page;
+    // Claimed before sending, so another tab on the same page does not send it too.
+    let held: GenerationHold | undefined;
+    const claimedAt = now();
+    const stored = await remember((attempts) => {
+      held = attempts.find(same(origin, path, base, branch))?.state;
+      return held
+        ? attempts
+        : [
+            ...attempts,
+            {
+              origin,
+              path,
+              ...(base ? { base } : {}),
+              ...(branch ? { branch } : {}),
+              state: "sending",
+              at: claimedAt,
+            },
+          ];
+    });
+    // A request still in flight frees the page within two minutes unless it reaches the
+    // model.
+    if (held)
+      return {
+        outcome: "skipped",
+        reason: held,
+        ...(held === "sending" ? { retry: true as const } : {}),
+      };
+    if (!stored) return { outcome: "skipped", reason: "storage-unavailable", retry: true };
+    let settled = false;
+    const settle = (reached: boolean) => {
+      settled = true;
+      const at = now();
+      return remember((attempts) =>
+        attempts.flatMap((entry) =>
+          !same(origin, path, base, branch)(entry) ||
+          entry.state !== "sending" ||
+          entry.at !== claimedAt
+            ? [entry]
+            : reached
+              ? [{ ...entry, state: "sent" as const, at }]
+              : [],
+        ),
+      );
+    };
+    try {
+      sent?.();
+      const answer = await call(connection);
+      const result = answer.kind === "result" ? answer.result : undefined;
+      await settle(
+        result?.status === "recipe" ||
+          result?.status === "abstained" ||
+          (result?.status === "failed" && !failedBeforeModel.has(result.error ?? "")),
+      );
+      return { connection, answer };
+    } finally {
+      if (!settled) await settle(false);
+    }
+  }
+
   return {
     async available(origin, path) {
       if (!(await connected())) return "not-connected";
@@ -291,123 +414,55 @@ export function createLoginGeneration(options: {
       const slots = slotsForPage(input.observation, input.slots);
       if (!slots.length) return { outcome: "skipped", reason: "no-slots" };
       const request = { ...input, slots };
-      const connection = await connected();
-      if (!connection) return { outcome: "skipped", reason: "not-connected", retry: true };
-      const { origin, path } = request.observation;
       const { base, branch } = request;
-      // Claimed before sending, so another tab on the same page does not send it too.
-      const again = { retry: true } as const;
-      let held: GenerationHold | undefined;
-      const claimedAt = now();
-      const stored = await remember((attempts) => {
-        held = attempts.find(same(origin, path, base, branch))?.state;
-        return held
-          ? attempts
-          : [
-              ...attempts,
-              {
-                origin,
-                path,
-                ...(base ? { base } : {}),
-                ...(branch ? { branch } : {}),
-                state: "sending",
-                at: claimedAt,
-              },
-            ];
-      });
-      // A request still in flight frees the page within two minutes unless it reaches the
-      // model.
-      if (held) return { outcome: "skipped", reason: held, ...(held === "sending" ? again : {}) };
-      if (!stored) return { outcome: "skipped", reason: "storage-unavailable", ...again };
-      // The claim is kept for the retry window only when the answer shows this request
-      // reached the model. Every other end frees the page for its next visit: a refusal
-      // before any model call, a timeout or unexpected answer (the service answers
-      // `recently-tried` if its model call did happen) and a thrown error alike (ADR 0016).
-      // It is settled as soon as the answer is read, and only while it is still this
-      // request's claim.
-      // A freed page is marked `retry`, which also lets a continuation's login send it
-      // again from a later document (ADR 0018).
-      let settled = false;
-      const settle = (reached: boolean) => {
-        settled = true;
-        const at = now();
-        return remember((attempts) =>
-          attempts.flatMap((entry) =>
-            !same(origin, path, base, branch)(entry) ||
-            entry.state !== "sending" ||
-            entry.at !== claimedAt
-              ? [entry]
-              : reached
-                ? [{ ...entry, state: "sent" as const, at }]
-                : [],
-          ),
+      const claim = await claimed(request.observation, base, branch, sent, (connection) =>
+        transport.generateRecipe(connection.origin, connection.credential, request),
+      );
+      if ("outcome" in claim) return claim;
+      const { connection, answer } = claim;
+      if (answer.kind !== "result" || answer.result.status !== "recipe")
+        return notRecipe(answer, base);
+      // The mapping arrives only with the answer that wrote the recipe; the login binds
+      // the custom slots from it until a binding is saved (ADR 0027).
+      const { customSlots, change } = answer.result;
+      // A chooser recipe (ADR 0028) answers a list of accounts or a branch's page, and
+      // only those.
+      if (
+        request.observation.accounts !== undefined || request.branch !== undefined
+          ? !("chooser" in change.recipe)
+          : !isLoginRouteRecipe(change.recipe)
+      )
+        return { outcome: "unavailable", reason: "recipe-conflict" };
+      const fields = customSlots && slotFieldsOf(request, customSlots);
+      if (fields)
+        await rememberSlots(
+          {
+            service: connection.origin,
+            deviceId: connection.deviceId,
+            recipeId: change.recipeId,
+            slots: fields,
+          },
+          // A continuation answers with only its own page's slots (ADR 0027).
+          request.base?.recipeId === change.recipeId && change.revision > 1
+            ? storedRecipeSlots(change.recipe)
+            : undefined,
         );
-      };
-      try {
-        sent?.();
-        const answer = await transport.generateRecipe(
-          connection.origin,
-          connection.credential,
-          request,
-        );
-        const result = answer.kind === "result" ? answer.result : undefined;
-        const reached =
-          result?.status === "recipe" ||
-          result?.status === "abstained" ||
-          (result?.status === "failed" && !failedBeforeModel.has(result.error));
-        await settle(reached);
-        const freed = reached ? {} : again;
-        if (!result)
-          return {
-            outcome: "failed",
-            reason: answer.kind === "failed" ? answer.error : "device-rejected",
-            ...freed,
-          };
-        if (result.status === "abstained") return { outcome: "abstained", reason: result.reason };
-        if (result.status === "failed")
-          return result.rejection
-            ? { outcome: "failed", reason: "invalid-output", ...refused(result.rejection) }
-            : { outcome: "failed", reason: result.error, ...freed };
-        // A continuation of a revoked or since-changed recipe would get the same answer from
-        // any later document, so the login spends it (ADR 0018).
-        if (result.status === "unavailable")
-          return {
-            outcome: "unavailable",
-            reason: result.reason,
-            ...(base && continuationSpent.has(result.reason) ? {} : freed),
-          };
-        // The mapping arrives only with the answer that wrote the recipe; the login binds
-        // the custom slots from it until a binding is saved (ADR 0027).
-        const { customSlots, change } = result;
-        // A chooser recipe (ADR 0028) answers a list of accounts or a branch's page, and
-        // only those.
-        if (
-          request.observation.accounts !== undefined || request.branch !== undefined
-            ? !("chooser" in change.recipe)
-            : !isLoginRouteRecipe(change.recipe)
-        )
-          return { outcome: "unavailable", reason: "recipe-conflict" };
-        const fields = customSlots && slotFieldsOf(request, customSlots);
-        if (fields)
-          await rememberSlots(
-            {
-              service: connection.origin,
-              deviceId: connection.deviceId,
-              recipeId: change.recipeId,
-              slots: fields,
-            },
-            // A continuation answers with only its own page's slots (ADR 0027).
-            request.base?.recipeId === change.recipeId && change.revision > 1
-              ? storedRecipeSlots(change.recipe)
-              : undefined,
-          );
-        // A continuation's login takes the recipe over at once; a full sync could apply a
-        // settings change that stops it (ADR 0018, ADR 0027). Settings follow at the next one.
-        await (base ? refresh() : sync()).catch(() => undefined);
-        return { outcome: "recipe", recipe: change.recipe };
-      } finally {
-        if (!settled) await settle(false);
-      }
+      // A continuation's login takes the recipe over at once; a full sync could apply a
+      // settings change that stops it (ADR 0018, ADR 0027). Settings follow at the next one.
+      await (base ? refresh() : sync()).catch(() => undefined);
+      return { outcome: "recipe", recipe: change.recipe };
+    },
+    async generateEntry(request: EntryGenerationRequest, sent): Promise<EntryGenerationOutcome> {
+      const claim = await claimed(request.observation, undefined, undefined, sent, (connection) =>
+        transport.generateEntry(connection.origin, connection.credential, request),
+      );
+      if ("outcome" in claim) return claim;
+      const { answer } = claim;
+      if (answer.kind !== "result" || answer.result.status !== "recipe")
+        return notRecipe(answer, undefined);
+      // Cached through the full sync as any first page's recipe.
+      await sync().catch(() => undefined);
+      return { outcome: "recipe", recipe: answer.result.change.recipe };
     },
     async slotFields(recipeId: string): Promise<LoginBindingTemplate | undefined> {
       const connection = await service.connection().catch(() => undefined);

@@ -8,6 +8,7 @@ import {
   type SettingsResponse,
   type SettingsSnapshot,
   type LoginChooserRecipe,
+  type LoginEntryRecipe,
   type LoginRecipe,
   type LoginStep,
 } from "@pateat/contracts";
@@ -91,6 +92,15 @@ const fake = vi.hoisted(() => {
     reconnects: [] as { tabId: number; frameId?: number; documentId?: string }[],
     /** The document's announce in answer to `login.reconnect`, as the content script does. */
     onReconnect: undefined as undefined | (() => Promise<unknown>),
+    /** The document's answers about a site's sign-in entry (ADR 0031). */
+    entry: {
+      hosts: { ok: true, hosts: [] as string[] } as unknown,
+      inspect: undefined as unknown,
+      press: { ok: true } as unknown,
+      check: { ok: true, signIn: true, start: false, signUp: false } as unknown,
+    },
+    /** Runs when the document presses its sign-in entry. */
+    onPress: undefined as undefined | (() => void),
   };
   const browser = {
     runtime: {
@@ -181,6 +191,13 @@ const fake = vi.hoisted(() => {
           };
         if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.choose") return state.chosen;
+        if (message["type"] === "login.entry.hosts") return state.entry.hosts;
+        if (message["type"] === "login.entry.inspect") return state.entry.inspect;
+        if (message["type"] === "login.entry.check") return state.entry.check;
+        if (message["type"] === "login.entry.press") {
+          state.onPress?.();
+          return state.entry.press;
+        }
         if (message["type"] === "login.state")
           return state.signs
             ? { ok: true, signs: state.signs, loaded: state.loaded }
@@ -318,6 +335,8 @@ function harness(
     otherCustom?: CustomField[];
     /** Further items of the connection, each with a password and these custom fields. */
     extraItems?: { id: string; custom: CustomField[] }[];
+    /** Cached sign-in entry recipes (ADR 0031). */
+    entries?: LoginEntryRecipe[];
   } = {},
 ) {
   const customFields = (fields: CustomField[]) =>
@@ -450,6 +469,9 @@ function harness(
     ),
     starts: vi.fn(async (at: string) => (at === origin ? startsOf([recipe.steps[0]!]) : [])),
     chooser: vi.fn(async (): Promise<LoginChooserRecipe | undefined> => undefined),
+    entries: vi.fn(async (at: string): Promise<LoginEntryRecipe[]> =>
+      (live.entries ?? []).filter((entry) => entry.origin === at),
+    ),
   };
   const login = createLoginRuntime(store, {
     fields,
@@ -1577,6 +1599,7 @@ describe("production login document admission", () => {
         generation: {
           available,
           generate: vi.fn<LoginGeneration["generate"]>(),
+          generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
           judge: vi.fn<LoginGeneration["judge"]>(),
           slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
         },
@@ -3394,6 +3417,7 @@ describe("production login document admission", () => {
           "pateat.login-logouts.v1": [],
           "pateat.login-logout-fills.v1": [],
           "pateat.login-stopped-asks.v1": [],
+          "pateat.login-entry-presses.v1": [],
         });
         for (const listener of fake.state.removed) listener(1);
         await vi.waitFor(() =>
@@ -3403,6 +3427,7 @@ describe("production login document admission", () => {
             "pateat.login-logouts.v1": [],
             "pateat.login-logout-fills.v1": [],
             "pateat.login-stopped-asks.v1": [],
+            "pateat.login-entry-presses.v1": [],
           }),
         );
       });
@@ -3974,6 +3999,13 @@ describe("production login document admission", () => {
             (async () => ({ outcome: "abstained", reason: "ambiguous" }) as const)
           )(request);
         }),
+        generateEntry: vi.fn<LoginGeneration["generateEntry"]>(async (request, sent) => {
+          sent?.();
+          return (
+            implementation.generateEntry ??
+            (async () => ({ outcome: "abstained", reason: "ambiguous" }) as const)
+          )(request);
+        }),
         judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
           args[4]?.();
           return (implementation.judge ?? (async () => ({ verdict: "unclear" }) as const))(...args);
@@ -4366,6 +4398,706 @@ describe("production login document admission", () => {
           reason: "generating",
         });
         await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+      });
+    });
+
+    describe("a site's sign-in entry (ADR 0031)", () => {
+      const entryUrl = `${origin}/?return_to=%2Fbookmarks`;
+      const loginUrl = "https://accounts.login.example/login";
+      const entryRecipe: LoginEntryRecipe = {
+        version: 1,
+        id: "synthetic-entry",
+        revision: 2,
+        origin,
+        entry: { path: "/", target: { by: "text", value: "Login" } },
+      };
+      const entryPage = {
+        ok: true,
+        observation: {
+          ...page("/", [
+            {
+              id: "c1",
+              role: "link",
+              target: { by: "text", value: "Create account" },
+              label: "Create account",
+            },
+            { id: "c2", role: "link", target: { by: "text", value: "Login" }, label: "Login" },
+          ]).observation,
+        },
+      };
+      const inspected = (overrides: Record<string, unknown> = {}) => ({
+        ok: true,
+        state: "unique",
+        href: loginUrl,
+        url: fake.state.pageUrl,
+        ...overrides,
+      });
+      /** The document announces, ten seconds after loading, that it shows no sign-in input. */
+      const entryHello = (h: ReturnType<typeof harness>, from: Record<string, unknown> = {}) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            entry: { path: new URL(String(from["url"] ?? fake.state.pageUrl)).pathname },
+          },
+          sender(from),
+        );
+      const setup = (
+        options: {
+          entries?: LoginEntryRecipe[];
+          overrides?: Partial<LocalSettings>;
+          uris?: LiveUriMatcher;
+        } = {},
+      ) => {
+        fake.state.extracted = { entry: entryPage };
+        const service = generation();
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          { ...unsaved, ...options.overrides },
+          {
+            allowedOrigins: [],
+            uris: options.uris ?? uris,
+            username: true,
+            custom: [],
+            generation: service,
+            report,
+            ...(options.entries ? { entries: options.entries } : {}),
+          },
+        );
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.starts.mockResolvedValue(startsOf([]));
+        const reports = (type: LoginReport["type"]) =>
+          report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === type);
+        return { service, h, report, reports };
+      };
+      const sent = (type: string) =>
+        (fake.state.messages as Record<string, unknown>[]).filter(
+          (entry) => entry["type"] === type,
+        );
+      const blocks = () => fake.state.storage["pateat.login-entry-blocks.v1"];
+      const presses = () => fake.state.session["pateat.login-entry-presses.v1"];
+      beforeEach(() => {
+        fake.state.pageUrl = entryUrl;
+        fake.state.entry = {
+          hosts: { ok: true, hosts: ["login.example", "accounts.login.example", "other.example"] },
+          inspect: undefined,
+          press: { ok: true },
+          check: { ok: true, signIn: true, start: false, signUp: false },
+        };
+        fake.state.onPress = undefined;
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      describe("sending the page", () => {
+        it("sends a page whose URL names another path of its site, without slots", async () => {
+          const { service, h, reports } = setup();
+          expect(await h.hello({}, false)).toEqual({
+            ok: false,
+            reason: "recipe-not-found",
+            starts: [],
+            generate: true,
+            entry: true,
+          });
+          service.generateEntry.mockImplementation(async (_request, sentNow) => {
+            sentNow?.();
+            return { outcome: "recipe", recipe: entryRecipe };
+          });
+          expect(await entryHello(h)).toEqual({ ok: false, reason: "generating" });
+          await vi.waitFor(() => expect(sent("login.reconnect")).toHaveLength(1));
+          // Only the hosts on the page's site go back to the extractor.
+          expect(sent("login.extract")).toEqual([
+            expect.objectContaining({
+              page: "entry",
+              onSite: ["login.example", "accounts.login.example"],
+            }),
+          ]);
+          expect(service.generateEntry).toHaveBeenCalledWith(
+            { version: 1, observation: entryPage.observation },
+            expect.any(Function),
+          );
+          expect(service.generate).not.toHaveBeenCalled();
+          // Nothing of the vault is read for the page.
+          expect(h.fields).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            { type: "generation", tabId: 1, origin, outcome: "sent", page: "entry" },
+            { type: "generation", tabId: 1, origin, outcome: "recipe", page: "entry" },
+          ]);
+        });
+
+        it.each([
+          ["the bare top page", `${origin}/`],
+          ["a word, not a path", `${origin}/?lang=en`],
+          ["the page's own path", `${origin}/?return_to=%2F`],
+          ["another site, scheme-relative", `${origin}/?return_to=%2F%2Fevil.example%2Fx`],
+          ["another site after a backslash", `${origin}/?return_to=%2F%5Cevil.example%2Fx`],
+          ["another site after a tab", `${origin}/?return_to=%2F%09%2Fevil.example%2Fx`],
+          ["another site's URL", `${origin}/?return_to=https%3A%2F%2Fevil.example%2Fx`],
+        ])("offers no entry for %s, and logs a page announced anyway", async (_label, url) => {
+          fake.state.pageUrl = url;
+          const { service, h, reports } = setup();
+          const readiness = await h.hello({}, false);
+          expect(readiness).toMatchObject({ generate: true });
+          expect(readiness).not.toHaveProperty("entry");
+          expect(await entryHello(h)).toMatchObject({ ok: false, reason: "recipe-not-found" });
+          expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            {
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "skipped",
+              reason: "no-return-target",
+              page: "entry",
+            },
+          ]);
+        });
+
+        it("offers the page again once a return target names another host of the site", async () => {
+          fake.state.pageUrl = `${origin}/?return_to=https%3A%2F%2Faccounts.login.example%2Fsettings`;
+          const { h } = setup();
+          expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
+        });
+
+        it.each([
+          [
+            "no vault item matches",
+            { uris: async () => ({ ok: true as const, data: uriMatch({ candidates: [] }) }) },
+            "no-vault-match",
+          ],
+        ] as const)("sends nothing when %s", async (_label, options, reason) => {
+          const { service, h, reports } = setup(options);
+          expect(await h.hello({}, false)).toMatchObject({ entry: true });
+          expect(await entryHello(h)).toMatchObject({ ok: false, reason: "recipe-not-found" });
+          expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason, page: "entry" }),
+          ]);
+        });
+
+        it("sends nothing while any tab keeps a logout of the site", async () => {
+          fake.state.session["pateat.login-logouts.v1"] = [
+            { tabId: 2, origin: "https://accounts.login.example" },
+          ];
+          const { service, h, reports } = setup();
+          expect(await h.hello({}, false)).toMatchObject({ entry: true });
+          await entryHello(h);
+          expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "logged-out" }),
+          ]);
+        });
+
+        it("never sends the tab's next page of the origin after a password form was submitted", async () => {
+          const { service, h, reports } = setup();
+          await h.login.handle(
+            { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+            sender(),
+          );
+          expect(await h.hello({ documentId: "after-sign-in" }, false)).toMatchObject({
+            entry: true,
+          });
+          await entryHello(h, { documentId: "after-sign-in" });
+          expect(service.generateEntry).not.toHaveBeenCalled();
+          expect(reports("generation")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "after-sign-in" }),
+          ]);
+          // The page after that one may be sent.
+          expect(await h.hello({ documentId: "later" }, false)).toMatchObject({ entry: true });
+          expect(await entryHello(h, { documentId: "later" })).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generateEntry).toHaveBeenCalledTimes(1));
+        });
+
+        it("sends no page that is held in the retry window or lists no link", async () => {
+          const held = setup();
+          held.service.available.mockResolvedValue("sent");
+          expect(await held.h.hello({}, false)).not.toHaveProperty("entry");
+          expect(held.reports("generation")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "sent" }),
+          ]);
+          const buttons = setup();
+          fake.state.extracted = {
+            entry: {
+              ok: true,
+              observation: {
+                ...page("/", [
+                  {
+                    id: "c1",
+                    role: "button",
+                    target: { by: "text", value: "Menu" },
+                    label: "Menu",
+                  },
+                ]).observation,
+              },
+            },
+          };
+          expect(await buttons.h.hello({ documentId: "buttons" }, false)).toMatchObject({
+            entry: true,
+          });
+          expect(await entryHello(buttons.h, { documentId: "buttons" })).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() =>
+            expect(buttons.reports("generation")).toEqual([
+              expect.objectContaining({ outcome: "skipped", reason: "no-entry-link" }),
+            ]),
+          );
+          expect(buttons.service.generateEntry).not.toHaveBeenCalled();
+        });
+
+        it("counts an entry recipe's path as a recipe start, so the page is never sent", async () => {
+          fake.state.entry.inspect = inspected();
+          const { service, h } = setup({ entries: [entryRecipe] });
+          expect(await h.hello({}, false)).toEqual({ ok: false, reason: "entry", starts: [] });
+          expect(service.available).not.toHaveBeenCalled();
+          expect(service.generateEntry).not.toHaveBeenCalled();
+        });
+      });
+
+      describe("pressing the entry", () => {
+        it("presses the one on-site link after its checks and stores the press first", async () => {
+          fake.state.entry.inspect = inspected();
+          let stored: unknown;
+          fake.state.onPress = () => {
+            stored = presses();
+          };
+          const { h, reports } = setup({ entries: [entryRecipe] });
+          expect(await h.hello({}, false)).toEqual({ ok: false, reason: "entry", starts: [] });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+          expect(reports("entry")).toEqual([
+            {
+              type: "entry",
+              tabId: 1,
+              origin,
+              recipeId: entryRecipe.id,
+              revision: 2,
+              outcome: "pressed",
+            },
+          ]);
+          expect(sent("login.entry.inspect")).toEqual([
+            expect.objectContaining({ target: entryRecipe.entry.target, timeoutMs: 10_000 }),
+          ]);
+          expect(sent("login.entry.press")).toEqual([
+            expect.objectContaining({
+              target: entryRecipe.entry.target,
+              href: loginUrl,
+              url: entryUrl,
+            }),
+          ]);
+          expect(stored).toEqual([
+            {
+              tabId: 1,
+              origin,
+              recipeId: entryRecipe.id,
+              revision: 2,
+              pressedAt: expect.any(String),
+              documentId: "synthetic-document",
+              url: entryUrl,
+            },
+          ]);
+          // The press is no attempt: nothing is recorded, held or read from the vault.
+          expect(fake.state.storage["pateat.login-attempts.v3"] ?? []).toEqual([]);
+          expect(h.fields).not.toHaveBeenCalled();
+        });
+
+        it.each([
+          ["a page that names no return target", { url: `${origin}/` }, "no-return-target"],
+          ["a missing link", { inspect: { state: "missing" } }, "target-missing"],
+          ["a link named twice", { inspect: { state: "ambiguous" } }, "target-ambiguous"],
+          ["a button", { inspect: { refusal: "not-link", href: undefined } }, "not-link"],
+          ["a script link", { inspect: { refusal: "script-link" } }, "script-link"],
+          ["a link that opens a new tab", { inspect: { refusal: "new-window" } }, "new-window"],
+          ["a link with only an image", { inspect: { refusal: "no-text" } }, "no-text"],
+          [
+            "an `http:` link",
+            { inspect: { href: "http://accounts.login.example/login" } },
+            "link-not-https",
+          ],
+          [
+            "a link to another site",
+            { inspect: { href: "https://other.example/login" } },
+            "link-off-site",
+          ],
+          [
+            "a link naming another site in its query",
+            { inspect: { href: `${loginUrl}?next=%2F%5Cevil.example%2F` } },
+            "link-query-off-site",
+          ],
+          [
+            "a page whose URL changed while it was inspected",
+            { inspect: { url: `${origin}/` } },
+            "no-return-target",
+          ],
+          [
+            "a destination on an excluded site",
+            {
+              overrides: {
+                excludedSites: [{ hostname: "accounts.login.example", includeSubdomains: false }],
+              },
+            },
+            "destination-excluded",
+          ],
+          [
+            "no vault item matching the page",
+            { uris: async () => ({ ok: true as const, data: uriMatch({ candidates: [] }) }) },
+            "no-vault-match",
+          ],
+          [
+            "a logout of the site kept in another tab",
+            { logout: { tabId: 2, origin: "https://accounts.login.example" } },
+            "logged-out",
+          ],
+          [
+            "a blocked revision",
+            {
+              block: {
+                recipeId: "synthetic-entry",
+                revision: 2,
+                reason: "sign-up",
+                blockedAt: "2026-10-12T07:30:04.000Z",
+              },
+            },
+            "blocked",
+          ],
+          [
+            "a link the page changed before the click",
+            { press: { ok: false, reason: "target-changed" } },
+            "target-changed",
+          ],
+        ] as const)("refuses %s, logging why", async (_label, options, reason) => {
+          const option = options as {
+            url?: string;
+            inspect?: Record<string, unknown>;
+            overrides?: Partial<LocalSettings>;
+            uris?: LiveUriMatcher;
+            logout?: { tabId: number; origin: string };
+            block?: Record<string, unknown>;
+            press?: unknown;
+          };
+          if (option.url) fake.state.pageUrl = option.url;
+          fake.state.entry.inspect = inspected(option.inspect);
+          if (option.press) fake.state.entry.press = option.press;
+          if (option.logout) fake.state.session["pateat.login-logouts.v1"] = [option.logout];
+          if (option.block) fake.state.storage["pateat.login-entry-blocks.v1"] = [option.block];
+          const { h, reports } = setup({
+            entries: [entryRecipe],
+            ...(option.overrides ? { overrides: option.overrides } : {}),
+            ...(option.uris ? { uris: option.uris } : {}),
+          });
+          expect(await h.hello({}, false)).toEqual({ ok: false, reason: "entry", starts: [] });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+          expect(reports("entry")).toEqual([
+            {
+              type: "entry",
+              tabId: 1,
+              origin,
+              recipeId: entryRecipe.id,
+              revision: 2,
+              outcome: "refused",
+              reason,
+            },
+          ]);
+          expect(sent("login.entry.press")).toHaveLength(option.press ? 1 : 0);
+          // A press that clicked nothing does not count against the tab's limit.
+          expect(presses() ?? []).toEqual([]);
+        });
+
+        it("refuses a page with an excluded site before anything is pressed", async () => {
+          fake.state.entry.inspect = inspected();
+          const { h, reports } = setup({
+            entries: [entryRecipe],
+            overrides: { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+          });
+          expect(await h.hello({}, false)).not.toMatchObject({ reason: "entry" });
+          expect(reports("entry")).toEqual([]);
+          expect(sent("login.entry.inspect")).toEqual([]);
+        });
+
+        it("refuses a press while the recipe changed or a frame announces", async () => {
+          fake.state.entry.inspect = inspected();
+          const { h, reports } = setup({ entries: [entryRecipe] });
+          // A frame never presses; it gets no entry recipe at all.
+          expect(await h.hello({ frameId: 3, documentId: "frame" }, false)).not.toMatchObject({
+            reason: "entry",
+          });
+          // The cache moved on to a newer revision before the press.
+          h.recipes.entries.mockResolvedValueOnce([entryRecipe]);
+          h.recipes.entries.mockResolvedValue([{ ...entryRecipe, revision: 3 }]);
+          expect(await h.hello({}, false)).toEqual({ ok: false, reason: "entry", starts: [] });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+          expect(reports("entry")[0]).toMatchObject({
+            outcome: "refused",
+            reason: "recipe-changed",
+          });
+        });
+
+        describe("with a login of the site", () => {
+          const saved = {
+            siteDefaults: [{ origin, provider: "bitwarden" as const, userId, itemId }],
+            bindings: [savedBinding],
+          };
+          const signin = `${origin}/signin`;
+          const withLogin = () => {
+            fake.state.entry.inspect = inspected();
+            const context = setup({ entries: [entryRecipe], overrides: saved });
+            context.h.recipes.recipe.mockImplementation(async (_at, path) =>
+              path === "/signin" ? recipe : undefined,
+            );
+            context.h.recipes.starts.mockResolvedValue(startsOf([recipe.steps[0]!]));
+            return context;
+          };
+
+          it("refuses a press in a tab that already ran a login on the site", async () => {
+            // The entry page is another origin of the login's site.
+            const www = "https://www.login.example";
+            const wwwEntry = { ...entryRecipe, origin: www };
+            fake.state.entry.inspect = inspected({ url: `${www}/?return_to=%2Fbookmarks` });
+            const context = setup({
+              entries: [wwwEntry],
+              overrides: saved,
+              uris: async (_connection, url) => ({
+                ok: true,
+                data: uriMatch({ targetOrigin: new URL(url).origin }),
+              }),
+            });
+            const { h, reports } = context;
+            h.recipes.recipe.mockImplementation(async (at, path) =>
+              at === origin && path === "/signin" ? recipe : undefined,
+            );
+            h.recipes.starts.mockImplementation(async (at) =>
+              at === origin ? startsOf([recipe.steps[0]!]) : [],
+            );
+            fake.state.tabUrls[1] = signin;
+            expect(await h.hello({ documentId: "login", url: signin })).toEqual({ ok: true });
+            await vi.waitFor(() =>
+              expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
+                { state: "authenticated" },
+              ]),
+            );
+            const entryAt = `${www}/?return_to=%2Fbookmarks`;
+            fake.state.tabUrls[1] = entryAt;
+            expect(await h.hello({ documentId: "entry", url: entryAt }, false)).toMatchObject({
+              reason: "entry",
+            });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+            expect(reports("entry")[0]).toMatchObject({
+              origin: www,
+              outcome: "refused",
+              reason: "site-record",
+            });
+          });
+
+          it("refuses a press while another tab's login holds the site", async () => {
+            const { h, reports } = withLogin();
+            // The other tab's login stays on its first step.
+            fake.state.onExecute = () => new Promise(() => undefined);
+            fake.state.tabUrls[2] = signin;
+            await h.hello({ tab: { id: 2 }, documentId: "login", url: signin });
+            await vi.waitFor(() => expect(sent("login.execute")).toHaveLength(1));
+            expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+            expect(reports("entry")[0]).toMatchObject({ outcome: "refused", reason: "site-held" });
+          });
+        });
+
+        it("presses at most once per tab in 10 minutes", async () => {
+          const recent = new Date(Date.now() - 5 * 60_000).toISOString();
+          const old = new Date(Date.now() - 11 * 60_000).toISOString();
+          const stored = (pressedAt: string) => [
+            {
+              tabId: 1,
+              origin,
+              recipeId: entryRecipe.id,
+              revision: 2,
+              pressedAt,
+              documentId: "earlier-document",
+              url: entryUrl,
+              checked: true,
+            },
+          ];
+          fake.state.entry.inspect = inspected();
+          fake.state.session["pateat.login-entry-presses.v1"] = stored(recent);
+          const limited = setup({ entries: [entryRecipe] });
+          expect(await limited.h.hello({}, false)).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(limited.reports("entry")).toHaveLength(1));
+          expect(limited.reports("entry")[0]).toMatchObject({
+            outcome: "refused",
+            reason: "press-limit",
+          });
+          // Another tab is not limited by this one's press.
+          expect(
+            await limited.h.hello({ tab: { id: 2 }, documentId: "other-tab" }, false),
+          ).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(limited.reports("entry")).toHaveLength(2));
+          expect(limited.reports("entry")[1]).toMatchObject({ tabId: 2, outcome: "pressed" });
+          for (const listener of fake.state.removed.splice(0))
+            for (const tab of [1, 2]) listener(tab);
+          fake.state.session = { "pateat.login-entry-presses.v1": stored(old) };
+          const later = setup({ entries: [entryRecipe] });
+          expect(await later.h.hello({}, false)).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(later.reports("entry")).toHaveLength(1));
+          expect(later.reports("entry")[0]).toMatchObject({ outcome: "pressed" });
+        });
+
+        it("refuses another document's press while one is checked, and logs a refusal once", async () => {
+          let release!: () => void;
+          fake.state.entry.inspect = new Promise((resolve) => {
+            release = () => resolve(inspected({ state: "missing" }));
+          });
+          const { h, reports } = setup({ entries: [entryRecipe] });
+          expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+          // The same document announcing again leaves the running check alone.
+          expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+          expect(await h.hello({ documentId: "next" }, false)).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+          expect(reports("entry")[0]).toMatchObject({ outcome: "refused", reason: "in-progress" });
+          // The first document was replaced meanwhile, so its press stops without a click.
+          release();
+          await vi.waitFor(() => expect(sent("login.entry.inspect")).toHaveLength(1));
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          expect(sent("login.entry.press")).toEqual([]);
+          expect(reports("entry")).toHaveLength(1);
+        });
+      });
+
+      describe("the page after the press", () => {
+        /** Presses the entry and returns once the press is logged. */
+        const pressed = async (options: Parameters<typeof setup>[0] = {}) => {
+          fake.state.entry.inspect = inspected();
+          const context = setup({ entries: [entryRecipe], ...options });
+          expect(await context.h.hello({}, false)).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() =>
+            expect(context.reports("entry")).toEqual([
+              expect.objectContaining({ outcome: "pressed" }),
+            ]),
+          );
+          return context;
+        };
+        const next = { documentId: "next-page", url: loginUrl } as const;
+
+        it("lets a login page of the site go on as any login page", async () => {
+          const { h, reports } = await pressed();
+          fake.state.pageUrl = loginUrl;
+          expect(await h.hello(next, false)).not.toMatchObject({ reason: "entry-blocked" });
+          expect(sent("login.entry.check")).toEqual([
+            expect.objectContaining({ starts: [], timeoutMs: 10_000 }),
+          ]);
+          expect(reports("entry")).toHaveLength(1);
+          expect(blocks()).toBeUndefined();
+          expect(presses()).toEqual([expect.objectContaining({ checked: true })]);
+          // Checked once: the next announcement is not checked again.
+          await h.hello(next, false);
+          expect(sent("login.entry.check")).toHaveLength(1);
+        });
+
+        it.each([
+          [
+            "a sign-up form",
+            { url: loginUrl, check: { ok: true, signIn: true, start: false, signUp: true } },
+            "sign-up",
+          ],
+          [
+            "a page without a sign-in input",
+            { url: loginUrl, check: { ok: true, signIn: false, start: false, signUp: false } },
+            "no-sign-in",
+          ],
+          ["another site", { url: "https://other.example/oauth" }, "left-site"],
+        ] as const)(
+          "blocks the revision on %s and never sends that page",
+          async (_label, option, reason) => {
+            const { h, reports, service } = await pressed();
+            if ("check" in option) fake.state.entry.check = option.check;
+            fake.state.pageUrl = option.url;
+            expect(await h.hello({ ...next, url: option.url }, false)).toMatchObject({
+              ok: false,
+              reason: "entry-blocked",
+            });
+            expect(reports("entry")[1]).toEqual({
+              type: "entry",
+              tabId: 1,
+              origin,
+              recipeId: entryRecipe.id,
+              revision: 2,
+              outcome: "blocked",
+              reason,
+            });
+            expect(blocks()).toEqual([
+              { recipeId: entryRecipe.id, revision: 2, reason, blockedAt: expect.any(String) },
+            ]);
+            // The blocked page is refused on each announcement, never offered for generation.
+            expect(
+              await h.login.handle(
+                {
+                  version: 1,
+                  type: "login.document.ready",
+                  token: "synthetic-token",
+                  signIn: { path: new URL(option.url).pathname },
+                },
+                sender({ ...next, url: option.url }),
+              ),
+            ).toMatchObject({ reason: "entry-blocked" });
+            expect(service.available).not.toHaveBeenCalled();
+            // The blocked revision is not pressed again, even after the tab's limit.
+            for (const listener of fake.state.removed.splice(0)) listener(1);
+            fake.state.pageUrl = entryUrl;
+            fake.state.messages = [];
+            const again = setup({ entries: [entryRecipe] });
+            expect(await again.h.hello({ documentId: "again" }, false)).toMatchObject({
+              reason: "entry",
+            });
+            await vi.waitFor(() => expect(again.reports("entry")).toHaveLength(1));
+            expect(again.reports("entry")[0]).toMatchObject({
+              outcome: "refused",
+              reason: "blocked",
+            });
+            expect(sent("login.entry.press")).toEqual([]);
+          },
+        );
+
+        it("takes a same-document URL change as the next page", async () => {
+          const { h, reports } = await pressed();
+          fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
+          fake.state.pageUrl = `${origin}/?return_to=%2Fbookmarks#login`;
+          expect(await h.hello({}, false)).toMatchObject({ reason: "entry-blocked" });
+          expect(reports("entry")[1]).toMatchObject({ outcome: "blocked", reason: "no-sign-in" });
+        });
+
+        it("blocks a press whose tab showed no next page within 10 seconds", async () => {
+          vi.useFakeTimers({ shouldAdvanceTime: true });
+          const { reports } = await pressed();
+          await vi.advanceTimersByTimeAsync(10_000);
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
+          expect(reports("entry")[1]).toMatchObject({ outcome: "blocked", reason: "no-sign-in" });
+          expect(blocks()).toEqual([expect.objectContaining({ reason: "no-sign-in" })]);
+        });
+
+        it("blocks a press whose tab went to another site without announcing", async () => {
+          vi.useFakeTimers({ shouldAdvanceTime: true });
+          const { reports } = await pressed();
+          fake.state.tabUrls[1] = "https://other.example/excluded";
+          await vi.advanceTimersByTimeAsync(10_000);
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
+          expect(reports("entry")[1]).toMatchObject({ outcome: "blocked", reason: "left-site" });
+        });
+
+        it("checks the next page of a press a restarted worker finds in the session", async () => {
+          await pressed();
+          // A new worker reads the press the old one stored; the old one is never asked again.
+          fake.state.messages = [];
+          fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: true };
+          const restarted = setup({ entries: [entryRecipe] });
+          fake.state.pageUrl = loginUrl;
+          expect(await restarted.h.hello(next, false)).toMatchObject({ reason: "entry-blocked" });
+          expect(restarted.reports("entry")).toEqual([
+            expect.objectContaining({ outcome: "blocked", reason: "sign-up" }),
+          ]);
+        });
       });
     });
 
@@ -5536,6 +6268,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         reason: "sent",
       })),
       // Like the service, it says just before the request leaves the device.
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
         args[4]?.();
         return judge(...args);
@@ -6040,7 +6773,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
               rejected: false,
             }),
           },
-          transport: { generateRecipe: vi.fn(), judgeCompletion },
+          transport: { generateRecipe: vi.fn(), generateEntry: vi.fn(), judgeCompletion },
           storage: { read: async () => undefined, write: async () => undefined },
           slotStorage: { read: async () => undefined, write: async () => undefined },
           sync: async () => "synced",
@@ -6326,7 +7059,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const sync = vi.fn(() => recipeSync.sync());
       const service = createLoginGeneration({
         service: { connection: async () => connection },
-        transport: { generateRecipe: vi.fn(), judgeCompletion },
+        transport: { generateRecipe: vi.fn(), generateEntry: vi.fn(), judgeCompletion },
         storage: { read: async () => undefined, write: async () => undefined },
         slotStorage: { read: async () => undefined, write: async () => undefined },
         sync,
@@ -7752,6 +8485,7 @@ describe("password route variants (ADR 0027)", () => {
         outcome: "skipped",
         reason: "sent",
       })),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => [
         { slot: "branch", field: { custom: "Branch" } },
@@ -7785,6 +8519,7 @@ describe("password route variants (ADR 0027)", () => {
         outcome: "skipped",
         reason: "sent",
       })),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => [
         { slot: "branch", field: { custom: "Gone" } },
@@ -7854,6 +8589,7 @@ describe("password route variants (ADR 0027)", () => {
         outcome: "skipped",
         reason: "sent",
       })),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
       slotFields,
     };
@@ -8204,6 +8940,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
         reason: "sent",
       })),
       // Like the service, it says just before the request leaves the device.
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
         args[4]?.();
         return judge(...args);
@@ -9816,6 +10553,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
       generate: vi.fn<LoginGeneration["generate"]>(generate),
       // Like the service, it says just before the request leaves the device.
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
       judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
         args[4]?.();
         return judge(...args);

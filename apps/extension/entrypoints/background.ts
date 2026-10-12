@@ -190,6 +190,7 @@ export default defineBackground(() => {
       service,
       transport: {
         generateRecipe: (...request) => keepAlive(serviceTransport.generateRecipe(...request)),
+        generateEntry: (...request) => keepAlive(serviceTransport.generateEntry(...request)),
         judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
       },
       storage: createBrowserGenerationAttemptStorage(),

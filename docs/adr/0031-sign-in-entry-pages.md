@@ -3,10 +3,12 @@
 Status: accepted by the owner on 2026-10-12 (03:31 to 06:53 UTC). Partly implemented:
 the stored entry recipe ([#325](https://github.com/risu729/pateat/pull/325)) and, on
 2026-10-12, the service side (#336): an entry request, the `entry` decision, its prompt
-line and plan checks, and the stored entry recipe. Nothing sends such a request or
-presses an entry yet.
-Amends [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can
-be sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
+line and plan checks, and the stored entry recipe. Also on 2026-10-12, the extension
+side: sending such pages, the checks before and after the press, the press record, the
+device block and the `login.entry` log, tested locally and with synthetic pages only.
+Not yet verified on pixiv in the owner's Chrome. Amends
+[ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can be
+sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
 form plan) and the recipe contract in `packages/contracts/src/login.ts`. Like
 [ADR 0028](0028-account-chooser-login-pages.md)'s `chooser`, it needs a recipe whose
 start has no fill step.
