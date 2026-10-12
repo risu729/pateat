@@ -103,8 +103,7 @@ export async function generateRecipe(
   const decide = async (
     head: SyncRecipeChange | null,
   ): Promise<
-    | { answer: RecipeGenerationResult }
-    | { base: LoginRecipe | undefined; revoked?: number }
+    { answer: RecipeGenerationResult } | { base: LoginRecipe | undefined; revoked?: number }
   > => {
     // A revoked recipe is generated again from its first page, as the revision after its
     // tombstone (owner, 2026-10-12); a later page never continues it.
