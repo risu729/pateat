@@ -14,6 +14,7 @@ import {
   readySchema,
   reconnectSchema,
   type LoginReadiness,
+  type TargetState,
 } from "./wire";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
@@ -57,6 +58,24 @@ function switchable(element: Element | undefined): element is HTMLElement {
   if (!clickable(element) || !isButton(element)) return false;
   const submits = element.type === "submit" || element.type === "image";
   return !(submits && element.form);
+}
+/**
+ * One target's state: `unique` when it matches one element that is what `require` asks for
+ * (a shown writable input, a shown enabled button or any shown element); without it, or
+ * with `present`, any one element counts.
+ */
+function targetState(
+  target: LoginTarget,
+  require?: "writable" | "clickable" | "shown" | "present",
+  links = false,
+): TargetState {
+  const found = matches(target, links);
+  if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
+  return (require === "writable" && !writable(found[0])) ||
+    (require === "clickable" && !clickable(found[0])) ||
+    (require === "shown" && !(found[0] instanceof HTMLElement && visible(found[0])))
+    ? "unusable"
+    : "unique";
 }
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
@@ -342,19 +361,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
       respond({
         path: location.pathname,
-        targets: command.targets.map((target, index) => {
-          const found = matches(target, command.links?.[index] === true);
-          if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
-          const require = command.require?.[index];
-          return (require === "writable" && !writable(found[0])) ||
-            (require === "clickable" && !clickable(found[0])) ||
-            (require === "shown" && !(found[0] instanceof HTMLElement && visible(found[0])))
-            ? "unusable"
-            : "unique";
-        }),
+        targets: command.targets.map((target, index) =>
+          targetState(target, command.require?.[index], command.links?.[index] === true),
+        ),
       });
       return false;
     }
+    // An advance's next step as measured just before its effect, answered with the result.
+    let before: TargetState[] | undefined;
     void (async () => {
       const operation = command.operation;
       let mutated = false;
@@ -390,6 +404,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return fail("cancelled");
       used.add(operation.operationId);
       const step = operation.step;
+      // With an advance whose next step is on its path, that step's elements just before
+      // the click or the first input; the answer reports them (ADR 0013).
+      const measureNext = () => {
+        const next = command.next;
+        if (next) before = next.targets.map((target) => targetState(target, next.require));
+      };
       if (step.kind === "fill") {
         // Resolve every target first so a partial/ambiguous mapping never causes partial fill.
         const inputs = step.fields.map((field) => {
@@ -494,6 +514,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               inputValueMismatch(input, value.value) !== undefined
             )
               return fail("cancelled");
+            // An advance's next step is measured in this task, just before its first input.
+            if (index === 0) measureNext();
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
             setter.call(input, value.value);
@@ -546,6 +568,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
         if (!clickable(element)) return fail("structural-mismatch");
+        // An advance's next step is measured in this task, just before the click.
+        measureNext();
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };
@@ -572,6 +596,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         (result) =>
           respond({
             ...result,
+            ...(before && result.ok ? { before } : {}),
             operationId: command.operation.operationId,
             documentId: command.operation.document.documentId,
           }),

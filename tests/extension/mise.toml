@@ -8,4 +8,5 @@ description = "Exercise the extension against synthetic local pages."
 # The service login test serves the built API Worker locally.
 depends = ["//apps/extension:build:probe", "//services/api:build"]
 wait_for = ["//tests/options:test", "//apps/extension:test:dom", "//tests/manage:test"]
-run = "node ../../node_modules/@playwright/test/cli.js test --config playwright.config.ts"
+# CI's Verify job sets PATEAT_SKIP_E2E: its shard jobs run this suite in parallel.
+run = '{% if env.PATEAT_SKIP_E2E %}node -e "console.log(\"Skipped: the E2E shard jobs run the packaged-extension browser tests.\")"{% else %}node ../../node_modules/@playwright/test/cli.js test --config playwright.config.ts{% endif %}'
