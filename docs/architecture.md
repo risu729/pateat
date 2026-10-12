@@ -864,14 +864,14 @@ no `id`, `name` or `data-testid` names alone. Such a token is generic: when anot
 on the page, such as a newsletter sign-up, also carries `email`, a step that names
 `{ "by": "autocomplete", "value": "email" }` matches twice and waits, or, if the login
 form has not rendered yet, fills the other input (never with a secret, which goes only
-into a password or `current-password` input); and a signed-in page that shows such an
-input cannot become the completion. A script button is a control only scripts make
-clickable: a script link, or another element with `role="button"`, but never a form
-control or anything inside an `<a href>`. A script link is an `<a>` without `href` that
-has an `onclick` attribute or `role="button"`, such as
-`<a id="login" onclick="document.loginForm.submit()">`, or an `<a href>` that runs a
-script instead of following the link: a `javascript:` URL (or a `data:` or `vbscript:`
-one, which Chrome never follows from a page), such as
+into an input the fill check accepts for it, such as a password or `current-password`
+input for the password); and a signed-in page that shows such an input cannot become the
+completion. A script button is a control only scripts make clickable: a script link, or
+another element with `role="button"`, but never a form control or anything inside an
+`<a href>`. A script link is an `<a>` without `href` that has an `onclick` attribute or
+`role="button"`, such as `<a id="login" onclick="document.loginForm.submit()">`, or an
+`<a href>` that runs a script instead of following the link: a `javascript:` URL (or a
+`data:` or `vbscript:` one, which Chrome never follows from a page), such as
 `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only
 `href` on a link with an `onclick` attribute or `role="button"`, such as
 `<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts add
