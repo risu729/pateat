@@ -345,13 +345,16 @@ service's owner-authenticated web UI
 page handles vault connection, re-authentication, unlock and service pairing, and still
 edits local policy, exclusions and account defaults. The toolbar popup edits only the
 active tab's site default account and exclusion, through the same worker-owned store
-([ADR 0021](adr/0021-account-choice-outside-settings.md)). Item selection, field
+([ADR 0021](adr/0021-account-choice-outside-settings.md)). Its "Pateat on this site"
+switch adds or removes only an exclusion rule for the exact hostname without subdomains;
+when a parent-domain rule or one with subdomains covers the site, the switch is disabled
+and the popup links each such rule to the settings page. Item selection, field
 exclusions and custom-field review stay on the extension's settings page once synced
 ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
 per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
-settings profile that each device will choose later or to the owner. Chrome
-use access to these pages is not assumed. Keep settings and execution operations
-independent of their UI.
+settings profile that each device will choose later or to the owner. Chrome use access
+to these pages is not assumed. Keep settings and execution operations independent of
+their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent

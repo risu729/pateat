@@ -254,7 +254,28 @@ own accounts, so they stay in the project's files rather than in this repository
     changed (owner, 2026-10-12 21:08 UTC): icon-led check lines, two-column panels,
     and in Logs the retention, debug logging's end time with **Turn off debug
     logging**, and the privacy warning as a notice above the download.
-  - Next: screen layouts and copy, some still under discussion with the owner.
+  - Approved: the structural proposal (owner, 2026-10-12 21:08 UTC): a "Sites" list in
+    the extension's settings that merges excluded sites and default accounts with inline
+    editing, vault access moved into each Bitwarden connection, a "Pateat on this site"
+    switch in the popup header in place of the popup's Exclude button, and `/manage`
+    reorganised into Sites and Devices tabs with a page per site. Diagnostics keeps its
+    structure; only its visuals and copy change.
+  - Done: the toolbar popup. Its header shows the toolbar icon's mark, the hostname, the
+    "Pateat on this site" switch and an Open settings icon button (a `lucide-react`
+    icon). Turning the switch off adds an exclusion rule for the exact
+    hostname without subdomains, and turning it on removes that rule. Whenever a rule
+    for a parent domain, or one that includes subdomains, covers the hostname, the
+    switch is disabled, "Excluded by a rule for other sites too" names the reason, and
+    each such rule has a "Change in settings" link; before, the popup could remove the
+    site's own exact rule while a parent rule kept it excluded. Default accounts and the
+    account choice are native radios shown as cards: the username as the title, the item
+    and its vault below, and a Default badge on the saved default. Without a saved
+    default no card is selected until one is picked. A failed or conflicting save leaves
+    the switch in its saved position, and every result shows in the popup's live region.
+    The popup is 360px wide. Checked with synthetic data only: the Vitest and Playwright
+    Chromium tests run in the default (light) theme, and screenshots of each popup state
+    were compared in light and dark.
+  - Next: the other screens' layouts and copy.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
@@ -2100,12 +2121,13 @@ owner added account choice outside the settings page to initial delivery
 current site's default and exclusion, choosing among several password matches there
 (once or as the default), a passkey chooser window, and choosing again after a logout in
 the same tab. They land as separate PRs in that order. The toolbar popup is implemented:
-clicking the icon opens `popup.html` for the active HTTPS tab, which shows whether the
-site is excluded and lists the vault items that match its origin as the default account.
-A rule that includes subdomains is shown but changed only in settings, because it also
-covers other sites. On 2026-10-11 the popup opened in installed Chrome on the production
-build of `8581f1d` and, on `https://example.com`, showed the site, its exclusion button
-and the default account section. Text without a size of its own was 12px there, smaller
+clicking the icon opens `popup.html` for the active HTTPS tab, whose "Pateat on this
+site" switch shows whether the site is excluded and which lists the vault items that
+match its origin as the default account. A rule that includes subdomains is shown but
+changed only in settings, because it also covers other sites. On 2026-10-11 the popup
+opened in installed Chrome on the production build of `8581f1d` and, on
+`https://example.com`, showed the site, its exclusion button and the default account
+section. Text without a size of its own was 12px there, smaller
 than the notes, because Chrome gives extension pages a body rule with
 `font-size: 75%` and its own font family. The shared stylesheet now sets the body to
 `1rem` and the stylesheet's font family on every extension page; that fix is tested in
