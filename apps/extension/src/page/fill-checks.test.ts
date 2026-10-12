@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { fillBaseline, inputValueMismatch, rejectsFill } from "./fill-checks";
+import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "./fill-checks";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -94,5 +94,41 @@ describe("a code fill's status messages (ADR 0027)", () => {
     expect(rejectsFill([code], before)).toBe(true);
     document.body.insertAdjacentHTML("beforeend", '<p role="alert">Wrong code</p>');
     expect(rejectsFill([code], before, { statuses: false })).toBe(true);
+  });
+});
+
+describe("unreadyForm", () => {
+  // St.George's logon with a remembered access number: typing the number shows the
+  // Security Number field and clears every field (logonSimple.js `showFullLogon`).
+  const page = () => {
+    document.body.innerHTML = `<form>
+      <input id="access" type="text"><input id="security" type="password" hidden>
+      <input id="password" type="password"><input type="submit" value="Logon"></form>`;
+    const byId = (id: string) => document.getElementById(id) as HTMLInputElement;
+    return { access: byId("access"), security: byId("security"), password: byId("password") };
+  };
+  const inputs = () => [...document.querySelectorAll("input")];
+  const shown = (input: HTMLInputElement) => !input.hidden && input.type !== "submit";
+
+  it("holds a submission when the page cleared a filled field or shows an empty password field", () => {
+    const { access, security, password } = page();
+    const filled = new Set([access, password]);
+    const ours = (input: HTMLInputElement) => filled.has(input);
+    access.value = "12345678";
+    password.value = "synthetic";
+    expect(unreadyForm(inputs(), ours, shown)).toBe(false);
+    // The page switches the form under the first fill.
+    security.hidden = false;
+    access.value = "";
+    expect(unreadyForm(inputs(), ours, shown)).toBe(true);
+    access.value = "12345678";
+    expect(unreadyForm(inputs(), ours, shown)).toBe(true);
+    security.value = "1234";
+    expect(unreadyForm(inputs(), ours, shown)).toBe(false);
+  });
+
+  it("checks only a form Pateat filled, so a passkey button beside an empty password is clicked", () => {
+    page();
+    expect(unreadyForm(inputs(), () => false, shown)).toBe(false);
   });
 });

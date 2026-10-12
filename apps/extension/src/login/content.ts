@@ -5,7 +5,7 @@ import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts"
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
 import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
-import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
+import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
@@ -124,6 +124,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const used = new Set<string>();
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
   let submitted: SubmittedPage | undefined;
+  /** Inputs this document's fills wrote to, for the check before a submitting click. */
+  const filled = new WeakSet<HTMLInputElement>();
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
@@ -581,6 +583,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
+            filled.add(input);
             setter.call(input, value.value);
             if (step.effect === "prepare") {
               // The code goes in now; the page's own reaction is measured from here.
@@ -631,18 +634,22 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
         if (!clickable(element)) return fail("structural-mismatch");
+        // The click's form's inputs, or the page's for a button outside a form.
+        const formInputs = [
+          ...(isButton(element) && element.form
+            ? element.form.elements
+            : document.querySelectorAll("input")),
+        ].filter((input) => input instanceof HTMLInputElement);
+        // The page changed the form under the fill: never submit it without its values.
+        if (
+          step.purpose === "submit" &&
+          unreadyForm(formInputs, (input) => filled.has(input), writable)
+        )
+          return fail("structural-mismatch");
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();
-        // The click's form's inputs, or the page's for a button outside a form.
-        submitted = submittedPage(
-          document,
-          [
-            ...(isButton(element) && element.form
-              ? element.form.elements
-              : document.querySelectorAll("input")),
-          ].filter(writable),
-        );
+        submitted = submittedPage(document, formInputs.filter(writable));
         mutated = true;
         element.click();
         return { ok: true, mutation: "possible" };

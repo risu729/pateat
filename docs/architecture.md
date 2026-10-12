@@ -533,6 +533,15 @@ showed and renders again is not new, nor is a mark the input had before the fill
 text stays in the content script; only the outcome leaves it. A fill that submits
 through its own event is checked only before filling. When a filled input was replaced
 during the wait, nothing is clicked and the attempt observes the page instead.
+A submitting click is not made, and the attempt ends `structural-mismatch` and observes
+the page, when the clicked button's form (or the page, for a button outside a form)
+holds an input this document's fills wrote to and either such an input is now empty or
+a shown, writable password input is empty. St.George's logon page
+(`ibanking.stgeorge.com.au`) with a remembered access number hides its Security Number
+field; typing the access number clears every field and shows it (2026-10-12), so the
+form would otherwise be sent with the access number and Security Number empty. A form
+with no field Pateat filled, such as a passkey button beside an empty password field,
+is clicked as before.
 Explicit credential rejection stops retries with that credential. Structural
 mismatch can request bounded repair; unknown submission outcomes require
 reconciliation before any resubmission.

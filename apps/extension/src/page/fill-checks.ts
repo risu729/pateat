@@ -127,3 +127,25 @@ export function rejectsFill(
   const texts = feedbackTexts(inputs, statuses ? "all" : "alert");
   return rejected || [...texts].some((text) => !before.texts.has(text));
 }
+
+/**
+ * Whether a form Pateat filled is not ready to be submitted: the page emptied an input
+ * Pateat filled, or a password input that `writable` accepts is still empty. `inputs` are
+ * the clicked button's form's inputs. A page that switches its form as the first value
+ * goes in, as St.George's logon with a remembered access number does (it clears every
+ * field and shows a Security Number field), would otherwise be submitted without its
+ * credentials. Forms Pateat filled nothing in are not checked, so a passkey button in a
+ * form with an empty password field is still clicked.
+ */
+export function unreadyForm(
+  inputs: readonly HTMLInputElement[],
+  filled: (input: HTMLInputElement) => boolean,
+  writable: (input: HTMLInputElement) => boolean,
+): boolean {
+  const ours = inputs.filter(filled);
+  if (ours.length === 0) return false;
+  return (
+    ours.some((input) => input.value === "") ||
+    inputs.some((input) => input.type === "password" && input.value === "" && writable(input))
+  );
+}
