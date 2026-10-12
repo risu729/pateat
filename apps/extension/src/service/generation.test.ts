@@ -154,6 +154,50 @@ describe("recipe generation requests", () => {
     });
   });
 
+  it("takes a chooser recipe (ADR 0028) as the answer to a branch's page, claimed per branch", async () => {
+    const chooser = {
+      ...recipeChange,
+      revision: 2,
+      recipe: {
+        version: 1 as const,
+        id: recipeChange.recipeId,
+        revision: 2,
+        origin: observation.origin,
+        chooser: {
+          path: "/login",
+          other: { by: "text" as const, value: "Use another" },
+          afterAccount: { ...recipeChange.recipe, revision: 2 },
+        },
+      },
+    };
+    const h = setup({ kind: "result", result: { version: 1, status: "recipe", change: chooser } });
+    const base = { recipeId: recipeChange.recipeId, revision: 1 };
+    const account = { ...request, base, branch: "account" as const };
+    expect(await h.generation.generate(account)).toEqual({
+      outcome: "recipe",
+      recipe: chooser.recipe,
+    });
+    expect(h.transport.generateRecipe).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      account,
+    );
+    // A continuation pulls recipes alone, so its login is not stopped by settings.
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+    expect(h.sync).not.toHaveBeenCalled();
+    // The same page of the other branch is a request of its own.
+    expect(await h.generation.generate(account)).toEqual({ outcome: "skipped", reason: "sent" });
+    expect(await h.generation.generate({ ...account, branch: "other" })).toMatchObject({
+      outcome: "recipe",
+    });
+    // A route recipe never answers a branch's page.
+    const route = setup();
+    expect(await route.generation.generate(account)).toEqual({
+      outcome: "unavailable",
+      reason: "recipe-conflict",
+    });
+  });
+
   it("takes no chooser recipe (ADR 0028) as the answer to a form page", async () => {
     const chooser = {
       ...recipeChange,
@@ -566,6 +610,48 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
     expect(await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).toEqual({
       verdict: "challenge",
       recipe: handled.recipe,
+    });
+  });
+
+  it("judges a chooser login's page on its branch and hands the chooser over (ADR 0028)", async () => {
+    const h = setup();
+    const chooser = {
+      ...handled,
+      recipe: {
+        version: 1 as const,
+        id: handled.recipe.id,
+        revision: handled.recipe.revision,
+        origin: handled.recipe.origin,
+        chooser: { path: "/login", afterAccount: handled.recipe },
+      },
+    };
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "challenge", change: chooser },
+    });
+    expect(
+      await h.generation.judge(
+        recipeChange.recipeId,
+        1,
+        "password",
+        webauthn,
+        undefined,
+        "account",
+      ),
+    ).toEqual({ verdict: "challenge", recipe: chooser.recipe });
+    expect(h.transport.judgeCompletion).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      recipeChange.recipeId,
+      { version: 1, revision: 1, route: "password", branch: "account", observation: webauthn },
+    );
+    // A route login never takes a chooser over.
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "challenge", change: chooser },
+    });
+    expect(await h.generation.judge(recipeChange.recipeId, 1, "password", webauthn)).toEqual({
+      verdict: "challenge",
     });
   });
 

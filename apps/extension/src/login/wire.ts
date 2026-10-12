@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  chooserClickSchema,
   loginAttributeTargetSchema,
   loginOperationSchema,
   loginTargetSchema,
@@ -127,6 +128,27 @@ export const authorizeSchema = v.strictObject({
   attemptId: id,
   operationId: id,
 });
+/**
+ * What a chooser's login needs to choose on its list (ADR 0028): the chosen item's
+ * username, the other matching items' usernames and the chooser's buttons. The usernames
+ * never leave the content script.
+ */
+const listInputSchema = v.strictObject({
+  username: v.pipe(v.string(), v.maxLength(4096)),
+  others: v.pipe(v.array(v.pipe(v.string(), v.maxLength(4096))), v.maxLength(32)),
+  /** Whether `others` holds every other matching item's username; else no masked text fits. */
+  othersComplete: v.boolean(),
+  other: v.optional(loginTargetSchema),
+  continue: v.optional(loginTargetSchema),
+});
+/** What the list showed a chooser's login would click; `none` when nothing fits. */
+export const chooseResultSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    click: v.picklist([...chooserClickSchema.options, "none"]),
+  }),
+  v.strictObject({ ok: v.literal(false) }),
+]);
 export const commandSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
@@ -177,6 +199,11 @@ export const commandSchema = v.variant("type", [
     /** The recipe's account switch, clicked when the page shows another account. */
     accountSwitch: v.optional(loginTargetSchema),
     /**
+     * With a chooser's click on its list (ADR 0028): the click goes to the element the
+     * list's choice names, and only when that choice is `click`.
+     */
+    list: v.optional(v.strictObject({ ...listInputSchema.entries, click: chooserClickSchema })),
+    /**
      * With a `totp` handler's code fill (ADR 0027): the button that submits the code. The
      * fill then watches for the page submitting the code by itself before it answers.
      */
@@ -196,6 +223,17 @@ export const commandSchema = v.variant("type", [
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("login.cancel"), token: id }),
+  /**
+   * Asks what a chooser's login would click on the list this document shows (ADR 0028),
+   * without clicking anything.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.choose"),
+    token: id,
+    path,
+    list: listInputSchema,
+  }),
   /**
    * Clicks the account switch a `wrong-account` result of `operationId` reported as
    * `switchable`, once the attempt has recorded the switch.

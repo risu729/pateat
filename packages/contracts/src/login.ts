@@ -548,7 +548,7 @@ const chooserTargetSchema = v.variant("by", [
  * ID, origin and revision. A branch is absent until a login takes it and its page is
  * generated as an ADR 0018 continuation.
  *
- * Not implemented yet: devices cache and the service stores it, but nothing starts it.
+ * A login on the list runs `chooserRoute` for what it clicks there.
  */
 export const loginChooserRecipeSchema = v.pipe(
   v.strictObject({
@@ -653,6 +653,9 @@ export const loginOutcomeSchema = v.picklist([
   // The tab's page moved to another origin after a possible submission; its result there
   // cannot be observed.
   "left-origin",
+  // A chooser's list shows no account that fits the login's own, and has no button for
+  // another account; nothing was clicked (ADR 0028).
+  "account-not-listed",
 ]);
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;
@@ -726,6 +729,58 @@ export function withChooserBranch(
       [branchMember[branch]]: next,
     },
   };
+}
+/**
+ * What a login clicks on a chooser's list (ADR 0028): the entry of the chosen account, the
+ * `continue` button beside the one shown account, or the `other` button.
+ */
+export const chooserClickSchema = v.picklist(["entry", "continue", "other"]);
+export type ChooserClick = v.InferOutput<typeof chooserClickSchema>;
+/** The branch a click on the list leads to. */
+export const chooserClickBranch = (click: ChooserClick): ChooserBranch =>
+  click === "other" ? "other" : "account";
+/**
+ * The locator a chooser login's click on an account entry carries. It names no element:
+ * the content script finds the entry of the account the worker chose, by the rule of ADR
+ * 0028, and the entry itself is never stored.
+ */
+export const CHOOSER_ENTRY_TARGET = { by: "text", value: "[account]" } as const;
+/**
+ * The login recipe a chooser's login runs (ADR 0028): the click on the list, as an
+ * `advance` step on the chooser's path, then the steps of the branch it leads to, once
+ * generated. It has the chooser's ID, revision and origin, the branch's completion,
+ * handlers and account switch, and one submission more than the branch for the click. It
+ * always has the `username` slot, which picks the account's entry. `undefined` when the
+ * chooser has no button for the click, or the result is no valid recipe.
+ */
+export function chooserRoute(
+  recipe: LoginChooserRecipe,
+  click: ChooserClick,
+): LoginRecipe | undefined {
+  const target =
+    click === "entry"
+      ? CHOOSER_ENTRY_TARGET
+      : click === "continue"
+        ? recipe.chooser.continue
+        : recipe.chooser.other;
+  if (!target) return undefined;
+  const branch = chooserBranch(recipe, chooserClickBranch(click));
+  // A branch never starts a login, so it has no alternatives or passkey route.
+  const { alternatives: _alternatives, passkey: _passkey, ...rest } = branch ?? {};
+  const parsed = v.safeParse(loginRecipeSchema, {
+    ...rest,
+    version: 1,
+    id: recipe.id,
+    revision: recipe.revision,
+    origin: recipe.origin,
+    slots: [...new Set(["username", ...(branch?.slots ?? [])])],
+    steps: [
+      { kind: "click", path: recipe.chooser.path, target, purpose: "advance" },
+      ...(branch?.steps ?? []),
+    ],
+    maxSubmissions: Math.min(8, (branch?.maxSubmissions ?? 0) + 1),
+  });
+  return parsed.success ? parsed.output : undefined;
 }
 /** The slots a stored recipe's routes fill: none for an entry, its branches' for a chooser. */
 export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {

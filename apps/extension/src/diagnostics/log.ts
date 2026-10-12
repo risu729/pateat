@@ -179,6 +179,7 @@ export const LOG_EVENTS = {
       candidates: "count",
       item: "item",
       fillOnly: "flag",
+      list: "code",
       url: "url",
     },
   },

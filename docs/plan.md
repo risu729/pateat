@@ -59,11 +59,12 @@ Chrome, on a production build of main.
   with a chooser recipe and generates and judges each branch's pages into it
   ([#334](https://github.com/risu729/pateat/pull/334)). The extension now sends list
   pages ten seconds after loading, skips the page right after a submitted password form,
-  hides a username that is not an email as `[account]`, and stores the answer (local
-  tests only). Next, it runs the chooser: the account's entry, the `continue` button or
-  `other`, then the branch,
-  continued as any recipe after an `advance` step
-  ([#332](https://github.com/risu729/pateat/pull/332)).
+  hides a username that is not an email as `[account]`, and stores the answer
+  ([#335](https://github.com/risu729/pateat/pull/335)). It then runs the chooser: the
+  account's entry, the `continue` button or `other`, then the branch, generated as any
+  recipe after an `advance` step ([#332](https://github.com/risu729/pateat/pull/332)),
+  or ends `account-not-listed` (local tests only). Next, the checks on Cloudflare, Wise
+  and Instagram in the owner's Chrome.
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads

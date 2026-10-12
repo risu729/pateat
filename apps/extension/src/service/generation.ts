@@ -1,10 +1,12 @@
 import {
+  chooserBranchSchema,
   genericSlotIdSchema,
   isLoginRouteRecipe,
   storedRecipeSlots,
   slotsForPage,
   syncRecipeIdSchema,
   vaultFieldReferenceSchema,
+  type ChooserBranch,
   type GenerationOutputRejection,
   type LoginBindingTemplate,
   type LoginObservation,
@@ -60,6 +62,8 @@ const attemptsSchema = v.strictObject({
             revision: v.pipe(v.number(), v.integer(), v.minValue(1)),
           }),
         ),
+        /** For a chooser's page (ADR 0028): the branch it continues. */
+        branch: v.optional(chooserBranchSchema),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -261,12 +265,13 @@ export function createLoginGeneration(options: {
     return next.catch(() => false);
   }
   const same =
-    (origin: string, path: string, base?: GenerationBase) =>
+    (origin: string, path: string, base?: GenerationBase, branch?: ChooserBranch) =>
     (entry: GenerationAttempts["attempts"][number]) =>
       entry.origin === origin &&
       entry.path === path &&
       entry.base?.recipeId === base?.recipeId &&
-      entry.base?.revision === base?.revision;
+      entry.base?.revision === base?.revision &&
+      entry.branch === branch;
 
   async function connected() {
     const connection = await service.connection().catch(() => undefined);
@@ -289,18 +294,25 @@ export function createLoginGeneration(options: {
       const connection = await connected();
       if (!connection) return { outcome: "skipped", reason: "not-connected", retry: true };
       const { origin, path } = request.observation;
-      const { base } = request;
+      const { base, branch } = request;
       // Claimed before sending, so another tab on the same page does not send it too.
       const again = { retry: true } as const;
       let held: GenerationHold | undefined;
       const claimedAt = now();
       const stored = await remember((attempts) => {
-        held = attempts.find(same(origin, path, base))?.state;
+        held = attempts.find(same(origin, path, base, branch))?.state;
         return held
           ? attempts
           : [
               ...attempts,
-              { origin, path, ...(base ? { base } : {}), state: "sending", at: claimedAt },
+              {
+                origin,
+                path,
+                ...(base ? { base } : {}),
+                ...(branch ? { branch } : {}),
+                state: "sending",
+                at: claimedAt,
+              },
             ];
       });
       // A request still in flight frees the page within two minutes unless it reaches the
@@ -321,7 +333,9 @@ export function createLoginGeneration(options: {
         const at = now();
         return remember((attempts) =>
           attempts.flatMap((entry) =>
-            !same(origin, path, base)(entry) || entry.state !== "sending" || entry.at !== claimedAt
+            !same(origin, path, base, branch)(entry) ||
+            entry.state !== "sending" ||
+            entry.at !== claimedAt
               ? [entry]
               : reached
                 ? [{ ...entry, state: "sent" as const, at }]
@@ -365,10 +379,10 @@ export function createLoginGeneration(options: {
         // The mapping arrives only with the answer that wrote the recipe; the login binds
         // the custom slots from it until a binding is saved (ADR 0027).
         const { customSlots, change } = result;
-        // A chooser recipe (ADR 0028) answers a list of accounts, and only a list: this
-        // device sends no branch yet.
+        // A chooser recipe (ADR 0028) answers a list of accounts or a branch's page, and
+        // only those.
         if (
-          request.observation.accounts !== undefined
+          request.observation.accounts !== undefined || request.branch !== undefined
             ? !("chooser" in change.recipe)
             : !isLoginRouteRecipe(change.recipe)
         )
@@ -412,6 +426,7 @@ export function createLoginGeneration(options: {
       route: LoginRoute,
       observation: LoginObservation,
       sent?: () => void,
+      branch?: ChooserBranch,
     ) {
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
@@ -420,7 +435,7 @@ export function createLoginGeneration(options: {
         connection.origin,
         connection.credential,
         recipeId,
-        { version: 1, revision, route, observation },
+        { version: 1, revision, route, ...(branch ? { branch } : {}), observation },
       );
       const result: RecipeCompletionResult | undefined =
         answer.kind === "result" ? answer.result : undefined;
@@ -429,8 +444,8 @@ export function createLoginGeneration(options: {
       // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
       if (result?.status === "challenge" && result.change) {
         void refresh().catch(() => undefined);
-        // Only a route recipe's login sends its pages here yet.
-        if (isLoginRouteRecipe(result.change.recipe))
+        // A chooser login's (ADR 0028) is the whole chooser; an entry recipe is never one.
+        if (branch ? "chooser" in result.change.recipe : isLoginRouteRecipe(result.change.recipe))
           return { verdict: "challenge", recipe: result.change.recipe };
       }
       if (

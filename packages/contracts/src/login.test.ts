@@ -3,6 +3,8 @@ import * as v from "valibot";
 import {
   chooseLoginRoute,
   chooserBranch,
+  chooserRoute,
+  CHOOSER_ENTRY_TARGET,
   continuesRecipe,
   extendsRecipe,
   refillsLoginSlot,
@@ -2147,5 +2149,45 @@ describe("chooser recipes (ADR 0028)", () => {
     // A chooser's slots are its branches' together; a route recipe's are its own.
     expect(storedRecipeSlots(both)).toEqual(["branch", "account", "password", "pin"]);
     expect(storedRecipeSlots(recipe())).toEqual(recipeSlots(recipe()));
+  });
+
+  it("runs a click on the list, then the steps of the branch it leads to", () => {
+    const stored = v.parse(loginChooserRecipeSchema, chooser());
+    // Without a branch yet, the login clicks and continues on the next page.
+    expect(chooserRoute(stored, "entry")).toEqual({
+      version: 1,
+      id: stored.id,
+      revision: stored.revision,
+      origin: stored.origin,
+      slots: ["username"],
+      steps: [{ kind: "click", path: "/login", target: CHOOSER_ENTRY_TARGET, purpose: "advance" }],
+      maxSubmissions: 1,
+    });
+    expect(chooserRoute(stored, "other")?.steps[0]).toMatchObject({
+      target: stored.chooser.other,
+    });
+    // No button, no route.
+    expect(chooserRoute(stored, "continue")).toBeUndefined();
+    const { alternatives: _alternatives, ...branch } = {
+      ...recipe(),
+      passkey: undefined,
+      alternatives: undefined,
+    };
+    const both = withChooserBranch(stored, "account", { ...branch, revision: 2 });
+    const route = chooserRoute(both, "entry");
+    expect(route).toMatchObject({
+      revision: 2,
+      slots: ["username", "branch", "account", "password"],
+      completion: recipe().completion,
+      rejection: recipe().rejection,
+      maxSubmissions: recipe().maxSubmissions + 1,
+    });
+    expect(route?.steps).toEqual([
+      { kind: "click", path: "/login", target: CHOOSER_ENTRY_TARGET, purpose: "advance" },
+      ...recipe().steps,
+    ]);
+    expect(v.is(loginRecipeSchema, route)).toBe(true);
+    // The other branch is still absent: its route is the click alone.
+    expect(chooserRoute(both, "other")?.steps).toHaveLength(1);
   });
 });
