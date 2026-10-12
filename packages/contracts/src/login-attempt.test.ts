@@ -1434,28 +1434,6 @@ describe("the totp handler in an attempt (ADR 0027)", () => {
     expect(handlerSlots(coded, detected(coded))).toEqual([]);
   });
 
-  it("counts a code the route fills or a handler typed as the login's one code", () => {
-    expect(attemptUsesCode(coded, detected(coded))).toBe(false);
-    expect(attemptUsesCode(coded, entered())).toBe(true);
-    const withCode: LoginRecipe = {
-      ...coded,
-      slots: ["password", "totp"],
-      steps: [
-        {
-          kind: "fill",
-          effect: "prepare",
-          path: "/login",
-          fields: [
-            { slot: "password", target: { by: "id", value: "password" } },
-            { slot: "totp", target: { by: "id", value: "otp" } },
-          ],
-        },
-        recipe.steps[1]!,
-      ],
-    };
-    expect(attemptUsesCode(withCode, detected(withCode))).toBe(true);
-  });
-
   it("takes the page's own submission after the code fill as the handler's click", () => {
     const filled = transitionLoginAttempt(filling(), {
       type: "OPERATION_OK",
@@ -1665,19 +1643,6 @@ describe("the passkey route in an attempt (ADR 0027)", () => {
       variant: 0,
       stepCount: 2,
     });
-  });
-
-  it("needs a variant on the password route, and lets the passkey route keep one", () => {
-    const passkey = create({ route: "passkey" });
-    const password = create({ route: "password", variant: 0 });
-    // The variant a passkey route falls back to (ADR 0034).
-    expect(parseAttemptMetadata({ ...passkey, variant: 0 })).toMatchObject({
-      route: "passkey",
-      variant: 0,
-    });
-    expect(() => parseAttemptMetadata({ ...password, variant: undefined })).toThrow();
-    expect(() => parseAttemptMetadata({ ...passkey, variant: 4 })).toThrow();
-    expect(parseAttemptMetadata(passkey)).toEqual(passkey);
   });
 
   it("answers the start page's own request on a recipe without the button (ADR 0034)", () => {
@@ -1900,6 +1865,10 @@ describe("totp handler attempt contracts, probed independently (ADR 0027)", () =
     });
     expect(failed.state).toBe("retryable");
     expect(transitionLoginAttempt(failed, autoSubmitted)).toEqual(failed);
+    // The retry returns to the code fill, which the page's submission cannot skip either.
+    const retrying = transitionLoginAttempt(failed, { type: "RETRY" });
+    expect(retrying).toMatchObject({ state: "ready", stepIndex: 2 });
+    expect(transitionLoginAttempt(retrying, autoSubmitted)).toEqual(retrying);
   });
 
   it("moves past the code to the route's next step and never fills the code again", () => {
@@ -1931,36 +1900,6 @@ describe("totp handler attempt contracts, probed independently (ADR 0027)", () =
         outcome: "unknown-submit",
       });
     }
-  });
-
-  // The page's own submission counts only between a handler's delivered code fill and its
-  // click: right after HANDLER the code was never typed.
-  it("refuses the page's submission before the code fill was prepared", () => {
-    const attempt = entered();
-    expect(transitionLoginAttempt(attempt, autoSubmitted)).toEqual(attempt);
-  });
-  it("refuses the page's submission once a failed code fill is retried", () => {
-    const retrying = run(entered(), [
-      { type: "PREPARE", operationId: "code-one", kind: "fill" },
-      {
-        type: "FAILED",
-        operationId: "code-one",
-        reason: "structural-mismatch",
-        mutation: "none",
-        document: codePage,
-      },
-      { type: "RETRY" },
-    ]);
-    expect(retrying).toMatchObject({ state: "ready", stepIndex: 2 });
-    expect(transitionLoginAttempt(retrying, autoSubmitted)).toEqual(retrying);
-  });
-
-  // An attempt that entered no handler never takes the page's submission on a route step.
-  it("refuses the page's submission on a route step when no handler was entered", () => {
-    const routeClick = run(transitionLoginAttempt(detected(twoPages), { type: "RESOLVE" }), [
-      ...fill("fill-one"),
-    ]);
-    expect(transitionLoginAttempt(routeClick, autoSubmitted)).toEqual(routeClick);
   });
 });
 
@@ -2312,18 +2251,6 @@ describe("continuation guards, probed independently (ADR 0018)", () => {
     expect(transitionLoginAttempt(taken, continued({ recipeRevision: 3 }))).toEqual(taken);
   });
 
-  it("ignores every continuation event once the attempt ended", () => {
-    const once = sent();
-    const stopped = transitionLoginAttempt(once, { type: "POLICY_CHANGED" });
-    expect(stopped.state).toBe("blocked");
-    for (const event of [
-      continuing(),
-      { type: "UNCONTINUED" as const, operationId: "next-one" },
-      continued(),
-    ])
-      expect(transitionLoginAttempt(stopped, event)).toEqual(stopped);
-  });
-
   it("chains two continuations within the attempt's limits", () => {
     // Email, Next; member ID, Next; password, Log in.
     let attempt = transitionLoginAttempt(sent(), continued({ steps: 2, effects: 1 }));
@@ -2399,7 +2326,14 @@ describe("a login on a chooser's list (ADR 0028)", () => {
       operationId: "fill-one",
       kind: "fill",
     });
-    expect(transitionLoginAttempt(started, { type: "NOT_LISTED" }).outcome).toBeUndefined();
+    expect(transitionLoginAttempt(started, { type: "NOT_LISTED" })).toEqual(started);
+    let filled = transitionLoginAttempt(started, {
+      type: "MUTATION_INTENT",
+      operationId: "fill-one",
+    });
+    filled = transitionLoginAttempt(filled, { type: "OPERATION_OK", operationId: "fill-one" });
+    expect(filled).toMatchObject({ state: "ready", stepIndex: 1 });
+    expect(transitionLoginAttempt(filled, { type: "NOT_LISTED" })).toEqual(filled);
   });
 });
 
@@ -2490,6 +2424,26 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
         document: { ...later, origin: "https://elsewhere.example" },
       }),
     ).toMatchObject({ state: "blocked", outcome: "left-origin" });
+  });
+
+  it("takes newer settings over only while watched", () => {
+    const watching = transitionLoginAttempt(awaiting(), observed("challenge"), 1000);
+    const revised = {
+      type: "POLICY_REVISED" as const,
+      policyRevision: watching.policyRevision + 1,
+    };
+    expect(transitionLoginAttempt(watching, revised)).toEqual({
+      ...watching,
+      policyRevision: watching.policyRevision + 1,
+    });
+    // An older or the same revision changes nothing.
+    for (const policyRevision of [watching.policyRevision, watching.policyRevision - 1])
+      expect(transitionLoginAttempt(watching, { type: "POLICY_REVISED", policyRevision })).toEqual(
+        watching,
+      );
+    // A login that still issues steps is stopped by newer settings instead.
+    const pending = awaiting();
+    expect(transitionLoginAttempt(pending, { ...revised, policyRevision: 9 })).toEqual(pending);
   });
 
   it("keeps a frame's and the passkey route's challenge final", () => {

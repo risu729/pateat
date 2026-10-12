@@ -2,12 +2,19 @@
 // The same adaptation as the extension's settings page, kept in this program.
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 
+const VARIANTS = {
+  default: "border-accent bg-accent text-on-accent hover:border-accent-hover hover:bg-accent-hover",
+  outline: "border-border-strong bg-surface text-ink hover:bg-surface-sunken",
+  // Destructive actions: revoking or removing an entry.
+  danger: "border-danger bg-surface text-danger hover:bg-danger-tint",
+} as const;
+
 export function Button({
   variant = "default",
   className,
   ...props
 }: Omit<ButtonPrimitive.Props, "className"> & {
-  variant?: "default" | "outline";
+  variant?: keyof typeof VARIANTS;
   className?: string;
 }) {
   const classes =
@@ -15,7 +22,7 @@ export function Button({
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={`${classes} ${variant === "outline" ? "border-border-strong bg-surface text-ink hover:bg-surface-sunken" : "border-accent bg-accent text-on-accent hover:border-accent-hover hover:bg-accent-hover"} ${className ?? ""}`}
+      className={`${classes} ${VARIANTS[variant]} ${className ?? ""}`}
       {...props}
     />
   );

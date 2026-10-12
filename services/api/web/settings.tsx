@@ -1,6 +1,7 @@
 import {
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
+  normalizeHostname,
   settingsDocumentBytes,
   type LocalSettings,
 } from "@pateat/contracts";
@@ -26,6 +27,59 @@ export function vaultAccountLabel(
   entry: Pick<LocalSettings["siteDefaults"][number], "provider" | "userId" | "accountName">,
 ): string {
   return entry.accountName || `${entry.provider} account ${entry.userId}`;
+}
+
+/** A default account as "<item> in <vault account>"; the service holds no usernames. */
+export function defaultAccountLabel(entry: LocalSettings["siteDefaults"][number]): string {
+  return `${entry.itemName || entry.itemId} in ${vaultAccountLabel(entry)}`;
+}
+
+/**
+ * The hostname exclusion rules name for an origin: canonical, without a trailing dot,
+ * as the extension matches it.
+ */
+export function siteHostname(origin: string): string {
+  const { hostname } = new URL(origin);
+  return normalizeHostname(hostname) ?? hostname;
+}
+
+/** The rules that exclude a hostname: its own, or a parent's that includes subdomains. */
+export function exclusionsCovering(settings: LocalSettings | null, hostname: string) {
+  return (settings?.excludedSites ?? []).filter(
+    (site) =>
+      hostname === site.hostname ||
+      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+  );
+}
+
+/** An exclusion rule as shown: its hostname, and whether it also covers subdomains. */
+export function exclusionLabel(site: LocalSettings["excludedSites"][number]): string {
+  return site.includeSubdomains ? `${site.hostname} and subdomains` : site.hostname;
+}
+
+/** Removes one hostname's exclusion rule. */
+export function allowSite(hostname: string, done: string): SettingsEdit {
+  return {
+    apply: (value) => ({
+      ...value,
+      excludedSites: value.excludedSites.filter((site) => site.hostname !== hostname),
+    }),
+    done,
+  };
+}
+
+/** Sets one hostname's exclusion rule, replacing any it had. */
+export function excludeSite(hostname: string, includeSubdomains: boolean): SettingsEdit {
+  return {
+    apply: (value) => ({
+      ...value,
+      excludedSites: [
+        ...value.excludedSites.filter((site) => site.hostname !== hostname),
+        { hostname, includeSubdomains },
+      ],
+    }),
+    done: `${hostname} excluded`,
+  };
 }
 
 export function useSettings(client: ManageClient) {

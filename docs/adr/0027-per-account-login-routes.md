@@ -667,11 +667,16 @@ and a `watch` on the record (its start, the document it began in and its judged 
 kept by `transitionLoginAttempt`; the record schema refuses a watch on any other login.
 A watched page of the tab gets the origin's first steps with its accepted hello, so the
 content script watches for them as after a finished login. The watch's own document is
-not read again. A restart keeps the watch; leaving the origin ends it `left-origin`, and
-a settings change ends it `policy-changed`. A watched login does not count as a login in
-progress for policy writes or the passkey bridge, as a settled one. Logs:
-`login.attempt` with state `watching` (warn), `recipe.judge` with `watched`, warn for
-its undecided answers and `page-limit`, and `login.logout` with `watched` for a release.
+not read again. A restart keeps the watch; leaving the origin ends it `left-origin`.
+Newer settings end it `policy-changed` only when they no longer allow its account on the
+page: a watched login only reads, so it takes over a newer settings revision that still
+plans its account (`POLICY_REVISED`), as when another site's account choice is saved,
+and that keeps the record's last change time. On 2026-10-12 Cloudflare's saved default
+bumped the revision during LinkedIn's watch, which then ended `policy-changed` with its
+account still chosen. A watched login does not count as a login in progress for policy
+writes or the passkey bridge, as a settled one. Logs: `login.attempt` with state
+`watching` (warn), `recipe.judge` with `watched`, warn for its undecided answers and
+`page-limit`, and `login.logout` with `watched` for a release.
 
 ## Consequences
 

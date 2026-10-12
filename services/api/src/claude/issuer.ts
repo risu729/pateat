@@ -1,6 +1,7 @@
 import { Jwt } from "hono/utils/jwt";
 import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
 import * as v from "valibot";
+import { newId } from "@pateat/contracts/ids";
 
 // Pateat as the OIDC issuer that owners trust in their own Anthropic organization
 // (ADR 0015). Anthropic fetches the discovery document and JWKS, then verifies the
@@ -140,7 +141,7 @@ export function signOwnerAssertion(config: IssuerConfig, ownerId: string, now = 
       iat,
       nbf: iat,
       exp: iat + ASSERTION_LIFETIME_SECONDS,
-      jti: crypto.randomUUID(),
+      jti: newId(),
     },
     config.signingKey as HonoJsonWebKey,
   );

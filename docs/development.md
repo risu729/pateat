@@ -453,6 +453,35 @@ never hold credential IDs, user handles or item IDs, and the page is never told 
 reason. The origin and RP ID are named only for sites your settings or recipes name;
 other sites appear as `origin:7d2b91aa` and `rp:7d2b91aa`.
 
+A site's passkey registration (`navigator.credentials.create`) that excludes credentials
+logs one `passkey.create` entry, under the same limit
+([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in)). A
+registration goes to the browser without an entry when the wrapper does not ask the
+background: an empty or malformed `excludeCredentials` or other required member, an
+unknown mediation, a non-string `rp.id`, a signal that is not genuine or already
+aborted, a call whose `this` is not `navigator.credentials`, a document the relay
+refuses (a frame, an insecure context or the permissions policy) or a relay that does
+not answer. A sender the background refuses (`invalid-sender`) is not logged either.
+The sign-ins the check reads are kept per tab in `chrome.storage.session`
+(`pateat.passkey-sign-ins.v1`). Each entry holds:
+
+- `origin` and `outcome`: `declined` (Pateat refused it with `NotAllowedError`) or
+  `delegate` (handed on to the browser and other providers), with the delegate `reason`:
+  `not-signed-in` (no Pateat sign-in to that RP ID in the tab), `expired` (the latest
+  one was more than five minutes ago), `not-listed` (no listed credential is a passkey
+  Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
+  could not be searched, as when the vault is locked), `not-configured` (the site is
+  excluded or the settings could not be read), `vault-unavailable` (the sign-in records
+  or the lookup failed) or `timeout` (the lookup took too long), `invalid-request`,
+  `invalid-origin`, `invalid-rp-id`, `rp-id-mismatch` or `busy`;
+- `rpId` once it is valid for the origin, and `excludeCredentials`: how many
+  credentials the site listed;
+- `mediation`: `conditional` (Chrome's automatic passkey upgrade) or `other`, when the
+  request names one;
+- `sinceSignIn`: whole seconds since Pateat's latest sign-in to that RP ID in the tab,
+  when there was one;
+- `listed`, once the listed credentials were checked: whether one is such a passkey.
+
 ### Manual Bitwarden setup preview
 
 The connection setup slice is implemented and tested with synthetic responses. Its
@@ -582,7 +611,8 @@ be chosen in Pateat's settings rather than only following Chrome's
 ([comparison](research/2026-10-12-extension-ui-translation.md)).
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
-use.
+use. WXT drives Vite 8 (Rolldown) for the extension build
+([what each layer does](research/2026-10-12-wxt-build-pipeline.md)).
 
 | Area | Choice and integration status | Owning slice |
 | --- | --- | --- |
@@ -601,8 +631,9 @@ use.
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
-| UI icons | **Approved (2026-10-12):** `lucide-react`, added by the first UI polish PR that uses it | Phase 1 UI polish |
+| UI icons | **Approved (2026-10-12); implemented for the diagnostics page and `/manage`:** `lucide-react`, imported per icon, in each workspace that uses it | Phase 1 UI polish |
 | UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
+| Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
 ### Integration conditions (pending candidates remain conditional)

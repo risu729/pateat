@@ -46,18 +46,6 @@ export function selectLoginRecipe(
   return recipe ? { ok: true, recipe, stepIndex: 0 } : { ok: false, reason: "recipe-not-found" };
 }
 
-/** A resumed attempt's own recipe: same origin, ID and revision, or nothing. */
-export function findLoginRecipe(
-  recipes: readonly StoredLoginRecipe[],
-  origin: string,
-  recipeId: string,
-  revision: number,
-): LoginRecipe | undefined {
-  return loginRecipesForOrigin(recipes, origin).find(
-    (recipe) => recipe.id === recipeId && recipe.revision === revision,
-  );
-}
-
 /** The synced binding of one recipe for one vault item, if any. */
 export function findLoginBinding(
   bindings: readonly SavedLoginBinding[],

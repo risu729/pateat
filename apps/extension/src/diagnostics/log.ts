@@ -271,6 +271,20 @@ export const LOG_EVENTS = {
       invalidLength: "count",
     },
   },
+  // A checked `navigator.credentials.create` request (ADR 0007): never a credential ID.
+  "passkey.create": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      rpId: "rpId",
+      outcome: "code",
+      reason: "code",
+      mediation: "code",
+      excludeCredentials: "count",
+      listed: "flag",
+      sinceSignIn: "count",
+    },
+  },
   "error.unhandled": {
     level: "error",
     fields: { source: "code", name: "name", message: "code", stack: "stack" },

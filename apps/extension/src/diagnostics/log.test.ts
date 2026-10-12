@@ -137,6 +137,113 @@ describe("diagnostics log", () => {
     ]);
   });
 
+  it("keeps a checked registration's outcome, counts and flags, never a credential (ADR 0007)", async () => {
+    const { logger } = setup();
+    await logger.log("passkey.create", {
+      origin: "https://bank.example",
+      rpId: "bank.example",
+      outcome: "declined",
+      mediation: "conditional",
+      excludeCredentials: 2,
+      listed: true,
+      sinceSignIn: 42,
+      // Not in the allowlist.
+      ...({
+        credentialId: "AQID",
+        excludeCredentialIds: ["BAUG"],
+        user: "owner@example.com",
+      } as object),
+    });
+    await logger.log("passkey.create", {
+      origin: "https://shop.example",
+      rpId: "shop.example",
+      outcome: "delegate",
+      reason: "not-signed-in",
+      excludeCredentials: 1,
+    });
+    // Fields failing their kind's check are left out.
+    await logger.log("passkey.create", {
+      origin: "https://bank.example",
+      outcome: "delegate",
+      reason: "Owner's reason",
+      mediation: "Owner's text",
+      excludeCredentials: 1.5,
+      listed: "yes",
+      sinceSignIn: -1,
+    });
+    const entries = await logger.entries();
+    expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
+      ["passkey.create", "info"],
+      ["passkey.create", "info"],
+      ["passkey.create", "info"],
+    ]);
+    expect(entries.map((entry) => entry.fields)).toEqual([
+      {
+        origin: "https://bank.example",
+        rpId: "bank.example",
+        outcome: "declined",
+        mediation: "conditional",
+        excludeCredentials: 2,
+        listed: true,
+        sinceSignIn: 42,
+      },
+      {
+        origin: expect.stringMatching(/^origin:[0-9a-f]{8}$/u),
+        rpId: expect.stringMatching(/^rp:[0-9a-f]{8}$/u),
+        outcome: "delegate",
+        reason: "not-signed-in",
+        excludeCredentials: 1,
+      },
+      { origin: "https://bank.example", outcome: "delegate" },
+    ]);
+    const serialized = JSON.stringify(entries);
+    for (const secret of ["AQID", "BAUG", "owner@example.com", "shop.example", "Owner"])
+      expect(serialized).not.toContain(secret);
+  });
+
+  it("logs a create report from the background without its tab (ADR 0007)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    log.passkeyCreate({
+      tabId: 4,
+      origin: "https://login.example",
+      outcome: "delegate",
+      reason: "expired",
+      rpId: "login.example",
+      mediation: "other",
+      excludeCredentials: 3,
+      sinceSignIn: 301,
+    });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "passkey.create"),
+      ).toHaveLength(1),
+    );
+    const entry = (await log.logger.entries()).find((value) => value.event === "passkey.create")!;
+    expect(entry.level).toBe("info");
+    expect(entry.fields).toEqual({
+      // No settings or recipe names the site in this test, so it is a pseudonym.
+      origin: expect.stringMatching(/^origin:/u),
+      rpId: expect.stringMatching(/^rp:/u),
+      outcome: "delegate",
+      reason: "expired",
+      mediation: "other",
+      excludeCredentials: 3,
+      sinceSignIn: 301,
+    });
+    vi.restoreAllMocks();
+  });
+
   it("keeps a page URL's path, query and fragment only for a site named in full", async () => {
     const { logger } = setup();
     const long = `https://bank.example/signin?return=${"a".repeat(600)}`;

@@ -5,6 +5,7 @@ import { createDeviceToken, hashDeviceToken, type ApiEnv } from "../auth";
 import { devices } from "../db/schema";
 import { limitBy } from "../limits";
 import { resolveOwner } from "../owners";
+import { newId } from "@pateat/contracts/ids";
 
 /** Bounds pairing per verified identity; runs after Access and the Origin check. */
 export const pairLimit = limitBy(
@@ -24,7 +25,7 @@ export async function createPairedDevice(
 ) {
   const { label } = c.req.valid("json");
   const ownerId = await resolveOwner(c.env.DB, c.get("identity"));
-  const deviceId = crypto.randomUUID();
+  const deviceId = newId();
   const credential = createDeviceToken();
   const tokenHash = await hashDeviceToken(credential);
   const now = Date.now();

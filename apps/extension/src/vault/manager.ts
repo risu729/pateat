@@ -18,6 +18,7 @@ import {
   type VaultResult,
 } from "./record";
 import type { DurableVaultStore } from "./storage";
+import { newId } from "@pateat/contracts/ids";
 
 export type VaultCryptoHost = Pick<
   CryptoHost,
@@ -69,7 +70,7 @@ export function createLocalVaultManager(options: {
 }) {
   const normalized = normalizeBitwardenProfile(options.profile);
   const profile = normalized.ok ? normalized.data : undefined;
-  const random = options.randomId ?? (() => crypto.randomUUID());
+  const random = options.randomId ?? newId;
   const now = options.nowMs ?? Date.now;
   const generation = random();
   let epoch = 0;

@@ -3,16 +3,23 @@ import {
   MAX_REQUEST_CHARACTERS,
   PAGE_CHANNEL,
   RELAY_HEARTBEAT_MS,
+  createResultSchema,
   pageRequestSchema,
   runtimeResultSchema,
+  type CreateResult,
   type PageResult,
   type RuntimeResult,
 } from "./wire";
 
 type Send = (message: unknown) => Promise<unknown>;
 
-/** Native admission checks the isolated world can observe without trusting page globals. */
-function documentAdmits(): boolean {
+/**
+ * Native admission checks the isolated world can observe without trusting page globals: a
+ * top-level secure document that allows `feature`, the permissions policy of `get` or `create`.
+ */
+function documentAdmits(
+  feature: "publickey-credentials-get" | "publickey-credentials-create",
+): boolean {
   if (window.top !== window || !window.isSecureContext) return false;
   const policy = (
     document as Document & {
@@ -20,7 +27,7 @@ function documentAdmits(): boolean {
     }
   ).featurePolicy;
   // Without a readable policy the native request might be denied; never claim it.
-  return policy?.allowsFeature("publickey-credentials-get") === true;
+  return policy?.allowsFeature(feature) === true;
 }
 
 function withinBound(request: unknown): boolean {
@@ -53,7 +60,7 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
     settle(id);
     void relay({ version: 1, type: "passkey.cancel", operationId: id }).catch(() => {});
   };
-  const reply = (id: string, result: RuntimeResult) => {
+  const reply = (id: string, result: RuntimeResult | CreateResult) => {
     settle(id);
     const outcome: PageResult = result.kind === "delegate" ? { kind: "delegate" } : result;
     window.postMessage(
@@ -75,13 +82,11 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
       reply(message.id, { kind: "delegate", reason: "invalid-request" });
       return;
     }
-    if (!documentAdmits()) {
+    const create = message.type === "create";
+    if (!documentAdmits(create ? "publickey-credentials-create" : "publickey-credentials-get")) {
       reply(message.id, { kind: "delegate", reason: "document-not-admitted" });
       return;
     }
-    const userActivation = navigator.userActivation?.isActive === true;
-    // A hidden or background document never gets a window, as Chrome's own UI needs focus.
-    const focused = document.visibilityState === "visible" && document.hasFocus();
     if (!heartbeats.has(message.id))
       heartbeats.set(
         message.id,
@@ -91,6 +96,28 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
           else settle(message.id);
         }, RELAY_HEARTBEAT_MS),
       );
+    if (create) {
+      // The background only checks it; anything but its decline hands it on (ADR 0007).
+      void relay({
+        version: 1,
+        type: "passkey.create",
+        operationId: message.id,
+        request: message.request,
+      }).then(
+        (response) => {
+          const result = v.safeParse(createResultSchema, response);
+          return reply(
+            message.id,
+            result.success ? result.output : { kind: "delegate", reason: "invalid-response" },
+          );
+        },
+        () => reply(message.id, { kind: "delegate", reason: "runtime-unavailable" }),
+      );
+      return;
+    }
+    const userActivation = navigator.userActivation?.isActive === true;
+    // A hidden or background document never gets a window, as Chrome's own UI needs focus.
+    const focused = document.visibilityState === "visible" && document.hasFocus();
     void relay({
       version: 1,
       type: "passkey.get",

@@ -49,7 +49,7 @@ on 2026-10-12 (20:50 UTC):
 | A list of saved accounts ([ADR 0028](adr/0028-account-chooser-login-pages.md)) | Cloudflare, Wise | Signed in; the record ended `unknown-submit`, recheck after `92df780` |
 | A sign-in entry button ([ADR 0031](adr/0031-sign-in-entry-pages.md)) | pixiv | Done |
 | A stored passkey | npm, pixiv | Done |
-| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Recheck after `1df2d38` |
+| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; recheck that no Bitwarden "Save passkey" window follows (below) and the choice after a logout |
 | A TOTP code split into one-digit inputs | Resend | Recheck after `cdfa420`; needs a paid judge call and the owner's code entry |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
 | A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
@@ -59,7 +59,7 @@ on 2026-10-12 (20:50 UTC):
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site |
 | Fill only after a logout | アパホテル | Done |
 | Nothing on a site without a password or passkey sign-in | ABEMA | Done (judged from the code and the Grok Bot's log) |
-| Pages that stopped before generation | モッピー, LinkedIn | Recheck after [#261](https://github.com/risu729/pateat/pull/261) and [#271](https://github.com/risu729/pateat/pull/271) |
+| Pages that stopped before generation | モッピー, LinkedIn | Recheck after [#261](https://github.com/risu729/pateat/pull/261) and [#271](https://github.com/risu729/pateat/pull/271); LinkedIn's remembered-account page was incomplete again after #403 (2026-10-12 21:44 UTC): recheck once its shown password field is located by `webauthn` |
 
 The rechecks share one extension reload. The username redaction gap (the 120-character
 cut below) and the UI polish also stay in this phase. The site lists name the owner's
@@ -179,9 +179,20 @@ own accounts, so they stay in the project's files rather than in this repository
   Pateat logged that request as `passkey.request` `delegate` `unsupported-mediation`.
   As the owner chose on 2026-10-12 (19:32 UTC), Pateat now answers a `required` request
   as it answers an `optional` one
-  ([ADR 0007](adr/0007-existing-passkey-assertions.md); local tests only). Next, in the
-  owner's Chrome: Wise's "Welcome back" list and "Log back in" sign in with the passkey
-  (`passkey.request` `assertion`) without the Bitwarden or Windows Security window.
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md); local tests only). In the
+  owner's Chrome on build `1df2d38` (2026-10-12, 20:17 to 20:43 UTC), Wise's "Welcome
+  back" list and "Log back in" signed in with the passkey (`passkey.request`
+  `assertion`), but the Bitwarden extension then sometimes opened its "Save passkey"
+  window ("A passkey already exists for this application."). The cause: after the
+  sign-in Wise asks to register a passkey (`navigator.credentials.create`), and its
+  `excludeCredentials` lists the passkey Pateat just used, which Bitwarden's vault
+  holds. As the owner chose at 20:56 UTC, Pateat now wraps `create` and refuses such a
+  registration with Chrome's own `NotAllowedError`, as when Chrome's prompt is
+  dismissed, within five minutes of Pateat's sign-in to that site in the same tab, and
+  logs each checked registration as `passkey.create`
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in);
+  local tests only). Next, in the owner's Chrome: no "Save passkey" window after Pateat
+  signs in to Wise, and `passkey.create` `declined` in the log.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): each matching
   item's username of three or more characters is hidden as `[account]` wherever it shows
@@ -254,7 +265,44 @@ own accounts, so they stay in the project's files rather than in this repository
     changed (owner, 2026-10-12 21:08 UTC): icon-led check lines, two-column panels,
     and in Logs the retention, debug logging's end time with **Turn off debug
     logging**, and the privacy warning as a notice above the download.
-  - Next: screen layouts and copy, some still under discussion with the owner.
+  - Approved: the structural proposal (owner, 2026-10-12 21:08 UTC): a "Sites" list in
+    the extension's settings that merges excluded sites and default accounts with inline
+    editing, vault access moved into each Bitwarden connection, a "Pateat on this site"
+    switch in the popup header in place of the popup's Exclude button, and `/manage`
+    reorganised into Sites and Devices tabs with a page per site. Diagnostics keeps its
+    structure; only its visuals and copy change.
+  - Done: the toolbar popup. Its header shows the toolbar icon's mark, the hostname, the
+    "Pateat on this site" switch and an Open settings icon button (a `lucide-react`
+    icon). Turning the switch off adds an exclusion rule for the exact
+    hostname without subdomains, and turning it on removes that rule. Whenever a rule
+    for a parent domain, or one that includes subdomains, covers the hostname, the
+    switch is disabled, "Excluded by a rule for other sites too" names the reason, and
+    each such rule has a "Change in settings" link; before, the popup could remove the
+    site's own exact rule while a parent rule kept it excluded. Default accounts and the
+    account choice are native radios shown as cards: the username as the title, the item
+    and its vault below, and a Default badge on the saved default. Without a saved
+    default no card is selected until one is picked. A failed or conflicting save leaves
+    the switch in its saved position, and every result shows in the popup's live region.
+    The popup is 360px wide. Checked with synthetic data only: the Vitest and Playwright
+    Chromium tests run in the default (light) theme, and screenshots of each popup state
+    were compared in light and dark.
+  - Done: the passkey chooser window is restyled with the same behavior: "Sign in to"
+    the site, each passkey as a choice led by its user name, the site default marked
+    **Default**, a one-line note after a Pateat sign-in from the tab, and the save
+    checkbox above the list.
+  - Done: the `/manage` header shows the logo beside "Pateat" and the sections as tabs;
+    Devices is a list with a Revoke button, a Revoked or Expired badge and the idle
+    expiry and data notes as icon-led lines; the footer holds the version, Source,
+    GPL-3.0-only, Third-party notices and the Theme select. Icons come from
+    `lucide-react` in `services/api`.
+  - Done: `/manage` has two tabs, Sites and Devices (owner, 2026-10-12 21:08 UTC). Sites
+    merges the former sites, account bindings and recipes pages into one list of origins
+    with badges for their recipes, default account and bindings, the excluded hostnames
+    with Allow and an exclude form, and the revoked recipes. Each origin opens its own
+    page with a "Pateat on this site" switch, its default account, recipes and bindings
+    ([owner web UI](architecture.md#owner-web-ui)).
+  - Next: the other screens' layouts and copy.
+  - Next: the other screens' layouts and copy.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
@@ -345,7 +393,12 @@ own accounts, so they stay in the project's files rather than in this repository
   before other sites (owner, 19:23 UTC); since the move, only Google is (see the
   phase 1 table). JP BANKカードWEB signed in there within 20 seconds
   with the same recipe (19:24 UTC), so why its press failed on the Grok Bot computer
-  is still open.
+  is still open. On the Bot's later round (19:51 UTC), Microsoft's page after Next was
+  sent to continue the recipe with only its email form described, and the model
+  abstained; a password input hidden there for the browser to fill counting as the
+  password page is the inferred cause. Such an input no longer counts, and a
+  description without the input the page qualified with is read again
+  ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)).
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
@@ -389,6 +442,10 @@ own accounts, so they stay in the project's files rather than in this repository
     removals that were the only proof of a judgement rule, and both were kept.
   - Batch 3, `packages/inference` (2026-10-12): 336 to 323 Vitest cases, package
     line coverage unchanged at 99.1%.
+  - Batch 4, `packages/contracts` (2026-10-12): 368 to 350 Vitest cases, the same
+    statements and branches covered; two exports only tests called were removed. The
+    browser suites in `tests/options` and `tests/manage` wait until the UI changes in
+    progress land.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
@@ -2013,8 +2070,8 @@ fills and the browser's validation, `pattern` included, before it clicks. Text i
 redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
 as the executor resolves it, skipping an `id` React's `useId` generated, and for an
-input without one, its first `autocomplete`
-token that is `username`, `email`, `current-password` or `one-time-code` and that no
+input without one, its first `autocomplete` token that is `username`, `email`,
+`current-password`, `one-time-code` or `webauthn` and that no
 other input carries; a button without one gets a text locator when its text matches
 exactly one button and redaction leaves it unchanged, and a script link when its text
 matches no button and exactly one script link. In a login form, a field, button or
@@ -2100,12 +2157,13 @@ owner added account choice outside the settings page to initial delivery
 current site's default and exclusion, choosing among several password matches there
 (once or as the default), a passkey chooser window, and choosing again after a logout in
 the same tab. They land as separate PRs in that order. The toolbar popup is implemented:
-clicking the icon opens `popup.html` for the active HTTPS tab, which shows whether the
-site is excluded and lists the vault items that match its origin as the default account.
-A rule that includes subdomains is shown but changed only in settings, because it also
-covers other sites. On 2026-10-11 the popup opened in installed Chrome on the production
-build of `8581f1d` and, on `https://example.com`, showed the site, its exclusion button
-and the default account section. Text without a size of its own was 12px there, smaller
+clicking the icon opens `popup.html` for the active HTTPS tab, whose "Pateat on this
+site" switch shows whether the site is excluded and which lists the vault items that
+match its origin as the default account. A rule that includes subdomains is shown but
+changed only in settings, because it also covers other sites. On 2026-10-11 the popup
+opened in installed Chrome on the production build of `8581f1d` and, on
+`https://example.com`, showed the site, its exclusion button and the default account
+section. Text without a size of its own was 12px there, smaller
 than the notes, because Chrome gives extension pages a body rule with
 `font-size: 75%` and its own font family. The shared stylesheet now sets the body to
 `1rem` and the stylesheet's font family on every extension page; that fix is tested in

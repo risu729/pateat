@@ -29,6 +29,7 @@ import {
 } from "./wire";
 import type { PasskeyMatches, PasskeySignRequest, PasskeySignature } from "./passkey";
 import { fromBase64Url } from "../passkeys/encoding";
+import { newId } from "@pateat/contracts/ids";
 
 type Listener<T extends unknown[]> = {
   addListener(listener: (...args: T) => void): void;
@@ -99,7 +100,7 @@ function sameOrigin(targetUrl: string, origin: string): boolean {
 
 /** Background-internal API. Neither the options page nor content scripts get these operations. */
 export function createCryptoHost(deps: CryptoHostDependencies) {
-  const random = deps.randomId ?? (() => crypto.randomUUID());
+  const random = deps.randomId ?? newId;
   const generation = random();
   const timeoutMs = deps.timeoutMs ?? 30_000;
   const now = deps.nowMs ?? Date.now;

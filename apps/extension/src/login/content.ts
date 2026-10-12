@@ -17,6 +17,7 @@ import {
   extractEntryObservation,
   extractLoginObservation,
   extractSignedInObservation,
+  presence,
 } from "../observation/extract";
 import {
   accountEntries,
@@ -48,6 +49,7 @@ import {
   type LoginReadiness,
   type TargetState,
 } from "./wire";
+import { newId } from "@pateat/contracts/ids";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget, links = false): Element[] {
@@ -151,9 +153,12 @@ function showsSignIn(): boolean {
  * The sign-in inputs the page shows that a generated recipe can continue on after its final
  * `advance` step (ADR 0018), other than the recipe's own `targets`: `password`, a visible
  * writable password input; `identifier`, a visible writable email input or one marked for a
- * username or an email address. An input marked `new-password` or `one-time-code`, and
- * every input of a form that holds one, never counts: a sign-up, password change or code
- * form is not a sign-in page to continue on, and a code page is judged instead (ADR 0027).
+ * username or an email address. Visible as the page's description reads it, so an input
+ * hidden from assistive technology, transparent, tiny or moved before the page's start, as
+ * a password input kept on an email form for the browser to fill, never counts. An input marked
+ * `new-password` or `one-time-code`, and every input of a form that holds one, never
+ * counts: a sign-up, password change or code form is not a sign-in page to continue on,
+ * and a code page is judged instead (ADR 0027).
  */
 function credentialInputs(targets: readonly LoginTarget[]): {
   password: boolean;
@@ -167,6 +172,7 @@ function credentialInputs(targets: readonly LoginTarget[]): {
     (input) =>
       !own.has(input) &&
       writable(input) &&
+      presence(input) === "visible" &&
       !other(input) &&
       // `elements` also holds inputs tied to the form by a `form` attribute.
       !(
@@ -197,7 +203,7 @@ export interface LoginContentOptions {
 }
 
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
-  const token = crypto.randomUUID();
+  const token = newId();
   let cancelled = false;
   // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
   let ended = false;

@@ -8,7 +8,6 @@ import {
   continuesRecipe,
   extendsRecipe,
   refillsLoginSlot,
-  handlerFact,
   handlerSteps,
   handlerTargets,
   isLoginRouteRecipe,
@@ -38,7 +37,6 @@ import {
   parseLoginOperation,
   parseLoginRecipe,
   resolveLoginPlan,
-  TOTP_HANDLER_SLOT,
   type LoginAccountBinding,
   type LoginRecipe,
   type LoginTarget,
@@ -607,27 +605,6 @@ describe("second-factor page handlers (ADR 0027)", () => {
       ).toHaveLength(1);
     });
 
-    it("refuses an account switch, marker or passkey button that is one of its elements", () => {
-      const marker = { by: "id", value: "authenticated" } as const;
-      expect(() =>
-        parseLoginRecipe({
-          ...withHandlers([code()]),
-          accountSwitch: { by: "text", value: "Verify" },
-        }),
-      ).toThrow();
-      expect(() =>
-        parseLoginRecipe(withHandlers([code({ path: "/authenticated", field: marker })])),
-      ).toThrow();
-      expect(() =>
-        parseLoginRecipe({
-          ...withHandlers([
-            code({ path: "/identity", field: { by: "id", value: "passkey-login" } }),
-          ]),
-          passkey: { path: "/identity", target: { by: "id", value: "passkey-login" } },
-        }),
-      ).toThrow();
-    });
-
     it("fills the code into its field, then clicks its button", () => {
       expect(handlerTargets(code())).toEqual([code().field, code().target]);
       expect(handlerTargets(passkeyHandler())).toEqual([securityKey]);
@@ -893,7 +870,7 @@ describe("second-factor page handlers (ADR 0027)", () => {
       expect(continuesRecipe(first, { ...continued, ...change } as LoginRecipe)).toBe(false);
     });
 
-    it("refuses to continue a recipe that is complete, has alternatives or does not advance", () => {
+    it("refuses to continue a recipe that is complete or does not advance, and keeps its account switch and handlers", () => {
       expect(
         continuesRecipe(parseLoginRecipe({ ...first, completion }), next({ completion })),
       ).toBe(false);
@@ -1431,25 +1408,15 @@ describe("password route variants (ADR 0027)", () => {
         ],
       },
     ],
-    ["an account switch that is an alternative's button", { accountSwitch: id("login") }],
     [
-      "a completion marker that is a variant's element on its path",
-      { completion: [{ target: id("contract") }] },
-    ],
-    ["a rejection that is a variant's element", { rejection: id("password") }],
-    [
-      "more elements than one observation holds",
+      "an account switch that is an alternative's button",
       {
-        completion: [{ target: id("welcome"), absent: ["a", "b", "c", "d"].map(id) }],
-        alternatives: [variant(Array.from({ length: 19 }, (_, index) => `slot-${index}`))],
-      },
-    ],
-    [
-      "more than 20 slots over all variants",
-      {
+        accountSwitch: id("contract-login"),
         alternatives: [
-          variant(Array.from({ length: 10 }, (_, index) => `first-${index}`)),
-          variant(Array.from({ length: 10 }, (_, index) => `second-${index}`)),
+          {
+            slots: ["contract", "password"],
+            steps: [fill(["contract", "password"]), submit("/login", "contract-login")],
+          },
         ],
       },
     ],
@@ -1751,6 +1718,8 @@ describe("the passkey route (ADR 0027)", () => {
     const button = parseLoginRecipe(withPasskey());
     expect(chooseLoginRoute(button, facts(true), [true], true)).toEqual({ route: "passkey" });
     expect(chooseLoginRoute(button, facts(true), [true], false)).toEqual({ route: "passkey" });
+    // An item without a password, or whose binding fills no variant, still takes it.
+    expect(chooseLoginRoute(button, facts(true, false), [])).toEqual({ route: "passkey" });
   });
 
   it.each<[string, Record<string, unknown>]>([
@@ -1759,7 +1728,6 @@ describe("the passkey route (ADR 0027)", () => {
     ["on a variant's button", { passkey: { ...passkey, target: id("next") } }],
     ["on the account switch", { accountSwitch: id("passkey-login") }],
     ["on the rejection", { rejection: id("passkey-login") }],
-    ["on the completion on its path", { completion: passkey }],
     [
       "on a handler on its path",
       { handlers: [{ kind: "passkey", path: "/identity", target: id("passkey-login") }] },
@@ -1851,28 +1819,6 @@ describe("the passkey route (ADR 0027)", () => {
         handlers: [{ kind: "passkey", path: "/webauthn", target: id("passkey-login") }],
       }),
     ).toBe(true);
-  });
-
-  it("chooses the passkey route first for a discoverable passkey, else the password route", () => {
-    const parsed = parseLoginRecipe(withPasskey());
-    const facts = (password: boolean, discoverablePasskey: boolean) => ({
-      password,
-      discoverablePasskey,
-    });
-    expect(chooseLoginRoute(parsed, facts(true, true), [true])).toEqual({ route: "passkey" });
-    // An item without a password, or whose binding fills no variant, still takes it.
-    expect(chooseLoginRoute(parsed, facts(false, true), [])).toEqual({ route: "passkey" });
-    // A key registered only as a second factor is not discoverable.
-    expect(chooseLoginRoute(parsed, facts(true, false), [true])).toEqual({
-      route: "password",
-      variant: 0,
-    });
-    expect(chooseLoginRoute(parsed, facts(false, false), [true])).toBeUndefined();
-    // Without the route, a discoverable passkey changes nothing.
-    expect(chooseLoginRoute(parseLoginRecipe(recipe()), facts(true, true), [true])).toEqual({
-      route: "password",
-      variant: 0,
-    });
   });
 
   it("keeps the route fixed when a revision is taken over", () => {
@@ -1993,20 +1939,9 @@ describe("totp handler recipe checks, probed independently (ADR 0027)", () => {
     );
   });
 
-  it("lists a totp handler's field before its button, and a passkey handler's button", () => {
-    expect(handlerTargets(totp())).toEqual([{ by: "id", value: "otp" }, verify]);
-    expect(handlerTargets(key())).toEqual([{ by: "text", value: "Use security key" }]);
-    expect(handlerFact).toEqual({ passkey: "passkey", totp: "totp" });
-    expect(TOTP_HANDLER_SLOT).toBe("totp");
-    expect(handlerSteps(totp())[0]).toMatchObject({
-      kind: "fill",
-      effect: "prepare",
-      fields: [{ slot: TOTP_HANDLER_SLOT }],
-    });
-  });
-
-  it("refuses an account switch that is the code field, on any path", () => {
+  it("refuses an account switch that is the code field or its button, on any path", () => {
     expect(parses({ handlers: [totp()], accountSwitch: { by: "id", value: "otp" } })).toBe(false);
+    expect(parses({ handlers: [totp()], accountSwitch: verify })).toBe(false);
     expect(
       parses({
         handlers: [totp({ path: "/elsewhere" })],

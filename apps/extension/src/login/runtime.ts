@@ -150,6 +150,7 @@ import {
   loginUsernameFieldId,
   type LoginFieldSource,
 } from "./vault";
+import { newId } from "@pateat/contracts/ids";
 
 const STORAGE_KEY = "pateat.login-attempts.v4";
 /** The previous attempt store, removed on load; its records are not read. */
@@ -1233,6 +1234,11 @@ export function createLoginRuntime(
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
+     * Told of each origin of a login that reached signed in, on any route, so a site's
+     * passkey registration right after it can be refused (ADR 0007). Never changes the login.
+     */
+    signedIn?: (tabId: number, origin: string) => void;
+    /**
      * Automatic vault sync (ADR 0025). Each page announcement starts a due check and
      * holds vault replacement off while it is handled; a page that may start a login
      * first waits briefly for a running check.
@@ -1812,14 +1818,16 @@ export function createLoginRuntime(
     const previous = persisted.get(key);
     const next = parseAttemptMetadata({ ...metadata, changedAt: undefined });
     // Only the login's own progress counts as a change. A new page of its tab (another
-    // `documentId`) or a page sent to be judged keeps the time, so a tab left browsing the
-    // site after a login that did not succeed stops holding it.
+    // `documentId`), a page sent to be judged or newer settings a watch took over keep the
+    // time, so a tab left browsing the site after a login that did not succeed stops
+    // holding it.
     const progress = (record: LoginAttemptMetadata) =>
       JSON.stringify({
         ...record,
         document: { ...record.document, documentId: undefined },
         judged: undefined,
         watch: undefined,
+        policyRevision: undefined,
         changedAt: undefined,
       });
     const unchanged =
@@ -1849,6 +1857,28 @@ export function createLoginRuntime(
       throw new Error("storage-failed");
     }
   }
+  /**
+   * Tells `options.signedIn` of an attempt that has just reached signed in: its origin, the
+   * top page's origin for a frame's login, and the page it ended on.
+   */
+  const noteSignedIn = (
+    previous: LoginAttemptMetadata,
+    next: LoginAttemptMetadata,
+    pageOrigin?: string,
+  ) => {
+    if (next.state !== "authenticated" || previous.state === "authenticated") return;
+    const origins = new Set(
+      [next.account.origin, next.pageOrigin, pageOrigin].filter(
+        (value): value is string => value !== undefined,
+      ),
+    );
+    for (const signedOrigin of origins)
+      try {
+        options.signedIn?.(next.document.tabId, signedOrigin);
+      } catch {
+        // Never changes the login.
+      }
+  };
   async function change(
     run: Execution,
     event: LoginAttemptEvent,
@@ -1870,6 +1900,11 @@ export function createLoginRuntime(
     run.metadata = transitionLoginAttempt(
       run.metadata,
       undelivered ? { type: "POLICY_CHANGED", undelivered } : event,
+    );
+    noteSignedIn(
+      previous,
+      run.metadata,
+      run.live.document.frameId === 0 ? run.live.document.origin : undefined,
     );
     // Settling as unknown keeps the state, but it is how a login ends without a result.
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
@@ -1958,8 +1993,9 @@ export function createLoginRuntime(
   }
   /**
    * Saves an automatic account choice after `authenticated` (ADR 0013). The settings must
-   * still be the revision the attempt was authorized under; otherwise nothing is saved and
-   * the next login chooses again.
+   * still be the revision the attempt was authorized under, or the newer one a watch took
+   * over after checking its account; otherwise nothing is saved and the next login chooses
+   * again.
    */
   async function remember(run: Execution): Promise<void> {
     const choice = run.choice;
@@ -2735,7 +2771,20 @@ export function createLoginRuntime(
     if (!current(run) || !storageHealthy) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!current(run)) return undefined;
-    if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) {
+    // A watched login only reads, so newer settings stop it only when they no longer plan
+    // its account on this page, as another site's saved account choice does not (ADR 0027).
+    const revised =
+      snapshot.ok &&
+      run.metadata.watch !== undefined &&
+      snapshot.snapshot.revision > run.metadata.policyRevision;
+    // A read that another check of the same watch overtook says nothing.
+    if (
+      snapshot.ok &&
+      run.metadata.watch !== undefined &&
+      snapshot.snapshot.revision < run.metadata.policyRevision
+    )
+      return undefined;
+    if (!snapshot.ok || (snapshot.snapshot.revision !== run.metadata.policyRevision && !revised)) {
       await change(
         run,
         { type: "POLICY_CHANGED" },
@@ -2760,6 +2809,11 @@ export function createLoginRuntime(
         { cause: "plan", reason: plan.ok ? "account-changed" : plan.reason },
       );
       return undefined;
+    }
+    if (revised) {
+      await change(run, { type: "POLICY_REVISED", policyRevision: snapshot.snapshot.revision });
+      if (!current(run) || run.metadata.policyRevision !== snapshot.snapshot.revision)
+        return undefined;
     }
     return {
       connection: plan.connection,
@@ -3330,7 +3384,7 @@ export function createLoginRuntime(
    * Returns whether the attempt took it.
    */
   async function codeSubmitted(run: Execution): Promise<boolean> {
-    await change(run, { type: "AUTO_SUBMITTED", operationId: crypto.randomUUID() });
+    await change(run, { type: "AUTO_SUBMITTED", operationId: newId() });
     if (
       !current(run) ||
       run.metadata.state !== "reconciling" ||
@@ -3658,10 +3712,10 @@ export function createLoginRuntime(
    * once it has finished loading and has shown, for a second on one path, a sign-in input
    * for a built-in slot the recipe does not fill yet, other than the recipe's own fields: a
    * password input, or, while none of the recipe's fill fields is writable on the page, a
-   * username or email input. A complete description of it is sent once per effect step,
-   * offering only the slots the recipe does not fill yet: the request is recorded in the
-   * attempt first, and given back for a later document to send when the generation claim
-   * was freed or the request was not sent (`retry`). A later document of the login waits
+   * username or email input. A complete description of it that shows such an input is sent
+   * once per effect step, offering only the slots the recipe does not fill yet: the request
+   * is recorded in the attempt first, and given back for a later document to send when the
+   * generation claim was freed or the request was not sent (`retry`). A later document of the login waits
    * for an answer still on its way. Returns `moved` once the attempt moved on or this document is no longer
    * current, `qualified` for a qualifying page that was not continued (yet), which is never
    * judged, and `none` for any other page.
@@ -3686,16 +3740,15 @@ export function createLoginRuntime(
       ),
     );
     const shown = observed.signIn;
+    const byPassword = shown?.password === true && !filled.has("password");
     // A page that asks for the account again, such as the identifier form shown again
     // where it posted, shows one of the recipe's fill fields writable, on any path. A
     // revealed password input below the identifier the recipe filled still qualifies.
-    const qualifies =
-      shown?.loaded === true &&
-      ((shown.password && !filled.has("password")) ||
-        (shown.identifier &&
-          !filled.has("username") &&
-          !observed.targets.some((target) => target === "unique")));
-    if (!qualifies) {
+    const byIdentifier =
+      shown?.identifier === true &&
+      !filled.has("username") &&
+      !observed.targets.some((target) => target === "unique");
+    if (shown?.loaded !== true || !(byPassword || byIdentifier)) {
       if (run.qualified?.operationId === operationId) delete run.qualified;
       return "none";
     }
@@ -3802,6 +3855,28 @@ export function createLoginRuntime(
     if (!current(run)) return "moved";
     // An incomplete description is not sent and does not count; a later round tries again.
     if (!observation) return unsent(missing);
+    // The description must show the input the page qualified with, which it can leave out
+    // where the two read the page differently, as an input in a form the description does
+    // not keep. The page must then qualify for another second before it is read again.
+    const fillTargets = recipe.steps.flatMap((step) =>
+      step.kind === "fill" ? step.fields.map((field) => field.target) : [],
+    );
+    const described = observation.candidates.some(
+      (candidate) =>
+        (byPassword &&
+          candidate.role === "password" &&
+          candidate.autocomplete !== "new-password" &&
+          candidate.autocomplete !== "one-time-code") ||
+        (byIdentifier &&
+          (candidate.role === "email" ||
+            candidate.autocomplete === "username" ||
+            candidate.autocomplete === "email") &&
+          !fillTargets.some((target) => sameLoginTarget(target, candidate.target))),
+    );
+    if (!described) {
+      state.since = Date.now();
+      return unsent("field-not-described");
+    }
     // The login's own item must match the page, as for a recipe's first page (ADR 0016).
     const scope = await generationSlotsFor(run.live).catch(() => undefined);
     if (!current(run)) return "moved";
@@ -4227,12 +4302,7 @@ export function createLoginRuntime(
         // first submission, as a chooser login's click on its list is (ADR 0034).
         if (await switchToPasskey(run)) continue;
       }
-      const operation = nextLoginOperation(
-        run.metadata,
-        run.recipe,
-        run.live.document,
-        crypto.randomUUID(),
-      );
+      const operation = nextLoginOperation(run.metadata, run.recipe, run.live.document, newId());
       if (!operation) {
         await change(
           run,
@@ -5701,11 +5771,13 @@ export function createLoginRuntime(
       const latest = run?.metadata ?? tabAttempt(document.tabId);
       // Another page of the tab may have ended the attempt meanwhile.
       if (ending && latest?.id === holder.id && !terminal(latest)) {
-        const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(latest), {
+        const before = run?.metadata ?? recoverLoginAttempt(latest);
+        const ended = transitionLoginAttempt(before, {
           type: "NAVIGATED",
           document: { ...document, frameId: 0, origin: siteOrigin },
           ...(signedIn ? { signedIn } : {}),
         });
+        noteSignedIn(before, ended, siteOrigin);
         if (run) run.metadata = ended;
         reportAttempt(ended, run?.recipe);
         try {
@@ -6280,7 +6352,7 @@ export function createLoginRuntime(
       if (previous.document.documentId !== document.documentId && codeAwaitsClick(recipe, resumed))
         resumed = transitionLoginAttempt(resumed, {
           type: "AUTO_SUBMITTED",
-          operationId: crypto.randomUUID(),
+          operationId: newId(),
         });
       metadata = transitionLoginAttempt(resumed, {
         type: "NAVIGATED",
@@ -6292,15 +6364,28 @@ export function createLoginRuntime(
           recipeRevision: recipe.revision,
         });
       if (metadata.policyRevision !== snapshot.snapshot.revision && !terminal(metadata)) {
-        metadata = transitionLoginAttempt(metadata, { type: "POLICY_CHANGED" });
-        resumedPolicy = { cause: "settings-revision" };
+        // A watched login keeps watching while the newer settings still plan its account
+        // (ADR 0027).
+        const kept =
+          metadata.watch !== undefined &&
+          snapshot.snapshot.revision > metadata.policyRevision &&
+          plan.ok &&
+          plan.account.connectionId === metadata.account.connectionId &&
+          plan.account.itemId === metadata.account.itemId;
+        metadata = transitionLoginAttempt(
+          metadata,
+          kept
+            ? { type: "POLICY_REVISED", policyRevision: snapshot.snapshot.revision }
+            : { type: "POLICY_CHANGED" },
+        );
+        if (!kept) resumedPolicy = { cause: "settings-revision" };
       }
     } else {
       // A new login's plan carries the facts it chose its route with.
       if (!("facts" in plan)) return refuse("no-route");
       metadata = transitionLoginAttempt(
         createAttemptMetadata({
-          id: crypto.randomUUID(),
+          id: newId(),
           recipe,
           policyRevision: snapshot.snapshot.revision,
           account: {
@@ -7093,18 +7178,25 @@ export function createLoginRuntime(
       run.metadata.policyRevision,
     );
   }
-  /** Stops every running login: settings were synced from the service or saved locally. */
+  /**
+   * Settings were synced from the service or saved locally: stops every running login but
+   * a watched one, which only reads, so it is checked against the new settings instead and
+   * stops only when they no longer plan its account (ADR 0027).
+   */
   function settingsChanged(source: "synced" | "saved"): void {
     for (const run of attempts.values()) {
-      if (!terminal(run.metadata)) {
-        // Stop in-flight DOM waits promptly; the journal write may be slower.
-        void send(run.live, { type: "login.cancel" }).catch(() => undefined);
-        void change(
-          run,
-          { type: "POLICY_CHANGED" },
-          { cause: source === "synced" ? "settings-synced" : "settings-saved" },
-        ).catch(() => undefined);
+      if (terminal(run.metadata)) continue;
+      if (run.metadata.watch !== undefined) {
+        void allowed(run).catch(() => undefined);
+        continue;
       }
+      // Stop in-flight DOM waits promptly; the journal write may be slower.
+      void send(run.live, { type: "login.cancel" }).catch(() => undefined);
+      void change(
+        run,
+        { type: "POLICY_CHANGED" },
+        { cause: source === "synced" ? "settings-synced" : "settings-saved" },
+      ).catch(() => undefined);
     }
   }
   browser.tabs.onRemoved.addListener((tabId) => {
@@ -7455,12 +7547,7 @@ export function createLoginRuntime(
       return;
     }
     if (!(await allowed(run))) return;
-    const operation = nextLoginOperation(
-      run.metadata,
-      run.recipe,
-      run.live.document,
-      crypto.randomUUID(),
-    );
+    const operation = nextLoginOperation(run.metadata, run.recipe, run.live.document, newId());
     if (!operation) {
       await change(
         run,

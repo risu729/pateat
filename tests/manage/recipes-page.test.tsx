@@ -40,7 +40,11 @@ function mockClient(initial: ManageRecipes) {
   return {
     devices: vi.fn<ManageClient["devices"]>(),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
-    settings: vi.fn<ManageClient["settings"]>(),
+    settings: vi.fn<ManageClient["settings"]>(async () => ({
+      version: 1,
+      revision: 0,
+      settings: null,
+    })),
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
     recipes: vi.fn<ManageClient["recipes"]>(async () => structuredClone(current)),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(async (recipeId, expectedRevision) => {
@@ -59,15 +63,20 @@ function mockClient(initial: ManageRecipes) {
   } satisfies ManageClient & { replace(next: ManageRecipes): void };
 }
 
-async function mount(client: ManageClient) {
+// Recipes are listed on their site's page; revoked ones on the Sites list.
+async function mount(client: ManageClient, path = "/manage/sites/https/bank.example") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await render(
     <QueryClientProvider client={queryClient}>
-      <ManageApp client={client} path="/manage/recipes" />
+      <ManageApp client={client} path={path} />
     </QueryClientProvider>,
   );
   return queryClient;
 }
+
+/** One recipe's entry on the site's page: its heading, facts, steps and JSON. */
+const recipeItem = (id: string) =>
+  page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: id }) });
 
 afterEach(async () => {
   await cleanup();
@@ -89,29 +98,30 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   });
   await mount(client);
   await expect
-    .element(page.getByRole("link", { name: "Recipes" }))
-    .toHaveAttribute("aria-current", "page");
-  const list = page.getByRole("list").filter({ hasText: "bank-signin" }).first();
+    .element(page.getByRole("link", { name: "Sites" }).first())
+    .toHaveAttribute("aria-current", "true");
   await expect
-    .element(list)
-    .toMatchTextContent("https://bank.example · revision 2 · updated 2026-10-11 08:15 UTC");
-  await expect.element(page.getByRole("listitem").filter({ hasText: "old-signin" })).toBeVisible();
-
-  await page.getByText("Steps and JSON for bank-signin").click();
-  const details = page.getByRole("group").first();
-  await expect.element(details).toBeVisible();
+    .element(page.getByRole("heading", { level: 1, name: "https://bank.example" }))
+    .toBeVisible();
+  const details = recipeItem("bank-signin");
   for (const text of [
+    "Revision2, updated 2026-10-11 08:15 UTC",
     'Fill username into id "username", password into name "pass" (prepare)',
     'Click test-id "go" to submit',
     'id "welcome" on any page',
     'Rejectionid "login-error"',
-    '"maxSubmissions": 1',
+    "SubmissionsAt most 1",
   ])
     // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
     await expect.element(details).toMatchTextContent(text);
+  await page.getByText("JSON of bank-signin").click();
+  await expect.element(details.getByText(/"maxSubmissions": 1/)).toBeVisible();
+  // A revoked recipe keeps no origin, so it is not on any site's page.
+  await expect.element(page.getByText("old-signin")).not.toBeInTheDocument();
 
   // Revoking asks once more; cancelling changes nothing.
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
+  await expect.element(page.getByText("Revoke bank-signin, revision 2?")).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Confirm" })).toHaveFocus();
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect
@@ -122,11 +132,33 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect.poll(() => client.revokeRecipe).toHaveBeenCalledWith("bank-signin", 2);
-  await expect.element(page.getByRole("status")).toHaveTextContent("bank-signin was revoked.");
+  await expect.element(page.getByRole("status")).toHaveTextContent("bank-signin revoked");
   await expect
     .element(page.getByRole("button", { name: "Revoke recipe bank-signin" }))
     .not.toBeInTheDocument();
-  await expect.element(page.getByText("(revision 3, revoked 2026-10-11 08:16 UTC)")).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Revoke recipe shop-signin" }))
+    .toBeVisible();
+
+  // The Sites list keeps every revoked recipe, with its last revision and when.
+  await cleanup();
+  await mount(client, "/manage/sites");
+  const revoked = page.getByRole("region", { name: "Revoked recipes" });
+  await expect
+    .element(revoked)
+    .toMatchTextContent("bank-signinRevision 3, revoked 2026-10-11 08:16 UTC");
+  await expect
+    .element(revoked)
+    .toMatchTextContent("old-signinRevision 3, revoked 2026-10-11 08:15 UTC");
+  await expect.element(revoked).not.toMatchTextContent("shop-signin");
+});
+
+test("lists only the recipes of the site the page is for", async () => {
+  const elsewhere = active("card-signin");
+  elsewhere.change.recipe.origin = "https://card.example";
+  await mount(mockClient({ version: 1, recipes: [active("bank-signin"), elsewhere] }));
+  await expect.element(recipeItem("bank-signin")).toBeVisible();
+  await expect.element(page.getByText("card-signin")).not.toBeInTheDocument();
 });
 
 test("lists each identifier set of a recipe with several (ADR 0027)", async () => {
@@ -163,12 +195,11 @@ test("lists each identifier set of a recipe with several (ADR 0027)", async () =
     ],
   });
   await mount(client);
-  await page.getByText("Steps and JSON for bank-signin").click();
-  const details = page.getByRole("group").first();
+  const details = recipeItem("bank-signin");
   for (const text of [
     "Slotsusername, password, contract-number",
-    "Identifier set 1: username, password",
-    "Identifier set 2: contract-number, password",
+    "Identifier set 1 (username, password)",
+    "Identifier set 2 (contract-number, password)",
     'Fill contract-number into id "contract", password into name "pass" (prepare)',
   ])
     // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
@@ -189,14 +220,12 @@ test("shows a recipe's passkey sign-in route (ADR 0027)", async () => {
     ],
   });
   await mount(client);
-  await page.getByText("Steps and JSON for bank-signin").click();
   await expect
-    .element(page.getByRole("group").first())
+    .element(recipeItem("bank-signin"))
     .toMatchTextContent(
       'Passkey sign-inClick id "passkey-login" on /login for an account with a discoverable passkey',
     );
-  await page.getByText("Steps and JSON for card-signin").click();
-  await expect.element(page.getByRole("group").nth(1)).toMatchTextContent("Passkey sign-inNone");
+  await expect.element(recipeItem("card-signin")).toMatchTextContent("Passkey sign-inNone");
 });
 
 test("shows an entry recipe's sign-in entry, which devices do not click yet (ADR 0031)", async () => {
@@ -224,8 +253,8 @@ test("shows an entry recipe's sign-in entry, which devices do not click yet (ADR
   await expect
     .element(page.getByRole("button", { name: "Revoke recipe bank-entry" }))
     .toBeVisible();
-  await page.getByText("Entry and JSON for bank-entry").click();
-  const details = page.getByRole("group").first();
+  await page.getByText("JSON of bank-entry").click();
+  const details = recipeItem("bank-entry");
   for (const text of [
     'Sign-in entryClick text "Login" on / to open the site\'s login page. Devices do not click it yet.',
     '"entry": {',
@@ -260,8 +289,8 @@ test("shows a chooser recipe's buttons and branches, which devices do not use ye
     ],
   });
   await mount(client);
-  await page.getByText("Account list and JSON for bank-chooser").click();
-  const details = page.getByRole("group").first();
+  await page.getByText("JSON of bank-chooser").click();
+  const details = recipeItem("bank-chooser");
   for (const text of [
     "Account listOn /login, click the entry of the chosen item's account. Devices do not do this yet.",
     'Shown accountClick text "Log back in"',
@@ -284,7 +313,7 @@ test("reports a revocation that lost to another write and shows the current reci
   await expect
     .element(page.getByRole("alert"))
     .toMatchTextContent(/changed elsewhere or is already revoked/);
-  await expect.element(page.getByText(/revision 2/)).toBeVisible();
+  await expect.element(page.getByText("2, updated 2026-10-11 08:15 UTC")).toBeVisible();
   // Focus returns to the control the owner used, and a retry confirms the revision now shown.
   await expect
     .element(page.getByRole("button", { name: "Revoke recipe bank-signin" }))
@@ -323,7 +352,9 @@ test("revokes the revision the owner confirmed, even if the list refreshes meanw
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
   client.replace({ version: 1, recipes: [active("bank-signin", 2)] });
   await queryClient.invalidateQueries();
-  await expect.element(page.getByText(/revision 2/)).toBeVisible();
+  await expect.element(page.getByText("2, updated 2026-10-11 08:15 UTC")).toBeVisible();
+  // The prompt still names the revision the owner asked to revoke.
+  await expect.element(page.getByText("Revoke bank-signin, revision 1?")).toBeVisible();
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect.poll(() => client.revokeRecipe).toHaveBeenCalledWith("bank-signin", 1);
 });
@@ -338,7 +369,7 @@ test("keeps the last list and says so when it cannot be refreshed after a revoca
   client.recipes.mockRejectedValue(new ManageApiError("network"));
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
   await page.getByRole("button", { name: "Confirm" }).click();
-  await expect.element(page.getByRole("status")).toHaveTextContent("bank-signin was revoked.");
+  await expect.element(page.getByRole("status")).toHaveTextContent("bank-signin revoked");
   await expect
     .element(page.getByRole("alert"))
     .toMatchTextContent(/could not be refreshed and may be out of date/);
@@ -350,18 +381,20 @@ test("says when a generated recipe has no signed-in marker yet", async () => {
   const entry = active("new-signin");
   delete entry.change.recipe.completion;
   await mount(mockClient({ version: 1, recipes: [entry] }));
-  await page.getByText("Steps and JSON for new-signin").click();
   await expect
-    .element(page.getByRole("group").first())
+    .element(recipeItem("new-signin"))
     .toMatchTextContent(
       "Signed-in markersNot learned yet; set from the page after the first sign-in",
     );
 });
 
 test("says when there are no recipes", async () => {
-  await mount(mockClient({ version: 1, recipes: [] }));
-  await expect.element(page.getByText("No active recipes.")).toBeVisible();
-  await expect.element(page.getByText("No revoked recipes.")).toBeVisible();
+  const client = mockClient({ version: 1, recipes: [] });
+  await mount(client);
+  await expect.element(page.getByText("No recipes", { exact: true })).toBeVisible();
+  await cleanup();
+  await mount(client, "/manage/sites");
+  await expect.element(page.getByText("No revoked recipes")).toBeVisible();
 });
 
 test("says when a recipe to revoke no longer exists", async () => {
@@ -385,7 +418,7 @@ test("says when a recipe to revoke no longer exists", async () => {
   await expect.element(revokeButton).toBeVisible();
   await expect.element(revokeButton).not.toHaveFocus();
   release();
-  await expect.element(page.getByText("No active recipes.")).toBeVisible();
+  await expect.element(page.getByText("No recipes", { exact: true })).toBeVisible();
   await expect.element(page.getByRole("heading", { name: "Recipes", exact: true })).toHaveFocus();
 });
 
@@ -396,5 +429,11 @@ test("asks for a reload when the recipes cannot be read", async () => {
   await expect
     .element(page.getByRole("alert"))
     .toHaveTextContent("Your sign-in may have expired. Reload the page to sign in again.");
-  await expect.element(page.getByText("No revoked recipes.")).not.toBeInTheDocument();
+  await expect.element(page.getByText("No recipes", { exact: true })).not.toBeInTheDocument();
+  await cleanup();
+  await mount(client, "/manage/sites");
+  await expect
+    .element(page.getByRole("alert"))
+    .toHaveTextContent("Your sign-in may have expired. Reload the page to sign in again.");
+  await expect.element(page.getByText("No revoked recipes")).not.toBeInTheDocument();
 });

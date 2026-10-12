@@ -11,9 +11,6 @@ const validEmail =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 const validNumber = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
-/** Whether `value` is a WHATWG valid email address, as an `email` input requires. */
-export const isValidEmail = (value: string) => validEmail.test(value);
-
 export type ValueMismatch = "missing-value" | "too-long" | "too-short" | "not-email" | "not-number";
 
 /**

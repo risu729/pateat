@@ -19,8 +19,10 @@ import { actionIconState, createActionIcon } from "../src/connections/action-ico
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
+import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
+import { createSignIns } from "../src/passkeys/sign-ins";
 import { createSignedTabs } from "../src/passkeys/signed-tabs";
 import {
   createVaultPasskeyFinder,
@@ -177,6 +179,12 @@ export default defineBackground(() => {
     loginActive: () => login.active(),
     report: diagnosticsLog.vaultCheck,
   });
+  // ADR 0007: Pateat's own sign-ins per tab, which a site's passkey registration may follow.
+  const signIns = createSignIns(browser.storage.session, (listener) =>
+    browser.tabs.onRemoved.addListener(listener),
+  );
+  const noteSignIn = (tabId: number, origin: string, rpId?: string) =>
+    void signIns.add(tabId, { origin, ...(rpId === undefined ? {} : { rpId }) }).catch(() => {});
   const login = createLoginRuntime(loginSettings, {
     vault: vaultSync,
     fields: combineFieldSources({
@@ -201,6 +209,7 @@ export default defineBackground(() => {
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     report: diagnosticsLog.login,
+    signedIn: (tabId, origin) => noteSignIn(tabId, origin),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const siteAccounts = createSiteAccountsHandler({
@@ -239,6 +248,11 @@ export default defineBackground(() => {
     import.meta.env.MODE === "probe"
       ? createProbePasskeySource(vaultPasskeys, rememberPasskey)
       : undefined;
+  // ADR 0022 and ADR 0007: a returned assertion may complete a login and is a sign-in.
+  const passkeyAnswered = (tabId: number, origin: string, rpId: string) => {
+    noteSignIn(tabId, origin, rpId);
+    login.passkeyAnswered(tabId, origin, rpId);
+  };
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
         extensionId: browser.runtime.id,
@@ -248,7 +262,7 @@ export default defineBackground(() => {
         remember: passkeyProbe.remember,
         loginAccount: login.loginAccount,
         requested: login.passkeyRequested,
-        answered: login.passkeyAnswered,
+        answered: passkeyAnswered,
         signedTabs,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
@@ -264,13 +278,23 @@ export default defineBackground(() => {
         // ADR 0029: the login logs whether the page asked for a passkey after a step.
         requested: login.passkeyRequested,
         // ADR 0022: a login that moves on to the passkey's site after an answer completes.
-        answered: login.passkeyAnswered,
+        answered: passkeyAnswered,
         signedTabs,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.
         hold: () => vaultSync.enter(false),
       });
+  // ADR 0007: a registration listing the vault's passkey right after a Pateat sign-in in the
+  // tab is refused; every other one goes to the browser. It only reads the vault.
+  const passkeyCreate = createPasskeyCreateHandler(passkeyProbe?.source ?? vaultPasskeys, {
+    extensionId: browser.runtime.id,
+    signIns,
+    ...(passkeyProbe
+      ? { timeoutMs: passkeyProbe.timeoutMs }
+      : { report: diagnosticsLog.passkeyCreate }),
+    hold: () => vaultSync.enter(false),
+  });
 
   // Value-free per-device state for bug reports (ADR 0019).
   const diagnostics = createDiagnosticsHandler({
@@ -489,6 +513,14 @@ export default defineBackground(() => {
     ) {
       sendResponse(passkeyProbe.control(message));
       return false;
+    }
+    if (message !== null && typeof message === "object" && message.type === "passkey.create") {
+      void passkeyCreate
+        .handle(message, sender)
+        .then(sendResponse, () =>
+          sendResponse({ kind: "delegate", reason: "runtime-unavailable" }),
+        );
+      return true;
     }
     if (
       message !== null &&

@@ -1,9 +1,12 @@
+import { ChevronRight, Info, KeyRound, Star } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import * as v from "valibot";
+import { Logo } from "../logo";
 import { Button } from "../options/button";
 import { chooserResponseSchema, type ChooserResponse, type ChooserView } from "./chooser";
 
-const MAIN = "mx-auto max-w-md p-5 [&_h1]:text-2xl";
+const MAIN = "mx-auto flex min-h-screen max-w-md flex-col gap-4 p-5";
+const HEADING = "m-0 text-xl/7 font-[650] wrap-anywhere";
 
 export type ChooserClient = {
   /** The request token from the window's URL. */
@@ -19,6 +22,15 @@ async function call(client: ChooserClient, message: unknown): Promise<ChooserRes
   } catch {
     return { ok: false };
   }
+}
+
+function Header({ children }: { children: React.ReactNode }) {
+  return (
+    <header className="flex items-center gap-2.5">
+      <Logo />
+      <h1 className={HEADING}>{children}</h1>
+    </header>
+  );
 }
 
 /**
@@ -78,11 +90,15 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   if (view === "ended")
     return (
       <main className={MAIN}>
-        <h1>Passkey request ended</h1>
-        <p>The site stopped waiting, or Pateat restarted. Close this window and try again.</p>
-        <Button variant="outline" onClick={() => client.close()}>
-          Close
-        </Button>
+        <Header>Passkey request ended</Header>
+        <p className="m-0">
+          The site stopped waiting, or Pateat restarted. Close this window and try again.
+        </p>
+        <div className="mt-auto flex justify-end border-t border-border pt-4">
+          <Button variant="outline" onClick={() => client.close()}>
+            Close
+          </Button>
+        </div>
       </main>
     );
   const host = new URL(view.origin).host;
@@ -91,21 +107,15 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   const canSave = view.entries.some((entry) => !entry.preferred);
   return (
     <main className={MAIN}>
-      <h1>Choose a passkey</h1>
-      <p>
-        <strong>{host}</strong> asks for a passkey.{" "}
-        {view.entries.length === 1
-          ? "1 in your vault matches."
-          : `${view.entries.length} in your vault match.`}
-      </p>
+      <Header>Sign in to {host}</Header>
       {view.again && (
-        <p>
-          Pateat signed in to this site from this tab before. If you signed out to switch accounts,
-          choose the one to use now.
+        <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
+          <Info aria-hidden size={14} strokeWidth={2} className="shrink-0" />
+          Pateat signed in here from this tab before
         </p>
       )}
       {/* Above the list, so it is seen before a choice is made. */}
-      <p className="my-4 flex items-start gap-2" hidden={!canSave}>
+      <p className="m-0 flex items-start gap-2.5" hidden={!canSave}>
         <input
           id={checkboxId}
           type="checkbox"
@@ -113,37 +123,63 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
           disabled={sending}
           onChange={(event) => setMakeDefault(event.target.checked)}
         />
-        <label htmlFor={checkboxId}>
+        <label htmlFor={checkboxId} className="m-0 text-[15px]/6 font-normal">
           {view.replacesDefault
             ? `Replace the default account for ${host} with this one`
             : `Use this account for ${host} from now on`}
         </label>
       </p>
-      <ul aria-label="Matching passkeys" className="my-4 flex list-none flex-col gap-2 p-0">
+      <ul aria-label="Matching passkeys" className="m-0 flex list-none flex-col gap-2 p-0">
         {rows.map(({ entry, index }) => (
           // The list never changes while the window is open, so its position is a stable key.
           <li key={index}>
             <button
               type="button"
               disabled={sending}
-              className="flex w-full flex-col items-start rounded-lg border border-border-strong bg-surface px-4 py-3 text-left hover:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50"
+              className="flex min-h-14 w-full items-center gap-3 rounded-lg border border-border-strong bg-surface px-3 py-2 text-left text-ink hover:bg-surface-sunken disabled:opacity-50"
               onClick={() => void answer({ kind: "chosen", index })}
             >
-              <span className="font-semibold break-all">{entry.item}</span>
-              {entry.userName && <span className="text-sm break-all">{entry.userName}</span>}
-              {entry.account && (
-                <span className="text-sm break-all text-ink-muted">{entry.account}</span>
-              )}
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-surface-sunken text-ink-muted">
+                <KeyRound aria-hidden size={16} strokeWidth={2} />
+              </span>
+              {/* The passkey's user name leads; the item and its connection follow. */}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="font-semibold wrap-anywhere">{entry.userName ?? entry.item}</span>
+                {(entry.userName || entry.account) && (
+                  <span className="text-[13px]/5 wrap-anywhere text-ink-muted">
+                    {entry.userName
+                      ? entry.account
+                        ? `${entry.item} in ${entry.account}`
+                        : entry.item
+                      : entry.account}
+                  </span>
+                )}
+              </span>
               {entry.preferred && (
-                <span className="text-sm font-semibold text-accent-ink">Site default</span>
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent-tint px-2 text-xs/5 font-semibold text-accent-ink">
+                  <Star aria-hidden size={12} strokeWidth={2} />
+                  Default
+                </span>
               )}
+              <ChevronRight
+                aria-hidden
+                size={16}
+                strokeWidth={2}
+                className="shrink-0 text-ink-muted"
+              />
             </button>
           </li>
         ))}
       </ul>
-      <Button variant="outline" disabled={sending} onClick={() => void answer({ kind: "browser" })}>
-        Use the browser or another extension
-      </Button>
+      <div className="mt-auto flex justify-end border-t border-border pt-4">
+        <Button
+          variant="outline"
+          disabled={sending}
+          onClick={() => void answer({ kind: "browser" })}
+        >
+          Use the browser or another extension
+        </Button>
+      </div>
     </main>
   );
 }

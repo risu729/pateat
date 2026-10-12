@@ -220,24 +220,34 @@ export async function startLoginFixture(
       // the password form from the start. `?unknown` shows the account form again with an
       // unknown-account error instead, the password form still hidden. `?account` expects the
       // `accountName` option instead and signs in to /account, as a generated recipe's site
-      // (ADR 0018). Only those known flags are read, and the query is never written into the
-      // page.
+      // (ADR 0018). `?prefill` keeps a password input hidden from assistive technology and
+      // transparent in the account form for the browser to fill, and Next keeps the account
+      // form showing while it looks the account up for two and a half seconds before it
+      // swaps the password form in. Only those known flags are read, and the query is never
+      // written into the page.
       const push = fixtureUrl.searchParams.has("push");
       const shown = fixtureUrl.searchParams.has("shown");
       const unknown = fixtureUrl.searchParams.has("unknown");
       const toAccount = fixtureUrl.searchParams.has("account");
+      const prefill = fixtureUrl.searchParams.has("prefill");
       response.end(
         html(
-          `<h1>Synthetic identifier-first sign-in</h1><form id="account-form"><label>Account<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form><p id="account-error" hidden>Unknown account</p><form id="password-form"${shown ? "" : " hidden"}><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>`,
+          `<h1>Synthetic identifier-first sign-in</h1><form id="account-form"><label>Account<input id="account" autocomplete="username"></label>${prefill ? '<input id="prefill" type="password" tabindex="-1" aria-hidden="true" autocomplete="off" style="position:absolute;width:1px;height:1px;opacity:0">' : ""}<button id="next" type="button">Next</button></form><p id="account-error" hidden>Unknown account</p><form id="password-form"${shown ? "" : " hidden"}><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>`,
           `document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === ${JSON.stringify(toAccount ? accountName : "00001234")}));
-          document.getElementById('account-form').hidden = true;
+          ${
+            prefill
+              ? "setTimeout(() => { document.getElementById('account-form').hidden = true; document.getElementById('password-form').hidden = false; }, 2500);"
+              : "document.getElementById('account-form').hidden = true;"
+          }
           ${push ? "history.pushState({}, '', '/identifier-first?push=1&step=password');" : ""}
           ${
-            unknown
-              ? "setTimeout(() => { document.getElementById('account-error').hidden = false; document.getElementById('account-form').hidden = false; }, 300);"
-              : "setTimeout(() => { document.getElementById('password-form').hidden = false; }, 300);"
+            prefill
+              ? ""
+              : unknown
+                ? "setTimeout(() => { document.getElementById('account-error').hidden = false; document.getElementById('account-form').hidden = false; }, 300);"
+                : "setTimeout(() => { document.getElementById('password-form').hidden = false; }, 300);"
           }
           updateFixtureStatus();
         });

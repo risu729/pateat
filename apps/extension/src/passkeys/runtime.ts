@@ -19,7 +19,8 @@ import {
   type RuntimeResult,
 } from "./wire";
 
-type Sender = {
+/** The browser-supplied sender of a bridge message. */
+export type Sender = {
   id?: string | undefined;
   tab?: { id?: number | undefined; incognito?: boolean | undefined } | undefined;
   frameId?: number | undefined;
@@ -183,7 +184,11 @@ const MAX_OPERATIONS = 32;
 /** One document cannot exhaust the shared operation budget. */
 const MAX_DOCUMENT_OPERATIONS = 4;
 
-function senderOrigin(sender: Sender, extensionId: string): string | undefined {
+/**
+ * The origin of a bridge message's top document, from the browser-supplied sender only:
+ * frame 0 of a tab, with a document ID, whose URL has that origin.
+ */
+export function senderOrigin(sender: Sender, extensionId: string): string | undefined {
   if (
     sender.id !== extensionId ||
     sender.tab?.id === undefined ||
@@ -200,7 +205,8 @@ function senderOrigin(sender: Sender, extensionId: string): string | undefined {
   }
 }
 
-function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+/** Settles with `pending`, or rejects with the signal's reason once it aborts. */
+export function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
     if (signal.aborted) onAbort();

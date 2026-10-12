@@ -7,6 +7,7 @@ import {
   type ProviderSessionEntry,
 } from "./session-record";
 import type { ProviderSessionStore } from "./session-store";
+import { newId } from "@pateat/contracts/ids";
 
 type Authenticated = Extract<PasswordTokenOutcome, { kind: "authenticated" }>;
 export type ProviderSessionState =
@@ -57,7 +58,7 @@ export function createProviderSessions(deps: {
   report?: (event: RefreshReport) => void;
 }) {
   const now = deps.nowMs ?? Date.now;
-  const random = deps.randomId ?? (() => crypto.randomUUID());
+  const random = deps.randomId ?? newId;
   const report = (event: RefreshReport) => {
     try {
       deps.report?.(event);
