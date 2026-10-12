@@ -161,8 +161,9 @@ keeps the model's verdict on the path's judgement row (`page_judgements.verdict`
 `already-judged` only after `signed-in` or `unclear`. After `challenge` or `rejected` it
 answers `judged-challenge` or `judged-rejected`: the login then ends `challenge`, or
 stays unknown after `judged-rejected`, since an earlier rejection does not prove this
-one. A row with no verdict, while the first request is still being judged or after it
-failed, answers `judgement-unanswered`, and the login stays unknown. A watched login
+one. A row with no verdict, after the request failed or while it is still being judged
+once the owner's lock has expired (until then a second request is answered `busy`),
+answers `judgement-unanswered`, and the login stays unknown. A watched login
 (below) never completes on an undecided answer.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,

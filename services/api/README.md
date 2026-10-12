@@ -268,11 +268,11 @@ Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision and page path, so a repeat answers
 `already-judged` when the model answered `signed-in` or abstained (`unclear`), and
 `judged-challenge`, `judged-rejected` or `judgement-unanswered` when it judged the page
-`challenge` or `rejected` or the row has no verdict yet, as while the first request runs
-or after it failed (the row's `verdict`, ADR 0029). A recipe judged 20 times
-since the start of the UTC day answers `judgement-limit`. The row is written with the
-spend reservation, so a request the role then refuses locally still uses it. Rows of
-older revisions are deleted once their UTC day is over.
+`challenge` or `rejected` or the row has no verdict, as after the request failed or
+while it still runs past the owner's lock (the row's `verdict`, ADR 0029). A recipe
+judged 20 times since the start of the UTC day answers `judgement-limit`. The row is
+written with the spend reservation, so a request the role then refuses locally still
+uses it. Rows of older revisions are deleted once their UTC day is over.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
 (`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both

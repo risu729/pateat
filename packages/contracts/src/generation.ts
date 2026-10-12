@@ -84,8 +84,8 @@ export const generationUnavailableReasonSchema = v.picklist([
   /** As `judged-challenge`, for a judgement of `rejected` (ADR 0029). */
   "judged-rejected",
   /**
-   * As `already-judged`, and that request has no verdict: it is still being judged, or it
-   * failed (ADR 0029).
+   * As `already-judged`, and that request has no verdict: it failed, or it is still being
+   * judged after the owner's lock expired (ADR 0029).
    */
   "judgement-unanswered",
   /** The recipe's pages were judged 20 times this UTC day (ADR 0027). */
