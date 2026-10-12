@@ -57,8 +57,10 @@ Chrome, on a production build of main.
     [#234](https://github.com/risu729/pateat/pull/234)).
   - Choosing again after a logout on the password side
     ([#210](https://github.com/risu729/pateat/pull/210)).
-  - A long wait in the passkey chooser
-    ([#232](https://github.com/risu729/pateat/pull/232)).
+  - The passkey chooser staying open across a settings sync, and closing with no other
+    prompt when its wait runs out
+    ([#232](https://github.com/risu729/pateat/pull/232)); see
+    [passkey progress](#passkey-progress).
   - Changing a site's exclusion or default in the toolbar popup.
   - The badge and popup choice on a site with two matches
     ([#187](https://github.com/risu729/pateat/pull/187)).
@@ -1073,8 +1075,23 @@ at main `8581f1d`, on `https://accounts.pixiv.net` (two pixiv passkey items):
   `/manage` shortly before. That settings change cancelled the waiting request, and the
   page then handed it to the browser. Since then a settings change leaves the window
   open, and a wait that runs out fails the request with `NotAllowedError` instead of
-  handing it to the browser (ADR 0021 part C); neither is checked in installed Chrome
-  yet.
+  handing it to the browser (ADR 0021 part C).
+
+Evidence, 2026-10-11 and 2026-10-12, after
+[#232](https://github.com/risu729/pateat/pull/232), same Chrome, account and site, no
+site default:
+
+- Choosing after waiting about 30 s logged in (production build `b4c2ec1`, 02:15 UTC):
+  `passkey.request` outcome `assertion`, chooser `chosen`. No sync landed while the
+  window was open, so staying open across a sync is covered only by the Playwright test.
+- Closing the window with its close button handed the request to the browser as
+  designed (`b4c2ec1`, 02:12 UTC): outcome `delegate`, reason `chooser-closed`, chooser
+  `closed`. Bitwarden's window and then Windows Security appeared, and cancelling them
+  ended in pixiv's own error.
+- Leaving the window unanswered (production build `57efbb0`, 18:31 UTC): pixiv showed
+  its own error, "Failed to log in with passkey. Please use a different method to log
+  in.", about 2 minutes after the click, which matches the 2-minute limit. Whether the
+  window closed with no other prompt appearing, and the log entry, were not recorded.
 
 ## AI evaluation harness progress
 
