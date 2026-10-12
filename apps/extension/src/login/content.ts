@@ -4,6 +4,7 @@ import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
+import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { acceptsSecret } from "./inputs";
@@ -18,16 +19,6 @@ import {
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget): Element[] {
   return findTargets(document, target);
-}
-function visible(element: HTMLElement): boolean {
-  const style = getComputedStyle(element);
-  return (
-    element.isConnected &&
-    !element.hidden &&
-    style.display !== "none" &&
-    style.visibility !== "hidden" &&
-    element.getClientRects().length > 0
-  );
 }
 function writable(element: Element | undefined): element is HTMLInputElement {
   return (
@@ -100,111 +91,6 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * the page accepted the values (ADR 0010).
  */
 const fillSettleMs = 500;
-/**
- * How long a `totp` handler's code fill watches for the page submitting the code by itself
- * before its button may be clicked (ADR 0027). A code input that submits on its last digit
- * usually shows it at once (a submit event, a navigation, a disabled or busy form or
- * button); 2 seconds also covers one that verifies first and then moves on.
- */
-const codeSettleMs = 2_000;
-/**
- * How soon a Verify button disabled until the code is typed must be enabled once it is
- * in; the page's own handlers run at once or within a render. One still disabled after
- * this is checking the code itself (ADR 0027).
- */
-const codeEnableMs = 500;
-const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
-/**
- * Watches the page for signs that it submits a code by itself, from before the code is
- * typed (ADR 0027): a submit event of the field's form, the document starting to unload or
- * navigate, the field or form disabled, read-only, removed or replaced, the field cleared,
- * the submit button gone, hidden, busy or disabled after it was enabled, or a new busy
- * indicator in the form. A button the page renders again at the same locator, still shown
- * and enabled, and a status message alone, such as a digit counter or "Looks good", are
- * not signs. A button not enabled within `codeEnableMs` of the code going in is a sign
- * too: a page that keeps Verify disabled with the code typed is checking the code itself,
- * and may enable Verify again only to take another code. `submitted` reads the page once
- * the code is in; `stop` removes the listeners.
- */
-function watchCodeSubmission(
-  input: HTMLInputElement,
-  field: LoginTarget,
-  submit: LoginTarget,
-  path: string,
-): { submitted: () => boolean; stop: () => void } {
-  const form = input.form;
-  const flags = (element: Element) => ({
-    enabled: !element.matches(":disabled") && element.getAttribute("aria-disabled") !== "true",
-    busy: element.getAttribute("aria-busy") === "true",
-  });
-  // A button disabled until the code is typed counts as disabled by the page only once it
-  // was enabled; one busy from the start never counts as newly busy.
-  const found = matches(submit);
-  const initial = found.length === 1 ? flags(found[0]!) : undefined;
-  let enabledSeen = initial?.enabled === true;
-  // Whether the button showed enabled soon after the code went in.
-  let enabledAfter = false;
-  let typedAt: number | undefined;
-  let idleSeen = initial !== undefined && !initial.busy;
-  const busyBefore = new Set(form ? form.querySelectorAll(busySelector) : []);
-  let event = false;
-  const mark = () => {
-    event = true;
-  };
-  const onSubmit = (submitted: Event) => {
-    if (submitted.target === form || (submitted.target as Node | null)?.contains?.(input))
-      event = true;
-  };
-  const navigation = (globalThis as { navigation?: EventTarget }).navigation;
-  document.addEventListener("submit", onSubmit, true);
-  window.addEventListener("beforeunload", mark, true);
-  window.addEventListener("pagehide", mark, true);
-  navigation?.addEventListener("navigate", mark);
-  return {
-    submitted: () => {
-      typedAt ??= Date.now();
-      if (event || location.pathname !== path) return true;
-      const current = matches(field);
-      if (current.length !== 1 || current[0] !== input || !input.isConnected) return true;
-      if (input.matches(":disabled") || input.readOnly || input.closest("[inert]")) return true;
-      if (input.value === "") return true;
-      if (
-        form &&
-        (!form.isConnected ||
-          form.getAttribute("aria-busy") === "true" ||
-          form.getAttribute("aria-disabled") === "true" ||
-          [...form.querySelectorAll(busySelector)].some(
-            (element) =>
-              !busyBefore.has(element) &&
-              element instanceof HTMLElement &&
-              element.checkVisibility({ visibilityProperty: true }),
-          ))
-      )
-        return true;
-      const buttons = matches(submit);
-      if (buttons.length === 0) return true;
-      // Several matches leave the click step to refuse the button.
-      if (buttons.length > 1) return false;
-      const button = buttons[0]!;
-      if (!(button instanceof HTMLElement) || !visible(button)) return true;
-      const now = flags(button);
-      if (now.enabled) {
-        enabledSeen = true;
-        if (Date.now() - typedAt <= codeEnableMs) enabledAfter = true;
-      } else if (enabledSeen) return true;
-      if (!now.busy) idleSeen = true;
-      else if (idleSeen) return true;
-      return !enabledAfter && Date.now() - typedAt > codeEnableMs;
-    },
-    stop: () => {
-      document.removeEventListener("submit", onSubmit, true);
-      window.removeEventListener("beforeunload", mark, true);
-      window.removeEventListener("pagehide", mark, true);
-      navigation?.removeEventListener("navigate", mark);
-    },
-  };
-}
-
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -612,6 +498,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             mutated = true;
             setter.call(input, value.value);
             if (step.effect === "prepare") {
+              // The code goes in now; the page's own reaction is measured from here.
+              code?.typed();
               input.dispatchEvent(new Event("input", { bubbles: true }));
               input.dispatchEvent(new Event("change", { bubbles: true }));
             } else {
@@ -624,7 +512,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // status regions may announce that submission, so only alerts and the field's own
           // marks reject the code (ADR 0027).
           if (code && baseline) {
-            const until = Date.now() + codeSettleMs;
+            const until = Date.now() + CODE_SETTLE_MS;
             // eslint-disable-next-line no-unmodified-loop-condition
             while (!cancelled && Date.now() < until) {
               if (code.submitted()) return fail("submitted");

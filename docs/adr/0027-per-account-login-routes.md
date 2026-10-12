@@ -495,7 +495,9 @@ new owner decision:
   removed or replaced; the field cleared; the button gone, hidden, busy, disabled after
   it was enabled, or still disabled half a second after the code went in, since a page
   that keeps Verify disabled with the code typed is checking it itself and may enable
-  Verify again only for another code; or a new visible busy indicator (`aria-busy`,
+  Verify again only for another code (the moment Verify is enabled is taken from the
+  page's DOM changes, not from polling, so a background tab whose timers Chrome
+  throttles reads the same); or a new visible busy indicator (`aria-busy`,
   `progressbar`, `progress`) in the form. A button the page renders again at the same
   locator, still shown, enabled and not busy, is not a sign, nor is a status message on
   its own, since ordinary pages count digits or confirm the format in live regions. It
