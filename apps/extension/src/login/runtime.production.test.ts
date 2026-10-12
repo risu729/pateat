@@ -1042,6 +1042,7 @@ describe("production login document admission", () => {
       outcome?: string;
       submissions: number;
       mutationIntent?: true;
+      changedAt?: number;
     } & {
       account: { origin: string };
       document: { tabId: number; documentId: string };
@@ -1343,10 +1344,33 @@ describe("production login document admission", () => {
       ],
       ["blocked credential-rejected", "blocked", "credential-rejected", idle, false],
       ["blocked challenge", "blocked", "challenge", idle, false],
+      // A login that has not succeeded holds the origin only for a while after it changed.
+      [
+        "blocked challenge unchanged for 5 minutes",
+        "blocked",
+        "challenge",
+        { ...idle, age: 5 * 60_000 + 1000 },
+        true,
+      ],
+      [
+        "reconciling unknown-submit unchanged for 5 minutes",
+        "reconciling",
+        "unknown-submit",
+        { ...idle, settled: true, age: 5 * 60_000 + 1000 },
+        true,
+      ],
+      [
+        "reconciling unknown-submit changed 4 minutes ago",
+        "reconciling",
+        "unknown-submit",
+        { ...idle, settled: true, age: 4 * 60_000 },
+        false,
+      ],
       ["blocked submission-limit", "blocked", "submission-limit", idle, false],
     ] as const)(
       "decides whether another tab's %s record holds the origin",
       async (_name, state, outcome, extra, released) => {
+        const { age, ...rest } = extra as typeof extra & { age?: number };
         // A password the site refused, or one whose submission may still arrive, is not
         // submitted again from another tab (ADR 0022).
         holdClicks(origin);
@@ -1358,7 +1382,15 @@ describe("production login document admission", () => {
         fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
         try {
           fake.state.storage["pateat.login-attempts.v3"] = [
-            { ...record!, state, outcome, mutationIntent: undefined, ...extra },
+            {
+              ...record!,
+              state,
+              outcome,
+              mutationIntent: undefined,
+              ...rest,
+              // A record's age is taken when the case runs, not when the table was built.
+              ...(age === undefined ? {} : { changedAt: Date.now() - age }),
+            },
           ];
           fake.state.onExecute = undefined;
           const restarted = twoSites();
@@ -1370,6 +1402,89 @@ describe("production login document admission", () => {
           );
           if (released) await vi.waitFor(() => expect(executes().length).toBeGreaterThan(sent));
           else expect(executes()).toHaveLength(sent);
+        } finally {
+          fake.browser.tabs.query = query;
+        }
+      },
+    );
+    it("ends another tab's hold 5 minutes after its record last changed, not after a resume", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "submit-intent" }));
+      const [record] = stored();
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+      try {
+        // The login was stopped by a challenge 6 minutes ago and its tab was left open.
+        const changedAt = Date.now() - 6 * 60_000;
+        fake.state.storage["pateat.login-attempts.v3"] = [
+          {
+            ...record!,
+            state: "blocked",
+            outcome: "challenge",
+            mutationIntent: undefined,
+            ...idle,
+            changedAt,
+          },
+        ];
+        fake.state.onExecute = undefined;
+        const restarted = twoSites();
+        // Its tab's page announces again after the restart; the unchanged record keeps its time.
+        await restarted.hello({ documentId: "challenge-page" });
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "challenge", changedAt });
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: true,
+        });
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+    it(
+      "keeps the time a held login last progressed when its tab shows another page",
+      { timeout: 10_000 },
+      async () => {
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "submit-intent" }));
+        const [record] = stored();
+        const query = fake.browser.tabs.query;
+        fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+        try {
+          // The result stayed unknown 6 minutes ago and its tab was left open.
+          const changedAt = Date.now() - 6 * 60_000;
+          fake.state.storage["pateat.login-attempts.v3"] = [
+            {
+              ...record!,
+              state: "reconciling",
+              outcome: "unknown-submit",
+              settled: true,
+              changedAt,
+            },
+          ];
+          fake.state.onExecute = undefined;
+          // The user browses on to a page that is neither the completion nor the next step.
+          fake.state.observedPath = "/elsewhere";
+          const restarted = twoSites();
+          expect(await restarted.hello({ documentId: "after-login" })).toEqual({ ok: true });
+          await vi.waitFor(
+            () =>
+              expect(at(origin)).toMatchObject({
+                state: "reconciling",
+                outcome: "unknown-submit",
+                settled: true,
+                document: { documentId: "after-login" },
+              }),
+            { timeout: 6000 },
+          );
+          // A new page is not the login's progress, so the hold has ended.
+          expect(at(origin)?.changedAt).toBe(changedAt);
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+            ok: true,
+          });
         } finally {
           fake.browser.tabs.query = query;
         }
@@ -1387,7 +1502,7 @@ describe("production login document admission", () => {
         reason: "origin-busy",
       });
       expect(fake.state.badges[2]?.title).toBe(
-        "Pateat: another tab's login to this site is running or did not succeed. Close that tab to log in here.",
+        "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
       );
       expect(executes()).toHaveLength(2);
       // Once that tab closes, this tab logs in and its tooltip is reset.

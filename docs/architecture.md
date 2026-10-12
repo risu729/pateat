@@ -378,7 +378,8 @@ asks for a choice again instead of logging in, with the saved default first; the
 half of this is not implemented yet. Automatic logout/relogin when the user picks
 another account while logged in stays later. Cookies may be shared across tabs even
 during initial login. Another tab's login of the origin that is running or ended without
-success holds the origin until that tab closes; an `authenticated` one, one that
+success holds the origin until that tab closes or its record has not changed for 5
+minutes; an `authenticated` one, one that
 ended `interrupted` without submitting, or one Pateat itself stopped with nothing in
 flight (such as `policy-changed`) does not. A tab keeps one attempt record per
 origin and runs one attempt at a time; a page resumes only its own origin's record, and

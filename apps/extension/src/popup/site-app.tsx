@@ -152,7 +152,7 @@ export function SiteApp({
         setMessage("The page changed, so nothing was started. Reload it to choose again.");
       else if (response.reason === "origin-busy")
         setMessage(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
         );
       else if (response.reason === "not-started")
         setMessage(
@@ -332,7 +332,7 @@ export function SiteApp({
             {offered.held && (
               <p id="popup-pick-held">
                 {
-                  "Another tab's login to this site is running or did not succeed. Close that tab to log in here."
+                  "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes, to log in here."
                 }
               </p>
             )}
