@@ -921,6 +921,8 @@ for (const [mode, query] of [
 for (const [result, query] of [
   ["signs in", "ui=disauto"],
   ["is held when the code is wrong", "ui=disauto&wrong"],
+  ["signs in after enabling Verify for a moment", "ui=flicker"],
+  ["is held when the code is wrong after enabling Verify for a moment", "ui=flicker&wrong"],
 ] as const)
   test(`a code page that checks the code itself with Verify kept disabled is never clicked: ${result} (ADR 0027)`, async () => {
     const fixture = await startLoginFixture();

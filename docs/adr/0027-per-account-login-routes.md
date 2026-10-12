@@ -495,16 +495,20 @@ new owner decision:
   removed or replaced; the field cleared; the button gone, hidden, busy, disabled after
   it was enabled, or still disabled half a second after the code went in, since a page
   that keeps Verify disabled with the code typed is checking it itself and may enable
-  Verify again only for another code (the moment Verify is enabled is taken from the
-  page's DOM changes, not from polling, so a background tab whose timers Chrome
-  throttles reads the same); or a new visible busy indicator (`aria-busy`,
-  `progressbar`, `progress`) in the form. A button the page renders again at the same
-  locator, still shown, enabled and not busy, is not a sign, nor is a status message on
-  its own, since ordinary pages count digits or confirm the format in live regions. It
-  also does so when, before the click, the page has left the path or shows the
-  completion or the rejection without the button, and when a new document of the tab
-  resumes a login whose code fill went in, or may have, and whose click has not run.
-  Only a button that still shows after a quiet watch is clicked, once.
+  Verify again only for another code (the button's states are taken from the page's DOM
+  changes, with the state before each change, not from polling, so a background tab
+  whose timers Chrome throttles reads the same, and a disable that follows an enable
+  lasting only a few milliseconds, as on a page that disables Verify while it checks the
+  code, is caught too; a button outside the form is watched too); or a new visible busy
+  indicator (`aria-busy`, `progressbar`, `progress`) in the form. A button the page
+  renders again at the same locator, still shown, enabled and not busy, is not a sign,
+  nor is a status message on its own, since ordinary pages count digits or confirm the
+  format in live regions. It also does so when, before the click, the page has left the
+  path or shows the completion or the rejection without the button, and when a new
+  document of the tab resumes a login whose code fill went in, or may have, and whose
+  click has not run. The button is clicked, once, only when it was enabled within half a
+  second of the code going in, stayed enabled and idle since, and nothing else showed a
+  submission.
 - **Synthetic TOTP fact.** The probe build's configure message takes an optional
   `totp: true`, which gives the synthetic dummy item a `totp` field with the fixed code
   `012345` and sets its `totp` fact; no TOTP secret or real code is used.

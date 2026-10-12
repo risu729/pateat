@@ -250,7 +250,13 @@ export async function startLoginFixture(
       const spa = fixtureUrl.searchParams.get("spa");
       if (spa === "status" || spa === "replace") flags.set("spa", spa);
       const ui = fixtureUrl.searchParams.get("ui");
-      if (ui === "disabled" || ui === "rerender" || ui === "counter" || ui === "disauto")
+      if (
+        ui === "disabled" ||
+        ui === "rerender" ||
+        ui === "counter" ||
+        ui === "disauto" ||
+        ui === "flicker"
+      )
         flags.set("ui", ui);
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
@@ -263,7 +269,9 @@ export async function startLoginFixture(
       // disabled until six digits are in, `rerender` replaces it on every input, and
       // `counter` counts the digits in a polite live region. `ui=disauto` keeps Verify
       // disabled and checks the code itself on its sixth digit for a second; a right code
-      // signs in, a wrong one (`wrong`) enables Verify again for another code.
+      // signs in, a wrong one (`wrong`) enables Verify again for another code. `ui=flicker`
+      // does the same after enabling Verify for 5 ms, as a page whose Verify is disabled
+      // while the code is short or while it checks the code does.
       response.end(
         html(
           '<h1>Synthetic sign-in with a code</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
@@ -285,7 +293,7 @@ export async function startLoginFixture(
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form"><label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label><button id="verify" type="button"${ui === "disabled" || ui === "disauto" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form"><label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label><button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
           `const code = document.getElementById('code');
           function count(name) {
             sessionStorage.setItem(name, String(Number(sessionStorage.getItem(name) || 0) + 1));
@@ -322,8 +330,16 @@ export async function startLoginFixture(
             ${ui === "counter" ? "document.getElementById('code-counter').textContent = code.value.length + ' of 6 digits';" : ""}
             ${auto ? "if (code.value.length === 6) submitCode('autoSubmits');" : ""}
             ${
-              ui === "disauto"
+              ui === "disauto" || ui === "flicker"
                 ? `if (code.value.length === 6) {
+                ${
+                  ui === "flicker"
+                    ? `Promise.resolve().then(() => {
+                  document.getElementById('verify').disabled = false;
+                  setTimeout(() => { document.getElementById('verify').disabled = true; }, 5);
+                });`
+                    : ""
+                }
                 count('autoSubmits');
                 count('codeSubmits');
                 sessionStorage.setItem('codeMatched', String(code.value === '012345'));

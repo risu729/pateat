@@ -15,8 +15,12 @@ const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
  * Chrome throttles, is a clock step rather than a real wait. `react` runs on the code's
  * input event, as the page's own handler.
  */
-function codePage(button: string, react: (form: HTMLFormElement) => void = () => undefined) {
-  document.body.innerHTML = `<form><input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6">${button}<p role="status" id="state"></p></form>`;
+function codePage(
+  button: string,
+  react: (form: HTMLFormElement) => void = () => undefined,
+  outside = "",
+) {
+  document.body.innerHTML = `<form id="code-form"><input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6">${button}<p role="status" id="state"></p></form>${outside}`;
   const form = document.querySelector("form")!;
   const input = document.querySelector<HTMLInputElement>("#code")!;
   input.addEventListener("input", () => react(form));
@@ -41,6 +45,22 @@ describe("watchCodeSubmission (ADR 0027)", () => {
     );
     type();
     // The first check runs before the page's microtask.
+    expect(watch.submitted()).toBe(false);
+    await settle();
+    clock.now = 1_000;
+    expect(watch.submitted()).toBe(false);
+    watch.stop();
+  });
+
+  it("keeps a Verify button the input handler enables at once clickable", async () => {
+    const { watch, clock, type } = codePage(
+      '<button id="verify" type="button" disabled>Verify</button>',
+      () => {
+        document.querySelector<HTMLButtonElement>("#verify")!.disabled = false;
+      },
+    );
+    type();
+    // The poll runs before the observer gets the change; the change is still read in order.
     expect(watch.submitted()).toBe(false);
     await settle();
     clock.now = 1_000;
@@ -93,6 +113,55 @@ describe("watchCodeSubmission (ADR 0027)", () => {
     // A button disabled after it was enabled is the page's own submission.
     document.querySelector<HTMLButtonElement>("#verify")!.disabled = true;
     expect(watch.submitted()).toBe(true);
+    watch.stop();
+  });
+
+  it("catches an enable the page undoes at once to check the code itself", async () => {
+    const verify = () => document.querySelector<HTMLButtonElement>("#verify")!;
+    // Within one task, before the observer runs, and across two tasks.
+    const sameTask = codePage('<button id="verify" type="button" disabled>Verify</button>', () =>
+      queueMicrotask(() => {
+        verify().disabled = false;
+        verify().disabled = true;
+      }),
+    );
+    sameTask.type();
+    await settle();
+    expect(sameTask.watch.submitted()).toBe(true);
+    sameTask.watch.stop();
+    const twoTasks = codePage('<button id="verify" type="button" disabled>Verify</button>', () =>
+      queueMicrotask(() => {
+        verify().disabled = false;
+        setTimeout(() => {
+          verify().disabled = true;
+        }, 5);
+      }),
+    );
+    twoTasks.type();
+    expect(twoTasks.watch.submitted()).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // A poll that runs after the page enabled Verify again for another code.
+    verify().disabled = false;
+    await settle();
+    twoTasks.clock.now = 1_000;
+    expect(twoTasks.watch.submitted()).toBe(true);
+    twoTasks.watch.stop();
+  });
+
+  it("watches a Verify button outside its form", async () => {
+    const { watch, clock, type } = codePage(
+      "",
+      () =>
+        queueMicrotask(() => {
+          document.querySelector<HTMLButtonElement>("#verify")!.disabled = false;
+        }),
+      '<button id="verify" type="button" form="code-form" disabled>Verify</button>',
+    );
+    type();
+    expect(watch.submitted()).toBe(false);
+    await settle();
+    clock.now = 1_000;
+    expect(watch.submitted()).toBe(false);
     watch.stop();
   });
 });
