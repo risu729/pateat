@@ -396,8 +396,13 @@ written while it is open: turn on **Developer mode** in `chrome://extensions`, c
 **service worker** under Pateat, then make the passkey request on the site. Each entry
 holds:
 
-- `origin`, `outcome` (`assertion`, `delegate`, `cancelled`, or `not-allowed` when the
-  chooser window was still open as the wait ran out) and the delegate `reason`;
+- `origin`, `outcome` (`assertion`, `delegate`, `cancelled`, `not-allowed` when the
+  chooser window was still open as the wait ran out, or `withheld` for a conditional
+  request kept unanswered after a Pateat login of its page signed in) and the delegate
+  `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
+  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
+  or `after-logout` (the login only fills after a logout)
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in
@@ -419,9 +424,13 @@ holds:
   `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
-  (`account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser` or `signing`);
-- `mediation`: for the `unsupported-mediation` reason, the request's mediation
-  (`conditional`, `required`, `silent`, `immediate` or `other`);
+  (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
+  or `signing`);
+- `mediation`: the request's mediation when it names one (`optional`, `conditional`,
+  `required`, `silent`, `immediate` or `other`), whatever the outcome;
+- `answerFailed`: why the login's item could not answer a conditional request the login
+  gave it (such as `login-item-no-credential`); the login then falls back to the
+  password;
 - `duringLogin` when a delegated request came in while a Pateat login of the tab and
   origin had not ended. The request then went to the browser or another passkey
   provider, such as the Bitwarden extension, which may show its own prompt during that

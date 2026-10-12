@@ -100,8 +100,9 @@ export const attemptMetadataSchema = v.pipe(
     /** The route chosen when the login started (ADR 0027). */
     route: loginRouteSchema,
     /**
-     * The password route's variant chosen with it: 0 for the recipe's own steps. Only the
-     * `password` route has one.
+     * The password route's variant chosen with it: 0 for the recipe's own steps. A
+     * `passkey` route that answers the start page's own request keeps the variant it falls
+     * back to, or that it was switched from, when one fits (ADR 0034).
      */
     variant: v.optional(integer(MAX_PASSWORD_ALTERNATIVES)),
     /** The item's facts read when the login started; never sent anywhere. */
@@ -200,8 +201,8 @@ export const attemptMetadataSchema = v.pipe(
     "Inconsistent attempt scope or budget",
   ),
   v.check(
-    (metadata) => (metadata.route === "password") === (metadata.variant !== undefined),
-    "A password route needs its variant, and only it has one",
+    (metadata) => metadata.route !== "password" || metadata.variant !== undefined,
+    "A password route needs its variant",
   ),
   v.check(
     (metadata) => (metadata.watch !== undefined) === watched(metadata),
@@ -389,6 +390,18 @@ export const loginAttemptEventSchema = v.variant("type", [
    * account (ADR 0028): the login ends before its first step, as `account-not-listed`.
    */
   v.strictObject({ type: v.literal("NOT_LISTED") }),
+  /**
+   * The login changes route (ADR 0034), with `steps`, the new route's step count. Before
+   * anything was submitted, a `password` login switches to the `passkey` route when the
+   * start page asks for a passkey by itself, or back when that request goes away. After
+   * the `passkey` route's answer, a page that still shows the sign-in form falls back to
+   * the `password` route's recorded variant, once. The runtime checks the recipe.
+   */
+  v.strictObject({
+    type: v.literal("ROUTE"),
+    route: loginRouteSchema,
+    steps: v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1)),
+  }),
   /**
    * Tries a step that failed without changing the page again. `final` ends the attempt as
    * a spent budget does: the runtime never retries a `totp` handler's click once its code
@@ -609,6 +622,24 @@ function record(
         retryRequired: undefined,
         settled: undefined,
       };
+    case "ROUTE":
+      return {
+        route: event.route,
+        stepIndex: 0,
+        stepCount: event.steps,
+        // The passkey answer does not spend the password route's budget.
+        maxSubmissions: Math.min(
+          MAX_ATTEMPT_SUBMISSIONS,
+          context.maxSubmissions + (event.route === "password" ? context.submissions : 0),
+        ),
+        operationId: undefined,
+        operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
+        outcome: undefined,
+        retryRequired: undefined,
+        settled: undefined,
+      };
     case "RETRY":
       return {
         retries: context.retries + 1,
@@ -817,6 +848,25 @@ function createLoginAttemptMachine() {
         context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
         context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
         sameScope(context.document, event.document),
+      // Before anything was submitted, between steps, on the first route a login took.
+      canSwitchRoute: ({ context, event }) =>
+        event.type === "ROUTE" &&
+        event.route !== context.route &&
+        context.variant !== undefined &&
+        context.operationId === undefined &&
+        context.submissions === 0 &&
+        context.handlers.length === 0 &&
+        context.fillOnly !== true &&
+        context.chooser === undefined,
+      // After the passkey answer, once, to the variant the login recorded.
+      canFallBack: ({ context, event }) =>
+        event.type === "ROUTE" &&
+        event.route === "password" &&
+        context.route === "passkey" &&
+        context.variant !== undefined &&
+        context.operationKind === "click" &&
+        context.submissions > 0 &&
+        context.handlers.length === 0,
       newerRevision: ({ context, event }) =>
         event.type === "REVISED" && event.recipeRevision > context.recipeRevision,
       // A handler follows only an effect step that may have submitted, runs once per
@@ -881,6 +931,7 @@ function createLoginAttemptMachine() {
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
             { guard: "observedRejected", target: "blocked", actions: "record" },
           ],
+          ROUTE: { guard: "canSwitchRoute", target: "ready", actions: "record" },
           NOT_LISTED: {
             guard: ({ context }) =>
               context.chooser !== undefined &&
@@ -940,6 +991,7 @@ function createLoginAttemptMachine() {
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
+          ROUTE: { guard: "canFallBack", target: "ready", actions: "record" },
           FAILED: [{ guard: "staleFailure" }, { target: "reconciling", actions: "record" }],
         },
       },
@@ -954,6 +1006,7 @@ function createLoginAttemptMachine() {
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
           HANDLER: { guard: "canEnterHandler", target: "ready", actions: "record" },
+          ROUTE: { guard: "canFallBack", target: "ready", actions: "record" },
         },
       },
       retryable: {
@@ -1001,6 +1054,11 @@ export function createAttemptMetadata(input: {
   account: LoginAccount;
   /** The route and variant chosen when the login starts. */
   choice: LoginRouteChoice;
+  /**
+   * For a `passkey` route that answers the start page's request: the password variant it
+   * falls back to (ADR 0034).
+   */
+  fallback?: number;
   facts: LoginItemFacts;
   document: LoginDocument;
   /** The origin of the tab's page, for a frame's login. */
@@ -1021,7 +1079,11 @@ export function createAttemptMetadata(input: {
     policyRevision: input.policyRevision,
     account: input.account,
     route: input.choice.route,
-    ...(input.choice.route === "password" ? { variant: input.choice.variant } : {}),
+    ...(input.choice.route === "password"
+      ? { variant: input.choice.variant }
+      : input.fallback === undefined
+        ? {}
+        : { variant: input.fallback }),
     facts: input.facts,
     handlers: [],
     document: input.document,

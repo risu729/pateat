@@ -7,6 +7,9 @@ the custom-field comparison that keeps unchanged protected items usable, both li
 later work at acceptance, are implemented as
 [After no item matches](#after-no-item-matches) and
 [Protected items after a sync](#protected-items-after-a-sync) describe.
+Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a
+conditional passkey request waiting for a login is not a request being handled; the
+hold covers it only while it reads the vault and signs.
 
 Date: 2026-10-11
 

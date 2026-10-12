@@ -68,6 +68,11 @@ export interface AdmittedGetRequest {
   readonly userVerified: boolean;
   /** The caller's `timeout` in milliseconds, when it gave one. */
   readonly timeoutMs?: number;
+  /**
+   * The request waits for an autofill choice (`conditional` mediation). It is answered
+   * only through a login's `passkey` route (ADR 0034).
+   */
+  readonly conditional?: true;
 }
 
 export type Admission =
@@ -77,19 +82,22 @@ export type Admission =
 /**
  * Decide whether Pateat may answer a request. Origin is browser-supplied; every other input is
  * page data. Anything not explicitly supported delegates to the browser's own implementation.
- * The policy decides whether a gesture or UV requirement limits admission.
+ * The policy decides whether a gesture or UV requirement limits admission. `conditional`
+ * mediation is admitted only for a caller that answers it through a login (ADR 0034).
  */
 export function admitGetRequest(input: {
   readonly origin: string;
   readonly request: unknown;
   readonly userActivation: boolean;
   readonly policy: PasskeyPolicy;
+  readonly conditional?: boolean;
 }): Admission {
   // Gates compare against the permissive value so an unknown stored setting fails closed.
   const parsed = v.safeParse(bridgedGetRequestSchema, input.request);
   if (!parsed.success) return { kind: "delegate", reason: "invalid-request" };
   const request = parsed.output;
-  if (request.mediation !== undefined && request.mediation !== "optional")
+  const conditional = request.mediation === "conditional" && input.conditional === true;
+  if (request.mediation !== undefined && request.mediation !== "optional" && !conditional)
     return { kind: "delegate", reason: "unsupported-mediation" };
   if (request.userVerification === "required" && input.policy.verification !== "always")
     return { kind: "delegate", reason: "user-verification-required" };
@@ -123,6 +131,7 @@ export function admitGetRequest(input: {
       allowCredentialIds: Object.freeze(allowed.map((entry) => toBase64Url(entry.id))),
       userVerified: input.policy.verification === "always",
       ...(request.timeout === undefined ? {} : { timeoutMs: request.timeout }),
+      ...(conditional ? { conditional: true as const } : {}),
     }),
   };
 }

@@ -27,6 +27,7 @@ import {
   nextLoginOperation,
   loginStepEffect,
   parseAttemptMetadata,
+  passkeyAnswersRequest,
   passwordVariants,
   recipeHasRoute,
   recipeStartSteps,
@@ -140,6 +141,7 @@ import {
 } from "./sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
+import type { ConditionalDecision } from "../passkeys/runtime";
 import {
   loginFillsUsername,
   loginSecretKind,
@@ -252,6 +254,23 @@ const sameSiteAs =
     const site = siteOf(page);
     return site !== undefined && siteOf(url) === site;
   };
+/**
+ * How long a page's own conditional passkey request waits for a login of its document to
+ * start before it is handed on (ADR 0034).
+ */
+const REQUEST_START_WAIT_MS = 3000;
+/**
+ * Longest a conditional request waits for its login to end; it is then withheld, so a
+ * login that runs that long never meets another provider's prompt (ADR 0034).
+ */
+const REQUEST_PARK_MS = 4 * 60_000;
+/** How long the `passkey` route waits for its page's own request before it falls back. */
+const REQUEST_WAIT_MS = 3000;
+/**
+ * How long the start page's sign-in form may still show in the document after the
+ * `passkey` route answered its request, before the login falls back (ADR 0034).
+ */
+const REQUEST_HOLD_MS = 15_000;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
@@ -452,6 +471,26 @@ type Execution = {
    * not clear it. Kept in memory only.
    */
   continuationRefused?: string;
+  /**
+   * When the `passkey` route's answer to its page's own request went back (ADR 0034). Kept
+   * in memory only, so after a worker restart the page counts as shown long after it.
+   */
+  answeredAt?: number;
+  /** The login's item could not answer its page's own request; the login never asks again. */
+  passkeyFailed?: true;
+};
+/**
+ * A top document's own `conditional` passkey request, waiting for the login of that
+ * document (ADR 0034). `settle` answers it once and says whether it still waited.
+ */
+type ParkedRequest = {
+  tabId: number;
+  origin: string;
+  documentId: string;
+  since: number;
+  /** The login of its document was seen running, so its end decides the request. */
+  during?: true;
+  settle(decision: ConditionalDecision): boolean;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -835,6 +874,8 @@ export type LoginReport = (
       settled?: true;
       /** A new document of the tab resumed the attempt without changing its state or outcome. */
       repeat?: true;
+      /** Why the login just changed route (ADR 0034). */
+      routeChange?: RouteChange;
     }
   | {
       type: "refused";
@@ -1020,6 +1061,19 @@ export type LoginReport = (
   url?: string | undefined;
 };
 /**
+ * Why a login changed route (ADR 0034): to the `passkey` route because the page asked for
+ * a passkey by itself (`page-request`); back to its password variant because that request
+ * went away before the answer (`request-missing`), the item could not answer it
+ * (`answer-failed`), the recipe's rejection showed after the answer (`sign-in-rejected`),
+ * or the sign-in form still showed after the answer (`sign-in-shown`).
+ */
+export type RouteChange =
+  | "page-request"
+  | "request-missing"
+  | "answer-failed"
+  | "sign-in-rejected"
+  | "sign-in-shown";
+/**
  * What withdrew a running login's authorization (`POLICY_CHANGED`): a settings sync or a
  * save on the settings page; a settings revision other than the login's, or settings that
  * could not be read; a plan the
@@ -1042,11 +1096,13 @@ type PolicyChange = { cause: PolicyChangeCause; reason?: string };
  * no longer validated (`operation-invalid`), a field had no binding (`slot-unbound`), the
  * page did not answer or its answer failed its check (`no-answer`), a code page said it
  * submitted the code itself but no check confirmed it (`page-submitted`), the document
- * could not be reached, as when a submit replaced it (`document-gone`), or the page's own
- * reason (`ExecutionDetail`).
+ * could not be reached, as when a submit replaced it (`document-gone`), the login's item
+ * could not answer its page's own passkey request (`answer-failed`, ADR 0034), or the
+ * page's own reason (`ExecutionDetail`).
  */
 export type StopCause =
   | "elements-timeout"
+  | "answer-failed"
   | "code-not-submitted"
   | "no-operation"
   | "operation-invalid"
@@ -1134,7 +1190,13 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
-    flags: { settled?: true; repeat?: true; stop?: StopCause; reason?: string } = {},
+    flags: {
+      settled?: true;
+      repeat?: true;
+      stop?: StopCause;
+      reason?: string;
+      routeChange?: RouteChange;
+    } = {},
   ) => {
     const { stop, ...marks } = flags;
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
@@ -1182,6 +1244,9 @@ export function createLoginRuntime(
   const passkeyAnswers = new Map<string, { at: number; rpId: string }>();
   /** By tab: the check of a move after a passkey answer, while its new top page is read. */
   const passkeyMoves = new Map<number, Promise<boolean>>();
+  /** Top documents' own conditional passkey requests, waiting for their login (ADR 0034). */
+  const parkedRequests = new Set<ParkedRequest>();
+  let reviewTimer: ReturnType<typeof setInterval> | undefined;
   /**
    * The continuation each attempt asked for and the step it was asked for, by attempt ID
    * (ADR 0018): a later document of the login may use the answer. Kept in memory only, so
@@ -1703,6 +1768,7 @@ export function createLoginRuntime(
     event: LoginAttemptEvent,
     policy?: PolicyChange,
     stop?: StopCause,
+    routeChange?: RouteChange,
   ): Promise<void> {
     if (!current(run)) return;
     // A stop before the page received the prepared operation takes its effect back, so the
@@ -1723,7 +1789,11 @@ export function createLoginRuntime(
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
     // An ended login no longer waits for a continuation it asked for (ADR 0018).
     if (terminal(run.metadata) || idle(run.metadata)) continuations.delete(run.metadata.id);
-    if (run.metadata.state !== previous.state || settled)
+    if (
+      run.metadata.state !== previous.state ||
+      settled ||
+      (routeChange && run.metadata.route !== previous.route)
+    )
       // The log still names the step that was withdrawn.
       reportAttempt(
         undelivered
@@ -1735,7 +1805,11 @@ export function createLoginRuntime(
           : run.metadata,
         run.recipe,
         policy,
-        { ...(settled ? { settled } : {}), ...(stop ? { stop } : {}) },
+        {
+          ...(settled ? { settled } : {}),
+          ...(stop ? { stop } : {}),
+          ...(routeChange && run.metadata.route !== previous.route ? { routeChange } : {}),
+        },
       );
     if (
       import.meta.env.MODE === "probe" &&
@@ -1749,6 +1823,8 @@ export function createLoginRuntime(
     }
     await save(run);
     await publish(run.live, run.metadata);
+    // A conditional request of the page waits for how this login ends (ADR 0034).
+    if (terminal(run.metadata) || idle(run.metadata)) reviewRequests();
     if (run.metadata.state === "authenticated" && run.choice) await remember(run);
   }
   /**
@@ -2313,7 +2389,9 @@ export function createLoginRuntime(
    * fields hold values. A recipe with one variant keeps that variant's own refusal, and
    * one with several refuses `no-route` with the first variant's reason as its detail. A
    * running or resumed login passes its recorded `route`, which is checked alone and never
-   * reads the facts again.
+   * reads the facts again. On a recipe without a passkey button, the `passkey` route is
+   * chosen when the page asked for a passkey by itself (`pageRequest`), and its plan names
+   * the password variant it falls back to, when one fits (ADR 0034).
    */
   async function planFor(
     snapshot: Extract<SettingsResponse, { ok: true }>,
@@ -2326,6 +2404,8 @@ export function createLoginRuntime(
       route?: LoginRouteChoice;
       /** Slots of the handlers a running login entered; `totp` reads the built-in field. */
       handlerSlots?: readonly string[];
+      /** The document asked for a passkey by itself, with conditional mediation (ADR 0034). */
+      pageRequest?: boolean;
     } = {},
   ) {
     let catalog: VaultCatalog;
@@ -2474,64 +2554,82 @@ export function createLoginRuntime(
     let facts: LoginItemFacts | undefined;
     const factsOf = (resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>) =>
       itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
-    if (recipeHasRoute(recipe, "passkey")) {
+    const pageRequest = request.pageRequest === true && passkeyAnswersRequest(recipe);
+    if (recipeHasRoute(recipe, "passkey") || pageRequest) {
       const resolved = await resolveRoute({ route: "passkey" });
       if (resolved.ok) {
         facts = await factsOf(resolved);
         // No binding matters on this route, so a password variant that does not fit never
         // refuses such a login.
-        if (chooseLoginRoute(recipe, facts, [])?.route === "passkey") return { ...resolved, facts };
+        if (chooseLoginRoute(recipe, facts, [], pageRequest)?.route === "passkey") {
+          if (!pageRequest) return { ...resolved, facts };
+          // Answering the page's request falls back to the variant that fits (ADR 0034).
+          const password = await passwordPlan();
+          return {
+            ...resolved,
+            facts,
+            ...(password.ok && password.route.route === "password"
+              ? { fallback: password.route.variant }
+              : {}),
+          };
+        }
       }
       // Otherwise the password route decides, with its own refusals.
     }
-    const routes: LoginRouteChoice[] = passwordVariants(recipe).map((_, variant) => ({
-      route: "password",
-      variant,
-    }));
-    const fits: boolean[] = [];
-    const refusals: (string | undefined)[] = [];
-    // Variants are tried in recipe order and the first that fits stops the search, so the
-    // facts and the generated map are read once.
-    /* eslint-disable no-await-in-loop */
-    for (const [index, route] of routes.entries()) {
-      const resolved = await resolveRoute(route);
-      if (!resolved.ok) {
-        if (!variantRefusals.has(resolved.reason)) return resolved;
-        refusals[index] = resolved.reason;
-        continue;
-      }
-      facts ??= await factsOf(resolved);
-      // The password route needs every bound password or TOTP field, built in or Linked to
-      // one, to hold a value the account may fill.
-      const item = resolved.connection.items.find((entry) => entry.id === resolved.account.itemId);
-      const known = facts;
-      if (
-        !resolved.binding.slots.every(({ fieldId }) => {
-          const source = item ? loginFieldSource(item, fieldId) : fieldId;
-          return source === "login.password"
-            ? known.password
-            : source === "login.totp-code"
-              ? known.totp
-              : true;
-        })
-      ) {
+    return passwordPlan();
+    /** The first password variant that fits, or why none does. */
+    async function passwordPlan() {
+      const routes: LoginRouteChoice[] = passwordVariants(recipe).map((_, variant) => ({
+        route: "password",
+        variant,
+      }));
+      const fits: boolean[] = [];
+      const refusals: (string | undefined)[] = [];
+      // Variants are tried in recipe order and the first that fits stops the search, so the
+      // facts and the generated map are read once.
+      /* eslint-disable no-await-in-loop */
+      for (const [index, route] of routes.entries()) {
+        const resolved = await resolveRoute(route);
+        if (!resolved.ok) {
+          if (!variantRefusals.has(resolved.reason)) return resolved;
+          refusals[index] = resolved.reason;
+          continue;
+        }
+        facts ??= await factsOf(resolved);
+        // The password route needs every bound password or TOTP field, built in or Linked to
+        // one, to hold a value the account may fill.
+        const item = resolved.connection.items.find(
+          (entry) => entry.id === resolved.account.itemId,
+        );
+        const known = facts;
+        if (
+          !resolved.binding.slots.every(({ fieldId }) => {
+            const source = item ? loginFieldSource(item, fieldId) : fieldId;
+            return source === "login.password"
+              ? known.password
+              : source === "login.totp-code"
+                ? known.totp
+                : true;
+          })
+        ) {
+          refusals[index] = "no-route";
+          continue;
+        }
+        fits[index] = true;
+        const taken = chooseLoginRoute(recipe, known, fits);
+        if (taken?.route === "password" && taken.variant === index)
+          return { ...resolved, facts: known };
+        // The first variant that fits decides; without the item's password none is taken.
+        // The passkey route, when the facts choose it here, did not resolve, so nothing is.
         refusals[index] = "no-route";
-        continue;
+        break;
       }
-      fits[index] = true;
-      const taken = chooseLoginRoute(recipe, known, fits);
-      if (taken?.route === "password" && taken.variant === index)
-        return { ...resolved, facts: known };
-      // The first variant that fits decides; without the item's password none is taken.
-      // The passkey route, when the facts choose it here, did not resolve, so nothing is.
-      refusals[index] = "no-route";
-      break;
+      /* eslint-enable no-await-in-loop */
+      const first = refusals[0] ?? "no-route";
+      return routes.length === 1
+        ? { ok: false as const, reason: first }
+        : { ok: false as const, reason: "no-route" as const, detail: first };
     }
-    /* eslint-enable no-await-in-loop */
-    const first = refusals[0] ?? "no-route";
-    return routes.length === 1
-      ? { ok: false as const, reason: first }
-      : { ok: false as const, reason: "no-route" as const, detail: first };
   }
   type Authorized = {
     connection: VaultConnectionMetadata;
@@ -2674,6 +2772,15 @@ export function createLoginRuntime(
     }
     const rejectionIndex = proof.length;
     if (rejection && observed.targets[rejectionIndex] === "unique") {
+      // A site that refused the passkey answer gets the password instead (ADR 0034).
+      if (
+        effectful(run.metadata) &&
+        run.metadata.route === "passkey" &&
+        passkeyAnswersRequest(run.recipe)
+      ) {
+        await fallBack(run, "sign-in-rejected");
+        return undefined;
+      }
       await change(run, {
         type: "OBSERVED",
         result: unproven(run, "credential-rejected"),
@@ -2723,7 +2830,20 @@ export function createLoginRuntime(
         inFlight !== undefined &&
         inFlight.handler === undefined &&
         run.metadata.route === "passkey";
-      if (inFlight && (run.heldClick === run.metadata.stepIndex || routeClick)) {
+      // After answering the page's own request, the start page's sign-in form still
+      // showing on its path means the site has not signed in: it may still be exchanging
+      // the assertion in this document for a while, then the login falls back to its
+      // password variant (ADR 0034).
+      if (inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
+        const form = await observe(run, stepTargets(inFlight.step), ["shown"]);
+        if (!form) return undefined;
+        if (form.path === inFlight.step.path && form.targets[0] === "unique") {
+          if (run.answeredAt !== undefined && Date.now() - run.answeredAt < REQUEST_HOLD_MS)
+            return "held";
+          await fallBack(run, "sign-in-shown");
+          return undefined;
+        }
+      } else if (inFlight && (run.heldClick === run.metadata.stepIndex || routeClick)) {
         const clicked = await observe(run, stepTargets(inFlight.step));
         if (!clicked) return undefined;
         if (clicked.targets.some((state) => state !== "missing")) {
@@ -3240,7 +3360,10 @@ export function createLoginRuntime(
     } = await generation.judge(
       recipe.id,
       recipe.revision,
-      metadata.route,
+      // The service knows no `passkey` route on a recipe without its button; the page's
+      // own request is answered beside the password form, which the service checks for
+      // that route the same way (ADR 0034).
+      metadata.route === "passkey" && passkeyAnswersRequest(recipe) ? "password" : metadata.route,
       observation,
       () => reportJudge("sent"),
       ...(metadata.chooser ? [chooserClickBranch(metadata.chooser.click)] : []),
@@ -3867,6 +3990,26 @@ export function createLoginRuntime(
     if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
       await reconcileBounded(run);
     while (current(run) && run.metadata.state === "ready") {
+      // The page's own passkey request decides the route before anything is submitted,
+      // and that route answers it instead of taking a step on the page (ADR 0034).
+      if (await switchToPasskey(run)) continue;
+      if (
+        run.metadata.route === "passkey" &&
+        run.metadata.stepIndex === 0 &&
+        passkeyAnswersRequest(run.recipe)
+      ) {
+        await answerRequest(run);
+        // A step that was not authorized or not prepared leaves the login where it was, as
+        // a refused step does below; it is driven again from the page.
+        if (
+          current(run) &&
+          run.metadata.state === "ready" &&
+          run.metadata.route === "passkey" &&
+          run.metadata.stepIndex === 0
+        )
+          return;
+        continue;
+      }
       if (!(await allowed(run))) return;
       // A fill or click waits for its elements before any intent, vault read or value
       // delivery; a slow render is not a failure until the owner-approved limit passes.
@@ -5800,10 +5943,16 @@ export function createLoginRuntime(
     // pressing anything (ADR 0021 D); the passkey route has nothing to fill.
     const filledKey = `${document.tabId} ${document.documentId}`;
     const fill = asking && !previous && !switched && !logoutFills.has(filledKey);
+    // A new login answers the page's own passkey request when its item holds a passkey
+    // (ADR 0034); a chooser's list has no such route, and a login that only fills after a
+    // logout keeps its password form and hands the request on.
+    const pageRequest =
+      !previous && !fill && !chooser && document.frameId === 0 && parkedFor(document) !== undefined;
     let plan = await planFor(snapshot, live, recipe, {
       asking,
       fill,
       ...(previous ? { route: attemptRouteChoice(previous) } : {}),
+      ...(pageRequest ? { pageRequest } : {}),
     });
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     if (plan.ok && "fillOnly" in plan && plan.route.route !== "password") {
@@ -5817,7 +5966,7 @@ export function createLoginRuntime(
         offerChoice(document, plan.candidates, "logout" in plan && plan.logout === true);
       const refused = await refuse(
         plan.reason,
-        "detail" in plan
+        "detail" in plan && typeof plan.detail === "string"
           ? plan.detail
           : plan.reason === "logged-out"
             ? // Which tab logged out: this one, or another tab of the site (ADR 0021 D).
@@ -5930,6 +6079,7 @@ export function createLoginRuntime(
             itemId: plan.account.itemId,
           },
           choice: plan.route,
+          ...("fallback" in plan ? { fallback: plan.fallback } : {}),
           facts: plan.facts,
           document,
           ...(document.frameId === 0 ? {} : { pageOrigin: siteOrigin }),
@@ -5969,6 +6119,7 @@ export function createLoginRuntime(
     )
       run.inPlace = before.inPlace;
     attempts.set(document.tabId, run);
+    reviewRequests();
     if (!previous)
       report(document, {
         type: "start",
@@ -6889,5 +7040,264 @@ export function createLoginRuntime(
       ? answer
       : undefined;
   }
-  return { handle, settingsChanged, active, loginAccount, passkeyRequested, passkeyAnswered };
+  /** The newest conditional request of a top document still waiting (ADR 0034). */
+  function parkedFor(document: { tabId: number; documentId: string }): ParkedRequest | undefined {
+    let found: ParkedRequest | undefined;
+    for (const parked of parkedRequests)
+      if (parked.tabId === document.tabId && parked.documentId === document.documentId)
+        found = parked;
+    return found;
+  }
+  /**
+   * A top document's own `conditional` passkey request (ADR 0034). It waits for the login
+   * of its document: that login's `passkey` route answers it; once the login ends, it is
+   * withheld if the login signed in and handed on otherwise. A request of an origin
+   * without a recipe is handed on at once, and one whose document starts no login within
+   * `REQUEST_START_WAIT_MS` then, as is one of a login that only fills after a logout.
+   */
+  async function conditionalRequest(input: {
+    tabId: number;
+    origin: string;
+    documentId: string;
+    signal: AbortSignal;
+  }): Promise<ConditionalDecision> {
+    await loaded;
+    await sessionLoaded;
+    const run = attempts.get(input.tabId);
+    if (run?.live.document.documentId !== input.documentId) {
+      const starts = await startsFor(input.origin).catch(() => []);
+      if (!starts.length) return { kind: "delegate", reason: "no-recipe" };
+    }
+    if (input.signal.aborted) return { kind: "delegate", reason: "cancelled" };
+    return new Promise<ConditionalDecision>((resolve) => {
+      const onAbort = () => parked.settle({ kind: "delegate", reason: "cancelled" });
+      const parked: ParkedRequest = {
+        tabId: input.tabId,
+        origin: input.origin,
+        documentId: input.documentId,
+        since: Date.now(),
+        settle(decision) {
+          if (!parkedRequests.delete(parked)) return false;
+          input.signal.removeEventListener("abort", onAbort);
+          resolve(decision);
+          return true;
+        },
+      };
+      parkedRequests.add(parked);
+      input.signal.addEventListener("abort", onAbort, { once: true });
+      reviewRequests();
+    });
+  }
+  /**
+   * Decides every waiting conditional request whose login ended or never started, and
+   * checks again each second while one waits (ADR 0034). The `passkey` route answers its
+   * own page's request itself.
+   */
+  function reviewRequests(): void {
+    const now = Date.now();
+    for (const parked of [...parkedRequests]) {
+      const run = attempts.get(parked.tabId);
+      const own =
+        run &&
+        run.live.document.frameId === 0 &&
+        run.live.document.documentId === parked.documentId &&
+        run.metadata.account.origin === parked.origin
+          ? run.metadata
+          : undefined;
+      const ended = own && (terminal(own) || idle(own));
+      if (own && !ended) parked.during = true;
+      if (!own || (ended && !parked.during)) {
+        // A login of another document, or one that ended before the request came, does
+        // not decide it.
+        if (now - parked.since >= REQUEST_START_WAIT_MS)
+          parked.settle({ kind: "delegate", reason: own ? "login-ended" : "no-login" });
+      } else if (own.state === "authenticated") parked.settle({ kind: "withhold" });
+      else if (ended) parked.settle({ kind: "delegate", reason: "login-ended" });
+      else if (own.fillOnly) parked.settle({ kind: "delegate", reason: "after-logout" });
+      else if (now - parked.since >= REQUEST_PARK_MS) parked.settle({ kind: "withhold" });
+    }
+    if (parkedRequests.size && reviewTimer === undefined)
+      reviewTimer = setInterval(reviewRequests, 1000);
+    else if (!parkedRequests.size && reviewTimer !== undefined) {
+      clearInterval(reviewTimer);
+      reviewTimer = undefined;
+    }
+  }
+  /**
+   * Whether a login takes the `passkey` route because its page asked for a passkey by
+   * itself (ADR 0034): only before anything was submitted, on a recipe without a passkey
+   * button, for an item that held a discoverable passkey when the login started. Fields
+   * already filled stay as they are.
+   */
+  async function switchToPasskey(run: Execution): Promise<boolean> {
+    const { metadata } = run;
+    if (
+      metadata.route !== "password" ||
+      !passkeyAnswersRequest(run.recipe) ||
+      run.chooser ||
+      run.passkeyFailed ||
+      metadata.fillOnly ||
+      !metadata.facts.discoverablePasskey ||
+      metadata.submissions > 0 ||
+      metadata.handlers.length > 0 ||
+      metadata.operationId !== undefined ||
+      !parkedFor(run.live.document)
+    )
+      return false;
+    await change(
+      run,
+      {
+        type: "ROUTE",
+        route: "passkey",
+        steps: routeSteps(run.recipe, { route: "passkey" }).length,
+      },
+      undefined,
+      undefined,
+      "page-request",
+    );
+    return current(run) && run.metadata.route === "passkey";
+  }
+  /**
+   * The `passkey` route's one step on a recipe without a passkey button (ADR 0034): the
+   * page's own conditional request is answered with the login's item. The answer counts as
+   * a submission, recorded before it goes out. Without a request, or when the item cannot
+   * answer it, the login falls back to its password variant.
+   */
+  async function answerRequest(run: Execution): Promise<void> {
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    let parked = parkedFor(run.live.document);
+    // A page may cancel its request and ask again, as when its form renders once more.
+    for (const until = Date.now() + REQUEST_WAIT_MS; !parked && Date.now() < until;) {
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(100);
+      if (!current(run) || run.metadata.state !== "ready") return;
+      parked = parkedFor(run.live.document);
+    }
+    if (!parked) {
+      await fallBack(run, "request-missing");
+      return;
+    }
+    if (!(await allowed(run))) return;
+    const operation = nextLoginOperation(
+      run.metadata,
+      run.recipe,
+      run.live.document,
+      crypto.randomUUID(),
+    );
+    if (!operation) {
+      await change(
+        run,
+        { type: "FAILED", reason: "structural-mismatch" },
+        undefined,
+        "no-operation",
+      );
+      return;
+    }
+    run.operation = operation;
+    run.delivered = false;
+    await change(run, {
+      type: "PREPARE",
+      operationId: operation.operationId,
+      kind: "click",
+      effect: "submit",
+    });
+    await change(run, { type: "SUBMIT_INTENT", operationId: operation.operationId });
+    if (!current(run) || run.metadata.state !== "submit-intent") return;
+    const authorized = await allowed(run);
+    if (!authorized) return;
+    if (
+      !validateLoginOperation(
+        operation,
+        run.metadata,
+        run.live.document,
+        run.metadata.policyRevision,
+      )
+    ) {
+      await change(run, { type: "FAILED", reason: "timeout" }, undefined, "operation-invalid");
+      return;
+    }
+    const { tabId } = run.live.document;
+    run.delivered = true;
+    effects.set(tabId, { attemptId: run.metadata.id, at: Date.now(), passkey: true });
+    const item = {
+      connectionId: run.metadata.account.connectionId,
+      itemId: run.metadata.account.itemId,
+    };
+    const target = parked;
+    // The bridge says whether the assertion went back; a request that went away meanwhile
+    // was never answered.
+    let gone = false;
+    const signed = await new Promise<boolean>((resolve) => {
+      gone = !target.settle({ kind: "answer", item, answered: resolve });
+      if (gone) resolve(false);
+    });
+    delete run.operation;
+    if (!current(run) || run.metadata.state !== "submit-intent") return;
+    if (signed) {
+      run.answeredAt = Date.now();
+      await change(run, { type: "SUBMITTED", operationId: operation.operationId });
+      // A WebAuthn exchange is observed with the usual budget, held while the form shows.
+      await reconcileBounded(run);
+      return;
+    }
+    run.passkeyFailed = true;
+    await change(
+      run,
+      {
+        type: "FAILED",
+        reason: "timeout",
+        mutation: "none",
+        operationId: operation.operationId,
+        document: run.live.document,
+      },
+      undefined,
+      gone ? undefined : "answer-failed",
+    );
+    // A request that went away before the answer was never answered.
+    await fallBack(run, gone ? "request-missing" : "answer-failed");
+  }
+  /**
+   * The `passkey` route that answers its page's own request goes back to the password
+   * variant the login recorded (ADR 0034), or ends `challenge` without one. It never
+   * answers again.
+   */
+  async function fallBack(
+    run: Execution,
+    cause: Exclude<RouteChange, "page-request">,
+  ): Promise<void> {
+    if (!current(run) || terminal(run.metadata)) return;
+    run.passkeyFailed = true;
+    const { variant } = run.metadata;
+    const steps =
+      variant === undefined ? 0 : routeSteps(run.recipe, { route: "password", variant }).length;
+    if (variant === undefined || !steps) {
+      await change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
+      return;
+    }
+    await change(run, { type: "ROUTE", route: "password", steps }, undefined, undefined, cause);
+    if (!current(run) || run.metadata.route !== "password" || !run.choice) return;
+    // The account choice saved after the sign-in names the password variant's binding.
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (!current(run) || !snapshot.ok) return;
+    const plan = await planFor(snapshot, run.live, run.recipe, {
+      route: { route: "password", variant },
+    });
+    if (
+      current(run) &&
+      plan.ok &&
+      plan.choice &&
+      plan.account.connectionId === run.metadata.account.connectionId &&
+      plan.account.itemId === run.metadata.account.itemId
+    )
+      run.choice = plan.choice;
+  }
+  return {
+    handle,
+    settingsChanged,
+    active,
+    loginAccount,
+    passkeyRequested,
+    passkeyAnswered,
+    conditionalRequest,
+  };
 }
