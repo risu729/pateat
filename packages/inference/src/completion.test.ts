@@ -199,10 +199,11 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
   });
 
   it("tells the model never to name a button that registers a passkey", () => {
-    expect(completionInstructions).toMatch(/passkeyButton/u);
     // A marker's text is stored in the recipe and must match every later sign-in.
     expect(completionInstructions).toMatch(/never name one whose text shows the person's name/u);
-    expect(completionInstructions).toMatch(/Never name a button that registers, adds, creates/u);
+    expect(completionInstructions).toMatch(
+      /passkeyButton is a button that continues with a security key or passkey, never one that registers, adds or sets up one/u,
+    );
   });
 
   it("accepts the route's and handlers' paths", async () => {
@@ -299,8 +300,9 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
   });
 
   it("tells the model to say where the code comes from", () => {
-    expect(completionInstructions).toMatch(/code\.source/u);
-    expect(completionInstructions).toMatch(/authenticator-app' only when the page says/u);
+    expect(completionInstructions).toMatch(
+      /code\.source is authenticator-app only when the page says the code comes from an authenticator app/u,
+    );
   });
 });
 

@@ -52,6 +52,17 @@ monthly Claude API credit and chose the model. The offline harness in
   in the generation instructions (the credentials' owner signing in to their own
   account, values filled locally), recording the refusal category code, and one more
   run of the full corpus to check the change.
+- On 2026-10-12 03:31 UTC the owner chose short, language-neutral instructions for the
+  generation role and the sign-in judge: the model handles any page language, so the
+  instructions give no words or examples of a particular language (no Japanese button
+  labels, no English keyword lists) and describe meanings instead. They keep the use
+  statement above, the untrusted page text rule, when to abstain, and the passkey and
+  authenticator-app rules; each output field's meaning is in the response format's
+  descriptions rather than repeated in prose.
+- On 2026-10-12 03:44 UTC the owner chose to keep the local word-list safety checks for
+  passkey buttons (`namesPasskey` and `registersPasskey` in
+  `packages/inference/src/plan.ts`, with English and Japanese words): they are not sent
+  to the model and only refuse a button.
 
 Estimated cost per generation call, assuming about 3,000 input tokens and about 1,000
 output tokens including thinking, at $4 and $20 per million: about $0.03, or about
