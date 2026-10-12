@@ -70,15 +70,16 @@ bootstrapped on 2026-10-11 in the owner's account with an APAC location hint, an
 is in `cloudflare.config.ts`; packing refuses a build whose `DB` binding has no ID,
 because cf deploy would provision a new database. The deploy job of the same run
 downloads that artifact, so no later run, attempt or branch can substitute another one;
-a failed deployment is retried with "Re-run failed jobs" (the artifact stays) or
-"Re-run all jobs". The service browser tests in the browser shards build their
-own copy of the Worker output. The setup order below sets the release credentials
-last, after pairing works through Access; the typed-code enrollment did when the owner
-paired on 2026-10-11. Installed Chrome first paired directly with the deployed service
-on 2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A deployment
-also needs the `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and `ACCESS_PAIR_AUD` Worker
-secrets; the owner pages answer 503 without the first two, and cf refuses to deploy
-without any of them. Artifact tests reject tampering and mismatched provenance.
+a failed deployment is retried with "Re-run failed jobs" (the artifact stays) or "Re-run
+all jobs"; a retry of a revision that is already live repeats the release, so the
+readback and smoke checks run again. The service browser tests in the browser shards
+build their own copy of the Worker output. The setup order below sets the release
+credentials last, after pairing works through Access; the typed-code enrollment did when
+the owner paired on 2026-10-11. Installed Chrome first paired directly with the deployed
+service on 2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A
+deployment also needs the `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and `ACCESS_PAIR_AUD`
+Worker secrets; the owner pages answer 503 without the first two, and cf refuses to
+deploy without any of them. Artifact tests reject tampering and mismatched provenance.
 
 ### Production settings
 
@@ -168,22 +169,27 @@ branch rule `main`, set by the owner on 2026-10-11), so a workflow on another br
 cannot read the token. This repository does not supply or provision them.
 
 Each main push releases its own tested revision, but only when that revision is ahead of
-the live server. Main often gains merges faster than CI finishes and the release lock
-keeps only the newest pending run, so releases can reach the lock out of order. Inside
-the non-cancelling lock the job compares the revision with the one `/health` reports and
-releases only one that is ahead of it, so the server never moves back; an identical or
-older revision is skipped with a note in the step summary. When `/health` gives no
-revision, only the current main head may be released. A live revision that is not on
-main fails the run instead of skipping; the owner checks the server first. (The earlier
-`workflow_run` design released the newest main revision whose CI had passed, which
-needed a run lookup, and `workflow_dispatch` with a CI run ID for retries and
-replacements. The owner dropped both on 2026-10-12: the job releases its own run's
-artifact, a retry is a re-run, and no dispatch replaces a live revision outside main.) A
-pending release replaced by a newer push is cancelled, so that run can show as cancelled
-while its `CI Check` passed. The job fails before any change when the token is empty or
-the account ID is not a 32-character hex ID. It restores only the hashed artifact of its
-own run (revision, run ID, event, branch, per-file and migration digests, Worker name,
-the account ID and a health URL on the Worker's Custom Domain), applies the released
+the live server. Main often gains merges faster than CI finishes, so releases can reach
+the lock out of order, and the lock keeps only one waiting job: a job that arrives later
+cancels the one already waiting, whichever revision it holds. The server can therefore
+stay on an older revision until the next main push releases; re-running the cancelled
+deploy job releases a skipped revision. Inside the non-cancelling lock the job compares
+the revision with the one `/health` reports and releases only one that is ahead of it,
+so the server never moves back; an identical or older revision is skipped with a note in
+the step summary, except that a retry (run attempt 2 or later) of the live revision
+repeats the release. When `/health` gives no revision, only the current main head may be
+released. A live revision that is not on main fails the run instead of skipping, and
+every later run fails the same way: the owner puts a main revision live by hand (a local
+`cf deploy` of that checkout with the production token), after which the next main push
+releases normally. (The earlier `workflow_run` design released the newest main revision
+whose CI had passed, which needed a run lookup, and `workflow_dispatch` with a CI run ID
+for retries and replacements. The owner dropped both on 2026-10-12: the job releases its
+own run's artifact, a retry is a re-run, and no dispatch replaces a live revision
+outside main.) A waiting release that is cancelled makes its run show as cancelled while
+its `CI Check` passed. The job fails before any change when the token is empty or the
+account ID is not a 32-character hex ID. It restores only the hashed artifact of its own
+run (revision, run ID, event, branch, per-file and migration digests, Worker name, the
+account ID and a health URL on the Worker's Custom Domain), applies the released
 migrations, deploys through the pinned action without rebuilding, and verifies returned
 deployment IDs and the hosted revision; it tries `/health` up to 30 times, 2 seconds
 apart, while the new version propagates. Before `cf d1 migrations apply`, it reads the

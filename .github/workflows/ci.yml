@@ -148,8 +148,9 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     environment: production
-    # Keep this lock through migration, activation and smoke. A newer main push replaces an
-    # older pending release; the check below keeps the server from moving back.
+    # Keep this lock through migration, activation and smoke. Only one release waits for it:
+    # a later arrival cancels the waiting one, so the server can lag until the next release;
+    # the check below keeps it from moving back.
     concurrency:
       group: server-production
       cancel-in-progress: false
@@ -190,8 +191,14 @@ jobs:
           case "${order}" in
             ahead) echo "release=true" >> "${GITHUB_OUTPUT}" ;;
             identical | behind)
-              echo "release=false" >> "${GITHUB_OUTPUT}"
-              echo "Revision ${GITHUB_SHA} is not ahead of the live server (${order}); nothing to release." >> "${GITHUB_STEP_SUMMARY}"
+              if [[ "${order}" = identical && "${GITHUB_RUN_ATTEMPT}" -gt 1 ]]; then
+                # A retry after the activation: repeat the release so that the readback and
+                # the smoke checks run again (migrations and the version are idempotent).
+                echo "release=true" >> "${GITHUB_OUTPUT}"
+              else
+                echo "release=false" >> "${GITHUB_OUTPUT}"
+                echo "Revision ${GITHUB_SHA} is not ahead of the live server (${order}); nothing to release." >> "${GITHUB_STEP_SUMMARY}"
+              fi
               ;;
             *)
               echo "::error::Live revision ${live} is not on main (${order}); check the server before releasing."

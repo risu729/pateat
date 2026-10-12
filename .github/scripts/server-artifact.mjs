@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const buildPath = "services/api/.cloudflare/output/v0";
@@ -139,6 +139,12 @@ async function restore() {
     manifest.migrations,
     "Release migration digests differ",
   );
+  // The checkout is the same revision; its migrations must be the released ones.
+  assert.deepEqual(
+    (await inventory(migrationsPath)).filter(({ path }) => /^[^/]+\.sql$/u.test(path)),
+    manifest.migrations,
+    "Migrations differ from source",
+  );
   assert.match(
     process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
     /^[0-9a-f]{32}$/u,
@@ -146,8 +152,11 @@ async function restore() {
   );
   assert.equal(process.env.SERVER_WORKER, manifest.worker, "Configure the exact Worker name");
   verifyHealthUrl(process.env.SERVER_HEALTH_URL, manifest.domains);
+  // A fresh checkout must have no pre-existing output or implicit rebuild.
+  await assert.rejects(lstat(buildPath), { code: "ENOENT" });
   await mkdir(resolve(buildPath, ".."), { recursive: true });
-  await cp(`${releasePath}/output`, buildPath, { recursive: true, errorOnExist: true });
+  await cp(`${releasePath}/output`, buildPath, { recursive: true });
+  assert.deepEqual(await inventory(buildPath), manifest.files);
   if (process.env.GITHUB_OUTPUT)
     await writeFile(process.env.GITHUB_OUTPUT, `database=${manifest.database}\n`, { flag: "a" });
 }
