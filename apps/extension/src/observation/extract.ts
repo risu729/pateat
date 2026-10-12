@@ -122,12 +122,13 @@ function bounded(text: string): string | undefined {
 }
 
 /**
- * Observed text of a signed-in page with every run of digits, in any script, replaced
- * by `[number]` (owner decision, 2026-10-12): such a page can show balances and points
- * in any form, and judging whether it is signed in needs none of them.
+ * Observed text of a signed-in page with every number replaced by one `[number]`, whatever
+ * its length, script or digit separators (owner decision, 2026-10-12): such a page can
+ * show balances and points in any form, and judging whether it is signed in needs none
+ * of them. Numerals written as letters, such as kanji, are not numbers to Unicode and stay.
  */
-const withoutDigits = (text: string) =>
-  bounded(text.replace(/\p{Decimal_Number}+/gu, "[number]")) ?? text;
+const withoutNumbers = (text: string) =>
+  bounded(text.replace(/\p{Number}+(?:[.,，．'’]\p{Number}+)*/gu, "[number]")) ?? "[number]";
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
@@ -732,18 +733,28 @@ function observe(
   );
 
   const groups = new Map<HTMLFormElement, string>();
-  const candidates = chosen.map(({ form, draft: { element: _element, ...rest }, target }, at) => {
-    if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
-    return {
-      id: `c${at + 1}`,
-      ...rest,
-      ...(rest.label ? { label: hide(rest.label) } : {}),
-      ...(rest.placeholder ? { placeholder: hide(rest.placeholder) } : {}),
-      ...(rest.description ? { description: hide(rest.description) } : {}),
-      target,
-      ...(form ? { group: groups.get(form)! } : {}),
-    } satisfies ObservedCandidate;
-  });
+  const candidates = chosen.map(
+    (
+      { form, draft: { element: _element, label, placeholder, description, ...rest }, target },
+      at,
+    ) => {
+      if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
+      const shownLabel = label && hide(label);
+      const shownDescription = description && hide(description);
+      return {
+        id: `c${at + 1}`,
+        ...rest,
+        ...(shownLabel ? { label: shownLabel } : {}),
+        ...(placeholder ? { placeholder: hide(placeholder) } : {}),
+        // Still left out when it repeats the label once hidden.
+        ...(shownDescription && shownDescription !== shownLabel
+          ? { description: shownDescription }
+          : {}),
+        target,
+        ...(form ? { group: groups.get(form)! } : {}),
+      } satisfies ObservedCandidate;
+    },
+  );
 
   const pageTitle = observedText(document.title);
   const title = pageTitle && hide(pageTitle);
@@ -850,7 +861,7 @@ export function extractSignedInObservation(
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { redactAttributes: true, links: true });
-      return target && !(target.by === "text" && /\p{Decimal_Number}/u.test(target.value))
+      return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
         ? [{ ...entry, target }]
         : [];
     });
@@ -867,6 +878,6 @@ export function extractSignedInObservation(
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
-  const result = observe(document, chosen, gap === undefined, withoutDigits);
+  const result = observe(document, chosen, gap === undefined, withoutNumbers);
   return result.ok && gap ? { ...result, gap } : result;
 }
