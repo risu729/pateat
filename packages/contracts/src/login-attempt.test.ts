@@ -1809,15 +1809,13 @@ describe("totp handler attempt contracts, probed independently (ADR 0027)", () =
     }
   });
 
-  // Bug: `canAutoSubmit` accepts AUTO_SUBMITTED whenever no operation is in flight, so the
-  // contract itself does not hold the documented rule "between a totp handler's fill and its
-  // click". Right after HANDLER the code was never typed, yet the attempt records the click
-  // as done; only the runtime's `codeStep` check keeps it from sending the event.
-  it.fails("refuses the page's submission before the code fill was prepared", () => {
+  // The page's own submission counts only between a handler's delivered code fill and its
+  // click: right after HANDLER the code was never typed.
+  it("refuses the page's submission before the code fill was prepared", () => {
     const attempt = entered();
     expect(transitionLoginAttempt(attempt, autoSubmitted)).toEqual(attempt);
   });
-  it.fails("refuses the page's submission once a failed code fill is retried", () => {
+  it("refuses the page's submission once a failed code fill is retried", () => {
     const retrying = run(entered(), [
       { type: "PREPARE", operationId: "code-one", kind: "fill" },
       {
@@ -1833,9 +1831,8 @@ describe("totp handler attempt contracts, probed independently (ADR 0027)", () =
     expect(transitionLoginAttempt(retrying, autoSubmitted)).toEqual(retrying);
   });
 
-  // Bug: same guard; an attempt that entered no handler at all accepts AUTO_SUBMITTED on its
-  // route's own click, and while its route's password fill is in flight.
-  it.fails("refuses the page's submission on a route step when no handler was entered", () => {
+  // An attempt that entered no handler never takes the page's submission on a route step.
+  it("refuses the page's submission on a route step when no handler was entered", () => {
     const routeClick = run(transitionLoginAttempt(detected(twoPages), { type: "RESOLVE" }), [
       ...fill("fill-one"),
     ]);

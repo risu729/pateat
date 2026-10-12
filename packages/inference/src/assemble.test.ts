@@ -951,21 +951,29 @@ describe("totp handler assembly, probed independently (ADR 0027)", () => {
     ).toEqual({ ok: false, reason: "origin-mismatch" });
   });
 
-  it("learns no completion beside the handler's code field, but beside other inputs", () => {
+  it("learns no completion beside the handler's code field on its path, but beside other inputs", () => {
     const added = addHandler(
       recipe,
       at("/two-factor", code("otp"), candidate("v", verify)),
       totp(),
     );
     if (!added.ok) throw new Error(added.reason);
-    // The handler's field on a later page blocks a completion there.
+    // The handler's field on its own path blocks a completion there.
+    expect(
+      addCompletion(
+        added.recipe,
+        at("/two-factor", code("otp"), candidate("logout", target("logout"))),
+        target("logout"),
+      ),
+    ).toEqual({ ok: false, reason: "login-page" });
+    // The same locator on another path is not the handler's field.
     expect(
       addCompletion(
         added.recipe,
         at("/account", code("otp"), candidate("logout", target("logout"))),
         target("logout"),
-      ),
-    ).toEqual({ ok: false, reason: "login-page" });
+      ).ok,
+    ).toBe(true);
     // Another code-like field there is not the handler's, and the marker is learned.
     const learned = addCompletion(
       added.recipe,
