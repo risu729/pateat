@@ -7679,7 +7679,7 @@ export function createLoginRuntime(
     const known = choicePasskeys.get(document.tabId);
     // The same choice offered again keeps a passkey found or a check running; one that found
     // none, as with a locked vault, or that a default ended, is checked again.
-    if (known?.key !== key || (!known.checking && known.holds !== true))
+    if (known?.key !== key || known.defaulted || (!known.checking && known.holds !== true))
       choicePasskeys.set(document.tabId, { key, documentId: document.documentId });
     // A request already waiting has its choice checked at once.
     if (parkedFor(document)) reviewRequests();
@@ -8000,6 +8000,8 @@ export function createLoginRuntime(
   return {
     handle,
     settingsChanged,
+    /** A site default was saved outside the settings page, as by the passkey chooser. */
+    siteDefaultSaved: () => void choiceDefaults(),
     active,
     loginAccount,
     passkeyRequested,

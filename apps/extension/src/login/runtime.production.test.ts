@@ -16678,6 +16678,24 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       },
     );
 
+    it("hands a request on three seconds after the passkey chooser saves a site default", async () => {
+      vi.useFakeTimers();
+      const { h } = choosing({ passkeyItems: holding() });
+      await offered(h);
+      const request = ask(h);
+      await flush();
+      await stillWaits(request);
+      // Nothing saved yet: the request keeps waiting.
+      h.login.siteDefaultSaved();
+      await flush();
+      await stillWaits(request, 5_000);
+      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+      h.login.siteDefaultSaved();
+      await flush();
+      await handedOnSoon(request);
+      expect(executed()).toEqual([]);
+    });
+
     it("hands a request on three seconds after another tab's pick saves a site default", async () => {
       vi.useFakeTimers();
       const passkeyItems = holding();

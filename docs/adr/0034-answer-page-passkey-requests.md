@@ -118,7 +118,8 @@ password when the item has one. The proposal reviewed with the owner is
      whether the request or the choice came first, the request is not handed on.
    - The request is handed on three seconds after the choice goes away, unless it is
      offered again by then: the document navigates, a site default is saved for the
-     origin (in the settings, by sync or by a pick in another tab), another frame's
+     origin (in the settings, by sync, by a pick in another tab or by Pateat's passkey
+     chooser), another frame's
      choice replaces it, or the choice could not be restored after a worker restart.
      When the document announces again and that starts a login instead of being
      refused, the login decides the request as above, as for any login of its document.
@@ -186,7 +187,8 @@ password when the item has one. The proposal reviewed with the owner is
   passkey source for each RP ID the origin may use, holding vault replacement off only
   during that search, and keeps the result in the service worker's memory; a choice
   offered again is searched again unless a passkey was found. A site default saved,
-  synced or saved by a pick since the choice was offered ends it for this.
+  synced, saved by a pick or saved by the passkey chooser since the choice was offered
+  ends it for this.
 
 ## Alternatives
 
@@ -200,9 +202,10 @@ password when the item has one. The proposal reviewed with the owner is
 - **Answer pages without a recipe when one item matches or a default exists.** Offered
   to the owner as the second choice; the recommended default, delegating, was taken.
 - **Keep the request during every popup choice, without checking for a passkey.**
-  Offered to the owner on 2026-10-12 with the amendment of rule 5; simpler, but a site
-  whose accounts hold no passkey would lose other providers' suggestions too, so the
-  owner chose the check.
+  Offered to the owner on 2026-10-12 with the amendment of rule 5
+  (`designs/github-passkey-pick-proposal.md` in the project files, option B); simpler,
+  but a site whose accounts hold no passkey would lose other providers' suggestions too,
+  so the owner chose the check.
 - **Hand on during an ordinary popup choice, as before.** A pick then signed in with the
   password even when the picked item held a passkey, as on GitHub. Rejected by the
   owner's choice at 22:04 UTC.

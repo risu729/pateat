@@ -246,6 +246,8 @@ export default defineBackground(() => {
   const rememberPasskey = async (origin: string, candidate: VaultPasskeyCandidate) => {
     if (await login.active()) return;
     await rememberVaultPasskey({ settings: loginSettings, origin, candidate });
+    // ADR 0034: the saved default ends a popup choice of that origin in another tab.
+    login.siteDefaultSaved();
   };
   const passkeyProbe =
     import.meta.env.MODE === "probe"
