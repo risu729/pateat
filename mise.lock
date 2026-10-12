@@ -2,22 +2,20 @@
 
 lockfile_version = 3
 
-[[tools."aqua:aubepkg/aube"]]
+[[tools.aube]]
 version = "2.7.0"
-backend = "aqua:aubepkg/aube"
+backend = "packslip:github.com/aubepkg/aube"
 specifiers = ["2.7.0"]
 
-[tools."aqua:aubepkg/aube"."platforms.linux-x64"]
+[tools.aube."platforms.linux-x64"]
 checksum = "sha256:1a1c1771a7ee3619e774f2108124f4c8c2aa877e7deacf747be9847b3bbc1231"
 url = "https://github.com/aubepkg/aube/releases/download/v2.7.0/aube-v2.7.0-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/aubepkg/aube/releases/assets/619367101"
-provenance = "github-attestations"
+signer = "sigstore-oidc:https://github.com/aubepkg/aube/.github/workflows/release.yml"
 
-[tools."aqua:aubepkg/aube"."platforms.windows-x64"]
+[tools.aube."platforms.windows-x64"]
 checksum = "sha256:a5eb939dbf76d83880659e45f1f05aa06c4b33d92888aa41dd7c6cca5ce7dd63"
 url = "https://github.com/aubepkg/aube/releases/download/v2.7.0/aube-v2.7.0-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/aubepkg/aube/releases/assets/619399033"
-provenance = "github-attestations"
+signer = "sigstore-oidc:https://github.com/aubepkg/aube/.github/workflows/release.yml"
 
 [[tools.betterleaks]]
 version = "1.9.0"

@@ -82,13 +82,20 @@ TypeScript compiler is `npm:typescript` in `mise.toml`, so `tsc` comes from mise
 package that code or configuration imports stays in `package.json` even when it also has
 a command, as cf (`cloudflare.config.ts`), drizzle-kit (`drizzle.config.ts`), WXT,
 Vitest and Playwright do. Each version is pinned in one place only; aube's version is
-the `aqua:aubepkg/aube` tool in `mise.toml`, with no `packageManager` field, and mise
+the `aube` tool in `mise.toml`, with no `packageManager` field, and mise
 installs its `npm:` tools with aube because `npm.package_manager` is left unset. aube
 also installs TypeScript as a peer of `@risu729/tsconfigs` (and an optional peer of WXT
 and Valibot) and, unlike Bun, links that copy at the root as `node_modules/.bin/tsc`.
 `node_modules/.bin` comes before the mise tools on `PATH`, so the `typecheck` tasks run
 the `bun.lock` copy: keep its version equal to the `npm:typescript` pin when either
 moves.
+
+`mise.toml` names each tool by its short name in mise's registry, with mise's default
+backend for it (owner decision, 2026-10-12 13:06 UTC); Renovate resolves short names
+through the same registry. A tool keeps a `backend:name` form only when no short name
+installs it: `npm:typescript` has none, and the registry's `oxlint` (the aqua backend)
+expects `apps_v` release tags, which oxc stopped using after 1.84.0, so
+`npm:oxlint` stays.
 
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
 release tag. hk provides the single complete check entrypoint,
