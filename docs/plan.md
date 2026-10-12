@@ -250,6 +250,10 @@ still open on 2026-10-11.
   [research note](research/2026-10-11-clef-finite-choice.md) covers its API, where it
   would fit in recipe generation, cost, and the open questions (Japanese, calibration,
   who pays, abstention handover).
+- An agent skill for pruning the low-value tests agents write (owner, 2026-10-12 07:32
+  UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills
+  and proposes OpenClaw's `test-audit`, adapted to `mise run check`. Not adopted until
+  the owner picks one.
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
