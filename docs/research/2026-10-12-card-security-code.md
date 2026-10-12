@@ -72,3 +72,9 @@ for a handler can be designed once for both step 1 and the deferred `totp` bindi
 field; option A then needs only the handler and no link to a second item. Option C is
 the one to design if keeping the code only in the card item matters, with D at most
 preselecting the card in the chooser.
+
+On 2026-10-12 at 05:27 UTC the owner chose a way to link a site to its card: guess the
+card item from the site and what its pages show, propose it, and record the confirmed
+choice. Two minutes later the owner widened the item to personal details such as a
+birth date that sites ask for during a login, filled from a linked identity item in the
+same way. The [roadmap](../plan.md#phase-4-issues-and-work-as-needed) holds that item.
