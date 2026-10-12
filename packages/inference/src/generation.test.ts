@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { evaluationCorpus } from "./corpus/cases";
 import { japanesePageCorpus } from "./corpus/real";
 import { evaluateRole } from "./evaluate";
-import { createRecipeGenerator, generationInstructions } from "./generation";
+import { toJsonSchema } from "@valibot/to-json-schema";
+import { createRecipeGenerator, generatedPlanSchema, generationInstructions } from "./generation";
 import {
   generationRequest,
   oracleGenerator,
@@ -13,6 +14,16 @@ import {
 } from "./testing/fake-models";
 
 const page = evaluationCorpus[0]!;
+// The description the response format gives a field of the plan answer.
+type Described = {
+  description?: string;
+  properties?: Record<string, Described>;
+  oneOf?: Described[];
+};
+const planDescription = (field: string) =>
+  (toJsonSchema(generatedPlanSchema) as Described).properties?.["result"]?.oneOf?.[1]?.properties?.[
+    field
+  ]?.description;
 const limits = { timeoutMs: 1_000, maxInputBytes: 16_384 };
 const plan = (
   fields: [string, string][],
@@ -349,20 +360,19 @@ describe("recipe generation role", () => {
   });
 
   it("asks for the passkey sign-in button and never a registration button", () => {
-    expect(generationInstructions).toContain("passkeyButton");
-    expect(generationInstructions).toContain("'Sign in with a passkey' or 'パスキーでログイン'");
     expect(generationInstructions).toContain(
-      "Never name a button that registers, adds, creates or sets up a passkey or security key",
+      "Never name a button that registers, creates, adds or sets up a passkey or security key, or one the plan uses, as passkeyButton",
     );
+    expect(planDescription("passkeyButton")).toMatch(/signs in with a passkey instead of/u);
   });
 
   it("asks for alternatives only for identifier sets the page shows now", () => {
-    expect(generationInstructions).toContain("alternatives");
-    expect(generationInstructions).toContain("never a sign-up, recovery, registration or");
-    expect(generationInstructions).toContain("a field belongs to one slot name only");
-    expect(generationInstructions).toContain(
-      "no set may fill exactly the same slots as another or only some of another's",
-    );
+    const alternatives = planDescription("alternatives");
+    expect(alternatives).toContain("the page shows now");
+    expect(alternatives).toContain("never another form or one behind a tab or link");
+    expect(alternatives).toContain("every set's action, the main one too, is a submit");
+    expect(alternatives).toContain("each element fills one slot");
+    expect(alternatives).toContain("no set's slots equal or are a subset of another's");
   });
 
   it.each([
