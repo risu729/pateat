@@ -264,13 +264,29 @@ describe("otherAccountMiss", () => {
     expect(otherAccountMiss(document, ["taro"])).toBe("other-holds-name");
     document.body.innerHTML = `<div><span>taro</span><button>Go</button></div><button>Switch account 1234</button>`;
     expect(otherAccountMiss(document)).toBe("other-not-clickable");
-    for (const html of [
-      `<header><button>Switch account</button></header><div><span>taro</span><button>Go</button></div>`,
-      `<div><span>taro</span><button>Go</button></div><button disabled>Use another profile</button>`,
-      `<div><span>taro</span><button>Go</button></div><p>Use another profile</p>`,
-    ]) {
+    const go = `<div><span>taro</span><button>Go</button></div>`;
+    const cases: [string, string][] = [
+      [
+        `${go}<button>Use another profile to sign in to this site and keep your saved settings</button>`,
+        "other-text-long",
+      ],
+      [
+        `${go}<div role="button" aria-label="Use another profile"><svg></svg></div>`,
+        "other-label-only",
+      ],
+      [`${go}<div aria-label="Use another profile"><span></span></div>`, "other-label-only"],
+      [`<header><button>Switch account</button></header>${go}`, "other-in-chrome"],
+      [`${go}<button disabled>Use another profile</button>`, "other-not-entry"],
+      [`${go}<p>Use another profile</p>`, "other-not-entry"],
+      [
+        `${go}<div role="button"><span>Use another profile</span><button>x</button></div>`,
+        "other-not-control",
+      ],
+      [`${go}<script>/* Switch account */</script>`, "no-other"],
+    ];
+    for (const [html, miss] of cases) {
       document.body.innerHTML = html;
-      expect(otherAccountMiss(document)).toBe("other-not-control");
+      expect(otherAccountMiss(document), html).toBe(miss);
     }
     document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><button>Create new account</button>`;
     expect(otherAccountMiss(document)).toBe("no-other");

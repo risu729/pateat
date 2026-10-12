@@ -134,8 +134,9 @@ that, once its ten seconds end without a sign-in input, holds an `@` in its text
 not taken as a list (`not-a-list`, with why: for its first shown address, such as
 `inside-control` or `not-rendered`; else how a hidden one is hidden; else
 `split-address`), and a page of texts that named no item (`no-listed-account`, with why
-a shown control for another account did not count when one showed: `other-holds-name`,
-`other-not-clickable` or `other-not-control`, added 2026-10-12 after Instagram's list
+a shown control for another account did not count when one showed, such as
+`other-holds-name`, `other-label-only`, `other-in-chrome` or `other-not-entry`,
+added 2026-10-12 after Instagram's list
 was not sent), and one that showed nothing to send at all (`nothing-offered`: `no-list`,
 `after-sign-in` or `sign-in-shown`; added 2026-10-12 after Instagram's saved-profile
 list left no log line); other pages without a matching item stay `no-vault-match` with a
