@@ -2,7 +2,7 @@
 
 Status: accepted by the owner on 2026-10-12 (03:31 to 06:53 UTC). Partly implemented:
 the stored entry recipe ([#325](https://github.com/risu729/pateat/pull/325)) and, on
-2026-10-12, the service side (#NNN): an entry request, the `entry` decision, its prompt
+2026-10-12, the service side (#336): an entry request, the `entry` decision, its prompt
 line and plan checks, and the stored entry recipe. Nothing sends such a request or
 presses an entry yet.
 Amends [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can
