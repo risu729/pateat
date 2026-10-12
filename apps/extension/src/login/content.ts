@@ -15,6 +15,7 @@ import {
   readySchema,
   START_TRIES,
   reconnectSchema,
+  type ExecutionDetail,
   type LoginReadiness,
   type TargetState,
 } from "./wire";
@@ -449,9 +450,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           | "value-mismatch"
           | "fill-rejected"
           | "submitted",
+        detail?: ExecutionDetail,
       ) => ({
         ok: false,
         reason,
+        ...(detail ? { detail } : {}),
         mutation: mutated ? "possible" : "none",
       });
       const authorized: unknown = await browser.runtime.sendMessage({
@@ -461,15 +464,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         attemptId: operation.attemptId,
         operationId: operation.operationId,
       });
+      if (authorized !== true) return fail("cancelled", "not-authorized");
+      if (cancelled) return fail("cancelled", "document-cancelled");
+      if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
+      if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
       if (
-        authorized !== true ||
-        cancelled ||
-        used.has(operation.operationId) ||
-        Date.now() >= operation.expiresAt ||
         operation.document.origin !== location.origin ||
         operation.step.path !== location.pathname
       )
-        return fail("cancelled");
+        return fail("cancelled", "page-changed");
       used.add(operation.operationId);
       const step = operation.step;
       // Another attempt in this document starts from nothing filled.
@@ -490,19 +493,21 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const found = matches(field.target);
           return found.length === 1 ? found[0] : undefined;
         });
-        if (inputs.some((input) => !writable(input))) return fail("structural-mismatch");
+        if (inputs.some((input) => !writable(input)))
+          return fail("structural-mismatch", "target-missing");
         if (
           command.values.length !== step.fields.length ||
           step.fields.some(
             (field) => command.values.filter((entry) => entry.slot === field.slot).length !== 1,
           )
         )
-          return fail("structural-mismatch");
+          return fail("structural-mismatch", "unexpected-values");
         // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
         const writableInputs = inputs as HTMLInputElement[];
         const form = writableInputs[0]!.form;
+        if (writableInputs.some((input) => input.form !== form))
+          return fail("structural-mismatch", "fields-split");
         if (
-          writableInputs.some((input) => input.form !== form) ||
           step.fields.some(
             (field, index) =>
               !acceptsSecret(
@@ -511,7 +516,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               ),
           )
         )
-          return fail("structural-mismatch");
+          return fail("structural-mismatch", "secret-refused");
         // A secret goes only to the account the page shows, when it shows one (owner
         // decision, 2026-10-11). The comparison stays in this content script.
         if (command.account) {
@@ -557,7 +562,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         )
           return fail("value-mismatch");
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        if (!setter) return fail("structural-mismatch");
+        if (!setter) return fail("structural-mismatch", "unsupported-input");
         // Messages already shown are not the page's answer to this fill.
         const baseline = step.effect === "prepare" ? fillBaseline(writableInputs) : undefined;
         // A code field fills alone; its watch starts before the code goes in (ADR 0027).
@@ -570,7 +575,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 step.path,
               )
             : undefined;
-        if (command.code && !code) return fail("structural-mismatch");
+        if (command.code && !code) return fail("structural-mismatch", "code-watch-failed");
         try {
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as HTMLInputElement;
@@ -587,7 +592,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               !acceptsSecret(input, value.secret) ||
               inputValueMismatch(input, value.value) !== undefined
             )
-              return fail("cancelled");
+              return fail(
+                "cancelled",
+                cancelled
+                  ? "document-cancelled"
+                  : location.pathname !== step.path
+                    ? "page-changed"
+                    : "field-changed",
+              );
             // An advance's next step is measured in this task, just before its first input,
             // and so is what the page shows before an effect (ADR 0029).
             if (index === 0) {
@@ -630,7 +642,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               // eslint-disable-next-line no-await-in-loop
               await pause(50);
             }
-            if (cancelled) return fail("cancelled");
+            if (cancelled) return fail("cancelled", "document-cancelled");
             if (code.submitted()) return fail("submitted");
             if (rejectsFill(writableInputs, baseline, { statuses: false }))
               return fail("fill-rejected");
@@ -640,11 +652,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // the values first. An effectful fill has already submitted through its event.
           if (baseline) {
             await pause(fillSettleMs);
-            if (cancelled) return fail("cancelled");
+            if (cancelled) return fail("cancelled", "document-cancelled");
             // The page replaced the form, perhaps signing in by itself; the background
             // observes the page instead of clicking.
             if (writableInputs.some((input) => !input.isConnected))
-              return fail("structural-mismatch");
+              return fail("structural-mismatch", "form-replaced");
             if (rejectsFill(writableInputs, baseline)) return fail("fill-rejected");
           }
           return { ok: true, mutation: "possible" };
@@ -652,11 +664,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           code?.stop();
         }
       }
-      if (command.values.length) return fail("structural-mismatch");
+      if (command.values.length) return fail("structural-mismatch", "unexpected-values");
       if (step.kind === "click") {
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
-        if (!clickable(element)) return fail("structural-mismatch");
+        if (!clickable(element)) return fail("structural-mismatch", "target-missing");
         // The click's form's inputs, or the page's for an element outside a form.
         const form = isButton(element) ? element.form : element.closest("form");
         const formInputs = [...(form ? form.elements : document.querySelectorAll("input"))].filter(
@@ -676,7 +688,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             submit: step.purpose === "submit",
           })
         )
-          return fail("structural-mismatch");
+          return fail("structural-mismatch", "form-changed");
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();
@@ -690,7 +702,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return step.present ? count === 1 : count === 0;
       };
       if (step.kind === "assert")
-        return satisfied() ? { ok: true, mutation: "none" } : fail("structural-mismatch");
+        return satisfied()
+          ? { ok: true, mutation: "none" }
+          : fail("structural-mismatch", "assert-failed");
       const until = Math.min(operation.expiresAt, Date.now() + step.timeoutMs);
       // Cancellation is set by the independent background message listener.
       // eslint-disable-next-line no-unmodified-loop-condition
@@ -700,7 +714,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // eslint-disable-next-line no-await-in-loop
         await pause(50);
       }
-      return fail(cancelled ? "cancelled" : "timeout");
+      // The page moving to another path ends the wait early; that is not a timeout.
+      return cancelled
+        ? fail("cancelled", "document-cancelled")
+        : location.pathname !== step.path
+          ? fail("timeout", "page-changed")
+          : fail("timeout");
     })()
       // A thrown execution may already have mutated the page. Never advertise a safe retry.
       .then(
@@ -715,6 +734,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           respond({
             ok: false,
             reason: "cancelled",
+            detail: "threw",
             mutation: "possible",
             operationId: command.operation.operationId,
             documentId: command.operation.document.documentId,

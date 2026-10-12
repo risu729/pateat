@@ -275,6 +275,7 @@ export function createDiagnosticsLog(options: {
             url: report.url,
             reason: report.reason,
             detail: report.detail,
+            candidates: report.candidates,
             frame: report.frame,
           },
           {

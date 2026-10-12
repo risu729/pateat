@@ -369,7 +369,10 @@ holds:
   vault could not be searched in full;
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
   again. Such a request that cannot open the window is delegated with
-  `chooser-unavailable`.
+  `chooser-unavailable`;
+- `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
+  `settings-changed`); for the `assertion-failed` reason, the step that threw
+  (`account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser` or `signing`).
 
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached

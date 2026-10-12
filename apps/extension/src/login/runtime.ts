@@ -90,6 +90,7 @@ import {
   LOGIN_STEP_WAIT_MS,
   START_TRIES,
   START_TRY_WINDOW_MS,
+  type ExecutionDetail,
   type LoginReadiness,
   type TargetState,
   type LoginSecretKind,
@@ -613,8 +614,11 @@ export type LoginReport = (
       effect?: string;
       handler?: number;
       outcome?: string;
-      /** For a `policy-changed` outcome: its cause, and a refused plan's reason. */
-      cause?: PolicyChangeCause;
+      /**
+       * For a `policy-changed` outcome: its cause, and a refused plan's reason. For a login
+       * that failed or was cancelled: why, as the worker or the page saw it (ADR 0019).
+       */
+      cause?: PolicyChangeCause | StopCause;
       reason?: string;
       /** The result of the current effect step just settled as unknown (`unknown-submit`). */
       settled?: true;
@@ -634,6 +638,8 @@ export type LoginReport = (
        * logged out; for `not-started`, why a shown sign-in input did not start a login.
        */
       detail?: string;
+      /** For `account-ambiguous` and `logged-out`: how many accounts the tab may ask with. */
+      candidates?: number;
       /** The same reason was already logged for this page (ADR 0019). */
       repeat?: true;
       /**
@@ -768,6 +774,24 @@ export type PolicyChangeCause =
   | "vault-replaced"
   | "field-unavailable";
 type PolicyChange = { cause: PolicyChangeCause; reason?: string };
+/**
+ * Why a login failed or was cancelled, for the log (ADR 0019): its step's elements did not
+ * show in time (`elements-timeout`), a code page neither submitted the code nor took the
+ * click (`code-not-submitted`), no operation could be built (`no-operation`), the operation
+ * no longer validated (`operation-invalid`), a field had no binding (`slot-unbound`), the
+ * page did not answer or its answer failed its check (`no-answer`), a code page said it
+ * submitted the code itself but no check confirmed it (`page-submitted`), or the page's
+ * own reason (`ExecutionDetail`).
+ */
+export type StopCause =
+  | "elements-timeout"
+  | "code-not-submitted"
+  | "no-operation"
+  | "operation-invalid"
+  | "slot-unbound"
+  | "no-answer"
+  | "page-submitted"
+  | ExecutionDetail;
 
 export function createLoginRuntime(
   settings: SettingsRuntime,
@@ -825,8 +849,9 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
-    flags: { settled?: true; repeat?: true } = {},
+    flags: { settled?: true; repeat?: true; stop?: StopCause } = {},
   ) => {
+    const { stop, ...marks } = flags;
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
     const handler =
       recipe && metadata.handlers.length
@@ -848,7 +873,8 @@ export function createLoginRuntime(
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
-      ...flags,
+      ...(stop ? { cause: stop } : {}),
+      ...marks,
     });
   };
   let origin = DEFAULT_PROBE_ORIGIN;
@@ -1337,6 +1363,7 @@ export function createLoginRuntime(
     run: Execution,
     event: LoginAttemptEvent,
     policy?: PolicyChange,
+    stop?: StopCause,
   ): Promise<void> {
     if (!current(run)) return;
     // A stop before the page received the prepared operation takes its effect back, so the
@@ -1367,7 +1394,7 @@ export function createLoginRuntime(
           : run.metadata,
         run.recipe,
         policy,
-        settled ? { settled } : {},
+        { ...(settled ? { settled } : {}), ...(stop ? { stop } : {}) },
       );
     if (
       import.meta.env.MODE === "probe" &&
@@ -1562,8 +1589,9 @@ export function createLoginRuntime(
     /** With `fillOnly`: the accounts the tab offers once the fill ends. */
     asked?: PendingChoice["candidates"];
   };
-  /** `noUriMatch` marks a refusal because no vault item matches the page, which a vault
-   * sync may change; it is never reported. */
+  /** `noUriMatch` marks a refusal because no vault item matches the page, or the saved
+   * default's item no longer does, which a vault sync may change; it is logged as the
+   * refusal's `no-uri-match` detail and never answered to the page. */
   type Refusal = {
     reason: string;
     candidates?: PendingChoice["candidates"];
@@ -2972,7 +3000,12 @@ export function createLoginRuntime(
         if (afterCode && (await submittedByPage(run, upcoming))) {
           if (!current(run) || run.metadata.state !== "ready") return;
           if (await codeSubmitted(run)) continue;
-          await change(run, { type: "FAILED", reason: "structural-mismatch" });
+          await change(
+            run,
+            { type: "FAILED", reason: "structural-mismatch" },
+            undefined,
+            "code-not-submitted",
+          );
           return;
         }
         if (!current(run) || run.metadata.state !== "ready") return;
@@ -2988,7 +3021,12 @@ export function createLoginRuntime(
           )
             continue;
           if (!current(run) || run.metadata.state !== "ready") return;
-          await change(run, { type: "FAILED", reason: "structural-mismatch" });
+          await change(
+            run,
+            { type: "FAILED", reason: "structural-mismatch" },
+            undefined,
+            "elements-timeout",
+          );
           return;
         }
         if (waited !== "ready" || !(await allowed(run))) return;
@@ -3000,7 +3038,12 @@ export function createLoginRuntime(
         crypto.randomUUID(),
       );
       if (!operation) {
-        await change(run, { type: "FAILED", reason: "structural-mismatch" });
+        await change(
+          run,
+          { type: "FAILED", reason: "structural-mismatch" },
+          undefined,
+          "no-operation",
+        );
         return;
       }
       // An advance whose next step is on its path is confirmed by that step's elements
@@ -3030,7 +3073,7 @@ export function createLoginRuntime(
           run.metadata.policyRevision,
         )
       ) {
-        await change(run, { type: "FAILED", reason: "timeout" });
+        await change(run, { type: "FAILED", reason: "timeout" }, undefined, "operation-invalid");
         return;
       }
       const values: { slot: string; value: string; secret?: LoginSecretKind }[] = [];
@@ -3041,7 +3084,12 @@ export function createLoginRuntime(
           for (const field of operation.step.fields) {
             const reference = authorized.binding.slots.find((entry) => entry.slot === field.slot);
             if (!reference) {
-              await change(run, { type: "FAILED", reason: "structural-mismatch" });
+              await change(
+                run,
+                { type: "FAILED", reason: "structural-mismatch" },
+                undefined,
+                "slot-unbound",
+              );
               return;
             }
             // Vault reads are serial so a denial stops before any later field is released.
@@ -3264,6 +3312,12 @@ export function createLoginRuntime(
                 operationId: operation.operationId,
                 document: run.live.document,
               },
+          undefined,
+          !matchedResult
+            ? "no-answer"
+            : result.output.reason === "submitted"
+              ? "page-submitted"
+              : result.output.detail,
         );
         return;
       }
@@ -3620,6 +3674,7 @@ export function createLoginRuntime(
     reason: string,
     detail?: string,
     unrelated?: boolean,
+    candidates?: number,
   ): void {
     const key = `${document.tabId} ${document.documentId} ${new URL(url).pathname}`;
     const reasons = noted.get(key) ?? new Set<string>();
@@ -3638,6 +3693,7 @@ export function createLoginRuntime(
       origin: document.origin,
       reason,
       ...(detail ? { detail } : {}),
+      ...(candidates === undefined ? {} : { candidates }),
       ...(document.frameId === 0 ? {} : { frame: true as const }),
       ...(repeat ? { repeat: true as const } : {}),
       ...(unrelated ? { unrelated: true as const } : {}),
@@ -3939,8 +3995,13 @@ export function createLoginRuntime(
         : {}),
     };
     documents.set(key, live);
-    const refuse = async (reason: string, detail?: string, unrelated?: boolean) => {
-      note(document, live.url, reason, detail, unrelated);
+    const refuse = async (
+      reason: string,
+      detail?: string,
+      unrelated?: boolean,
+      candidates?: number,
+    ) => {
+      note(document, live.url, reason, detail, unrelated, candidates);
       live.state = "denied";
       live.reason = reason;
       await publish(live);
@@ -4288,7 +4349,12 @@ export function createLoginRuntime(
           : plan.reason === "logged-out"
             ? // Which tab logged out: this one, or another tab of the site (ADR 0021 D).
               logoutDetail(logoutKey)
-            : undefined,
+            : // No vault item matches the page, which a vault sync may change.
+              "noUriMatch" in plan && plan.noUriMatch
+              ? "no-uri-match"
+              : undefined,
+        undefined,
+        "candidates" in plan && plan.candidates ? plan.candidates.length : undefined,
       );
       // Asked while the page still holds vault replacement off, so a check started by
       // this page's announcement cannot apply before the miss is registered.

@@ -35,7 +35,13 @@ const fake = vi.hoisted(() => {
     /** Overrides the document's answer to an execution, such as a wrong-account refusal. */
     executeReply: undefined as
       | undefined
-      | { ok: boolean; reason?: string; switchable?: true; mutation?: "none" | "possible" },
+      | {
+          ok: boolean;
+          reason?: string;
+          detail?: string;
+          switchable?: true;
+          mutation?: "none" | "possible";
+        },
     /** The document's answer to clicking an account switch. */
     switchReply: { ok: true } as { ok: boolean },
     granted: true,
@@ -619,6 +625,20 @@ describe("production login document admission", () => {
     expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(1);
     expect(fake.state.messages.at(-1)).toMatchObject({ outcome: "value-mismatch" });
   });
+  it.each(["target-missing", "form-changed"] as const)(
+    "logs the page's reason when a step fails with %s",
+    async (detail) => {
+      fake.state.executeReply = { ok: false, reason: "structural-mismatch", detail };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "attempt", cause: detail }),
+        ),
+      );
+    },
+  );
   it("does not click when the page rejects the filled values", async () => {
     fake.state.executeReply = { ok: false, reason: "fill-rejected", mutation: "possible" };
     const h = harness();
@@ -2854,18 +2874,27 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: false, reason: "connection-missing" });
       expect(h.fields).not.toHaveBeenCalled();
     });
-    it.each<[string, Awaited<ReturnType<LiveUriMatcher>>, string]>([
-      ["two items match", { ok: true, data: both }, "account-ambiguous"],
-      ["no item matches", { ok: true, data: uriMatch({ candidates: [] }) }, "default-not-set"],
+    it.each<[string, Awaited<ReturnType<LiveUriMatcher>>, string, Partial<LoginReport>]>([
+      ["two items match", { ok: true, data: both }, "account-ambiguous", { candidates: 2 }],
+      [
+        "no item matches",
+        { ok: true, data: uriMatch({ candidates: [] }) },
+        "default-not-set",
+        { detail: "no-uri-match" },
+      ],
       [
         "another item's rules could not be evaluated",
         { ok: true, data: uriMatch({ unavailableItemIds: [otherItemId] }) },
         "item-uri-unevaluated",
+        {},
       ],
-      ["the vault is locked", vaultFailure("crypto-locked"), "vault-unavailable"],
-    ])("refuses before any field read when %s", async (_name, answer, reason) => {
-      const h = harness(unsaved, { allowedOrigins: [], uris: async () => answer });
+      ["the vault is locked", vaultFailure("crypto-locked"), "vault-unavailable", {}],
+    ])("refuses before any field read when %s", async (_name, answer, reason, logged) => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, { allowedOrigins: [], uris: async () => answer, report });
       expect(await h.hello()).toEqual({ ok: false, reason });
+      // The log says how many accounts could answer, or that no vault item matched.
+      expect(report).toHaveBeenCalledWith({ type: "refused", tabId: 1, origin, reason, ...logged });
       expect(h.fields).not.toHaveBeenCalled();
       expect(executes()).toEqual([]);
       expect(h.store.update).not.toHaveBeenCalled();
