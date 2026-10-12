@@ -117,16 +117,18 @@ text, still reaches the AI; and a list whose rows are buttons showing only a use
 with no text beside them, is not found. The page right after a submitted password form
 is skipped: the content script skips its own next path, and the worker the tab's next
 document when it loads within a minute of the submission, kept in memory only, so a
-restart of the worker in between forgets it. A later load, such as a reload after a
-single-page app signed in and out in one document, is not skipped (a gap found while
-checking Cloudflare, 2026-10-12). A submission in a frame counts for the tab's page, and
-a next page of another origin ends the skip; after a submission in a frame, a
-same-document URL change of the tab's page is not skipped, since only the frame saw the
-submission. A stored chooser's path counts as a recipe start, so the page is not sent
-again, and a chooser login starts there. The local log names a list's generation with
-`page: accounts`, and the skips of a list with an email as `after-sign-in` or
-`no-vault-match`. The service's check of the answer also refuses a control whose text
-holds `[account]`.
+restart of the worker in between forgets it. The content script's skip ends with its
+document, so only the worker's carries to the next document. A later load, such as a
+reload after a single-page app signed in and out in one document, is not skipped (a gap
+found while checking Cloudflare, 2026-10-12); nor is a page that loads more than a
+minute after the submission because a second step in the same document took that long. A
+submission in a frame counts for the tab's page, and a next page of another origin ends
+the skip; after a submission in a frame, a same-document URL change of the tab's page is
+not skipped, since only the frame saw the submission. A stored chooser's path counts as
+a recipe start, so the page is not sent again, and a chooser login starts there. The
+local log names a list's generation with `page: accounts`, and the skips of a list with
+an email as `after-sign-in` or `no-vault-match`. The service's check of the answer also
+refuses a control whose text holds `[account]`.
 
 ### What the AI answers
 

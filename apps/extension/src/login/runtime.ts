@@ -4633,8 +4633,8 @@ export function createLoginRuntime(
     if (submitted && document.frameId === 0 && submitted.documentId !== document.documentId) {
       // Only the tab's next page counts: one of another origin ends the skip.
       passwordSubmits.delete(document.tabId);
-      const elapsed = Date.now() - submitted.at;
-      if (submitted.origin === document.origin && elapsed >= 0 && elapsed < AFTER_SIGN_IN_MS)
+      // A clock that went back keeps the skip: sending the page is the less safe outcome.
+      if (submitted.origin === document.origin && Date.now() - submitted.at < AFTER_SIGN_IN_MS)
         afterSignIn.set(document.tabId, document.documentId);
     }
     // A new page in the tab replaces the document that waited for a choice.
