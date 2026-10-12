@@ -961,11 +961,26 @@ describe("extractSignedInObservation", () => {
     expect(kept.some((entry) => entry.label === "ログアウト")).toBe(false);
   });
 
-  it("marks a page incomplete when a field cannot be described", () => {
+  it("marks a page incomplete when a field cannot be described, and says why", () => {
+    const gap = () => {
+      const result = extractSignedInObservation();
+      return result.ok ? [result.observation.complete, result.gap] : result.reason;
+    };
     page(`<button id="logout">Sign out</button><input type="password">`);
-    expect(signedIn().complete).toBe(false);
+    expect(gap()).toEqual([false, "unlocated-field"]);
     page(`<button id="logout">Sign out</button><input id="pin" type="password" readonly>`);
-    expect(signedIn().complete).toBe(false);
+    expect(gap()).toEqual([false, "unfillable-field"]);
+    page(`<button id="logout">Sign out</button><input id="date" type="text" disabled>`);
+    expect(gap()).toEqual([false, "unfillable-field"]);
+    page(
+      `<button id="logout">Sign out</button>${Array.from({ length: 49 }, (_, index) => `<input id="f${index}">`).join("")}`,
+    );
+    expect(gap()).toEqual([false, "too-many-fields"]);
+    page(`<button id="logout">Sign out</button><div id="host"></div>`);
+    document.getElementById("host")!.attachShadow({ mode: "open" }).innerHTML = "<input>";
+    expect(gap()).toEqual([false, "shadow-field"]);
+    page(`<button id="logout">Sign out</button><input id="q">`);
+    expect(gap()).toEqual([true, undefined]);
   });
 
   it("reports a still-visible sign-in field so the service can refuse the page", () => {

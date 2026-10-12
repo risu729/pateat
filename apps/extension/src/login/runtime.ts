@@ -568,8 +568,11 @@ export type LoginReport =
       recipeId: string;
       recipeRevision: number;
       route: LoginRoute;
-      /** `sent` when the page goes out; the service's verdict when it answers. */
-      verdict: "sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+      /**
+       * `sent` when the page goes out; the service's verdict when it answers; `not-sent`,
+       * with the reason, when the page could not be described for it.
+       */
+      verdict: "sent" | "not-sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
@@ -2217,6 +2220,8 @@ export function createLoginRuntime(
     )
       return false;
     let observation: LoginObservation | undefined;
+    // Why the page was not sent, as a code for diagnostics: never page text.
+    let notSent = "unreachable";
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -2226,19 +2231,35 @@ export function createLoginRuntime(
         extracted.success && extracted.output.ok
           ? v.safeParse(loginObservationSchema, extracted.output.observation)
           : undefined;
-      if (
-        parsed?.success &&
-        parsed.output.complete &&
-        parsed.output.origin === run.live.document.origin &&
-        parsed.output.path === remaining.path
+      if (!extracted.success || !parsed?.success)
+        notSent =
+          extracted.success && !extracted.output.ok ? extracted.output.reason : "invalid-page";
+      else if (!parsed.output.complete)
+        notSent = (extracted.output.ok && extracted.output.gap) || "incomplete";
+      else if (
+        parsed.output.origin !== run.live.document.origin ||
+        parsed.output.path !== remaining.path
       )
-        observation = parsed.output;
+        notSent = "page-changed";
+      else observation = parsed.output;
     } catch {
-      observation = undefined;
+      // The page could not be asked: `unreachable`.
     }
     if (!current(run)) return true;
     // A page that cannot be described completely is not sent and does not count.
-    if (!observation) return false;
+    if (!observation) {
+      report({
+        type: "judge",
+        tabId: run.live.document.tabId,
+        origin: run.live.document.origin,
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        route: metadata.route,
+        verdict: "not-sent",
+        reason: notSent,
+      });
+      return false;
+    }
     const pages = judgedPages(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;

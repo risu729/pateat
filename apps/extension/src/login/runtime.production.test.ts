@@ -3170,6 +3170,61 @@ describe("production login document admission", () => {
       10_000,
     );
 
+    it.each([
+      [
+        "an incomplete description",
+        { ...homePage, gap: "unfillable-field" as const },
+        "unfillable-field",
+      ],
+      ["a refused description", { ok: false, reason: "no-candidates" }, "no-candidates"],
+    ])(
+      "reports why it does not send %s",
+      async (_label, extracted, reason) => {
+        fake.state.extracted = {
+          "signed-in":
+            "observation" in extracted
+              ? { ...extracted, observation: { ...extracted.observation, complete: false } }
+              : extracted,
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(service.judge).not.toHaveBeenCalled();
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "judge" ? [value] : [])),
+        ).toContainEqual({
+          type: "judge",
+          tabId: 1,
+          origin,
+          recipeId: generated.id,
+          recipeRevision: generated.revision,
+          route: "password",
+          verdict: "not-sent",
+          reason,
+        });
+      },
+      10_000,
+    );
+
     it("does not send the page while the recipe's fields are still shown", async () => {
       fake.state.extracted = { "signed-in": homePage };
       const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
