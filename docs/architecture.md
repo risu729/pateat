@@ -663,6 +663,13 @@ with automatic unlock on main f7d3cf5, the icon showed the logo with no visible 
 phase; this is expected, because the built manifest's `action.default_icon` is the
 locked icon and the worker replaces it as soon as it reads the active records.
 
+The service's pages use the same unlocked logo as their favicon (owner request,
+2026-10-12). The owner web UI links the SVG, which Vite emits under `/manage/assets/`
+behind the same Access check as the page. The Worker's own HTML pages
+(`services/api/src/pages.ts`, including `/pair/signed-in` and error pages) inline it as
+a `data:` URL and allow only `img-src data:`, so the icon never needs a request to a
+path that another Access application, or none, guards.
+
 ## Diagnostics
 
 `diagnostics.html`, linked from the settings page, shows per-device versions and state
