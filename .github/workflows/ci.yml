@@ -91,6 +91,8 @@ jobs:
           retention-days: 7
   windows-browser:
     name: Windows browser (${{ matrix.shard }}/${{ strategy.job-total }})
+    # Main pushes and manual runs only: a PR run would queue behind the concurrent-job limit.
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: windows-2025
     timeout-minutes: 30
     permissions:
@@ -134,7 +136,9 @@ jobs:
           VERIFY_RESULT: ${{ needs.verify.result }}
           LINUX_BROWSER_RESULT: ${{ needs.linux-browser.result }}
           WINDOWS_BROWSER_RESULT: ${{ needs.windows-browser.result }}
+          # The Windows shards are skipped on pull requests and nowhere else.
+          WINDOWS_BROWSER_EXPECTED: ${{ github.event_name == 'pull_request' && 'skipped' || 'success' }}
         run: |
           test "${VERIFY_RESULT}" = success
           test "${LINUX_BROWSER_RESULT}" = success
-          test "${WINDOWS_BROWSER_RESULT}" = success
+          test "${WINDOWS_BROWSER_RESULT}" = "${WINDOWS_BROWSER_EXPECTED}"

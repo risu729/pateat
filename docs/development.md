@@ -231,8 +231,9 @@ evidence, not real-account login evidence.
 ### Windows notes
 
 Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs
-`mise run //tests/extension:test` on a GitHub-hosted Windows runner as well as on Linux,
-so the packaged-extension tests are expected to pass on Windows with the
+`mise run //tests/extension:test` on a GitHub-hosted Windows runner as well as on Linux
+(on main pushes and manual runs; run the workflow manually on a branch to get it before
+merging), so the packaged-extension tests are expected to pass on Windows with the
 Playwright-downloaded Chromium. One local host on 2026-10-10 hit a missing SideBySide
 assembly ("side-by-side configuration is incorrect") before launch; it did not reproduce
 on the CI runner (see the [foundation progress](plan.md#foundation-progress)), so rely
