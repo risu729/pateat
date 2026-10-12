@@ -770,7 +770,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
 | `log.dropped` | warn; debug when only `debug` events were dropped | origin, events dropped over the page limit |
-| `log.debug` | info | when debug logging ends |
+| `log.debug` | info | whether debug logging was turned on or off, and when it ends |
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
 when a site default, binding, excluded site or cached recipe names it; any other
@@ -789,21 +789,22 @@ was delivered) and `field-unavailable` (a vault field could not be read).
 Login, judgement, handler, recipe generation and passkey events are limited to 20 per
 minute per tab and origin, and unhandled errors to 20 per minute in all. `debug` events
 have their own 20 per minute, so a page's debug detail never crowds out its other
-events. The first event
-dropped in a window is logged at once as `log.dropped` with `count: 1`; the rest are
-counted when the window ends and the next event or prune runs, so a worker that stops
-first loses only that remainder. `debug` entries are written only for 24 hours after
-**Enable debug logging**. Retention: 14 days; `debug` entries for 24 hours; at most
-5,000 `debug` and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn`
-and `error` entries, pruned at worker start and every 500 writes.
+events. The first event dropped in a window is logged at once as `log.dropped` with
+`count: 1`; the rest are counted when the window ends and the next event or prune runs,
+so a worker that stops first loses only that remainder. `debug` entries are written only
+for 24 hours after **Enable debug logging for 24 hours**, or until
+**Disable debug logging** turns it off sooner; either change is logged as `log.debug`
+with `enabled`. Retention: 14 days; `debug` entries for 24 hours; at most 5,000 `debug`
+and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn` and `error`
+entries, pruned at worker start and every 500 writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
-`diagnostics.logs.clear` and `diagnostics.logs.debug`, accepted from the same page URL
-only. **Download logs** previews the exact JSON Lines text and saves it through a `Blob`
-link (no `downloads` permission): a header line with the version, revision and export
-time, then one line per entry. **Copy all** puts the same text on the clipboard in full,
-without selecting the scrolled preview by hand, and reports how many entries it copied.
-The export shows sites and recipe IDs as logged. When
+`diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from
+the same page URL only. **Download logs** previews the exact JSON Lines text and saves
+it through a `Blob` link (no `downloads` permission): a header line with the version,
+revision and export time, then one line per entry. **Copy all** puts the same text on
+the clipboard in full, without selecting the scrolled preview by hand, and reports how
+many entries it copied. The export shows sites and recipe IDs as logged. When
 **Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
 and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
 **Clear logs** deletes every entry and replaces the pseudonym key.

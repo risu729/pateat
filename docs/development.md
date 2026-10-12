@@ -337,7 +337,8 @@ preview and click **Save file**, then attach the `.jsonl` file, or click **Copy 
 and paste the whole text. Site addresses and recipe IDs are included; check
 **Hide site addresses and recipe IDs** to replace them with `site-1` and `recipe-1`. To
 record more detail, click **Enable debug logging for 24 hours**, reproduce the problem,
-then download the logs ([local log](architecture.md#local-log)).
+then download the logs ([local log](architecture.md#local-log)). Debug logging turns
+itself off after 24 hours; **Disable debug logging** turns it off sooner.
 
 ### Why a passkey request was delegated
 
