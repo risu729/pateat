@@ -202,7 +202,7 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
     // A marker's text is stored in the recipe and must match every later sign-in.
     expect(completionInstructions).toMatch(/never name one whose text shows the person's name/u);
     expect(completionInstructions).toMatch(
-      /passkeyButton is a button that continues with a security key or passkey, never one that registers, adds or sets up one/u,
+      /passkeyButton is a button that continues with a security key or passkey, never one that registers, creates, adds or sets up one/u,
     );
   });
 

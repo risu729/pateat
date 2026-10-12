@@ -14,6 +14,13 @@ import {
 } from "./outcome";
 import type { GeneratedPageRejection } from "./plan";
 
+/**
+ * A schema with a description. A role's response format is sent to the model, so its
+ * descriptions carry what each field means and the instructions only the rules.
+ */
+export const described = <T extends v.GenericSchema>(schema: T, description: string) =>
+  v.pipe(schema, v.description(description));
+
 /** What a role makes of the model's structured output, before usage is attached. */
 export type Interpreted<T> =
   | { status: "ok"; value: T }

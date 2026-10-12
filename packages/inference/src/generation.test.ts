@@ -361,7 +361,7 @@ describe("recipe generation role", () => {
 
   it("asks for the passkey sign-in button and never a registration button", () => {
     expect(generationInstructions).toContain(
-      "Never name a button that registers, adds or sets up a passkey or security key, or one the plan uses, as passkeyButton",
+      "Never name a button that registers, creates, adds or sets up a passkey or security key, or one the plan uses, as passkeyButton",
     );
     expect(planDescription("passkeyButton")).toMatch(/signs in with a passkey instead of/u);
   });
@@ -370,6 +370,7 @@ describe("recipe generation role", () => {
     const alternatives = planDescription("alternatives");
     expect(alternatives).toContain("the page shows now");
     expect(alternatives).toContain("never another form or one behind a tab or link");
+    expect(alternatives).toContain("every set's action, the main one too, is a submit");
     expect(alternatives).toContain("each element fills one slot");
     expect(alternatives).toContain("no set's slots equal or are a subset of another's");
   });

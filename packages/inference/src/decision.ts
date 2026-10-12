@@ -57,7 +57,7 @@ export function buildFieldQuestions(observation: LoginObservation, slots: readon
     if (eligible.length === 0) continue;
     questions[`slot:${slot.id}`] = {
       type: "choice",
-      instructions: `Which element receives slot ${slot.id} (${slot.description})? Choose none unless one clearly fits. ${untrusted}`,
+      instructions: `Which element receives slot ${slot.id} (${slot.description})? The state's slot may add the user's field name and the value's shape. Choose none unless one clearly fits. ${untrusted}`,
       criteria: {
         ...Object.fromEntries(
           eligible.map((candidate) => [optionId(candidate), describe(candidate)]),
