@@ -267,6 +267,8 @@ export const LOG_EVENTS = {
       duringLogin: "flag",
       answerFailed: "code",
       cause: "code",
+      invalid: "code",
+      invalidLength: "count",
     },
   },
   "error.unhandled": {

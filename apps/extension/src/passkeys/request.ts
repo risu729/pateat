@@ -79,6 +79,71 @@ export type Admission =
   | { readonly kind: "claim"; readonly request: AdmittedGetRequest }
   | { readonly kind: "delegate"; readonly reason: DelegationReason };
 
+/** Snapshot members a report may name, in the log's lowercase form; page keys never are. */
+const REPORTED_MEMBERS = new Map([
+  ["challenge", "challenge"],
+  ["rpId", "rp-id"],
+  ["allowCredentials", "allow-credentials"],
+  ["userVerification", "user-verification"],
+  ["mediation", "mediation"],
+  ["timeout", "timeout"],
+]);
+const REPORTED_DESCRIPTOR_MEMBERS = new Map([
+  ["type", "type"],
+  ["id", "id"],
+  ["transports", "transports"],
+]);
+
+/** Which member of a request delegated as `invalid-request` broke its bounds, without its value. */
+export interface InvalidRequestReport {
+  /** The member, such as `challenge` or `allow-credentials.id`; `other` for an unknown one. */
+  readonly member: string;
+  /** Its size: bytes for a base64url member (counted from its text), items for a list. */
+  readonly length?: number;
+}
+
+/** The snapshot member a schema issue's path names, or `other` for any page key outside it. */
+function reportedMember(path: readonly { readonly key: unknown }[]): string {
+  const keys = path.flatMap((item) => (typeof item.key === "string" ? [item.key] : []));
+  if (keys.length === 0) return "request";
+  const member = REPORTED_MEMBERS.get(keys[0]!);
+  if (member === undefined || keys.length > 2) return "other";
+  if (keys.length === 1) return member;
+  const descriptor =
+    member === "allow-credentials" ? REPORTED_DESCRIPTOR_MEMBERS.get(keys[1]!) : undefined;
+  return descriptor === undefined ? "other" : `${member}.${descriptor}`;
+}
+
+/**
+ * Describes why `admitGetRequest` delegated a request as `invalid-request`, for the request's
+ * report only; call it for that reason alone. Undefined when the snapshot is well formed and
+ * names a `public-key` credential or none.
+ */
+export function describeInvalidRequest(request: unknown): InvalidRequestReport | undefined {
+  const parsed = v.safeParse(bridgedGetRequestSchema, request);
+  if (parsed.success) {
+    const { allowCredentials } = parsed.output;
+    return allowCredentials.length > 0 &&
+      allowCredentials.every((entry) => entry.type !== "public-key")
+      ? { member: "allow-credentials.type" }
+      : undefined;
+  }
+  const issue = parsed.issues[0];
+  const member = reportedMember(issue.path ?? []);
+  // An unknown member's size says nothing about Pateat's bounds.
+  if (member === "other") return { member };
+  const { input } = issue;
+  const length =
+    typeof input === "string"
+      ? member === "challenge" || member === "allow-credentials.id"
+        ? Math.floor((input.length * 3) / 4)
+        : input.length
+      : Array.isArray(input)
+        ? input.length
+        : undefined;
+  return { member, ...(length === undefined ? {} : { length }) };
+}
+
 /**
  * Decide whether Pateat may answer a request. Origin is browser-supplied; every other input is
  * page data. Anything not explicitly supported delegates to the browser's own implementation.

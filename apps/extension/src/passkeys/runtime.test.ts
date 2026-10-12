@@ -398,6 +398,31 @@ describe("passkey runtime reports", () => {
     expect(report).toHaveBeenCalledTimes(2);
   });
 
+  it("reports which member of an invalid request broke its bounds, without its value", async () => {
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(source(), { extensionId, report });
+    const oversized = btoa("x".repeat(1025)).replace(/=+$/u, "");
+    expect(
+      await runtime.handle({ ...get(), request: { ...request, challenge: oversized } }, sender()),
+    ).toEqual({ kind: "delegate", reason: "invalid-request" });
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith({
+        tabId: 7,
+        origin,
+        outcome: "delegate",
+        reason: "invalid-request",
+        invalid: "challenge",
+        invalidLength: 1025,
+      }),
+    );
+    expect(JSON.stringify(report.mock.calls)).not.toContain(oversized.slice(0, 16));
+    // Another delegation names no invalid member.
+    await runtime.handle({ ...get(), request: { ...request, mediation: "silent" } }, sender());
+    await vi.waitFor(() => expect(report).toHaveBeenCalledTimes(2));
+    expect(report.mock.lastCall![0]).not.toHaveProperty("invalid");
+    expect(report.mock.lastCall![0]).not.toHaveProperty("invalidLength");
+  });
+
   it.each([
     ["conditional", "conditional"],
     ["silent", "silent"],
