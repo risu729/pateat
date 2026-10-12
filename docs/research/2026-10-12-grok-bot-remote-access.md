@@ -256,6 +256,60 @@ through the proxy, and which Pateat build Chrome loads. It prints no vault data,
 passwords, cookies, Local Storage, chrome.storage or IndexedDB contents, redacts
 token-like strings, and writes its report to `/workspace/pateat-probe/`.
 
+## Probe results
+
+The owner ran the probe on the secretary Bot's computer at 19:09 UTC on 2026-10-12 and
+uploaded the report (49,436 bytes) to the shared Drive folder. Process names, ports and
+paths below are copied from it; statements marked "inferred" are not.
+
+Browser tool:
+
+- Both guard messages ("Blocked by Playwright proxy" and the saved-credential check)
+  are in `/opt/sand/sand-host/host-main.cjs` on the computer, and the proxy message is
+  also in `sand-eval-runner.cjs`. That `sand-host` process listens on port 1340 and had
+  three connections from the host gateway `172.30.0.1`.
+- Clients of Chrome's DevTools port 9224 were all on the computer:
+  `@anysphere/sand-playwright-runtime` (the browser tool), `sand-session-sync`,
+  `sand-ua-governor` and `sand-cookie-persist`. A `chrome-devtools-mcp` started with
+  `npx` was running but not connected.
+- Inferred: the host sends browser actions to `sand-host`, which applies the guards on
+  the computer and drives Chrome through the Playwright runtime. The guard code itself
+  was not read.
+
+Chrome:
+
+- Google's Debian package `google-chrome-stable` 154.0.8037.97, held at that version.
+  The root supervisor `sand-exit-watch` starts `/opt/google/chrome/chrome` directly,
+  without the wrapper script; its flags were not readable. One Chrome ran (profile
+  `Fork-2`, 15 renderers) although displays `:1`, `:2` and `:7` existed.
+- Managed policies: `PasswordManagerEnabled` false, `BrowserSignin` 0, notifications
+  blocked, `HighEfficiencyModeEnabled` true with `MemorySaverModeSavings` 2 (the most
+  aggressive tab discarding), `HttpsOnlyMode` disallowed, and a force-installed WebAuthn
+  proxy extension from a local update file.
+- Chrome's traffic goes to `sand-egress-tunnel` on `127.0.0.1:8791`.
+
+Limits and performance:
+
+- Debian 13 on KVM, 8 vCPUs (Intel Xeon), 16 GiB memory, no swap; 6.4 GiB available and
+  load 0.09 at the time. cgroup limit files were not visible; a root `sand-memory-watch`
+  runs. One 125 GB disk (119 GB free) holds `/` and `/workspace`; hashing 256 MiB and a
+  128 MiB fsync write each took about 0.2 s.
+- No `ssh`, `sshd`, `nc`, `socat`, `tailscale` or `cloudflared`. TCP 22 timed out,
+  plain HTTP timed out directly and got 400 from Chrome's proxy, HTTPS worked both
+  ways. Every host name resolved to `198.18.0.1`, so direct traffic is also relayed by
+  the host (inferred).
+- Box state comes from a store (`SAND_BOX_STORE_*` variables, including a hibernate
+  hook). Inferred: a restore from that store explains the `/workspace` revert seen
+  around 17:12 UTC.
+
+Pateat:
+
+- Chrome loads the unpacked folder `/workspace/pateat-ext/unpacked`, built at
+  18:35:58 UTC from `/workspace/pateat-src` at `a8350f5`; Chrome's
+  `last_update_time` is 18:36:31 UTC.
+- `https://pateat.takuk.me/health`, `api.bitwarden.com/config` and
+  `api.bitwarden.eu/config` returned 200 directly and through Chrome's proxy.
+
 ## Not checked
 
 - The xAI copies of the terms (`x.ai/legal/grok-bot-terms`, consumer terms, AUP), which

@@ -257,7 +257,10 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   email to the Bot's address, or on a schedule that reads a Notion page can take
   requests from Claude without the owner pasting them
   ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). Which
-  one to use waits for the owner.
+  one to use waits for the owner. A read-only probe run there on 2026-10-12 found the
+  browser-tool guards in the computer's own `sand-host` process, Chrome 154 from
+  Google's package with memory saver at its most aggressive, and the `a8350f5` build
+  loaded.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
