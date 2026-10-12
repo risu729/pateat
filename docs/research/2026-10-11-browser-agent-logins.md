@@ -147,14 +147,34 @@ Later on 2026-10-12 the owner checked whether the install lasts:
   Pateat's passkey handling; passkeys from Pateat come from its own vault, not from
   that proxy.
 
-Not yet checked: anything that needs pairing. Pairing from this browser is refused
-today, because the service's Access policy requires a WARP-connected device
-([delivery](../delivery.md)).
+Stage B (pairing and a login) was started on the same computer on 2026-10-12 after the
+"pateat pair" Access application of [ADR 0030](../adr/0030-pairing-without-warp.md)
+existed. A Claude session on the owner's PC drove the Grok Bot desktop app. The owner
+entered the One-time PIN code, the Bitwarden email and the master password. Results:
+
+- The Bot replaced `/workspace/pateat-ext/unpacked` with the build of main `7e6c024`.
+  Pateat was reloaded from `chrome://extensions`, and its diagnostics page showed
+  `7e6c024`.
+- Pairing as `grok-bot` succeeded at 12:54 UTC ("This device is paired."). The settings
+  page opened `/pair/signed-in`, Access asked for a One-time PIN, and the extension's
+  `POST /pair` then passed through "pateat pair" with Binding Cookie on.
+- `https://pateat.takuk.me/cdn-cgi/access/logout` answered "No Access cookie found.
+  Please login first.", because that browser's only Access cookie is sent below `/pair`.
+  The team domain's `/cdn-cgi/access/logout` answered "Success! You successfully logged
+  out."
+- The owner connected their existing Bitwarden account as "main" (12:57 UTC).
+- Asked to open `https://www.smbc-card.com/mem/index.jsp` (Vpass) without typing, the
+  Bot reported after one minute that the page was still the Vpass login form, with no
+  code or confirmation prompt, and that it had typed nothing. Pateat did not log in.
+  The cause is not known yet: no Pateat log from that computer has been read. The same
+  recipe logged in automatically in the owner's Chrome earlier that day.
+- Soon after (13:11 UTC) the owner reported that Grok Bot itself had stopped working,
+  so the run was paused there.
 
 ## What to check next
 
-None of these has been run. Each needs the owner's ChatGPT, Claude or Grok account, so
-each needs separate owner approval:
+Items 1 to 3 have not been run. Each needs the owner's ChatGPT, Claude or Grok account,
+so each needs separate owner approval:
 
 1. In the owner's Chrome with Pateat installed, have Claude in Chrome and a ChatGPT
    Work task with `@Chrome` open a recipe's start page and record whether the agent
@@ -164,8 +184,7 @@ each needs separate owner approval:
 3. On a dot's cloud computer during a takeover, check whether `chrome://extensions`
    or the Web Store opens. This only records what is possible; running Pateat there
    with a vault is the owner's tradeoff above.
-4. On the Grok Bot computer, pairing and a login on one of the owner's real sites with
-   the owner's existing Bitwarden account (owner decisions, 2026-10-12). This needs the
-   "pateat pair" Access application of [ADR 0030](../adr/0030-pairing-without-warp.md)
-   first, and a build from current main with its source beside it
-   ([Corresponding Source](../sdk-source.md)).
+4. On the Grok Bot computer, once Grok Bot works again: why Pateat did not log in to
+   Vpass. Read Pateat's log lines for `www.smbc-card.com` (`login.refused`,
+   `recipe.generate`, `login.attempt`), and check that the connection shows "Local vault
+   ready" and that **Last recipe sync** has a time. Then retry the login.
