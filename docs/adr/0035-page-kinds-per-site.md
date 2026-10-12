@@ -87,9 +87,11 @@ re-verification on the login page's own URL keeps its `sign-in` recipe.
 
 A passkey request that names its credentials, from a tab whose Pateat login of the
 origin finished with no logout detected since, is `confirm` (owner, 21:29 UTC). Under
-`off`, or under `fill` since a passkey cannot be filled without answering, it is handed
-to the browser or Bitwarden. The same request after a login made in another tab or
-before a browser restart cannot be told apart and is answered as today.
+`off` it is handed to the browser or Bitwarden. Under `fill` it is handed on too: an
+answer completes the verification as a press would, and Pateat never presses on a
+`confirm` page (derived from that rule, not asked separately). The same request after a
+login made in another tab or before a browser restart cannot be told apart and is
+answered as today.
 
 ### Fill only (`sign-in` set to `fill`)
 
@@ -160,7 +162,8 @@ page text:
 - `login.refused` gains `page-off` (origin, recipe ID, kind, `site` or `default`), and
   `not-started` with detail `confirm-unsupported` while filling `confirm` pages is not
   built.
-- `passkey.request` names `confirm-off` or `sign-in-fill` when it hands a request on.
+- `passkey.request` names `confirm-off`, `confirm-fill` or `sign-in-fill` when it hands
+  a request on.
 
 For the evaluation that decides whether `confirm` can be split (owner, 21:22 UTC):
 
@@ -186,8 +189,9 @@ For the evaluation that decides whether `confirm` can be split (owner, 21:22 UTC
 ## Delivery
 
 1. Right after phase 1 (owner, 21:29 UTC): `pageKind` and `irreversible` in generation,
-   `pageKind` on recipes, `confirm` recipes neither run nor count as logouts, the
-   evaluation logs and retention, and regeneration of existing recipes.
+   `pageKind` on recipes, `confirm` recipes neither run nor count as logouts, passkey
+   re-verification handed on as above, the evaluation logs and retention, and
+   regeneration of existing recipes.
 2. The settings entries, the popup and settings page, and fill-only `sign-in`.
 3. Filling `confirm` pages: run in a tab whose login finished, use that login's
    account (not the site default or a pick), and never take the page as a logout.
@@ -196,7 +200,10 @@ For the evaluation that decides whether `confirm` can be split (owner, 21:22 UTC
 ## Consequences
 
 - A browser or site can use Pateat as autofill only.
-- Re-verification pages stop being filled and submitted as logins once delivery 1 lands.
+- Once delivery 1 lands, pages generated as `confirm` are no longer filled and submitted
+  as logins, and passkey re-verification after Pateat's login in the tab is no longer
+  answered. A re-verification form shaped like a `sign-in` recipe's first step is still
+  taken as a login or a logout, as in ADR 0021's known gaps.
 - Every generated page costs a slightly longer answer; a page set to `off` still costs
   one generation (about $0.007).
 - A session-expired sign-in misclassified as `confirm` or `unclear` is only filled, and

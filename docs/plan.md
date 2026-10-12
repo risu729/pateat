@@ -260,9 +260,9 @@ own accounts, so they stay in the project's files rather than in this repository
 
 - First, right after phase 1 (owner, 2026-10-12 21:29 UTC):
   [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each
-  page's kind, `confirm` recipes neither run nor count as logouts, so re-verification
-  pages shown while signed in stop being filled and submitted as logins, and the logs
-  for judging whether `confirm` can be split are kept.
+  page's kind, recipes generated as `confirm` neither run nor count as logouts, a
+  passkey re-verification after Pateat's login in the tab is handed on, and the logs for
+  judging whether `confirm` can be split are kept.
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
