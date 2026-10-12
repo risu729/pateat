@@ -192,7 +192,8 @@ describe("withoutUsernames", () => {
       const page = extractSignedInObservation();
       if (!page.ok) throw new Error(page.reason);
       const sent = hidden(page.observation, ["taro.yamada"]).headerText!;
-      expect(sent, String(filler)).not.toMatch(/taro|\bt[a-z.]*$/u);
+      expect(sent, String(filler)).not.toMatch(/taro/u);
+      expect(sent, String(filler)).not.toMatch(/\bt[a-z.]*$/u);
     }
     const long = `${"a ".repeat(498)}taro.yamada`;
     expect(header(long)!.length).toBeLessThanOrEqual(1000);
