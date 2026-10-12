@@ -1555,7 +1555,7 @@ describe("extractAccountListObservation", () => {
 });
 
 describe("extractEntryObservation (ADR 0031)", () => {
-  // Synthetic pixiv-like hosts; the worker answers which hosts are on the page's site.
+  // Synthetic hosts; the worker answers which hosts are on the page's site.
   const onSite = (url: URL) =>
     url.hostname === "synthetic.example" || url.hostname.endsWith(".synthetic.example");
   const entry = () => {
@@ -1632,6 +1632,25 @@ describe("extractEntryObservation (ADR 0031)", () => {
     );
     const result = extractEntryObservation(document, () => false);
     expect(result).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("drops a link that downloads and one the page's base target opens elsewhere", () => {
+    page(
+      `<a href="https://accounts.synthetic.example/login" download>Download login</a>
+      <a href="https://accounts.synthetic.example/login">Login</a>`,
+    );
+    expect(entry().candidates.map((candidate) => candidate.label)).toEqual(["Login"]);
+    const base = document.createElement("base");
+    base.target = "_blank";
+    document.head.append(base);
+    try {
+      expect(extractEntryObservation(document, onSite)).toEqual({
+        ok: false,
+        reason: "no-candidates",
+      });
+    } finally {
+      base.remove();
+    }
   });
 
   it("refuses a path that may carry a token", () => {

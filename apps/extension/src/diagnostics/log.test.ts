@@ -1014,7 +1014,7 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs a pressed sign-in entry, a refused one and a blocked revision at their levels", async () => {
+  it("logs a pressed sign-in entry, refused ones and blocked revisions at ADR 0019's levels", async () => {
     const recipeOrigin = "https://login.example";
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
@@ -1040,12 +1040,15 @@ describe("unhandled errors", () => {
     } as const;
     log.login({ ...entry, outcome: "pressed" });
     log.login({ ...entry, outcome: "refused", reason: "no-return-target" });
+    log.login({ ...entry, outcome: "refused", reason: "in-progress" });
     log.login({ ...entry, outcome: "refused", reason: "site-held" });
+    log.login({ ...entry, outcome: "refused", reason: "site-held", repeat: true });
     log.login({ ...entry, outcome: "blocked", reason: "sign-up" });
+    log.login({ ...entry, outcome: "blocked", reason: "left-site", detail: "storage-unavailable" });
     await vi.waitFor(async () =>
       expect(
         (await log.logger.entries()).filter((logged) => logged.event === "login.entry"),
-      ).toHaveLength(4),
+      ).toHaveLength(7),
     );
     const entries = (await log.logger.entries()).filter((logged) => logged.event === "login.entry");
     const fields = {
@@ -1056,10 +1059,17 @@ describe("unhandled errors", () => {
     };
     expect(entries.map((logged) => [logged.level, logged.fields])).toEqual([
       ["info", { ...fields, outcome: "pressed" }],
-      // A refused press is debug: a visit while signed in names no page to return to.
+      // ADR 0019's levels: a visit while signed in names no page to return to, and a press
+      // another document's check holds is routine; both are debug, as is a repeat.
       ["debug", { ...fields, outcome: "refused", reason: "no-return-target" }],
+      ["debug", { ...fields, outcome: "refused", reason: "in-progress" }],
+      ["info", { ...fields, outcome: "refused", reason: "site-held" }],
       ["debug", { ...fields, outcome: "refused", reason: "site-held" }],
       ["warn", { ...fields, outcome: "blocked", reason: "sign-up" }],
+      [
+        "warn",
+        { ...fields, outcome: "blocked", reason: "left-site", detail: "storage-unavailable" },
+      ],
     ]);
     vi.restoreAllMocks();
   });

@@ -437,7 +437,9 @@ export const entryHostsResultSchema = v.strictObject({ ok: v.literal(true), host
 export const entryInspectResultSchema = v.strictObject({
   ok: v.literal(true),
   state: v.picklist(["missing", "unique", "ambiguous"]),
-  refusal: v.optional(v.picklist(["not-link", "script-link", "hidden", "no-text", "new-window"])),
+  refusal: v.optional(
+    v.picklist(["not-link", "script-link", "hidden", "no-text", "new-window", "download"]),
+  ),
   href: v.optional(href),
   url: href,
 });

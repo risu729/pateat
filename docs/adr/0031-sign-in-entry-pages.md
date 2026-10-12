@@ -13,6 +13,25 @@ form plan) and the recipe contract in `packages/contracts/src/login.ts`. Like
 [ADR 0028](0028-account-chooser-login-pages.md)'s `chooser`, it needs a recipe whose
 start has no fill step.
 
+Implementation notes (2026-10-12), which leave the decision below as accepted:
+
+- The `login.entry` levels follow
+  [ADR 0019's standard](0019-local-diagnostics-and-logs.md#amendment-what-the-log-records)
+  of the same day, not "refused (debug)" below: a refusal is `info` once per document
+  and reason, and `debug` for `no-return-target` (an entry page visited while signed
+  in), `in-progress` and a reason the document already logged. `pressed` is `info` and
+  `blocked` `warn`.
+- The URL parser reads every query key and value of a link, on its own and resolved
+  against the link, and a link is refused when either reading leads to another site; a
+  page's return path counts only when every reading of it stays on the site. So
+  `https:evil.example/x`, `\\evil.example/x` and a bare key naming another site are
+  refused.
+- A link is also refused when it leads only to another fragment of the page, downloads,
+  has an empty box, or opens elsewhere through the document's `<base target>`.
+- A press the page never answered is not taken as one: its next page is not checked, but
+  it counts against the tab's 10-minute limit. A page that comes after the wait settles
+  the press as `no-sign-in` without being refused itself.
+
 Date: 2026-10-12
 
 ## Context

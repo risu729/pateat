@@ -449,7 +449,7 @@ test("a page that sent the visitor to sign in first presses its Login link to th
   const fixture = await startLoginFixture(0, { password });
   const claude = syntheticClaude();
   const service = await startSyncService({ claude: claude.answer });
-  // A pixiv-like top page on another host of the site: no form, a "Create account" and a
+  // A top page on another host of the site: no form, a "Create account" and a
   // "Login" link to the login page, and a sign-in through another site.
   const top = "https://www.synthetic.example.test";
   try {

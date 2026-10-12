@@ -294,8 +294,8 @@ type LiveDocument = {
   generationSkip?: string;
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
-  /** Why this document's sign-in entry was last not pressed, logged once (ADR 0031). */
-  entrySkip?: string;
+  /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
+  entryRefusals?: string[];
 };
 /**
  * A page offered as a list of accounts (ADR 0028): its path, and without an email listed,
@@ -320,6 +320,9 @@ const frameKey = (document: { tabId: number; frameId: number }) =>
  * record until the tab closes, while the tab still runs one attempt at a time.
  */
 const recordKey = (tabId: number, origin: string) => `${tabId} ${origin}`;
+/** A document's key in the entry press's sets and maps (ADR 0031). */
+const documentKey = (page: { tabId: number; documentId: string }) =>
+  `${page.tabId} ${page.documentId}`;
 /**
  * An account the user picked in the toolbar popup (ADR 0021). It is used instead of the
  * saved default by the refused document it restarted and then by the attempt that
@@ -936,8 +939,10 @@ export type LoginReport = (
   | {
       /**
        * A site's sign-in entry (ADR 0031): `pressed`; `refused` with the check before the
-       * press that failed; `blocked` with why the page after the press blocked the recipe
-       * revision (`left-site`, `no-sign-in`, `sign-up`).
+       * press that failed, or `unconfirmed` for a press the page never answered; `blocked`
+       * with why the page after the press blocked the recipe revision (`left-site`,
+       * `no-sign-in`, `sign-up`), and `detail` `storage-unavailable` when the block could
+       * not be stored on the device.
        */
       type: "entry";
       tabId: number;
@@ -946,6 +951,9 @@ export type LoginReport = (
       revision: number;
       outcome: "pressed" | "refused" | "blocked";
       reason?: string;
+      detail?: string;
+      /** A refusal the document already logged for the same reason. */
+      repeat?: true;
     }
   | {
       type: "handler";
@@ -1136,8 +1144,11 @@ export function createLoginRuntime(
   const entryPresses = new Map<number, EntryPress>();
   /** By tab: the document whose sign-in entry is being checked and pressed now (ADR 0031). */
   const pressing = new Map<number, string>();
-  /** By tab: the check of the page after an entry press while it runs. */
-  const entryChecks = new Map<number, Promise<EntryBlockReason | "passed" | undefined>>();
+  /**
+   * By `${tabId} ${documentId}`: the check of a page after an entry press while it runs, so
+   * the same document announcing again waits for it.
+   */
+  const entryChecks = new Map<string, Promise<void>>();
   /** By tab: when an entry press with no next page so far is checked. */
   const entryTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /**
@@ -1145,6 +1156,11 @@ export function createLoginRuntime(
    * are never sent for generation and start no login (ADR 0031). The oldest go first.
    */
   const entryRefused = new Set<string>();
+  /**
+   * Blocks this worker could not store, because the device's blocks could not be read or
+   * written; they hold until the worker stops (ADR 0031).
+   */
+  const unsavedBlocks: EntryBlock[] = [];
   /** Account choices being saved; each bumps the policy revision (ADR 0022). */
   const savingChoices = new Set<Promise<void>>();
   /** Counts account choices saved or attempted, so a new login sees a bump it missed. */
@@ -4930,8 +4946,8 @@ export function createLoginRuntime(
       ...(sameDocument && oldLive.path === path && oldLive.notStarted
         ? { notStarted: oldLive.notStarted }
         : {}),
-      ...(sameDocument && oldLive.path === path && oldLive.entrySkip
-        ? { entrySkip: oldLive.entrySkip }
+      ...(sameDocument && oldLive.path === path && oldLive.entryRefusals
+        ? { entryRefusals: oldLive.entryRefusals }
         : {}),
     };
     documents.set(key, live);
@@ -4963,17 +4979,10 @@ export function createLoginRuntime(
     };
     // The page after a sign-in entry press is checked before anything else runs on it, and
     // one that blocked the entry is neither sent for generation nor logged in to (ADR 0031).
-    const refusedKey = `${document.tabId} ${document.documentId}`;
+    const refusedKey = documentKey(document);
     if (!entryRefused.has(refusedKey)) {
-      const verdict = await checkAfterPress(live);
+      await checkAfterPress(live);
       if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
-      if (verdict && verdict !== "passed") {
-        entryRefused.add(refusedKey);
-        for (const old of entryRefused) {
-          if (entryRefused.size <= 256) break;
-          entryRefused.delete(old);
-        }
-      }
     }
     if (entryRefused.has(refusedKey)) return refuse("entry-blocked");
     // A report sent only for the log does not log the tab's hold again.
@@ -5629,21 +5638,36 @@ export function createLoginRuntime(
     entryBlocks ??= read;
     return entryBlocks;
   }
-  /** Blocks an entry recipe revision on this device; this worker keeps it even if the write fails. */
-  async function blockEntry(press: EntryPress, reason: EntryBlockReason): Promise<void> {
-    const stored = (await readEntryBlocks()) ?? [];
+  /**
+   * Blocks an entry recipe revision on this device, and whether the block was stored. A
+   * read of the stored blocks that failed writes nothing, so other recipes' blocks are
+   * never lost; that block, like one whose write failed, holds in this worker only.
+   */
+  async function blockEntry(press: EntryPress, reason: EntryBlockReason): Promise<boolean> {
+    const block: EntryBlock = {
+      recipeId: press.recipeId,
+      revision: press.revision,
+      reason,
+      blockedAt: new Date().toISOString(),
+    };
+    const stored = await readEntryBlocks();
+    if (!stored) {
+      unsavedBlocks.push(block);
+      return false;
+    }
     const next = [
       // A block of an older revision of the same recipe no longer applies.
       ...stored.filter((entry) => entry.recipeId !== press.recipeId),
-      {
-        recipeId: press.recipeId,
-        revision: press.revision,
-        reason,
-        blockedAt: new Date().toISOString(),
-      },
+      block,
     ].slice(-MAX_ENTRY_BLOCKS);
     entryBlocks = Promise.resolve(next);
-    await browser.storage.local.set({ [ENTRY_BLOCKS_KEY]: next });
+    try {
+      await browser.storage.local.set({ [ENTRY_BLOCKS_KEY]: next });
+      return true;
+    } catch {
+      unsavedBlocks.push(block);
+      return false;
+    }
   }
   /** Logs one sign-in entry decision (ADR 0031). */
   function reportEntry(
@@ -5651,6 +5675,7 @@ export function createLoginRuntime(
     recipe: { origin: string; id?: string; recipeId?: string; revision: number },
     outcome: "pressed" | "refused" | "blocked",
     reason?: string,
+    extra: { detail?: string; repeat?: true } = {},
   ): void {
     report(
       { frameId: 0 },
@@ -5662,33 +5687,58 @@ export function createLoginRuntime(
         revision: recipe.revision,
         outcome,
         ...(reason ? { reason } : {}),
+        ...extra,
       },
     );
   }
   /**
    * Ends the check of the page after an entry press: it passed, or the recipe revision is
    * blocked on this device and a warning logged (ADR 0031). Each press is settled once.
+   * `refused` is the page that blocked it, which is then refused for as long as this
+   * worker runs; a page that only came too late is not.
    */
-  async function settleEntry(press: EntryPress, verdict: EntryBlockReason | "passed") {
+  async function settleEntry(
+    press: EntryPress,
+    verdict: EntryBlockReason | "passed",
+    refused?: LoginDocument,
+  ): Promise<void> {
     clearTimeout(entryTimers.get(press.tabId));
     entryTimers.delete(press.tabId);
     const latest = entryPresses.get(press.tabId);
     if (latest?.pressedAt !== press.pressedAt || latest.checked) return;
     entryPresses.set(press.tabId, { ...latest, checked: true });
+    // Recorded before anything is awaited, so no announcement of the page slips past it.
+    if (verdict !== "passed" && refused) {
+      entryRefused.add(documentKey(refused));
+      for (const old of entryRefused) {
+        if (entryRefused.size <= 256) break;
+        entryRefused.delete(old);
+      }
+    }
     await quietly(saveSession);
     if (verdict === "passed") return;
-    await quietly(() => blockEntry(press, verdict));
-    reportEntry(press.tabId, press, "blocked", verdict);
+    const stored = await blockEntry(press, verdict).catch(() => false);
+    reportEntry(
+      press.tabId,
+      press,
+      "blocked",
+      verdict,
+      stored ? {} : { detail: "storage-unavailable" },
+    );
   }
+  /** Whether the check of a page after the tab's entry press is running. */
+  const entryChecked = (tabId: number) =>
+    [...entryChecks.keys()].some((key) => key.startsWith(`${tabId} `));
   /**
    * Checks an entry press whose next page did not announce in time (ADR 0031). A tab now on
    * another site's web page blocks it as `left-site`; one still on the pressed URL, or with
    * no page announced once more the step wait after a same-site move, as `no-sign-in`.
+   * While a page's check runs, that check settles the press, or arms this again.
    */
   async function lateEntry(press: EntryPress, extended: boolean): Promise<void> {
     entryTimers.delete(press.tabId);
     const latest = entryPresses.get(press.tabId);
-    if (latest?.pressedAt !== press.pressedAt || latest.checked || entryChecks.has(press.tabId))
+    if (latest?.pressedAt !== press.pressedAt || latest.checked || entryChecked(press.tabId))
       return;
     let url: string | undefined;
     try {
@@ -5722,23 +5772,24 @@ export function createLoginRuntime(
    * the pressed document at another URL), checks it (ADR 0031): it must be on the entry
    * page's site (else `left-site`) and, within the step wait, show a sign-in input or a
    * ready first step of a cached recipe (else `no-sign-in`), and no sign-up form (else
-   * `sign-up`). A page announced later than the press's wait plus the step wait is
-   * `no-sign-in`. `undefined` when `live` is not that page or could not be asked; a later
-   * page of the tab is checked then.
+   * `sign-up`). A page that blocks the press is refused (`entryRefused`). A page announced
+   * later than the press's wait plus the step wait settles the press as `no-sign-in` but
+   * is not refused itself. A page that could not be asked leaves the press to a later
+   * page of the tab or to its timer, armed again, so every press is settled.
    */
-  async function checkAfterPress(
-    live: LiveDocument,
-  ): Promise<EntryBlockReason | "passed" | undefined> {
+  async function checkAfterPress(live: LiveDocument): Promise<void> {
     const { tabId, documentId, frameId, origin: pageOrigin } = live.document;
     const press = entryPresses.get(tabId);
-    if (frameId !== 0 || live.topUrl !== undefined || !press || press.checked) return undefined;
-    if (documentId === press.documentId && live.url === press.url) return undefined;
-    const running = entryChecks.get(tabId);
+    if (frameId !== 0 || live.topUrl !== undefined || !press || press.checked) return;
+    if (documentId === press.documentId && live.url === press.url) return;
+    const key = documentKey(live.document);
+    const running = entryChecks.get(key);
     if (running) return running;
-    const check = (async (): Promise<EntryBlockReason | "passed" | undefined> => {
-      if (siteOf(pageOrigin) !== siteOf(press.origin)) return "left-site";
+    const check = (async (): Promise<void> => {
+      if (siteOf(pageOrigin) !== siteOf(press.origin))
+        return settleEntry(press, "left-site", live.document);
       if (Date.now() - Date.parse(press.pressedAt) > ENTRY_NEXT_PAGE_MS + LOGIN_STEP_WAIT_MS)
-        return "no-sign-in";
+        return settleEntry(press, "no-sign-in");
       const starts = await startsFor(pageOrigin);
       let answer: unknown;
       try {
@@ -5748,20 +5799,30 @@ export function createLoginRuntime(
           timeoutMs: LOGIN_STEP_WAIT_MS,
         });
       } catch {
-        return undefined;
+        return;
       }
       const parsed = v.safeParse(entryCheckResultSchema, answer);
-      if (!parsed.success) return undefined;
-      if (parsed.output.signUp) return "sign-up";
-      return parsed.output.signIn || parsed.output.start ? "passed" : "no-sign-in";
+      if (!parsed.success) return;
+      if (parsed.output.signUp) return settleEntry(press, "sign-up", live.document);
+      return parsed.output.signIn || parsed.output.start
+        ? settleEntry(press, "passed")
+        : settleEntry(press, "no-sign-in", live.document);
     })();
-    entryChecks.set(tabId, check);
+    entryChecks.set(key, check);
     try {
-      const verdict = await check;
-      if (verdict) await settleEntry(press, verdict);
-      return verdict;
+      await check;
     } finally {
-      if (entryChecks.get(tabId) === check) entryChecks.delete(tabId);
+      if (entryChecks.get(key) === check) entryChecks.delete(key);
+      // A check that settled nothing, or that ran while the timer came due, leaves the
+      // press to the timer again.
+      const latest = entryPresses.get(tabId);
+      if (
+        latest?.pressedAt === press.pressedAt &&
+        !latest.checked &&
+        !entryTimers.has(tabId) &&
+        !entryChecked(tabId)
+      )
+        armEntryTimer(latest);
     }
   }
   /**
@@ -5890,11 +5951,14 @@ export function createLoginRuntime(
       if (!sent && documents.get(key) === live) skipGeneration(live, "exception", "entry");
     }
   }
-  /** Logs once per document and check why its sign-in entry was not pressed. */
+  /**
+   * Logs why the document's sign-in entry was not pressed; a reason the document already
+   * logged is marked as a repeat, which the log keeps at debug (ADR 0019).
+   */
   function refuseEntry(live: LiveDocument, recipe: LoginEntryRecipe, reason: string): void {
-    if (live.entrySkip === reason) return;
-    live.entrySkip = reason;
-    reportEntry(live.document.tabId, recipe, "refused", reason);
+    const repeat = live.entryRefusals?.includes(reason) === true;
+    if (!repeat) live.entryRefusals = [...(live.entryRefusals ?? []), reason];
+    reportEntry(live.document.tabId, recipe, "refused", reason, repeat ? { repeat } : {});
   }
   /**
    * Why the entry may not be pressed now, from what the worker knows (ADR 0031), cheapest
@@ -5909,7 +5973,11 @@ export function createLoginRuntime(
     if (frameId !== 0 || live.topUrl !== undefined) return "frame";
     const blocks = await readEntryBlocks();
     if (!blocks) return "storage-unavailable";
-    if (blocks.some((entry) => entry.recipeId === recipe.id && entry.revision === recipe.revision))
+    if (
+      [...blocks, ...unsavedBlocks].some(
+        (entry) => entry.recipeId === recipe.id && entry.revision === recipe.revision,
+      )
+    )
       return "blocked";
     if (new URL(url).pathname !== recipe.entry.path) return "page-changed";
     const cached = (await recipes.entries(pageOrigin).catch(() => [])).find(
@@ -5941,9 +6009,11 @@ export function createLoginRuntime(
   /**
    * Presses the page's sign-in entry (ADR 0031) after every check before the press: the
    * worker's, then the link's on the page (one shown `<a href>` link with rendered text,
-   * opening in the same tab, whose `href` is `https:` on the site with no URL of another
-   * site in its query and on a site that is not excluded), then the worker's again. The
-   * press is stored before the click; it starts no login and holds nothing.
+   * opening in the same tab without downloading, whose `href` is `https:` on the site,
+   * leads to another page than this one, has no query key or value leading to another
+   * site and is on a site that is not excluded), then the worker's again. The press is
+   * stored before the click; it starts no login and holds nothing. Only a press the page
+   * answers it clicked is taken as one and has its next page checked.
    */
   async function pressEntry(live: LiveDocument, recipe: LoginEntryRecipe): Promise<void> {
     const { tabId, documentId } = live.document;
@@ -5960,8 +6030,16 @@ export function createLoginRuntime(
         const tab = await browser.tabs.get(tabId);
         return tab.url && new URL(tab.url).origin === live.document.origin ? tab.url : undefined;
       };
-      const before = await pageUrl().catch(() => undefined);
-      if (!shown() || !before) return;
+      let before: string | undefined;
+      try {
+        before = await pageUrl();
+      } catch {
+        if (shown()) refuseEntry(live, recipe, "tab-unavailable");
+        return;
+      }
+      if (!shown()) return;
+      // The tab moved to another origin since the document announced.
+      if (!before) return refuseEntry(live, recipe, "page-changed");
       const early = await entryPressRefusal(live, recipe, before);
       if (early) return refuseEntry(live, recipe, early);
       const inspected = v.safeParse(
@@ -5984,7 +6062,7 @@ export function createLoginRuntime(
       } catch {
         return refuseEntry(live, recipe, "link-off-site");
       }
-      const linkCheck = linkRefusal(destination, sameSiteAs(url));
+      const linkCheck = linkRefusal(destination, sameSiteAs(url), new URL(url));
       if (linkCheck) return refuseEntry(live, recipe, linkCheck);
       // The page's own URL, as the content script reads it, must still name the path too.
       if (new URL(url).origin !== live.document.origin)
@@ -6035,7 +6113,16 @@ export function createLoginRuntime(
         }
         return refuseEntry(live, recipe, pressed.output.reason ?? "target-changed");
       }
-      // Without an answer the page may have gone with the click; the press counts.
+      if (!pressed.success) {
+        // No answer says the link was clicked, so the press is not taken as one: its next
+        // page is not checked. It still counts against the tab's limit, so a page that
+        // never answers is not pressed again and again.
+        if (entryPresses.get(tabId) === press) {
+          entryPresses.set(tabId, { ...press, checked: true });
+          await quietly(saveSession);
+        }
+        return refuseEntry(live, recipe, "unconfirmed");
+      }
       reportEntry(tabId, recipe, "pressed");
       armEntryTimer(press);
     } finally {

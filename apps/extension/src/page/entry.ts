@@ -48,22 +48,40 @@ export function renderedControlText(element: HTMLElement): string | undefined {
 }
 
 /** Why an element may not be pressed as a site's sign-in entry, before its `href` is read. */
-export type EntryElementRefusal = "not-link" | "script-link" | "hidden" | "no-text" | "new-window";
+export type EntryElementRefusal =
+  | "not-link"
+  | "script-link"
+  | "hidden"
+  | "no-text"
+  | "new-window"
+  | "download";
+
+/**
+ * Where a link opens: its own `target`, else the document's first `<base target>`, as the
+ * browser chooses; `null` when neither names one.
+ */
+function linkTarget(link: HTMLAnchorElement, target: string | null): string | null {
+  return target ?? link.ownerDocument.querySelector("base[target]")?.getAttribute("target") ?? null;
+}
 
 /**
  * Whether an element may be pressed as an entry, apart from where its `href` leads: only a
- * shown `<a href>` link that follows its `href` (never a button or a script link), with
- * rendered text, and without a `target` other than `_self`, so a press never opens a tab
- * or window.
+ * shown `<a href>` link that follows its `href` (never a button or a script link) with a
+ * box of some size and rendered text, that opens in the same tab (no `target` of its own
+ * or from the document's `<base target>`, other than `_self`) and downloads nothing, so a
+ * press never opens a tab or window or saves a file.
  */
 export function entryElementRefusal(element: Element): EntryElementRefusal | undefined {
   if (!(element instanceof HTMLAnchorElement) || !element.hasAttribute("href")) return "not-link";
   // Read before `isScriptLink`, whose guard narrows a link that is not one to `never`.
-  const target = element.getAttribute("target");
+  const target = linkTarget(element, element.getAttribute("target"));
+  const download = element.hasAttribute("download");
+  const box = element.getBoundingClientRect();
   if (isScriptLink(element)) return "script-link";
-  if (!shown(element) || !visible(element)) return "hidden";
+  if (!shown(element) || !visible(element) || box.width <= 0 || box.height <= 0) return "hidden";
   if (!renderedControlText(element)) return "no-text";
   if (target !== null && target.trim().toLowerCase() !== "_self") return "new-window";
+  if (download) return "download";
   return undefined;
 }
 

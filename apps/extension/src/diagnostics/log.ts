@@ -132,6 +132,7 @@ export const LOG_EVENTS = {
       revision: "count",
       outcome: "code",
       reason: "code",
+      detail: "code",
       url: "url",
     },
   },

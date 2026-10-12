@@ -433,16 +433,22 @@ export function createDiagnosticsLog(options: {
             revision: report.revision,
             outcome: report.outcome,
             reason: report.reason,
+            detail: report.detail,
           },
-          // A press is info and a refused one debug: an entry page visited while signed in
-          // names no page to return to. An entry that led nowhere is a problem, and its
-          // revision is now blocked (ADR 0031).
+          // ADR 0019's levels: a press and the first refusal of each reason on a document
+          // are info, a page that names no path to return to (an entry page visited while
+          // signed in), a press another document's check holds, and a repeated refusal are
+          // debug. An entry that led nowhere is a problem, and its revision is now blocked
+          // (ADR 0031).
           {
             source,
             level:
               report.outcome === "blocked"
                 ? "warn"
-                : report.outcome === "refused"
+                : report.outcome === "refused" &&
+                    (report.repeat ||
+                      report.reason === "no-return-target" ||
+                      report.reason === "in-progress")
                   ? "debug"
                   : "info",
           },

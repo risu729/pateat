@@ -1014,7 +1014,7 @@ const enabled = (element: HTMLElement) =>
 
 /**
  * The observation of a page without a login form that a site sent the visitor to before
- * signing in (ADR 0031), such as pixiv's top page with `?return_to=...`: its shown, enabled
+ * signing in (ADR 0031), such as a top page with `?return_to=...`: its shown, enabled
  * buttons and links that render text of their own, outside every form with a field (a
  * search or newsletter form), as candidates the generator may name as the page's sign-in
  * entry. Those in the page header or navigation come first, then the rest in document
@@ -1023,8 +1023,9 @@ const enabled = (element: HTMLElement) =>
  * described, so the page is sent without slots.
  *
  * A link is left out unless it could be pressed: its parsed `href` must be `https:` on the
- * page's site (`onSite`, the worker's answer for the hosts `entryHosts` lists), no
- * query value of it may name a URL on another site, and it opens in the same tab. So a
+ * page's site (`onSite`, the worker's answer for the hosts `entryHosts` lists), no query
+ * key or value of it may lead to another site, it must lead to another page than this one
+ * (not only another fragment), and it opens in the same tab without downloading. So a
  * sign-in through another site never reaches the model. Labels are redacted as in every
  * observation; neither the page's query nor any `href` is described.
  */
@@ -1034,6 +1035,7 @@ export function extractEntryObservation(
 ): ObservationResult {
   const location = document.location;
   if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  const page = new URL(location.href);
   const index = locatorIndex(document);
   const shownControls = describeAll(document).flatMap((entry) => {
     if (entry.kind !== "candidate") return [];
@@ -1044,7 +1046,7 @@ export function extractEntryObservation(
     if ((entry.form ?? element.closest("form"))?.querySelector(fields)) return [];
     if (role === "link") {
       const href = element instanceof HTMLAnchorElement ? linkUrl(element) : undefined;
-      if (!href || linkRefusal(href, onSite) || entryElementRefusal(element)) return [];
+      if (!href || linkRefusal(href, onSite, page) || entryElementRefusal(element)) return [];
     }
     const target = locate(element, index, { links: true });
     return target ? [{ form: entry.form, draft: entry.draft, target }] : [];

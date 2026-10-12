@@ -208,3 +208,67 @@ describe("query values and links compared by registrable domain (ADR 0031)", () 
     );
   });
 });
+
+describe("every reading of a query key or value, as the URL parser makes it (ADR 0031)", () => {
+  const sameSiteAs =
+    (url: URL): OnSite =>
+    (other) => {
+      const site = domainKey(url);
+      return site !== undefined && domainKey(other) === site;
+    };
+  const top = "https://www.pixiv.example/en/";
+  const refusal = (href: string, at = top) =>
+    linkRefusal(new URL(href), sameSiteAs(new URL(at)), new URL(at));
+
+  it.each([
+    ["two backslashes", "%5C%5Cevil.example%2Fx"],
+    ["a space before two slashes", "%20%2F%2Fevil.example%2Fx"],
+    ["a tab before two slashes", "%09%2F%2Fevil.example%2Fx"],
+    ["a scheme without slashes", "https%3Aevil.example%2Fx"],
+    ["a scheme in capitals without slashes", "HTTPS%3Aevil.example%2Fx"],
+  ])("refuses a link whose query value leads to another site after %s", (_label, value) => {
+    expect(refusal(`https://www.pixiv.example/login?next=${value}`)).toBe("link-query-off-site");
+  });
+
+  it.each([
+    ["a bare key", "https://www.pixiv.example/jump.php?https%3A%2F%2Fevil.example%2F"],
+    ["a key with a value", "https://www.pixiv.example/jump.php?%2F%2Fevil.example%2F=1"],
+    ["a key without slashes", "https://www.pixiv.example/jump.php?https%3Aevil.example%2Fx"],
+  ])("refuses a link whose query key leads to another site: %s", (_label, href) => {
+    expect(refusal(href)).toBe("link-query-off-site");
+  });
+
+  it.each([
+    ["plain words as keys and values", "https://www.pixiv.example/login?lang=en&next=bookmarks"],
+    ["a path of the site", "https://accounts.pixiv.example/login?return_to=%2Fbookmarks"],
+    ["a URL that names no host", "https://www.pixiv.example/login?contact=mailto%3Aa%40b.example"],
+  ])("lets a link pass with %s", (_label, href) => {
+    expect(refusal(href)).toBeUndefined();
+  });
+
+  it("refuses a link that leads to the page itself or only to a fragment of it", () => {
+    const at = `${top}?return_to=%2Fbookmarks`;
+    expect(refusal(`${at}#login`, at)).toBe("link-same-page");
+    expect(refusal(at, at)).toBe("link-same-page");
+    expect(refusal(`${top}#login`, at)).toBeUndefined();
+    expect(refusal("https://www.pixiv.example/login#top", at)).toBeUndefined();
+  });
+
+  it.each([
+    ["a scheme without slashes", "?return_to=https%3Aevil.example%2Fx"],
+    ["a scheme in capitals without slashes", "?return_to=HTTPS%3Aevil.example%2Fx"],
+  ])("never counts a value that leads to another site on its own: %s", (_label, query) => {
+    const at = new URL(`${top}${query}`);
+    expect(namesReturnPath(at, sameSiteAs(at))).toBe(false);
+  });
+
+  it("lists the hosts every reading of a query key or value names", () => {
+    const at = new URL(`${top}?https%3Aevil.example%2Fx=1`);
+    const link = new URL("https://www.pixiv.example/login?next=%5C%5Cother.example%2Fx");
+    expect(namedHosts(at, [link], 10)).toEqual([
+      "evil.example",
+      "www.pixiv.example",
+      "other.example",
+    ]);
+  });
+});

@@ -4885,6 +4885,17 @@ describe("production login document admission", () => {
             { inspect: { href: "not a URL" } },
             "link-off-site",
           ],
+          [
+            "a link to the page itself, only at another fragment",
+            { inspect: { href: `${entryUrl}#login` } },
+            "link-same-page",
+          ],
+          [
+            "a link whose query key names another site",
+            { inspect: { href: `${loginUrl}?https%3A%2F%2Fother.example%2F` } },
+            "link-query-off-site",
+          ],
+          ["a link that downloads", { inspect: { refusal: "download" } }, "download"],
         ] as const)("refuses %s, logging why", async (_label, options, reason) => {
           const option = options as {
             url?: string;
@@ -5080,27 +5091,109 @@ describe("production login document admission", () => {
           expect(reports("entry")).toHaveLength(1);
         });
 
-        it("counts a press whose document went with the click, and limits the tab's next one", async () => {
+        it("takes a press the page never answered as none, checks no next page and limits the tab", async () => {
+          vi.useFakeTimers({ shouldAdvanceTime: true });
           fake.state.entry.inspect = inspected();
-          // The click navigated the document away before it could answer.
+          // The document gave no answer to the press, so nothing says the link was clicked.
           fake.state.onPress = () => {
             throw new Error("Could not establish connection. Receiving end does not exist.");
           };
           const { h, reports } = setup({ entries: [entryRecipe] });
           expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
           await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
-          expect(reports("entry")[0]).toMatchObject({ outcome: "pressed" });
-          expect(presses()).toEqual([
-            expect.objectContaining({ tabId: 1, recipeId: entryRecipe.id, revision: 2 }),
+          expect(reports("entry")).toEqual([
+            {
+              type: "entry",
+              tabId: 1,
+              origin,
+              recipeId: entryRecipe.id,
+              revision: 2,
+              outcome: "refused",
+              reason: "unconfirmed",
+            },
           ]);
-          // The tab comes back to the entry page in a new document: the same worker refuses.
+          // It still counts against the tab's limit, but no check of a next page is due.
+          expect(presses()).toEqual([
+            expect.objectContaining({ tabId: 1, recipeId: entryRecipe.id, checked: true }),
+          ]);
+          await vi.advanceTimersByTimeAsync(30_000);
+          expect(reports("entry")).toHaveLength(1);
+          expect(blocks()).toBeUndefined();
           fake.state.onPress = undefined;
+          fake.state.pageUrl = loginUrl;
+          await h.hello({ documentId: "next-page", url: loginUrl }, false);
+          expect(sent("login.entry.check")).toEqual([]);
+          // The tab comes back to the entry page in a new document: the same worker refuses.
+          fake.state.pageUrl = entryUrl;
           expect(await h.hello({ documentId: "back-again" }, false)).toMatchObject({
             reason: "entry",
           });
           await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
           expect(reports("entry")[1]).toMatchObject({ outcome: "refused", reason: "press-limit" });
           expect(sent("login.entry.press")).toHaveLength(1);
+        });
+
+        it("logs a refusal the document repeats as a repeat, and a new document's afresh", async () => {
+          fake.state.entry.inspect = inspected({ state: "missing" });
+          const { h, reports } = setup({ entries: [entryRecipe] });
+          const refusal = {
+            type: "entry",
+            tabId: 1,
+            origin,
+            recipeId: entryRecipe.id,
+            revision: 2,
+            outcome: "refused",
+            reason: "target-missing",
+          };
+          for (const [count, documentId] of [
+            [1, "synthetic-document"],
+            [2, "synthetic-document"],
+            [3, "other-document"],
+          ] as const) {
+            // eslint-disable-next-line no-await-in-loop
+            expect(await h.hello({ documentId }, false)).toMatchObject({ reason: "entry" });
+            // eslint-disable-next-line no-await-in-loop
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(count));
+          }
+          expect(reports("entry")).toEqual([refusal, { ...refusal, repeat: true }, refusal]);
+        });
+
+        it("logs why it stops when the tab cannot be read or shows another origin", async () => {
+          fake.state.entry.inspect = inspected();
+          const { h, reports } = setup({ entries: [entryRecipe] });
+          // Every read of the tab after the entry recipe was looked up is the press's.
+          let failing = false;
+          const entries = h.recipes.entries.getMockImplementation()!;
+          h.recipes.entries.mockImplementation(async (at) => {
+            const found = await entries(at);
+            if (found.length) failing = true;
+            return found;
+          });
+          const get = fake.browser.tabs.get;
+          const read = vi.spyOn(fake.browser.tabs, "get").mockImplementation(async (id: number) => {
+            if (failing) throw new Error("No tab with id.");
+            return get(id);
+          });
+          try {
+            expect(await h.hello({}, false)).toMatchObject({ reason: "entry" });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(1));
+            expect(reports("entry")[0]).toMatchObject({
+              outcome: "refused",
+              reason: "tab-unavailable",
+            });
+          } finally {
+            read.mockRestore();
+          }
+          // The tab already shows another origin when the press starts.
+          h.recipes.entries.mockImplementation(async (at) => {
+            const found = await entries(at);
+            if (found.length) fake.state.tabUrls[1] = "https://other.example/";
+            return found;
+          });
+          expect(await h.hello({ documentId: "moved" }, false)).toMatchObject({ reason: "entry" });
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
+          expect(reports("entry")[1]).toMatchObject({ outcome: "refused", reason: "page-changed" });
+          expect(sent("login.entry.inspect")).toEqual([]);
         });
 
         it("refuses, logging why, when the device's blocks cannot be read, and reads them again", async () => {
@@ -5392,6 +5485,135 @@ describe("production login document admission", () => {
           ]);
           await new Promise((resolve) => setTimeout(resolve, 50));
           expect(reports("entry")).toHaveLength(1);
+        });
+
+        it("settles a press whose next page's check was lost, once the timer comes due again", async () => {
+          vi.useFakeTimers({ shouldAdvanceTime: true });
+          const { h, reports } = await pressed();
+          let fail!: () => void;
+          fake.state.entry.check = new Promise((_resolve, reject) => {
+            fail = () => reject(new Error("Receiving end does not exist."));
+          });
+          fake.state.pageUrl = loginUrl;
+          const answer = h.hello(next, false);
+          await vi.waitFor(() => expect(sent("login.entry.check")).toHaveLength(1));
+          // The press's timer comes due while the check runs and leaves the press to it.
+          await vi.advanceTimersByTimeAsync(15_000);
+          expect(reports("entry")).toHaveLength(1);
+          fail();
+          expect(await answer).not.toMatchObject({ reason: "entry-blocked" });
+          // The tab shows another page of the site, which gets the step wait once more.
+          await vi.advanceTimersByTimeAsync(10_000);
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
+          expect(reports("entry")[1]).toEqual({
+            type: "entry",
+            tabId: 1,
+            origin,
+            recipeId: entryRecipe.id,
+            revision: 2,
+            outcome: "blocked",
+            reason: "no-sign-in",
+          });
+          expect(blocks()).toEqual([expect.objectContaining({ reason: "no-sign-in" })]);
+        });
+
+        it("settles a press as no-sign-in when its next page comes too late, but lets that page go on", async () => {
+          vi.useFakeTimers({ shouldAdvanceTime: true });
+          const { h, reports } = await pressed();
+          // The clock moves past the press's wait and the step wait before any timer runs.
+          vi.setSystemTime(Date.now() + 25_000);
+          fake.state.pageUrl = loginUrl;
+          expect(await h.hello(next, false)).not.toMatchObject({ reason: "entry-blocked" });
+          expect(sent("login.entry.check")).toEqual([]);
+          expect(reports("entry")[1]).toMatchObject({ outcome: "blocked", reason: "no-sign-in" });
+          expect(blocks()).toEqual([expect.objectContaining({ reason: "no-sign-in" })]);
+          expect(await h.hello(next, false)).not.toMatchObject({ reason: "entry-blocked" });
+          expect(reports("entry")).toHaveLength(2);
+        });
+
+        it("refuses every announcement of a page that blocked the press, also one that overtook its check", async () => {
+          const { h, reports } = await pressed();
+          let answer!: (value: unknown) => void;
+          fake.state.entry.check = new Promise((resolve) => {
+            answer = resolve;
+          });
+          fake.state.pageUrl = loginUrl;
+          const first = h.hello(next, false);
+          await vi.waitFor(() => expect(sent("login.entry.check")).toHaveLength(1));
+          const second = h.hello(next, false);
+          answer({ ok: true, signIn: true, start: false, signUp: true });
+          expect(await first).toMatchObject({ reason: "stale-document" });
+          expect(await second).toMatchObject({ reason: "entry-blocked" });
+          expect(await h.hello(next, false)).toMatchObject({ reason: "entry-blocked" });
+          expect(sent("login.entry.check")).toHaveLength(1);
+          expect(reports("entry")[1]).toMatchObject({ outcome: "blocked", reason: "sign-up" });
+        });
+
+        it("keeps other recipes' blocks when the device's blocks cannot be read, and blocks in this worker", async () => {
+          const otherBlock = {
+            recipeId: "other-entry",
+            revision: 2,
+            reason: "left-site",
+            blockedAt: "2026-10-12T07:00:00.000Z",
+          };
+          fake.state.storage["pateat.login-entry-blocks.v1"] = [otherBlock];
+          // A restarted worker finds the press and has not read the device's blocks yet.
+          fake.state.session["pateat.login-entry-presses.v1"] = [
+            {
+              tabId: 1,
+              origin,
+              recipeId: entryRecipe.id,
+              revision: 2,
+              pressedAt: new Date().toISOString(),
+              documentId: "pressed-document",
+              url: entryUrl,
+            },
+          ];
+          fake.state.entry.check = { ok: true, signIn: true, start: false, signUp: true };
+          const local = fake.browser.storage.local;
+          const get = local.get;
+          const failing = vi
+            .spyOn(local, "get")
+            .mockImplementation(async (keys: string[]) =>
+              keys.includes("pateat.login-entry-blocks.v1")
+                ? Promise.reject(new Error("storage unavailable"))
+                : get(keys),
+            );
+          try {
+            const { h, reports } = setup({ entries: [entryRecipe] });
+            fake.state.pageUrl = loginUrl;
+            expect(await h.hello(next, false)).toMatchObject({ reason: "entry-blocked" });
+            expect(reports("entry")).toEqual([
+              {
+                type: "entry",
+                tabId: 1,
+                origin,
+                recipeId: entryRecipe.id,
+                revision: 2,
+                outcome: "blocked",
+                reason: "sign-up",
+                detail: "storage-unavailable",
+              },
+            ]);
+            expect(blocks()).toEqual([otherBlock]);
+            failing.mockRestore();
+            // The device's blocks read again do not hold it, but this worker does.
+            fake.state.pageUrl = entryUrl;
+            fake.state.tabUrls[2] = entryUrl;
+            fake.state.entry.inspect = inspected();
+            expect(
+              await h.hello({ tab: { id: 2 }, documentId: "other-tab", url: entryUrl }, false),
+            ).toMatchObject({ reason: "entry" });
+            await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
+            expect(reports("entry")[1]).toMatchObject({
+              tabId: 2,
+              outcome: "refused",
+              reason: "blocked",
+            });
+            expect(sent("login.entry.press")).toEqual([]);
+          } finally {
+            failing.mockRestore();
+          }
         });
       });
     });

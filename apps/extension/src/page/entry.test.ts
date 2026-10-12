@@ -10,6 +10,7 @@ beforeEach(() => {
 afterEach(() => {
   history.replaceState(null, "", path);
   document.body.innerHTML = "";
+  for (const base of document.querySelectorAll("base")) base.remove();
 });
 const first = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -65,7 +66,7 @@ describe("entryElementRefusal", () => {
       "hidden",
     ],
     [
-      `<a id="t" href="https://accounts.synthetic.example/login"><img alt="Login" src="data:,"></a>`,
+      `<a id="t" href="https://accounts.synthetic.example/login"><img alt="Login" src="data:," width="16" height="16"></a>`,
       "no-text",
     ],
     [`<a id="t" href="JavaScript:void 0">Login</a>`, "script-link"],
@@ -104,6 +105,60 @@ describe("entryElementRefusal", () => {
     [
       `<a id="t" href="https://accounts.synthetic.example/login" target="_parent">Login</a>`,
       "new-window",
+    ],
+  ])("%s", (html, refusal) => {
+    document.body.innerHTML = html;
+    expect(entryElementRefusal(first("#t"))).toBe(refusal);
+  });
+});
+
+describe("entryElementRefusal with a document's `<base target>`", () => {
+  const withBase = (target: string) => {
+    const base = document.createElement("base");
+    base.target = target;
+    document.head.append(base);
+  };
+
+  it.each([
+    ["_blank", `<a id="t" href="https://accounts.synthetic.example/login">Login</a>`, "new-window"],
+    ["_top", `<a id="t" href="https://accounts.synthetic.example/login">Login</a>`, "new-window"],
+    ["", `<a id="t" href="https://accounts.synthetic.example/login">Login</a>`, "new-window"],
+    ["_self", `<a id="t" href="https://accounts.synthetic.example/login">Login</a>`, undefined],
+    [
+      "_blank",
+      `<a id="t" href="https://accounts.synthetic.example/login" target="_self">Login</a>`,
+      undefined,
+    ],
+  ])("refuses by a base target of %j unless the link names its own", (target, html, refusal) => {
+    withBase(target);
+    document.body.innerHTML = html;
+    expect(entryElementRefusal(first("#t"))).toBe(refusal);
+  });
+
+  it("reads only the first base element with a target", () => {
+    const plain = document.createElement("base");
+    document.head.append(plain);
+    withBase("_blank");
+    withBase("_self");
+    document.body.innerHTML = `<a id="t" href="https://accounts.synthetic.example/login">Login</a>`;
+    expect(entryElementRefusal(first("#t"))).toBe("new-window");
+  });
+});
+
+describe("entryElementRefusal for a download or an empty box", () => {
+  it.each([
+    [`<a id="t" href="https://accounts.synthetic.example/login" download>Login</a>`, "download"],
+    [
+      `<a id="t" href="https://accounts.synthetic.example/login" download="login.html">Login</a>`,
+      "download",
+    ],
+    [
+      `<a id="t" href="https://accounts.synthetic.example/login" style="display: block; width: 0; height: 0; overflow: hidden">Login</a>`,
+      "hidden",
+    ],
+    [
+      `<a id="t" href="https://accounts.synthetic.example/login" style="display: inline-block; width: 0; overflow: hidden">Login</a>`,
+      "hidden",
     ],
   ])("%s", (html, refusal) => {
     document.body.innerHTML = html;
