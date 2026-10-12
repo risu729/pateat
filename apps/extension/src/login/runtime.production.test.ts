@@ -7,6 +7,7 @@ import {
   type SavedLoginBinding,
   type SettingsResponse,
   type SettingsSnapshot,
+  type LoginChooserRecipe,
   type LoginRecipe,
   type LoginStep,
 } from "@pateat/contracts";
@@ -44,6 +45,8 @@ const fake = vi.hoisted(() => {
         },
     /** The document's answer to clicking an account switch. */
     switchReply: { ok: true } as { ok: boolean },
+    /** What the document says a chooser login would click on its list (ADR 0028). */
+    chosen: { ok: true, click: "entry" } as { ok: boolean; click?: string },
     /**
      * What the page shows for a continuation, when an observation asks (ADR 0018): `true`
      * for a loaded page with a password input other than the asked targets, `false` for
@@ -177,6 +180,7 @@ const fake = vi.hoisted(() => {
               : {}),
           };
         if (message["type"] === "login.switch") return state.switchReply;
+        if (message["type"] === "login.choose") return state.chosen;
         if (message["type"] === "login.state")
           return state.signs
             ? { ok: true, signs: state.signs, loaded: state.loaded }
@@ -445,6 +449,7 @@ function harness(
       at === origin && path === "/signin" ? recipe : undefined,
     ),
     starts: vi.fn(async (at: string) => (at === origin ? startsOf([recipe.steps[0]!]) : [])),
+    chooser: vi.fn(async (): Promise<LoginChooserRecipe | undefined> => undefined),
   };
   const login = createLoginRuntime(store, {
     fields,
@@ -530,6 +535,7 @@ describe("production login document admission", () => {
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
@@ -4321,12 +4327,15 @@ describe("production login document admission", () => {
         expect(JSON.stringify(fake.state.messages)).not.toContain("Risu729");
       });
 
-      it("offers no page where a stored list starts, and watches nothing there yet", async () => {
+      it("offers no page where a stored list starts, and watches for the list there", async () => {
         const { service, h } = setup();
-        h.recipes.starts.mockResolvedValue([
-          { path: "/signin", steps: [], list: [{ by: "text", value: "Use another profile" }] },
-        ]);
-        expect(await h.hello({}, false)).toEqual({ ok: false, reason: "recipe-not-found" });
+        const other = { by: "text" as const, value: "Use another profile" };
+        h.recipes.starts.mockResolvedValue([{ path: "/signin", steps: [], list: [other] }]);
+        expect(await h.hello({}, false)).toEqual({
+          ok: false,
+          reason: "recipe-not-found",
+          starts: [{ path: "/signin", require: "clickable", targets: [other], accounts: true }],
+        });
         expect(await listHello(h)).toMatchObject({ ok: false, reason: "recipe-not-found" });
         expect(service.available).not.toHaveBeenCalled();
         expect(service.generate).not.toHaveBeenCalled();
@@ -5458,6 +5467,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
   });
@@ -7623,6 +7633,7 @@ describe("password route variants (ADR 0027)", () => {
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
   });
@@ -8134,6 +8145,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
   });
@@ -8892,6 +8904,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
   });
@@ -9714,6 +9727,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
     fake.state.gone = new Set();
     fake.state.extracted = {};
   });
@@ -11279,6 +11293,144 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(service.judge).not.toHaveBeenCalled();
       expect(status()).toEqual([]);
       expect(fake.state.badges[1]?.text).toBe("1");
+    });
+  });
+
+  describe("a login on a chooser's list (ADR 0028)", () => {
+    const other = { by: "text" as const, value: "Sign in with another profile" };
+    const listed: LoginChooserRecipe = {
+      version: 1,
+      id: "gen-synthetic-chooser",
+      revision: 1,
+      origin,
+      chooser: { path: "/signin", other },
+    };
+    /** The service's next revision: the password form after a profile, as `afterAccount`. */
+    const withAccount: LoginChooserRecipe = {
+      ...listed,
+      revision: 2,
+      chooser: {
+        ...listed.chooser,
+        afterAccount: parseLoginRecipe({
+          version: 1,
+          id: listed.id,
+          revision: 2,
+          origin,
+          slots: ["password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "password", target: target("password") }],
+            },
+            { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+          ],
+          maxSubmissions: 1,
+        }),
+      },
+    };
+    const onList = (service: ReturnType<typeof generation>, reports?: LoginReport[]) => {
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          custom: [],
+          generation: service,
+          ...(reports ? { report: (value: LoginReport) => reports.push(value) } : {}),
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.chooser.mockResolvedValue(listed);
+      h.recipes.starts.mockResolvedValue([{ path: "/signin", steps: [], list: [other] }]);
+      fake.state.present = new Set();
+      return h;
+    };
+    const clicks = () =>
+      fake.state.messages.filter((entry) => entry.type === "login.execute") as unknown as {
+        list?: Record<string, unknown>;
+        operation: { step: { target?: unknown } };
+      }[];
+
+    it("clicks the account's profile, generates its branch and signs in", async () => {
+      // The profile's click shows the password form in place.
+      onClick(() => undefined);
+      const clicked = fake.state.onExecute!;
+      fake.state.onExecute = async (message, tabId) => {
+        const step = (message["operation"] as { step: { kind: string; target?: unknown } }).step;
+        if (step.kind === "click" && JSON.stringify(step.target).includes("[account]")) {
+          fake.state.present = new Set(["password", "login"]);
+          fake.state.signIn = true;
+          fake.state.extracted = { login: passwordPage("/signin") };
+        }
+        await clicked(message, tabId);
+      };
+      const reports: LoginReport[] = [];
+      let h!: ReturnType<typeof harness>;
+      const service = generation(async () => {
+        h.recipes.chooser.mockResolvedValue(withAccount);
+        return { outcome: "recipe", recipe: withAccount };
+      });
+      h = onList(service, reports);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(["click:[account]", "fill:password", "click:login"]);
+      // The list's choice gets the account's username and the chooser's button.
+      expect(fake.state.messages.find((entry) => entry.type === "login.choose")).toMatchObject({
+        path: "/signin",
+        list: { others: [], other },
+      });
+      expect(clicks()[0]!.list).toMatchObject({ click: "entry", others: [], other });
+      expect(clicks()[1]).not.toHaveProperty("list");
+      // The page after the click is the account branch's first page.
+      expect(service.generate).toHaveBeenCalledTimes(1);
+      expect(service.generate.mock.calls[0]![0]).toMatchObject({
+        base: { recipeId: listed.id, revision: 1 },
+        branch: "account",
+      });
+      // The page after the sign-in is judged on that branch.
+      expect(service.judge.mock.calls[0]!.slice(0, 3)).toEqual([listed.id, 2, "password"]);
+      expect(service.judge.mock.calls[0]![5]).toBe("account");
+      expect(status()![0]).toMatchObject({
+        recipeId: listed.id,
+        recipeRevision: 2,
+        chooser: { click: "entry" },
+        submissions: 2,
+      });
+      expect(reports.find((entry) => entry.type === "start")).toMatchObject({ click: "entry" });
+    });
+
+    it("continues through the other button when no profile fits", async () => {
+      fake.state.chosen = { ok: true, click: "other" };
+      const service = generation();
+      const h = onList(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks().length > 0);
+      expect(clicks()[0]!.operation.step.target).toEqual(other);
+      expect(clicks()[0]!.list).toMatchObject({ click: "other" });
+      expect(status()![0]).toMatchObject({ chooser: { click: "other" } });
+    });
+
+    it("ends account-not-listed without a click when nothing fits and there is no button", async () => {
+      fake.state.chosen = { ok: true, click: "none" };
+      const reports: LoginReport[] = [];
+      const h = onList(generation(), reports);
+      expect(await h.hello()).toEqual({ ok: true });
+      expect(status()![0]).toMatchObject({
+        state: "blocked",
+        outcome: "account-not-listed",
+        submissions: 0,
+      });
+      expect(clicks()).toEqual([]);
+      expect(reports.find((entry) => entry.type === "start")).toMatchObject({ click: "none" });
+    });
+
+    it("waits for the list again when the document cannot say what it shows", async () => {
+      fake.state.chosen = { ok: false };
+      const h = onList(generation());
+      expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
+      expect(status()).toBeUndefined();
     });
   });
 });

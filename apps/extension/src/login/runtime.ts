@@ -60,6 +60,10 @@ import {
   type LoginObservation,
   type LoginOperation,
   isLoginRouteRecipe,
+  chooserClickBranch,
+  chooserRoute,
+  type ChooserBranch,
+  type ChooserClick,
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRoute,
@@ -90,6 +94,7 @@ import {
   stateResultSchema,
   statusSchema,
   submittedSchema,
+  chooseResultSchema,
   probeControlSchema,
   loginReadiness,
   HELD_CLICK_WAIT_MS,
@@ -303,6 +308,8 @@ const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
     "wrong-account",
     "account-switched",
     "retry-limit",
+    // Nothing on a chooser's list fit the account (ADR 0028); nothing was clicked.
+    "account-not-listed",
   ].includes(metadata.outcome ?? "") ||
     // A frame login whose page went away also ends `cancelled`; after a submission that
     // is the tab leaving, which holds like `interrupted`.
@@ -313,6 +320,8 @@ const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
 type PendingChoice = v.InferOutput<typeof pendingChoiceSchema>;
 type Execution = {
   metadata: LoginAttemptMetadata;
+  /** A chooser login's recipe (ADR 0028), whose list its first step clicks on. */
+  chooser?: LoginChooserRecipe;
   /** A fill-only login's accounts, offered once it ends (ADR 0021 D). */
   asked?: PendingChoice["candidates"];
   recipe: LoginRecipe;
@@ -384,6 +393,15 @@ export interface LoginRecipes {
   recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
   /** Where every recipe for the origin starts; a document watches for its first steps. */
   starts(origin: string): Promise<LoginRecipeStart[]>;
+  /**
+   * The chooser recipe (ADR 0028) whose list shows on the path, or a chooser login's own
+   * recipe by ID after navigation.
+   */
+  chooser?(
+    origin: string,
+    path: string,
+    recipeId?: string,
+  ): Promise<LoginChooserRecipe | undefined>;
 }
 export const noLoginRecipes: LoginRecipes = {
   recipe: async () => undefined,
@@ -469,6 +487,8 @@ export interface LoginGeneration {
     route: LoginRoute,
     observation: LoginObservation,
     sent?: () => void,
+    /** For a chooser login (ADR 0028): the branch whose route is judged. */
+    branch?: ChooserBranch,
   ): Promise<{
     /**
      * `retry` for a temporary refusal before any model call, which gives the page back:
@@ -479,7 +499,8 @@ export interface LoginGeneration {
     verdict: "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
     /** For `retry` and `unclear`: the refusal or failure code, for the local log. */
     reason?: string;
-    recipe?: LoginRecipe;
+    /** A chooser login's is the whole chooser (ADR 0028). */
+    recipe?: LoginRecipe | LoginChooserRecipe;
   }>;
 }
 
@@ -732,6 +753,11 @@ export type LoginReport = (
       itemId?: string;
       /** The login fills the page without pressing anything, after a logout (ADR 0021 D). */
       fillOnly?: true;
+      /**
+       * For a login on a chooser's list (ADR 0028): what it clicks there, or `none` when
+       * it ends `account-not-listed`.
+       */
+      click?: ChooserClick | "none";
     }
   | {
       /** The recipe's first step showed again after a finished login (ADR 0021 D). */
@@ -2956,8 +2982,13 @@ export function createLoginRuntime(
       verdict,
       reason,
       recipe: added,
-    } = await generation.judge(recipe.id, recipe.revision, metadata.route, observation, () =>
-      reportJudge("sent"),
+    } = await generation.judge(
+      recipe.id,
+      recipe.revision,
+      metadata.route,
+      observation,
+      () => reportJudge("sent"),
+      ...(metadata.chooser ? [chooserClickBranch(metadata.chooser.click)] : []),
     );
     if (!current(run)) {
       reportJudge(verdict, {
@@ -3008,18 +3039,40 @@ export function createLoginRuntime(
    */
   async function takeOver(
     run: Execution,
-    next: LoginRecipe,
+    answered: LoginRecipe | LoginChooserRecipe,
     path: string,
     taking: () => void,
   ): Promise<boolean> {
-    if (next.id !== run.recipe.id || !extendsRecipe(run.recipe, next)) return false;
+    const next = routeOf(run, answered);
+    if (!next || next.id !== run.recipe.id || !extendsRecipe(run.recipe, next)) return false;
     const event: LoginAttemptEvent = { type: "REVISED", recipeRevision: next.revision };
     if (transitionLoginAttempt(run.metadata, event).recipeRevision !== next.revision) return false;
     taking();
     // The recipe is replaced before the record that names its revision is written.
     run.recipe = next;
+    if (!isLoginRouteRecipe(answered)) run.chooser = answered;
     await change(run, event);
     return current(run) && (await enterHandler(run, path));
+  }
+  /**
+   * The route a login runs of a recipe the service sent or the cache holds: a chooser
+   * login's is the route of its click on the chooser (ADR 0028), and a chooser is never
+   * another login's.
+   */
+  function routeOf(
+    run: Execution,
+    next: LoginRecipe | LoginChooserRecipe | undefined,
+  ): LoginRecipe | undefined {
+    if (!next) return undefined;
+    const click = run.metadata.chooser?.click;
+    if (isLoginRouteRecipe(next)) return click ? undefined : next;
+    return click ? chooserRoute(next, click) : undefined;
+  }
+  /** The newest cached revision of a login's own recipe, as the route it runs. */
+  async function cachedRoute(run: Execution, path: string): Promise<LoginRecipe | undefined> {
+    const { origin: pageOrigin } = run.live.document;
+    if (!run.metadata.chooser) return recipes.recipe(pageOrigin, path, run.recipe.id);
+    return routeOf(run, await recipes.chooser?.(pageOrigin, path, run.recipe.id));
   }
   /**
    * Whether the attempt's in-flight step is the final `advance` step of a recipe that can be
@@ -3134,9 +3187,7 @@ export function createLoginRuntime(
     // answer is on its way this document waits for it, past the step's ten seconds.
     if (metadata.continuation?.operationId === operationId) {
       const fromCache = async (): Promise<"moved" | "refused" | "none"> => {
-        const cached = await recipes
-          .recipe(run.live.document.origin, observed.path, recipe.id)
-          .catch(() => undefined);
+        const cached = await cachedRoute(run, observed.path).catch(() => undefined);
         if (!current(run)) return "moved";
         if (!cached || cached.revision <= recipe.revision || !continuesRecipe(recipe, cached))
           return "none";
@@ -3268,6 +3319,8 @@ export function createLoginRuntime(
             ...custom,
           ],
           base: { recipeId: recipe.id, revision: recipe.revision },
+          // A chooser login's page is its branch's next page (ADR 0028).
+          ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
         },
         () =>
           report(page, {
@@ -3322,7 +3375,30 @@ export function createLoginRuntime(
       // Not taken over, or the `CONTINUED` write failed.
       if (!reported) reportGeneration(false);
     }
-    return taken || !current(run) ? "moved" : "qualified";
+    if (taken || !current(run)) return "moved";
+    // A chooser the other branch changed meanwhile comes back without this branch's page
+    // (ADR 0028): the login takes that revision over and sends the page again against it.
+    const newer = routeOf(run, answer.recipe);
+    if (
+      run.metadata.chooser &&
+      !isLoginRouteRecipe(answer.recipe) &&
+      newer &&
+      extendsRecipe(run.recipe, newer) &&
+      newer.steps.length === run.recipe.steps.length
+    ) {
+      const revised: LoginAttemptEvent = { type: "REVISED", recipeRevision: newer.revision };
+      if (transitionLoginAttempt(run.metadata, revised).recipeRevision === newer.revision) {
+        run.recipe = newer;
+        run.chooser = answer.recipe;
+        await change(run, revised);
+        if (!current(run)) return "moved";
+        await change(run, { type: "UNCONTINUED", operationId });
+        if (!current(run)) return "moved";
+        delete run.continuationRefused;
+        delete run.qualified;
+      }
+    }
+    return "qualified";
   }
   /**
    * The login at its final `advance` step takes over the revision that continues its recipe
@@ -3338,14 +3414,17 @@ export function createLoginRuntime(
     taking?: () => void,
   ): Promise<boolean> {
     const route = attemptRouteChoice(run.metadata);
+    const answered = next;
+    const converted = routeOf(run, next);
     if (
       !current(run) ||
-      !isLoginRouteRecipe(next) ||
+      !converted ||
       route.route !== "password" ||
-      next.id !== run.recipe.id ||
-      !continuesRecipe(run.recipe, next)
+      converted.id !== run.recipe.id ||
+      !continuesRecipe(run.recipe, converted)
     )
       return false;
+    next = converted;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!current(run) || !snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision)
       return false;
@@ -3379,6 +3458,7 @@ export function createLoginRuntime(
     }
     // The recipe is replaced before the record that names its revision is written.
     run.recipe = next;
+    if (!isLoginRouteRecipe(answered)) run.chooser = answered;
     if (plan.choice) run.choice = plan.choice;
     else delete run.choice;
     delete run.qualified;
@@ -3487,7 +3567,13 @@ export function createLoginRuntime(
           return;
         }
         if (!current(run) || run.metadata.state !== "ready") return;
-        const waited = await waitFor(run, loginReadiness(upcoming));
+        // A chooser login's click on its list waits for the list (ADR 0028).
+        const waited = await waitFor(
+          run,
+          run.chooser && run.metadata.stepIndex === 0
+            ? listReadiness(run.chooser)
+            : loginReadiness(upcoming),
+        );
         if (!current(run) || run.metadata.state !== "ready") return;
         if (waited === "timeout") {
           if (
@@ -3556,6 +3642,7 @@ export function createLoginRuntime(
       }
       const values: { slot: string; value: string; secret?: LoginSecretKind }[] = [];
       let expected: { username: string } | undefined;
+      let list: ({ username: string; others: string[] } & Record<string, unknown>) | undefined;
       let response: unknown;
       try {
         if (operation.step.kind === "fill") {
@@ -3635,6 +3722,27 @@ export function createLoginRuntime(
             if (username) expected = { username };
           }
         }
+        // A chooser login's click on its list goes where the list's choice for its account
+        // is now (ADR 0028), read just before the click as a fill's values are.
+        if (
+          operation.step.kind === "click" &&
+          operation.stepIndex === 0 &&
+          run.chooser &&
+          run.metadata.chooser
+        ) {
+          const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+          if (!current(run)) return;
+          if (!snapshot.ok) {
+            await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
+            return;
+          }
+          list = {
+            ...(await listUsernames(snapshot, run.live, run.metadata.account)),
+            ...listButtons(run.chooser),
+            click: run.metadata.chooser.click,
+          };
+          if (!current(run)) return;
+        }
         if (operation.step.kind === "fill" || operation.step.kind === "click")
           await pause("before-delivery");
         if (!current(run)) return;
@@ -3673,6 +3781,7 @@ export function createLoginRuntime(
           operation,
           values,
           ...(expected ? { account: expected } : {}),
+          ...(list ? { list } : {}),
           // One switch per tab: an attempt that follows a switch never clicks another.
           // A fill-only login after a logout never clicks, not even a switch (ADR 0021 D).
           ...(expected &&
@@ -3690,6 +3799,10 @@ export function createLoginRuntime(
       } finally {
         for (const entry of values) entry.value = "";
         if (expected) expected.username = "";
+        if (list) {
+          list.username = "";
+          list.others.fill("");
+        }
       }
       if (!current(run)) return;
       if (operation.step.kind === "fill" || operation.step.kind === "click")
@@ -3828,16 +3941,15 @@ export function createLoginRuntime(
       probeMode && documentOrigin === origin
         ? probeStarts(origin)
         : await recipes.starts(documentOrigin).catch(() => []);
-    // A chooser's list starts nothing yet; its path only holds generation back (ADR 0028).
-    const steps = all
+    // A chooser's list is ready once one of its buttons or a listed account shows (ADR 0028).
+    const readiness = all
       .filter((start) => all.filter((other) => other.path === start.path).length === 1)
-      .flatMap((start) => (start.list ? [] : start.steps));
-    const unique = new Map(
-      steps.map((step) => {
-        const readiness = loginReadiness(step);
-        return [JSON.stringify(readiness), readiness];
-      }),
-    );
+      .flatMap((start): LoginReadiness[] =>
+        start.list
+          ? [{ path: start.path, require: "clickable", targets: start.list, accounts: true }]
+          : start.steps.map(loginReadiness),
+      );
+    const unique = new Map(readiness.map((entry) => [JSON.stringify(entry), entry]));
     return [...unique.values()].slice(0, 32);
   }
   /**
@@ -4013,6 +4125,91 @@ export function createLoginRuntime(
       value = "";
     }
     return [...found];
+  }
+  /**
+   * What a chooser login compares on its list (ADR 0028): the account's username and the
+   * other matching items' usernames, one at a time through the vault and never kept,
+   * leaving out an item whose username the user excluded. The account's username is empty
+   * when it cannot be read, so no entry fits it.
+   */
+  async function listUsernames(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+    chosen: { connectionId: string; itemId: string },
+  ): Promise<{ username: string; others: string[] }> {
+    const settingsValue = snapshot.snapshot.settings;
+    const read = async (connectionId: string, itemId: string, excluded: boolean) => {
+      const connection = snapshot.catalog.connections.find((entry) => entry.id === connectionId);
+      const fieldId = connection && loginUsernameFieldId(connection, itemId);
+      if (
+        !connection ||
+        !fieldId ||
+        (excluded &&
+          settingsValue.connections
+            .find((entry) => entry.connectionId === connectionId)
+            ?.excludedFields.some((field) => field.itemId === itemId && field.fieldId === fieldId))
+      )
+        return undefined;
+      try {
+        return await fields({
+          account: { origin: live.document.origin, connectionId, itemId },
+          connection,
+          fieldId,
+        });
+      } catch {
+        return undefined;
+      }
+    };
+    const username = (await read(chosen.connectionId, chosen.itemId, false)) ?? "";
+    const found = uris ? await siteCandidates(snapshot, live).catch(() => undefined) : undefined;
+    const others: string[] = [];
+    for (const candidate of (found && "candidates" in found ? found.candidates : []).slice(0, 32)) {
+      if (candidate.connectionId === chosen.connectionId && candidate.itemId === chosen.itemId)
+        continue;
+      // Serial reads through the shared vault host, as for a fill.
+      // eslint-disable-next-line no-await-in-loop
+      const value = await read(candidate.connectionId, candidate.itemId, true);
+      if (value) others.push(value);
+    }
+    return { username, others };
+  }
+  /** A chooser's buttons and what its readiness waits for on its list (ADR 0028). */
+  const listButtons = (chooser: LoginChooserRecipe) => ({
+    ...(chooser.chooser.other ? { other: chooser.chooser.other } : {}),
+    ...(chooser.chooser.continue ? { continue: chooser.chooser.continue } : {}),
+  });
+  const listReadiness = (chooser: LoginChooserRecipe): LoginReadiness => ({
+    path: chooser.chooser.path,
+    require: "clickable",
+    targets: [chooser.chooser.other, chooser.chooser.continue].filter(
+      (target) => target !== undefined,
+    ),
+    accounts: true,
+  });
+  /**
+   * What a new login on a chooser's list clicks for its account (ADR 0028), as the
+   * document decides it now without clicking; `undefined` when it could not be asked or
+   * no longer shows the list.
+   */
+  async function listClick(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    live: LiveDocument,
+    chooser: LoginChooserRecipe,
+    chosen: { connectionId: string; itemId: string },
+  ): Promise<ChooserClick | "none" | undefined> {
+    const list = { ...(await listUsernames(snapshot, live, chosen)), ...listButtons(chooser) };
+    try {
+      const parsed = v.safeParse(
+        chooseResultSchema,
+        await send(live, { type: "login.choose", path: chooser.chooser.path, list }),
+      );
+      return parsed.success && parsed.output.ok ? parsed.output.click : undefined;
+    } catch {
+      return undefined;
+    } finally {
+      list.username = "";
+      list.others.fill("");
+    }
   }
   /**
    * The shape of the matching items' username: an item without a username, or whose
@@ -4779,6 +4976,16 @@ export function createLoginRuntime(
           : probeRecipe(origin, live.path)
         : await recipes.recipe(document.origin, live.path, previous?.recipeId);
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    // A chooser recipe (ADR 0028): a new login on its list runs the route of its account
+    // entry until it decides what to click, and a resumed one the route of its click.
+    let chooser: LoginChooserRecipe | undefined;
+    if (!recipe && !(probeMode && document.origin === origin) && (!previous || previous.chooser)) {
+      chooser = await Promise.resolve(
+        recipes.chooser?.(document.origin, live.path, previous?.recipeId),
+      ).catch(() => undefined);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (chooser) recipe = chooserRoute(chooser, previous?.chooser?.click ?? "entry");
+    }
     // A new attempt starts only once the document reports a first step of its recipe ready:
     // any route's or variant's, or the path alone when one of them needs no element. Until
     // then it watches the first steps of every recipe for its origin; this reads no
@@ -4945,6 +5152,32 @@ export function createLoginRuntime(
       showHeld(document.tabId);
       return refuse("origin-busy");
     }
+    // A new login on a chooser's list decides what it clicks there for its account (ADR
+    // 0028), and takes the route that click leads to. A fill-only login presses nothing.
+    let click: ChooserClick | "none" | undefined;
+    if (!previous && chooser && !("fillOnly" in plan)) {
+      click = await listClick(snapshot, live, chooser, plan.account);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      // The page no longer shows the list, or could not be asked: it announces again.
+      if (!click) return { ok: false, reason: "stale-document" };
+      if (click === "other" || click === "continue") {
+        const route = chooserRoute(chooser, click);
+        if (!route) return refuse("recipe-not-found");
+        // Another branch's route has other slots, and is planned again for the same account.
+        if (click === "other") {
+          const replanned = await planFor(snapshot, live, route, { asking });
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          if (!replanned.ok) return refuse(replanned.reason);
+          if (
+            replanned.account.connectionId !== plan.account.connectionId ||
+            replanned.account.itemId !== plan.account.itemId
+          )
+            return { ok: false, reason: "stale-document" };
+          plan = replanned;
+        }
+        recipe = route;
+      }
+    }
     if (!previous) {
       // Another login's account choice, being saved now or saved since this snapshot was read,
       // bumps the revision this new login would be checked against: it is admitted again.
@@ -5011,15 +5244,21 @@ export function createLoginRuntime(
           ...(document.frameId === 0 ? {} : { pageOrigin: siteOrigin }),
           accountSwitched: switched,
           fillOnly: "fillOnly" in plan,
+          ...(chooser
+            ? { chooser: click === undefined || click === "none" ? "entry" : click }
+            : {}),
         }),
         { type: "RESOLVE" },
       );
+      // No listed account fits, and the list has no button for another one (ADR 0028).
+      if (click === "none") metadata = transitionLoginAttempt(metadata, { type: "NOT_LISTED" });
     }
     const run: Execution = {
       metadata,
       recipe,
       live,
       running: false,
+      ...(chooser && metadata.chooser ? { chooser } : {}),
       // Each document re-derives the choice; every step still checks it is the attempt's account.
       ...(plan.choice &&
       !terminal(metadata) &&
@@ -5057,6 +5296,7 @@ export function createLoginRuntime(
             }
           : {}),
         ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
+        ...(click ? { click } : {}),
       });
     // Each new document of the tab resumes the attempt; only a change is news.
     reportAttempt(

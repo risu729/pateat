@@ -915,8 +915,11 @@ too. A form page, or a route recipe's next page, whose stored recipe is a choose
 answers `recipe-conflict`. The extension sends a page that lists accounts ten seconds
 after loading, unless it follows a submitted password form, with a username that is not
 an email and the other texts beside its buttons shown as `[account]`, and caches the
-chooser it gets; it sends no branch and
-starts no chooser yet.
+chooser it gets. A login on the list clicks the account's entry, the `continue` button
+or `other`, as the content script finds them for the account's username, then runs that
+branch and sends its pages with the branch; with nothing to click it ends
+`account-not-listed`
+([ADR 0028](adr/0028-account-chooser-login-pages.md#execution)).
 
 A generated recipe has no completion target until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor

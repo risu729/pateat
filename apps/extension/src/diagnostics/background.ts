@@ -304,6 +304,7 @@ export function createDiagnosticsLog(options: {
             candidates: report.candidates,
             item: report.itemId,
             fillOnly: report.fillOnly,
+            list: report.click,
           },
           { source },
         );

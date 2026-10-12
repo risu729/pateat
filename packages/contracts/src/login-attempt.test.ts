@@ -2329,3 +2329,42 @@ describe("continuation guards, probed independently (ADR 0018)", () => {
     expect(parseAttemptMetadata(attempt)).toEqual(attempt);
   });
 });
+
+describe("a login on a chooser's list (ADR 0028)", () => {
+  const listed = (chooser?: "entry" | "continue" | "other") =>
+    transitionLoginAttempt(
+      createAttemptMetadata({
+        id: "attempt-list",
+        recipe,
+        policyRevision: 3,
+        account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "password", variant: 0 },
+        facts,
+        document,
+        ...(chooser ? { chooser } : {}),
+      }),
+      { type: "RESOLVE" },
+    );
+
+  it("records its click, and ends account-not-listed before its first step", () => {
+    const attempt = listed("other");
+    expect(attempt.chooser).toEqual({ click: "other" });
+    const ended = transitionLoginAttempt(attempt, { type: "NOT_LISTED" });
+    expect(ended).toMatchObject({
+      state: "blocked",
+      outcome: "account-not-listed",
+      submissions: 0,
+    });
+    expect(parseAttemptMetadata(ended)).toEqual(ended);
+  });
+
+  it("never ends a login that is not a chooser's, or that started its steps, that way", () => {
+    expect(transitionLoginAttempt(listed(), { type: "NOT_LISTED" }).state).toBe("ready");
+    const started = transitionLoginAttempt(listed("entry"), {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    expect(transitionLoginAttempt(started, { type: "NOT_LISTED" }).outcome).toBeUndefined();
+  });
+});

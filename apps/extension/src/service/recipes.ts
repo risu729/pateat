@@ -5,6 +5,7 @@ import {
   selectLoginRecipe,
   serviceOriginSchema,
   storedLoginRecipeSchema,
+  type LoginChooserRecipe,
   type LoginRecipe,
 } from "@pateat/contracts";
 import * as v from "valibot";
@@ -27,8 +28,8 @@ export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 
 // The last-known-good copy of the owner's active recipes (ADR 0013). The cursor and
 // recipes are written together, so a failed write leaves the previous consistent copy.
-// Entry and chooser recipes (ADR 0031, ADR 0028) are cached with the rest; no lookup
-// returns them yet, and only a chooser's path counts as a start.
+// Entry and chooser recipes (ADR 0031, ADR 0028) are cached with the rest; only a
+// chooser is looked up and starts a login, on its list's path.
 const cacheSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
@@ -341,14 +342,34 @@ export function createRecipeSync(options: {
       const selection = selectLoginRecipe(cache.recipes, origin, path);
       return selection.ok ? selection.recipe : undefined;
     },
+    async chooser(origin: string, path: string, recipeId?: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return undefined;
+      if (!connection.rejected) refreshIfStale();
+      const cache = await load(connection);
+      if (!cache) return undefined;
+      const choosers = cache.recipes.filter(
+        (recipe): recipe is LoginChooserRecipe => "chooser" in recipe && recipe.origin === origin,
+      );
+      if (recipeId !== undefined) return choosers.find((recipe) => recipe.id === recipeId);
+      // The service keeps one generated recipe per origin and start path; a path where
+      // several start, or where a login recipe starts as well, starts none (ADR 0013).
+      const here = choosers.filter((recipe) => recipe.chooser.path === path);
+      return here.length === 1 &&
+        !loginRecipesForOrigin(cache.recipes, origin).some(
+          (recipe) => recipe.steps[0]!.path === path,
+        )
+        ? here[0]
+        : undefined;
+    },
     async starts(origin: string) {
       const connection = await service.connection().catch(() => undefined);
       if (!connection) return [];
       const cache = await load(connection);
       if (!cache) return [];
       // Every variant starts on the recipe's start path (ADR 0027). A chooser recipe (ADR
-      // 0028) starts where its list shows; an entry recipe (ADR 0031) is left out, since
-      // nothing starts it yet.
+      // 0028) starts where its list shows, once one of its buttons or a listed account
+      // does; an entry recipe (ADR 0031) is left out, since nothing starts it yet.
       return [
         ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
           path: recipe.steps[0]!.path,

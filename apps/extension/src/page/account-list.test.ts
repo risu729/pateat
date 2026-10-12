@@ -6,6 +6,7 @@ import {
   besideEmails,
   chooses,
   entryLike,
+  listChoice,
   listControls,
   namedAccounts,
   namesUsername,
@@ -263,5 +264,76 @@ describe("namesUsername", () => {
     expect(namesUsername("Continue as taro.yamada", "taro.yamada")).toBe(false);
     expect(namesUsername("taro***", "taro.yamada")).toBe(false);
     expect(namesUsername("taro@example.com", "taro@example.com")).toBe(false);
+  });
+});
+
+describe("listChoice", () => {
+  const other = { by: "text", value: "Sign in with another profile" } as const;
+  const cloudflare = `
+    <h1>Sign in to Cloudflare</h1>
+    <div role="link" tabindex="0">Taro <span>risutaku@example.com</span> Last used</div>
+    <div role="link" tabindex="0">hanako@example.com</div>
+    <button>Sign in with another profile</button>`;
+
+  it("clicks the one entry that fits the account, else the other button", () => {
+    document.body.innerHTML = cloudflare;
+    const picked = listChoice(document, { username: "RisuTaku@example.com", others: [], other });
+    expect(picked.click).toBe("entry");
+    expect("element" in picked && picked.element.textContent).toContain("risutaku@example.com");
+    const missing = listChoice(document, { username: "jiro@example.com", others: [], other });
+    expect(missing.click).toBe("other");
+    expect("element" in missing && missing.element.textContent).toBe(other.value);
+    // Without the button, nothing is clicked.
+    expect(listChoice(document, { username: "jiro@example.com", others: [] })).toEqual({
+      click: "none",
+    });
+  });
+
+  it("never takes a masked entry another vault item fits too", () => {
+    document.body.innerHTML = `<div role="link" tabindex="0">risu***@example.com</div>
+      <button>Sign in with another profile</button>`;
+    expect(
+      listChoice(document, { username: "risutaku@example.com", others: [], other }).click,
+    ).toBe("entry");
+    expect(
+      listChoice(document, {
+        username: "risutaku@example.com",
+        others: ["risuko@example.com"],
+        other,
+      }).click,
+    ).toBe("other");
+  });
+
+  it("continues with Wise's one shown account only when it fits", () => {
+    document.body.innerHTML = wise;
+    const buttons = {
+      continue: { by: "text", value: "Log back in" },
+      other: { by: "text", value: "Use another account" },
+    } as const;
+    // One visible character before @ is too few to choose it.
+    expect(
+      listChoice(document, { username: "taro@example.com", others: [], ...buttons }).click,
+    ).toBe("other");
+    document.body.innerHTML = wise.replace("t***@", "tar***@");
+    const chosen = listChoice(document, { username: "taro@example.com", others: [], ...buttons });
+    expect(chosen.click).toBe("continue");
+    expect("element" in chosen && chosen.element.textContent).toBe("Log back in");
+  });
+
+  it("continues with Instagram's profile when its text is the username", () => {
+    document.body.innerHTML = instagram;
+    const buttons = {
+      continue: { by: "text", value: "Continue" },
+      other: { by: "text", value: "Use another profile" },
+    } as const;
+    expect(listChoice(document, { username: "@Taro.Yamada", others: [], ...buttons }).click).toBe(
+      "continue",
+    );
+    expect(listChoice(document, { username: "hanako", others: [], ...buttons }).click).toBe(
+      "other",
+    );
+    // A list whose entry's whole text is the username clicks the entry itself.
+    document.body.innerHTML = `<ul><li><a href="#">taro.yamada</a></li><li><a href="#">hanako</a></li></ul>`;
+    expect(listChoice(document, { username: "taro.yamada", others: [] }).click).toBe("entry");
   });
 });

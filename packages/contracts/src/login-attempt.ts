@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { assign, createActor, setup, transition } from "xstate";
 import {
+  chooserClickSchema,
   handlerSteps,
   loginAccountSchema,
   loginDocumentSchema,
@@ -16,6 +17,7 @@ import {
   routeSteps,
   sameLoginDocument,
   TOTP_HANDLER_SLOT,
+  type ChooserClick,
   type LoginAccount,
   type LoginDocument,
   type LoginItemFacts,
@@ -75,6 +77,11 @@ export const attemptMetadataSchema = v.pipe(
     variant: v.optional(integer(MAX_PASSWORD_ALTERNATIVES)),
     /** The item's facts read when the login started; never sent anywhere. */
     facts: loginItemFactsSchema,
+    /**
+     * For a chooser recipe's login (ADR 0028): what it clicks on the list, which decides
+     * the branch whose steps follow (`chooserRoute`).
+     */
+    chooser: v.optional(v.strictObject({ click: chooserClickSchema })),
     /**
      * Handlers this login entered, in order: `index` in the recipe's handlers, and `start`,
      * where its steps begin in the attempt's plan (`attemptPlan`).
@@ -322,6 +329,11 @@ export const loginAttemptEventSchema = v.variant("type", [
    * again. The runtime checks that the steps are a `totp` handler's fill and click.
    */
   v.strictObject({ type: v.literal("AUTO_SUBMITTED"), operationId: identifier }),
+  /**
+   * A chooser's list shows no account that fits the login's own, and no button for another
+   * account (ADR 0028): the login ends before its first step, as `account-not-listed`.
+   */
+  v.strictObject({ type: v.literal("NOT_LISTED") }),
   /**
    * Tries a step that failed without changing the page again. `final` ends the attempt as
    * a spent budget does: the runtime never retries a `totp` handler's click once its code
@@ -596,6 +608,7 @@ function createLoginAttemptMachine() {
       submissionLimit: assign({ outcome: "submission-limit" }),
       retryLimit: assign({ outcome: "retry-limit" }),
       invalidNavigation: assign({ outcome: "cancelled" }),
+      notListed: assign({ outcome: "account-not-listed" }),
     },
     guards: {
       canPrepare: ({ context, event }) =>
@@ -792,6 +805,15 @@ function createLoginAttemptMachine() {
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
             { guard: "observedRejected", target: "blocked", actions: "record" },
           ],
+          NOT_LISTED: {
+            guard: ({ context }) =>
+              context.chooser !== undefined &&
+              context.stepIndex === 0 &&
+              context.operationId === undefined &&
+              context.submissions === 0,
+            target: "blocked",
+            actions: "notListed",
+          },
         },
       },
       executing: {
@@ -887,6 +909,8 @@ export function createAttemptMetadata(input: {
   pageOrigin?: string;
   accountSwitched?: boolean;
   fillOnly?: boolean;
+  /** For a chooser recipe's login (ADR 0028): what it clicks on the list. */
+  chooser?: ChooserClick;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
   if (input.account.origin !== recipe.origin)
@@ -914,6 +938,7 @@ export function createAttemptMetadata(input: {
     usedOperationIds: [],
     ...(input.accountSwitched ? { accountSwitched: true } : {}),
     ...(input.fillOnly ? { fillOnly: true } : {}),
+    ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
   });
 }
 /** A step that may advance or submit the page: a click, or a fill whose event may. */

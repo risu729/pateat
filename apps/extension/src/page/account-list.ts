@@ -352,3 +352,66 @@ export function namedAccounts(
       .map((account) => account.element),
   };
 }
+
+/** What a chooser login clicks on a list (ADR 0028), and the element; `none` clicks nothing. */
+export type ListChoice =
+  | { click: "entry" | "continue" | "other"; element: HTMLElement }
+  | { click: "none" };
+
+/**
+ * What a chooser's login clicks on the list `document` shows (ADR 0028), for the chosen
+ * item's `username` and the other matching items' usernames (`others`):
+ *
+ * - With an email username, the one entry whose address fits it ({@link pickEntry}).
+ *   Otherwise, when the page shows exactly one account and it is a text beside its
+ *   buttons, the chooser's `continue` button if that text fits the username the same way.
+ * - With another username, the one entry-like control or text beside buttons whose whole
+ *   text names it ({@link namesUsername}): the control itself, or the `continue` button
+ *   beside the text.
+ * - Otherwise the `other` button, or nothing.
+ *
+ * A button is clicked only when its locator names one element.
+ */
+export function listChoice(
+  document: Document,
+  input: {
+    username: string;
+    others: readonly string[];
+    other?: LoginTarget | undefined;
+    continue?: LoginTarget | undefined;
+  },
+): ListChoice {
+  const only = (target: LoginTarget | undefined) => {
+    const found = target ? listControls(document, target) : [];
+    return found.length === 1 ? found[0] : undefined;
+  };
+  const proceed = only(input.continue);
+  // An email username has an `@` after its first character; `@name` is a handle.
+  if (input.username.normalize("NFKC").trim().indexOf("@") > 0) {
+    const entries = accountEntries(document);
+    const picked = pickEntry(entries, input.username, input.others);
+    if ("entry" in picked) return { click: "entry", element: picked.entry.element };
+    const beside = besideEmails(document);
+    if (proceed && entries.length === 0 && beside.length === 1) {
+      const shownAccount = {
+        element: beside[0]!.element,
+        accounts: shownAccounts(beside[0]!.text),
+      };
+      if ("entry" in pickEntry([shownAccount], input.username, input.others))
+        return { click: "continue", element: proceed };
+    }
+  } else if (input.username.trim()) {
+    const controls = entryControls(document).filter((element) =>
+      namesUsername(listControlText(element), input.username),
+    );
+    const beside = besideAccounts(document).filter((account) =>
+      namesUsername(account.text, input.username),
+    );
+    if (controls.length === 1 && beside.length === 0)
+      return { click: "entry", element: controls[0]! };
+    if (proceed && controls.length === 0 && beside.length === 1)
+      return { click: "continue", element: proceed };
+  }
+  const other = only(input.other);
+  return other ? { click: "other", element: other } : { click: "none" };
+}

@@ -11,7 +11,13 @@ import {
   extractLoginObservation,
   extractSignedInObservation,
 } from "../observation/extract";
-import { accountEntries, accountNames, besideEmails, listControls } from "../page/account-list";
+import {
+  accountEntries,
+  accountNames,
+  besideEmails,
+  listChoice,
+  listControls,
+} from "../page/account-list";
 import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
 import {
@@ -417,6 +423,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       respond({ ok: true });
       return false;
     }
+    if (command.type === "login.choose") {
+      const choice =
+        cancelled || location.pathname !== command.path || showsSignIn()
+          ? undefined
+          : listChoice(document, command.list);
+      command.list.username = "";
+      command.list.others.fill("");
+      respond(choice ? { ok: true, click: choice.click } : { ok: false });
+      return false;
+    }
     if (command.type === "login.switch") {
       const pending = pendingSwitch;
       pendingSwitch = undefined;
@@ -757,9 +773,20 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
       if (command.values.length) return fail("structural-mismatch", "unexpected-values");
       if (step.kind === "click") {
-        const found = matches(step.target);
-        const element = found.length === 1 ? found[0] : undefined;
-        if (!clickable(element)) return fail("structural-mismatch", "target-missing");
+        let element: HTMLElement | undefined;
+        if (command.list) {
+          // A chooser's click on its list goes where the list's choice is now (ADR 0028).
+          const choice = listChoice(document, command.list);
+          command.list.username = "";
+          command.list.others.fill("");
+          element = choice.click === command.list.click ? choice.element : undefined;
+          if (!element) return fail("structural-mismatch", "target-missing");
+        } else {
+          const found = matches(step.target);
+          const only = found.length === 1 ? found[0] : undefined;
+          if (!clickable(only)) return fail("structural-mismatch", "target-missing");
+          element = only;
+        }
         // The click's form's inputs, or the page's for an element outside a form.
         const form = isButton(element) ? element.form : element.closest("form");
         const formInputs = [...(form ? form.elements : document.querySelectorAll("input"))].filter(
@@ -834,6 +861,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       .finally(() => {
         for (const entry of command.values) entry.value = "";
         if (command.account) command.account.username = "";
+        if (command.list) {
+          command.list.username = "";
+          command.list.others.fill("");
+        }
       });
     return true;
   };

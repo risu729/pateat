@@ -480,6 +480,37 @@ describe("recipe sync", () => {
     await sync.clear();
     expect(await sync.recipes.starts(SITE)).toEqual([]);
   });
+
+  it("finds a chooser (ADR 0028) by its list's path or its ID, never where a login starts", async () => {
+    const other = { by: "text" as const, value: "Use another profile" };
+    const chooser = {
+      version: 1 as const,
+      id: "bank-chooser",
+      revision: 1,
+      origin: SITE,
+      chooser: { path: "/profiles", other },
+    };
+    const clash = { ...chooser, id: "bank-clash", chooser: { path: "/login" } };
+    const stored = {
+      version: 1,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 1,
+      recipes: [recipe("bank-signin", "/login"), chooser, clash],
+    };
+    const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
+    expect(await sync.recipes.chooser!(SITE, "/profiles")).toEqual(chooser);
+    expect(await sync.recipes.chooser!(SITE, "/elsewhere", "bank-chooser")).toEqual(chooser);
+    expect(await sync.recipes.chooser!(SITE, "/login")).toBeUndefined();
+    expect(await sync.recipes.chooser!("https://other.example", "/profiles")).toBeUndefined();
+    // A chooser is never a login recipe, by path or by ID.
+    expect(await sync.recipes.recipe(SITE, "/profiles", "bank-chooser")).toBeUndefined();
+    expect(await sync.recipes.starts(SITE)).toContainEqual({
+      path: "/profiles",
+      steps: [],
+      list: [other],
+    });
+  });
 });
 
 describe("settings in the same sync", () => {
