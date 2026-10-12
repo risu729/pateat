@@ -3684,16 +3684,15 @@ export function createLoginRuntime(
       ),
     );
     const shown = observed.signIn;
+    const byPassword = shown?.password === true && !filled.has("password");
     // A page that asks for the account again, such as the identifier form shown again
     // where it posted, shows one of the recipe's fill fields writable, on any path. A
     // revealed password input below the identifier the recipe filled still qualifies.
-    const qualifies =
-      shown?.loaded === true &&
-      ((shown.password && !filled.has("password")) ||
-        (shown.identifier &&
-          !filled.has("username") &&
-          !observed.targets.some((target) => target === "unique")));
-    if (!qualifies) {
+    const byIdentifier =
+      shown?.identifier === true &&
+      !filled.has("username") &&
+      !observed.targets.some((target) => target === "unique");
+    if (shown?.loaded !== true || !(byPassword || byIdentifier)) {
       if (run.qualified?.operationId === operationId) delete run.qualified;
       return "none";
     }
@@ -3800,6 +3799,28 @@ export function createLoginRuntime(
     if (!current(run)) return "moved";
     // An incomplete description is not sent and does not count; a later round tries again.
     if (!observation) return unsent(missing);
+    // The description must show the input the page qualified with: one read while a view
+    // swapped in place may still describe the view before it. The page must then show
+    // that input for another second before it is read again.
+    const fillTargets = recipe.steps.flatMap((step) =>
+      step.kind === "fill" ? step.fields.map((field) => field.target) : [],
+    );
+    const described = observation.candidates.some(
+      (candidate) =>
+        (byPassword &&
+          candidate.role === "password" &&
+          candidate.autocomplete !== "new-password" &&
+          candidate.autocomplete !== "one-time-code") ||
+        (byIdentifier &&
+          (candidate.role === "email" ||
+            candidate.autocomplete === "username" ||
+            candidate.autocomplete === "email") &&
+          !fillTargets.some((target) => sameLoginTarget(target, candidate.target))),
+    );
+    if (!described) {
+      state.since = Date.now();
+      return unsent("field-not-described");
+    }
     // The login's own item must match the page, as for a recipe's first page (ADR 0016).
     const scope = await generationSlotsFor(run.live).catch(() => undefined);
     if (!current(run)) return "moved";

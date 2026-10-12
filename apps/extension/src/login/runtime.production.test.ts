@@ -13150,6 +13150,72 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(service.generate).toHaveBeenCalledTimes(1);
   });
 
+  it("reads the page again while its description still shows the view an in-place swap replaces", async () => {
+    // Next swaps the password view in on the same path, but the first reads still describe
+    // the email view: its field and Next, and no password input.
+    const emailView = describedPage("/signin", [
+      { id: "c1", role: "email", target: target("email"), label: "Email" },
+      { id: "c2", role: "button", target: target("next"), label: "Next" },
+    ]);
+    inPlace(() => {
+      fake.state.extracted = { login: emailView };
+      setTimeout(() => (fake.state.extracted = { login: passwordPage("/signin") }), 3_000);
+    });
+    const reports: LoginReport[] = [];
+    let h!: ReturnType<typeof harness>;
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service, { report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    // Only the description with the password input was sent.
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(service.generate.mock.calls[0]![0].observation).toEqual(
+      passwordPage("/signin").observation,
+    );
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      expect.objectContaining({ outcome: "skipped", reason: "field-not-described" }),
+      expect.objectContaining({ outcome: "recipe", takenOver: true }),
+    ]);
+  });
+
+  it("never sends a description without the identifier input the page qualified with", async () => {
+    // A recipe that fills only a password, whose Next shows an email input that its
+    // description never shows.
+    const passwordFirst = parseLoginRecipe({
+      ...emailFirst,
+      slots: ["password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [{ slot: "password", target: target("password") }],
+        },
+        emailFirst.steps[1]!,
+      ],
+    });
+    onClick(() => {
+      fake.state.unusable = new Set(["password", "next"]);
+      fake.state.present = new Set(["password", "next", "email"]);
+      fake.state.signIn = { identifier: true };
+      fake.state.extracted = {
+        login: describedPage("/signin", [
+          { id: "c1", role: "button", target: target("next"), label: "Next" },
+        ]),
+      };
+    });
+    const service = generation();
+    const reports: LoginReport[] = [];
+    const h = start(service, { recipe: passwordFirst, report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    expect(service.generate).not.toHaveBeenCalled();
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      expect.objectContaining({ outcome: "skipped", reason: "field-not-described" }),
+    ]);
+  });
+
   it("never sends an incomplete description and never judges the page", async () => {
     inPlace(() => (fake.state.extracted = { login: passwordPage("/signin", false) }));
     const service = generation();
