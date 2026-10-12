@@ -195,7 +195,10 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
-  "login.logout": { level: "info", fields: { origin: "origin", recipe: "recipe", url: "url" } },
+  "login.logout": {
+    level: "info",
+    fields: { origin: "origin", recipe: "recipe", watched: "flag", url: "url" },
+  },
   "login.choice": { level: "info", fields: { origin: "origin", outcome: "code", url: "url" } },
   "login.exception": {
     level: "warn",
@@ -238,6 +241,7 @@ export const LOG_EVENTS = {
       verdict: "code",
       reason: "code",
       takenOver: "flag",
+      watched: "flag",
       url: "url",
     },
   },

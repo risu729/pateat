@@ -14,10 +14,12 @@ import {
 } from "../observation/extract";
 import {
   accountEntries,
+  accountEntryMiss,
   accountNames,
   besideEmails,
   listChoice,
   listControls,
+  type EntryMiss,
 } from "../page/account-list";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
 import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
@@ -375,16 +377,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * account by email, or else the short texts that may name one by a username that is not
    * an email.
    */
-  function listed(): { path: string; names?: string[] } | undefined {
+  function listed(): { path: string; names?: string[]; missed?: EntryMiss } | undefined {
     const path = location.pathname;
     if (listsAccounts()) return { path };
     const names = accountNames(document);
-    return names.length ? { path, names } : undefined;
+    // Why a shown email address is not an entry, so a list missed is logged (ADR 0028).
+    const missed = accountEntryMiss(document);
+    if (!names.length && !missed) return undefined;
+    return { path, ...(names.length ? { names } : {}), ...(missed ? { missed } : {}) };
   }
   async function announce(
     start: boolean,
     signIn = false,
-    list?: { path: string; names?: string[] },
+    list?: { path: string; names?: string[]; missed?: EntryMiss },
     entryPage = false,
   ): Promise<unknown> {
     announced = start;
@@ -398,7 +403,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ...(entryPage ? { entry: { path: location.pathname } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
-    if (!parsed.success || parsed.output.ok) {
+    if (parsed.success && parsed.output.ok && parsed.output.starts) {
+      // A page of a watched login: its recipe's first step showing releases the login
+      // (ADR 0027).
+      watch(parsed.output.starts);
+      check();
+    } else if (!parsed.success || parsed.output.ok) {
       unwatch();
     } else if (parsed.output.starts) {
       watch(parsed.output.starts, parsed.output.generate === true, parsed.output.entry === true);
