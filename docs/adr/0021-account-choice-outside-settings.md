@@ -169,6 +169,29 @@ another tab. A result Pateat could not observe stays `reconciling` and is resume
 next page, not taken as a logout. The runtime and the content script must keep watching
 after a finished attempt, including after an in-document (SPA) logout.
 
+Amended 2026-10-12 by the owner: after a logout Pateat fills the login form but never
+presses anything. When the tab would ask as above and one account is to be used, the
+usable saved default or, without a saved default, the only URI match, Pateat runs the
+chosen password route's steps up to, not including, the first step with an effect: no
+click (advance or submit) and no fill whose event may advance or submit. So every
+leading field of the page is filled (on Vpass the ID and the password); on a site whose
+email page is followed by a password page, only the email is filled. When the fill ends,
+the tab asks as above: the badge and popup list the accounts, and a pick there logs in
+with its button as before. The fill's record is then forgotten; while it runs it does
+not hold the site for other tabs, and it never counts as a login of the tab. The logout
+state is kept, so the next logout is detected again. A document is filled once, also
+across a worker restart (filled documents are kept in `pateat.login-logout-fills.v1` in
+`chrome.storage.session` until their tab closes): a re-render or a re-announcement of
+the same document only asks, so Pateat never overwrites what the user typed, while a
+reload fills again. Nothing is filled when several accounts match without a saved
+default, when the saved default cannot be used, when the passkey route is chosen, or
+while another tab's login holds the site. The attempt record carries `fillOnly`, and the
+attempt contract refuses to issue or authorize a step with an effect for it, so a
+restarted worker cannot click. The recipe's account switch is never clicked either: when
+the page shows another account, the fill ends and the tab asks. The log shows such a
+login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
+`logged-out` with the tab that logged out.
+
 Known gaps:
 
 - Frame logins are not detected (ADR 0017).

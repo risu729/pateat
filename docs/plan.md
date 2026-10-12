@@ -1773,13 +1773,17 @@ still showing does not count until it shows again. When a first step then shows,
 tab's record for that origin is released and the tab asks with reason `logged-out`: the
 badge and popup list the saved default first and every URI match, even a single one. The
 tab and origin are kept in `pateat.login-logouts.v1` in `chrome.storage.session`, so a
-reload or a restarted worker asks again until a pick logs in. Another tab's record that
-still holds the site (running, or ended without success in a way that still holds, such
-as a refused password; 2026-10-12) blocks it with `origin-busy`, and the tab's tooltip
-says so; while the tab asks, other tabs of the site that show a first step ask as well
-(2026-10-11). If the URI matches cannot be listed, the saved default alone is offered. A
-login whose result is still `reconciling` is resumed, not taken as a logout. Frame
-logins and sites whose logout page shows only a password step are not detected.
+reload or a restarted worker asks again until a pick logs in. Since 2026-10-12, when one
+account is to be used (the saved default or the only match), each such document is first
+filled once without pressing anything, and then asks; filled documents are kept in
+`pateat.login-logout-fills.v1` so a restarted worker does not fill them again. Another
+tab's record that still holds the site (running, or ended without success in a way that
+still holds, such as a refused password; 2026-10-12) blocks it with `origin-busy`, and
+the tab's tooltip says so; while that tab keeps its logout state, other tabs of the site
+that show a first step ask (and are filled) as well (2026-10-11). If the URI matches
+cannot be listed, the saved default alone is offered. A login whose result is still
+`reconciling` is resumed, not taken as a logout. Frame logins and sites whose logout
+page shows only a password step are not detected.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
