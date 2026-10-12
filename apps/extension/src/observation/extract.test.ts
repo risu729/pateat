@@ -397,6 +397,59 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("keeps buttons outside every form beside the login form, such as a passkey button", () => {
+    page(
+      `<header><div><div><button id="menu">Menu</button></div></div></header>
+      <main><ul>
+        <li><button id="pk">Sign in with a passkey</button><button>×</button></li>
+        <li><form id="login"><input id="user"><input id="pw" type="password">
+          <button id="go">Sign in</button></form></li>
+      </ul><div><div><button id="far">Far away</button></div></div></main>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(
+      observation.candidates.map((candidate) => [candidate.target.value, candidate.group]),
+    ).toEqual([
+      ["pk", undefined],
+      // The rule reads structure only, so a nearby close button comes along.
+      ["×", undefined],
+      ["user", "f1"],
+      ["pw", "f1"],
+      ["go", "f1"],
+    ]);
+    // A field outside every form elsewhere on the page does not change that.
+    page(
+      `<div><input id="q"><select><option>All</option></select></div>
+      <main><ul><li><button id="pk">Passkey</button></li>
+        <li><form id="login"><input id="pw" type="password"><button id="go">Sign in</button></form></li>
+      </ul></main>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual([
+      "pk",
+      "pw",
+      "go",
+    ]);
+    // Only a form with a password field has neighbours, and only a few of them.
+    page(
+      `<main><div><button id="pk">Passkey</button><form id="search"><input id="q">
+        <button id="go">Search</button></form></div></main>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["q", "go"]);
+    page(
+      `<main><div>${["a", "b", "c", "d", "e"].map((id) => `<button id="${id}">${id}</button>`).join("")}
+        <form id="login"><input id="pw" type="password"><button id="go">Sign in</button></form>
+      </div></main>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
+    // A form directly in the body never makes the whole page its neighbourhood.
+    page(
+      `<div><button id="pk">Passkey</button></div>
+      <form id="login"><input id="pw" type="password"><button id="go">Sign in</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
+  });
+
   it("locates a link without an id by its text, only when no other link or button shares it", () => {
     page(
       `<form><p>my2@example.com</p><input id="pw" type="password">

@@ -31,6 +31,15 @@ export type ObservationResult =
   | { readonly ok: false; readonly reason: ObservationRefusal };
 
 const maxCandidates = 48;
+/** Where account menus usually sit: the page's header and navigation. */
+const landmarks = "header, nav, [role='banner'], [role='navigation']";
+/**
+ * How far above a login form a button outside every form still counts as the form's,
+ * such as a passkey button beside the password form (SBI Securities: form, list item,
+ * list). The body and the root element never count, so this never takes the whole page.
+ */
+const besideDepth = 2;
+const maxBeside = 4;
 const maxHeadings = 8;
 const maxText = 120;
 const rawLimit = maxText * 4;
@@ -492,12 +501,15 @@ function loginFormsOf(
  * rendered text next to a field, with private-looking parts redacted.
  *
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
- * links (or, for fields outside any form, every control outside a form). A field or
- * button that cannot be located, a control the executor cannot act on or a control in a
- * shadow root marks the observation incomplete when it is in a login form
- * (`loginFormsOf`); any other form with one is left out entirely. A field in any shadow
- * root, or more than 48 candidates, marks it incomplete too, and inference rejects an
- * incomplete observation. A page without a field is refused.
+ * links (or, for fields outside any form, every control outside a form). Up to four
+ * buttons outside every form but near a login form with a password field
+ * (`besideDepth`), such as a passkey button, are kept when they can be located and never
+ * make the observation incomplete. A field or button that cannot be located, a control
+ * the executor cannot act on or a control in a shadow root marks the observation
+ * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
+ * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
+ * incomplete too, and inference rejects an incomplete observation. A page without a
+ * field is refused.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
@@ -538,7 +550,33 @@ export function extractLoginObservation(
   // incomplete.
   const scripted: typeof required = [];
   const links: typeof required = [];
+  const beside: typeof required = [];
+  // Only a form with a password field has such neighbours; a search form does not.
+  const passwordForms = new Set(
+    found.flatMap((entry) => {
+      const input = entry.kind === "candidate" ? entry.draft.element : entry.field;
+      return input instanceof HTMLInputElement && input.type === "password" ? [entry.form] : [];
+    }),
+  );
+  const areas = [...loginForms].flatMap((form) => {
+    if (!passwordForms.has(form)) return [];
+    let area: Element | null = form;
+    for (let depth = 0; depth < besideDepth && area; depth++) area = area.parentElement;
+    // Never the whole page, as when the form sits directly in the body.
+    return area && area !== document.body && area !== document.documentElement ? [area] : [];
+  });
   for (const entry of found) {
+    if (
+      entry.kind === "candidate" &&
+      entry.form === null &&
+      !loginForms.has(null) &&
+      entry.draft.role === "button" &&
+      !entry.draft.element.closest(landmarks) &&
+      areas.some((area) => area.contains(entry.draft.element))
+    ) {
+      beside.push(entry);
+      continue;
+    }
     if (!fieldForms.has(entry.form)) continue;
     if (entry.kind === "unsupported") flawed.add(entry.form);
     else if (entry.draft.role === "link") {
@@ -562,7 +600,12 @@ export function extractLoginObservation(
   const described = kept(required);
   if ([...flawed].some((form) => loginForms.has(form)) || described.length > maxCandidates)
     complete = false;
-  const buttons = [...described, ...kept(scripted, { optional: true })].slice(0, maxCandidates);
+  const buttons = [
+    ...described,
+    ...kept(scripted, { optional: true }),
+    // More than a few is page content around the form, not its alternatives.
+    ...(beside.length <= maxBeside ? located(beside, { optional: true }) : []),
+  ].slice(0, maxCandidates);
   const chosen = [
     ...buttons,
     ...kept(links, { optional: true }).slice(0, Math.max(0, maxCandidates - buttons.length)),
@@ -621,9 +664,6 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
     ? { ok: true, observation: parsed.output }
     : { ok: false, reason: "unsupported-page" };
 }
-
-/** Where account menus usually sit: the page's header and navigation. */
-const landmarks = "header, nav, [role='banner'], [role='navigation']";
 
 /**
  * Whether a control may show the signed-in account: those in a page header or navigation
