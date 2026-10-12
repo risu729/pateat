@@ -140,32 +140,46 @@ or `autocomplete="username"`. Two decision cards, both answered "send" (14:43 an
 UTC), add to condition 3 a page that shows a visible writable input that is:
 
 - an email input, by `type="email"` or `autocomplete="email"` (Resend), or
-- the page's only text-like input (`text`, `email`, `tel`, `number`, `url`; search
-  boxes do not count), of type `text` with no `autocomplete` other than `on` or `off`,
-  when a whole word of its name, id, placeholder, `aria-label` or label names an
-  identifier: email, mail, user, username, userid, login, loginid, account or id, or,
-  anywhere in the text, メール, ユーザー, ログイン or アカウント (Grafana Cloud's
-  `name="login"` labelled "Email or username"). Names split into words at case changes
-  and punctuation first, so `loginId` and `e-mail` match and `hidden` does not.
+- the page's only text-like input (`text`, `email`, `tel`, `number`, `url`), of type
+  `text` with no `autocomplete` other than `on` or `off`, when a whole word of its name,
+  id, placeholder, `aria-label` or label names an identifier: email, mail, user,
+  username, userid, login, loginid, account or id, or, anywhere in the text, メール,
+  ユーザー, ログイン or アカウント (Grafana Cloud's `name="login"` labelled "Email or
+  username"). Names split into words at case changes and punctuation first, so
+  `loginId` and `e-mail` match and `hidden` does not.
 
-Neither counts inside a form with a `new-password` input, as a search box
-(`type="search"`, inside `<search>` or `role="search"`), or when a word of the input
-names another kind of field: search, coupon, promo, tracking, order, newsletter,
-subscribe, zip or postal, or anywhere 検索, クーポン, 注文, 追跡, メルマガ, マガジン,
-購読 or 郵便. The word lists are local, as the passkey button words are, and name no
-site ([ADR 0033](0033-no-site-specific-features.md)). Conditions 1, 2 and 4 still apply.
+Neither counts inside a form with a `new-password` input. A search box (`type="search"`,
+inside `<search>` or `role="search"`) and an input with a word of another kind of field
+(search, coupon, promo, tracking, order, newsletter, subscribe, zip or postal, or
+anywhere 検索, クーポン, 注文, 追跡, メルマガ, マガジン, 購読 or 郵便) neither count nor
+are counted as text-like inputs beside one, so a login field beside a site search box is
+still the page's only one. The word lists are local, as the passkey button words are,
+and name no site ([ADR 0033](0033-no-site-specific-features.md)). Conditions 1, 2 and 4
+still apply.
 
-Such a page is offered only once the content script's ten-second step wait ends, and
-only when the page shows neither a list of accounts by email
-([ADR 0028](0028-account-chooser-login-pages.md)) nor a sign-in entry to press
-([ADR 0031](0031-sign-in-entry-pages.md)), so a newsletter field does not hide
-them; the short texts of a list by names only are dropped for it. The first visit to
-such a site therefore starts generation after ten seconds; once a recipe exists, its
-first step starts the login at once. Known costs, accepted by the owner: a newsletter
-field without one of the excluded words, or a member-ID lookup page, on a site with a
-matching item can be sent (about $0.007 a page), and the AI abstains there. Not covered:
-an identifier input beside another text input (a company code), words in other
-languages, and compounds not on the list.
+Such a page is offered only once the content script's ten-second step wait ends. A list
+of accounts by email ([ADR 0028](0028-account-chooser-login-pages.md)) goes first. A
+sign-in entry to press ([ADR 0031](0031-sign-in-entry-pages.md)) goes first too, unless
+the identifier input is the page's only text-like input, so a newsletter email field
+does not hide a site's entry button. A list by short names only, or an email shown
+outside any list, is dropped for such a page, which is sent or logged instead. As for
+lists and entries, the page right after a submitted sign-in is not sent: the tab's next
+document of the origin is logged as `skipped` with `after-sign-in`, and a next path in
+the same document is not offered at all, since a profile or settings page that
+shows the account's email is no sign-in page. The first visit to such a site therefore
+starts generation after ten seconds; once a recipe exists, its first step starts the
+login at once.
+
+Known costs, accepted by the owner: on a site with a matching item, a newsletter field
+without one of the excluded words, a member-ID lookup page, or a checkout, contact or
+profile page with an email input can be sent (about $0.007 a page, at most once in the
+10-minute window of condition 4), and the AI abstains there. A landing page whose only
+text input is such a field also hides the site's sign-in entry, since a sole identifier
+input goes first. Not covered: an identifier
+input of type `text` beside another text input (a company code), words in other
+languages, and compounds not on the list. A sign-in entry's check of the page it leads
+to ([ADR 0031](0031-sign-in-entry-pages.md)) still looks for a sign-in input only, so an
+entry that leads to such a page is not kept.
 
 ## Username shape
 

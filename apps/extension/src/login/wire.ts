@@ -75,9 +75,10 @@ export const helloSchema = v.strictObject({
   start: v.optional(v.strictObject({ path })),
   /**
    * A visible password, username or one-time-code input shows on this path, so a page
-   * without a recipe may be sent for generation (ADR 0016).
+   * without a recipe may be sent for generation (ADR 0016); `identifier` when the page,
+   * ten seconds after loading, asks for an account identifier alone instead.
    */
-  signIn: v.optional(v.strictObject({ path })),
+  signIn: v.optional(v.strictObject({ path, identifier: v.optional(v.literal(true)) })),
   /**
    * Such an input shows on this path but no first step is ready; sent once per path, only
    * for the log of a login that did not start.

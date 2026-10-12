@@ -91,29 +91,32 @@ function signUpForm(input: HTMLInputElement): boolean {
 
 /**
  * Whether the page asks for an account identifier alone (ADR 0016, owner decisions
- * 2026-10-12): a visible writable input that is an email input by its type or
- * `autocomplete`, or the page's only text-like input when it has no `autocomplete` and a
- * word of its name, id, placeholder, `aria-label` or label names an identifier. Neither
- * counts in a sign-up form, as a search box, or with a word of a coupon, order, tracking,
- * postal or newsletter field. Only the page's own markup is read, never a value.
+ * 2026-10-12), and how: `sole` when the input is the page's only text-like one, `email`
+ * for an email input beside others. An input counts when it is visible and writable and
+ * either an email input by its type or `autocomplete`, or the page's only text-like
+ * input with no `autocomplete` and a word of its name, id, placeholder, `aria-label` or
+ * label that names an identifier. A search box, or an input with a word of a coupon,
+ * order, tracking, postal or newsletter field, neither counts nor is counted beside one,
+ * and an input in a sign-up form never counts. Only the page's own markup is read, never
+ * a value.
  */
-export function showsIdentifierOnly(document: Document): boolean {
+export function identifierInput(document: Document): "sole" | "email" | undefined {
   const inputs = [...document.querySelectorAll("input")].filter(
     (input) => textTypes.has(input.type) && writable(input) && !searchField(input),
   );
-  const email = inputs.some(
+  const emails = inputs.filter(
     (input) => (input.type === "email" || tokens(input).includes("email")) && !signUpForm(input),
   );
-  if (email) return true;
-  if (inputs.length !== 1) return false;
+  if (emails.length) return inputs.length === 1 ? "sole" : "email";
+  if (inputs.length !== 1) return undefined;
   const [input] = inputs as [HTMLInputElement];
   const unmarked = tokens(input).every(
     (token) => token === "" || token === "on" || token === "off",
   );
-  return (
-    input.type === "text" &&
+  return input.type === "text" &&
     unmarked &&
     !signUpForm(input) &&
     names(input, identifierWords, identifierParts)
-  );
+    ? "sole"
+    : undefined;
 }

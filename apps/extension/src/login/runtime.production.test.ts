@@ -4530,6 +4530,37 @@ describe("production login document admission", () => {
         await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
       });
 
+      it("never sends the tab's next page as one asking for an identifier alone (ADR 0016)", async () => {
+        const { h, generations } = setup();
+        const identifierHello = (documentId: string) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              signIn: { path: new URL(fake.state.pageUrl).pathname, identifier: true },
+            },
+            sender({ documentId }),
+          );
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender(),
+        );
+        expect(await h.hello({ documentId: "after-sign-in" }, false)).toMatchObject({
+          generate: true,
+        });
+        expect(await identifierHello("after-sign-in")).not.toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        expect(generations()).toEqual([
+          { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "after-sign-in" },
+        ]);
+        expect(await h.hello({ documentId: "later" }, false)).toMatchObject({ generate: true });
+        // The page after that one may be sent.
+        expect(await identifierHello("later")).toEqual({ ok: false, reason: "generating" });
+      });
+
       it("sends a list that loads more than a minute after the submission", async () => {
         const { service, h, generations } = setup();
         const at = Date.now();
