@@ -103,8 +103,7 @@ export function admitGetRequest(input: {
     request.mediation === undefined ||
     request.mediation === "optional" ||
     request.mediation === "required";
-  if (!modal && !conditional)
-    return { kind: "delegate", reason: "unsupported-mediation" };
+  if (!modal && !conditional) return { kind: "delegate", reason: "unsupported-mediation" };
   if (request.userVerification === "required" && input.policy.verification !== "always")
     return { kind: "delegate", reason: "user-verification-required" };
   const rpId = resolveRpId(input.origin, request.rpId);

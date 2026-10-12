@@ -286,6 +286,37 @@ describe("passkey runtime policy", () => {
   });
 });
 
+describe("passkey runtime required mediation", () => {
+  it("answers a page's required-mediation request with Pateat's assertion (ADR 0007)", async () => {
+    // As Wise's "Log back in" asks: `navigator.credentials.get({ mediation: "required", ... })`.
+    const snapshot = snapshotGetOptions({
+      mediation: "required",
+      publicKey: {
+        challenge: Uint8Array.from({ length: 16 }, (_, index) => index),
+        rpId: "example.com",
+        userVerification: "required",
+        allowCredentials: [{ type: "public-key", id: Uint8Array.of(1, 2, 3) }],
+      },
+    });
+    expect(snapshot).toMatchObject({ mediation: "required" });
+    const backing = source();
+    const report = vi.fn();
+    const answered = vi.fn();
+    const runtime = createPasskeyRuntime(backing, { extensionId, report, answered });
+    const result = await runtime.handle({ ...get(), request: snapshot }, sender());
+    expect(result).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
+    expect(backing.candidates).toHaveBeenCalledWith(origin, "example.com", expect.any(AbortSignal));
+    expect(backing.sign).toHaveBeenCalledOnce();
+    expect(answered.mock.calls).toEqual([[7, origin, "example.com"]]);
+    await vi.waitFor(() => expect(report).toHaveBeenCalledOnce());
+    expect(report.mock.lastCall![0]).toMatchObject({
+      outcome: "assertion",
+      mediation: "required",
+    });
+    expect(report.mock.lastCall![0]).not.toHaveProperty("reason");
+  });
+});
+
 describe("passkey runtime reports", () => {
   it("reports the delegate reason and value-free counts without credential data", async () => {
     const report = vi.fn();
@@ -417,7 +448,9 @@ describe("passkey runtime reports", () => {
     expect(requested).not.toHaveBeenCalled();
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
     // A delegated request counts too: the page still asked.
-    await runtime.handle({ ...get(), request: { ...request, mediation: "required" } }, sender());
+    expect(
+      await runtime.handle({ ...get(), request: { ...request, mediation: "silent" } }, sender()),
+    ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     expect(requested.mock.calls).toEqual([
       [7, origin],
       [7, origin],
@@ -430,7 +463,9 @@ describe("passkey runtime reports", () => {
     });
     const runtime = createPasskeyRuntime(source(), { extensionId, answered });
     // A delegated request returns nothing from Pateat.
-    await runtime.handle({ ...get(), request: { ...request, mediation: "required" } }, sender());
+    expect(
+      await runtime.handle({ ...get(), request: { ...request, mediation: "silent" } }, sender()),
+    ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     expect(answered).not.toHaveBeenCalled();
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
     expect(answered.mock.calls).toEqual([[7, origin, "example.com"]]);
@@ -1437,6 +1472,7 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
 
   it.each<[string, unknown, string | undefined]>([
     ["optional", "optional", "optional"],
+    ["required", "required", "required"],
     ["no", undefined, undefined],
     ["an unknown", "made-up", "other"],
   ])("reports %s mediation on an answered request", async (_label, mediation, reported) => {
