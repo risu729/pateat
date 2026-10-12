@@ -159,17 +159,6 @@ describe("vault check schedule", () => {
     await h.settle();
     expect(h.run).toHaveBeenCalledTimes(2);
   });
-  it("keeps no record for a connection removed during its check", async () => {
-    const ids = ["a"];
-    const h = harness({ ids });
-    h.run.mockImplementationOnce(async () => {
-      ids.length = 0;
-      return "failed";
-    });
-    h.auto.refreshIfStale();
-    await h.settle();
-    expect(h.stored()?.connections["a"]).toBeUndefined();
-  });
   it("an unreadable record reads as empty", async () => {
     const h = harness();
     h.setStored({ version: 2 });

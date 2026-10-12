@@ -334,6 +334,17 @@ describe("acceptance verification and publication", () => {
     expect(h.manager.status().ready).toBe(true);
     expect((await h.manager.listFields(old.handle, itemId)).ok).toBe(true);
     expect(h.opened.size).toBe(1);
+    // A failed write that leaves another record behind locks both sessions.
+    h.store.compareAndSwap.mockImplementationOnce(async (_expected, next) => {
+      h.setEntry(next);
+      return vaultFailure("cache-quota-exceeded");
+    });
+    expect(await h.manager.accept(candidate("preserve"))).toEqual(
+      vaultFailure("cache-quota-exceeded"),
+    );
+    expect(h.opened.size).toBe(0);
+    expect(h.manager.status()).toMatchObject({ ready: false, storageUncertain: true });
+    expect((await h.manager.listFields(old.handle, itemId)).ok).toBe(false);
   });
   it("fences both sessions on an uncertain storage result", async () => {
     const h = harness();

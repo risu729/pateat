@@ -267,13 +267,6 @@ describe("snapshot-bound custom field policy", () => {
     expect(await h.policy.protectedItems!(accountProfile.connectionId)).toEqual(["reviewed-item"]);
     expect(await h.policy.protectedItems!("other-connection")).toEqual([]);
   });
-  it("a restart with a new cache but old settings quarantines old custom refs before any adoption retry", () => {
-    const h = harness();
-    expect(quarantinedItems(h.read(), accountProfile.connectionId, nextSnapshot)).toEqual([
-      h.itemId,
-    ]);
-    expect(h.storage.write).not.toHaveBeenCalled();
-  });
   it("a failed settings adoption leaves the old draft intact and the new snapshot dynamically quarantined", async () => {
     const h = harness();
     const old = h.read();

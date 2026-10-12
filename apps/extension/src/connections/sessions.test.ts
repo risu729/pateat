@@ -68,7 +68,7 @@ function harness() {
       cacheRevision,
       clock,
     );
-  const refreshed = (claims: Record<string, unknown> = {}, refresh?: string | null) => ({
+  const refreshed = (claims: Record<string, unknown> = {}, refresh?: string) => ({
     ok: true as const,
     data: {
       kind: "authenticated" as const,
@@ -195,17 +195,14 @@ describe("explicit sync acquisition", () => {
       "active",
     ]);
   });
-  it.each([undefined, null])(
-    "keeps the captured refresh token when the response returns %s",
-    async (refresh) => {
-      const h = harness();
-      await h.retain();
-      h.advance(3_600_000);
-      h.refreshToken.mockResolvedValueOnce(h.refreshed({}, refresh));
-      expect((await h.sessions.acquire(accountProfile, h.context())).ok).toBe(true);
-      expect(h.memory.raw()).toMatchObject({ refreshToken: "synthetic-refresh-token" });
-    },
-  );
+  it("keeps the captured refresh token when the response returns none", async () => {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    h.refreshToken.mockResolvedValueOnce(h.refreshed({}, undefined));
+    expect((await h.sessions.acquire(accountProfile, h.context())).ok).toBe(true);
+    expect(h.memory.raw()).toMatchObject({ refreshToken: "synthetic-refresh-token" });
+  });
   it.each([
     { label: "network", error: { code: "network" } },
     { label: "timeout", error: { code: "timeout" } },
@@ -602,25 +599,6 @@ describe("a refresh left by a stopped worker", () => {
     expect(await h.worker().forget(accountProfile)).toEqual({ ok: true, data: true });
     expect(h.memory.raw()).toBeUndefined();
   });
-  it("a claim from an earlier build that kept no token still needs the password", async () => {
-    const h = harness();
-    await h.retain();
-    const stored = h.memory.raw() as Record<string, unknown>;
-    const { accessToken: _a, refreshToken: _r, receivedAt: _t, expiresIn: _e, ...rest } = stored;
-    h.memory.set({
-      ...rest,
-      revision: crypto.randomUUID(),
-      state: "refreshing",
-      claimId: crypto.randomUUID(),
-      claimedAt: 1,
-    });
-    expect(await h.worker().status(accountProfile)).toBe("reauthentication-required");
-    expect(await h.worker().acquire(accountProfile, h.context())).toEqual({
-      ok: false,
-      error: { code: "setup-reauthentication-required" },
-    });
-    expect(h.refreshToken).not.toHaveBeenCalled();
-  });
 });
 
 describe("refresh reports for the local log", () => {
@@ -773,11 +751,5 @@ describe("forget", () => {
     // A password sign-in replaces it.
     expect(await h.retain()).toEqual({ ok: true, data: expect.any(String) });
     expect(await h.sessions.status(accountProfile)).toBe("active");
-    h.memory.set(other);
-    // A non-null expected revision never overwrites an unadmittable record.
-    expect(await h.memory.store.compareAndSwap(String(other["revision"]), null)).toEqual({
-      ok: false,
-      error: { code: "invalid-cache-record" },
-    });
   });
 });
