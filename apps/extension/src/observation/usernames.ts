@@ -72,6 +72,24 @@ function decoded(segment: string): string {
 const lookedFor = (username: string) => [...foldName(username)].length >= minUsernameLength;
 
 /**
+ * Whether a segment of `path` holds one of `usernames` as {@link withoutUsernames} looks
+ * for it, which refuses such a page as `username-shown`. A list of accounts on such a
+ * page, as a signed-in page under the account's own name, is not read (ADR 0028, owner
+ * decision 2026-10-12 19:45 UTC).
+ */
+export function pathShowsUsername(path: string, usernames: readonly string[]): boolean {
+  const source = namePattern(usernames.filter(lookedFor).flatMap(shownForms));
+  if (source === undefined) return false;
+  const holds = new RegExp(source, "iu");
+  return path
+    .split("/")
+    .some(
+      (segment) =>
+        holds.test(segment.normalize("NFKC")) || holds.test(decoded(segment).normalize("NFKC")),
+    );
+}
+
+/**
  * The observation with the account's own usernames hidden, just before it is sent to the
  * service (generation, its continuation after an `advance` step, and the judge). The
  * usernames are those of the vault items that match the page, read locally in the worker;
@@ -109,8 +127,7 @@ export function withoutUsernames(
       hidden = hidden.replace(cut, "[account]");
     return hidden === text ? text : (bounded(hidden, limit) ?? "[account]");
   };
-  if (observation.path.split("/").some((segment) => shows(segment) || shows(decoded(segment))))
-    return refused;
+  if (pathShowsUsername(observation.path, usernames)) return refused;
   const isField = (role: string) => (fillRoles as readonly string[]).includes(role);
   const fieldGroups = new Set(
     observation.candidates

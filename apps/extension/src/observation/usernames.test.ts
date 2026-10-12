@@ -1,7 +1,7 @@
 import type { LoginObservation } from "@pateat/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { extractLoginObservation, extractSignedInObservation } from "./extract";
-import { withoutUsernames } from "./usernames";
+import { pathShowsUsername, withoutUsernames } from "./usernames";
 
 // Synthetic usernames only.
 const observation = (change: Partial<LoginObservation> = {}): LoginObservation => ({
@@ -330,5 +330,24 @@ describe("withoutUsernames", () => {
       "Menu of [account]",
       "Settings",
     ]);
+  });
+});
+
+describe("pathShowsUsername (ADR 0028, owner 2026-10-12 19:45 UTC)", () => {
+  it("finds a username in a path segment, as withoutUsernames refuses it", () => {
+    expect(pathShowsUsername("/risu729/pateat/pull/1", ["risu729"])).toBe(true);
+    expect(pathShowsUsername("/@Taro.Yamada/posts", ["taro.yamada"])).toBe(true);
+    expect(pathShowsUsername("/users/taro%40example.com", ["taro@example.com"])).toBe(true);
+    expect(withoutUsernames(observation({ path: "/risu729/pateat" }), ["risu729"])).toEqual({
+      ok: false,
+      reason: "username-shown",
+    });
+  });
+
+  it("finds no username inside a longer word, nor one too short to look for", () => {
+    expect(pathShowsUsername("/annual/report", ["ann"])).toBe(false);
+    expect(pathShowsUsername("/ab/settings", ["ab"])).toBe(false);
+    expect(pathShowsUsername("/signin", ["risu729"])).toBe(false);
+    expect(pathShowsUsername("/risu729", [])).toBe(false);
   });
 });

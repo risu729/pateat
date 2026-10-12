@@ -133,7 +133,7 @@ import {
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss } from "../page/account-list";
 import { signedInPath } from "../observation/extract";
-import { withoutUsernames } from "../observation/usernames";
+import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
   reachedReturnTarget,
@@ -2958,6 +2958,21 @@ export function createLoginRuntime(
       if (continued === "moved") return undefined;
     }
     if (!settleUnknown) return undefined;
+    // After answering the page's own request, a page still on the start page's path may be
+    // exchanging the assertion before the site moves on, with its form already gone: it is
+    // not judged until the request's hold ends, nor while it shows nothing to describe, as
+    // a loader does, until the held click's wait ends (ADR 0034).
+    const answered = plan[run.metadata.stepIndex];
+    if (
+      run.metadata.route === "passkey" &&
+      passkeyAnswersRequest(run.recipe) &&
+      answered !== undefined &&
+      answered.handler === undefined &&
+      observed.path === answered.step.path &&
+      run.answeredAt !== undefined &&
+      (Date.now() - run.answeredAt < REQUEST_HOLD_MS || (await showsNothing(run)))
+    )
+      return current(run) ? "held" : undefined;
     const state = effectful(run.metadata) ? await signInState(run) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
     // Evidence of a sign-in completes the login without a model call, and a failure shown
@@ -2981,6 +2996,14 @@ export function createLoginRuntime(
       document: run.live.document,
     });
     return undefined;
+  }
+  /** Whether the page has nothing a signed-in page's description could carry. */
+  async function showsNothing(run: Execution): Promise<boolean> {
+    const extracted = v.safeParse(
+      extractResultSchema,
+      await send(run.live, { type: "login.extract", page: "signed-in" }).catch(() => undefined),
+    );
+    return extracted.success && !extracted.output.ok && extracted.output.reason === "no-candidates";
   }
   /**
    * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
@@ -4738,14 +4761,19 @@ export function createLoginRuntime(
   /**
    * The shown texts that name a matching item's username that is not an email: the whole
    * text equals it, ignoring case and a leading `@` (ADR 0028, owner 2026-10-12 08:36
-   * UTC). Usernames are read one at a time here and never kept or sent to the page.
+   * UTC); and whether the page's path holds a matching item's username, as a signed-in
+   * page under the account's own name does, where the list is not read (owner
+   * 2026-10-12 19:45 UTC). Usernames are read one at a time here and never kept or sent
+   * to the page.
    */
   async function listedNames(
     pageOrigin: string,
     scope: GenerationScope,
     texts: readonly string[],
-  ): Promise<string[]> {
+    path: string,
+  ): Promise<{ names: string[]; inPath: boolean }> {
     const found = new Set<string>();
+    let inPath = false;
     for (const { connection, itemId, fieldId } of usernameReads(scope)) {
       let value: string | undefined;
       try {
@@ -4759,10 +4787,13 @@ export function createLoginRuntime(
       } catch {
         value = undefined;
       }
-      if (value) for (const text of texts) if (namesUsername(text, value)) found.add(text);
+      if (value) {
+        for (const text of texts) if (namesUsername(text, value)) found.add(text);
+        if (pathShowsUsername(path, [value])) inPath = true;
+      }
       value = "";
     }
-    return [...found];
+    return { names: [...found], inPath };
   }
   /**
    * What a chooser login compares on its list (ADR 0028): the account's username and, for
@@ -5118,10 +5149,14 @@ export function createLoginRuntime(
           }
         }),
       );
-    } catch {
-      // The document went away or did not answer, or the vault could not be read; nothing
-      // was started. Only a page still shown is worth the reason (ADR 0019).
-      if (!sent && documents.get(key) === live) skipGeneration(live, "exception");
+    } catch (error) {
+      // The document went away or did not answer (`unreachable`, with how), or reading the
+      // vault threw; nothing was started. Only a page still tracked is worth the reason
+      // (ADR 0019).
+      if (!sent && documents.get(key) === live)
+        if (error instanceof DocumentGone)
+          skipGeneration(live, "unreachable", undefined, error.reason);
+        else skipGeneration(live, "exception");
     }
   }
   /**
@@ -5950,19 +5985,22 @@ export function createLoginRuntime(
           missed = reason;
         }).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        // Without an email listed, a shown text must name a matching item's username.
-        const names =
-          scope && listing?.names
-            ? await listedNames(live.document.origin, scope, listing.names)
+        // Without an email listed, a shown text must name a matching item's username. A
+        // list on a page whose path holds one is not sent: the page would be refused as
+        // `username-shown` once read (owner 2026-10-12 19:45 UTC).
+        const listed =
+          scope && listing
+            ? await listedNames(live.document.origin, scope, listing.names ?? [], live.path)
             : undefined;
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        const names = listing?.names ? listed?.names : undefined;
         // Or the page shows a control to sign in with another account (ADR 0028, owner
         // 2026-10-12 19:11 UTC), as Instagram's list of a profile whose username is not the
         // item's: then every shown text is hidden from the page sent, as a possible account
         // name, and the login continues through that control.
         const otherOnly =
           !names?.length && listing?.names && listing.other ? listing.names : undefined;
-        if (scope && (!listing?.names || names?.length || otherOnly)) {
+        if (scope && !listed?.inPath && (!listing?.names || names?.length || otherOnly)) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
@@ -5974,7 +6012,9 @@ export function createLoginRuntime(
         // mostly ordinary browsing, so that is logged at debug level (ADR 0019): most pages
         // show a short text beside a button. Such a page may still hold the site's sign-in
         // entry.
-        if (!listing?.names) skipGeneration(live, missed[0], undefined, missed[1]);
+        if (listed?.inPath)
+          skipGeneration(live, "no-listed-account", undefined, "username-in-path");
+        else if (!listing?.names) skipGeneration(live, missed[0], undefined, missed[1]);
         else
           skipGeneration(
             live,
@@ -5982,7 +6022,8 @@ export function createLoginRuntime(
             undefined,
             scope ? "no-name-match" : logCode(missed.filter(Boolean).join(":")),
           );
-        if (!(listing?.names && entryOffer)) offer = false;
+        // A page whose path holds a username is not sent as a sign-in entry either.
+        if (listed?.inPath || !(listing?.names && entryOffer)) offer = false;
       }
       if (offer && entryOffer) {
         const refusal = entryPage ? await entryOfferRefusal(live) : "no-return-target";
@@ -6696,8 +6737,11 @@ export function createLoginRuntime(
         { version: 1, type: "login.reconnect" },
         { documentId: live.document.documentId, frameId: live.document.frameId },
       );
-    } catch {
-      if (!sent && documents.get(key) === live) skipGeneration(live, "exception", "entry");
+    } catch (error) {
+      if (!sent && documents.get(key) === live)
+        if (error instanceof DocumentGone)
+          skipGeneration(live, "unreachable", "entry", error.reason);
+        else skipGeneration(live, "exception", "entry");
     }
   }
   /**

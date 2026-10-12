@@ -23,7 +23,8 @@ After a step with an effect, the login runtime checks, in order: the recipe's
 (including an `advance` that continues on the same path), a held click while a passkey
 prompt or chooser is open, and a learned handler (`totp`, `passkey`) on the page. When
 none explains the page, it is sent to the sign-in judge (ADR 0018, ADR 0027), at most
-two pages per step, once per recipe revision and path, and 20 times per recipe a day.
+two pages per step, once per recipe revision, path and judge prompt version, and 20
+times per recipe a day.
 Until the judge says `signed-in`, a generated recipe has no `completion`, and an
 unexplained page leaves the attempt `unknown`, so the tab keeps holding the site.
 
@@ -108,7 +109,10 @@ then answered 04:51 and 04:54 UTC):
 ## Implementation notes
 
 Delivery 1 (2026-10-12) reads the page once, when the attempt's result would settle as
-unknown today (3 seconds after a submission, 10 after an advance), just before the judge
+unknown today (3 seconds after a submission, 10 after an advance; after an answer to the
+page's own passkey request, not before 15 seconds pass while the page is on its start
+path, or two minutes while it shows nothing to describe there:
+[ADR 0034](0034-answer-page-passkey-requests.md)), just before the judge
 is asked; the re-check comes with delivery 2. It writes one `login.state` entry with the
 signs that show and the ADR's outcome ([architecture](../architecture.md)). A login in a
 frame is not read. The sign-in page's URL for E3 is the URL of the document the

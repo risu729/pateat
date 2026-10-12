@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { toBase64Url } from "./encoding";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
-import { admitGetRequest } from "./request";
+import { MAX_ALLOW_CREDENTIALS, admitGetRequest, describeInvalidRequest } from "./request";
 import { effectiveDomain, resolveRpId } from "./rp-id";
 import { selectPasskey } from "./select";
+import { MAX_REQUEST_CHARACTERS } from "./wire";
 
 describe("RP ID admission", () => {
   // HTML "is a registrable domain suffix of or is equal to" examples, with WebAuthn's extra
@@ -188,7 +190,11 @@ describe("request admission", () => {
 
   it("claims at the WebAuthn size limits and with any internal-capable descriptor", () => {
     const encode = (length: number) => btoa("x".repeat(length)).replace(/=+$/u, "");
-    expect(admit({ ...base, challenge: encode(1024) }).kind).toBe("claim");
+    // WebAuthn sets no upper bound on a challenge; Pateat's is the page's copy limit.
+    expect(admit({ ...base, challenge: encode(4096) })).toMatchObject({
+      kind: "claim",
+      request: { challenge: expect.objectContaining({ length: 4096 }) },
+    });
     expect(
       admit({ ...base, allowCredentials: [{ type: "public-key", id: encode(1023) }] }).kind,
     ).toBe("claim");
@@ -210,6 +216,49 @@ describe("request admission", () => {
     ).toMatchObject({ kind: "claim", request: { allowCredentialIds: ["AQID", "AQIE"] } });
   });
 
+  it("claims Google's 2,056-byte challenge", () => {
+    // Google's sign-in asked with this size on 2026-10-12, over the first bound of 1,024 bytes.
+    const google = Uint8Array.from({ length: 2056 }, (_, index) => index % 256);
+    const request = { ...base, challenge: toBase64Url(google), rpId: "google.com" };
+    expect(admit(request, true, "https://accounts.google.com")).toMatchObject({
+      kind: "claim",
+      request: { rpId: "google.com", challenge: google },
+    });
+    expect(describeInvalidRequest(request)).toBeUndefined();
+  });
+
+  it("keeps a maximal claimed snapshot within the relay's bound", () => {
+    const encode = (length: number) => btoa("x".repeat(length)).replace(/=+$/u, "");
+    // The longest host name: 253 characters in labels of at most 63.
+    const host = `${["a", "b", "c"].map((label) => label.repeat(63)).join(".")}.${"d".repeat(53)}.example`;
+    expect(host).toHaveLength(253);
+    // Registered transports, the longest of which is `smart-card`.
+    const transports = [...Array.from({ length: 15 }, () => "smart-card"), "internal"];
+    const snapshot = {
+      challenge: encode(4096),
+      rpId: host,
+      allowCredentials: Array.from({ length: MAX_ALLOW_CREDENTIALS }, () => ({
+        type: "public-key",
+        id: encode(1023),
+        transports,
+      })),
+      userVerification: "discouraged",
+      mediation: "conditional",
+      timeout: 0xff_ff_ff_ff,
+    };
+    expect(
+      admitGetRequest({
+        origin: `https://${host}:65535`,
+        request: snapshot,
+        userActivation: false,
+        policy: INITIAL_PASSKEY_POLICY,
+        conditional: true,
+      }),
+    ).toMatchObject({ kind: "claim", request: { rpId: host } });
+    // About 110,000 characters, under the 131,072 the relay passes on.
+    expect(JSON.stringify(snapshot).length).toBeLessThanOrEqual(MAX_REQUEST_CHARACTERS);
+  });
+
   it.each([
     ["conditional mediation", { ...base, mediation: "conditional" }, true, "unsupported-mediation"],
     ["silent mediation", { ...base, mediation: "silent" }, true, "unsupported-mediation"],
@@ -219,10 +268,10 @@ describe("request admission", () => {
     ["public-suffix RP ID", { ...base, rpId: "com" }, true, "rp-id-mismatch"],
     ["short challenge", { ...base, challenge: "AAECAwQFBgcICQoLDA0O" }, true, "invalid-request"],
     ["padded challenge", { ...base, challenge: `${challenge}==` }, true, "invalid-request"],
-    ["oversized challenge", { ...base, challenge: "A".repeat(1400) }, true, "invalid-request"],
+    ["oversized challenge", { ...base, challenge: "A".repeat(6000) }, true, "invalid-request"],
     [
-      "a challenge just over 1024 bytes",
-      { ...base, challenge: btoa("x".repeat(1025)).replace(/=+$/u, "") },
+      "a challenge just over 4096 bytes",
+      { ...base, challenge: btoa("x".repeat(4097)).replace(/=+$/u, "") },
       true,
       "invalid-request",
     ],
@@ -379,6 +428,129 @@ describe("required mediation (ADR 0007)", () => {
         ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     },
   );
+});
+
+describe("invalid request description", () => {
+  const encode = (length: number) => btoa("x".repeat(length)).replace(/=+$/u, "");
+  const descriptor = { type: "public-key", id: "AQID" };
+
+  it.each([
+    [
+      "an oversized challenge",
+      { ...base, challenge: encode(4097) },
+      { member: "challenge", length: 4097 },
+    ],
+    [
+      "a challenge far over its bound",
+      { ...base, challenge: "A".repeat(6000) },
+      { member: "challenge", length: 4500 },
+    ],
+    [
+      "a short challenge",
+      { ...base, challenge: "AAECAwQFBgcICQoLDA0O" },
+      { member: "challenge", length: 15 },
+    ],
+    ["a missing challenge", { allowCredentials: [] }, { member: "challenge" }],
+    ["a long RP ID", { ...base, rpId: "a".repeat(254) }, { member: "rp-id", length: 254 }],
+    [
+      "an oversized credential ID",
+      { ...base, allowCredentials: [{ ...descriptor, id: encode(1024) }] },
+      { member: "allow-credentials.id", length: 1024 },
+    ],
+    [
+      "an oversized allow list",
+      { ...base, allowCredentials: Array.from({ length: 65 }, () => descriptor) },
+      { member: "allow-credentials", length: 65 },
+    ],
+    [
+      "a long transport",
+      { ...base, allowCredentials: [{ ...descriptor, transports: ["x".repeat(65)] }] },
+      { member: "allow-credentials.transports", length: 65 },
+    ],
+    [
+      "too many transports",
+      {
+        ...base,
+        allowCredentials: [{ ...descriptor, transports: Array.from({ length: 17 }, () => "usb") }],
+      },
+      { member: "allow-credentials.transports", length: 17 },
+    ],
+    [
+      "a long user verification",
+      { ...base, userVerification: "x".repeat(65) },
+      { member: "user-verification", length: 65 },
+    ],
+    [
+      "a long mediation",
+      { ...base, mediation: "x".repeat(65) },
+      { member: "mediation", length: 65 },
+    ],
+    ["a negative timeout", { ...base, timeout: -1 }, { member: "timeout" }],
+    [
+      "only unknown descriptor types",
+      { ...base, allowCredentials: [{ type: "future-type", id: "AQID" }] },
+      { member: "allow-credentials.type" },
+    ],
+    ["a null request", null, { member: "request" }],
+    ["a numeric request", 42, { member: "request" }],
+  ] as const)("names %s", (_name, request, expected) => {
+    expect(admit(request)).toEqual({ kind: "delegate", reason: "invalid-request" });
+    expect(describeInvalidRequest(request)).toEqual(expected);
+  });
+
+  it.each([
+    ["an unknown page key", { ...base, "owner-secret-name": {} }, "owner-secret-name"],
+    [
+      "an unknown descriptor key",
+      { ...base, allowCredentials: [{ ...descriptor, ownerSecretName: 1 }] },
+      "ownerSecretName",
+    ],
+    // Page keys spelled like a snapshot member elsewhere, or like an Object.prototype member,
+    // are still unknown page keys.
+    ["a top-level id key", { ...base, id: "AQID" }, undefined],
+    ["a top-level transports key", { ...base, transports: ["usb"] }, undefined],
+    [
+      "a challenge key in a descriptor",
+      { ...base, allowCredentials: [{ ...descriptor, challenge }] },
+      undefined,
+    ],
+    ["a constructor key", { ...base, constructor: 1 }, undefined],
+    ["a toString key", { ...base, toString: 1 }, undefined],
+    [
+      "an own __proto__ key",
+      JSON.parse(`{"challenge":"${challenge}","allowCredentials":[],"__proto__":1}`),
+      undefined,
+    ],
+  ] as const)("names %s only as other", (_name, request, key) => {
+    expect(admit(request)).toEqual({ kind: "delegate", reason: "invalid-request" });
+    const described = describeInvalidRequest(request);
+    expect(described).toMatchObject({ member: "other" });
+    expect(described?.member).toMatch(/^[a-z0-9][a-z0-9.:-]{0,63}$/u);
+    if (key !== undefined) expect(JSON.stringify(described)).not.toContain(key);
+  });
+
+  it("describes nothing for a request that is not invalid", () => {
+    for (const request of [
+      base,
+      { ...base, rpId: "example.com", mediation: "optional", timeout: 60_000 },
+      { ...base, allowCredentials: [descriptor, { type: "future-type", id: "BAUG" }] },
+      { ...base, challenge: encode(4096), allowCredentials: [{ ...descriptor, id: encode(1023) }] },
+    ]) {
+      expect(admit(request).kind).toBe("claim");
+      expect(describeInvalidRequest(request)).toBeUndefined();
+    }
+    // Other delegation reasons are not described either.
+    const silent = { ...base, mediation: "silent" };
+    expect(admit(silent)).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
+    expect(describeInvalidRequest(silent)).toBeUndefined();
+  });
+
+  it("never includes the member's value", () => {
+    const secret = encode(4097);
+    expect(JSON.stringify(describeInvalidRequest({ ...base, challenge: secret }))).not.toContain(
+      secret.slice(0, 16),
+    );
+  });
 });
 
 describe("credential selection", () => {

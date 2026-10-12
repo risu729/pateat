@@ -21,6 +21,12 @@ Chrome (18:30 and 18:43 UTC) showed Wise's sign-in runs as a chooser login
 password: a chooser login takes the `passkey` route too, before its click on the list
 (rule 3).
 
+Amended on 2026-10-12 under the same policy, after logs from the owner's Chrome (20:30
+and 20:33 UTC) showed Wise's page judged on the start path before the site moved on,
+and one at 20:42 UTC showed it on the start path with only a loader for more than 26
+seconds: the hold of rule 6 also keeps a page on the start path from being judged, and
+a page there that shows nothing to describe waits up to two minutes.
+
 Date: 2026-10-12
 
 ## Context
@@ -95,9 +101,13 @@ password when the item has one. The proposal reviewed with the owner is
    recorded at its start and goes on from its first step. The answer's time is kept per
    document in the service worker's memory, so in a new document or after a worker
    restart a form that still shows falls back at once. A rejection still showing from
-   the answer does not reject the password in that document until it has gone. It never
-   answers twice. Without a variant that fits the item, it ends
-   `challenge`, as the button route does.
+   the answer does not reject the password in that document until it has gone. Until
+   those fifteen seconds pass, a page still on the start path with its form gone is not
+   judged either, since the site may still be exchanging the assertion before it moves
+   on; one that shows nothing the judge's description could carry, as a loader, is not
+   judged for up to two minutes after the answer, the wait of a held click (ADR 0027),
+   and then ends `challenge`. It never answers twice. Without a variant that fits the
+   item, it ends `challenge`, as the button route does.
 7. **Signed without the person.** The answer sets UP and UV with no gesture, the policy
    the owner chose for `optional` requests in ADR 0007. A conditional request is meant
    to be answered when the person picks an autofill suggestion; Pateat skips that pick.

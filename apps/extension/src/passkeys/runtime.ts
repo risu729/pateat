@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import { createPasskeyAssertion } from "./assertion";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
-import { admitGetRequest } from "./request";
+import { admitGetRequest, describeInvalidRequest } from "./request";
 import {
   matchingPasskeys,
   selectPasskey,
@@ -127,6 +127,12 @@ export interface PasskeyRequestReport {
    * threw for an `assertion-failed` delegation (ADR 0019).
    */
   readonly cause?: PasskeyStopCause;
+  /**
+   * For an `invalid-request` delegation, the request member that broke its bounds and that
+   * member's size, never its value.
+   */
+  readonly invalid?: string;
+  readonly invalidLength?: number;
 }
 /**
  * Who cancelled a request (`page-cancelled`, `settings-changed`), or the step that threw:
@@ -312,7 +318,16 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       policy: options.policy?.(origin) ?? INITIAL_PASSKEY_POLICY,
       conditional: options.conditional !== undefined,
     });
-    if (admission.kind === "delegate") return admission;
+    if (admission.kind === "delegate") {
+      if (admission.reason === "invalid-request") {
+        const invalid = describeInvalidRequest(message.request);
+        if (invalid) {
+          detail.invalid = invalid.member;
+          if (invalid.length !== undefined) detail.invalidLength = invalid.length;
+        }
+      }
+      return admission;
+    }
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const conditional = admission.request.conditional === true;

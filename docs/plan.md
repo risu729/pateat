@@ -27,14 +27,44 @@ is listed in one phase below; placing the gates the owner's message did not ment
 Bitwarden account checks in phase 3, and the rest in phase 4) is a proposal for the
 owner to confirm.
 
+The owner re-split the phases on 2026-10-12 (20:35 UTC), because phase 1 was finishing
+slowly while phase 2 work had already started: phase 1 is now done when each kind of
+login page works on at least one real site, rather than on every listed site, and the
+untested daily-use sites, the Grok Bot sites still failing and the remaining
+installed-Chrome checks moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up).
+
 ### Phase 1: usable
 
-Done when Pateat logs in on the sites the owner uses every day, in the owner's installed
-Chrome, and on the sites the owner's Grok Bot checks where the owner signs in with a
-password or passkey, in the Grok Bot computer's Chrome, on a production build of main.
+Done when each kind of login page below works on the real site named for it, in the
+owner's installed Chrome on a production build of main: Pateat signs in and its record
+of the attempt ends `authenticated` (owner, 2026-10-12 20:35 UTC, replacing the
+2026-10-11 rule that every daily-use site and every Grok Bot site must log in). Status
+on 2026-10-12 (20:50 UTC):
 
-- Start from a list of those sites. It names the owner's own accounts, so it stays in
-  the project's files rather than in this repository.
+| Kind of login page | Site | Status |
+| --- | --- | --- |
+| Identifier and password on one page | Vpass, リクルートID | Done |
+| A value from a custom field | アパホテル (member ID) | Done |
+| Email, then Next, then password (`advance`) | Grafana Cloud | Signed in; the record ended `unknown-submit`, recheck after `92df780` |
+| A list of saved accounts ([ADR 0028](adr/0028-account-chooser-login-pages.md)) | Cloudflare, Wise | Signed in; the record ended `unknown-submit`, recheck after `92df780` |
+| A sign-in entry button ([ADR 0031](adr/0031-sign-in-entry-pages.md)) | pixiv | Done |
+| A stored passkey | npm, pixiv | Done |
+| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Recheck after `1df2d38` |
+| A TOTP code split into one-digit inputs | Resend | Recheck after `cdfa420`; needs a paid judge call and the owner's code entry |
+| Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
+| A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
+| A CAPTCHA the person solves, then the signed-in page | Q-move | Investigating why the signed-in page is not judged |
+| A signed-in page on another host of the same site | JAL (`jallogin.jal.co.jp` to `www.jal.co.jp`) | The record ends `left-origin`; fix in progress |
+| Google's own sign-in (email first, account choice) | Google | Not checked |
+| Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site |
+| Fill only after a logout | アパホテル | Done |
+| Nothing on a site without a password or passkey sign-in | ABEMA | Done (judged from the code and the Grok Bot's log) |
+| Pages that stopped before generation | モッピー, LinkedIn | Recheck after [#261](https://github.com/risu729/pateat/pull/261) and [#271](https://github.com/risu729/pateat/pull/271) |
+
+The rechecks share one extension reload. The username redaction gap (the 120-character
+cut below) and the UI polish also stay in this phase. The site lists name the owner's
+own accounts, so they stay in the project's files rather than in this repository.
+
 - Sites where the owner has no password or passkey sign-in, only a code or link sent
   by email or an identity provider, are out of scope for phase 1 (owner, 2026-10-12
   14:01 and 14:21 UTC). Such a site counts as done once a check shows Pateat does
@@ -47,25 +77,6 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   at 19:10 UTC, without Pateat). That Pateat does nothing there is judged from the code
   and from the Grok Bot's log of 2026-10-12, which has no ABEMA entry after the Bot
   opened `abema.tv/mylist` (build `a8350f5`).
-- Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
-  regularly, such as card statements and AI usage pages, so the Bot never needs a
-  password (owner, 2026-10-12 14:00 UTC). Sites that sign in only through another
-  site's single sign-on, or only with a code or link sent by email (owner, 14:01 UTC),
-  wait for [phase 4](#phase-4-issues-and-work-as-needed); Microsoft's own sign-in page
-  is a target, but a site that signs in only through it is not yet. The list, like
-  the daily-use list, stays in the project's files. Pateat has logged in to Vpass there,
-  opened during a takeover after the connection was enabled by hand, and the Bot
-  reported a MyJCB login (2026-10-12 13:45 UTC) that nobody else checked. On
-  2026-10-12 (19:08 UTC) the Bot itself opened ten of those sites on a build of
-  a8350f5, and the diagnostics log showed logins to Vpass, MyJCB and Give. On JP
-  BANKカードWEB the submit press left the sign-in form in place, and later attempts only
-  filled the form. Google, Microsoft and OpenAI Platform stopped with
-  `account-ambiguous`; the owner picks those accounts by hand on that computer for now
-  (owner, 19:22 UTC). Cursor stopped at a human check and an email code. Sites that
-  failed on the Grok Bot computer are checked in the owner's installed Chrome before
-  other sites (owner, 19:23 UTC). JP BANKカードWEB signed in there within 20 seconds
-  with the same recipe (19:24 UTC), so why its press failed on the Grok Bot computer
-  is still open.
 - Done: login attempts whose result settled as unknown no longer hold settings writes
   for the next login, and a vault replacement no longer runs during a login
   ([declarative recipes](architecture.md#declarative-recipes-and-ai)); diagnostics log
@@ -142,7 +153,8 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   stopped with `login.exception` (state `reconciling`) at 13:55:39 UTC. A new tab at
   14:08 UTC logged in. Such a conditional request now waits for the login
   ([ADR 0034](adr/0034-answer-page-passkey-requests.md)), and the `reconciling`
-  exception, also seen after submissions on other sites, is investigated separately.
+  exception, also seen after submissions on other sites, moved to
+  [phase 2](#phase-2-use-it-and-fix-what-comes-up).
 - Start pages that replaced the sent page during generation. While looking into SBI証券,
   the code showed a race that was not its cause: a page that replaced the sent page in
   its tab, or the same page in another tab, announced while the request was in flight,
@@ -151,8 +163,9 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   origin and path that holds no login is now asked to announce again; a page that could
   not be asked logs `reconnect-failed`, and a page that resumes a login held after a
   submission and does nothing logs `not-started` with `stopped-login` (local tests
-  only). Not fixed: `generate` in `apps/extension/src/service/generation.ts` ignores a
-  failed sync after generation, so a page could still find no recipe.
+  only). Not fixed, and moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up):
+  `generate` in `apps/extension/src/service/generation.ts` ignores a failed sync after
+  generation, so a page could still find no recipe.
 - Prefer the item's passkey over the password on login pages that ask for a passkey by
   themselves, such as Wise's ([ADR 0034](adr/0034-answer-page-passkey-requests.md),
   accepted 2026-10-12 14:19 UTC): a page's `conditional` request is answered through
@@ -195,28 +208,16 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   logout now keeps the page's request until the popup pick, whose login answers it with
   the picked item's passkey, as the owner chose on 2026-10-12 (17:56 UTC). Still to
   check in the owner's Chrome: a logout and a pick on Wise.
-- Installed-Chrome checks still open:
+- Installed-Chrome checks still open in this phase (the others moved to
+  [phase 2](#phase-2-use-it-and-fix-what-comes-up)):
   - Watching a login after a step left to the person
     ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge),
-    owner's choice 2026-10-12 13:08 UTC, local tests only): on 三菱UFJ銀行, after the
-    app approval of the QR page (`LG_0001_PC10`), the signed-in page (`LG_0002_PC01`)
-    completes the login and the site's logout is detected; after an expired QR code,
-    the sign-in page, in the same tab or a new one, is filled without pressing anything.
+    owner's choice 2026-10-12 13:08 UTC): on 三菱UFJ銀行, after the app approval of the
+    QR page (`LG_0001_PC10`), the signed-in page completed the login as `authenticated`
+    on build `206f2a0` (2026-10-12 19:59 UTC). The expired-QR half moved to phase 2.
   - Continuing a generated recipe on the page after an `advance` step (email, then
-    Next, then password), which the owner rated high priority: implemented with
-    synthetic evidence only, as listed under
-    [AI evaluation harness progress](#ai-evaluation-harness-progress). A real site needs
-    paid generation calls, so it waits for the owner's approval.
-  - M3's password login on a real site, and M4's sync against the deployed service:
-    `https://www.npmjs.com` logs in with no action from the owner through a recipe the
-    service generated, and a later login makes no Claude call (after
-    [#234](https://github.com/risu729/pateat/pull/234)).
-  - Choosing again after a logout on the password side
-    ([#210](https://github.com/risu729/pateat/pull/210)).
-  - The passkey chooser staying open across a settings sync
-    ([#232](https://github.com/risu729/pateat/pull/232)); see
-    [passkey progress](#passkey-progress).
-  - Changing a site's exclusion or default in the toolbar popup.
+    Next, then password), which the owner rated high priority, on Grafana Cloud (see the
+    table above).
   - The badge and popup choice on a site with two matches
     ([#187](https://github.com/risu729/pateat/pull/187)). On 2026-10-12 on github.com
     with three matches, the first popup open showed no choice and a reopen did; recheck
@@ -224,37 +225,17 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
     announcement. The recheck that day showed shortened item IDs before the usernames
     and a silent stop when another tab's login held the site; recheck both after the
     fix that waits for the usernames and names the hold.
-  - A vault item edit picked up by the automatic sync
-    ([#222](https://github.com/risu729/pateat/pull/222),
-    [#224](https://github.com/risu729/pateat/pull/224)).
   - The `totp` handler ([ADR 0027](adr/0027-per-account-login-routes.md) delivery 4) on
-    a site whose code page says the code comes from an authenticator app, such as
-    npmjs.com: a judged code page adds the handler and the same login types one code.
-    It needs a paid judge call and a real account's code, so it waits for the owner's
-    approval.
-  - The same handler on a code split into one-digit inputs, on Resend's code page
-    (owner decision, 2026-10-12 19:21 UTC): a judged code page adds the handler with
-    the first input, and the same login types one digit per input and clicks once. It
-    needs a paid judge call and the owner's own code entry or approval, as above.
+    a code split into one-digit inputs, on Resend's code page (owner decision,
+    2026-10-12 19:21 UTC): a judged code page adds the handler with the first input, and
+    the same login types one digit per input and clicks once. It needs a paid judge call
+    and the owner's own code entry or approval.
 - Polish the UI, in phase 1 so that phase 2's feedback is on the improved UI (owner,
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
-  planned on 2026-10-11, and the base design tokens set with Claude Design.
-- Prune low-value tests with OpenClaw's `test-audit` agent skill, alongside the UI
-  polish once the daily-use sites are done (owner, 2026-10-12 07:43 UTC; the
-  [survey](research/2026-10-12-test-pruning-skills.md) compares the alternatives). The
-  skill is copied into the repository with its OpenClaw-specific validation replaced by
-  `mise run check`. The owner asked for care not to remove needed tests: every deletion
-  names the test that still covers its contract, and an independent subagent compares
-  the deleted tests with the kept ones before each batch merges, as the skill's
-  preservation review does. The suite's size and CI times in the survey are a 2026-10-12
-  snapshot; re-measure them when the work starts and after each batch.
-  - Batch 1, `packages/bitwarden` (started 2026-10-12): read-only reviewers marked
-    every declaration keep, fix, merge or delete, naming the remaining proof for each
-    removal; 943 to 920 Vitest cases, package line coverage unchanged at 96.0%. Copying
-    the skill files into the repository was refused by the cloud session's approval
-    policy, so the batches follow the survey's summary of its rules until the owner
-    decides how the copy lands.
+  planned on 2026-10-11, and the base design tokens set with Claude Design. It starts
+  now, alongside the rechecks above rather than after them (owner, 2026-10-12 20:35
+  UTC).
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
@@ -266,6 +247,38 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
   keeps local; that is a design to bring to the owner first.
+- Moved from phase 1 (owner, 2026-10-12 20:35 UTC): the daily-use sites not tested
+  yet, about 50 in the project's list. They are no longer tested in batches; the
+  owner uses them, and Claude fixes what fails, from the owner's reports, the local log
+  and the service's D1 records. The Japanese government sites and Santander, which the
+  owner wants to work although they look hard, are among them. So is Instagram: its
+  saved-profile list shows a handle while the item's username is an email, which
+  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match, and what to do
+  there is not decided.
+- Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
+  when daily use reaches them:
+  - On 三菱UFJ銀行, after an expired QR code, the sign-in page, in the same tab or a new
+    one, is filled without pressing anything.
+  - M3's password login on a real site, and M4's sync against the deployed service:
+    `https://www.npmjs.com` logs in with no action from the owner through a recipe the
+    service generated, and a later login makes no Claude call (after
+    [#234](https://github.com/risu729/pateat/pull/234)).
+  - Choosing again after a logout on the password side
+    ([#210](https://github.com/risu729/pateat/pull/210)).
+  - The passkey chooser staying open across a settings sync
+    ([#232](https://github.com/risu729/pateat/pull/232)); see
+    [passkey progress](#passkey-progress).
+  - Changing a site's exclusion or default in the toolbar popup.
+  - A vault item edit picked up by the automatic sync
+    ([#222](https://github.com/risu729/pateat/pull/222),
+    [#224](https://github.com/risu729/pateat/pull/224)).
+  - The `totp` handler on a site whose code page says the code comes from an
+    authenticator app, such as npmjs.com: a judged code page adds the handler and the
+    same login types one code. It needs a paid judge call and a real account's code, so
+    it waits for the owner's approval.
+- Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
+  shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
+  a failed sync after generation (both recorded under phase 1).
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
   the device (owner, 2026-10-11 18:45 UTC).
@@ -286,8 +299,37 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   application without WARP for pairing only. With it, the Grok Bot computer paired on
   2026-10-12 and Pateat logged in to Vpass there with the owner's existing Bitwarden
   account, once the connection's policy was enabled by hand. The logins the Bot needs
-  are a phase 1 goal (Grok Bot sites above). Next: ChatGPT Dots once the owner has
+  are listed below. Next: ChatGPT Dots once the owner has
   ChatGPT Pro again.
+- Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
+  regularly, such as card statements and AI usage pages, so the Bot never needs a
+  password (owner, 2026-10-12 14:00 UTC; a phase 1 goal until the owner moved it here
+  on 2026-10-12 at 20:35 UTC). Sites that sign in only through another
+  site's single sign-on, or only with a code or link sent by email (owner, 14:01 UTC),
+  wait for [phase 4](#phase-4-issues-and-work-as-needed); Microsoft's own sign-in page
+  is a target, but a site that signs in only through it is not yet. The list, like
+  the daily-use list, stays in the project's files. Pateat has logged in to Vpass there,
+  opened during a takeover after the connection was enabled by hand, and the Bot
+  reported a MyJCB login (2026-10-12 13:45 UTC) that nobody else checked. On
+  2026-10-12 (19:08 UTC) the Bot itself opened ten of those sites on a build of
+  a8350f5, and the diagnostics log showed logins to Vpass, MyJCB and Give. On JP
+  BANKカードWEB the submit press left the sign-in form in place, and later attempts only
+  filled the form. Google, Microsoft and OpenAI Platform stopped with
+  `account-ambiguous`; the owner picks those accounts by hand on that computer for now
+  (owner, 19:22 UTC). Cursor stopped at a human check and an email code. Sites that
+  failed on the Grok Bot computer were to be checked in the owner's installed Chrome
+  before other sites (owner, 19:23 UTC); since the move, only Google is (see the
+  phase 1 table). JP BANKカードWEB signed in there within 20 seconds
+  with the same recipe (19:24 UTC), so why its press failed on the Grok Bot computer
+  is still open.
+- Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
+  (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
+  `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
+  which failed. The log now names the member and its size (`invalid`, `invalidLength`),
+  and on build `f2c68aa` (20:37 UTC) it named a 2,056-byte `challenge`, over the
+  1,024-byte bound of [ADR 0007](adr/0007-existing-passkey-assertions.md#admission).
+  The bound is now 4,096 bytes (local tests only). Next, the Bot signs in to Google
+  Play subscriptions again.
 - Debugging on the Grok Bot computer goes through the Bot today. A shell or SSH
   session for members, and a public API for messaging a Bot, are not documented;
   users report SSH over Tailscale anyway. A routine started by a webhook call, by
@@ -302,6 +344,22 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   chooser itself, such as a tool the agent can call, so the owner need not take over
   the agent's computer for it (owner, 2026-10-12 19:22 UTC). Low priority; until then
   the owner chooses by hand.
+- Prune low-value tests with OpenClaw's `test-audit` agent skill, during this phase
+  (owner, 2026-10-12 20:35 UTC; earlier planned alongside the UI polish once the
+  daily-use sites were done, owner 07:43 UTC; the
+  [survey](research/2026-10-12-test-pruning-skills.md) compares the alternatives). The
+  skill is copied into the repository with its OpenClaw-specific validation replaced by
+  `mise run check`. The owner asked for care not to remove needed tests: every deletion
+  names the test that still covers its contract, and an independent subagent compares
+  the deleted tests with the kept ones before each batch merges, as the skill's
+  preservation review does. The suite's size and CI times in the survey are a 2026-10-12
+  snapshot; re-measure them when the work starts and after each batch.
+  - Batch 1, `packages/bitwarden` (started 2026-10-12): read-only reviewers marked
+    every declaration keep, fix, merge or delete, naming the remaining proof for each
+    removal; 943 to 920 Vitest cases, package line coverage unchanged at 96.0%. Copying
+    the skill files into the repository was refused by the cloud session's approval
+    policy, so the batches follow the survey's summary of its rules until the owner
+    decides how the copy lands.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
@@ -490,7 +548,7 @@ still open on 2026-10-11.
 - An agent skill for pruning the low-value tests agents write (owner, 2026-10-12 07:32
   UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills;
   the owner chose OpenClaw's `test-audit` (07:43 UTC), planned in
-  [phase 1](#phase-1-usable).
+  [phase 2](#phase-2-use-it-and-fix-what-comes-up).
 - Moving from Bun to aube for monorepo support (owner, 2026-10-12 07:58 UTC): the
   [research note](research/2026-10-12-package-manager-aube.md) compares Bun 1.4.3, pnpm
   12 and aube 2.7.0 and records trial installs. The owner chose aube (08:25 UTC);
@@ -1621,25 +1679,25 @@ Remaining M4 AI work:
   is implemented: the `totp` handler (one code field and its button on a path), learned
   from a judge answer that names a code the page says comes from an authenticator app,
   in a single code field of at least 6 characters, or the first of 6 to 8 one-digit
-  inputs, with a button of its form; entered
-  when all its elements show and are usable, after a `passkey` handler shown with it, at
-  most one code per login, filling the item's built-in TOTP field under the TOTP fill
-  rule and clicking once after a 2-second watch; and a code page that submits by itself
-  counts as the click and is held while it verifies. A judged completion is never a page
-  of a handler's path that shows its code field, and generation maps a one-time-code
-  slot only to an input the TOTP fill rule accepts. Unit, service and extension runtime
-  tests and fourteen probe E2E specs (the code filled and verified, a wrong code ending
-  `challenge` after one click, an item without TOTP leaving the field untouched, a page
-  that submits on the last digit, three pages that verify their own submission for over
-  a second: a new document, a status message with a disabled button and a form rendered
-  again, and three ordinary pages clicked once: Verify disabled until the code is in,
-  Verify rendered again on every digit and a digit counter, and a page that checks the
-  code itself with Verify kept disabled, or disabled again after enabling it for a
-  moment, signing in or held on a wrong code without a click) cover it with a synthetic
-  TOTP fact and the fixed code `012345`; no paid judge call, real authenticator code or
-  real-account login has used it. A binding that names a custom field for the code is
-  deferred and ends `challenge`. Its real-Chrome check is listed with the phase 1
-  installed-Chrome checks. The one-digit inputs are typed one digit per input (owner
+  inputs, with a button of its form; entered when all its elements show and are usable,
+  after a `passkey` handler shown with it, at most one code per login, filling the
+  item's built-in TOTP field under the TOTP fill rule and clicking once after a 2-second
+  watch; and a code page that submits by itself counts as the click and is held while it
+  verifies. A judged completion is never a page of a handler's path that shows its code
+  field, and generation maps a one-time-code slot only to an input the TOTP fill rule
+  accepts. Unit, service and extension runtime tests and fourteen probe E2E specs (the
+  code filled and verified, a wrong code ending `challenge` after one click, an item
+  without TOTP leaving the field untouched, a page that submits on the last digit, three
+  pages that verify their own submission for over a second: a new document, a status
+  message with a disabled button and a form rendered again, and three ordinary pages
+  clicked once: Verify disabled until the code is in, Verify rendered again on every
+  digit and a digit counter, and a page that checks the code itself with Verify kept
+  disabled, or disabled again after enabling it for a moment, signing in or held on a
+  wrong code without a click) cover it with a synthetic TOTP fact and the fixed code
+  `012345`; no paid judge call, real authenticator code or real-account login has used
+  it. A binding that names a custom field for the code is deferred and ends `challenge`.
+  Its real-Chrome checks are listed with the installed-Chrome checks of phase 1 (Resend)
+  and phase 2 (npmjs.com). The one-digit inputs are typed one digit per input (owner
   decision, 2026-10-12 19:21 UTC, after Resend's code page stopped the login); six probe
   E2E specs (one Verify click, a page that submits on its last digit, Verify disabled
   until the code is in or only while it is partial, an input the page changes after the

@@ -1400,14 +1400,19 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([true, undefined]);
     page(`<button id="logout">Sign out</button><input id="pin" type="password" readonly>`);
     expect(gap()).toEqual([false, "unfillable-field"]);
-    // A disabled field may be a code field waiting for a timer or a sent code.
+    // A disabled field may be a code field waiting for a timer or a sent code; the log
+    // says whether it may be a sign-in field.
     for (const field of [
       `<input id="otp" name="otp" disabled>`,
       `<input id="date" type="text" disabled>`,
     ]) {
       page(`<button id="logout">Sign out</button>${field}`);
-      expect(gap(), field).toEqual([false, "unfillable-field"]);
+      expect(gap(), field).toEqual([false, "disabled-field"]);
     }
+    page(
+      `<button id="logout">Sign out</button><input id="otp" autocomplete="one-time-code" disabled>`,
+    );
+    expect(gap()).toEqual([false, "unfillable-field"]);
     // A read-only field that may be a sign-in field.
     for (const field of [
       `<input id="f" autocomplete="section-a username" readonly>`,
