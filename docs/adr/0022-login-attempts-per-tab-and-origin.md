@@ -21,6 +21,13 @@ another tab was refused `origin-busy` until that tab would close.
 Amended on 2026-10-12 (05:41 UTC, owner's request in the project chat): a tab that moves
 to another site starts clean there, also for a login form in a frame; see "A tab still
 runs one attempt at a time" below.
+Amended again on 2026-10-12 (bug fix applying the 02:42 UTC choice to the stopped tab
+itself): a login Pateat itself stopped with nothing in flight and before any submission
+no longer holds its own tab either. Evidence: in the owner's Chrome, removing
+github.com's saved default stopped that tab's login as `policy-changed`; after a reload
+the page was refused for several matching accounts, but it had resumed the stopped
+record, so the toolbar popup offered no account choice and the tab never logged in again
+until it was closed.
 
 ## Context
 
@@ -46,12 +53,21 @@ fix them now; the SSO policy itself is recorded separately.
   attempt). A tab may hold records for several origins; all are deleted when the tab
   closes.
 - **A page resumes only its own origin's record**, also an ended one. A new attempt
-  starts only when the tab has no record for that origin. A finished top-level record
-  whose login form's first step shows again is released by the logout detection of ADR
-  0021 (part D), which then asks for an account instead of submitting. Returning to an
-  origin the tab already tried therefore never submits again, which keeps a loop such as
-  site → identity provider error → site → identity provider from resubmitting
-  credentials. The `account-switched` exception of ADR 0016 stays.
+  starts only when the tab has no record for that origin. A record Pateat itself stopped
+  with nothing in flight, as described under "Holding the origin in other tabs" below,
+  before any submission is the exception (amended 2026-10-12; `wrong-account` stays with
+  logout detection and `account-switched` with its own exception below): a new document
+  of that origin in the tab that the one-attempt rule below lets start releases it and
+  is handled like one in a new tab, with the saved default or by asking when several
+  items match. The same document announcing again, as after a restarted worker, still
+  resumes it. A stop after a submission is resumed, unlike in another tab: this tab's
+  new pages arrive without the user, so a site that sends the tab back to its first step
+  would otherwise get the credentials again each time. A finished top-level record whose
+  login form's first step shows again is released by the logout detection of ADR 0021
+  (part D), which then asks for an account instead of submitting. Returning to an origin
+  the tab already tried therefore never submits again, which keeps a loop such as site →
+  identity provider error → site → identity provider from resubmitting credentials. The
+  `account-switched` exception of ADR 0016 stays.
 - **A tab still runs one attempt at a time.** When a new top-level page of another
   origin arrives while the tab's top-level attempt has not ended, that attempt ends
   first (`NAVIGATED`) and keeps its record; then the new top-level page is handled like
@@ -66,7 +82,8 @@ fix them now; the SSO policy itself is recorded separately.
   frame never logged in in a tab used for another site's login, and after a restart the
   next site's page did not either. A document of the left site's own origin, such as a
   frame of it on the new page, still resumes that origin's ended record and never
-  submits there again. While the tab's latest record belongs to the page's site, it
+  submits there again, unless Pateat stopped that record before any submission, which
+  releases it as above. While the tab's latest record belongs to the page's site, it
   still holds the page's other frames with `tab-busy`. Frame attempts keep ADR 0017's
   rule: a whole-tab navigation ends them `blocked` with outcome `cancelled`. A frame
   that itself moves to another origin does not end its attempt; it ends with the next

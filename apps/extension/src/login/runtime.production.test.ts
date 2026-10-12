@@ -1590,6 +1590,83 @@ describe("production login document admission", () => {
         }
       },
     );
+    it.each([
+      [
+        "blocked policy-changed before any submission",
+        "policy-changed",
+        { ...idle, submissions: 0 },
+        true,
+      ],
+      [
+        "blocked value-mismatch before any submission",
+        "value-mismatch",
+        { ...idle, submissions: 0 },
+        true,
+      ],
+      ["blocked cancelled before any submission", "cancelled", { ...idle, submissions: 0 }, true],
+      // A stop after a submission resumes: the site may send the tab back to its first step.
+      ["blocked policy-changed after an observed step", "policy-changed", idle, false],
+      ["blocked value-mismatch after a submission", "value-mismatch", idle, false],
+      ["blocked cancelled after a submission", "cancelled", idle, false],
+      [
+        "blocked policy-changed with a click the page may have received",
+        "policy-changed",
+        {},
+        false,
+      ],
+      [
+        "blocked policy-changed with a fill in flight",
+        "policy-changed",
+        { operationKind: "fill", operationEffect: "submit", mutationIntent: true },
+        false,
+      ],
+      [
+        "blocked policy-changed settled as unknown",
+        "policy-changed",
+        { ...idle, settled: true },
+        false,
+      ],
+      ["blocked challenge", "challenge", idle, false],
+    ] as const)(
+      "decides whether the tab's own %s record lets a new page of it log in",
+      async (_name, outcome, extra, released) => {
+        // A login Pateat itself stopped before any submission holds no tab, its own
+        // included; any other ended record is resumed and never submits again (ADR 0022).
+        const flush = () => new Promise((resolve) => setTimeout(resolve, 50));
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "submit-intent" }));
+        const [record] = stored();
+        const query = fake.browser.tabs.query;
+        fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+        try {
+          fake.state.storage["pateat.login-attempts.v3"] = [
+            { ...record!, state: "blocked", outcome, mutationIntent: undefined, ...extra },
+          ];
+          fake.state.onExecute = undefined;
+          const restarted = twoSites();
+          expect(await restarted.login.active()).toBe(false);
+          const sent = executes().length;
+          // The same document announcing again, as after a restarted worker, resumes it.
+          expect(await restarted.hello()).toEqual({ ok: true });
+          await flush();
+          expect(executes()).toHaveLength(sent);
+          expect(at(origin)).toMatchObject({ id: record!.id, state: "blocked", outcome });
+          expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
+          if (released) {
+            await vi.waitFor(() => expect(executes().length).toBeGreaterThan(sent));
+            expect(at(origin)?.id).not.toBe(record!.id);
+          } else {
+            await flush();
+            expect(executes()).toHaveLength(sent);
+            expect(at(origin)).toMatchObject({ id: record!.id, state: "blocked", outcome });
+          }
+        } finally {
+          fake.browser.tabs.query = query;
+        }
+      },
+    );
     it("ends another tab's hold 5 minutes after its record last changed, not after a resume", async () => {
       holdClicks(origin);
       const h = twoSites();
@@ -2567,6 +2644,35 @@ describe("production login document admission", () => {
           { connectionId, itemId: otherItemId },
         ],
       };
+      it("offers a choice on a new page of a tab whose login Pateat stopped, once its default is removed", async () => {
+        // In the owner's Chrome, removing github.com's default stopped its login as
+        // `policy-changed`; the reloaded page was refused for several accounts and the popup
+        // offered nothing, because the page resumed the stopped record.
+        const h = harness({}, { uris: async () => ({ ok: true, data: both }) });
+        fake.state.onAwait = () => {
+          h.settings.revision += 1;
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
+            { state: "blocked", outcome: "policy-changed" },
+          ]),
+        );
+        fake.state.onAwait = undefined;
+        h.settings.settings.siteDefaults = [];
+        h.settings.revision += 1;
+        const next = { documentId: "synthetic-next" };
+        expect(await h.hello(next)).toEqual({ ok: false, reason: "account-ambiguous" });
+        expect(fake.state.storage["pateat.login-attempts.v3"]).toEqual([]);
+        expect(await ask(h)).toEqual({ ...offered, documentId: "synthetic-next" });
+        fake.state.onReconnect = () => h.hello(next);
+        expect(await pick(h, next)).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
+            { account: { itemId: otherItemId }, document: { documentId: "synthetic-next" } },
+          ]),
+        );
+      });
       it("badges the tab and offers only the refused document's candidates", async () => {
         const h = await refused();
         expect(fake.state.badges[1]).toEqual({
