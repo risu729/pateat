@@ -205,8 +205,8 @@ const continuing = (reading: SignInReading | undefined) =>
  * Why the judge gave no verdict that still completes a page with no sign and no evidence
  * (ADR 0029): the model could not decide (no reason), the path was judged before, or a
  * spending or judgement limit applies. A page judged `challenge` or `rejected` before
- * (`judged-challenge`, `judged-rejected`), a failure, a conflict or a missing service does
- * not.
+ * (`judged-challenge`, `judged-rejected`), one whose earlier request has no verdict
+ * (`judgement-unanswered`), a failure, a conflict or a missing service does not.
  */
 const UNDECIDED_COMPLETES = new Set([
   undefined,
@@ -2763,11 +2763,11 @@ export function createLoginRuntime(
   }
   /**
    * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
-   * and what the ADR does with it. Returns `signed-in` only when a later reading, a second
-   * apart, agrees in the fully loaded document; the login then completes. On the passkey
-   * route, where anything the route's checks do not prove ends `challenge`, and for the
-   * other decisions, the reading is logged only, as in delivery 1. A login in a frame is
-   * not read, as the ADR reads the top document.
+   * and what the ADR does with it. Returns the decision, `confirmed` only when a later
+   * reading, a second apart, agrees in the fully loaded document. On the passkey route,
+   * where anything the route's checks do not prove ends `challenge`, the reading is not
+   * read again and never confirmed, so it is logged only. A login in a frame is not read,
+   * as the ADR reads the top document.
    */
   async function signInState(run: Execution): Promise<SignInReading | undefined> {
     let reading = await readSignInState(run);
@@ -3236,15 +3236,16 @@ export function createLoginRuntime(
       run.metadata.watch === undefined &&
       run.metadata.route !== "passkey" &&
       UNDECIDED_COMPLETES.has(reason);
-    // The judge's answer can take a while: the page completes only if it still shows no
-    // sign of a sign-in going on once the answer is back.
+    // The judge's answer can take a while: the page completes only if, once the answer is
+    // back, it has loaded and still shows no sign of a sign-in going on.
     if (completes) {
       const again = await readSignInState(run);
       if (!current(run)) {
         reportJudge(verdict, { ...(reason ? { reason } : {}) });
         return true;
       }
-      completes = again?.decision === "judge" || again?.decision === "signed-in";
+      completes =
+        again?.loaded === true && (again.decision === "judge" || again.decision === "signed-in");
     }
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;

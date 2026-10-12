@@ -6713,13 +6713,17 @@ describe("production login document admission", () => {
         );
       }, 12_000);
 
-      it("never completes on a page judged rejected before", async () => {
-        const { judges } = await judged({ verdict: "unclear", reason: "judged-rejected" });
-        await vi.waitFor(() =>
-          expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
-        );
-        expect(judges()[0]).not.toHaveProperty("completed");
-      }, 12_000);
+      it.each(["judged-rejected", "judgement-unanswered"])(
+        "never completes on %s",
+        async (reason) => {
+          const { judges } = await judged({ verdict: "unclear", reason });
+          await vi.waitFor(() =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          );
+          expect(judges()[0]).not.toHaveProperty("completed");
+        },
+        12_000,
+      );
 
       it("keeps a page undecided when a sign shows by the time the judge answers", async () => {
         const { judges } = await judged({ verdict: "unclear" }, noSigns, () => {
@@ -12390,7 +12394,13 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     inPlace(() => {
       fake.state.unusable = new Set(["email", "next", "password", "login"]);
       fake.state.present = new Set(["password", "login"]);
-      fake.state.signs = { password: true, code: false, captcha: false, invalid: false, alert: false };
+      fake.state.signs = {
+        password: true,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
     });
     const service = generation();
     const reports: LoginReport[] = [];

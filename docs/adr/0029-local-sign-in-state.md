@@ -153,15 +153,17 @@ not sent it stays unknown. A page with no sign and no evidence is judged, and th
 completes when the judge cannot decide: the model abstains (`unclear` with no reason),
 the path was judged before (`already-judged`), or a limit applies (`judgement-limit`,
 `daily-limit`, `monthly-limit`), and the page still shows no sign and no evidence once
-the answer is back. Its `recipe.judge` entry is then a warning marked `completed`. A
-failed request, a conflict, a missing service or a page that cannot be described or was
-not sent leaves the login unknown, as before. The service keeps a `challenge` or
-`rejected` verdict on the path's judgement row (`page_judgements.verdict`) and answers a
-later request for that revision and path `judged-challenge` or `judged-rejected` instead
-of `already-judged`; the login then ends `challenge`, or stays unknown after
-`judged-rejected`, since an earlier rejection does not prove this one. A login that
-reaches the path while the first request is still being judged is told `already-judged`.
-A watched login (below) never completes on an undecided answer.
+the answer is back in the loaded document. Its `recipe.judge` entry is then a warning
+marked `completed`. A failed request, a conflict, a missing service or a page that
+cannot be described or was not sent leaves the login unknown, as before. The service
+keeps the model's verdict on the path's judgement row (`page_judgements.verdict`,
+`unclear` when it abstained) and answers a later request for that revision and path
+`already-judged` only after `signed-in` or `unclear`. After `challenge` or `rejected` it
+answers `judged-challenge` or `judged-rejected`: the login then ends `challenge`, or
+stays unknown after `judged-rejected`, since an earlier rejection does not prove this
+one. A row with no verdict, while the first request is still being judged or after it
+failed, answers `judgement-unanswered`, and the login stays unknown. A watched login
+(below) never completes on an undecided answer.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on

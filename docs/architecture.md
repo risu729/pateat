@@ -669,13 +669,15 @@ What the judge answers settles the login on the `password` route as the ADR's ou
 table says: `signed-in` completes it, `rejected` ends it `credential-rejected`, and
 `challenge` ends it `challenge`. An `unclear` answer completes it, as a warning marked
 `completed`, only when the page confirmed no sign and no evidence (S1 to S5, E1 to E3)
-before the request and still shows none after the answer, the login is not watched, and
+before the request and still shows none in the loaded document after the answer, the
+login is not watched, and
 the model abstained or the service answered `already-judged`, `judgement-limit`,
 `daily-limit` or `monthly-limit`. An `unclear` answer on a page with a confirmed sign of
 another sign-in step (S2 to S5), or the service's `judged-challenge` for a path judged
 `challenge` before in the revision, ends it `challenge`. Anything else, including the
-service's `judged-rejected` for a path judged `rejected` before and a page that was not
-sent, leaves it unknown.
+service's `judged-rejected` for a path judged `rejected` before, its
+`judgement-unanswered` for a path whose earlier request has no verdict, and a page that
+was not sent, leaves it unknown.
 After a recipe's final `advance` step on its first `password` variant, a page that has
 loaded and shows, for a second on one path, a password input other than the recipe's own
 fields while the recipe fills no password, or a username or email input while the recipe

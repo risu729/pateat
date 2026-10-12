@@ -1416,6 +1416,15 @@ describe("completion judgement", () => {
       rejection: { check: "schema", issue: "picklist", path: "result.code.source" },
     });
     info.mockRestore();
+    // The failed request left the path without a verdict, so a later login of the
+    // revision never completes on it (ADR 0029).
+    const calls = sent.length;
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(sent).toHaveLength(calls);
   });
 
   it("does not judge a page that shows the login form again", async () => {
@@ -2060,9 +2069,10 @@ describe("page judgement (ADR 0027)", () => {
       version: 1,
       status: "rejected",
     });
-    expect(concurrent).toMatchObject({ status: "unavailable" });
+    // The owner's lock answers the second request while the first is judged.
+    expect(concurrent).toEqual({ version: 1, status: "unavailable", reason: "busy" });
     expect((await complete(device, change.recipeId, 2)).body).toMatchObject({
-      reason: "already-judged",
+      reason: "judged-rejected",
     });
     expect(sent).toHaveLength(calls + 1);
   });
