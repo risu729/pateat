@@ -55,17 +55,18 @@ export function entryLike(element: Element): element is HTMLElement {
 const isEntry = (element: Element): boolean => entryLike(element);
 
 /**
- * The innermost {@link entryLike} element around `element`, or `null`. A rejected link,
- * button or entry role on the way stops the search: a click on the element around it
- * would land on that control, such as a link to another origin or a disabled button.
+ * The innermost {@link entryLike} element around `element`, or `null` when a link, button
+ * or entry role anywhere around the text is rejected: a click inside it would land on
+ * that control, such as a link to another origin or a disabled button.
  */
 function entryAround(element: HTMLElement | null): HTMLElement | null {
+  let entry: HTMLElement | null = null;
   for (let current = element; current; current = current.parentElement) {
     // Not the type guard: it would narrow `current` to `never` after it.
-    if (isEntry(current)) return current;
-    if (control(current)) return null;
+    if (isEntry(current)) entry ??= current;
+    else if (control(current)) return null;
   }
-  return null;
+  return entry;
 }
 
 export interface AccountEntry {

@@ -20,7 +20,7 @@ import {
   renderedText,
   shown,
 } from "../page/text";
-import { accountEntries, entryLike } from "../page/account-list";
+import { accountEntries, chromeSelector, entryLike } from "../page/account-list";
 
 /**
  * Why no observation was produced. A page without one is never sent to inference.
@@ -42,7 +42,7 @@ export type ObservationResult =
 
 const maxCandidates = 48;
 /** Where account menus usually sit: the page's header and navigation. */
-const landmarks = "header, nav, [role='banner' i], [role='navigation' i]";
+const landmarks = chromeSelector;
 /**
  * How far above a login form a button outside every form still counts as the form's,
  * such as a passkey button beside the password form (SBI Securities: form, list item,

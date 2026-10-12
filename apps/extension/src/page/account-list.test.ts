@@ -63,10 +63,11 @@ describe("accountEntries", () => {
     expect(entries).toEqual([]);
   });
 
-  it("does not climb past a rejected link or button", () => {
+  it("finds no entry inside or around a rejected link or button", () => {
     const entries = list(`
       <div role="button"><a href="https://idp.example/">a@example.com</a></div>
       <li tabindex="0"><button disabled>b@example.com</button></li>
+      <a href="https://idp.example/"><span tabindex="0">c@example.com</span></a>
     `);
     expect(entries).toEqual([]);
   });
