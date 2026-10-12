@@ -3091,8 +3091,8 @@ export function createLoginRuntime(
       );
       if (documents.get(key) !== live) return;
       if (!extracted.success || !extracted.output.ok) {
-        // The extractor's refusal, such as `no-locator`; `extract-failed` for an answer
-        // that fails its check.
+        // The content script's refusal, such as `no-locator` or `extract-error`;
+        // `extract-failed` for an answer that fails its check or never came.
         skipGeneration(
           live,
           extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed",

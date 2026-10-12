@@ -21,8 +21,10 @@ import {
 
 /**
  * Why no observation was produced. A page without one is never sent to inference.
- * `no-locator` is a login page whose fields and buttons all lack a locator that names
- * them alone, as when a hidden copy of the form shares their ids and names.
+ * `no-locator` is a login page where a control of a login form lacks a locator
+ * that names it alone, as when a hidden copy of the form shares the ids and names, and
+ * nothing else can be described; a login form with nothing to locate or act on (only
+ * fields that cannot be filled) gives `no-candidates`.
  */
 export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-locator";
 /**
@@ -608,9 +610,11 @@ export function extractLoginObservation(
 
   const index = locatorIndex(document);
   // Links and script buttons without a locator are left out without flawing their form.
+  let unlocated = false;
   const located = (entries: typeof required, { optional = false } = {}) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { links: true });
+      if (!target) unlocated = true;
       if (!target && !optional) flawed.add(entry.form);
       return target ? [{ ...entry, target }] : [];
     });
@@ -640,7 +644,7 @@ export function extractLoginObservation(
     ...buttons,
     ...kept(links, { optional: true }).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
-  if (chosen.length === 0) return { ok: false, reason: "no-locator" };
+  if (chosen.length === 0) return { ok: false, reason: unlocated ? "no-locator" : "no-candidates" };
   return observe(document, chosen, complete);
 }
 

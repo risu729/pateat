@@ -501,6 +501,9 @@ describe("extractLoginObservation", () => {
       <input id="vp-password" name="password" type="password"><button>Log in</button></form>`;
     page(`<header><button>Log in</button></header>${form}<div hidden>${form}</div>`);
     expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-locator" });
+    // A form with only a field that cannot be filled has nothing to locate.
+    page(`<form><input id="pin" type="password" readonly></form>`);
+    expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 
   it("produces targets the executor's exact-match lookup resolves to the same element", () => {
