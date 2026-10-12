@@ -955,21 +955,21 @@ plan's refusal reason such as `connection-disabled`, or `account-changed`),
 `vault-replaced` (a vault sync replaced the snapshot that authorized a value before it
 was delivered) and `field-unavailable` (a vault field could not be read).
 
-Login, judgement, handler, recipe generation and passkey events are limited to 30 per
-minute per tab and origin, since one login writes 6 to 8 of them, and unhandled errors
-to 20 per minute in all. `debug` events have their own 20 per minute, so a page's debug
-detail never crowds out its other events. A login attempt's state changes
-(`login.attempt` entries other than `debug`, such as `blocked`, `authenticated` and a
-settled result) have their own 60 per minute, so other page events never crowd out how a
-long login ended. Each `log.dropped` entry names one dropped event and how many of it
-were dropped. The first drop of each event in a window is logged at once and also logs
-the drops not yet counted; the rest are counted when the window ends and the next event
-or prune runs, so a worker that stops first loses only that remainder. `debug` entries
-are written only for 24 hours after **Turn on debug logging for 24 hours**, or until
-**Turn off debug logging** turns it off sooner; either change is logged as `log.debug`
-with `enabled`. Retention: 14 days; `debug` entries for 24 hours; at most 14,000 `debug`
-and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn` and `error`
-entries, pruned at worker start and every 500 writes.
+Other login events, judgement, handler, recipe generation and passkey events are limited
+to 30 per minute per tab and origin, since one login writes 6 to 8 of them, and
+unhandled errors to 20 per minute in all. `debug` events have their own 20 per minute,
+so a page's debug detail never crowds out its other events. A login attempt's state
+changes (`login.attempt` entries other than `debug`, such as `blocked`, `authenticated`
+and a settled result) have their own 60 per minute, so other page events never crowd out
+how a long login ended. Each `log.dropped` entry names one dropped event and how many of
+it were dropped. The first drop of each event in a window is logged at once and also
+logs the drops not yet counted; the rest are counted when the window ends and the next
+event or prune runs, so a worker that stops first loses only that remainder. `debug`
+entries are written only for 24 hours after **Turn on debug logging for 24 hours**, or
+until **Turn off debug logging** turns it off sooner; either change is logged as
+`log.debug` with `enabled`. Retention: 14 days; `debug` entries for 24 hours; at most
+14,000 `debug` and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn`
+and `error` entries, pruned at worker start and every 500 writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from

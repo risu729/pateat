@@ -295,4 +295,4 @@ login's outcome were dropped, so the log could not tell what happened.
   starting attempts: after a logout, each new document runs a fill-only login, so a
   redirect loop would otherwise write one entry per document load.
 - Step-by-step `login.attempt` detail is `debug` and keeps the `debug` allowance; every
-  other page event keeps the page's 30.
+  other page event, `login.refused` included, keeps the page's 30.

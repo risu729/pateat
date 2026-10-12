@@ -30,7 +30,10 @@ export const LOG_ENTRY_LIMIT = 14_000;
 /** `warn` and `error` entries have their own allowance, so routine entries cannot evict them. */
 export const LOG_PROBLEM_LIMIT = 1_000;
 export const PRUNE_EVERY_WRITES = 500;
-/** Events other than `debug` caused by a web page, per tab and origin; a login writes 6 to 8. */
+/**
+ * Events other than `debug` and a login attempt's state changes caused by a web page, per
+ * tab and origin; a login writes 6 to 8.
+ */
 export const PAGE_EVENTS_PER_MINUTE = 30;
 /**
  * A login attempt's state changes (`login.attempt` other than `debug`) per tab and origin,
