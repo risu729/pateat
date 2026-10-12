@@ -341,9 +341,23 @@ still open on 2026-10-11.
 - Re-verification asked while already signed in, such as a secret question before
   profile settings open (ポイントインカム's `/my/my_profile_change.php`, seen on
   2026-10-12) or a password asked again before a sensitive change: Pateat should answer
-  them too (owner, 2026-10-12 15:52 UTC). Today Pateat acts only on logged-out login
-  flows, and [ADR 0021](adr/0021-account-choice-outside-settings.md) lists a
-  re-authentication form while signed in as a known gap.
+  them too (owner, 2026-10-12 15:52 UTC). Pateat has no rule for these prompts today,
+  but it reacts to some of them as it does to a login (read from the code and ADRs on
+  2026-10-12, not yet seen on a real site):
+  - A passkey request that names its credentials is signed without asking when one
+    stored passkey matches or the site has a default, also while signed in
+    ([ADR 0021](adr/0021-account-choice-outside-settings.md)).
+  - Pateat logs in on a form that matches a recipe's first step in a tab without a
+    login attempt record of the origin. After this tab's login of the origin, or while
+    another tab of the site asks after a logout, the form is taken as a logout: with
+    one account to use, Pateat fills it without submitting, then asks. ADR 0021 lists
+    this as a known gap.
+  - On a site with a matching vault item, a password input on a path without a recipe,
+    in a tab without a login attempt record of the origin
+    ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)), is sent for recipe
+    generation like a login page ([ADR 0016](adr/0016-recipe-generation-trigger.md)),
+    and the returned recipe runs at once
+    ([ADR 0018](adr/0018-recipe-generation-route.md)).
   - The owner also wants these prompts classified, with a permission for each class set
     per site in a settings profile ([ADR 0024](adr/0024-settings-profiles.md)) (owner,
     2026-10-12 15:54 UTC). Examples: allow logins but refuse re-verification after them,
