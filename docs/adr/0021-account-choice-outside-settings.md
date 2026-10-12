@@ -286,6 +286,12 @@ account in the popup while logged in would log out and log in again automaticall
 is the "automatic logout/re-login" operation that the [plan](../plan.md) keeps for
 later. It needs per-site logout steps and shared-session/race tests.
 
+The owner added on 2026-10-12 (19:19 UTC), after ABEMA: when this is built, it also
+switches a site where Pateat has not logged in, such as a site that created an account
+for the visitor when it was first opened and signs in by switching that account. The
+switch starts only from the person's choice in the popup; Pateat still never switches
+such an account on its own ([plan](../plan.md#phase-4-issues-and-work-as-needed)).
+
 The owner also asked on 2026-10-11 (17:05 UTC) to record, not build, a toolbar badge
 that counts the matching items on every HTTPS site with at least one match, not only
 while a login waits for a choice (part B). The owner expects it to help two later
