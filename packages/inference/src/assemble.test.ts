@@ -478,7 +478,7 @@ describe("judged totp handler (ADR 0027)", () => {
     expect(addHandler(recipe, plain, totp())).toEqual({ ok: false, reason: "not-code-field" });
     // The judge's checks hold here too: at least 6 characters, one code input per form,
     // and a button of its form.
-    for (const page of [
+    for (const refused of [
       {
         ...codePage(),
         candidates: [codeInput("otp", { maxLength: 1 }), candidate("verify", verify)],
@@ -489,7 +489,7 @@ describe("judged totp handler (ADR 0027)", () => {
         candidates: [codeInput("otp", { group: "code" }), candidate("verify", verify)],
       },
     ])
-      expect(addHandler(recipe, page, totp())).toEqual({ ok: false, reason: "not-code-field" });
+      expect(addHandler(recipe, refused, totp())).toEqual({ ok: false, reason: "not-code-field" });
     expect(addHandler(recipe, codePage(), totp(target("missing")))).toEqual({
       ok: false,
       reason: "not-on-page",
