@@ -191,7 +191,8 @@ const SIGN_IN_RECHECK_MS = 1000;
 const SIGN_IN_RECHECKS = 10;
 /**
  * How soon after a passkey answer, or after a password login's last effect step, a move to
- * another origin of that site may complete (ADR 0022).
+ * another origin of that site may complete (ADR 0022), and a new document may be the site's
+ * answer to the step, read for a sign-in form shown again (ADR 0029).
  */
 const SITE_MOVE_MS = 30_000;
 /** Readings of that move's new page, a second apart, before it must have loaded quietly. */
@@ -205,9 +206,10 @@ const WATCH_MS = 10 * 60_000;
 const WATCH_SETTLE_MS = 3000;
 /**
  * The sign-in state of ADR 0029 for a page no check explained, and whether a later reading
- * in the fully loaded document agreed, which every outcome but logging needs.
+ * in the fully loaded document agreed, which every outcome but logging needs. `reshown`:
+ * read on the sign-in form shown again in the first new document after the submission.
  */
-type SignInReading = { decision: SignInDecision; confirmed: boolean };
+type SignInReading = { decision: SignInDecision; confirmed: boolean; reshown?: true };
 /** A confirmed sign of another sign-in step (S2 to S5) without the sign-in fields. */
 const continuing = (reading: SignInReading | undefined) =>
   reading?.confirmed === true && reading.decision === "continuing";
@@ -1427,10 +1429,24 @@ export function createLoginRuntime(
   const attempts = new Map<number, Execution>();
   // ADR 0029's sign-in state reads these, kept in memory only and never stored.
   /**
-   * By tab: when the attempt last delivered an effect step, and whether the step itself asks
-   * for a passkey (the `passkey` route, or a `passkey` handler's click), so S5 skips it.
+   * By tab: when the attempt last delivered an effect step, the document it ran in, whether
+   * the step submits (`submit`), whether it asks for a passkey itself (the `passkey` route,
+   * or a `passkey` handler's click), so S5 skips it, and the first other top document of the
+   * tab announced after it, within `SITE_MOVE_MS` (`next`). After a password step's
+   * submission, that first new document alone is read for a sign-in form shown again
+   * (ADR 0029).
    */
-  const effects = new Map<number, { attemptId: string; at: number; passkey: boolean }>();
+  const effects = new Map<
+    number,
+    {
+      attemptId: string;
+      at: number;
+      document: LoginDocument;
+      submits: boolean;
+      passkey: boolean;
+      next?: string;
+    }
+  >();
   /** By tab: the URL of the document the attempt's first fill ran in, for E3. */
   const signInUrls = new Map<number, { attemptId: string; url: string }>();
   /** By tab and origin: the last passkey request of the top document, outside conditional mediation. */
@@ -3231,7 +3247,11 @@ export function createLoginRuntime(
       decision: reading.decision,
       ...(run.metadata.settled ? { settled: true as const } : {}),
     });
-    return { decision: reading.decision, confirmed };
+    return {
+      decision: reading.decision,
+      confirmed,
+      ...(reading.signs.reshown ? { reshown: true as const } : {}),
+    };
   }
   /** Whether a sign-in target is the passkey route's button rather than a field (ADR 0027). */
   function passkeyButton(run: Execution, target: LoginTarget): boolean {
@@ -3284,11 +3304,28 @@ export function createLoginRuntime(
       }
       if (!current(run)) return undefined;
     }
+    const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
+    const { tabId, origin: pageOrigin } = run.live.document;
+    const effect = effects.get(tabId);
+    // The sign-in form shown again in the first new top document after this attempt's
+    // password submission, as by a site that answers a failed submission with its sign-in
+    // page: its inputs' marks and the alerts next to it are read without the step's own
+    // reading (owner, 2026-10-12 22:03 UTC). A later document, such as the person's own
+    // retry, is not; nor is one after an advance or a passkey step. Without the step in
+    // memory, as after a worker restart, it is not read.
+    const reshown =
+      s1 &&
+      effect?.attemptId === metadata.id &&
+      effect.submits &&
+      !effect.passkey &&
+      effect.next === run.live.document.documentId &&
+      !sameLoginDocument(effect.document, run.live.document);
     let response: unknown;
     try {
       response = await send(run.live, {
         type: "login.state",
         ...(username ? { account: { username } } : {}),
+        ...(reshown ? { fields: fills } : {}),
       });
     } catch {
       return undefined;
@@ -3297,9 +3334,6 @@ export function createLoginRuntime(
     const parsed = v.safeParse(stateResultSchema, response);
     if (!parsed.success || !parsed.output.ok) return undefined;
     const page = parsed.output.signs;
-    const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
-    const { tabId, origin: pageOrigin } = run.live.document;
-    const effect = effects.get(tabId);
     const requested = passkeyRequests.get(`${tabId} ${pageOrigin}`);
     const signInUrl = signInUrls.get(tabId);
     const signs: SignInSigns = {
@@ -3325,6 +3359,7 @@ export function createLoginRuntime(
           `${pageOrigin}${observed.path}`,
           routeSignInPaths(recipe, metadata.route),
         ),
+      ...(reshown ? { reshown: true as const } : {}),
     };
     return { signs, decision: decideSignInState(signs), loaded: parsed.output.loaded };
   }
@@ -4322,6 +4357,16 @@ export function createLoginRuntime(
       await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
       return;
     }
+    // The sign-in form shown again with a failure, in the first new document after the
+    // submission, rejects the password even after the watch began (owner, 22:03 UTC).
+    if (state?.decision === "rejected" && state.confirmed && state.reshown) {
+      await change(run, {
+        type: "OBSERVED",
+        result: "credential-rejected",
+        document: run.live.document,
+      });
+      return;
+    }
     // Only a page with no sign of a sign-in going on is judged; an undecided answer never
     // completes a watched login.
     if (state?.decision === "judge") await learn(run);
@@ -4629,6 +4674,8 @@ export function createLoginRuntime(
           effects.set(tabId, {
             attemptId: run.metadata.id,
             at: Date.now(),
+            document: run.live.document,
+            submits: loginStepEffect(operation.step) === "submit",
             passkey:
               run.metadata.route === "passkey" ||
               (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
@@ -5853,6 +5900,18 @@ export function createLoginRuntime(
         : {}),
     };
     documents.set(key, live);
+    // The first other top document of the tab after an effect step, when it comes soon
+    // enough to be the site's answer to it (ADR 0029). One announced later, as after the
+    // person's own retry in a page the login settled on, is never read as that answer.
+    const effect = effects.get(document.tabId);
+    if (
+      effect &&
+      effect.next === undefined &&
+      document.frameId === 0 &&
+      !sameLoginDocument(effect.document, document) &&
+      Date.now() - effect.at <= SITE_MOVE_MS
+    )
+      effect.next = document.documentId;
     const refuse = async (
       reason: string,
       detail?: string,
@@ -7984,7 +8043,13 @@ export function createLoginRuntime(
     }
     const { tabId } = run.live.document;
     run.delivered = true;
-    effects.set(tabId, { attemptId: run.metadata.id, at: Date.now(), passkey: true });
+    effects.set(tabId, {
+      attemptId: run.metadata.id,
+      at: Date.now(),
+      document: run.live.document,
+      submits: false,
+      passkey: true,
+    });
     const item = {
       connectionId: run.metadata.account.connectionId,
       itemId: run.metadata.account.itemId,

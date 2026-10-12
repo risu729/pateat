@@ -174,6 +174,7 @@ export const LOG_EVENTS = {
       e1: "flag",
       e2: "flag",
       e3: "flag",
+      reshown: "flag",
       settled: "flag",
       url: "url",
     },

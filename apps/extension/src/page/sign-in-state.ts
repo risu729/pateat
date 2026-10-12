@@ -22,9 +22,15 @@ export interface PageSigns {
   readonly code: boolean;
   /** S4: a shown CAPTCHA widget. */
   readonly captcha: boolean;
-  /** F1: a sign-in input of the effect step became `aria-invalid="true"`, in its document. */
+  /**
+   * F1: a sign-in input of the effect step became `aria-invalid="true"`, in its document;
+   * in a new document that shows the sign-in form again, one of its sign-in inputs is.
+   */
   readonly invalid: boolean;
-  /** F2: an alert shows text it did not show at the effect step, in its document. */
+  /**
+   * F2: an alert shows text it did not show at the effect step, in its document; in a new
+   * document that shows the sign-in form again, an alert next to the form shows any text.
+   */
   readonly alert: boolean;
   /** E2: the username shows in the page header or navigation; only when one was given. */
   readonly username?: boolean;
@@ -37,6 +43,12 @@ export interface PageSigns {
 const alertSelector = '[role="alert"], [aria-live="assertive"]';
 const statusSelector = '[role="status"], [aria-live="polite"]';
 const landmarkSelector = 'header, nav, [role="banner"], [role="navigation"]';
+/**
+ * Page chrome a region beside a re-shown sign-in form must not share a container with: a
+ * banner, navigation, footer or dialog there makes the container the page, not the form's.
+ */
+const chromeSelector =
+  'header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"], dialog, [role="dialog"]';
 /** How much of an alert is read. */
 const alertReadLimit = 1000;
 /** How much of the header and navigation is read for the username. */
@@ -68,7 +80,40 @@ const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().spl
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
-function alertTexts(document: Document, fields: readonly HTMLInputElement[]): Set<string> {
+/**
+ * Whether `region` sits beside a sign-in input's form (or the input, outside any form):
+ * their nearest common container is neither the body nor the root, and holds no page
+ * chrome and no other form, as a flash message above a sign-in form in its own box.
+ */
+function besideForm(
+  region: Element,
+  fields: readonly HTMLInputElement[],
+  forms: ReadonlySet<HTMLFormElement>,
+): boolean {
+  const { body, documentElement } = region.ownerDocument;
+  return fields.some((input) => {
+    let common: Element | null = input.form ?? input;
+    while (common && !common.contains(region)) common = common.parentElement;
+    if (!common || common === body || common === documentElement) return false;
+    // A sign-in dialog of its own still counts; one inside the container does not.
+    if (common.querySelector(chromeSelector)) return false;
+    return [...common.querySelectorAll("form")].every((form) => forms.has(form));
+  });
+}
+
+/**
+ * The texts of the alerts next to the sign-in inputs `fields`. In the submitted document
+ * (`beside` unset): alerts anywhere, and status regions inside a sign-in input's form or
+ * named by one, as the fill check reads them. In a new document that shows the sign-in
+ * form again (`beside`), which has nothing to compare with: alerts and status regions
+ * inside a sign-in input's form, named by one, or {@link besideForm}, so a site-wide
+ * banner never counts.
+ */
+function alertTexts(
+  document: Document,
+  fields: readonly HTMLInputElement[],
+  beside = false,
+): Set<string> {
   const named = new Set(
     fields.flatMap((input) =>
       ["aria-describedby", "aria-errormessage"].flatMap((name) =>
@@ -77,12 +122,16 @@ function alertTexts(document: Document, fields: readonly HTMLInputElement[]): Se
     ),
   );
   const forms = new Set(fields.flatMap((input) => (input.form ? [input.form] : [])));
-  const regions = [
-    ...document.querySelectorAll(alertSelector),
-    ...[...document.querySelectorAll(statusSelector)].filter(
-      (element) => [...forms].some((form) => form.contains(element)) || named.has(element.id),
-    ),
-  ];
+  const near = (element: Element) =>
+    [...forms].some((form) => form.contains(element)) || named.has(element.id);
+  const regions = beside
+    ? [...document.querySelectorAll(`${alertSelector}, ${statusSelector}`)].filter(
+        (element) => near(element) || besideForm(element, fields, forms),
+      )
+    : [
+        ...document.querySelectorAll(alertSelector),
+        ...[...document.querySelectorAll(statusSelector)].filter(near),
+      ];
   const texts = new Set<string>();
   for (const element of regions) {
     if (fields.some((input) => element.contains(input))) continue;
@@ -195,22 +244,33 @@ function showsUsername(document: Document, username: string): boolean {
 
 /**
  * The page signs of ADR 0029 that the page itself shows. `submitted` is what this
- * document showed at the effect step, when the step ran in it; without it, F1 and F2 are
- * not read.
+ * document showed at the effect step, when the step ran in it. `reshown` are the recipe's
+ * sign-in inputs a new document after the submission shows, when the sign-in form came
+ * back in one: with no earlier reading to compare with, any mark on them and any text of
+ * an alert next to them count (owner, 2026-10-12 22:03 UTC). Without either, F1 and F2
+ * are not read.
  */
 export function pageSigns(
   document: Document,
-  { submitted, username }: { submitted?: SubmittedPage; username?: string } = {},
+  {
+    submitted,
+    reshown,
+    username,
+  }: { submitted?: SubmittedPage; reshown?: readonly HTMLInputElement[]; username?: string } = {},
 ): PageSigns {
-  // A sign-in input of the step newly marked invalid.
+  // A sign-in input of the step newly marked invalid, or of the re-shown form marked so.
   const invalid =
-    submitted !== undefined &&
-    submitted.fields.some(
-      (input) => ariaInvalid(input) && !submitted.invalid.has(input) && writableInput(input),
-    );
+    reshown !== undefined
+      ? reshown.some((input) => ariaInvalid(input) && writableInput(input))
+      : submitted !== undefined &&
+        submitted.fields.some(
+          (input) => ariaInvalid(input) && !submitted.invalid.has(input) && writableInput(input),
+        );
   const alert =
-    submitted !== undefined &&
-    [...alertTexts(document, submitted.fields)].some((text) => !submitted.alerts.has(text));
+    reshown !== undefined
+      ? reshown.length > 0 && alertTexts(document, reshown, true).size > 0
+      : submitted !== undefined &&
+        [...alertTexts(document, submitted.fields)].some((text) => !submitted.alerts.has(text));
   return {
     password: showsPassword(document),
     code: showsCode(document),

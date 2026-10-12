@@ -114,6 +114,90 @@ describe("pageSigns", () => {
     expect(pageSigns(document)).toEqual(none);
   });
 
+  it("reads any mark and alert next to a sign-in form shown again in a new document", () => {
+    document.body.innerHTML =
+      '<form><input id="user"><input id="password" type="password"><p id="status" role="status"></p></form><form><input id="search"><p role="status">3 results</p></form>';
+    const reshown = [...document.querySelectorAll<HTMLInputElement>("#user, #password")];
+    expect(pageSigns(document, { reshown })).toEqual({ ...none, password: true });
+    // A sign-in input marked invalid, with no earlier reading to compare with.
+    document.querySelector("#user")!.setAttribute("aria-invalid", "true");
+    expect(pageSigns(document, { reshown })).toEqual({ ...none, password: true, invalid: true });
+    // Only the sign-in inputs count, not a search box.
+    document.querySelector("#user")!.removeAttribute("aria-invalid");
+    document.querySelector("#search")!.setAttribute("aria-invalid", "true");
+    expect(pageSigns(document, { reshown })).toEqual({ ...none, password: true });
+    // Any text of a status region in the sign-in form counts, with nothing to compare.
+    document.querySelector("#status")!.textContent = "Incorrect username or password.";
+    const submitted = submittedPage(document, reshown);
+    expect(pageSigns(document, { submitted })).toEqual({ ...none, password: true });
+    expect(pageSigns(document, { reshown })).toEqual({ ...none, password: true, alert: true });
+    document.querySelector("#status")!.textContent = "";
+    // No sign-in input shows: no alert is taken for its answer.
+    expect(pageSigns(document, { reshown: [] })).toEqual({ ...none, password: true });
+  });
+
+  it("never takes a site-wide banner beside a re-shown sign-in form for its answer", () => {
+    const form =
+      '<form action="/session"><input name="login"><input type="password" name="password"><input type="submit" value="Sign in"></form>';
+    const inputs = () => [
+      ...document.querySelectorAll<HTMLInputElement>("[name=login], [name=password]"),
+    ];
+    // A notice at the top of the body, as a maintenance banner.
+    document.body.innerHTML = `<div role="alert">Scheduled maintenance tonight</div><main><div class="box">${form}</div></main>`;
+    expect(pageSigns(document, { reshown: inputs() })).toEqual({ ...none, password: true });
+    // In a wrapper that also holds the page's header, navigation or footer.
+    for (const chrome of ["<header>Site</header>", "<nav>Menu</nav>", "<footer>About</footer>"]) {
+      document.body.innerHTML = `<div id="page">${chrome}<div role="alert">Session expired</div><main>${form}</main></div>`;
+      expect(pageSigns(document, { reshown: inputs() }), chrome).toEqual({
+        ...none,
+        password: true,
+      });
+    }
+    // Or another form, such as a search form.
+    document.body.innerHTML = `<div id="page"><form><input type="search"></form><div role="alert">Session expired</div>${form}</div>`;
+    expect(pageSigns(document, { reshown: inputs() })).toEqual({ ...none, password: true });
+    // A banner inside a dialog in the wrapper does not count either.
+    document.body.innerHTML = `<div id="page"><div role="dialog"><p role="alert">Cookies</p></div>${form}</div>`;
+    expect(pageSigns(document, { reshown: inputs() })).toEqual({ ...none, password: true });
+  });
+
+  it("reads a flash message in the sign-in form's own container, as GitHub's", () => {
+    // The shape of GitHub's sign-in page after a failed password: the flash sits beside
+    // the form's body inside the sign-in box, with the page header and footer outside it.
+    document.body.innerHTML = `
+      <header role="banner"><a href="/">Home</a></header>
+      <main><div id="login" class="auth-form">
+        <div class="auth-form-header"><h1>Sign in</h1></div>
+        <div id="js-flash-container"><div class="flash flash-error js-flash-alert" role="alert">
+          Incorrect username or password. <button aria-label="Dismiss">x</button>
+        </div></div>
+        <div class="auth-form-body"><form action="/session">
+          <input name="login"><input type="password" name="password">
+          <input type="submit" value="Sign in">
+        </form></div>
+      </div></main>
+      <footer role="contentinfo">Terms</footer>`;
+    const reshown = [
+      ...document.querySelectorAll<HTMLInputElement>("[name=login], [name=password]"),
+    ];
+    expect(pageSigns(document, { reshown })).toEqual({ ...none, password: true, alert: true });
+    // Without the message, nothing shows.
+    document.querySelector("#js-flash-container")!.innerHTML = "";
+    expect(pageSigns(document, { reshown })).toEqual({ ...none, password: true });
+  });
+
+  it("reads an error a re-shown sign-in input names, wherever it is", () => {
+    document.body.innerHTML =
+      '<div role="status" id="error"></div><main><input id="user" aria-describedby="hint error"><p id="hint">Your email</p></main>';
+    const reshown = [document.querySelector<HTMLInputElement>("#user")!];
+    expect(pageSigns(document, { reshown })).toEqual(none);
+    document.querySelector("#error")!.textContent = "Your session expired. Sign in again.";
+    expect(pageSigns(document, { reshown })).toEqual({ ...none, alert: true });
+    // A hidden error does not count.
+    document.querySelector("#error")!.setAttribute("hidden", "");
+    expect(pageSigns(document, { reshown })).toEqual(none);
+  });
+
   it("finds the username as a whole word in the header or navigation only", () => {
     document.body.innerHTML =
       "<header><a href=/me>Risu729</a></header><main>We sent a link to other@example.com</main>";

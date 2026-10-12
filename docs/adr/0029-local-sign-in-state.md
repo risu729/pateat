@@ -21,6 +21,10 @@ Amended on 2026-10-12 by the owner's choice at 22:03 UTC (「除いて慎重に�
 with care): a disabled field that does not look like a sign-in field is left out of a
 judged page, and such a page completes only on `signed-in`, after Q-move's signed-in
 page was never judged; see "Disabled fields" in the implementation notes.
+Amended on 2026-10-12 by the owner's choice at 22:03 UTC (「誤り表示時」, when it shows
+an error): a sign-in form that comes back as the first new document after the
+submission is rejected when it marks a failure next to it; see "Signs of a failure"
+below.
 Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
 generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
 page is judged).
@@ -93,6 +97,24 @@ then answered 04:51 and 04:54 UTC):
   `role="alert"` or `aria-live` shows new text. Text is compared inside the page only,
   as the fill check (`rejectsFill` in `apps/extension/src/page/fill-checks.ts`) does,
   and never leaves the device.
+  - In the first new top document of the tab after Pateat's own password submission,
+    announced within 30 seconds of it, that shows S1 again (the site answered with its
+    sign-in page), there is nothing to compare with, so F1 is one of the recipe's
+    sign-in fields shown with `aria-invalid="true"`, and F2 is any text of such an
+    element next to the sign-in form: inside it, named by one of its fields, or sharing
+    a container with it that holds no page header, navigation, footer, dialog or other
+    form (owner, 22:03 UTC: an error text, 「エラー文」). A site-wide banner does not
+    count. Without F1 or F2 the page stays `unknown`, as before. A message that the
+    session expired counts as F2 too (owner's acceptance). Such a page with a recognised
+    CAPTCHA (S4: reCAPTCHA, hCaptcha, Turnstile) is never rejected: the site may be
+    asking for the CAPTCHA rather than refusing the password. This holds also when the
+    login is already watched after the submitted document's own reading; a later
+    document, such as the person's own retry, and a page after an `advance` or a passkey
+    step are never read this way. Evidence: on GitHub at 21:16:51 UTC the wrong account
+    was chosen, Pateat filled and submitted it, and GitHub answered with its sign-in
+    page as a new document; Pateat read failures only in the submitted document, so the
+    login settled unknown and was watched for 10 minutes instead of ending
+    `credential-rejected` (no resubmission, no watch, other tabs held for 5 minutes).
 - **Evidence of a sign-in**, any one of:
   - E1: a learned signed-in marker is visible on any path. `completion` becomes a list
     of up to four markers without a path; the judge's markers are added to it.
@@ -110,8 +132,8 @@ then answered 04:51 and 04:54 UTC):
 
   | Page | Result |
   | --- | --- |
-  | S1 with F1 or F2 | `credential-rejected` |
-  | S1 only | `unknown`, as today; never complete |
+  | S1 with F1 or F2 | `credential-rejected`; in the first new document after the submission only without S4 |
+  | S1 only, or in that new document with S4 | `unknown`, as today; never complete |
   | S2 to S5, no S1 | authentication goes on: the judge is asked so a handler can be learned, as today; undecided goes to the person (`challenge`) |
   | No S, any E | `authenticated`, without a model call |
   | No S, no E | the judge is asked once for the path; `signed-in` completes and adds its marker, `rejected` rejects; `unclear`, `already-judged` and the daily limits complete with a warn-level log; `retry` (busy, transport) asks again on the next page as today |
@@ -153,6 +175,35 @@ sign-in inputs (the ones it filled, or those of the form it clicked in); F2 read
 anywhere and status regions inside a sign-in input's form or named by one, as the fill
 check does, skipping a region around a sign-in input and the text of buttons inside a
 region.
+
+A sign-in form shown again in a new document (owner, 2026-10-12 22:03 UTC): the
+background keeps, with the attempt's last effect step, whether that step submits (a
+`submit` fill or click, not an `advance`, not a passkey step) and the first other top
+document of the tab announced after it within 30 seconds, the window of a move to
+another origin of the site (`SITE_MOVE_MS`, ADR 0022). A document announced later is
+never that answer, so a person's own retry minutes after a login settled in place, as on
+a code page, never rejects it. When S1 holds in that document after a
+submitting step, the background names the route's sign-in elements in its
+`login.state` request. The content script reads F1 on those of them that each name one
+shown writable input, and F2 on the alerts and status regions inside one of their
+forms, named by one of them, or whose nearest common container with a form (or the
+input outside any form) is not the body or the root and holds no `header`, `nav`,
+`footer`, banner, navigation or content-information landmark, dialog or other form, as
+GitHub's flash message beside its sign-in form's body. Any mark and any text count. The
+entry is logged with `reshown`, and the decision is `rejected` only without S4, then
+confirmed and acted on as every other row. This also applies when the submitted
+document's own reading settled the login as unknown first (a slow answer: a click's
+result settles 3 seconds after it), and when it was watched after `challenge`: a
+confirmed rejection there ends the watched login `credential-rejected`. The first new
+document alone counts, once per submission. The step and that document are kept in the
+background's memory with S5's time, so after a worker restart the form shown again is
+read as before and stays unknown. A recipe's learned `rejection` element is checked
+before the sign-in state, in any document, as before. While a login is watched, a new
+document that shows the recipe's first step on its own path still releases it as after
+a logout (ADR 0027) before it is read, so this applies where the site answers on
+another path, as GitHub's `/session`. Which ordering GitHub's 21:16:51 UTC login took
+cannot be told from the code: within 3 seconds the new document settled it and was the
+watch's own page, later the submitted document did; both are covered now.
 
 Delivery 2, first part (2026-10-12): the owner chose, after reading the delivery 1 logs
 of アパホテル, to complete a login whose `login.state` decision is `signed-in`. There,
