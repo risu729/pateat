@@ -2325,6 +2325,65 @@ describe("production login document admission", () => {
         expect(await ask(restarted)).toEqual({ ok: false, reason: "no-choice" });
         expect(fake.state.reconnects).toHaveLength(1);
       });
+      it("says the pick waits while another tab's login holds the site, and keeps the choice", async () => {
+        // Another tab logs in to the site with its saved default and is still running.
+        fake.state.onExecute = () => new Promise(() => undefined);
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await harness().hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: true,
+        });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v3"]).toHaveLength(1),
+        );
+        // The other tab stays open, so its record outlives this worker's start.
+        const query = fake.browser.tabs.query;
+        fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+        try {
+          const h = await refused();
+          expect(await ask(h)).toEqual({ ...offered, held: true });
+          const sent = fake.state.reconnects.length;
+          expect(await pick(h)).toEqual({ ok: false, reason: "origin-busy" });
+          // Nothing was sent to the page, and the choice still waits for a later pick.
+          expect(fake.state.reconnects).toHaveLength(sent);
+          expect(fake.state.session["pateat.login-picks.v1"] ?? []).toEqual([]);
+          expect(await ask(h)).toEqual({ ...offered, held: true });
+          expect(fake.state.badges[1]?.text).toBe("2");
+        } finally {
+          fake.browser.tabs.query = query;
+        }
+      });
+      it("keeps the choice when another tab's login starts holding the site during the pick", async () => {
+        const h = await refused();
+        fake.state.onExecute = () => new Promise(() => undefined);
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        const other = { tab: { id: 2 }, documentId: "other-tab" };
+        expect(await h.hello(other)).toEqual({ ok: false, reason: "account-ambiguous" });
+        fake.state.onReconnect = async () => {
+          if (fake.state.reconnects.at(-1)?.tabId === 2) return h.hello(other);
+          // Another tab's pick starts its login before this page announces again.
+          expect(await pick(h, { tabId: 2, documentId: "other-tab", itemId })).toEqual({
+            ok: true,
+          });
+          return h.hello();
+        };
+        expect(await pick(h)).toEqual({ ok: false, reason: "origin-busy" });
+        // The page does not announce again when the hold ends, so the choice stays.
+        expect(await ask(h)).toEqual({ ...offered, held: true });
+        expect(fake.state.badges[1]?.text).toBe("2");
+      });
+      it("starts the pick when a newer announcement of the page overtakes the asked one", async () => {
+        const h = await refused();
+        // The page announces twice, for example after a worker restart; the pick's own
+        // announcement comes back stale and the newer one takes the pick.
+        let overtaken: Promise<unknown> | undefined;
+        fake.state.onReconnect = async () => {
+          const asked = h.hello();
+          overtaken = h.hello();
+          return asked;
+        };
+        expect(await pick(h)).toEqual({ ok: true });
+        expect(await overtaken).toEqual({ ok: true });
+      });
       it("ends the choice once a default is saved for the site", async () => {
         const h = await refused();
         h.settings.settings.siteDefaults = [{ origin, provider: "bitwarden", userId, itemId }];

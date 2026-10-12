@@ -7,20 +7,24 @@ account defaults and exclusions are edited, and manual choices before they are s
 Each part lands in its own PR. All four parts, A to D, are implemented.
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
-a binding that names a missing custom field (not implemented yet).
-Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a passkey request
-during a login that has not ended uses that login's item instead of the chooser
-(implemented).
-Amended on 2026-10-12: in B, the open popup keeps asking until a choice waits, and
-closes once a picked login starts (closing is the owner's suggestion). Observed on
-2026-10-12 in the owner's Chrome on github.com with three matching items: the first
-popup open showed no choice although the badge read "3"; reopening showed it. Most
-likely cause, reproduced in a synthetic test: opening the popup restarts the worker,
-and when the tab is reached by its reconnect of every tab (a persisted attempt in the
-tab, or an origin with one), that reconnect announces the page again while the popup's
-own reconnect is admitted; the popup's answer comes back stale, so it sees no choice.
-The popup's question now also waits for the newer announcement, and a choice whose page
-can no longer be admitted ends.
+a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
+by [ADR 0027](0027-per-account-login-routes.md): a passkey request during a login that
+has not ended uses that login's item instead of the chooser (implemented). Amended on
+2026-10-12: in B, the open popup keeps asking until a choice waits, and closes once a
+picked login starts (closing is the owner's suggestion). Observed on 2026-10-12 in the
+owner's Chrome on github.com with three matching items: the first popup open showed no
+choice although the badge read "3"; reopening showed it. Most likely cause, reproduced
+in a synthetic test: opening the popup restarts the worker, and when the tab is reached
+by its reconnect of every tab (a persisted attempt in the tab, or an origin with one),
+that reconnect announces the page again while the popup's own reconnect is admitted; the
+popup's answer comes back stale, so it sees no choice. The popup's question now also
+waits for the newer announcement, and a choice whose page can no longer be admitted
+ends. Also observed in a recheck that day: the choice first named the items by a
+shortened item ID, and after Log in it vanished without a login because another tab's
+unfinished GitHub login held the site
+([ADR 0022](0022-login-attempts-per-tab-and-origin.md)). The choice now shows only once
+the site's matches name each account by its username, and while another tab's login
+holds the site it says so, disables Log in and stays for a pick once that hold ends.
 
 Date: 2026-10-11
 
@@ -67,7 +71,12 @@ count and a tooltip asking the user to choose. Opening the popup lists only the
 candidates the executor accepts for that document. While open, the popup asks again
 every second until a choice waits, so a choice that starts waiting late, for example
 after a restarted service worker asked the page to announce again, still appears; until
-the first answer it says it is checking (amended 2026-10-12).
+the first answer it says it is checking (amended 2026-10-12). The list shows once the
+site's matches are known, so each candidate is named by its username from the first time
+it shows; the popup asks at open and caches no usernames, since vault field values are
+not kept. While another tab's login holds the site (ADR 0022), the list says so and Log
+in is disabled; the popup keeps asking and enables it once the hold ends. A pick refused
+because such a hold started meanwhile keeps the choice for a later pick.
 
 Choosing one stores the choice in `chrome.storage.session` for that `documentId` and
 sends `login.reconnect` to that document only. Once that starts the login, the popup

@@ -361,6 +361,66 @@ test("a choice that starts waiting after the popup opened is shown while it stay
   expect(choices.get.mock.calls.length).toBe(calls);
 });
 
+test("a waiting choice shows once the site's matches name its accounts", async () => {
+  const { client } = store();
+  let list!: () => void;
+  client.findSiteAccounts.mockImplementation(
+    (origin) =>
+      new Promise((resolve) => {
+        list = () => void demoSiteAccounts(origin).then(resolve);
+      }),
+  );
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  // The page waits for a choice, but its accounts are not named yet.
+  await vi.waitFor(() => expect(choices.get).toHaveBeenCalled());
+  await vi.waitFor(() => expect(list).toBeDefined());
+  await expect.element(page.getByText(/^Listing the accounts that match this page/)).toBeVisible();
+  expect(page.getByRole("heading", { name: "Choose an account" }).query()).toBeNull();
+  list();
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  expect(page.getByText(/^Listing the accounts that match this page/).query()).toBeNull();
+});
+
+test("a site another tab's login holds says so until that tab lets it go", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  const offer = {
+    ok: true as const,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  };
+  choices.get.mockResolvedValue({ ...offer, held: true });
+  await mount(client, "https://bank.example/login", choices);
+  await expect
+    .element(page.getByText(/^Another tab's login to this site is running or did not succeed\./))
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+  // Closing that tab lets the site go; the open popup asks again and enables the pick.
+  choices.get.mockResolvedValue(offer);
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeEnabled();
+  expect(page.getByText(/^Another tab's login to this site/).query()).toBeNull();
+  // The hold may start again before the pick reaches the page.
+  choices.pick.mockResolvedValue({ ok: false, reason: "origin-busy" });
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  await expect
+    .element(page.getByText(/so Pateat did not log in here\. Close that tab, then choose again\.$/))
+    .toBeVisible();
+});
+
 test("a pick in a private window is not made the default unless asked", async () => {
   const { client } = store();
   const choices = noChoice();

@@ -939,6 +939,8 @@ export function createLoginRuntime(
   }
   /** The refused document of a tab and the accounts it could use, for the popup. */
   async function choiceFor(tabId: number): Promise<ChoiceResponse> {
+    // The attempt records decide whether another tab holds the site.
+    await loaded;
     await sessionLoaded;
     let waiting = pending.get(tabId);
     if (waiting && !documents.has(frameKey(waiting.document))) {
@@ -963,6 +965,7 @@ export function createLoginRuntime(
       if (waiting && live) clearChoice(tabId);
       return { ok: false, reason: "no-choice" };
     }
+    const held = heldElsewhere(tabId, waiting.document.origin) ? { held: true as const } : {};
     if (waiting.logout)
       return {
         ok: true,
@@ -970,6 +973,7 @@ export function createLoginRuntime(
         documentId: waiting.document.documentId,
         candidates: waiting.candidates,
         logout: true,
+        ...held,
       };
     // A default saved since the refusal decides the page's next login instead.
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
@@ -988,6 +992,7 @@ export function createLoginRuntime(
       origin: waiting.document.origin,
       documentId: waiting.document.documentId,
       candidates: waiting.candidates,
+      ...held,
     };
   }
   /**
@@ -1005,6 +1010,8 @@ export function createLoginRuntime(
       )
     )
       return { ok: false, reason: "not-a-candidate" };
+    // The pick would be refused as the page announces; the choice stays for a later pick.
+    if (offered.held) return { ok: false, reason: "origin-busy" };
     const pick: PickedAccount = {
       tabId: request.tabId,
       origin: waiting.document.origin,
@@ -1024,6 +1031,8 @@ export function createLoginRuntime(
         { version: 1, type: "login.reconnect" },
         { frameId: waiting.document.frameId, documentId: waiting.document.documentId },
       );
+      // Another announcement of the document may have overtaken this one and take the pick.
+      await admitting.get(`${request.tabId}:${waiting.document.frameId}`)?.catch(() => undefined);
     } catch {
       gone = true;
     }
@@ -1033,7 +1042,19 @@ export function createLoginRuntime(
       picked.delete(request.tabId);
       await quietly(saveSession);
     }
-    return { ok: false, reason: gone ? "document-gone" : "not-started" };
+    if (gone) return { ok: false, reason: "document-gone" };
+    // Another tab's login started holding the site after the choice was offered. The page
+    // does not announce again once that hold ends, so its choice waits for a later pick.
+    const live = documents.get(frameKey(waiting.document));
+    if (
+      live?.reason === "origin-busy" &&
+      live.document.documentId === waiting.document.documentId &&
+      !pending.has(request.tabId)
+    ) {
+      offerChoice(waiting.document, waiting.candidates, waiting.logout === true);
+      return { ok: false, reason: "origin-busy" };
+    }
+    return { ok: false, reason: "not-started" };
   }
   function current(run: Execution): boolean {
     return (
