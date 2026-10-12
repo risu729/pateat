@@ -338,6 +338,18 @@ still open on 2026-10-11.
   one site ([ADR 0033](adr/0033-no-site-specific-features.md), owner 13:46 UTC). Until
   then, [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there
   and leaves the page to the person.
+- Re-verification asked while already signed in, such as a secret question before
+  profile settings open (ポイントインカム's `/my/my_profile_change.php`, seen on
+  2026-10-12) or a password asked again before a sensitive change: Pateat should answer
+  them too (owner, 2026-10-12 15:52 UTC). Today Pateat acts only on logged-out login
+  flows, and [ADR 0021](adr/0021-account-choice-outside-settings.md) lists a
+  re-authentication form while signed in as a known gap.
+  - The owner also wants these prompts classified, with a permission for each class set
+    per site in a settings profile ([ADR 0024](adr/0024-settings-profiles.md)) (owner,
+    2026-10-12 15:54 UTC). Examples: allow logins but refuse re-verification after them,
+    such as before a money transfer or a change of registered details; allow personal
+    details. The classes and permissions are still to be designed and need the owner's
+    approval before an ADR.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
