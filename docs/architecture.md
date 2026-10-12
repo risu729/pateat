@@ -970,7 +970,8 @@ answered is not taken as one: it counts against the tab's limit, but its next pa
 not checked. The press is no ADR 0022 attempt and holds nothing. The tab's next
 top-level document, or the pressed document at another URL, is checked before anything
 else runs on it: another site is `left-site`; within `LOGIN_STEP_WAIT_MS` it must show a
-sign-in input or a ready first step (else `no-sign-in`) and no sign-up form, a shown
+sign-in input, an input that asks for an account identifier alone (ADR 0016) or a ready
+first step (else `no-sign-in`) and no sign-up form, a shown
 `new-password` input beside another password input or two password inputs in one form
 (else `sign-up`). No next page within 10 seconds is `no-sign-in`, or `left-site` when
 the tab's URL is on another site; a tab on another URL of the site gets the step wait

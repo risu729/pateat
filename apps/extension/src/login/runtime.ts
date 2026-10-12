@@ -6069,8 +6069,9 @@ export function createLoginRuntime(
   /**
    * When `live` is the page after the tab's unchecked entry press (a new top document, or
    * the pressed document at another URL), checks it (ADR 0031): it must be on the entry
-   * page's site (else `left-site`) and, within the step wait, show a sign-in input or a
-   * ready first step of a cached recipe (else `no-sign-in`), and no sign-up form (else
+   * page's site (else `left-site`) and, within the step wait, show a sign-in input, an
+   * input that asks for an account identifier alone (ADR 0016) or a ready first step of a
+   * cached recipe (else `no-sign-in`), and no sign-up form (else
    * `sign-up`). A page that blocks the press is refused (`entryRefused`). A page announced
    * later than the press's wait plus the step wait settles the press as `no-sign-in` but
    * is not refused itself, on any site. A page that could not be asked leaves the press to a later
