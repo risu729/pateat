@@ -49,7 +49,7 @@ export type ClaudeCall<T> = {
   role: "generate" | "judge";
   /**
    * The role's prompt version (`generationPromptVersion`, `entryGenerationPromptVersion`,
-   * `completionPromptVersion`).
+   * `accountListGenerationPromptVersion`, `completionPromptVersion`).
    */
   promptVersion: string;
   origin: string;

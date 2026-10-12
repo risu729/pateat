@@ -26,6 +26,8 @@ import {
   type SyncRecipeChange,
 } from "@pateat/contracts";
 import {
+  accountListGenerationInstructions,
+  accountListGenerationPromptVersion,
   addCompletion,
   addHandler,
   appendPageSteps,
@@ -321,10 +323,15 @@ export async function generateRecipe(
 
   const call = await callClaude(env, scope.ownerId, {
     role: "generate",
-    promptVersion: await generationPromptVersion(),
+    // Only a list of accounts gets the list line (ADR 0028).
+    promptVersion: await (list ? accountListGenerationPromptVersion : generationPromptVersion)(),
     origin,
     path,
-    request: { instructions: generationInstructions, slots, observation },
+    request: {
+      instructions: list ? accountListGenerationInstructions : generationInstructions,
+      slots,
+      observation,
+    },
     ...attemptWindow(
       scope.ownerId,
       { recipeId, branch: attemptBranch, origin, path, baseRevision },

@@ -4,6 +4,7 @@ import { completionInstructions, createCompletionJudge, judgedPageSchema } from 
 import { evaluationCorpus } from "./corpus/cases";
 import { buildFieldQuestions } from "./decision";
 import {
+  accountListGenerationInstructions,
   createRecipeGenerator,
   entryGenerationInstructions,
   entryInstruction,
@@ -40,6 +41,7 @@ describe("instructions sent to the model", () => {
     for (const text of [
       generationInstructions,
       entryGenerationInstructions,
+      accountListGenerationInstructions,
       completionInstructions,
       JSON.stringify(toJsonSchema(generatedPlanSchema)),
       JSON.stringify(toJsonSchema(judgedPageSchema)),

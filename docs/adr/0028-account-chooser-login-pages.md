@@ -135,8 +135,10 @@ without choosing a listed account, such as `{"by":"text","value":"Sign in with a
 profile"}`. The button is found by the [list entry](#list-entries) rule. The extension
 refuses it when its text holds an email address,
 `[masked]` or a run of four or more digits, or when it is inside a form with fields.
-The prompt gains one short, language-neutral sentence for this, which describes the
-other-account button by its meaning only, with no example text in any language.
+The prompt gains one short, language-neutral line for this, which describes the
+other-account button by its meaning only, with no example text in any language. Only a
+request whose observation lists accounts gets it, after the generation role's
+instructions, so other prompts stay short.
 
 As implemented, the answer is `{"decision":"account-list","other":"c1","continue":"c2"}`
 with optional candidate IDs, and the instructions say: "An observation with accounts

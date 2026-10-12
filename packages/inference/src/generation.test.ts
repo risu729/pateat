@@ -5,6 +5,8 @@ import { japanesePageCorpus } from "./corpus/real";
 import { evaluateRole } from "./evaluate";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import {
+  accountListGenerationInstructions,
+  accountListInstruction,
   asPagePlan,
   createRecipeGenerator,
   generatedPlanSchema,
@@ -617,6 +619,19 @@ describe("account lists (ADR 0028)", () => {
   const run = (observation: unknown, text: string) =>
     generatorReturning(text).generate({ observation, slots: page.slots });
 
+  it("sends the list line only for a list of accounts", async () => {
+    const system = (model: ReturnType<typeof generatorReturning>["model"]) =>
+      model.doGenerateCalls[0]!.prompt.filter((message) => message.role === "system").map(
+        (message) => message.content,
+      );
+    const listed = generatorReturning(answer({}));
+    await listed.generate({ observation: list, slots: page.slots });
+    expect(system(listed.model)).toEqual([accountListGenerationInstructions]);
+    const form = generatorReturning(plan([["email", "email"]]));
+    await form.generate(request);
+    expect(system(form.model)).toEqual([generationInstructions]);
+  });
+
   it("answers the list's other and continue controls by their locators", async () => {
     expect(await run(list, answer({ other: "c1", continue: "c2" }))).toMatchObject({
       status: "ok",
@@ -680,8 +695,12 @@ describe("account lists (ADR 0028)", () => {
     });
   });
 
-  it("tells the model about lists in one sentence without example texts", () => {
-    expect(generationInstructions).toContain("answer account-list");
-    expect(generationInstructions).toContain("Never choose an account.");
+  it("tells the model about lists only for a list, without example texts", () => {
+    expect(accountListGenerationInstructions).toBe(
+      `${generationInstructions} ${accountListInstruction}`,
+    );
+    expect(accountListInstruction).toContain("answer account-list");
+    expect(accountListInstruction).toContain("Never choose an account.");
+    expect(generationInstructions).not.toContain("account-list");
   });
 });
