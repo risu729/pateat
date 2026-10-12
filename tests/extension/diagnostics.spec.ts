@@ -64,7 +64,12 @@ test("production diagnostics show the build, checks and a value-free bug report"
     // Debug logging, the exact saved text, and clearing.
     await page.getByRole("button", { name: "Enable debug logging for 24 hours" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Debug logging is on for 24 hours.");
-    const saved = await logs(page);
+    // Site addresses and recipe IDs are included until the person hides them.
+    const included = await logs(page);
+    expect(JSON.parse(included.split("\n")[0] ?? "")).toMatchObject({ sites: "included" });
+    await page.getByRole("checkbox", { name: "Hide site addresses and recipe IDs" }).check();
+    await expect(page.locator("#logs-preview")).toContainText('"sites":"replaced"');
+    const saved = (await page.locator("#logs-preview").textContent()) ?? "";
     const [header, ...lines] = saved.trimEnd().split("\n");
     expect(JSON.parse(header ?? "")).toMatchObject({ pateat: "0.1.0", sites: "replaced" });
     expect(lines.map((line) => (JSON.parse(line) as { event: string }).event)).toContain(

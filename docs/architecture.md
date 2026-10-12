@@ -786,9 +786,10 @@ only. **Download logs** previews the exact JSON Lines text and saves it through 
 link (no `downloads` permission): a header line with the version, revision and export
 time, then one line per entry. **Copy all** puts the same text on the clipboard in full,
 without selecting the scrolled preview by hand, and reports how many entries it copied.
-Unless **Include site addresses and recipe IDs** is checked, every origin, pseudonymized
-origin and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that
-export. **Clear logs** deletes every entry and replaces the pseudonym key.
+The export shows sites and recipe IDs as logged. When
+**Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
+and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
+**Clear logs** deletes every entry and replaces the pseudonym key.
 
 ## Declarative recipes and AI
 
