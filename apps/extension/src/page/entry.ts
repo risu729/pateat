@@ -65,6 +65,28 @@ function linkTarget(link: HTMLAnchorElement, target: string | null): string | nu
 }
 
 /**
+ * Whether an element covers some area: its own box, or else the union of its descendants'
+ * boxes, since a link whose only child floats or is positioned absolutely has an empty
+ * box of its own in Chromium while the child shows and takes the click.
+ */
+function hasBox(element: Element): boolean {
+  const own = element.getBoundingClientRect();
+  if (own.width > 0 && own.height > 0) return true;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const child of element.querySelectorAll("*"))
+    for (const rect of child.getClientRects()) {
+      left = Math.min(left, rect.left);
+      top = Math.min(top, rect.top);
+      right = Math.max(right, rect.right);
+      bottom = Math.max(bottom, rect.bottom);
+    }
+  return right - left > 0 && bottom - top > 0;
+}
+
+/**
  * Whether an element may be pressed as an entry, apart from where its `href` leads: only a
  * shown `<a href>` link that follows its `href` (never a button or a script link) with a
  * box of some size and rendered text, that opens in the same tab (no `target` of its own
@@ -76,9 +98,9 @@ export function entryElementRefusal(element: Element): EntryElementRefusal | und
   // Read before `isScriptLink`, whose guard narrows a link that is not one to `never`.
   const target = linkTarget(element, element.getAttribute("target"));
   const download = element.hasAttribute("download");
-  const box = element.getBoundingClientRect();
+  const boxed = hasBox(element);
   if (isScriptLink(element)) return "script-link";
-  if (!shown(element) || !visible(element) || box.width <= 0 || box.height <= 0) return "hidden";
+  if (!shown(element) || !visible(element) || !boxed) return "hidden";
   if (!renderedControlText(element)) return "no-text";
   if (target !== null && target.trim().toLowerCase() !== "_self") return "new-window";
   if (download) return "download";

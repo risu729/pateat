@@ -203,7 +203,8 @@ describe("query values and links compared by registrable domain (ADR 0031)", () 
       "link-query-off-site",
     ],
   ])("a link with %s", (_label, href, expected) => {
-    const shown = new URL(href).hostname === "alice.github.io" ? "https://alice.github.io/en/" : top;
+    const shown =
+      new URL(href).hostname === "alice.github.io" ? "https://alice.github.io/en/" : top;
     expect(refusal(href, shown)).toBe(expected);
   });
 });

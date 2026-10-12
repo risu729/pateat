@@ -5747,10 +5747,18 @@ export function createLoginRuntime(
       // The tab closed; its press goes with it.
       return;
     }
-    const web = url !== undefined && /^https?:$/u.test(new URL(url).protocol);
-    if (web && siteOf(url!) !== siteOf(press.origin)) return settleEntry(press, "left-site");
-    // A page of the site that has not announced yet, as one still loading, gets its own wait.
-    if (!extended && web && url !== press.url) {
+    // A tab with no URL yet, or one that does not parse, shows nothing to judge.
+    let parsed: URL | undefined;
+    try {
+      parsed = url ? new URL(url) : undefined;
+    } catch {
+      parsed = undefined;
+    }
+    const web = parsed !== undefined && /^https?:$/u.test(parsed.protocol);
+    if (web && siteOf(parsed!) !== siteOf(press.origin)) return settleEntry(press, "left-site");
+    // A page of the site that has not announced yet, as one still loading, and a tab
+    // without a URL to read get their own wait.
+    if (!extended && (parsed === undefined || (web && url !== press.url))) {
       entryTimers.set(
         press.tabId,
         setTimeout(() => void lateEntry(press, true).catch(() => undefined), LOGIN_STEP_WAIT_MS),
@@ -5774,7 +5782,7 @@ export function createLoginRuntime(
    * ready first step of a cached recipe (else `no-sign-in`), and no sign-up form (else
    * `sign-up`). A page that blocks the press is refused (`entryRefused`). A page announced
    * later than the press's wait plus the step wait settles the press as `no-sign-in` but
-   * is not refused itself. A page that could not be asked leaves the press to a later
+   * is not refused itself, on any site. A page that could not be asked leaves the press to a later
    * page of the tab or to its timer, armed again, so every press is settled.
    */
   async function checkAfterPress(live: LiveDocument): Promise<void> {
@@ -5786,10 +5794,11 @@ export function createLoginRuntime(
     const running = entryChecks.get(key);
     if (running) return running;
     const check = (async (): Promise<void> => {
-      if (siteOf(pageOrigin) !== siteOf(press.origin))
-        return settleEntry(press, "left-site", live.document);
+      // A page after the window settles the press but is never refused, on any site.
       if (Date.now() - Date.parse(press.pressedAt) > ENTRY_NEXT_PAGE_MS + LOGIN_STEP_WAIT_MS)
         return settleEntry(press, "no-sign-in");
+      if (siteOf(pageOrigin) !== siteOf(press.origin))
+        return settleEntry(press, "left-site", live.document);
       const starts = await startsFor(pageOrigin);
       let answer: unknown;
       try {

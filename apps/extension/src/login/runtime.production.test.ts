@@ -5531,6 +5531,32 @@ describe("production login document admission", () => {
           expect(reports("entry")).toHaveLength(2);
         });
 
+        it("lets a page on another site that comes too late go on, and settles the press as no-sign-in", async () => {
+          vi.useFakeTimers({ shouldAdvanceTime: true });
+          const { h, reports } = await pressed();
+          vi.setSystemTime(Date.now() + 25_000);
+          const elsewhere = "https://other.example/oauth";
+          fake.state.pageUrl = elsewhere;
+          expect(await h.hello({ ...next, url: elsewhere }, false)).not.toMatchObject({
+            reason: "entry-blocked",
+          });
+          expect(reports("entry")[1]).toMatchObject({ outcome: "blocked", reason: "no-sign-in" });
+        });
+
+        it.each([
+          ["no URL yet", ""],
+          ["a URL that does not parse", "not a URL"],
+        ])("waits once more for a tab with %s, then blocks the press", async (_label, url) => {
+          vi.useFakeTimers({ shouldAdvanceTime: true });
+          const { reports } = await pressed();
+          fake.state.tabUrls[1] = url;
+          await vi.advanceTimersByTimeAsync(10_000);
+          expect(reports("entry")).toHaveLength(1);
+          await vi.advanceTimersByTimeAsync(10_000);
+          await vi.waitFor(() => expect(reports("entry")).toHaveLength(2));
+          expect(reports("entry")[1]).toMatchObject({ outcome: "blocked", reason: "no-sign-in" });
+        });
+
         it("refuses every announcement of a page that blocked the press, also one that overtook its check", async () => {
           const { h, reports } = await pressed();
           let answer!: (value: unknown) => void;

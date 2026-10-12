@@ -146,6 +146,14 @@ describe("entryElementRefusal with a document's `<base target>`", () => {
 });
 
 describe("entryElementRefusal for a download or an empty box", () => {
+  it("finds the link's own box empty when its only child floats or is positioned", () => {
+    document.body.innerHTML = `<a id="f" href="/x"><span style="float: left">Login</span></a><div style="position: relative; height: 40px"><a id="p" href="/x"><span style="position: absolute">Login</span></a></div>`;
+    for (const id of ["#f", "#p"]) {
+      const box = first(id).getBoundingClientRect();
+      expect(box.width * box.height).toBe(0);
+    }
+  });
+
   it.each([
     [`<a id="t" href="https://accounts.synthetic.example/login" download>Login</a>`, "download"],
     [
@@ -159,6 +167,15 @@ describe("entryElementRefusal for a download or an empty box", () => {
     [
       `<a id="t" href="https://accounts.synthetic.example/login" style="display: inline-block; width: 0; overflow: hidden">Login</a>`,
       "hidden",
+    ],
+    // The link's own box is empty, but its only child shows and takes the click.
+    [
+      `<a id="t" href="https://accounts.synthetic.example/login"><span style="float: left">Login</span></a>`,
+      undefined,
+    ],
+    [
+      `<div style="position: relative; height: 40px"><a id="t" href="https://accounts.synthetic.example/login"><span style="position: absolute; top: 0; left: 0">Login</span></a></div>`,
+      undefined,
     ],
   ])("%s", (html, refusal) => {
     document.body.innerHTML = html;
