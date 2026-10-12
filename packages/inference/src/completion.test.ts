@@ -199,8 +199,11 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
   });
 
   it("tells the model never to name a button that registers a passkey", () => {
-    // A marker's text is stored in the recipe and must match every later sign-in.
-    expect(completionInstructions).toMatch(/never name one whose text shows the person's name/u);
+    // A text marker's text is stored in the recipe and must match every later sign-in;
+    // a marker located by id stores no text.
+    expect(completionInstructions).toMatch(
+      /The marker must show on every signed-in visit of every account\. A marker whose target is by text is stored with that text, .* never the person's name/u,
+    );
     expect(completionInstructions).toMatch(
       /passkeyButton is a button that continues with a security key or passkey, never one that registers, creates, adds or sets up one/u,
     );

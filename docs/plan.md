@@ -1673,9 +1673,9 @@ redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
 as the executor resolves it, and for an input without one, its first `autocomplete`
 token that is `username`, `email`, `current-password` or `one-time-code` and that no
-other input carries; a button without one gets a text locator when its text
-matches exactly one button and redaction leaves it unchanged, and a script link when its
-text matches no button and exactly one script link. In a login form, a field, button or
+other input carries; a button without one gets a text locator when its text matches
+exactly one button and redaction leaves it unchanged, and a script link when its text
+matches no button and exactly one script link. In a login form, a field, button or
 checkbox without a target, a control the executor cannot act on (a select, radio, text
 area, another input type, or a read-only, disabled, transparent or tiny field) or a
 control in a shadow root makes the observation incomplete, as do more than 48
@@ -1706,15 +1706,18 @@ possible sign-in markers. Links are located by their text too, and those in a pa
 header or navigation, where account menus usually sit, are kept first; the rank reads
 only the page's structure, never words of one language. A text locator with a digit,
 such as a points balance or an unread count, never names a marker there, and the judge
-is told to pick a marker whose text is the same for every account and visit, never the
-person's name, a count or a balance: its text is stored in the recipe and must match
-every later sign-in. On ポイントインカム (2026-10-12) the page after sign-in gave 21
-candidates, all carousel controls, news tabs and an ad's close button, because its
-header links have no `id`; the judge answered `unclear`. A synthetic page of that shape
-now keeps the header's links. There, an attribute locator that redaction would change
-counts as no locator, so an account number in an `id` is never sent.
-`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
-pages.
+is told that the marker must show on every signed-in visit of every account, and that a
+marker located by its text keeps that text in the recipe, so it must read the same
+everywhere, never the person's name, a count or a balance. A marker located by `id`
+stores no text: on リクルートID (2026-10-12, 08:07 UTC) the judge named the points
+balance `{"by":"id","value":"total-point1"}`, which the earlier wording forbade although
+nothing private is stored, so the rule now names text targets only. On ポイントインカム
+(2026-10-12) the page after sign-in gave 21 candidates, all carousel controls, news tabs
+and an ad's close button, because its header links have no `id`; the judge answered
+`unclear`. A synthetic page of that shape now keeps the header's links. There, an
+attribute locator that redaction would change counts as no locator, so an account number
+in an `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in
+Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
