@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import libCoverage from "istanbul-lib-coverage";
+import * as libCoverage from "@vitest/istanbul-lib-coverage";
 
 // Merges every Vitest run's coverage-final.json under coverage/ (written when
 // PATEAT_COVERAGE is set) and prints one row per project. A file measured by several runs,

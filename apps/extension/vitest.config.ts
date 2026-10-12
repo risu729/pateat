@@ -6,7 +6,8 @@ export default defineConfig({
     // the Browser Mode suites'. Each test:<area> task names its own reports directory.
     coverage: {
       enabled: Boolean(process.env["PATEAT_COVERAGE"]),
-      include: ["src/**/*.{ts,tsx}"],
+      // TSX is measured by the Browser Mode suites, which compile it the way the build does.
+      include: ["src/**/*.ts"],
       exclude: ["**/*.test.{ts,tsx}", "**/*.d.ts", "**/__fixtures__/**", "**/vitest.*.ts"],
       reporter: ["json"],
       reportsDirectory: "../../coverage/extension",
