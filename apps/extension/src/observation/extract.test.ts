@@ -1437,26 +1437,30 @@ describe("extractAccountListObservation", () => {
   it("hides a name in every form it shows in, and other texts beside buttons", () => {
     page(
       `<main>
-        <h1>ようこそ ＴＡＲＯ.yamada さん</h1>
-        <section><span>@taro.yamada</span><button aria-label="Continue as taro.yamada">Continue</button></section>
+        <h1>ようこそ＠ＴＡＲＯ.yamadaさん</h1>
+        <section><span>taro.yamada</span><button aria-label="Continue as taro.yamada">Continue</button></section>
         <section><span>hanako.s</span><button>Switch</button></section>
         <button>Use another profile</button><button>Use an app</button>
+        <button>taro.yamadaとして続行</button><button>Retaro.yamada2</button>
       </main>`,
     );
-    const result = extractAccountListObservation(document, ["@taro.yamada"]);
+    const result = extractAccountListObservation(document, ["taro.yamada"]);
     if (!result.ok) throw new Error(result.reason);
     const { observation } = result;
     expect(observation.accounts).toEqual(["[account]"]);
-    expect(observation.headings).toEqual(["ようこそ [account] さん"]);
-    // "an" in "another" is not a name.
+    // A Latin name touching kana is still hidden, with its leading @ and in any width.
+    expect(observation.headings).toEqual(["ようこそ[account]さん"]);
+    // A control naming the account is left out; "an" in "another" is not a name, and a
+    // name inside a longer Latin word is not this one.
     expect(summary(observation).map((candidate) => candidate.label)).toEqual([
       "Continue",
       "Switch",
       "Use another profile",
       "Use an app",
+      "Retaro.yamada2",
     ]);
     const sent = JSON.stringify(observation).normalize("NFKC").toLowerCase();
-    expect(sent).not.toContain("taro");
+    expect(sent.replaceAll("retaro.yamada2", "")).not.toContain("taro");
     expect(sent).not.toContain("hanako");
   });
 

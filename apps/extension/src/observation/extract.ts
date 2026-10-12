@@ -925,12 +925,6 @@ export function extractAccountListObservation(
   return withoutNames(result.observation, names, hidden);
 }
 
-/**
- * The observation without `names` (ADR 0028), whatever their case: a control whose text,
- * label or locator holds one, such as "Continue as" and the account, is left out, since
- * its locator could not be kept without it; any other text, such as a heading, shows it
- * as `[account]`. Refused when the result no longer fits the observation's limits.
- */
 /** The page texts of a candidate, apart from its ID, role and locator kind, one per line. */
 function textsOf(value: unknown, key = ""): string {
   if (typeof value === "string") return ["id", "role", "by"].includes(key) ? "" : value;
@@ -959,7 +953,18 @@ function withoutNames(
   const folded = [...new Set(names.map(foldName).filter(Boolean))].sort(
     (left, right) => right.length - left.length,
   );
-  const source = `(?<![\\p{L}\\p{N}])@?(?:${folded.map(escape).join("|")})(?![\\p{L}\\p{N}])`;
+  // A name is a word of its own script: a Latin name may touch kana or kanji, as in
+  // "taro.yamadaさん", but not another Latin letter or digit, as in "another".
+  const word = /[\p{Script=Latin}\p{N}]/u;
+  const edge = "[\\p{Script=Latin}\\p{N}]";
+  const source = folded
+    .map(
+      (name) =>
+        `${word.test(name[0]!) ? `(?<!${edge})` : ""}@?${escape(name)}${
+          word.test(name.at(-1)!) ? `(?!${edge})` : ""
+        }`,
+    )
+    .join("|");
   const holds = new RegExp(source, "iu");
   const pattern = new RegExp(source, "giu");
   const others = new Set(hidden.map(foldName).filter(Boolean));

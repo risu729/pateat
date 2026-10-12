@@ -4799,7 +4799,8 @@ export function createLoginRuntime(
       const listing = !signIn && list?.path === live.path ? list : undefined;
       // The page right after a sign-in is never sent as a list of accounts (ADR 0028).
       if (offer && listing && afterSignIn.get(document.tabId) === document.documentId) {
-        skipGeneration(live, "after-sign-in");
+        // Logged for a list with an email only: short texts alone are ordinary browsing.
+        if (!listing.names) skipGeneration(live, "after-sign-in");
         offer = false;
       }
       if (offer && (signIn?.path === live.path || listing)) {
@@ -4821,7 +4822,7 @@ export function createLoginRuntime(
         // No vault item matches this page, or no shown text names one, so it is not sent.
         // A page offered only by its short texts is ordinary browsing then, and not logged
         // (ADR 0019): most pages show a short text beside a button.
-        if (!listing?.names) skipGeneration(live, scope ? "no-listed-account" : "no-vault-match");
+        if (!listing?.names) skipGeneration(live, "no-vault-match");
         offer = false;
       }
       // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).

@@ -107,19 +107,23 @@ reads the matching items' usernames, email usernames included, one at a time on 
 such page, and sends the page only when a text names one; a page offered only by such
 texts that is not sent is not logged, as ordinary browsing. The worker passes the
 naming texts back with the request to describe the page. The observation then lists
-each as `[account]`, and hides the name wherever it shows as a whole word, with or
-without a leading `@`, in any width or case, such as in a heading: a control whose
-text or label holds it is left out, and so is the page when its path holds it. Every
-other text beside the buttons, which may name an account that is not in the vault, is
-shown as `[account]` when it is a whole heading or the title, and a control with such a
-text is left out; such a name inside a longer text is not found. The page right after a
+each as `[account]`, and hides the name wherever it shows, with or without a leading
+`@`, in any width or case, such as in a heading; a name starting or ending with a Latin
+letter or digit is not found inside a longer Latin word, but is found beside kana or
+kanji, as in `taro.yamadaさん`. A control whose text or label holds it is left out, and
+so is the page when its path holds it. Every other text beside the buttons, which may
+name an account that is not in the vault, is shown as `[account]` when it is a whole
+heading or the title, and a control with such a text is left out. Not covered yet: such
+another name inside a longer text, such as "Continue as" and that name, or as a
+control's own text, still reaches the AI; and a list whose rows are buttons showing
+only a username, with no text beside them, is not found. The page right after a
 submitted password form is skipped: the content script skips its own next path, and the
 worker the tab's next document, kept in memory only, so a restart of the worker in
 between forgets it. A submission in a frame counts for the tab's page, and a next page
 of another origin ends the skip. A stored chooser's path counts as a recipe start, so
 the page is not sent again, though nothing starts there yet. The local log names a
 list's generation with `page: accounts`, and the skips of a list with an email as
-`after-sign-in`, `no-vault-match` or `no-listed-account`. The service's check of the
+`after-sign-in` or `no-vault-match`. The service's check of the
 answer also refuses a control whose text holds `[account]`.
 
 ### What the AI answers

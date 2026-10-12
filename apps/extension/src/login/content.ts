@@ -839,7 +839,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   };
   /**
    * A form with a password input submitted in this document: its next path here, and the
-   * tab's next document of the origin, are not offered as a list of accounts (ADR 0028).
+   * tab's next document if it is of the same origin, are not offered as a list of accounts
+   * (ADR 0028).
    * Pateat's own submissions count too; their pages belong to a login anyway.
    */
   const onSubmit = (event: Event) => {
