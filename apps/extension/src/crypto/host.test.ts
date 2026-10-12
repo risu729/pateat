@@ -512,6 +512,82 @@ describe("fixed operations, session scope and reply fencing", () => {
     h.reply(thirdCommand, { ok: true, data: uriCandidates });
     expect(await third).toEqual({ ok: true, data: uriCandidates });
     expect(h.commands).toHaveLength(3);
+    expect(
+      h.posted.filter((message) => (message as { type: string }).type === "crypto.cancel"),
+    ).toHaveLength(0);
+  });
+
+  it("gives a job that waited for its turn a full budget once it is delivered", async () => {
+    const h = harness({ timeoutMs: 300 });
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    const firstCommand = await h.command(1);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    h.reply(firstCommand, { ok: true, data: uriCandidates });
+    expect(await first).toEqual({ ok: true, data: uriCandidates });
+    const secondCommand = await h.command(2);
+    // Past the budget counted from admission, but within the one counted from delivery.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    h.reply(secondCommand, { ok: true, data: uriCandidates });
+    expect(await second).toEqual({ ok: true, data: uriCandidates });
+  });
+
+  it("refuses a job whose wait for its turn times out and keeps the session open", async () => {
+    const h = harness({ timeoutMs: 100 });
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    const third = h.host.matchUris(a, url);
+    const firstCommand = await h.command(1);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    h.reply(firstCommand, { ok: true, data: uriCandidates });
+    expect(await first).toEqual({ ok: true, data: uriCandidates });
+    const secondCommand = await h.command(2);
+    // The third has waited its whole budget behind the second, without reaching the Worker.
+    expect(await third).toEqual({ ok: false, error: { code: "resource-limit" } });
+    h.reply(secondCommand, { ok: true, data: uriCandidates });
+    expect(await second).toEqual({ ok: true, data: uriCandidates });
+    const next = h.host.matchUris(a, url);
+    h.reply(await h.command(3), { ok: true, data: uriCandidates });
+    expect(await next).toEqual({ ok: true, data: uriCandidates });
+    expect(h.commands).toHaveLength(4);
+  });
+
+  it("fails a session's waiting jobs without delivering them when it is locked", async () => {
+    const h = harness();
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    await h.command(1);
+    const locking = h.host.lock(a);
+    expect(await first).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(await second).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    const lockCommand = await h.command(2);
+    expect(lockCommand.operation).toEqual({ kind: "lock", session: a });
+    h.reply(lockCommand, { ok: true, data: null });
+    expect(await locking).toMatchObject({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(h.commands.map((command) => command.operation.kind)).toEqual([
+      "open",
+      "match-uris",
+      "lock",
+    ]);
+  });
+
+  it("releases a session's waiting job when the job ahead of it fails", async () => {
+    const h = harness();
+    const a = await h.open();
+    const url = "https://example.com/login";
+    const first = h.host.matchUris(a, url);
+    const second = h.host.matchUris(a, url);
+    h.reply(await h.command(1), { ok: false, error: { code: "crypto-failed" } });
+    expect(await first).toEqual({ ok: false, error: { code: "crypto-failed" } });
+    expect(await second).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(h.host.status()).toMatchObject({ pending: 0 });
   });
 
   it("forwards an unavailable URI context as its own result", async () => {

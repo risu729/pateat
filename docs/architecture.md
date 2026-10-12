@@ -191,8 +191,11 @@ bindings. Disconnect, cancellation and deadlines invalidate pending results and
 terminate the affected Workers; a fresh host never replays old operations.
 A session's Worker runs one job at a time, so the host delivers a session's jobs in
 turn: a job for a busy session waits instead of failing `resource-limit`, as when a
-passkey is signed while a login matches the page's URI (2026-10-12). A job cancelled or
-timed out while it waits never reaches the Worker and leaves the session open.
+passkey is signed while a login matches the page's URI. A waiting job gets a full budget
+once it is delivered. A job cancelled while it waits, or whose wait outlasts its budget
+(`resource-limit`), never reaches the Worker and leaves the session open. Locking or
+closing the session fails its waiting jobs with `crypto-locked`, and the pending limit
+still refuses extra jobs with `resource-limit`.
 The initial caller remains a synthetic compatibility probe. Durable cache,
 retained unlock material and production connection setup are separate gates.
 More than one staged session may exist for a connection. Opening a new snapshot

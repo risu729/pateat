@@ -615,8 +615,10 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     return new Promise<BitwardenResult<T>>((resolve) => {
       const cancel = (code: "cancelled" | "timeout") => {
         if (!pending.has(command.requestId)) return;
+        // A job that times out still waiting for its turn never ran, so the caller may retry
+        // it as it would a refused one.
         if (waiting) {
-          finish(command.requestId, fail(code));
+          finish(command.requestId, fail(code === "timeout" ? "resource-limit" : code));
           return;
         }
         // Invalidate the session immediately; the supervisor terminates its Worker before ACK.
@@ -649,7 +651,15 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         if (!destructive) await deps.checkpoint?.("before-dispatch");
         await before;
         waiting = false;
-        if (!pending.has(command.requestId)) return;
+        const job = pending.get(command.requestId);
+        if (!job) return;
+        // A job that waited for its turn gets its own full budget once it reaches the Worker,
+        // so time spent waiting never shortens the run and times out the session.
+        if (before) {
+          clearTimeout(job.timer);
+          job.timer = setTimeout(() => cancel("timeout"), budget);
+          job.deadline = now() + budget;
+        }
         if (signal?.aborted || disposed || !boundPort || !ready) {
           finish(command.requestId, fail(signal?.aborted ? "cancelled" : "crypto-locked"));
           return;
