@@ -52,6 +52,17 @@ describe("shown", () => {
     expect(shown(by("invisible"))).toBe(false);
     expect(shown(by("aria"))).toBe(false);
     expect(shown(by("plain"))).toBe(true);
+    // Content its parent does not render.
+    document.body.innerHTML = `
+      <details><summary>s</summary><span id="closed" style="display: contents">a</span></details>
+      <div style="content-visibility: hidden"><span id="skipped" style="display: contents">b</span></div>
+      <div><span id="none" style="display: contents"><span style="display: none">c</span></span></div>
+      <details open><summary>s</summary><span id="open" style="display: contents">d</span></details>
+    `;
+    expect(shown(by("closed"))).toBe(false);
+    expect(shown(by("skipped"))).toBe(false);
+    expect(shown(by("none"))).toBe(false);
+    expect(shown(by("open"))).toBe(true);
   });
 });
 

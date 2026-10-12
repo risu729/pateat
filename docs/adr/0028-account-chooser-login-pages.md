@@ -128,15 +128,18 @@ the skip; after a submission in a frame, a same-document URL change of the tab's
 not skipped, since only the frame saw the submission. A stored chooser's path counts as
 a recipe start, so the page is not sent again, and a chooser login starts there. The
 local log names a list's generation with `page: accounts`, and the skips of a list with
-an email as `after-sign-in` or `no-vault-match`. At debug level it also names a page not
-taken as a list although it shows an email address (`not-a-list`, with why its first
-shown address is not an entry, such as `inside-control` or `not-rendered`), and a page
-of texts that named no item (`no-listed-account`). A page not sent because the vault
-could not tell is logged as `vault-unavailable` or `connection-disabled`, and one not
-offered without the service as `not-connected`. An element with `display: contents` has
-no box, so it counts as shown when its parent is: Cloudflare's saved profiles wrap each
-address in one, and the list was not found before (2026-10-12). The service's check of
-the answer also refuses a control whose text holds `[account]`.
+an email as `after-sign-in` or `no-vault-match`. At debug level it also names a page
+that, once its ten seconds end without a sign-in input, holds an `@` in its text but is
+not taken as a list (`not-a-list`, with why: for its first shown address, such as
+`inside-control` or `not-rendered`; else how a hidden one is hidden; else
+`split-address`), and a page of texts that named no item (`no-listed-account`); other
+pages without a matching item stay `no-vault-match` with a detail. At info level, a page
+not sent because the vault could not tell is logged as `vault-unavailable` or
+`connection-disabled`; one not offered without the service is `not-connected` at debug
+level. An element with `display: contents` has no box, so it counts as shown when its
+parent is and renders its content, and any child element renders: Cloudflare's saved
+profiles wrap each address in one, and the list was not found before (2026-10-12). The
+service's check of the answer also refuses a control whose text holds `[account]`.
 
 ### What the AI answers
 

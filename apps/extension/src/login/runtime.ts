@@ -123,7 +123,7 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
-import { emailUsername, namesUsername } from "../page/account-list";
+import { emailUsername, namesUsername, type EntryMiss } from "../page/account-list";
 import {
   decideSignInState,
   reachedReturnTarget,
@@ -230,21 +230,21 @@ type LiveDocument = {
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
 };
-/**
- * A page offered as a list of accounts (ADR 0028): its path, and without an email listed,
- * the short texts that may name an account by a username that is not an email, and why a
- * shown email address is not a list entry, for the log only.
- */
 /** Why a page offered for generation is not sent, for the log (ADR 0019). */
 type GenerationMiss = "no-vault-match" | "vault-unavailable" | "connection-disabled";
-/** A provider's or vault's reason as a log code. */
+/** A provider's or vault's reason as a log code, within the log's 64 characters. */
 const logCode = (reason: string) =>
   reason
     .toLowerCase()
     .replace(/[^a-z0-9.:-]+/gu, "-")
     .replace(/^[^a-z0-9]+/u, "")
     .slice(0, 64) || "unknown";
-type ListOffer = { path: string; names?: string[] | undefined; missed?: string | undefined };
+/**
+ * A page offered as a list of accounts (ADR 0028): its path, and without an email listed,
+ * the short texts that may name an account by a username that is not an email, and why a
+ * shown email address is not a list entry, for the log only.
+ */
+type ListOffer = { path: string; names?: string[] | undefined; missed?: EntryMiss | undefined };
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
 const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
   entry.state !== "authenticated" &&
@@ -4059,8 +4059,12 @@ export function createLoginRuntime(
       );
       const unavailable = scope.unavailableConnections[0]?.reason;
       if (items.length) miss("no-vault-match", "no-slots");
+      // A device without any vault connection is not a problem to log at info level.
+      else if (!snapshot.catalog.connections.length) miss("no-vault-match", "no-connection");
       else if (!enabled) miss("connection-disabled");
       else if (unavailable) miss("vault-unavailable", logCode(unavailable));
+      // An item whose URIs could not all be checked may still belong to the page.
+      else if (scope.incompleteItems.length) miss("no-vault-match", "incomplete-item");
       else miss("no-vault-match", "no-item");
       return undefined;
     }
@@ -5063,6 +5067,8 @@ export function createLoginRuntime(
       // A shown email address that is no list entry is logged only (ADR 0028).
       if (offer && shownList?.missed) skipGeneration(live, "not-a-list", shownList.missed);
       const listing = shownList && (shownList.names || !shownList.missed) ? shownList : undefined;
+      // Only a reason: such a page is never sent.
+      if (shownList && !listing) offer = false;
       // The page right after a sign-in is never sent as a list of accounts (ADR 0028).
       if (offer && listing && afterSignIn.get(document.tabId) === document.documentId) {
         // Logged for a list with an email only: short texts alone are ordinary browsing.
@@ -5097,7 +5103,7 @@ export function createLoginRuntime(
           skipGeneration(
             live,
             "no-listed-account",
-            scope ? "no-name-match" : missed.filter(Boolean).join(":"),
+            scope ? "no-name-match" : logCode(missed.filter(Boolean).join(":")),
           );
         offer = false;
       }
