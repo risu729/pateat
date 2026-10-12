@@ -5,10 +5,12 @@ import { cleanup, render } from "vitest-browser-react";
 import "../../apps/extension/entrypoints/options/style.css";
 import extensionStyles from "../../apps/extension/entrypoints/options/style.css?raw";
 import { Button } from "../../apps/extension/src/options/button";
+import { PAGE_CSS } from "../../services/api/src/page-styles";
 import manageStyles from "../../services/api/web/styles.css?raw";
 
-// The extension pages and /manage keep separate copies of the design tokens and the
-// Button; these checks keep the copies equal and the focus ring visible.
+// The extension pages, /manage and the service's script-free pages keep separate copies of
+// the design tokens, and the first two of the Button; these checks keep the copies equal
+// and the focus ring visible.
 
 const buttonSources = import.meta.glob<string>(
   ["../../apps/extension/src/options/button.tsx", "../../services/api/web/button.tsx"],
@@ -39,9 +41,10 @@ function withoutComments(source: string): string {
     .join("\n");
 }
 
-test("both stylesheets define the same light and dark tokens", () => {
+test("every stylesheet defines the same light and dark tokens", () => {
   for (const selector of [":root", ':root[data-theme="dark"]', ':root:not([data-theme="light"])']) {
     expect(tokens(manageStyles, selector)).toEqual(tokens(extensionStyles, selector));
+    expect(tokens(PAGE_CSS, selector)).toEqual(tokens(extensionStyles, selector));
   }
 });
 

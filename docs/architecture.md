@@ -810,22 +810,26 @@ owner web UI take their colors, type, radii and focus ring from the
 [Pateat design system](https://claude.ai/artifact/WRXAnVi9RDw9cVWccy2fxJ) (owner,
 2026-10-12 20:53 UTC). `apps/extension/entrypoints/options/style.css` and
 `services/api/web/styles.css` each define its tokens as CSS custom properties and
-Tailwind colors, with the same values; `tests/options/design-tokens.test.tsx` fails when
-their light or dark token values differ.
+Tailwind colors, with the same values. The Worker's script-free pages
+(`services/api/src/pages.ts`: `/pair/signed-in`, the Access and error pages and
+`/manage/claude`) inline a small stylesheet, `services/api/src/page-styles.ts`, with the
+same tokens, the logo beside "Pateat" and the page in one panel.
+`tests/options/design-tokens.test.tsx` fails when any copy's light or dark token values
+differ.
 
-Each page has light and dark themes and a Theme select (Browser setting, Light, Dark):
-at the foot of the extension settings page's section list and in the owner web UI's
-footer (owner, 2026-10-12 20:54 UTC). Browser setting, the default, follows the
-browser's `prefers-color-scheme`. The choice is
-presentation only: it is kept in the program's own `localStorage` under `pateat.theme`,
-not in `chrome.storage`, the service or sync, so the extension and the owner web UI keep
-separate choices and each browser profile has its own. A page applies the stored choice
-before it renders, as a `data-theme` attribute on the root element, and an open page
-follows a change made on another page of the same program through the `storage` event.
-Because neither program's pages allow inline script (the MV3 policy, and the owner web
-UI's `script-src 'self'`), the choice is applied from the page's module,
-so a page whose stored choice differs from the browser's scheme may paint one frame in
-the browser's scheme first.
+Each page has light and dark themes. The extension's pages and the owner web UI have a
+Theme select (Browser setting, Light, Dark): at the foot of the extension settings
+page's section list and in the owner web UI's footer (owner, 2026-10-12 20:54 UTC); the
+Worker's script-free pages always follow the browser. Browser setting, the default,
+follows the browser's `prefers-color-scheme`. The choice is presentation only: it is
+kept in the program's own `localStorage` under `pateat.theme`, not in `chrome.storage`,
+the service or sync, so the extension and the owner web UI keep separate choices and
+each browser profile has its own. A page applies the stored choice before it renders, as
+a `data-theme` attribute on the root element, and an open page follows a change made on
+another page of the same program through the `storage` event. Because neither program's
+pages allow inline script (the MV3 policy, and the owner web UI's `script-src 'self'`),
+the choice is applied from the page's module, so a page whose stored choice differs from
+the browser's scheme may paint one frame in the browser's scheme first.
 
 ## Diagnostics
 

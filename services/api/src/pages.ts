@@ -1,8 +1,9 @@
 import type { Context } from "hono";
-import { html } from "hono/html";
+import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import icon from "../../../apps/extension/icons/icon.svg?raw";
+import { PAGE_CSS } from "./page-styles";
 
 /**
  * The extension's logo, inlined so the icon shows on every page whichever Access
@@ -20,7 +21,7 @@ export const PAGE_HEADERS = {
 
 type Body = HtmlEscapedString | Promise<HtmlEscapedString>;
 
-/** Every interpolated value is escaped by Hono's `html` helper. */
+/** Every interpolated value but the fixed stylesheet is escaped by Hono's `html` helper. */
 export function page(c: Context, status: ContentfulStatusCode, title: string, body: Body) {
   return c.html(
     html`<!doctype html>
@@ -31,33 +32,17 @@ export function page(c: Context, status: ContentfulStatusCode, title: string, bo
           <title>${title} · Pateat</title>
           <link rel="icon" type="image/svg+xml" href="${ICON}" />
           <style>
-            body {
-              font:
-                16px/1.5 system-ui,
-                sans-serif;
-              max-width: 40rem;
-              margin: 2rem auto;
-              padding: 0 1rem;
-            }
-            input,
-            button {
-              font: inherit;
-            }
-            table {
-              border-collapse: collapse;
-            }
-            th,
-            td {
-              padding: 0.25rem 0.75rem 0.25rem 0;
-              text-align: left;
-            }
+            ${raw(PAGE_CSS)}
           </style>
         </head>
         <body>
-          <main>
-            <h1>${title}</h1>
-            ${body}
-          </main>
+          <div class="page">
+            <div class="brand"><img src="${ICON}" alt="" />Pateat</div>
+            <main>
+              <h1>${title}</h1>
+              ${body}
+            </main>
+          </div>
         </body>
       </html>`,
     status,

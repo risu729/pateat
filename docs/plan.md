@@ -254,10 +254,11 @@ own accounts, so they stay in the project's files rather than in this repository
   - Done: the colors, type, radii and focus ring come from the
     [Pateat design system](https://claude.ai/artifact/WRXAnVi9RDw9cVWccy2fxJ) the owner
     approved (2026-10-12 20:53 UTC). Both stylesheets
-    (`apps/extension/entrypoints/options/style.css`, shared by every extension page,
-    and `services/api/web/styles.css`) define its tokens as CSS custom properties and
-    Tailwind colors (`bg-surface`, `text-ink-muted`, `border-border-strong`), and the
-    pages use no other colors. Page titles are 28px.
+    (`apps/extension/entrypoints/options/style.css`, shared by every extension page, and
+    `services/api/web/styles.css`) define its tokens as CSS custom properties and
+    Tailwind colors (`bg-surface`, `text-ink-muted`, `border-border-strong`), the
+    Worker's script-free pages copy them, and the pages use no other colors. Page titles
+    are 28px.
   - Done: light and dark themes with a Theme select (Browser setting, Light, Dark) in
     the extension's settings page and the `/manage` footer; Browser setting, the
     default, follows the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC).
@@ -329,7 +330,10 @@ own accounts, so they stay in the project's files rather than in this repository
     with Allow and an exclude form, and the revoked recipes. Each origin opens its own
     page with a "Pateat on this site" switch, its default account, recipes and bindings
     ([owner web UI](architecture.md#owner-web-ui)).
-  - Next: the other screens' layouts and copy.
+  - Done: the Worker's script-free pages (`/pair/signed-in`, the Access and error pages
+    and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
+    with the logo beside "Pateat" and the page in one panel. With this, every screen of
+    the extension and the service has had its polish pass.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
