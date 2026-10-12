@@ -3092,7 +3092,7 @@ export function createLoginRuntime(
     const unsent = (reason: string) => {
       if (run.live.generationSkip !== reason) {
         run.live.generationSkip = reason;
-        report({
+        report(run.live.document, {
           type: "generation",
           tabId: run.live.document.tabId,
           origin: run.live.document.origin,
@@ -3252,7 +3252,7 @@ export function createLoginRuntime(
     continuations.set(metadata.id, request);
     const answer = await asked;
     const reportGeneration = (takenOver?: boolean) =>
-      report({
+      report(run.live.document, {
         type: "generation",
         tabId: run.live.document.tabId,
         origin: pageOrigin,
