@@ -6,7 +6,9 @@ follows the two lockfile bugs found while moving to aube
 ([ADR 0032](../adr/0032-aube-package-manager.md),
 [package manager research](2026-10-12-package-manager-aube.md)). The owner asked for bug
 reports with minimal reproductions. Nothing had been filed upstream when this note was
-written, and nothing in Pateat's setup changes with it.
+written; whether to file is the owner's call. Nothing in Pateat's setup changes with it.
+Bun 1.4.3 was npm's `latest`; gaps 1 and 3 gave the same results with the Bun canary
+`1.4.3-canary.20261011.1` (it prints `1.4.4`).
 
 Versions: aube 2.7.0 (release binary through mise `aqua:aubepkg/aube`), aube `main` at
 [1443128](https://github.com/aubepkg/aube/commit/1443128) built with
@@ -34,20 +36,25 @@ reproduction.
 
 ## Reproductions
 
-Each one runs in a new `mktemp -d` directory.
+Each one runs in a new `mktemp -d` directory. Every result below was run, not inferred,
+unless marked otherwise.
 
 ### 1 and 2: workspace dependency
 
 ```sh
-mkdir -p packages/a packages/b
-echo '{ "name": "@repro/a", "version": "0.1.0" }' > packages/a/package.json
-echo '{ "name": "@repro/b", "version": "0.1.0", "dependencies": { "@repro/a": "workspace:*" } }' > packages/b/package.json
-# Gap 1 (bun.lock):
+members() {
+  mkdir -p packages/a packages/b
+  echo '{ "name": "@repro/a", "version": "0.1.0" }' > packages/a/package.json
+  echo '{ "name": "@repro/b", "version": "0.1.0", "dependencies": { "@repro/a": "workspace:*" } }' > packages/b/package.json
+}
+# Gap 1 (bun.lock)
+cd "$(mktemp -d)" && members
 echo '{ "name": "repro", "private": true, "workspaces": ["packages/*"] }' > package.json
 bun install
 (cd packages/b && aube add ms@2.1.3)
 aube install --frozen-lockfile
-# Gap 2 (pnpm-lock.yaml), in another directory with the same two members:
+# Gap 2 (pnpm-lock.yaml)
+cd "$(mktemp -d)" && members
 echo '{ "name": "repro", "private": true }' > package.json
 printf 'packages:\n  - "packages/*"\n' > pnpm-workspace.yaml
 pnpm install
@@ -90,7 +97,7 @@ exact dependency. After `bun add react@19.2.1`, the file has
 `node_modules/react-dom/node_modules/react` is React 19.2.0 next to the root's 19.2.1.
 With Bun alone, the same steps leave one React 19.2.1. In aube's writer, the resolved
 peer sits in `pkg.dependencies` with no declared range, so
-`crates/aube-lockfile/src/bun/write.rs` (lines 284 to 298 at 1443128) writes the exact
+`crates/aube-lockfile/src/bun/write.rs` (lines 285 to 297 at 1443128) writes the exact
 version. `aube add` and `aube install --no-frozen-lockfile` add peers the same way.
 `aube install` and `aube install --frozen-lockfile` do not write the file.
 
@@ -101,7 +108,8 @@ change it back, so gap 4 only causes lockfile churn.
 
 ## Effect on Pateat's bun.lock
 
-On a copy of main at `c1ed121` (5 workspace members, 460 packages),
+On a copy of main at `c1ed121` (5 workspace members, 469 `packages` entries;
+aube reported 460 resolved packages),
 `aube install --lockfile-only --no-frozen-lockfile` gave:
 
 - aube 2.7.0: all 5 `@workspace:` entries removed (gap 1)
@@ -110,13 +118,18 @@ On a copy of main at `c1ed121` (5 workspace members, 460 packages),
   of 36 entries (gap 3), for example `"zod": "4.6.5"` under `@ai-sdk/anthropic` and
   `react`, `react-dom` and `@types/react` under `@base-ui/react`. It also changed
   `lockfileVersion` to `1` (gap 4).
-- Same rewrite, other changes with no install effect seen: `os` and `cpu` as arrays
-  where Bun writes a string (136 entries), `libc` added (34), `deprecated` added (2),
-  and one `bin` written as an object. With gap 3, the rewrite changed 314 lines of the
-  lockfile.
+- Same rewrite, other changes with no install effect seen: `os` and `cpu` written as
+  arrays where Bun writes a string (all 174 entries that have them, including 10
+  `"os": "none"` values rewritten to `["netbsd"]` or `["openharmony"]`), `libc` added
+  (34), `deprecated` added (2), one `bin` written as an object, and the 6 bundled
+  entries under `@tailwindcss/oxide-wasm32-wasi/` dropped (469 to 463 entries). In total
+  the diff added 314 lines and removed 326.
 
-The setup in ADR 0032 (Bun writes `bun.lock`, aube installs with `--frozen-lockfile`) is
-not affected by any of the four gaps, because aube never writes the file. ADR 0032 plans
-to move dependency changes to `aube add` once aube writes a `bun.lock` its own frozen
-install accepts. The first release after 2.7.0 should meet that condition, but gap 3
-would then add peers to the file on every `aube add`.
+The setup in ADR 0032 (Bun writes `bun.lock`; aube only installs, with
+`aube install --frozen-lockfile` or `aube ci`) is not affected by any of the four gaps
+as long as aube does not write the file, which ADR 0032 rules out. ADR 0032 plans to
+move dependency changes to `aube add` once aube writes a `bun.lock` its own frozen
+install accepts, and to `pnpm-lock.yaml` once pnpm reads aube's file. On this evidence
+(gaps 1 and 2), a release that includes 1443128 would meet both conditions. For
+`bun.lock`, gap 3 would then add peers to the file on every `aube add`. Gap 3 concerns
+`bun.lock` only and was not tested with `pnpm-lock.yaml`.
