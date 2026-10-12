@@ -495,6 +495,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       if (!authorization.ok) {
         const failure = authorization.error as { code: string; status?: number };
         if (failure.code === "setup-reauthentication-required") return "reauthentication-required";
+        // Another refresh of this connection is running in this worker.
+        if (failure.code === "cancelled") return "skipped";
         return failure.code === "http-error" && failure.status === 429 ? "rate-limited" : "failed";
       }
       if (!alive(current) || (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch)

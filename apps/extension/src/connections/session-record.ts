@@ -70,8 +70,15 @@ const sessionSchema = v.variant("state", [
     receivedAt: time,
     expiresIn: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(2147483647)),
   }),
-  // A claim records ownership of one refresh attempt. It never stores a token.
-  v.strictObject({ ...base, state: v.literal("refreshing"), claimId: uuid, claimedAt: time }),
+  // A claim records ownership of one refresh attempt. It keeps the refresh token it sends,
+  // so the attempt can be resumed after the worker stops; a claim without one is final.
+  v.strictObject({
+    ...base,
+    state: v.literal("refreshing"),
+    claimId: uuid,
+    claimedAt: time,
+    refreshToken: v.optional(token),
+  }),
 ]);
 export type ProviderSessionEntry = {
   schemaVersion: 1;
@@ -87,7 +94,7 @@ export type ProviderSessionEntry = {
       receivedAt: number;
       expiresIn: number;
     }
-  | { state: "refreshing"; claimId: string; claimedAt: number }
+  | { state: "refreshing"; claimId: string; claimedAt: number; refreshToken?: string }
 );
 
 export function narrowEncryptedAccount(

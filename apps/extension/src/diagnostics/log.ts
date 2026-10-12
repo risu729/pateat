@@ -80,6 +80,10 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { connection: "connection", outcome: "code", check: "code" },
   },
+  "vault.refresh": {
+    level: "info",
+    fields: { connection: "connection", outcome: "code", cause: "code", status: "count" },
+  },
   "service.sync": {
     level: "info",
     fields: {
@@ -125,7 +129,10 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { origin: "origin", reason: "code", detail: "code", frame: "flag" },
   },
-  "recipe.generate": { level: "info", fields: { origin: "origin", outcome: "code" } },
+  "recipe.generate": {
+    level: "info",
+    fields: { origin: "origin", outcome: "code", reason: "code" },
+  },
   "recipe.judge": {
     level: "info",
     fields: {

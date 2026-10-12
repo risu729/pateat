@@ -1,6 +1,7 @@
 // Connects the service worker's existing decisions to the local log (ADR 0019).
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
+import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
@@ -174,6 +175,19 @@ export function createDiagnosticsLog(options: {
         { level: reply.ok || outcome === "cancelled" ? "info" : "warn" },
       );
     },
+    /** A Bitwarden refresh request: debug when it succeeded, else warn. */
+    vaultRefresh(event: RefreshReport) {
+      void logger.log(
+        "vault.refresh",
+        {
+          connection: event.connectionId,
+          outcome: event.outcome,
+          cause: event.cause,
+          status: event.status,
+        },
+        { level: event.outcome === "refreshed" ? "debug" : "warn" },
+      );
+    },
     /** A routine sync is quiet unless it changed the recipe cache. */
     recipeSync(outcome: RecipeSyncOutcome, changes: RecipeSyncChanges) {
       const changed = changes.added + changes.updated + changes.removed > 0;
@@ -233,8 +247,17 @@ export function createDiagnosticsLog(options: {
       else if (report.type === "generation")
         void logger.log(
           "recipe.generate",
-          { origin: report.origin, outcome: report.outcome },
-          { source },
+          {
+            origin: report.origin,
+            outcome: report.outcome,
+            reason: "reason" in report ? report.reason : undefined,
+          },
+          // A login page without a matching vault item is common and not a problem.
+          {
+            source,
+            level:
+              report.outcome === "skipped" && report.reason === "no-vault-match" ? "debug" : "info",
+          },
         );
       else if (report.type === "judge")
         void logger.log(

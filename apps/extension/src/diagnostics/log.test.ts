@@ -582,6 +582,53 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs a failed Bitwarden refresh as a warning with its cause and status", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => ({
+        revision: 1,
+        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+      }),
+      recipeCache: async () => ({ recipes: [] }),
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    log.vaultRefresh({ connectionId: "connection-secret-id", outcome: "refreshed" });
+    log.vaultRefresh({
+      connectionId: "connection-secret-id",
+      outcome: "failed",
+      cause: "http-error",
+      status: 401,
+    });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "vault.refresh"),
+      ).toHaveLength(2),
+    );
+    const entries = (await log.logger.entries()).filter((entry) => entry.event === "vault.refresh");
+    expect(entries.map((entry) => [entry.level, entry.fields])).toEqual([
+      [
+        "debug",
+        { connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u), outcome: "refreshed" },
+      ],
+      [
+        "warn",
+        {
+          connection: entries[0]?.fields["connection"],
+          outcome: "failed",
+          cause: "http-error",
+          status: 401,
+        },
+      ],
+    ]);
+    expect(JSON.stringify(entries)).not.toContain("connection-secret-id");
+    vi.restoreAllMocks();
+  });
+
   it("logs what a sync changed, a judged page, a handler and what stopped a login", async () => {
     const recipeOrigin = "https://login.example";
     const log = createDiagnosticsLog({

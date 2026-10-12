@@ -21,7 +21,7 @@ import { createConnectionPolicy, quarantinedItems } from "./policy";
 import { providerPermissionOrigins } from "./permissions";
 import { createConnectionSetupService } from "./setup";
 import { createIndexedDbProviderSessionStore } from "./session-store";
-import { createProviderSessions } from "./sessions";
+import { createProviderSessions, type RefreshReport } from "./sessions";
 import { SETUP_PORT, setupRequestSchema } from "./wire";
 import type { ConnectionRegistry, ConnectionSetupDependencies, SetupReply } from "./types";
 
@@ -44,12 +44,15 @@ export function createConnectionRuntime(
     onVaultStateMayChange?: () => void;
     /** Called with each settings-page Sync result, for the local log. */
     onSync?: (connectionId: string, reply: SetupReply) => void;
+    /** Called with each Bitwarden refresh result, for the local log. */
+    onRefresh?: (event: RefreshReport) => void;
   } = {},
 ) {
   const registry = options.registry ?? createBrowserConnectionRegistry();
   const vaults = new Map<string, ReturnType<typeof vaultFor>>();
   const sessionStores = new Map<string, ReturnType<typeof createIndexedDbProviderSessionStore>>();
   const sessions = createProviderSessions({
+    ...(options.onRefresh ? { report: options.onRefresh } : {}),
     storeFor(profile) {
       let store = sessionStores.get(profile.connectionId);
       if (!store) {
