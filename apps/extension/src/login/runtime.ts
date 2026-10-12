@@ -3276,11 +3276,16 @@ export function createLoginRuntime(
       return current(run) ? "qualified" : "moved";
     }
     let reported = false;
-    const taken = await continueWith(run, answer.recipe, () => {
-      reported = true;
-      reportGeneration(true);
-    });
-    if (!reported) reportGeneration(false);
+    let taken = false;
+    try {
+      taken = await continueWith(run, answer.recipe, () => {
+        reported = true;
+        reportGeneration(true);
+      });
+    } finally {
+      // Not taken over, or the `CONTINUED` write failed.
+      if (!reported) reportGeneration(false);
+    }
     return taken || !current(run) ? "moved" : "qualified";
   }
   /**
@@ -3335,13 +3340,14 @@ export function createLoginRuntime(
       // More steps or effects than one page may add.
       return false;
     }
-    taking?.();
     // The recipe is replaced before the record that names its revision is written.
     run.recipe = next;
     if (plan.choice) run.choice = plan.choice;
     else delete run.choice;
     delete run.qualified;
     await change(run, event);
+    // Reported as taken over only once the record names the new revision.
+    if (run.metadata.recipeRevision === next.revision) taking?.();
     return current(run) && run.metadata.state === "ready";
   }
   // State transitions, journal writes and DOM effects form an ordered protocol.

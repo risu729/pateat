@@ -9818,6 +9818,32 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(fake.state.badges[1]?.text).toBe("1");
   });
 
+  it("reports the continuation as not taken over when its record cannot be written", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const reports: LoginReport[] = [];
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service, { report: reports });
+    const { set } = fake.browser.storage.local;
+    // The record naming the continued revision cannot be stored.
+    fake.browser.storage.local.set = async (values: Record<string, unknown>) => {
+      const records = values["pateat.login-attempts.v3"] as { recipeRevision?: number }[];
+      if (records?.some((record) => record.recipeRevision === 2)) throw new Error("quota");
+      return set(values);
+    };
+    try {
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => reports.some((entry) => entry.type === "generation"));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+        expect.objectContaining({ outcome: "recipe", baseRevision: 1, takenOver: false }),
+      ]);
+      expect(executed()).toEqual(allSteps.slice(0, 2));
+    } finally {
+      fake.browser.storage.local.set = set;
+    }
+  });
+
   it("waits a second after the password form shows before sending it", async () => {
     inPlace();
     let h!: ReturnType<typeof harness>;

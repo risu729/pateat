@@ -128,7 +128,13 @@ function credentialInputs(targets: readonly LoginTarget[]): {
       !own.has(input) &&
       writable(input) &&
       !other(input) &&
-      !(input.form && [...input.form.querySelectorAll("input")].some(other)),
+      // `elements` also holds inputs tied to the form by a `form` attribute.
+      !(
+        input.form &&
+        [...input.form.elements].some(
+          (element) => element instanceof HTMLInputElement && other(element),
+        )
+      ),
   );
   return {
     password: inputs.some((input) => input.type === "password"),
