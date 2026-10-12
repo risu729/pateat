@@ -81,7 +81,7 @@ into play. This is untested, and only holds where Pateat is installed:
 | The owner's Chrome driven by Claude in Chrome or ChatGPT `@Chrome` | Yes, already installed |
 | ChatGPT desktop app's built-in browser | Unknown. Chrome extensions are supported since 2026-09-18, and OpenAI says "ChatGPT's agent cannot interact with extensions or their data" ([RuntimeWire](https://runtimewire.com/article/openai-chatgpt-desktop-browser-chrome-extensions)). No source says whether unpacked ones load, and Pateat is not on the Web Store. It would also need its own pairing ([ADR 0020](../adr/0020-direct-device-pairing.md)) and Bitwarden login |
 | Cloud browser of dots or ChatGPT Work | No documented way. It "doesn't use your personal browser's … extensions" ([Browser](https://learn.chatgpt.com/docs/browser)), and no page describes installing one. The retired agent mode "cannot … install extensions" (Atlas help article as quoted in search results; the page returned HTTP 403) |
-| Grok Bot's computer | Possible but unconfirmed. No page mentions browser extensions, but members can install apps and packages, which a recreate removes ([computers](https://docs.x.ai/grok-bot/computers)), browser state survives updates ([computer and apps](https://docs.x.ai/grok-bot/computer-and-apps)), and Enterprise Team Setup can install a password manager used by the computer browser |
+| Grok Bot's computer | Yes, observed on 2026-10-12 (see [Observed on a Grok Bot computer](#observed-on-a-grok-bot-computer)); persistence not yet checked |
 
 [ADR 0024](../adr/0024-settings-profiles.md) already expects remote agent browsers that
 reinstall the extension often, and the
@@ -112,6 +112,34 @@ Differences from 1Password for Claude that matter here:
   ([ADR 0022](../adr/0022-login-attempts-per-tab-and-origin.md)) behave in an
   agent-driven tab was not checked.
 
+## Observed on a Grok Bot computer
+
+On 2026-10-12 the owner ran the install check on their own Grok Bot computer, with no
+vault, no pairing and no login:
+
+- The owner attached the build of main `da61428` (`pateat-chrome-da61428.zip`) with the
+  Pateat and Bitwarden SDK source archives to the Bot's chat. The Bot placed them in
+  `/workspace/pateat-ext` and unpacked the zip; the files arrived intact.
+- The Bot reported the computer's browser as Google Chrome 154.0.8037.97.
+- During a takeover, `chrome://extensions` opened and showed "Your browser is managed by
+  your organization", but **Developer mode** and **Load unpacked** were available.
+  Pateat 0.1.0 loaded from `/workspace/pateat-ext/unpacked` with ID
+  `ekcnbbomcllhpomkeofikjagmjoibffk` and was enabled. Its settings page
+  (`chrome-extension://ekcnbbomcllhpomkeofikjagmjoibffk/options.html`) opened and showed
+  "Saved settings loaded · Revision 0" and the **Bitwarden connections** form; nothing
+  was entered.
+- uBlock Origin Lite installed from the Chrome Web Store, so Web Store installs also
+  work.
+- The browser already had xAI's own "Grok Bot WebAuthn proxy" 0.1.14 (ID
+  `mpfkaohnmdhkmmoekeammpleipnbgjjd`), described as running "the box browser's
+  security-key ceremonies on the machine the key is plugged into". Pateat also answers
+  passkey requests, so how the two interact is unchecked.
+
+Not yet checked: whether the extension survives a later task and a computer **Update**
+(Grok Bot app: Settings, Updates, Grok Bot's Computer, Update), and anything that needs
+pairing. Pairing from this browser is refused today, because the service's Access
+policy requires a WARP-connected device ([delivery](../delivery.md)).
+
 ## What to check next
 
 None of these has been run. Each needs the owner's ChatGPT, Claude or Grok account, so
@@ -122,7 +150,7 @@ each needs separate owner approval:
    waits, types into the form or hands the login back.
 2. In the ChatGPT desktop app's built-in browser, check whether an unpacked extension
    can be loaded at all.
-3. On a Grok Bot computer, and on a dot's cloud computer during a takeover, check
-   whether `chrome://extensions` or the Web Store opens and whether an installed
-   extension survives a restart. This only records what is possible; running Pateat
-   there is the owner's tradeoff above.
+3. On a dot's cloud computer during a takeover, check whether `chrome://extensions`
+   or the Web Store opens. On the Grok Bot computer, check that Pateat survives a later
+   task and a computer Update. This only records what is possible; running Pateat
+   there with a vault is the owner's tradeoff above.
