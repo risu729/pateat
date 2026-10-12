@@ -6,6 +6,9 @@ import {
   handlerFact,
   handlerSteps,
   handlerTargets,
+  isLoginRouteRecipe,
+  loginAutocompleteTokens,
+  loginEntryRecipeSchema,
   passwordVariants,
   recipeHasRoute,
   recipeSlots,
@@ -16,6 +19,8 @@ import {
   routeSignInTargets,
   routeSlots,
   routeSteps,
+  storedLoginRecipeSchema,
+  storedRecipeStartPath,
   loginFieldFacts,
   loginFieldSource,
   loginRecipeSchema,
@@ -28,6 +33,7 @@ import {
   type LoginAccountBinding,
   type LoginRecipe,
   type LoginTarget,
+  type StoredLoginRecipe,
 } from "./login";
 import {
   createDefaultSettings,
@@ -1576,5 +1582,92 @@ describe("totp handler recipe checks, probed independently (ADR 0027)", () => {
     // On another path the same element is not the route's button.
     expect(parses({ passkey, handlers: [totp({ target: button })] })).toBe(true);
     expect(parses({ passkey, handlers: [totp({ field: button })] })).toBe(true);
+  });
+});
+
+describe("entry recipes (ADR 0031)", () => {
+  const entry = () => ({
+    version: 1,
+    id: "entry-01",
+    revision: 1,
+    origin: "https://www.example.test",
+    entry: { path: "/en/", target: { by: "text", value: "Login" } },
+  });
+
+  it("stores a recipe with only an entry, told apart from a login route recipe", () => {
+    const stored = v.parse(storedLoginRecipeSchema, entry());
+    expect(stored).toEqual(entry());
+    expect(v.is(loginEntryRecipeSchema, entry())).toBe(true);
+    expect(isLoginRouteRecipe(stored)).toBe(false);
+    expect(storedRecipeStartPath(stored)).toBe("/en/");
+    const route = v.parse(storedLoginRecipeSchema, recipe());
+    expect(isLoginRouteRecipe(route)).toBe(true);
+    expect(storedRecipeStartPath(route)).toBe("/identity");
+    // A login runs only a recipe with a route.
+    expect(v.is(loginRecipeSchema, entry())).toBe(false);
+  });
+
+  it("accepts an id, name, test-id or text locator as the entry's target", () => {
+    for (const target of [
+      { by: "id", value: "login-link" },
+      { by: "name", value: "login" },
+      { by: "test-id", value: "header-login" },
+      { by: "text", value: "Sign in" },
+    ])
+      expect(v.is(storedLoginRecipeSchema, { ...entry(), entry: { path: "/", target } })).toBe(
+        true,
+      );
+  });
+
+  it("refuses an autocomplete locator, which names only an input, as the entry's target", () => {
+    for (const value of loginAutocompleteTokens)
+      expect(
+        v.is(storedLoginRecipeSchema, {
+          ...entry(),
+          entry: { path: "/", target: { by: "autocomplete", value } },
+        }),
+      ).toBe(false);
+  });
+
+  it("treats only a recipe with steps as one with a login route", () => {
+    // A later kind without steps, such as ADR 0028's chooser, never passes as a route.
+    const { steps: _steps, ...rest } = recipe();
+    const other = { ...rest, chooser: {} } as unknown as StoredLoginRecipe;
+    expect(isLoginRouteRecipe(other)).toBe(false);
+    expect(() => storedRecipeStartPath(other)).toThrow("Unknown stored recipe kind");
+  });
+
+  it("never holds an entry beside a login route member", () => {
+    const { slots, steps, maxSubmissions, completion, rejection } = recipe();
+    for (const extra of [
+      { slots },
+      { steps },
+      { slots, steps, maxSubmissions },
+      { maxSubmissions },
+      { completion },
+      { rejection },
+      { accountSwitch: { by: "text", value: "Use another account" } },
+      { passkey: { path: "/en/", target: { by: "text", value: "Passkey" } } },
+      { handlers: [{ kind: "passkey", path: "/2fa", target: { by: "id", value: "key" } }] },
+      { alternatives: [{ slots, steps }] },
+    ])
+      expect(v.is(storedLoginRecipeSchema, { ...entry(), ...extra })).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...recipe(), entry: entry().entry })).toBe(false);
+  });
+
+  it("refuses a recipe with neither an entry nor a route, and an incomplete entry", () => {
+    const { entry: _entry, ...bare } = entry();
+    expect(v.is(storedLoginRecipeSchema, bare)).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...bare, slots: ["username"] })).toBe(false);
+    for (const value of [
+      { path: "/en/" },
+      { target: { by: "text", value: "Login" } },
+      { path: "/en/?return_to=%2F", target: { by: "text", value: "Login" } },
+      { path: "https://www.example.test/", target: { by: "text", value: "Login" } },
+      { path: "/en/", target: { by: "css", value: "a.login" } },
+      { path: "/en/", target: { by: "text", value: " Login" } },
+      { path: "/en/", target: { by: "text", value: "Login" }, href: "/login" },
+    ])
+      expect(v.is(storedLoginRecipeSchema, { ...entry(), entry: value })).toBe(false);
   });
 });

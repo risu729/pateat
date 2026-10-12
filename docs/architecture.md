@@ -836,6 +836,21 @@ failure condition, and provenance. The vocabulary is packaged code such as fill,
 wait-for-state, and assert-state. There is no eval, remote JavaScript, arbitrary fetch,
 or model-selected secret destination.
 
+A stored recipe is either a login recipe, with `slots`, `steps`, `maxSubmissions` and
+the optional route members, or an entry recipe
+([ADR 0031](adr/0031-sign-in-entry-pages.md#recipe-contract)) whose only member besides
+its identity, revision and origin is `entry`: the start path of a page without a login
+form and the control there that opens the site's login page, such as
+`{"path":"/en/","target":{"by":"text","value":"Login"}}` on pixiv's top page. `entry`
+is never beside a login route member, and the target is an `id`, `name`, `test-id` or
+`text` locator, never `autocomplete`; only an `<a href>` link is to be pressed, which a
+`text` target names by its text as an account switch's does. The service validates,
+stores, syncs and revokes both kinds, and the owner web UI lists both. The press is not
+implemented: the extension caches an entry recipe but never presses it, it starts no
+login and fills nothing, and its path does not count as one where a recipe starts on
+the device. Recipe generation never writes one; a generation or judgement request whose
+stored recipe is an entry recipe answers `recipe-conflict` without a model call.
+
 A generated recipe has no completion target until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
 reports `authenticated` with it only when the sign-in state of
@@ -1275,8 +1290,8 @@ field exclusions and custom-field review, which need the device's vault catalog
   - Account bindings: list and delete `bindings` entries. Deleting one makes that item
     fall back to the built-in-slot binding.
   - Recipes: list active and revoked recipes, show one recipe's steps, completion and
-    rejection targets and its JSON, and revoke it with a tombstone. A generated recipe
-    may have no completion yet (ADR 0018).
+    rejection targets, or an entry recipe's entry, and its JSON, and revoke it with a
+    tombstone. A generated recipe may have no completion yet (ADR 0018).
 
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI

@@ -638,6 +638,44 @@ describe("recipe sync", () => {
     expect(elsewhere.status).toBe(400);
   });
 
+  it("stores, syncs and revokes an entry recipe (ADR 0031), and refuses a mixed one", async () => {
+    const device = await enrollOwner();
+    const entry = {
+      version: 1,
+      id: "bank-entry",
+      revision: 1,
+      origin: "https://bank.example",
+      entry: { path: "/", target: { by: "text", value: "Login" } },
+    };
+    const written = await put(device, "/v1/recipes/bank-entry", {
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: entry,
+    });
+    expect(written.status).toBe(200);
+    expect(await (await api(device, "/v1/recipes")).json()).toMatchObject({
+      changes: [{ recipeId: "bank-entry", revision: 1, state: "active", recipe: entry }],
+    });
+    const { slots, steps, maxSubmissions } = recipe("bank-mixed", 1);
+    const mixed = await put(device, "/v1/recipes/bank-mixed", {
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: { ...entry, id: "bank-mixed", slots, steps, maxSubmissions },
+    });
+    expect(mixed.status).toBe(400);
+    const revoked = await put(device, "/v1/recipes/bank-entry", {
+      version: 1,
+      expectedRevision: 1,
+      state: "revoked",
+    });
+    expect(revoked.status).toBe(200);
+    expect(await (await api(device, "/v1/recipes")).json()).toMatchObject({
+      changes: [{ recipeId: "bank-entry", revision: 2, state: "revoked" }],
+    });
+  });
+
   it("rejects an invalid recipe identifier and unsupported methods", async () => {
     const device = await enrollOwner();
     const invalid = await put(device, "/v1/recipes/bad%20id", {

@@ -1,8 +1,11 @@
 import {
+  isLoginRouteRecipe,
   passwordVariants,
   recipeSlots,
+  type LoginEntryRecipe,
   type LoginRecipe,
   type ManageRecipe,
+  type StoredLoginRecipe,
 } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
@@ -38,7 +41,29 @@ function describeStep(step: Step): string {
   }
 }
 
-function RecipeDetails({ recipe }: { recipe: LoginRecipe }) {
+/** A recipe with only a sign-in entry (ADR 0031), which devices do not press yet. */
+function EntryDetails({ recipe }: { recipe: LoginEntryRecipe }) {
+  return (
+    <details className="space-y-2">
+      <summary className="cursor-pointer text-teal-800">
+        Entry and JSON<span className="sr-only"> for {recipe.id}</span>
+      </summary>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+        <dt className="font-medium">Sign-in entry</dt>
+        <dd>
+          Click {describeTarget(recipe.entry.target)} on {recipe.entry.path} to open the site's
+          login page. Devices do not click it yet.
+        </dd>
+      </dl>
+      <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-sm">
+        {JSON.stringify(recipe, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
+function RecipeDetails({ recipe }: { recipe: StoredLoginRecipe }) {
+  if (!isLoginRouteRecipe(recipe)) return <EntryDetails recipe={recipe} />;
   // A password route with several identifier sets lists each with its own steps (ADR 0027).
   const variants = passwordVariants(recipe);
   return (

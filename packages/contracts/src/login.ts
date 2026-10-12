@@ -501,6 +501,40 @@ export const loginRecipeSchema = v.pipe(
     );
   }, "Passkey target is a step, handler, completion, rejection or account switch target"),
 );
+/**
+ * A recipe whose only member is `entry` (ADR 0031): the start path of a page without a
+ * login form, and the control there that opens the site's login page, such as "Login" on
+ * a top page the site sent the visitor to before signing in. It has no slots, steps,
+ * submission budget or login route members, reads no vault field and never gains steps.
+ * Only an `<a href>` link is to be pressed, which a `text` target names by its rendered
+ * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
+ * locator, never `autocomplete`.
+ *
+ * Not implemented yet: devices cache and the service stores it, but nothing presses it,
+ * it starts no login and its path is not a path where a login recipe starts.
+ */
+export const loginEntryRecipeSchema = v.strictObject({
+  version: v.literal(1),
+  id: identifier,
+  revision,
+  origin: loginOriginSchema,
+  entry: v.strictObject({
+    path,
+    // A link or button locator; `autocomplete` names only inputs, which are never pressed.
+    target: v.variant("by", [
+      loginAttributeTargetSchema.options[0],
+      loginAttributeTargetSchema.options[1],
+      loginTextTargetSchema,
+    ]),
+  }),
+});
+/**
+ * Any recipe the service stores and devices sync: a recipe with a login route
+ * (`loginRecipeSchema`, which every login runs) or an entry recipe (ADR 0031). Strict
+ * objects keep the two apart, so `entry` is never beside `slots`, `steps` or another
+ * login route member.
+ */
+export const storedLoginRecipeSchema = v.union([loginRecipeSchema, loginEntryRecipeSchema]);
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
   connectionId: identifier,
@@ -572,6 +606,22 @@ export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
   return step.kind === "fill" ? step.effect : step.kind === "click" ? step.purpose : undefined;
 }
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
+export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
+export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
+/** Whether a stored recipe has a login route: its own `steps`. */
+export const isLoginRouteRecipe = (recipe: StoredLoginRecipe): recipe is LoginRecipe =>
+  "steps" in recipe;
+/**
+ * The path a stored recipe starts on: its entry's (ADR 0031) or its first step's. The
+ * service keeps one generated recipe per origin and start path either way. Each kind of
+ * stored recipe is named, so a new kind has to say where it starts.
+ */
+export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
+  if ("entry" in recipe) return recipe.entry.path;
+  if ("steps" in recipe) return recipe.steps[0]!.path;
+  const unknown: never = recipe;
+  throw new Error(`Unknown stored recipe kind: ${JSON.stringify(unknown)}`);
+}
 export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
 

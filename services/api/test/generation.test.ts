@@ -726,6 +726,82 @@ describe("recipe generation", () => {
     expect(sent).toEqual([]);
   });
 
+  it("never generates, continues or judges an entry recipe stored under the page's ID", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    // ADR 0031: a recipe whose only member is `entry`, written by a device for now.
+    const entry = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      entry: { path: "/login", target: { by: "text", value: "Login" } },
+    };
+    const stored = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 0, state: "active", recipe: entry },
+      "PUT",
+    );
+    expect(stored.status).toBe(200);
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    expect(await generate(device, emailPage)).toEqual(conflict);
+    expect(await generate(device, passwordPage, { recipeId, revision: 1 })).toEqual(conflict);
+    expect(await complete(device, recipeId, 1)).toEqual({ status: 200, body: conflict });
+    expect(sent).toEqual([]);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
+  it("generates a first page beside an entry recipe of another path, and after one is revoked", async () => {
+    const device = await owner();
+    const entryWrite = (id: string, path: string) => ({
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: {
+        version: 1,
+        id,
+        revision: 1,
+        origin: ORIGIN,
+        entry: { path, target: { by: "text", value: "Login" } },
+      },
+    });
+    const loginId = await generatedRecipeId(ORIGIN, "/login");
+    // The top page's entry recipe leaves the login page's own recipe to be generated.
+    const topId = await generatedRecipeId(ORIGIN, "/");
+    expect((await post(device, `/v1/recipes/${topId}`, entryWrite(topId, "/"), "PUT")).status).toBe(
+      200,
+    );
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: loginId, revision: 1 },
+    });
+    expect(sent).toHaveLength(1);
+
+    // A revoked entry recipe is generated again from its page as the revision after its
+    // tombstone, as any revoked recipe is.
+    const other = await owner();
+    expect(
+      (await post(other, `/v1/recipes/${loginId}`, entryWrite(loginId, "/login"), "PUT")).status,
+    ).toBe(200);
+    const revoked = await post(
+      other,
+      `/v1/recipes/${loginId}`,
+      { version: 1, expectedRevision: 1, state: "revoked" },
+      "PUT",
+    );
+    expect(revoked.status).toBe(200);
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(other, emailPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: loginId, revision: 3, recipe: { revision: 3, slots: ["email"] } },
+    });
+    expect(sent).toHaveLength(2);
+  });
+
   it("refuses an incomplete page without recording an attempt", async () => {
     const device = await owner();
     expect(await generate(device, { ...emailPage, complete: false })).toEqual({
