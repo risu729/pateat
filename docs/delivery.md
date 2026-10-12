@@ -28,10 +28,10 @@ average (3m19s to 5m28s) and 11 successful main runs 4m44s (3m28s to 8m00s); the
 ones overlapped other runs. Every run is 9 jobs (`Changes`, `Verify`, six `Browser`
 shards, `CI Check`), or 3 for a documentation-only PR (`Changes`, `Verify`, `CI Check`).
 The owner decided on 2026-10-12 that CI runs no Windows job at all: the tests drive
-Playwright's Chromium, not the owner's Chrome, no code branches on the platform, and no
-Pateat defect was ever found only on Windows (the Windows failures seen were a local
-missing SideBySide assembly, system-drive I/O stalls, a 30 s timeout of unknown cause
-and a bun install `EBUSY`). Installed-Chrome behaviour on Windows is covered by the
+Playwright's Chromium, not the owner's Chrome, no extension code branches on the
+platform, and no Pateat defect was ever found only on Windows (the Windows failures seen
+were a local missing SideBySide assembly, system-drive I/O stalls and a 30 s timeout of
+unknown cause). Installed-Chrome behaviour on Windows is covered by the
 real-Chrome checks, not by CI. `CI Check` requires `Changes` and `Verify` to succeed and
 `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
 documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no

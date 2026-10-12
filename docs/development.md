@@ -236,8 +236,9 @@ local host on 2026-10-10 hit a missing SideBySide assembly ("side-by-side config
 is incorrect") before the downloaded Chromium launched; a clean `windows-2025` runner on
 2026-10-11 launched it and passed all 92 packaged-extension tests (see the
 [foundation progress](plan.md#foundation-progress)). If browser tests time out on a slow
-local Windows disk, point `TEMP` and `TMP` at a faster drive: profiles in the default
-temp directory on the system drive hit 5-25 s I/O stalls that timed out random tests.
+local Windows disk, point `TEMP` and `TMP` at a faster drive: on GitHub's `windows-2025`
+runners in 2026-10, profiles in the default temp directory on the system drive hit
+5-25 s I/O stalls that timed out random tests.
 
 ### Installed Chrome synthetic login probe
 
