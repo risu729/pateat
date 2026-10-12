@@ -57,8 +57,7 @@ Chrome, on a production build of main.
     [#234](https://github.com/risu729/pateat/pull/234)).
   - Choosing again after a logout on the password side
     ([#210](https://github.com/risu729/pateat/pull/210)).
-  - The passkey chooser staying open across a settings sync, and closing with no other
-    prompt when its wait runs out
+  - The passkey chooser staying open across a settings sync
     ([#232](https://github.com/risu729/pateat/pull/232)); see
     [passkey progress](#passkey-progress).
   - Changing a site's exclusion or default in the toolbar popup.
@@ -1088,10 +1087,12 @@ site default:
   designed (`b4c2ec1`, 02:12 UTC): outcome `delegate`, reason `chooser-closed`, chooser
   `closed`. Bitwarden's window and then Windows Security appeared, and cancelling them
   ended in pixiv's own error.
-- Leaving the window unanswered (production build `57efbb0`, 18:31 UTC): pixiv showed
-  its own error, "Failed to log in with passkey. Please use a different method to log
-  in.", about 2 minutes after the click, which matches the 2-minute limit. Whether the
-  window closed with no other prompt appearing, and the log entry, were not recorded.
+- Leaving the window unanswered (`b4c2ec1`, 02:35 UTC): exactly 2 minutes after the
+  click, the window closed by itself with no Bitwarden or Windows prompt, and pixiv
+  showed its own error, "Failed to log in with passkey. Please use a different method to
+  log in." The log shows outcome `not-allowed`, chooser `timeout`. The origin had a
+  site default by then, and the window still opened because of `signedBefore`: Pateat
+  had signed in from that tab before (ADR 0021 part D).
 
 ## AI evaluation harness progress
 
