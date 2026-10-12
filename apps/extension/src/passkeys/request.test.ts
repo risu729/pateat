@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { toBase64Url } from "./encoding";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
-import { admitGetRequest, describeInvalidRequest } from "./request";
+import { MAX_ALLOW_CREDENTIALS, admitGetRequest, describeInvalidRequest } from "./request";
 import { effectiveDomain, resolveRpId } from "./rp-id";
 import { selectPasskey } from "./select";
+import { MAX_REQUEST_CHARACTERS } from "./wire";
 
 describe("RP ID admission", () => {
   // HTML "is a registrable domain suffix of or is equal to" examples, with WebAuthn's extra
@@ -188,7 +190,11 @@ describe("request admission", () => {
 
   it("claims at the WebAuthn size limits and with any internal-capable descriptor", () => {
     const encode = (length: number) => btoa("x".repeat(length)).replace(/=+$/u, "");
-    expect(admit({ ...base, challenge: encode(1024) }).kind).toBe("claim");
+    // WebAuthn sets no upper bound on a challenge; Pateat's is the page's copy limit.
+    expect(admit({ ...base, challenge: encode(4096) })).toMatchObject({
+      kind: "claim",
+      request: { challenge: expect.objectContaining({ length: 4096 }) },
+    });
     expect(
       admit({ ...base, allowCredentials: [{ type: "public-key", id: encode(1023) }] }).kind,
     ).toBe("claim");
@@ -210,6 +216,49 @@ describe("request admission", () => {
     ).toMatchObject({ kind: "claim", request: { allowCredentialIds: ["AQID", "AQIE"] } });
   });
 
+  it("claims Google's 2,056-byte challenge", () => {
+    // Google's sign-in asked with this size on 2026-10-12, over the first bound of 1,024 bytes.
+    const google = Uint8Array.from({ length: 2056 }, (_, index) => index % 256);
+    const request = { ...base, challenge: toBase64Url(google), rpId: "google.com" };
+    expect(admit(request, true, "https://accounts.google.com")).toMatchObject({
+      kind: "claim",
+      request: { rpId: "google.com", challenge: google },
+    });
+    expect(describeInvalidRequest(request)).toBeUndefined();
+  });
+
+  it("keeps a maximal claimed snapshot within the relay's bound", () => {
+    const encode = (length: number) => btoa("x".repeat(length)).replace(/=+$/u, "");
+    // The longest host name: 253 characters in labels of at most 63.
+    const host = `${["a", "b", "c"].map((label) => label.repeat(63)).join(".")}.${"d".repeat(53)}.example`;
+    expect(host).toHaveLength(253);
+    // Registered transports, the longest of which is `smart-card`.
+    const transports = [...Array.from({ length: 15 }, () => "smart-card"), "internal"];
+    const snapshot = {
+      challenge: encode(4096),
+      rpId: host,
+      allowCredentials: Array.from({ length: MAX_ALLOW_CREDENTIALS }, () => ({
+        type: "public-key",
+        id: encode(1023),
+        transports,
+      })),
+      userVerification: "discouraged",
+      mediation: "conditional",
+      timeout: 0xff_ff_ff_ff,
+    };
+    expect(
+      admitGetRequest({
+        origin: `https://${host}:65535`,
+        request: snapshot,
+        userActivation: false,
+        policy: INITIAL_PASSKEY_POLICY,
+        conditional: true,
+      }),
+    ).toMatchObject({ kind: "claim", request: { rpId: host } });
+    // About 110,000 characters, under the 131,072 the relay passes on.
+    expect(JSON.stringify(snapshot).length).toBeLessThanOrEqual(MAX_REQUEST_CHARACTERS);
+  });
+
   it.each([
     ["conditional mediation", { ...base, mediation: "conditional" }, true, "unsupported-mediation"],
     ["silent mediation", { ...base, mediation: "silent" }, true, "unsupported-mediation"],
@@ -219,10 +268,10 @@ describe("request admission", () => {
     ["public-suffix RP ID", { ...base, rpId: "com" }, true, "rp-id-mismatch"],
     ["short challenge", { ...base, challenge: "AAECAwQFBgcICQoLDA0O" }, true, "invalid-request"],
     ["padded challenge", { ...base, challenge: `${challenge}==` }, true, "invalid-request"],
-    ["oversized challenge", { ...base, challenge: "A".repeat(1400) }, true, "invalid-request"],
+    ["oversized challenge", { ...base, challenge: "A".repeat(6000) }, true, "invalid-request"],
     [
-      "a challenge just over 1024 bytes",
-      { ...base, challenge: btoa("x".repeat(1025)).replace(/=+$/u, "") },
+      "a challenge just over 4096 bytes",
+      { ...base, challenge: btoa("x".repeat(4097)).replace(/=+$/u, "") },
       true,
       "invalid-request",
     ],
@@ -388,13 +437,13 @@ describe("invalid request description", () => {
   it.each([
     [
       "an oversized challenge",
-      { ...base, challenge: encode(1025) },
-      { member: "challenge", length: 1025 },
+      { ...base, challenge: encode(4097) },
+      { member: "challenge", length: 4097 },
     ],
     [
       "a challenge far over its bound",
-      { ...base, challenge: "A".repeat(1400) },
-      { member: "challenge", length: 1050 },
+      { ...base, challenge: "A".repeat(6000) },
+      { member: "challenge", length: 4500 },
     ],
     [
       "a short challenge",
@@ -485,7 +534,7 @@ describe("invalid request description", () => {
       base,
       { ...base, rpId: "example.com", mediation: "optional", timeout: 60_000 },
       { ...base, allowCredentials: [descriptor, { type: "future-type", id: "BAUG" }] },
-      { ...base, challenge: encode(1024), allowCredentials: [{ ...descriptor, id: encode(1023) }] },
+      { ...base, challenge: encode(4096), allowCredentials: [{ ...descriptor, id: encode(1023) }] },
     ]) {
       expect(admit(request).kind).toBe("claim");
       expect(describeInvalidRequest(request)).toBeUndefined();
@@ -497,7 +546,7 @@ describe("invalid request description", () => {
   });
 
   it("never includes the member's value", () => {
-    const secret = encode(1025);
+    const secret = encode(4097);
     expect(JSON.stringify(describeInvalidRequest({ ...base, challenge: secret }))).not.toContain(
       secret.slice(0, 16),
     );

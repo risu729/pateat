@@ -401,7 +401,7 @@ describe("passkey runtime reports", () => {
   it("reports which member of an invalid request broke its bounds, without its value", async () => {
     const report = vi.fn();
     const runtime = createPasskeyRuntime(source(), { extensionId, report });
-    const oversized = btoa("x".repeat(1025)).replace(/=+$/u, "");
+    const oversized = btoa("x".repeat(4097)).replace(/=+$/u, "");
     expect(
       await runtime.handle({ ...get(), request: { ...request, challenge: oversized } }, sender()),
     ).toEqual({ kind: "delegate", reason: "invalid-request" });
@@ -412,7 +412,7 @@ describe("passkey runtime reports", () => {
         outcome: "delegate",
         reason: "invalid-request",
         invalid: "challenge",
-        invalidLength: 1025,
+        invalidLength: 4097,
       }),
     );
     expect(JSON.stringify(report.mock.calls)).not.toContain(oversized.slice(0, 16));

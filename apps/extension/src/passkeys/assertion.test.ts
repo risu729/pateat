@@ -1,9 +1,13 @@
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { createPasskeyAssertion } from "./assertion";
 import { buildAssertionAuthenticatorData } from "./authenticator-data";
 import { serializeGetClientData } from "./client-data";
 import { fromBase64Url, sha256, toBase64Url } from "./encoding";
+import { INITIAL_PASSKEY_POLICY } from "./policy";
+import { admitGetRequest } from "./request";
 import { derToP1363, importAssertionKey, p1363ToDer, signAssertion } from "./signature";
+import { assertionSchema } from "./wire";
 import { es256Vector as vector, hex, toHex } from "./__fixtures__/webauthn";
 
 const jwkBase = {
@@ -190,6 +194,48 @@ describe("client data escaping", () => {
       '{"type":"webauthn.get","challenge":"AAAAAAAAAAAAAAAAAAAAAA","origin":"https://a\\"\\\\\\u0001","crossOrigin":false}',
     );
     expect(JSON.parse(text)).toMatchObject({ origin: 'https://a"\\\u0001' });
+  });
+});
+
+describe("client data size bound", () => {
+  it("fits the largest admitted challenge and origin in the reply's client data", async () => {
+    // The longest host name: 253 characters in labels of at most 63, with the longest port.
+    const host = `${["a", "b", "c"].map((label) => label.repeat(63)).join(".")}.${"d".repeat(53)}.example`;
+    expect(host).toHaveLength(253);
+    const origin = `https://${host}:65535`;
+    const challenge = crypto.getRandomValues(new Uint8Array(4096));
+    const admission = admitGetRequest({
+      origin,
+      request: { challenge: toBase64Url(challenge), allowCredentials: [] },
+      userActivation: true,
+      policy: INITIAL_PASSKEY_POLICY,
+    });
+    if (admission.kind !== "claim") throw new Error(`Delegated: ${admission.reason}`);
+    expect(admission.request).toMatchObject({ origin, rpId: host, challenge });
+    const key = await importAssertionKey(await privatePkcs8());
+    const assertion = await createPasskeyAssertion(
+      admission.request,
+      {
+        credentialId: toBase64Url(new Uint8Array(1023).fill(1)),
+        rpId: host,
+        userHandle: toBase64Url(new Uint8Array(64).fill(2)),
+        discoverable: true,
+        counter: 0,
+      },
+      (authenticatorData, clientDataHash) => signAssertion(key, authenticatorData, clientDataHash),
+    );
+    expect(v.safeParse(assertionSchema, assertion).success).toBe(true);
+    // 5,799 bytes, 7,732 characters of base64url against the reply's 8,192.
+    expect(assertion.clientDataJSON).toHaveLength(7732);
+    const clientData = JSON.parse(
+      new TextDecoder().decode(fromBase64Url(assertion.clientDataJSON)),
+    );
+    expect(clientData).toEqual({
+      type: "webauthn.get",
+      challenge: toBase64Url(challenge),
+      origin,
+      crossOrigin: false,
+    });
   });
 });
 
