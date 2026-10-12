@@ -108,7 +108,11 @@ function observedText(raw: string | null | undefined): string | undefined {
   // they cannot split a digit run.
   let text = collapseText(raw);
   for (const [pattern, replacement] of redactions) text = text.replace(pattern, replacement);
-  text = text.replace(/\s+/gu, " ").trim();
+  return bounded(text.replace(/\s+/gu, " ").trim());
+}
+
+/** At most 120 UTF-16 code units, without splitting a surrogate pair. */
+function bounded(text: string): string | undefined {
   if (text.length > maxText) {
     text = text.slice(0, maxText);
     if (/[\uD800-\uDBFF]$/u.test(text)) text = text.slice(0, -1);
@@ -116,6 +120,14 @@ function observedText(raw: string | null | undefined): string | undefined {
   }
   return text || undefined;
 }
+
+/**
+ * Observed text of a signed-in page with every run of digits, in any script, replaced
+ * by `[number]` (owner decision, 2026-10-12): such a page can show balances and points
+ * in any form, and judging whether it is signed in needs none of them.
+ */
+const withoutDigits = (text: string) =>
+  bounded(text.replace(/\p{Decimal_Number}+/gu, "[number]")) ?? text;
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
@@ -705,7 +717,12 @@ export function extractLoginObservation(
 type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget };
 
 /** Numbers the chosen elements in document order and adds the page's title and headings. */
-function observe(document: Document, chosen: Chosen[], complete: boolean): ObservationResult {
+function observe(
+  document: Document,
+  chosen: Chosen[],
+  complete: boolean,
+  hide: (text: string) => string = (text) => text,
+): ObservationResult {
   const location = document.location!;
   chosen.sort((left, right) =>
     left.draft.element.compareDocumentPosition(right.draft.element) &
@@ -720,17 +737,21 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
     return {
       id: `c${at + 1}`,
       ...rest,
+      ...(rest.label ? { label: hide(rest.label) } : {}),
+      ...(rest.placeholder ? { placeholder: hide(rest.placeholder) } : {}),
+      ...(rest.description ? { description: hide(rest.description) } : {}),
       target,
       ...(form ? { group: groups.get(form)! } : {}),
     } satisfies ObservedCandidate;
   });
 
-  const title = observedText(document.title);
+  const pageTitle = observedText(document.title);
+  const title = pageTitle && hide(pageTitle);
   const headings = [
     ...new Set(
       [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) => {
         const text = visibleText(heading);
-        return text ? [text] : [];
+        return text ? [hide(text)] : [];
       }),
     ),
   ].slice(0, maxHeadings);
@@ -846,6 +867,6 @@ export function extractSignedInObservation(
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
-  const result = observe(document, chosen, gap === undefined);
+  const result = observe(document, chosen, gap === undefined, withoutDigits);
   return result.ok && gap ? { ...result, gap } : result;
 }

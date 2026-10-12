@@ -1053,6 +1053,28 @@ describe("extractSignedInObservation", () => {
     ]);
   });
 
+  it("hides every number in a signed-in page's text, whatever its length", () => {
+    page(
+      `<header><a id="points" href="/points">保有ポイント 1,234pt</a>
+        <a id="miles" href="/miles">850 ポイント</a>
+        <button id="inbox" type="button" aria-label="Inbox ٣ new">✉</button></header>
+      <h1>Balance 12.50</h1>
+      <form><input id="note" type="text" aria-label="Step 2" placeholder="e.g. 7"></form>`,
+      "Account 3",
+    );
+    const observation = signedIn();
+    expect(observation).toMatchObject({
+      title: "Account [number]",
+      headings: ["Balance [number].[number]"],
+    });
+    expect(observation.candidates.map(({ label, placeholder }) => [label, placeholder])).toEqual([
+      ["保有ポイント [number],[number]pt", undefined],
+      ["[number] ポイント", undefined],
+      ["Inbox [number] new", undefined],
+      ["Step [number]", "e.g. [number]"],
+    ]);
+  });
+
   it("never locates by an id or name that carries an email address or a long number", () => {
     page(
       `<a id="acct-0123456789" href="/a">Account</a>

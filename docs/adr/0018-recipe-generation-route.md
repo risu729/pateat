@@ -136,7 +136,8 @@ apart from other failures; they are implementation choices, not owner decisions:
 
 The service and Anthropic see, once per new recipe, the page shown right after the
 first sign-in. That page can carry the owner's name or balances in its title and
-headings, within the extractor's label redaction (`[email]`, `[masked]`, `[number]`).
+headings, within the extractor's label redaction (`[email]`, `[masked]`, and
+`[number]` for every run of digits on that page, as the owner chose on 2026-10-12).
 A new site costs about two Claude calls, roughly $0.015. A post-login page the extractor
 cannot describe completely is not sent, and that attempt ends `unknown`; the next run
 tries again.
