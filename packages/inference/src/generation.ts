@@ -4,12 +4,18 @@ import type { LanguageModel } from "ai";
 import * as v from "valibot";
 import {
   noUsage,
+  promptVersionOf,
   requestBytes,
   roleLimitsSchema,
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
-import { MAX_PAGE_ALTERNATIVES, validateGeneratedPage, type ValidatedGeneratedPage } from "./plan";
+import {
+  MAX_PAGE_ALTERNATIVES,
+  redactGeneratedPage,
+  validateGeneratedPage,
+  type ValidatedGeneratedPage,
+} from "./plan";
 import { described, runStructuredRole, type Interpreted } from "./structured";
 
 const reference = v.pipe(v.string(), v.maxLength(64));
@@ -104,6 +110,9 @@ export const generationInstructions = [
   "them. Abstain rather than guess.",
 ].join(" ");
 
+/** The generation role's prompt version (`promptVersion`), for the request log. */
+export const generationPromptVersion = promptVersionOf(generationInstructions, outputSchemaJson);
+
 export type GenerationRequest = {
   observation: unknown;
   slots: unknown;
@@ -170,7 +179,12 @@ export function createRecipeGenerator(config: {
         const validated = validateGeneratedPage(observation.output, slots.output, draft);
         return validated.ok
           ? { status: "ok", value: validated.plan }
-          : { status: "failed", error: "invalid-output", detail: validated.reason };
+          : {
+              status: "failed",
+              error: "invalid-output",
+              detail: validated.reason,
+              output: { result: redactGeneratedPage(observation.output, slots.output, draft) },
+            };
       },
     });
   };

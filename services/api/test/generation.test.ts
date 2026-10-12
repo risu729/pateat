@@ -6,6 +6,7 @@ import type {
   SemanticSlot,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
+import { completionPromptVersion, generationPromptVersion } from "@pateat/inference";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
@@ -409,6 +410,111 @@ describe("recipe generation", () => {
         device.ownerId,
       ),
     ).toEqual([{ outcome: "provider-error", input_tokens: null }]);
+  });
+
+  it("names the check that refused the output and logs the refused plan by reference", async () => {
+    const device = await owner();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    // A password for an input the page marks `new-password`: the plan check refuses it.
+    const page = observation("/login", [
+      element("email", "email", "Email"),
+      { ...element("password", "password", "Password"), autocomplete: "new-password" },
+      element("sign-in", "button", "Sign in"),
+    ]);
+    const refused = JSON.stringify({
+      result: {
+        decision: "plan",
+        fields: [
+          { slot: "email", candidate: "email" },
+          { slot: "password", candidate: "password" },
+        ],
+        action: { candidate: "Sign in", purpose: "submit" },
+      },
+    });
+    replies.push({ text: refused, usage: { input_tokens: 2_900, output_tokens: 78 } });
+    expect(await generate(device, page)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason: "incompatible-role" },
+    });
+    // Output the format refuses: only the issue and where it was, never the text.
+    const other = await owner();
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "email", candidate: "email" }],
+          action: { candidate: "sign-in", purpose: "Sign in now" },
+        },
+      }),
+    });
+    expect(await generate(other, emailPage)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "schema", issue: "picklist", path: "result.action.purpose" },
+    });
+    const third = await owner();
+    replies.push({ text: "Sign in with the email field." });
+    expect(await generate(third, emailPage)).toMatchObject({ rejection: { check: "json" } });
+
+    const version = await generationPromptVersion();
+    const logged = (
+      await Promise.all(
+        [device, other, third].map((each) =>
+          rows(
+            "SELECT outcome, prompt_version, input_tokens, output_tokens, result FROM inference_log WHERE owner_id = ?",
+            each.ownerId,
+          ),
+        ),
+      )
+    ).flat();
+    expect(logged.map((row) => ({ ...row, result: JSON.parse(String(row.result)) }))).toEqual([
+      {
+        outcome: "invalid-output",
+        prompt_version: version,
+        input_tokens: 2_900,
+        output_tokens: 78,
+        result: {
+          rejection: { check: "plan", reason: "incompatible-role" },
+          // The action's text is not a candidate of the page, so it is not kept.
+          output: {
+            result: {
+              fields: [
+                { slot: "email", candidate: "email" },
+                { slot: "password", candidate: "password" },
+              ],
+              action: { candidate: "?", purpose: "submit" },
+            },
+          },
+        },
+      },
+      {
+        outcome: "invalid-output",
+        prompt_version: version,
+        input_tokens: 3_000,
+        output_tokens: 900,
+        result: {
+          rejection: { check: "schema", issue: "picklist", path: "result.action.purpose" },
+        },
+      },
+      {
+        outcome: "invalid-output",
+        prompt_version: version,
+        input_tokens: 3_000,
+        output_tokens: 900,
+        result: { rejection: { check: "json" } },
+      },
+    ]);
+    expect(JSON.stringify(logged.map((row) => row.result))).not.toMatch(/Sign in/u);
+    expect(info).toHaveBeenCalledWith("Model output refused", {
+      role: "generate",
+      promptVersion: version,
+      rejection: { check: "plan", reason: "incompatible-role" },
+    });
+    expect(JSON.stringify(info.mock.calls)).not.toMatch(/Sign in/u);
+    info.mockRestore();
   });
 
   it("deletes log rows older than 90 days when it logs a call", async () => {
@@ -1120,6 +1226,44 @@ describe("completion judgement", () => {
     expect(head).toEqual({ revision: 2 });
   });
 
+  it("logs which check refused a judgement's output, as codes only", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    // A code source outside the list: the output format refuses it.
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "challenge",
+          code: { field: "logout", submit: "help", source: "Text message to your phone" },
+        },
+      }),
+    });
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+    });
+    const [logged] = await rows(
+      "SELECT outcome, prompt_version, result FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      device.ownerId,
+    );
+    expect({ ...logged, result: JSON.parse(String(logged!.result)) }).toEqual({
+      outcome: "invalid-output",
+      prompt_version: await completionPromptVersion(),
+      result: {
+        rejection: { check: "schema", issue: "picklist", path: "result.code.source" },
+      },
+    });
+    expect(String(logged!.result)).not.toMatch(/phone/u);
+    expect(info).toHaveBeenCalledWith("Model output refused", {
+      role: "judge",
+      promptVersion: await completionPromptVersion(),
+      rejection: { check: "schema", issue: "picklist", path: "result.code.source" },
+    });
+    info.mockRestore();
+  });
+
   it("does not judge a page that shows the login form again", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
@@ -1239,15 +1383,17 @@ describe("page judgement (ADR 0027)", () => {
       observation: homePage,
     });
     expect(await response.json()).toEqual({ version: 1, status: "rejected" });
-    // The logged request names the route.
+    // The logged request names the route, and the row the judge's prompt version.
     const [logged] = await rows(
-      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      "SELECT request, prompt_version FROM inference_log WHERE owner_id = ? AND role = 'judge'",
       device.ownerId,
     );
     expect(JSON.parse(String(logged!.request))).toMatchObject({
       route: "password",
       loginPaths: ["/login", "/password"],
     });
+    expect(logged!["prompt_version"]).toBe(await completionPromptVersion());
+    expect(logged!["prompt_version"]).not.toBe(await generationPromptVersion());
   });
 
   it("judges the page after an advance whose next step never appeared", async () => {
@@ -1862,6 +2008,7 @@ describe("password route variants (ADR 0027)", () => {
       version: 1,
       status: "failed",
       error: "invalid-output",
+      rejection: { check: "plan", reason: "variant-advance" },
     });
     const other = await owner();
     replies.push({

@@ -151,7 +151,14 @@ export const LOG_EVENTS = {
   },
   "recipe.generate": {
     level: "info",
-    fields: { origin: "origin", outcome: "code", reason: "code" },
+    fields: {
+      origin: "origin",
+      outcome: "code",
+      reason: "code",
+      check: "code",
+      detail: "code",
+      path: "code",
+    },
   },
   "recipe.judge": {
     level: "info",

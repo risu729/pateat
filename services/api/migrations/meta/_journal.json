@@ -71,6 +71,13 @@
       "when": 1791727741935,
       "tag": "0009_page_judgements",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791780865059,
+      "tag": "0010_inference_log_prompt_version",
+      "breakpoints": true
     }
   ]
 }
