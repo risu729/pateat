@@ -1,12 +1,13 @@
 # ADR 0018: Service recipe generation route
 
-Status: accepted by the owner on 2026-10-11. Amends
+Status: accepted by the owner on 2026-10-11; implemented. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (which pages are observed) and settles
 the retention left open by [ADR 0012](0012-inference-request-log.md). The service
 routes are implemented ([API README](../../services/api/README.md#recipe-generation)).
-The extension sends a recipe's first page and a page that an effect step leads to and
-no check explains; continuing a recipe on the page after an `advance` step is not
-implemented yet.
+The extension sends a recipe's first page, a page that an effect step leads to and no
+check explains, and the page after a recipe's final `advance` step, which continues the
+recipe in the running login
+([Continuing after an advance](#continuing-after-an-advance)).
 Its one generated recipe per origin is amended to one per start path by
 [ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts), which the
 service and the extension implement.
@@ -170,6 +171,89 @@ apart from other failures; they are implementation choices, not owner decisions:
   extension logs the check and its codes with `recipe.generate`.
 - Each request log row records the role's prompt version, a short hash of its
   instructions and response format, so a row shows which instructions produced it.
+
+### Continuing after an advance
+
+Implementation choices for the page after a recipe's final `advance` step, made on
+2026-10-12 without a new owner decision:
+
+- **Which logins.** Only a login on the `password` route and the recipe's own steps (its
+  first variant), in the tab's own page rather than a frame, whose recipe has no
+  `completion` and no `alternatives`, and only once the step in flight is the recipe's
+  last step, an `advance`. A recipe with a completion has already reached a signed-in
+  page; its later pages are judged as before
+  ([ADR 0027](0027-per-account-login-routes.md)).
+- **Which page.** The page qualifies once it has finished loading
+  (`document.readyState` is `complete`) and has shown, on one path for a second within
+  the advance's 10-second wait, a sign-in input for a built-in slot the recipe does not
+  fill yet that is not one of the recipe's own fields:
+  - a visible writable password input, while the recipe fills no `password`. It
+    qualifies even beside the identifier field the recipe filled, still writable, as a
+    form that reveals its password input below the email field on the same path;
+  - a visible writable email input or one marked `username` or `email`, while the recipe
+    fills no `username` and none of the recipe's fill fields is writable on the page, on
+    any path. So the identifier form shown again where it posted (an unknown account, a
+    captcha) and a signed-in page with an unrelated email box are judged instead.
+
+  An input marked `new-password` or `one-time-code`, and every input of a form that
+  holds one, never counts: a sign-up, password change or code form is not continued, and
+  a code page is judged, which may add a `totp` handler (ADR 0027). Any other page is
+  judged as before. The email input and the `email` token widen ADR 0016's third input
+  condition for this page only, since email-first sign-in pages often mark their field
+  only as an email address.
+- **One request per step.** The page is described by `extractLoginObservation` and sent
+  only when the description is complete, on the login's origin and on the path that
+  qualified. The login's own vault item must still match the page, as for a first page;
+  a vault or tab that cannot answer for a moment is asked again on the next round. The
+  request offers only the slots the recipe does not fill yet, and both the extension and
+  the service refuse a page whose steps fill one of the recipe's slots again, before
+  anything is stored. A read-only or disabled field that the recipe already fills on
+  that path, such as an identifier the page shows again, is left out instead of making
+  the description incomplete. The request is recorded in the attempt before it is sent,
+  so a worker restart cannot send that step's page again. The request is given back
+  for a later document of the tab by the generation claim's own rule
+  ([ADR 0016](0016-recipe-generation-trigger.md)): when its claim is freed because the
+  request did not reach the model, or it was not sent because no service is paired,
+  storage could not be written or the same request is still `sending`. The same
+  document does not send it again. A qualifying
+  page whose request is spent or whose answer cannot be used settles `unknown` without a
+  judge call: it still asks for credentials, so the judge could not learn anything from
+  it.
+- **Recipes-only refresh.** A returned revision is pulled with recipes only, as after a
+  judgement, so a settings change from the service does not stop the login that asked
+  for it.
+- **Taking over.** "Use: immediately" applies to a continuation too, as the owner
+  decided at 04:11 UTC on 2026-10-12
+  ([ADR 0027](0027-per-account-login-routes.md), First login after an advance): the
+  running login takes the new revision over when it keeps every step, slot, handler and
+  setting of the revision the login ran and only appends steps (`continuesRecipe` in
+  `packages/contracts`), and when a dry run of the login's recorded route on it still
+  resolves to the login's own account. The steps already run do not run again. The step
+  and submission budget grows by the appended steps and effects: at most 32 steps and 8
+  effects per recipe, and at most 40 steps and 12 submissions per login. The account
+  choice saved after `authenticated` is derived from the new revision, so it covers both
+  pages' slots; a saved choice that cannot fill the new page's slots stops the takeover.
+  A revision that is not taken over stays cached for the next visit, and this login
+  settles `unknown`.
+- **New documents and restarts.** A form that posts back during the request makes a new
+  document; the login there keeps the revision it ran and takes the continuation over
+  once it reaches the recipe cache, or once the answer the earlier document asked for
+  arrives: the extension keeps that request in memory and the new document waits for it
+  for up to 100 seconds, past the step's 10 seconds. An answer that gives the request back
+  lets the new document send it. A login resumed after a worker restart
+  does not send the page again and settles `unknown` on it unless the cache already
+  holds the continuation.
+- **Limitations.** A page that shows the password and a one-time-code input in separate
+  forms may put `totp` into the recipe's steps rather than a handler; in one form it is
+  not continued. A continuation on another origin is not supported: the login ends
+  `left-origin`. When a worker restart lost the answer and the cache already holds the
+  continued revision, a later document of that login answers `recipe-not-found`. A
+  recipe whose first page fills no `username` can still be continued on a later page
+  with an unrelated email box. On a form that reveals its password input below the email
+  field, a later login continues after Next only when the password input was missing,
+  hidden or disabled before Next
+  ([ADR 0013](0013-service-held-recipes-and-settings.md)'s same-path rule); one that was
+  already usable leaves the login `unknown` after Next.
 
 ## Consequences
 

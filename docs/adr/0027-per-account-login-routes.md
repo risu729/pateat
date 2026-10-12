@@ -184,6 +184,11 @@ These rules work from any account, in any order.
   only when its routes and route steps are unchanged and it only adds handlers or a
   completion; any other revision still makes a resumed login answer
   `recipe-not-found`.
+- **First login after an advance** (owner, 04:11 UTC 2026-10-12): a running login also
+  takes over a revision that appends route steps continuing its final `advance` step,
+  the continuation of
+  [ADR 0018](0018-recipe-generation-route.md#continuing-after-an-advance), which is used
+  immediately; only for that case.
 
 ### What the model receives
 

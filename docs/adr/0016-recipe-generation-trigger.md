@@ -91,7 +91,12 @@ new owner decision:
   counts a request as an attempt once it reached the model. This replaced the earlier
   claim on 2026-10-12, without a new owner decision, after Moppy and LinkedIn stayed
   claimed for a day by a send that never reached the model; claims in the earlier record
-  shape are dropped.
+  shape are dropped. A page that continues a recipe after an `advance` step is claimed
+  under its origin, path and the recipe revision it continues, as on the service; when
+  its claim is freed, or it was not sent because no service is paired, storage could not
+  be written or the same request is still `sending`, the login gives its request back
+  for a later document to send
+  ([ADR 0018](0018-recipe-generation-route.md#continuing-after-an-advance)).
 - Each page offered for generation is logged as `recipe.generate` with its outcome
   (`recipe`, `abstained`, `failed`, `unavailable` or `skipped`) and reason, including a
   page not sent because it is `sending` or `sent`, once per document
