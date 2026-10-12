@@ -1632,10 +1632,11 @@ its label), then `title`; image `alt` names buttons, including `<input type="ima
 text, email, tel, number or password field also gets a `description`: the rendered text
 of the elements its `aria-describedby` names, such as `半角数字3桁` under a branch
 number field, left out when it equals the label. Error messages can echo what the user
-typed, so a field marked `aria-invalid="true"` gets no description, and an element the
-field's `aria-errormessage` names or one inside an alert, status or live region never
-counts. It reaches the generation,
-finite-choice and completion roles as untrusted page text, like labels. The owner chose
+typed, so a field marked `aria-invalid="true"` gets no description, and neither an
+element the field's `aria-errormessage` names nor the text of an alert, status or other
+live region, around the description or inside it, ever counts. An error message with
+none of these marks is still read. The description reaches the generation, finite-choice
+and completion roles as untrusted page text, like labels. The owner chose
 on 2026-10-12 to add only this now and to consider the rest only if field or button
 mapping gets worse on real pages. Not observed today: text after a field that no
 `aria-describedby` names (a hint printed under an input), a second label source once one
