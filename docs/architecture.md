@@ -975,38 +975,37 @@ Bound the full input, including candidate/question text, and reject incomplete
 observations instead of relying on provider truncation.
 
 Extract an allowlisted observation before filling. The proposed observation contract
-lives in `packages/contracts` and the offline role adapters in `packages/inference`;
-see [AI evaluation harness progress](plan.md#ai-evaluation-harness-progress).
-Exclude values, hidden inputs,
-raw HTML, screenshots, query strings, and unrelated page text by default. A page whose
-path may carry a session ID or another token is not observed, so such a path never
-reaches the service or its request log
-([AI evaluation harness progress](plan.md#ai-evaluation-harness-progress)). Labels
-can contain private data too: sanitize and bound them, with privacy fixtures and
-an abstention path when a useful safe observation cannot be constructed. The owner
-chose on 2026-10-11 to redact observed text before it is sent: email-like strings,
-including masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊`
-become `[masked]`; and runs of four or more ASCII or fullwidth digits become
-`[number]` (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be
-detected and stay. On the page shown after sign-in, which the completion judge
-observes, the owner chose on 2026-10-12 to hide every number instead: each number,
-whatever its length, script or digit separators, becomes one `[number]`
-(`保有ポイント 1,234pt` becomes `保有ポイント [number]pt`), because balances and
-points appear in any form and judging the sign-in needs none of them. Numerals written
-as letters, such as kanji, stay. Login pages keep the four-digit rule, since hints
-such as `4 digits` help map fields. When a login page already shows a chosen account
-and offers a button or link to use another one, the generation role may name it as the plan's
-`accountSwitch`; it must be an observed button or link that the plan neither fills nor
-uses as its action. The generated recipe keeps the first switch a page names that no
-step clicks. Only links inside the login form are observed, so a switch link outside it
-is not named. A button whose text a link elsewhere on the page shows too, and a button
-that would submit a form, are never clicked as a switch; the attempt then ends
-`wrong-account`. Locating links by text means in-form links without an `id`, `name` or
-`data-testid` are now observed as well, with their redacted labels, and a switch
-link's redacted rendered text is stored in the recipe. Model
-output must pass structural and semantic checks on the server and again locally.
-Screenshot, audio and video collection are deferred. A provider's multimodal
-support does not enable these inputs without a separate privacy/evaluation gate.
+lives in `packages/contracts` and the offline role adapters in `packages/inference`; see
+[AI evaluation harness progress](plan.md#ai-evaluation-harness-progress). Exclude
+values, hidden inputs, raw HTML, screenshots, query strings, and unrelated page text by
+default. A page whose path may carry a session ID or another token is not observed, so
+such a path never reaches the service or its request log
+([AI evaluation harness progress](plan.md#ai-evaluation-harness-progress)). Labels can
+contain private data too: sanitize and bound them, with privacy fixtures and an
+abstention path when a useful safe observation cannot be constructed. The owner chose on
+2026-10-11 to redact observed text before it is sent: email-like strings, including
+masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become
+`[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
+(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be detected and
+stay. On the page shown after sign-in, which the completion judge observes, the owner
+chose on 2026-10-12 to hide every number instead: each number, whatever its length,
+script or digit separators, becomes one `[number]` (`保有ポイント 1,234pt` becomes
+`保有ポイント [number]pt`), because balances and points appear in any form and judging
+the sign-in needs none of them. Numerals written as letters, such as kanji, stay. Login
+pages keep the four-digit rule, since hints such as `4 digits` help map fields. When a
+login page already shows a chosen account and offers a button or link to use another
+one, the generation role may name it as the plan's `accountSwitch`; it must be an
+observed button or link that the plan neither fills nor uses as its action. The
+generated recipe keeps the first switch a page names that no step clicks. Only links
+inside the login form are observed, so a switch link outside it is not named. A button
+whose text a link elsewhere on the page shows too, and a button that would submit a
+form, are never clicked as a switch; the attempt then ends `wrong-account`. Locating
+links by text means in-form links without an `id`, `name` or `data-testid` are now
+observed as well, with their redacted labels, and a switch link's redacted rendered text
+is stored in the recipe. Model output must pass structural and semantic checks on the
+server and again locally. Screenshot, audio and video collection are deferred. A
+provider's multimodal support does not enable these inputs without a separate
+privacy/evaluation gate.
 
 Use a cached compatible recipe first. On structural mismatch or repeated genuine
 recipe failure, request repair within a separate bounded inference budget. Wrong
