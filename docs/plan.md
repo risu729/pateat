@@ -147,11 +147,16 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   subdomain), and the usernames of items on a connection that could not answer. Sign-in
   entry pages ([ADR 0031](adr/0031-sign-in-entry-pages.md)) are not covered either,
   because that ADR reads nothing of the vault there beyond the URI match.
-- Choosing again after a logout on the passkey side: after a finished login in a tab,
-  the login appearing again there asks for a choice for passwords, and the passkey half
-  of that is not implemented yet
-  ([settings and eligibility](architecture.md#settings-eligibility-and-operation-grants)).
-  The owner placed it in phase 1 on 2026-10-12 (14:26 UTC).
+- Choosing again after a logout on the passkey side, placed in phase 1 by the owner on
+  2026-10-12 (14:26 UTC): already implemented on 2026-10-11 by
+  [#204](https://github.com/risu729/pateat/pull/204) (a username-less request after
+  Pateat signed in the tab opens the chooser window, ADR 0021 D); the architecture page
+  still said otherwise. Open since
+  [ADR 0034](adr/0034-answer-page-passkey-requests.md): on a page that asks for a
+  passkey by itself, the tab that asks after a logout hands the page's request on after
+  three seconds, so an account picked in the popup then signs in with the password.
+  Proposal, waiting for the owner: keep that request until the popup pick and answer it
+  with the picked item's passkey.
 - Installed-Chrome checks still open:
   - Watching a login after a step left to the person
     ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge),

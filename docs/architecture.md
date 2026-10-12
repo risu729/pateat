@@ -374,11 +374,13 @@ out the current session. No match or several matches require a choice rather tha
 accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md) the
 choice is made in the toolbar popup for the refused document and may be one-time. After
 a finished login in a tab, the recipe's first step appearing again in that tab's page
-asks for a choice again instead of logging in, with the saved default first; the passkey
-half of this is not implemented yet. Automatic logout/relogin when the user picks
-another account while logged in stays later. Cookies may be shared across tabs even
-during initial login. Another tab's login of the origin that is running or ended without
-success holds the origin until that tab closes or its record has not changed for 5
+asks for a choice again instead of logging in, with the saved default first; for
+passkeys, a username-less request after Pateat signed in the tab opens the chooser
+window (part D of [ADR 0021](adr/0021-account-choice-outside-settings.md)). Automatic
+logout/relogin when the user picks another account while logged in stays later.
+Cookies may be shared across tabs even during initial login. Another tab's login of the
+origin that is running or ended without success holds the origin until that tab closes
+or its record has not changed for 5
 minutes; an `authenticated` one, one that ended `interrupted` without submitting, or one
 Pateat itself stopped with nothing in flight (such as `policy-changed`) does not. A tab
 keeps one attempt record per origin and runs one attempt at a time; a page resumes only
