@@ -74,8 +74,12 @@ a way through without WARP should stay once it works, not only for a test (05:17
   that browser can get new "pateat pair" tokens without a code and pair more devices,
   within `PAIR_LIMITER` (10 a minute). Any other Access application of the team that
   does not require WARP and admits the owner's address is also reachable. After pairing
-  on a vendor's machine, open `<service>/cdn-cgi/access/logout`; it signs out of every
-  Access application, the owner's Chrome included.
+  on a vendor's machine, open `https://<team domain>/cdn-cgi/access/logout` there (the
+  team domain is the `ACCESS_TEAM_DOMAIN` Worker secret); it revokes the session in
+  every Access application, the owner's Chrome included.
+  `<service>/cdn-cgi/access/logout` does not work in that browser: it looks for an
+  Access cookie on `/`, and the only one there is "pateat pair"'s, sent below `/pair`
+  only ("No Access cookie found", 2026-10-12).
 - **One owner.** A device paired this way belongs to the owner, so settings changed on
   it apply to all of the owner's devices.
 - **Monitoring and removal.** The owner can watch Access authentication logs for

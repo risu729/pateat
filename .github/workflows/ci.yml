@@ -63,7 +63,7 @@ jobs:
           install_args: --locked
       - &install
         name: Install frozen dependencies
-        run: bun install --frozen-lockfile
+        run: aube ci
       - name: Install isolated browser runtime
         run: mise run browser:install --with-deps
       - name: Run the complete local verification graph
@@ -246,11 +246,17 @@ jobs:
           "${cf[@]}" d1 migrations apply "${DATABASE}" --dir "${migrations}"
           "${cf[@]}" d1 migrations list "${DATABASE}" --dir "${migrations}" |
             jq -e 'length == 0' > /dev/null
+      # The action uploads the version, creates the 100% deployment and then reads that
+      # deployment back within 30 seconds, and it never repeats an activation by itself.
+      # On 2026-10-12 it failed without confirming a deployment (an upload answered 504,
+      # or the readback got no timely answer for the whole budget). One more activation of
+      # the same build, after a short wait, must pass the same strict readback.
       - name: Activate the exact prebuilt server
         if: ${{ steps.source.outputs.release == 'true' }}
         id: deploy
+        continue-on-error: true
         uses: risu729/wrangler-deploy-action@a9db854f3a31cdf3cdf28977e66f52f32fc9e8a0 # v2.2.2
-        with:
+        with: &activation
           mode: production
           working-directory: services/api
           worker: ${{ vars.SERVER_WORKER }}
@@ -259,12 +265,20 @@ jobs:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           production-strategy: versions
           deploy-triggers: "false"
+      - name: Wait before activating again
+        if: ${{ steps.source.outputs.release == 'true' && steps.deploy.outcome == 'failure' }}
+        run: sleep 30
+      - name: Activate the exact prebuilt server again after a failed activation
+        if: ${{ steps.source.outputs.release == 'true' && steps.deploy.outcome == 'failure' }}
+        id: deploy-retry
+        uses: risu729/wrangler-deploy-action@a9db854f3a31cdf3cdf28977e66f52f32fc9e8a0 # v2.2.2
+        with: *activation
       - name: Verify deployment readback and hosted revision
         if: ${{ steps.source.outputs.release == 'true' }}
         env:
           RELEASE_REVISION: ${{ github.sha }}
-          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment-id }}
-          VERSION_ID: ${{ steps.deploy.outputs.version-id }}
+          DEPLOYMENT_ID: ${{ steps.deploy-retry.outputs.deployment-id || steps.deploy.outputs.deployment-id }}
+          VERSION_ID: ${{ steps.deploy-retry.outputs.version-id || steps.deploy.outputs.version-id }}
         run: mise exec -- node .github/scripts/server-health.mjs
       # Synthetic owners are seeded in D1 and every row they own is removed again;
       # see services/api/README.md. A failure leaves the release failed.

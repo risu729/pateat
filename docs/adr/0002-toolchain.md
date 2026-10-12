@@ -26,7 +26,8 @@ Do not copy feature code from the small researched projects. Prefer native APIs
 and established dependencies for infrastructure; do not write cryptographic
 primitives ourselves. Argon2/CBOR choices need separate evidence when required.
 
-Use Bun workspace dependencies, mise tasks/tool pins, shared hk presets,
+Use Bun workspace dependencies (aube installs them since
+[ADR 0032](0032-aube-package-manager.md)), mise tasks/tool pins, shared hk presets,
 Oxlint/Oxfmt, and separate type checking. Use supported Node for tools such as cf.
 Keep one complete hk verification graph locally and in CI. No duplicate package
 scripts or competing lint/format stacks by default.

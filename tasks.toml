@@ -2,7 +2,7 @@
 
 [install]
 description = "Install the frozen workspace dependencies."
-run = "bun install --frozen-lockfile"
+run = "aube install --frozen-lockfile"
 
 [check]
 description = "Run all static, runtime and browser checks through hk."
