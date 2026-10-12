@@ -249,6 +249,13 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   account, once the connection's policy was enabled by hand. The logins the Bot needs
   are a phase 1 goal (Grok Bot sites above). Next: ChatGPT Dots once the owner has
   ChatGPT Pro again.
+- Debugging on the Grok Bot computer goes through the Bot today. A shell or SSH
+  session for members, and a public API for messaging a Bot, are not documented;
+  users report SSH over Tailscale anyway. A routine started by a webhook call, by
+  email to the Bot's address, or on a schedule that reads a Notion page can take
+  requests from Claude without the owner pasting them
+  ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). Which
+  one to use waits for the owner.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
