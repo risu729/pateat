@@ -59,10 +59,11 @@ Chrome, on a production build of main.
 - [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
   local sign-in state of the page after a submission as `login.state`. Delivery 2's
   first part is implemented: evidence of a sign-in that a second reading a second later
-  confirms completes the login without a model call (owner's choice, 2026-10-12 06:58
-  UTC, after アパホテル's login stayed unknown though its marker showed). Still to do:
-  the other rows of the ADR's outcome table (a failure next to the fields rejects; no
-  sign and no evidence asks the judge once and completes when it cannot decide).
+  confirms completes a `password`-route login without a model call (owner's choice,
+  2026-10-12 06:58 UTC, after アパホテル's login stayed unknown though its marker
+  showed). Still to do: the other rows of the ADR's outcome table (a failure next to the
+  fields rejects; no sign and no evidence asks the judge once and completes when it
+  cannot decide).
 - Installed-Chrome checks still open:
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the

@@ -11,7 +11,8 @@ Its one generated recipe per origin is amended to one per start path by
 [ADR 0016](0016-recipe-generation-trigger.md#pages-where-no-recipe-starts), which the
 service and the extension implement.
 How a page after a submission is settled, and when it is sent to the judge, is amended
-by [ADR 0029](0029-local-sign-in-state.md), which is not implemented yet.
+by [ADR 0029](0029-local-sign-in-state.md), whose first part of delivery 2 (completing
+on confirmed evidence of a sign-in) is implemented.
 Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a page is judged
 after any effect step that leads nowhere known, a judgement can add a second-factor
 handler, and judgements are limited per revision and path and to 20 per recipe a day

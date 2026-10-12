@@ -2091,6 +2091,61 @@ describe("production login document admission", () => {
         expect(published()).not.toContain('"state":"authenticated"');
         expect(h.store.update).not.toHaveBeenCalled();
       }, 10_000);
+      const noSigns = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+      const afterClick =
+        (present: string[], path: string, unusable: string[] = []) =>
+        async (message: Record<string, unknown>) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set(present);
+          fake.state.unusable = new Set(unusable);
+          fake.state.observedPath = path;
+        };
+      it("completes on the marker shown on another path once the sign-in state agrees (ADR 0029)", async () => {
+        fake.state.present = new Set(["password", "login"]);
+        fake.state.signs = noSigns;
+        fake.state.onExecute = afterClick(["authenticated"], "/home");
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(learned);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"state":"authenticated"'), {
+          timeout: 8_000,
+        });
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "state", s1: false, e1: true, decision: "signed-in" }),
+        );
+      }, 12_000);
+      it("never counts the marker while a hidden field must still be gone on its path", async () => {
+        fake.state.present = new Set(["password", "login"]);
+        fake.state.signs = noSigns;
+        // A failed sign-in hides the form again on the completion's own path.
+        fake.state.onExecute = afterClick(["authenticated", "password"], "/signin", ["password"]);
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: uriMatch() }),
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(learned);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(published()).toContain('"outcome":"unknown-submit"'), {
+          timeout: 6_000,
+        });
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "state", s1: false, e1: false, decision: "judge" }),
+        );
+        expect(published()).not.toContain('"state":"authenticated"');
+      }, 10_000);
     });
     it("saves nothing while another login is still running", async () => {
       const second = "https://second.example";
@@ -3932,7 +3987,7 @@ describe("production login document admission", () => {
         expect(service.judge).not.toHaveBeenCalled();
       }, 12_000);
 
-      it("leaves the page to the judge while the document is still loading", async () => {
+      it("waits for the document to finish loading before it completes", async () => {
         fake.state.extracted = { "signed-in": homePage };
         fake.state.signs = { ...noSigns, username: true };
         fake.state.loaded = false;
@@ -3951,9 +4006,43 @@ describe("production login document admission", () => {
           fake.state.observedPath = "/home";
         };
         expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 8_000 });
+        await vi.waitFor(
+          () =>
+            expect(
+              fake.state.messages.filter((entry) => entry.type === "login.state").length,
+            ).toBeGreaterThanOrEqual(3),
+          { timeout: 10_000, interval: 10 },
+        );
         expect(status()).not.toMatchObject([{ state: "authenticated" }]);
-      }, 12_000);
+        fake.state.loaded = true;
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 4_000,
+        });
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 20_000);
+
+      it("leaves the page to the judge when the document never finishes loading", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, username: true };
+        fake.state.loaded = false;
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 16_000 });
+        expect(status()).not.toMatchObject([{ state: "authenticated" }]);
+      }, 20_000);
 
       it("leaves the page to the judge when the second reading shows no evidence", async () => {
         fake.state.extracted = { "signed-in": homePage };

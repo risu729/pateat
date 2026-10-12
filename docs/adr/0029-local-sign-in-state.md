@@ -124,13 +124,18 @@ of アパホテル, to complete a login whose `login.state` decision is `signed-
 at 06:29:50 UTC, the learned marker showed (E1) but the recipe's completion check did
 not pass (`recipe.judge not-sent marker-shown`), so the attempt stayed unknown; when the
 sign-in form showed again after a sign-out, the sign-out check of ADR 0021 did not apply
-to the unknown attempt and Pateat signed in again. Now a `signed-in` reading is read a
-second time one second later in the same document; the login completes as
-`authenticated`, with no model call, only when that reading is `signed-in` too and the
-document has finished loading (`document.readyState` is `complete`). Otherwise the
-second reading is logged and the page goes on as before (to the judge, or unknown). Only
-one `login.state` entry is logged, from the last reading. This applies on both routes
-and to a later page of an attempt that already settled as unknown. The other rows of the
+to the unknown attempt and Pateat signed in again. Now a `signed-in` reading is read
+again a second later in the same document, and again a second apart while the document
+is still loading, at most ten times; the login completes as `authenticated`, with no
+model call, once such a reading is `signed-in` in a document that has finished loading
+(`document.readyState` is `complete`). Otherwise the last reading is logged and the page
+goes on as before (to the judge, or unknown). Only one `login.state` entry is logged,
+from the last reading. It applies to a later page of an attempt that already settled as
+unknown too. On the `passkey` route the reading is still only logged, since the decision
+above keeps that route's rule that anything its checks do not prove ends `challenge`. E1
+does not count on the completion's own path while one of the completion's `absent`
+elements is there, even hidden, as the completion check counts it: a sign-in form that
+hides itself again after a failure on that path is not a sign-in. The other rows of the
 outcome table still only log.
 
 ## Consequences

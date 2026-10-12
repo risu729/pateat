@@ -144,9 +144,11 @@ const EXTRACT_RETRY_MS = 1000;
 /**
  * How long after evidence of a sign-in the page is read again before the login completes
  * on it (ADR 0029), so a page that is still redirecting or about to ask for a second
- * factor does not settle the login.
+ * factor does not settle the login, and how many times it is read again at most while
+ * the document is still loading.
  */
 const SIGN_IN_RECHECK_MS = 1000;
+const SIGN_IN_RECHECKS = 10;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
@@ -1962,7 +1964,8 @@ export function createLoginRuntime(
     run.metadata.route === "passkey" ? "challenge" : result;
   /**
    * Checks the page after an effect step: the completion, the rejection, the plan's next
-   * step, then a handler on the page (ADR 0027). Returns `held` while a held click's button
+   * step, then a handler on the page (ADR 0027), and once the result would settle as
+   * unknown, the sign-in state (ADR 0029) before the judge. Returns `held` while a held click's button
    * still shows in the document that clicked it, so the page is neither judged nor settled
    * yet.
    */
@@ -1994,8 +1997,7 @@ export function createLoginRuntime(
       completion ? [true] : undefined,
     );
     if (!observed) return undefined;
-    // Without a completion target nothing proves a sign-in, so the attempt can settle
-    // only as rejected, continued or unknown.
+    // Without a completion target only the sign-in state below proves a sign-in.
     if (
       completion &&
       observed.path === completion.path &&
@@ -2090,22 +2092,34 @@ export function createLoginRuntime(
   }
   /**
    * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
-   * and what the ADR does with it. Returns `signed-in` only when a second reading
-   * {@link SIGN_IN_RECHECK_MS} later, in the same fully loaded document, agrees; the
-   * login then completes. Other decisions are logged only, as in delivery 1. A login in a
-   * frame is not read, as the ADR reads the top document.
+   * and what the ADR does with it. Returns `signed-in` only when a later reading, a second
+   * apart, agrees in the fully loaded document; the login then completes. On the passkey
+   * route, where anything the route's checks do not prove ends `challenge`, and for the
+   * other decisions, the reading is logged only, as in delivery 1. A login in a frame is
+   * not read, as the ADR reads the top document.
    */
   async function signInState(run: Execution): Promise<SignInDecision | undefined> {
-    const { documentId } = run.live.document;
     let reading = await readSignInState(run);
     let confirmed = false;
-    if (reading?.decision === "signed-in") {
-      await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
-      if (!current(run) || terminal(run.metadata) || run.live.document.documentId !== documentId)
-        return undefined;
-      reading = await readSignInState(run);
-      confirmed = reading?.decision === "signed-in" && reading.loaded;
-    }
+    // Evidence counts once a later reading agrees in a fully loaded document; a document
+    // still loading is read again, a second apart, up to `SIGN_IN_RECHECKS` times. Each
+    // reading depends on the time passed since the last, so they run one after another.
+    /* eslint-disable no-await-in-loop */
+    if (run.metadata.route !== "passkey")
+      for (
+        let recheck = 0;
+        reading?.decision === "signed-in" && recheck < SIGN_IN_RECHECKS;
+        recheck++
+      ) {
+        await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
+        if (!current(run) || terminal(run.metadata)) return undefined;
+        reading = await readSignInState(run);
+        if (reading?.decision === "signed-in" && reading.loaded) {
+          confirmed = true;
+          break;
+        }
+      }
+    /* eslint-enable no-await-in-loop */
     if (!reading) return undefined;
     report({
       type: "state",
@@ -2129,13 +2143,24 @@ export function createLoginRuntime(
   ): Promise<{ signs: SignInSigns; decision: SignInDecision; loaded: boolean } | undefined> {
     const { recipe, metadata } = run;
     if (run.live.topUrl !== undefined) return undefined;
-    const marker = recipe.completion ? [recipe.completion.target] : [];
-    const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
+    const { completion } = recipe;
+    const marker = completion ? [completion.target] : [];
+    // On the completion's own path, the fields that must be gone there, counted even when
+    // hidden as the completion check counts them: a login form that hides itself again
+    // after a failed sign-in is not a sign-in.
+    const absent = completion?.absent ?? [];
+    const fills = routeSignInTargets(recipe, metadata.route).slice(
+      0,
+      24 - marker.length - absent.length,
+    );
     const observed = await observe(
       run,
-      [...fills, ...marker],
-      [...fills, ...marker].map(() => "shown" as const),
-      marker.length > 0 ? [...fills.map(() => false), true] : undefined,
+      [...fills, ...marker, ...absent],
+      [
+        ...[...fills, ...marker].map(() => "shown" as const),
+        ...absent.map(() => "present" as const),
+      ],
+      marker.length > 0 ? [...fills.map(() => false), true, ...absent.map(() => false)] : undefined,
     );
     if (!observed) return undefined;
     const authorized = await allowed(run);
@@ -2185,7 +2210,11 @@ export function createLoginRuntime(
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
-      e1: marker.length > 0 && observed.targets[fills.length] === "unique",
+      e1:
+        marker.length > 0 &&
+        observed.targets[fills.length] === "unique" &&
+        (observed.path !== completion?.path ||
+          observed.targets.slice(fills.length + 1).every((state) => state === "missing")),
       e2: page.username === true,
       // The document's path now, which follows a route change of a single-page site.
       e3:
