@@ -325,6 +325,10 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
   });
 
   it("tells the model to say where the code comes from", () => {
+    // A bare challenge on a code page left no handler and no reason (Resend, 2026-10-12).
+    expect(completionInstructions).toMatch(
+      /A challenge that asks for a code always names it in code\./u,
+    );
     expect(completionInstructions).toMatch(
       /code\.source is authenticator-app only when the page says the code comes from an authenticator app/u,
     );

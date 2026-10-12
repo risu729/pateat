@@ -261,7 +261,8 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   SMS, email or unknown code stores nothing. Both handlers of one page land in the same
   next revision, and the answer carries it as `change`. The kept and dropped handler
   kinds, with the reason a handler was dropped, are logged without elements or values. A
-  code the model named but these checks refused is logged the same way, and its request
+  code the model named but the judge's own checks refused (its source or the TOTP fill
+  rule, before `addHandler`) is logged the same way, and its request
   log's result carries why as `totpDropped`: its source when that is not an
   authenticator app (`source-sms`, `source-email`, `source-unknown`), `unknown-field` or
   `unknown-submit` for an ID that is no element of the page, or `not-input`,
