@@ -27,11 +27,13 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
-`mise.toml` owns exact tool versions, installation, and task definitions. Use native
-workspace mise tasks, not package.json scripts or wrapper scripts that duplicate the
-task graph. Bun manages dependencies; pinned supported Node executes tools that require
-it, notably cf. Commit mise and Bun lockfiles after resolving them, never hand-author a
-purported installed dependency graph.
+`mise.toml` owns exact tool versions and installation. The repository-wide tasks live in
+the root `tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
+(owner decision, 2026-10-12); each project's tasks stay in its own `mise.toml`. Use
+native workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
+the task graph. Bun manages dependencies; pinned supported Node executes tools that
+require it, notably cf. Commit mise and Bun lockfiles after resolving them, never
+hand-author a purported installed dependency graph.
 
 The repository is a mise monorepo (owner decision, 2026-10-11). The root `mise.toml`
 sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `packages/*` and
@@ -44,12 +46,12 @@ has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. 
 reads the Bun workspace graph, so `mise run --affected '//...:test'` tests the workspace
 packages with changes since `HEAD~1` (including uncommitted and untracked files) and the
 packages that depend on them. A change outside a workspace package, such as `docs/`,
-`scripts/`, `tests/*` or the root `mise.toml`, selects every package, and the `tests/*`
-suites are not workspace packages, so `--affected` never selects them. Repository-wide
-tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`, `check:sdk-source`,
-`test:tools`, `browser:install`, the probe servers, `render:icons` and
-`generate:oidc-key`) stay in the root. Run them by their plain names from the root, or
-as `//:check:runtime` from inside a project.
+`scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every package, and
+the `tests/*` suites are not workspace packages, so `--affected` never selects them.
+Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`,
+`check:sdk-source`, `test:tools`, `browser:install`, the probe servers, `render:icons`
+and `generate:oidc-key`) stay in the root `tasks.toml`. Run them by their plain names
+from the root, or as `//:check:runtime` from inside a project.
 
 `check:runtime` is one dependency graph rather than a list of separate `mise run` calls:
 it depends on `//...:typecheck`, `//...:test`, `//services/api:check:*` and
@@ -87,15 +89,15 @@ mise exec -- hk check --all --no-fail-fast
 ```
 
 The shared checks include Oxlint, Oxfmt, separate TypeScript checking,
-Markdown/TOML/YAML validation, GitHub Actions hygiene, `mise fmt` and
-`mise task validate` for `mise.toml`, `hk validate` and Pkl formatting for `hk.pkl`,
-and Betterleaks secret scanning. Betterleaks reports only medium- and high-confidence
-matches: fixtures, tests and the synthetic corpus are full of low-confidence generic
-matches such as `password: "password"`, while vendor token formats (GitHub `ghp_`,
-Anthropic `sk-ant-`, Cloudflare API tokens) are medium confidence or higher. A secret
-without a vendor prefix, such as a Bitwarden API `client_secret`, only matches the
-generic rules and is not reported. CI uses the same task
-graph. `mise run fix` applies explicit formatting/lint fixes; the check task must
+Markdown/TOML/YAML validation, GitHub Actions hygiene, `mise fmt` for `mise.toml`,
+`mise task validate` for `mise.toml` and `tasks.toml`, `hk validate` and Pkl formatting
+for `hk.pkl`, and Betterleaks secret scanning. Betterleaks reports only medium- and
+high-confidence matches: fixtures, tests and the synthetic corpus are full of
+low-confidence generic matches such as `password: "password"`, while vendor token
+formats (GitHub `ghp_`, Anthropic `sk-ant-`, Cloudflare API tokens) are medium
+confidence or higher. A secret without a vendor prefix, such as a Bitwarden API
+`client_secret`, only matches the generic rules and is not reported. CI uses the same
+task graph. `mise run fix` applies explicit formatting/lint fixes; the check task must
 not mutate source files. Renovate tracks the pinned dependencies and tooling.
 
 Focused tasks are available for diagnosis:
