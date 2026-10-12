@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { assign, createActor, setup, transition } from "xstate";
+import { assign, setup, transition } from "xstate";
 import {
   chooserClickSchema,
   handlerSteps,
@@ -48,6 +48,15 @@ export const judgedPages = (
   metadata: Pick<LoginAttemptMetadata, "judged">,
   operationId: string,
 ): number => (metadata.judged?.operationId === operationId ? metadata.judged.pages : 0);
+/**
+ * Pages the model may still judge for the attempt's current effect step: while the login
+ * is watched (ADR 0027), the watch's own pages, else those after the step.
+ */
+export const pagesLeft = (
+  metadata: Pick<LoginAttemptMetadata, "judged" | "watch">,
+  operationId: string,
+): number =>
+  MAX_JUDGED_PAGES - (metadata.watch ? metadata.watch.pages : judgedPages(metadata, operationId));
 export const loginAttemptStateSchema = v.picklist([
   "detected",
   "ready",
@@ -56,9 +65,29 @@ export const loginAttemptStateSchema = v.picklist([
   "awaiting-result",
   "reconciling",
   "retryable",
+  /**
+   * The page after the login's submission showed a step Pateat leaves to the person, such
+   * as a code or an app approval (`challenge`): later pages of the tab are only read, until
+   * one proves the sign-in or the watch ends (ADR 0027).
+   */
+  "watching",
   "authenticated",
   "blocked",
 ]);
+/**
+ * Whether a login is watched (ADR 0027): a top-level `password` login whose result stopped
+ * at `challenge` or settled as unknown. Later pages of its tab are read for its result.
+ */
+const watched = (metadata: {
+  route: string;
+  document: { frameId: number };
+  state: string;
+  settled?: true | undefined;
+}) =>
+  metadata.route === "password" &&
+  metadata.document.frameId === 0 &&
+  (metadata.state === "watching" ||
+    (metadata.state === "reconciling" && metadata.settled === true));
 /** Allowlisted metadata only. Never persist an XState snapshot or resolved field values. */
 export const attemptMetadataSchema = v.pipe(
   v.strictObject({
@@ -131,6 +160,19 @@ export const attemptMetadataSchema = v.pipe(
       v.strictObject({ operationId: identifier, pages: integer(MAX_JUDGED_PAGES) }),
     ),
     /**
+     * A top-level `password` login watched after its result stopped at `challenge`
+     * (`watching`) or settled as unknown (ADR 0027): since when, in epoch milliseconds, the
+     * document it began in, and the pages sent to be judged since, apart from the effect
+     * step's own (`judged`). Kept by `transitionLoginAttempt`.
+     */
+    watch: v.optional(
+      v.strictObject({
+        since: v.pipe(v.number(), v.integer(), v.minValue(0)),
+        documentId: identifier,
+        pages: integer(MAX_JUDGED_PAGES),
+      }),
+    ),
+    /**
      * The page after the final `advance` step `operationId` was sent to continue the
      * recipe (ADR 0018): at most one request per effect step, recorded before the request
      * so a restart never sends it again.
@@ -160,6 +202,14 @@ export const attemptMetadataSchema = v.pipe(
   v.check(
     (metadata) => (metadata.route === "password") === (metadata.variant !== undefined),
     "A password route needs its variant, and only it has one",
+  ),
+  v.check(
+    (metadata) => (metadata.watch !== undefined) === watched(metadata),
+    "Only a watched login has a watch, and it always has one",
+  ),
+  v.check(
+    (metadata) => metadata.state !== "watching" || watched(metadata),
+    "Only a top-level password login is watched",
   ),
   v.check(
     (metadata) => (metadata.operationId === undefined) === (metadata.operationKind === undefined),
@@ -289,6 +339,11 @@ export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({ type: v.literal("JUDGING"), operationId: identifier }),
   /** The page sent under `JUDGING` reached no model, so it is given back. */
   v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
+  /**
+   * The watch of a login (ADR 0027) is over: it ends where it stopped, `challenge` or an
+   * unknown result, and its later pages are no longer read.
+   */
+  v.strictObject({ type: v.literal("WATCH_ENDED") }),
   /**
    * The page after the final `advance` step `operationId` is about to be sent to continue
    * the recipe (ADR 0018). Recorded before the request: one request per effect step.
@@ -490,6 +545,7 @@ function record(
     case "REVISED":
       return { recipeRevision: event.recipeRevision };
     case "JUDGING":
+      if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages + 1 } };
       return {
         judged: {
           operationId: event.operationId,
@@ -497,6 +553,7 @@ function record(
         },
       };
     case "UNJUDGED":
+      if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages - 1 } };
       return {
         judged: {
           operationId: event.operationId,
@@ -589,6 +646,7 @@ function record(
 
 const observedTransitions = [
   { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
+  { guard: "observedWatched", target: "watching", actions: "record" },
   { guard: "observedRejected", target: "blocked", actions: "record" },
   { guard: "observedRetryRequired", target: "retryable", actions: "record" },
   { guard: "observedContinue", target: "ready", actions: "record" },
@@ -608,6 +666,10 @@ function createLoginAttemptMachine() {
       submissionLimit: assign({ outcome: "submission-limit" }),
       retryLimit: assign({ outcome: "retry-limit" }),
       invalidNavigation: assign({ outcome: "cancelled" }),
+      // A watched login's later page of its origin and tab: only the document changes.
+      watchedNavigation: assign(({ context, event }) => ({
+        document: event.type === "NAVIGATED" ? event.document : context.document,
+      })),
       notListed: assign({ outcome: "account-not-listed" }),
     },
     guards: {
@@ -679,6 +741,17 @@ function createLoginAttemptMachine() {
         event.type === "OBSERVED" &&
         ["credential-rejected", "challenge"].includes(event.result) &&
         (!event.document || sameScope(context.document, event.document)),
+      // A top-level password login that stops at a step left to the person is watched.
+      observedWatched: ({ context, event }) =>
+        event.type === "OBSERVED" &&
+        event.result === "challenge" &&
+        context.route === "password" &&
+        context.document.frameId === 0 &&
+        (!event.document || sameScope(context.document, event.document)),
+      observedCredentialRejected: ({ context, event }) =>
+        event.type === "OBSERVED" &&
+        event.result === "credential-rejected" &&
+        (!event.document || sameScope(context.document, event.document)),
       observedContinue: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "continue" &&
@@ -706,16 +779,19 @@ function createLoginAttemptMachine() {
         event.type === "OBSERVED" &&
         event.result === "unknown" &&
         (!event.document || sameScope(context.document, event.document)),
-      // Only an effect step's result is judged, and only a bounded number of pages.
+      // Only an effect step's result is judged, and only a bounded number of pages: after
+      // the step, then again while the login is watched (ADR 0027).
       canJudge: ({ context, event }) =>
         event.type === "JUDGING" &&
         operationMatches(context, event) &&
         (context.operationKind === "click" ||
           context.operationEffect === "advance" ||
           context.operationEffect === "submit") &&
-        judgedPages(context, event.operationId) < MAX_JUDGED_PAGES,
+        pagesLeft(context, event.operationId) > 0,
       canUnjudge: ({ context, event }) =>
-        event.type === "UNJUDGED" && judgedPages(context, event.operationId) > 0,
+        event.type === "UNJUDGED" &&
+        (context.watch ? context.watch.pages : judgedPages(context, event.operationId)) > 0,
+      watchEnds: ({ context }) => context.watch !== undefined,
       // One request per final advance, recorded before it is sent (ADR 0018).
       canContinue: ({ context, event }) =>
         event.type === "CONTINUING" &&
@@ -803,6 +879,7 @@ function createLoginAttemptMachine() {
           FAILED: [{ guard: "staleFailure" }, { target: "retryable", actions: "record" }],
           OBSERVED: [
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
+            { guard: "observedWatched", target: "watching", actions: "record" },
             { guard: "observedRejected", target: "blocked", actions: "record" },
           ],
           NOT_LISTED: {
@@ -873,6 +950,7 @@ function createLoginAttemptMachine() {
           OBSERVED: observedTransitions,
           JUDGING: { guard: "canJudge", actions: "record" },
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
+          WATCH_ENDED: { guard: "watchEnds", target: "blocked" },
           CONTINUING: { guard: "canContinue", actions: "record" },
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
@@ -884,6 +962,27 @@ function createLoginAttemptMachine() {
           RETRY: [
             { guard: "retryAvailable", target: "ready", actions: "record" },
             { target: "blocked", actions: "retryLimit" },
+          ],
+        },
+      },
+      // Reads only: no step runs. A later page proves the sign-in or a refused password;
+      // anything else leaves the login watched until the watch ends (ADR 0027).
+      watching: {
+        on: {
+          OBSERVED: [
+            { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
+            { guard: "observedCredentialRejected", target: "blocked", actions: "record" },
+          ],
+          JUDGING: { guard: "canJudge", actions: "record" },
+          UNJUDGED: { guard: "canUnjudge", actions: "record" },
+          WATCH_ENDED: { target: "blocked" },
+          // A restart or a new page of the tab keeps the watch; it has nothing in flight.
+          INTERRUPTED: { actions: [] },
+          NAVIGATED: [
+            { guard: "sameScope", actions: "watchedNavigation" },
+            { guard: "leftSignedIn", target: "authenticated", actions: "record" },
+            { guard: "leftOrigin", target: "blocked", actions: "record" },
+            { target: "blocked", actions: "invalidNavigation" },
           ],
         },
       },
@@ -947,25 +1046,31 @@ export const effectfulStep = (step: LoginStep): boolean => {
   return effect !== undefined && effect !== "prepare";
 };
 
-export function transitionLoginAttempt(value: unknown, eventValue: unknown): LoginAttemptMetadata {
+/**
+ * Applies one event. `now` starts the watch of a login that becomes watched (ADR 0027); a
+ * login that stays watched keeps its watch, and one that no longer is drops it.
+ */
+export function transitionLoginAttempt(
+  value: unknown,
+  eventValue: unknown,
+  now = Date.now(),
+): LoginAttemptMetadata {
   const metadata = parseAttemptMetadata(value);
   const event = v.parse(loginAttemptEventSchema, eventValue);
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
   const [next] = transition(loginAttemptMachine, snapshot, event);
-  return parseAttemptMetadata({ ...next.context, state: next.value });
-}
-
-export function createLoginAttempt(value: unknown) {
-  const metadata = parseAttemptMetadata(value);
-  const actor = createActor(loginAttemptMachine, {
-    input: metadata,
-    snapshot: loginAttemptMachine.resolveState({ value: metadata.state, context: metadata }),
-  });
-  return Object.assign(actor, {
-    getMetadata(): LoginAttemptMetadata {
-      const snapshot = actor.getSnapshot();
-      return parseAttemptMetadata({ ...snapshot.context, state: snapshot.value });
+  const { watch, ...result } = {
+    ...next.context,
+    state: next.value as LoginAttemptMetadata["state"],
+  };
+  if (!watched(result)) return parseAttemptMetadata(result);
+  return parseAttemptMetadata({
+    ...result,
+    watch: watch ?? {
+      since: Math.max(0, Math.trunc(now)),
+      documentId: result.document.documentId,
+      pages: 0,
     },
   });
 }

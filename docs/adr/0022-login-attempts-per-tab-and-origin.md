@@ -12,29 +12,34 @@ another tab no longer holds the origin; see "Holding the origin in other tabs" b
 Amended again on 2026-10-12 (02:42 UTC, owner's choice on a decision card): a login
 Pateat itself stopped no longer holds the origin either. Evidence: in the owner's Chrome
 a `policy-changed` record from a transient vault error kept a new npm tab from logging
-in for 8 hours, across an extension reload.
-Amended again on 2026-10-12 (05:08 UTC, owner's choice in the thread after a decision
-card): a record that still holds the origin stops holding it 5 minutes after it last
-changed. Evidence: in the owner's Chrome a github.com login that had succeeded after a
-passkey step stayed `reconciling` with an unknown result in one tab, so a pick in
-another tab was refused `origin-busy` until that tab would close.
-Amended on 2026-10-12 (05:41 UTC, owner's request in the project chat): a tab that moves
-to another site starts clean there, also for a login form in a frame; see "A tab still
-runs one attempt at a time" below.
-Amended again on 2026-10-12 (bug fix applying the 02:42 UTC choice to the stopped tab
-itself): a login Pateat itself stopped with nothing in flight and before any submission
-no longer holds its own tab either. Evidence: in the owner's Chrome, removing
-github.com's saved default stopped that tab's login as `policy-changed`; after a reload
-the page was refused for several matching accounts, but it had resumed the stopped
-record, so the toolbar popup offered no account choice and the tab never logged in again
-until it was closed.
-Amended again on 2026-10-12 (08:22 UTC, owner's choice on a decision card, proposal in
-the project notes `jal-same-site-completion-proposal.md`): a move to the site of a
-passkey Pateat has just answered completes the attempt; see "Leaving the origin after a
-possible submission ends the attempt" below. Evidence: in the owner's Chrome, JMB's
-sign-in page `jallogin.jal.co.jp` asked for a passkey after the username step, Pateat
-answered, and the site moved to `www.jal.co.jp` signed in, but the login ended
-`left-origin`, so it held the site for 5 minutes and saved no account choice.
+in for 8 hours, across an extension reload. Amended again on 2026-10-12 (05:08 UTC,
+owner's choice in the thread after a decision card): a record that still holds the
+origin stops holding it 5 minutes after it last changed. Evidence: in the owner's Chrome
+a github.com login that had succeeded after a passkey step stayed `reconciling` with an
+unknown result in one tab, so a pick in another tab was refused `origin-busy` until that
+tab would close. Amended on 2026-10-12 (05:41 UTC, owner's request in the project chat):
+a tab that moves to another site starts clean there, also for a login form in a frame;
+see "A tab still runs one attempt at a time" below. Amended again on 2026-10-12 (bug fix
+applying the 02:42 UTC choice to the stopped tab itself): a login Pateat itself stopped
+with nothing in flight and before any submission no longer holds its own tab either.
+Evidence: in the owner's Chrome, removing github.com's saved default stopped that tab's
+login as `policy-changed`; after a reload the page was refused for several matching
+accounts, but it had resumed the stopped record, so the toolbar popup offered no account
+choice and the tab never logged in again until it was closed. Amended again on
+2026-10-12 (08:22 UTC, owner's choice on a decision card, proposal in the project notes
+`jal-same-site-completion-proposal.md`): a move to the site of a passkey Pateat has just
+answered completes the attempt; see "Leaving the origin after a possible submission ends
+the attempt" below. Evidence: in the owner's Chrome, JMB's sign-in page
+`jallogin.jal.co.jp` asked for a passkey after the username step, Pateat answered, and
+the site moved to `www.jal.co.jp` signed in, but the login ended `left-origin`, so it
+held the site for 5 minutes and saved no account choice. Amended again on 2026-10-12
+(13:08 UTC, owner's choice on a decision card, recorded in
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): a top-level
+`password` login that ends `challenge` or settles as unknown is watched for 10 minutes.
+A `challenge` login then waits as `watching`, which holds the origin like `challenge`
+did, for 5 minutes after the record last changed; a page judged during the watch is not
+a change. Completing during the watch releases the origin, and the end of the watch
+keeps the record's time.
 
 ## Context
 
@@ -152,9 +157,10 @@ fix them now; the SSO policy itself is recorded separately.
   be stopped by. A record in any other state keeps holding, for example one that is
   running, `retryable` (it is tried again from the same step at once, or, after a
   restart, once a new page of its tab shows, until its retries are spent), still
-  reconciling, settled as unknown, ended `interrupted` after a submission, stopped by
-  Pateat while a fill or click may have reached the page, or ended
-  `credential-rejected`, `challenge`, `submission-limit` or `left-origin`. So a password
+  reconciling, settled as unknown, watched after a `challenge` (`watching`, ADR 0027),
+  ended `interrupted` after a submission, stopped by Pateat while a fill or click may
+  have reached the page, or ended `credential-rejected`, `challenge`, `submission-limit`
+  or `left-origin`. So a password
   is not submitted again while a first submission may still be in flight or was refused,
   or while the user may be answering a challenge Pateat does not handle. Releasing
   `account-switched` lets another tab start between the switch click and the first tab's

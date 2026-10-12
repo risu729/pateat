@@ -311,7 +311,12 @@ export function createDiagnosticsLog(options: {
       else if (report.type === "logout")
         void logger.log(
           "login.logout",
-          { origin: report.origin, recipe: report.recipeId, url: report.url },
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            watched: report.watched,
+            url: report.url,
+          },
           { source },
         );
       else if (report.type === "choice")
@@ -378,13 +383,19 @@ export function createDiagnosticsLog(options: {
             verdict: report.verdict,
             reason: report.reason,
             takenOver: report.takenOver,
+            watched: report.watched,
           },
           // The answer follows, but `sent` is what is left when no answer came (ADR 0019).
           // A request that failed before the model is a problem; with no paired service
-          // nothing was sent.
+          // nothing was sent. A watched login that a judged page did not decide, or that has
+          // no page left to judge, stays without a result (ADR 0027).
           {
             source,
-            ...(report.verdict === "retry" && report.reason !== "not-connected"
+            ...((report.verdict === "retry" && report.reason !== "not-connected") ||
+            (report.watched &&
+              (report.verdict === "unclear" ||
+                report.verdict === "challenge" ||
+                (report.verdict === "not-sent" && report.reason === "page-limit")))
               ? { level: "warn" as const }
               : {}),
           },
@@ -454,7 +465,7 @@ export function createDiagnosticsLog(options: {
                   report.outcome === "cancelled" &&
                   report.reason === "fill-only"
                 ? "info"
-                : report.state === "blocked" || report.settled
+                : report.state === "blocked" || report.state === "watching" || report.settled
                   ? "warn"
                   : report.state === "authenticated" || report.state === "retryable"
                     ? "info"

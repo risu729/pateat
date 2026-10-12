@@ -3,6 +3,10 @@
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
 logged only, as `login.state`) is implemented. The owner started delivery 2 (acting on
 it) on 2026-10-12 at 06:58 UTC; its first part, completing on evidence, is implemented.
+Amended on 2026-10-12 (13:08 UTC, owner's choice) by
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
+login watched after `challenge` or an unknown result; see the end of the implementation
+notes.
 Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
 generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
 page is judged).
@@ -137,6 +141,17 @@ does not count on the completion's own path while one of the completion's `absen
 elements is there, even hidden, as the completion check counts it: a sign-in form that
 hides itself again after a failure on that path is not a sign-in. The other rows of the
 outcome table still only log.
+
+Watched logins (owner, 2026-10-12 13:08 UTC,
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on
+三菱UFJ銀行 the app-approval QR page after the password shows none of S1 to S5, so it
+falls in the "No S, no E" row, and the judge answered `challenge`. The pages after such
+a `challenge`, and after a result settled as unknown, are read for 10 minutes. A watched
+`challenge` login's page is judged only in the "No S, no E" row, and there `unclear`,
+`already-judged` and the limits never complete it, unlike the row above. A rule for the
+rest of delivery 2: when that row is implemented, a path the judge answered `challenge`
+for in a recipe revision is never completed by a later `already-judged` for it, so the
+second login on 三菱UFJ銀行 does not complete on its QR page.
 
 ## Consequences
 

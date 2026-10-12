@@ -107,8 +107,9 @@ export const submittedSchema = v.strictObject({
   token: id,
 });
 /**
- * A refused hello. `starts` lists the first steps of the origin's recipes; the document
- * announces again with `start` once one of them is ready on the current path.
+ * The answer to a hello. `starts` lists the first steps of the origin's recipes; the
+ * document announces again with `start` once one of them is ready on the current path. A
+ * refused hello carries them, and so does an accepted one of a watched login (ADR 0027).
  */
 export const readySchema = v.strictObject({
   ok: v.boolean(),

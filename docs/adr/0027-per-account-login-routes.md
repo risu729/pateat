@@ -18,7 +18,10 @@ route). Each part lands in its own PR (see [Delivery](#delivery)); the ADR 0010 
 0016 status notes land with the custom-field part.
 When a page after a step is judged is amended by
 [ADR 0029](0029-local-sign-in-state.md), whose first part of delivery 2 (completing on
-confirmed evidence of a sign-in, on the `password` route) is implemented.
+confirmed evidence of a sign-in, on the `password` route) is implemented. Amended on
+2026-10-12 by the owner (13:08 UTC): a top-level `password` login that ends `challenge`
+or settles as unknown is watched for 10 minutes
+([Watching after a challenge](#watching-after-a-challenge)); implemented.
 
 Date: 2026-10-11
 
@@ -317,10 +320,10 @@ new owner decision:
   variant's slots skips that variant and is never bypassed by a template; otherwise the
   automatic binding for built-in slots, then the templates, with the generated slot map
   read at most once per plan resolution (each later step's authorization resolves its
-  plan again). The attempt records the variant (attempt store
-  `pateat.login-attempts.v3`; the v2 store is removed on load), and a running or resumed
-  login checks only that variant's binding: the binding check ignores the fields of
-  other variants.
+  plan again). The attempt records the variant (attempt store `pateat.login-attempts.v3`
+  then, `pateat.login-attempts.v4` since the watch below; each previous store is removed
+  on load), and a running or resumed login checks only that variant's binding: the
+  binding check ignores the fields of other variants.
 - **Bindings with other slots.** A binding resolves for a set of slots when it holds an
   entry for each of them; entries for other slots are ignored. This also applies to a
   recipe with one variant, so a saved binding that still names a slot the recipe no
@@ -564,6 +567,60 @@ new owner decision:
   signs in without leaving the document and keeps the button never learns a completion
   from such a login. A completion learned another way, such as on the `password` route,
   still applies, since it is checked before the hold.
+
+### Watching after a challenge
+
+Evidence (2026-10-12, the owner's Chrome, build 30dd6d7): on 三菱UFJ銀行 Pateat filled
+and submitted the password, and the site showed its app-approval QR page
+(`LG_0001_PC10`). The judge answered `challenge`, so the login ended there. The owner
+approved in the app, the site signed in (`LG_0002_PC01`), and no later page was checked,
+so the login never completed: the account was not saved as the default, the site stayed
+held for other tabs for 5 minutes, and the sign-in form showing again after the site's
+logout was not taken as a logout (ADR 0021 D counts only finished logins). After the
+first QR code expired, Pateat did nothing more until the old tab was closed. On a later
+login the QR page is not judged again (`already-judged`), so the login only settles as
+unknown, with the same result.
+
+The owner chose on 2026-10-12 (13:08 UTC, option 1 of the proposal, reviewed against the
+code by a subagent):
+
+- **Which logins.** A login on the `password` route in the tab's top document whose
+  result stops at `challenge`, for any reason (the judge, a handler page shown again, a
+  held click that never cleared), or settles as unknown. The `passkey` route and logins
+  in a frame keep ending at once.
+- **Watching.** For 10 minutes from that moment, each new page of the same tab and
+  origin is read only, never filled or clicked. A `challenge` login waits in its own
+  state, `watching`; a login whose result settled as unknown keeps its checks of later
+  pages (its next step, a handler, a continuation), as before.
+- **Completing.** The login completes on the recipe's completion, on evidence of a
+  sign-in confirmed as in [ADR 0029](0029-local-sign-in-state.md) (E1 to E3), or when
+  the judge answers `signed-in` for a page with no sign of a sign-in going on (no S1 to
+  S5). At most 2 pages are judged during the watch, counted apart from the effect step's
+  own 2. `rejected` ends the login `credential-rejected`. `unclear`, `already-judged`, a
+  daily limit or a spent budget never completes it: it stays watched, and the judge's
+  entry is a warning. Completing releases the site to other tabs, saves an automatic
+  account choice, and starts the logout detection of ADR 0021 D.
+- **Releasing.** While the login is watched, the recipe's first step showing in a new
+  page of the tab (not the one the watch began in), as after an expired code or
+  approval, releases the record as a logout does: the tab asks for an account and, with
+  one account to use, fills without pressing anything, and the site's other tabs ask
+  until a pick in the toolbar popup. Unlike #292, nothing is submitted again, so an
+  expired QR code never sends another approval request by itself.
+- **After the watch.** The next page of the tab ends the login where it stopped
+  (`blocked` with `challenge`, or `unknown-submit` for a settled one) without changing
+  the record's time, so it no longer holds the site, and the rules for a login stopped
+  after a submission apply (ADR 0021 D, 07:41 UTC amendment).
+
+Implementation: the attempt contract has the `watching` state, the `WATCH_ENDED` event
+and a `watch` on the record (its start, the document it began in and its judged pages),
+kept by `transitionLoginAttempt`; the record schema refuses a watch on any other login.
+A watched page of the tab gets the origin's first steps with its accepted hello, so the
+content script watches for them as after a finished login. The watch's own document is
+not read again. A restart keeps the watch; leaving the origin ends it `left-origin`, and
+a settings change ends it `policy-changed`. A watched login does not count as a login in
+progress for policy writes or the passkey bridge, as a settled one. Logs:
+`login.attempt` with state `watching` (warn), `recipe.judge` with `watched`, warn for
+its undecided answers and `page-limit`, and `login.logout` with `watched` for a release.
 
 ## Consequences
 

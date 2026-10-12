@@ -481,7 +481,7 @@ test("worker startup prunes persisted ownership for a closed tab", async () => {
       };
       const journal = before.attempts[0]!;
       await owner.close();
-      const storageKey = "pateat.login-attempts.v3";
+      const storageKey = "pateat.login-attempts.v4";
       await expect
         .poll(
           async () =>

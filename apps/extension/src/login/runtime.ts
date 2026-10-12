@@ -19,8 +19,7 @@ import {
   isSiteExcluded,
   loginFieldFacts,
   loginFieldSource,
-  judgedPages,
-  MAX_JUDGED_PAGES,
+  pagesLeft,
   loginDocumentSchema,
   loginDisplayNames,
   loginObservationSchema,
@@ -138,9 +137,9 @@ import {
   type LoginFieldSource,
 } from "./vault";
 
-const STORAGE_KEY = "pateat.login-attempts.v3";
+const STORAGE_KEY = "pateat.login-attempts.v4";
 /** The previous attempt store, removed on load; its records are not read. */
-const RETIRED_STORAGE_KEY = "pateat.login-attempts.v2";
+const RETIRED_STORAGE_KEY = "pateat.login-attempts.v3";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
 const PICKS_KEY = "pateat.login-picks.v1";
 const CHOICES_KEY = "pateat.login-choices.v1";
@@ -176,6 +175,13 @@ const SIGN_IN_RECHECKS = 10;
 const PASSKEY_MOVE_MS = 30_000;
 /** Readings of that move's new page, a second apart, before it must have loaded quietly. */
 const PASSKEY_MOVE_READINGS = 5;
+/**
+ * How long a login stays watched after its result stopped at `challenge` or settled as
+ * unknown (ADR 0027, owner's choice on 2026-10-12), and how long each new page of its tab
+ * is checked for the completion before its sign-in state is read, as after a click.
+ */
+const WATCH_MS = 10 * 60_000;
+const WATCH_SETTLE_MS = 3000;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
@@ -374,6 +380,16 @@ function withItemOrigin(
 const CHOICE_SAVED = "choice-saved";
 const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);
+/**
+ * A login with no step left to run: its result settled as unknown, or it is watched after a
+ * `challenge` (ADR 0027). Its later pages are checked, but it is not a login in progress.
+ */
+const idle = (metadata: LoginAttemptMetadata) =>
+  metadata.settled === true || metadata.state === "watching";
+/** Whether a login's watch is over at `now`; a clock set back ends it too (ADR 0027). */
+const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
+  metadata.watch !== undefined &&
+  (now - metadata.watch.since >= WATCH_MS || now < metadata.watch.since);
 
 /**
  * Where one recipe starts: its start path and the first step of each of its routes and
@@ -765,6 +781,8 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       recipeId: string;
+      /** It showed in a new page while the login was watched (ADR 0027). */
+      watched?: true;
     }
   | {
       /**
@@ -833,6 +851,8 @@ export type LoginReport = (
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
+      /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
+      watched?: true;
     }
   | ({
       type: "state";
@@ -1436,17 +1456,18 @@ export function createLoginRuntime(
   }
   /**
    * Whether a policy write now would stop this attempt while it can still make progress. A
-   * login whose result settled as unknown counts only while this worker checks or judges
-   * one of its pages: such a record stays until its tab closes, and counting it would hold
-   * policy writes for as long (ADR 0027).
+   * login whose result settled as unknown, or that is watched, counts only while this
+   * worker checks or judges one of its pages: such a record stays for a while, and counting
+   * it would hold policy writes for as long (ADR 0027).
    */
   function inProgress(run: Execution): boolean {
-    return current(run) && !terminal(run.metadata) && (run.running || !run.metadata.settled);
+    return current(run) && !terminal(run.metadata) && (run.running || !idle(run.metadata));
   }
   async function save(run: Execution): Promise<void> {
     await keep(run.metadata);
   }
-  async function keep(metadata: LoginAttemptMetadata): Promise<void> {
+  /** Stores a record; `progress` false keeps its time, as for a watch that ran out. */
+  async function keep(metadata: LoginAttemptMetadata, progressed = true): Promise<void> {
     const key = recordKey(metadata.document.tabId, metadata.account.origin);
     const previous = persisted.get(key);
     const next = parseAttemptMetadata({ ...metadata, changedAt: undefined });
@@ -1458,9 +1479,11 @@ export function createLoginRuntime(
         ...record,
         document: { ...record.document, documentId: undefined },
         judged: undefined,
+        watch: undefined,
         changedAt: undefined,
       });
-    const unchanged = previous?.changedAt !== undefined && progress(previous) === progress(next);
+    const unchanged =
+      previous?.changedAt !== undefined && (!progressed || progress(previous) === progress(next));
     // Re-inserted, so the last record of a tab is the one it wrote last.
     persisted.delete(key);
     persisted.set(key, { ...next, changedAt: unchanged ? previous.changedAt : Date.now() });
@@ -1510,7 +1533,7 @@ export function createLoginRuntime(
     // Settling as unknown keeps the state, but it is how a login ends without a result.
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
     // An ended login no longer waits for a continuation it asked for (ADR 0018).
-    if (terminal(run.metadata) || run.metadata.settled) continuations.delete(run.metadata.id);
+    if (terminal(run.metadata) || idle(run.metadata)) continuations.delete(run.metadata.id);
     if (run.metadata.state !== previous.state || settled)
       // The log still names the step that was withdrawn.
       reportAttempt(
@@ -2882,9 +2905,10 @@ export function createLoginRuntime(
    * service can judge it and learn the completion or a handler (ADR 0018, ADR 0027).
    * Returns whether the attempt settled or moved on. A page that still shows the route's
    * fields on one of its paths, or the completion marker, is not sent. At most
-   * `MAX_JUDGED_PAGES` pages count per effect step: a page counts in the attempt once its
-   * complete description is in hand, before the request, so a restart cannot resend
-   * without bound, and is given back only for a temporary refusal before any model call.
+   * `MAX_JUDGED_PAGES` pages count per effect step, and as many again while the login is
+   * watched (ADR 0027): a page counts in the attempt once its complete description is in
+   * hand, before the request, so a restart cannot resend without bound, and is given back
+   * only for a temporary refusal before any model call.
    */
   /** Logs why the page was not sent to the judge, as a code: never page text. */
   function notJudged(run: Execution, reason: string): false {
@@ -2897,6 +2921,7 @@ export function createLoginRuntime(
       route: run.metadata.route,
       verdict: "not-sent",
       reason,
+      ...(run.metadata.watch ? { watched: true as const } : {}),
     });
     return false;
   }
@@ -2905,7 +2930,7 @@ export function createLoginRuntime(
     const { operationId } = metadata;
     if (!generation || !effectful(metadata) || !operationId) return false;
     const notSent = (reason: string) => notJudged(run, reason);
-    if (judgedPages(metadata, operationId) >= MAX_JUDGED_PAGES) return notSent("page-limit");
+    if (pagesLeft(metadata, operationId) <= 0) return notSent("page-limit");
     // Every variant's fill fields and paths count, as on the service, which is never told
     // the variant; on the passkey route, its button and the password form, on its path and
     // the password route's (ADR 0027).
@@ -2960,10 +2985,11 @@ export function createLoginRuntime(
     if (!current(run)) return true;
     // A page that cannot be described completely is not sent and does not count.
     if (!observation) return notSent(unsent);
-    const pages = judgedPages(run.metadata, operationId);
+    const left = pagesLeft(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
-    if (judgedPages(run.metadata, operationId) !== pages + 1) return false;
+    if (pagesLeft(run.metadata, operationId) !== left - 1) return false;
+    const watchedPage = run.metadata.watch !== undefined;
     const reportJudge = (
       verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
       detail: { reason?: string; takenOver?: boolean } = {},
@@ -2977,6 +3003,7 @@ export function createLoginRuntime(
         route: metadata.route,
         verdict,
         ...detail,
+        ...(watchedPage ? { watched: true as const } : {}),
       });
     const {
       verdict,
@@ -3001,9 +3028,11 @@ export function createLoginRuntime(
     if (verdict === "retry") await change(run, { type: "UNJUDGED", operationId });
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
+    // A watched login only reads its pages; it never runs a learned handler (ADR 0027).
     const movedOn =
       verdict === "challenge" &&
       added !== undefined &&
+      run.metadata.state !== "watching" &&
       current(run) &&
       (await takeOver(run, added, observation.path, () => {
         reported = true;
@@ -3500,6 +3529,52 @@ export function createLoginRuntime(
       await sleep(interval);
     }
   }
+  /**
+   * Checks a new page of the tab while the login is watched after a `challenge` (ADR 0027),
+   * reading only: it never fills or clicks. The login completes on the recipe's completion,
+   * read for a short while as after a click, or on a confirmed sign-in state (ADR 0029: E1
+   * to E3). A page with no sign of a sign-in going on and no evidence is judged, from the
+   * watch's own pages: `signed-in` completes and `rejected` ends the login as a refused
+   * password, while any other answer, a refusal or a spent budget leaves it watched, with a
+   * warning in the log. The document the watch began in is not checked again.
+   */
+  async function watchPage(run: Execution): Promise<void> {
+    const { watch } = run.metadata;
+    if (!watch || run.live.document.documentId === watch.documentId) return;
+    const { completion } = run.recipe;
+    const watching = () => current(run) && run.metadata.state === "watching";
+    if (completion) {
+      const proof = [completion.target, ...(completion.absent ?? [])];
+      const until = Date.now() + WATCH_SETTLE_MS;
+      for (;;) {
+        const observed = await observe(run, proof, undefined, [true]);
+        if (!observed || !watching()) return;
+        if (
+          observed.path === completion.path &&
+          observed.targets[0] === "unique" &&
+          observed.targets.slice(1).every((state) => state === "missing")
+        ) {
+          await change(run, {
+            type: "OBSERVED",
+            result: "authenticated",
+            document: run.live.document,
+          });
+          return;
+        }
+        if (Date.now() >= until) break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      }
+    } else await new Promise<void>((resolve) => setTimeout(resolve, WATCH_SETTLE_MS));
+    if (!watching()) return;
+    const state = await signInState(run);
+    if (!watching()) return;
+    if (state === "signed-in") {
+      await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
+      return;
+    }
+    // Only a page with no sign of a sign-in going on is judged.
+    if (state === "judge") await learn(run);
+  }
   async function drive(run: Execution): Promise<void> {
     if (run.running) return;
     run.running = true;
@@ -3537,6 +3612,10 @@ export function createLoginRuntime(
   }
   /** Runs the attempt's steps until it leaves `ready`; `drive` owns errors and retries. */
   async function runSteps(run: Execution): Promise<void> {
+    if (run.metadata.state === "watching") {
+      await watchPage(run);
+      return;
+    }
     if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
       await reconcileBounded(run);
     while (current(run) && run.metadata.state === "ready") {
@@ -4730,12 +4809,20 @@ export function createLoginRuntime(
     const sameDocument = oldLive !== undefined && sameLoginDocument(oldLive.document, document);
     // A document may announce again when its form appears or its URL changes in place,
     // but never while it already carries an attempt, unless that login finished and the
-    // document now watches for a logout (ADR 0021 D).
+    // document now watches for a logout (ADR 0021 D), or the login is watched and its first
+    // step shows in the document (ADR 0027).
     const carried = attempts.get(document.tabId);
     if (
       sameDocument &&
       (oldLive.token !== token ||
-        (carried?.live === oldLive && !(document.frameId === 0 && finishedLogin(carried.metadata))))
+        (carried?.live === oldLive &&
+          !(
+            document.frameId === 0 &&
+            (finishedLogin(carried.metadata) ||
+              (carried.metadata.watch !== undefined &&
+                start?.path === new URL(url).pathname &&
+                document.documentId !== carried.metadata.watch.documentId))
+          )))
     ) {
       note(document, url, "duplicate-document");
       return { ok: false, reason: "duplicate-document" };
@@ -4855,23 +4942,15 @@ export function createLoginRuntime(
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       recorded = undefined;
     }
-    if (
-      recorded &&
-      finishedLogin(recorded) &&
-      recorded.document.frameId === 0 &&
-      document.frameId === 0
-    ) {
-      // Until the recipe's first step shows again, the page keeps watching for it.
-      if (start?.path !== live.path) {
-        const starts = await startsFor(document.origin);
-        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
-        notStarted("logged-in");
-        return { ok: false, reason: "logged-in", starts };
-      }
-      // It shows again after a finished login: a logout. Only this tab's record for this
-      // origin is released, and the tab asks for an account (ADR 0021 D).
-      const released = recorded;
+    /**
+     * Releases this tab's record for this origin as after a logout: the tab asks for an
+     * account, and so do the site's other tabs (ADR 0021 D). Returns a refusal when it could
+     * not, else undefined.
+     */
+    const releaseAsLogout = async (
+      released: LoginAttemptMetadata,
+      watchedLogin: boolean,
+    ): Promise<Readiness | undefined> => {
       if (attempts.get(document.tabId)?.metadata.id === released.id)
         attempts.delete(document.tabId);
       if (picked.get(document.tabId)?.attemptId === released.id) picked.delete(document.tabId);
@@ -4890,6 +4969,7 @@ export function createLoginRuntime(
         tabId: document.tabId,
         origin: document.origin,
         recipeId: released.recipeId,
+        ...(watchedLogin ? { watched: true as const } : {}),
       });
       try {
         await forget(logoutKey);
@@ -4897,6 +4977,56 @@ export function createLoginRuntime(
         return refuse("storage-unavailable");
       }
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      return undefined;
+    };
+    // A watch that ran out ends the login where it stopped (ADR 0027). Its record keeps its
+    // time, so it does not hold the site again.
+    if (recorded && watchOver(recorded, Date.now())) {
+      const run = attempts.get(document.tabId);
+      const own = run?.metadata.id === recorded.id ? run : undefined;
+      const ended = transitionLoginAttempt(own?.metadata ?? recorded, { type: "WATCH_ENDED" });
+      if (own) own.metadata = ended;
+      reportAttempt(ended, own?.recipe);
+      try {
+        await keep(ended, false);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      recorded = ended;
+    }
+    // While a login is watched, its recipe's first step showing in a new page of the tab
+    // means the person is back at the start, as when a code or an approval expired: the
+    // record is released as after a logout, so the tab asks and fills without pressing
+    // anything (ADR 0027). The page the watch began in never releases it.
+    if (
+      recorded?.watch &&
+      document.frameId === 0 &&
+      start?.path === live.path &&
+      document.documentId !== recorded.watch.documentId
+    ) {
+      const refused = await releaseAsLogout(recorded, true);
+      if (refused) return refused;
+      recorded = undefined;
+    }
+    if (
+      recorded &&
+      finishedLogin(recorded) &&
+      recorded.document.frameId === 0 &&
+      document.frameId === 0
+    ) {
+      // Until the recipe's first step shows again, the page keeps watching for it.
+      if (start?.path !== live.path) {
+        const starts = await startsFor(document.origin);
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
+        notStarted("logged-in");
+        return { ok: false, reason: "logged-in", starts };
+      }
+      // It shows again after a finished login: a logout. Only this tab's record for this
+      // origin is released, and the tab asks for an account (ADR 0021 D).
+      const refused = await releaseAsLogout(recorded, false);
+      if (refused) return refused;
       recorded = undefined;
     }
     if (
@@ -5357,6 +5487,12 @@ export function createLoginRuntime(
     await save(run);
     await publish(live, metadata);
     void drive(run);
+    // A page of a watched login watches for the recipe's first step, which releases the
+    // login (ADR 0027).
+    if (metadata.watch && document.documentId !== metadata.watch.documentId) {
+      const starts = await startsFor(document.origin);
+      if (documents.get(key) === live) return { ok: true, starts };
+    }
     return { ok: true };
   }
   async function handle(message: unknown, sender: Sender): Promise<unknown> {
@@ -5559,14 +5695,15 @@ export function createLoginRuntime(
     await loaded;
     return (
       [...attempts.values()].some(inProgress) ||
-      [...persisted.values()].some((metadata) => !terminal(metadata) && !metadata.settled)
+      [...persisted.values()].some((metadata) => !terminal(metadata) && !idle(metadata))
     );
   }
   /**
    * The vault item of the login a tab is running on an origin. The passkey bridge answers
    * that login's requests with this item only (ADR 0027). A login runs while its record,
    * in memory or read back from storage after a worker restart, is neither authenticated
-   * nor blocked and its result has not settled as unknown since it last moved on.
+   * nor blocked, its result has not settled as unknown since it last moved on, and it is
+   * not watched (ADR 0027).
    */
   async function loginAccount(
     tabId: number,
@@ -5574,7 +5711,7 @@ export function createLoginRuntime(
   ): Promise<{ connectionId: string; itemId: string } | undefined> {
     await loaded;
     const metadata = recordFor(tabId, siteOrigin);
-    return metadata && !terminal(metadata) && !metadata.settled
+    return metadata && !terminal(metadata) && !idle(metadata)
       ? { connectionId: metadata.account.connectionId, itemId: metadata.account.itemId }
       : undefined;
   }
