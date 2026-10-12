@@ -1,12 +1,17 @@
-import { localSettingsSchema, type LocalSettings, type SettingsResponse } from "@pateat/contracts";
+import {
+  localSettingsSchema,
+  type ConnectionSettings,
+  type LocalSettings,
+  type SettingsResponse,
+} from "@pateat/contracts";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, ShieldCheck, Vault, type LucideIcon } from "lucide-react";
+import { Bug, Globe, Info, Link, Vault, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "../logo";
 import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
-import { Connections } from "./connections";
+import { VaultAccess, VaultRows } from "./connections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
@@ -265,13 +270,28 @@ export function SettingsApp({
     }
     void reload();
   }
+  const changeConnection = (id: string, update: (value: ConnectionSettings) => void) =>
+    edit((value) => {
+      const connection = value.connections.find((entry) => entry.connectionId === id);
+      if (connection) update(connection);
+    });
+  const exclusionsWin = (
+    <StatusLines
+      muted
+      lines={[
+        { tone: "idle", icon: Info, text: "Exclusions win over selected groups and items" },
+        {
+          tone: "idle",
+          icon: Info,
+          text: "These limits apply to Pateat only and do not change vault permissions",
+        },
+      ]}
+    />
+  );
   const sections: NavSection[] = [
-    ...(connectionClient ? [{ id: "bitwarden", label: "Bitwarden", icon: Vault }] : []),
-    {
-      id: "vault-access",
-      label: connectionClient ? "Vault access" : "Demo vaults",
-      icon: ShieldCheck,
-    },
+    connectionClient
+      ? { id: "bitwarden", label: "Bitwarden", icon: Vault }
+      : { id: "demo-vaults", label: "Demo vaults", icon: Vault },
     { id: "sites", label: "Sites", icon: Globe },
     ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
   ];
@@ -329,6 +349,42 @@ export function SettingsApp({
               onCatalogChanged={catalogChanged}
               acceptedSettings={accepted}
               reviewBlocked={dirty || busy || saveBlocked}
+              renderAccess={(id) => {
+                const connection = draft.connections.find((entry) => entry.connectionId === id);
+                const metadata = accepted?.catalog.connections.find((entry) => entry.id === id);
+                return (
+                  connection &&
+                  metadata && (
+                    <VaultAccess
+                      connection={connection}
+                      metadata={metadata}
+                      disabled={busy || !accepted}
+                      edit={(update) => changeConnection(id, update)}
+                    />
+                  )
+                );
+              }}
+              renderOthers={(listed) => (
+                <>
+                  {accepted && listed && (
+                    <fieldset
+                      className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0"
+                      disabled={busy}
+                    >
+                      <legend className="visually-hidden">Other saved vault settings</legend>
+                      <VaultRows
+                        ids={draft.connections
+                          .map((entry) => entry.connectionId)
+                          .filter((id) => !listed.includes(id))}
+                        draft={draft}
+                        catalog={accepted.catalog}
+                        change={changeConnection}
+                      />
+                    </fieldset>
+                  )}
+                  {exclusionsWin}
+                </>
+              )}
             />
           )}
           <fieldset
@@ -337,43 +393,21 @@ export function SettingsApp({
             disabled={busy || !accepted}
           >
             <legend className="visually-hidden">Local settings</legend>
-            <Panel
-              id="vault-access"
-              headingId="connections-heading"
-              title={connectionClient ? "Vault access" : "Demo vault connections"}
-            >
-              {accepted ? (
-                <Connections
-                  draft={draft}
-                  catalog={accepted.catalog}
-                  change={(id, update) =>
-                    edit((value) => {
-                      const connection = value.connections.find(
-                        (entry) => entry.connectionId === id,
-                      );
-                      if (connection) update(connection);
-                    })
-                  }
-                />
-              ) : (
-                <div id="connections" />
-              )}
-              <StatusLines
-                muted
-                lines={[
-                  {
-                    tone: "idle",
-                    icon: Info,
-                    text: "Exclusions win over selected groups and items",
-                  },
-                  {
-                    tone: "idle",
-                    icon: Info,
-                    text: "These limits apply to Pateat only and do not change vault permissions",
-                  },
-                ]}
-              />
-            </Panel>
+            {!connectionClient && (
+              <Panel id="demo-vaults" headingId="connections-heading" title="Demo vaults">
+                {accepted ? (
+                  <VaultRows
+                    ids={draft.connections.map((entry) => entry.connectionId)}
+                    draft={draft}
+                    catalog={accepted.catalog}
+                    change={changeConnection}
+                  />
+                ) : (
+                  <ul id="connections" className="hidden" />
+                )}
+                {exclusionsWin}
+              </Panel>
+            )}
             {accepted ? (
               <SitePolicy
                 key={generation}

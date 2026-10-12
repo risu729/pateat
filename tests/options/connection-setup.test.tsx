@@ -706,3 +706,92 @@ test("an account mismatch names the failed check", async () => {
   await page.getByRole("button", { name: "Saved vault: Sync", exact: true }).click();
   await expect.element(page.getByText(/did not agree \(check: token-unlock\)/)).toBeVisible();
 });
+
+test("each connection's row holds its vault access, which waits for saved settings", async () => {
+  const connection = mockClient();
+  connection.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        connectionId: "synthetic",
+        label: "Synthetic vault",
+        email: "saved@example.test",
+        environment: { kind: "cloud" as const, region: "us" as const },
+        state: "ready" as const,
+        autoUnlock: "enabled" as const,
+        providerSession: "active" as const,
+      },
+    ],
+  });
+  const catalog = {
+    connections: [
+      {
+        id: "synthetic",
+        label: "Synthetic vault",
+        provider: "bitwarden",
+        groups: [],
+        items: [
+          {
+            id: "login",
+            label: "Synthetic login",
+            allowedOrigins: [],
+            groupIds: [],
+            fields: [{ id: "login.password", label: "Password", name: null, kind: "hidden" }],
+          },
+        ],
+      },
+    ],
+  } satisfies Extract<SettingsResponse, { ok: true }>["catalog"];
+  function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
+    const settings = createDefaultSettings(catalog);
+    // An entry for a connection this device no longer has keeps a place on the page.
+    settings.connections.push({ ...settings.connections[0]!, connectionId: "gone" });
+    return { version: 1, ok: true, snapshot: { version: 1, revision, settings }, catalog };
+  }
+  const settings = {
+    getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue(saved(0)),
+    saveSettings: vi.fn<SettingsClient["saveSettings"]>().mockImplementation(async (request) => ({
+      ...saved(request.expectedRevision + 1),
+      snapshot: {
+        version: 1,
+        revision: request.expectedRevision + 1,
+        settings: structuredClone(request.settings),
+      },
+    })),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+      version: 1,
+      ok: false,
+      reason: "unavailable",
+    }),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SettingsApp client={settings} connectionClient={connection} />
+    </QueryClientProvider>,
+  );
+  const use = page.getByRole("switch", { name: "Synthetic vault: Use this vault", exact: true });
+  await expect.element(use).not.toBeChecked();
+  expect(document.getElementById("bitwarden-connections")?.contains(use.element())).toBe(true);
+  await expect.element(page.getByText("Unavailable connection", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("gone. Its saved settings are preserved.")).toBeVisible();
+  // There is no separate vault access section.
+  await expect.element(page.getByRole("heading", { name: "Vault access" })).not.toBeInTheDocument();
+
+  await use.click();
+  await expect.element(page.getByText("Settings saved locally. Revision 1")).toBeVisible();
+  expect(settings.saveSettings.mock.calls[0]?.[0].settings.connections[0]).toMatchObject({
+    connectionId: "synthetic",
+    enabled: true,
+  });
+  const read = held<SettingsResponse>();
+  settings.getSettings.mockReturnValue(read.promise);
+  await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
+  await expect.element(use).toBeDisabled();
+  await expect
+    .element(page.getByRole("combobox", { name: "Synthetic vault: Items for Pateat" }))
+    .toBeDisabled();
+  read.resolve(saved(4));
+  await expect.element(page.getByText("Saved settings loaded. Revision 4")).toBeVisible();
+  await expect.element(use).toBeEnabled();
+  await expect.element(use).not.toBeChecked();
+});

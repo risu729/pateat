@@ -253,47 +253,6 @@ body {
     margin: 0;
     border: 0;
   }
-  .connection,
-  .selection,
-  .item-exclusions {
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    margin: 1rem 0;
-    padding: 1rem;
-  }
-  .connection {
-    margin: 0.75rem 0;
-  }
-  .selection {
-    background: var(--surface-sunken);
-  }
-  .selection:disabled {
-    color: var(--ink-muted);
-  }
-  .disclosure {
-    margin: 1rem 0;
-  }
-  .disclosure > summary,
-  .item-exclusions > summary {
-    cursor: pointer;
-    font-weight: 650;
-  }
-  .disclosure > .selection {
-    margin-top: 0.75rem;
-  }
-  details.item-exclusions {
-    margin: 0.5rem 0;
-    padding: 0.6rem 1rem;
-  }
-  details.item-exclusions > summary {
-    font-weight: 500;
-  }
-  .summary-count {
-    margin-left: 0.4rem;
-    font-size: 0.85rem;
-    font-weight: 400;
-    color: var(--ink-muted);
-  }
   .checkbox-row {
     display: flex;
     align-items: start;
