@@ -77,9 +77,10 @@ changed-package selection for tasks.
 
 | Tool | Bun | pnpm | aube |
 | --- | --- | --- | --- |
-| mise 2026.10.8 | `npm.package_manager = "bun"` (current) | `"pnpm"`; `pnpm` in the registry | `"aube"` or `"aube_cli"`; `aube` in the registry |
+| mise 2026.10.8: install the tool | `bun` (current) | `pnpm` (aqua, npm) | `aube` (packslip, aqua, GitHub, cargo) |
+| mise 2026.10.8: installer for mise's `npm:` tools (`npm.package_manager`) | `"bun"` (current) | `"pnpm"` | `"aube"` or `"aube_cli"` |
 | Renovate | Bun manager updates `bun.lock` | npm manager updates `pnpm-lock.yaml` | no manager for `aube-lock.yaml`; keeping `bun.lock` or `pnpm-lock.yaml` leaves the update to Bun or pnpm |
-| Running TypeScript scripts | yes (two inference tasks) | no; Bun stays a mise tool for the two scripts, or they move to Node 26 | same as pnpm |
+| Running TypeScript scripts | yes (two inference tasks) | no; Bun stays a mise tool for the two scripts, or they are ported to Node 26 (replacing `Bun.build` in the Formasaurus import) | same as pnpm |
 
 The Renovate row is from
 [the npm manager page](https://docs.renovatebot.com/modules/manager/npm/), which lists
@@ -88,11 +89,12 @@ in Renovate's documentation on 2026-10-12.
 
 ## Trial installs
 
-Each tool installed a copy of `e3acb8c` in the cloud container, then the same mise tasks
-ran: every `typecheck`, `//apps/extension:test`, the `test` task of each package, the
-three `//services/api:check:*` tasks and `test:tools` (`check:sdk-source` too for Bun
-and aube; it reads `bun.lock`). The browser suites (Vitest Browser Mode and Playwright;
-about 353 tests in
+These are observations from single runs in one container; only the task output was kept
+as logs. Each tool installed a copy of `e3acb8c` in the cloud container, then the same
+mise tasks ran: every `typecheck`, `//apps/extension:test`, the `test` task of each
+package, the three `//services/api:check:*` tasks and `test:tools` (`check:sdk-source`
+too for Bun and aube; it reads `bun.lock`). The browser suites (Vitest Browser Mode and
+Playwright; about 353 tests in
 [the test inventory](2026-10-12-test-pruning-skills.md#pateats-test-suite-today)) could
 not run in any of the three: Playwright 1.64 wants Chromium build 1248 and the container
 has 1194, so `//apps/extension:test:dom` failed the same way everywhere and the others
@@ -100,8 +102,8 @@ were not run. Hooks in `hk check` were not run.
 
 | | Bun 1.4.3 | aube 2.7.0 | pnpm 12.11.2 |
 | --- | --- | --- | --- |
-| Install | `bun install --frozen-lockfile` | `aube install --frozen-lockfile` on the same `bun.lock`, file unchanged | `pnpm install` from scratch (no `bun.lock` import), new `pnpm-workspace.yaml`; failed until `allowBuilds` approved `esbuild` and `workerd` |
-| Node unit and service tests (3,134 run) | pass | pass | pass |
+| Install | `bun install --frozen-lockfile` | `aube install --frozen-lockfile` on the same `bun.lock`, file unchanged | `pnpm install` from scratch (no `bun.lock` import), new `pnpm-workspace.yaml`; failed until `allowBuilds` approved `esbuild` and `workerd`; the file also gained `minimumReleaseAgeExclude: ['@risu729/tsconfigs@3.0.1']`, a version published 2026-10-11 09:21 UTC, under pnpm's one-day default release age |
+| Vitest Node unit and service tests (3,134) plus `test:tools` (6) | pass | pass | pass |
 | Typecheck | pass | `tests/manage` (82 errors) and `tests/options` (198 errors) fail with `TS2339: Property 'element' does not exist on type 'ExpectStatic'` | pass |
 | Server build and checks | pass | pass | pass |
 
@@ -126,15 +128,18 @@ Stay on Bun for now (proposal, not decided):
 
 - Bun 1.4.3 already supports the monorepo features Pateat uses or would plausibly use
   (workspaces, `workspace:`, catalogs, graph filters, ordered runs, isolated layout).
-  The gaps against pnpm are `deploy` and a changed-since filter, which mise's
-  `--affected` covers for tasks.
-- aube works on this repository with one fix, can keep `bun.lock`, and is integrated
-  with mise. But it is six months old, jdx is its listed maintainer, Renovate has no
+  The gaps against pnpm are `deploy`, which Pateat does not use, and a changed-since
+  filter, which mise's `--affected` partly covers for tasks (it compares with `HEAD~1`
+  and never selects `tests/*`).
+- aube works on this repository with one fix, can keep `bun.lock`, and mise can install
+  it. But it is six months old, it has one listed npm maintainer (jdx), Renovate has no
   manager for its own lockfile, and the gain for Pateat today is install speed.
 - If a pnpm-only feature is needed, pnpm 12 is the established option: it passed the
   same checks as Bun, and Renovate and mise support it. Moving to it means a new
-  `pnpm-lock.yaml`, `pnpm-workspace.yaml` with `allowBuilds`, the three install
-  commands, `check-sdk-source.mjs`, and Node instead of Bun for the two inference
-  scripts.
+  `pnpm-lock.yaml`, `pnpm-workspace.yaml` with `allowBuilds` and release-age
+  exclusions that match Renovate's update timing, the three install commands,
+  `check-sdk-source.mjs`, and either keeping Bun as a mise tool for the two inference
+  scripts or porting them to Node. Whether `mise run --affected` reads
+  `pnpm-workspace.yaml` was not checked.
 - aube is worth revisiting when Renovate supports it or when a feature it has (such as
   the build jail or release-age check) is wanted.
