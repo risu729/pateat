@@ -152,8 +152,8 @@ function showsSignIn(): boolean {
  * `advance` step (ADR 0018), other than the recipe's own `targets`: `password`, a visible
  * writable password input; `identifier`, a visible writable email input or one marked for a
  * username or an email address. Visible as the page's description reads it, so an input
- * hidden from assistive technology, transparent, tiny or moved off the page, as a password
- * input kept on an email form for the browser to fill, never counts. An input marked
+ * hidden from assistive technology, transparent, tiny or moved before the page's start, as
+ * a password input kept on an email form for the browser to fill, never counts. An input marked
  * `new-password` or `one-time-code`, and every input of a form that holds one, never
  * counts: a sign-up, password change or code form is not a sign-in page to continue on,
  * and a code page is judged instead (ADR 0027).

@@ -199,34 +199,35 @@ Implementation choices for the page after a recipe's final `advance` step, made 
     captcha) and a signed-in page with an unrelated email box are judged instead.
 
   Visible means visible as the page's description reads it (2026-10-12): an input hidden
-  from assistive technology, transparent, tiny or moved off the page never counts, as a
-  password input an email form keeps for the browser to fill. On the Grok Bot computer
-  (19:51 UTC), the page after Microsoft's Next was sent with only its email form
-  described; such an input making that form qualify is the inferred cause, not checked
-  on the live page. An input marked `new-password` or `one-time-code`, and every input
-  of a form that holds one, never counts: a sign-up, password change or code form is not
-  continued, and a code page is judged, which may add a `totp` handler (ADR 0027). Any
-  other page is judged as before. The email input and the `email` token widen ADR 0016's
-  third input condition for this page only, since email-first sign-in pages often mark
-  their field only as an email address.
+  from assistive technology (also by an ancestor, as behind a dialog), transparent, tiny
+  or moved before the page's start never counts, as a password input an email form keeps
+  for the browser to fill; a page that shows no other is judged. On the Grok Bot
+  computer (19:51 UTC), the page after Microsoft's Next was sent with only its email
+  form described; such an input making that form qualify is the inferred cause, not
+  checked on the live page. An input marked `new-password` or `one-time-code`, and every
+  input of a form that holds one, never counts: a sign-up, password change or code form
+  is not continued, and a code page is judged, which may add a `totp` handler (ADR
+  0027). Any other page is judged as before. The email input and the `email` token widen
+  ADR 0016's third input condition for this page only, since email-first sign-in pages
+  often mark their field only as an email address.
 - **One request per step.** The page is described by `extractLoginObservation` and sent
   only when the description is complete, on the login's origin and on the path that
   qualified, and shows an input of the kind the page qualified with: a password input
   not marked `new-password` or `one-time-code`, or an email input or one marked
   `username` or `email` that is not one of the recipe's fill fields. A description
-  without one, as one read while a view swapped in place still describes the view before
-  it, is not sent (`field-not-described`); the page must then qualify for another second
-  before it is read again. The login's own vault item must still match the page, as for
-  a first page; a vault or tab that cannot answer for a moment, or a match that could
-  not evaluate every item, is asked again on the next round. The request offers only the
-  slots the recipe does not fill yet, and no custom field the recipe's generated slot
-  map already names (ADR 0027), and both the extension and the service refuse a page
-  whose steps fill one of the recipe's slots again, before anything is stored. A
-  read-only or disabled field that the recipe already fills on that path, such as an
-  identifier the page shows again, is left out instead of making the description
-  incomplete. The request is recorded in the attempt before it is sent, so a worker
-  restart cannot send that step's page again, and the login makes one model call per
-  final advance within the 10-minute retry window
+  without one, where the check and the description read the page differently, as an
+  input in a form the description leaves out, is not sent (`field-not-described`); the
+  page must then qualify for another second before it is read again. The login's own
+  vault item must still match the page, as for a first page; a vault or tab that cannot
+  answer for a moment, or a match that could not evaluate every item, is asked again on
+  the next round. The request offers only the slots the recipe does not fill yet, and no
+  custom field the recipe's generated slot map already names (ADR 0027), and both the
+  extension and the service refuse a page whose steps fill one of the recipe's slots
+  again, before anything is stored. A read-only or disabled field that the recipe
+  already fills on that path, such as an identifier the page shows again, is left out
+  instead of making the description incomplete. The request is recorded in the attempt
+  before it is sent, so a worker restart cannot send that step's page again, and the
+  login makes one model call per final advance within the 10-minute retry window
   ([ADR 0016](0016-recipe-generation-trigger.md)). The request is given back for a later
   document of the tab by the generation claim's own rule
   ([ADR 0016](0016-recipe-generation-trigger.md)): when its claim is freed because the

@@ -13150,8 +13150,8 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(service.generate).toHaveBeenCalledTimes(1);
   });
 
-  it("reads the page again while its description still shows the view an in-place swap replaces", async () => {
-    // Next swaps the password view in on the same path, but the first reads still describe
+  it("reads the page again while its description lacks the password input it qualified with", async () => {
+    // Next swaps the password view in on the same path, but the first reads describe only
     // the email view: its field and Next, and no password input.
     const emailView = describedPage("/signin", [
       { id: "c1", role: "email", target: target("email"), label: "Email" },

@@ -3656,10 +3656,10 @@ export function createLoginRuntime(
    * once it has finished loading and has shown, for a second on one path, a sign-in input
    * for a built-in slot the recipe does not fill yet, other than the recipe's own fields: a
    * password input, or, while none of the recipe's fill fields is writable on the page, a
-   * username or email input. A complete description of it is sent once per effect step,
-   * offering only the slots the recipe does not fill yet: the request is recorded in the
-   * attempt first, and given back for a later document to send when the generation claim
-   * was freed or the request was not sent (`retry`). A later document of the login waits
+   * username or email input. A complete description of it that shows such an input is sent
+   * once per effect step, offering only the slots the recipe does not fill yet: the request
+   * is recorded in the attempt first, and given back for a later document to send when the
+   * generation claim was freed or the request was not sent (`retry`). A later document of the login waits
    * for an answer still on its way. Returns `moved` once the attempt moved on or this document is no longer
    * current, `qualified` for a qualifying page that was not continued (yet), which is never
    * judged, and `none` for any other page.
@@ -3799,9 +3799,9 @@ export function createLoginRuntime(
     if (!current(run)) return "moved";
     // An incomplete description is not sent and does not count; a later round tries again.
     if (!observation) return unsent(missing);
-    // The description must show the input the page qualified with: one read while a view
-    // swapped in place may still describe the view before it. The page must then show
-    // that input for another second before it is read again.
+    // The description must show the input the page qualified with, which it can leave out
+    // where the two read the page differently, as an input in a form the description does
+    // not keep. The page must then qualify for another second before it is read again.
     const fillTargets = recipe.steps.flatMap((step) =>
       step.kind === "fill" ? step.fields.map((field) => field.target) : [],
     );
