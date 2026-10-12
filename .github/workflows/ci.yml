@@ -72,7 +72,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           # The Linux browser shards below run the packaged-extension browser tests.
           PATEAT_SKIP_E2E: "1"
+          # Each Vitest run writes coverage/<run>/coverage-final.json.
+          PATEAT_COVERAGE: "1"
         run: mise run check
+      - name: Summarize test coverage
+        run: mise run coverage:summary
       - name: Prepare tested server artifact
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: mise exec -- node .github/scripts/server-artifact.mjs pack

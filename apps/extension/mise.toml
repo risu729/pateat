@@ -30,27 +30,27 @@ run = "tsc --noEmit -p tsconfig.json"
 
 [tasks."test:connections"]
 depends = [":prepare"]
-run = "node ../../node_modules/vitest/vitest.mjs run src/connections"
+run = "node ../../node_modules/vitest/vitest.mjs run src/connections --coverage.reportsDirectory=../../coverage/extension-connections"
 
 [tasks."test:crypto"]
 depends = [":prepare"]
-run = "node ../../node_modules/vitest/vitest.mjs run src/crypto"
+run = "node ../../node_modules/vitest/vitest.mjs run src/crypto --coverage.reportsDirectory=../../coverage/extension-crypto"
 
 [tasks."test:login"]
 depends = [":prepare"]
-run = "node ../../node_modules/vitest/vitest.mjs run src/login"
+run = "node ../../node_modules/vitest/vitest.mjs run src/login --coverage.reportsDirectory=../../coverage/extension-login"
 
 [tasks."test:passkeys"]
 depends = [":prepare"]
-run = "node ../../node_modules/vitest/vitest.mjs run src/passkeys"
+run = "node ../../node_modules/vitest/vitest.mjs run src/passkeys --coverage.reportsDirectory=../../coverage/extension-passkeys"
 
 [tasks."test:service"]
 depends = [":prepare"]
-run = "node ../../node_modules/vitest/vitest.mjs run src/service"
+run = "node ../../node_modules/vitest/vitest.mjs run src/service --coverage.reportsDirectory=../../coverage/extension-service"
 
 [tasks."test:vault"]
 depends = [":prepare"]
-run = "node ../../node_modules/vitest/vitest.mjs run src/vault"
+run = "node ../../node_modules/vitest/vitest.mjs run src/vault --coverage.reportsDirectory=../../coverage/extension-vault"
 
 [tasks."test:dom"]
 description = "Extract observations, resolve element locators and collect diagnostics in Chromium."
