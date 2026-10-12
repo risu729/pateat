@@ -153,6 +153,12 @@ export const loginObservationSchema = v.pipe(
      * of that page, for the judge (ADR 0029); no other page carries it.
      */
     headerText: v.optional(observedHeaderText),
+    /**
+     * Up to three short texts a signed-in page shows near its first code field, redacted
+     * as the rest of that page, for the judge to tell where the code comes from (ADR
+     * 0027); no other page carries it.
+     */
+    nearCode: v.optional(v.pipe(v.array(observedText), v.minLength(1), v.maxLength(3))),
     // The extractor sets false when it dropped an element a recipe may need; such an
     // observation is rejected rather than relying on a model to guess the rest.
     // Text bounded to its length limit or redacted is not counted as dropped.
@@ -168,6 +174,10 @@ export const loginObservationSchema = v.pipe(
   v.check(
     (observation) => observation.candidates.length > 0 || observation.accounts !== undefined,
     "An observation needs candidates or an account list",
+  ),
+  v.check(
+    (observation) => observation.nearCode === undefined || observation.candidates.some(isCodeField),
+    "Text near a code field needs a code field",
   ),
   v.check(
     (observation) => unique(observation.candidates.map((candidate) => candidate.id)),

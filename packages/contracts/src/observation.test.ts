@@ -151,6 +151,28 @@ describe("observation contract", () => {
     expect(parse({ ...base, headerText: "" })).toBe(false);
     expect(parse({ ...base, headerText: "a\nb" })).toBe(false);
   });
+
+  it("takes up to three texts near a code field, only on a page with one (ADR 0027)", () => {
+    const code = {
+      ...base,
+      candidates: [
+        ...base.candidates,
+        {
+          id: "code",
+          role: "text",
+          target: { by: "id", value: "code" },
+          autocomplete: "one-time-code",
+        },
+      ],
+    };
+    expect(parse({ ...code, nearCode: ["Enter the code from your authenticator app"] })).toBe(true);
+    expect(parse({ ...code, nearCode: ["a", "b", "c"] })).toBe(true);
+    expect(parse({ ...code, nearCode: ["a", "b", "c", "d"] })).toBe(false);
+    expect(parse({ ...code, nearCode: [] })).toBe(false);
+    expect(parse({ ...code, nearCode: ["x".repeat(121)] })).toBe(false);
+    expect(parse({ ...code, nearCode: ["a\nb"] })).toBe(false);
+    expect(parse({ ...base, nearCode: ["Enter the code"] })).toBe(false);
+  });
 });
 
 describe("account lists (ADR 0028)", () => {

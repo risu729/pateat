@@ -97,9 +97,10 @@ export function pathShowsUsername(path: string, usernames: readonly string[]): b
  * 0029 reads one) shows where ADR 0028's rule for a name beside buttons finds it
  * ({@link namePattern}): as a whole text or inside a longer one, in any width or case,
  * with or without a leading `@`, and never inside a longer Latin word, so `ann` is not
- * found in `annual`. Each place in the title, the headings, the header text, the account
- * texts and a candidate's label, placeholder and description becomes `[account]`, and so
- * does the start of a name at the end of a text cut at its length limit.
+ * found in `annual`. Each place in the title, the headings, the header text, the texts
+ * near a code field, the account texts and a candidate's label, placeholder and
+ * description becomes `[account]`, and so does the start of a name at the end of a text
+ * cut at its length limit.
  *
  * A locator value cannot be hidden, since it must name the element as it is, so a button,
  * link or checkbox whose locator holds a username is left out, as ADR 0028 leaves out a
@@ -155,13 +156,14 @@ export function withoutUsernames(
       ...(description === undefined ? {} : { description: hide(description) }),
     });
   }
-  const { title, headings, headerText, accounts } = observation;
+  const { title, headings, headerText, accounts, nearCode } = observation;
   const parsed = v.safeParse(loginObservationSchema, {
     ...observation,
     ...(title === undefined ? {} : { title: hide(title) }),
     ...(headings === undefined ? {} : { headings: headings.map((text) => hide(text)) }),
     ...(headerText === undefined ? {} : { headerText: hide(headerText, maxHeaderText) }),
     ...(accounts === undefined ? {} : { accounts: accounts.map((text) => hide(text)) }),
+    ...(nearCode === undefined ? {} : { nearCode: nearCode.map((text) => hide(text)) }),
     candidates,
   });
   return parsed.success ? { ok: true, observation: parsed.output } : refused;

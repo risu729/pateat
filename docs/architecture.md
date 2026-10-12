@@ -1286,19 +1286,19 @@ text or inside a longer one, ignoring case and width and a leading `@`, but neve
 a longer Latin word, so `ann` is not found in `annual`. It looks for each username as it
 is and in the form the page's redaction left it in (`taro[number]` for `taro1234`), and
 also hides the start of a username at the end of a text cut at its limit (120
-characters, 1,000 for the header text). The title, headings, header text, account texts
-and each candidate's label, placeholder and description are covered. A locator cannot be
-hidden, since it must name the element as it is: a button, link or checkbox whose
-locator (text, `id`, `name` or `data-testid`) holds a username is left out. The page is
-not sent (`username-shown`) when that control would leave it incomplete: a field, a
-button or link of a field's form, or a button outside every form beside a field outside
-every form; nor when a segment of its path holds a username under the same rule. A
-username read that fails also keeps the page from being sent (`username-unread`); an
-item without a username, with an empty one (the catalog's `empty` flag) or whose
-username the user excluded is not read and does not count. Not covered: an email
-username's local part shown alone (the address itself is already `[email]`), a username
-in the origin, such as a personal subdomain, the usernames of items on a connection that
-could not answer, and the sign-in entry pages of
+characters, 1,000 for the header text). The title, headings, header text, texts near a
+code field, account texts and each candidate's label, placeholder and description are
+covered. A locator cannot be hidden, since it must name the element as it is: a button,
+link or checkbox whose locator (text, `id`, `name` or `data-testid`) holds a username is
+left out. The page is not sent (`username-shown`) when that control would leave it
+incomplete: a field, a button or link of a field's form, or a button outside every form
+beside a field outside every form; nor when a segment of its path holds a username under
+the same rule. A username read that fails also keeps the page from being sent
+(`username-unread`); an item without a username, with an empty one (the catalog's
+`empty` flag) or whose username the user excluded is not read and does not count. Not
+covered: an email username's local part shown alone (the address itself is already
+`[email]`), a username in the origin, such as a personal subdomain, the usernames of
+items on a connection that could not answer, and the sign-in entry pages of
 [ADR 0031](adr/0031-sign-in-entry-pages.md). Known limits: a username that is also a
 word in the page's path or its form controls, such as `admin` or `login`, keeps that
 page from being sent (`username-shown`), so such a site gets no recipe; on a judged
@@ -1315,20 +1315,24 @@ the sign-in needs none of them. Numerals written as letters, such as most kanji,
 That page also carries `headerText` ([ADR 0029](adr/0029-local-sign-in-state.md)): the
 visible text of each outermost `header`, `nav`, banner and navigation landmark in
 document order, redacted the same way, with usernames hidden as above, and cut at 1,000
-characters. No other page carries it. Login pages keep the four-digit rule, since hints
-such as `4 digits` help map fields. When a login page already shows a chosen account and
-offers a button or link to use another one, the generation role may name it as the
-plan's `accountSwitch`; it must be an observed button or link that the plan neither
-fills nor uses as its action. The generated recipe keeps the first switch a page names
-that no step clicks. Only links inside the login form are observed, so a switch link
-outside it is not named. A button whose text a link elsewhere on the page shows too, and
-a button that would submit a form, are never clicked as a switch; the attempt then ends
-`wrong-account`. Locating links by text means in-form links without an `id`, `name` or
-`data-testid` are now observed as well, with their redacted labels, and a switch link's
-redacted rendered text is stored in the recipe. Model output must pass structural and
-semantic checks on the server and again locally. Screenshot, audio and video collection
-are deferred. A provider's multimodal support does not enable these inputs without a
-separate privacy/evaluation gate.
+characters. No other page carries it. That page, when it shows a code field, also
+carries `nearCode`: up to three short texts near the first one, such as a sentence
+naming an authenticator app outside the code form, redacted the same way, with live
+regions, error messages, controls, labels, links and headings left out
+([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). Login pages
+keep the four-digit rule, since hints such as `4 digits` help map fields. When a login
+page already shows a chosen account and offers a button or link to use another one, the
+generation role may name it as the plan's `accountSwitch`; it must be an observed button
+or link that the plan neither fills nor uses as its action. The generated recipe keeps
+the first switch a page names that no step clicks. Only links inside the login form are
+observed, so a switch link outside it is not named. A button whose text a link elsewhere
+on the page shows too, and a button that would submit a form, are never clicked as a
+switch; the attempt then ends `wrong-account`. Locating links by text means in-form
+links without an `id`, `name` or `data-testid` are now observed as well, with their
+redacted labels, and a switch link's redacted rendered text is stored in the recipe.
+Model output must pass structural and semantic checks on the server and again locally.
+Screenshot, audio and video collection are deferred. A provider's multimodal support
+does not enable these inputs without a separate privacy/evaluation gate.
 
 Use a cached compatible recipe first. On structural mismatch or repeated genuine
 recipe failure, request repair within a separate bounded inference budget. Wrong

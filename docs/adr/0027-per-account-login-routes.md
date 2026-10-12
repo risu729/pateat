@@ -29,6 +29,12 @@ back to the recorded `password` variant when the site does not sign in (implemen
 Amended on 2026-10-12 by the owner (decision card answered "fill" at 19:21 UTC): a
 `totp` handler also takes a code split into one input per digit
 ("Split code inputs" in [Implementation choices](#implementation-choices)); implemented.
+Amended on 2026-10-12 by the owner (decision card answered option A at 22:04 UTC): the
+judged page also carries up to three short texts near its code field, so the judge can
+read where the code comes from when the page says so outside the code form ("Text near
+the code field" in [Implementation choices](#implementation-choices)); implemented. The
+rule that only a code the page says comes from an authenticator app is learned is
+unchanged.
 
 Date: 2026-10-11
 
@@ -192,9 +198,11 @@ These rules work from any account, in any order.
   prompt version (its instructions and output schema, not the local checks that keep a
   handler); at most 20 judgements per recipe per day (UTC), whatever the path
   (owner, 13:45 UTC); and the existing $5 a day and $100 a month. Judging again after
-  the judge changes was added on 2026-10-12, after Resend's code split into one-digit
-  inputs, judged `challenge` before such codes were learned, kept answering
-  `judged-challenge` on the same revision and never got its `totp` handler.
+  the judge changes was added on 2026-10-12, after Resend's code page, judged
+  `challenge`, kept answering `judged-challenge` on the same revision and never got its
+  `totp` handler. (That note first said Resend splits its code into one-digit inputs;
+  a real-Chrome check the same day showed one input, `autocomplete="one-time-code"`,
+  numeric, six characters.)
 - **First login:** when a judgement adds a handler, the running login takes the new
   revision and runs the handler on the page it is on, if the item has the fact. Its step
   and submission budget grows by the handler's steps. A login accepts a newer revision
@@ -209,7 +217,8 @@ These rules work from any account, in any order.
 
 ### What the model receives
 
-- The page: structure and redacted labels, never values (`LoginObservation`).
+- The page: structure and redacted labels, never values (`LoginObservation`). The
+  judge's page also carries the texts near its code field (`nearCode`, below).
 - Slot meanings for the built-in fields.
 - Custom-field names allowed for automatic fill, with positions, and the shapes above.
 - Never: values, item names, item or account IDs, and the facts (password, TOTP,
@@ -482,6 +491,39 @@ new owner decision:
   on a page of a `totp` handler's path that shows its code field, as on the sign-in
   page, and generation maps a one-time-code slot only to an input the TOTP fill rule
   accepts.
+- **Text near the code field** (owner decision, 2026-10-12 22:04 UTC). On Resend's code
+  page the sentence that asks for the authenticator app's code is a plain `span` outside
+  the form, tied to no input, so the judge saw no source and answered `unknown`. The
+  page shown after an effect step therefore carries `nearCode`: up to three texts near
+  its first input that the TOTP fill rule of ADR 0013 accepts by itself
+  (`autocomplete="one-time-code"`, or a numeric or `tel` input with `maxlength` 1 to 10,
+  as `isCodeField` reads an observed field; a split code's first input). They come from
+  the field's first three parents, never the body or above: each is the rendered text of
+  one shown element without child elements, nearest parent first and then in page order,
+  sent in page order. Live regions (`role="alert"`, `aria-live` and the like), the
+  element the field's `aria-errormessage` names, editable text (`contenteditable`, the
+  `textbox`, `searchbox`, `combobox` and `spinbutton` roles), `output` boxes, controls,
+  labels, links, buttons and `h1` to `h3` headings, and everything inside them, are left
+  out, since error text and such boxes can echo a typed value (ADR 0010) and the rest is
+  already described; such an element anywhere above the field, as a page wrapped in a
+  live region, leaves out every text, and a field marked `aria-invalid="true"` gets
+  none. Each text is redacted as the rest of that page (email addresses, masked runs and
+  every number hidden, the account's own usernames as `[account]`) and then cut at 120
+  characters. A text that repeats another, the title, a heading or the field's label,
+  placeholder or description, or that has fewer than two letters beside its
+  placeholders, such as a timer or one typed character in a box of its own, is dropped
+  and does not count toward the three. An element with child elements gives no text of
+  its own, so a sentence with an inline element inside, such as `<strong>`, `<br>` or an
+  icon, gives only that element's words or nothing. The judge's instructions name
+  `nearCode` as untrusted page text. Login pages, lists of accounts and sign-in entry
+  pages never carry it, so recipe generation never sees it. A misread or deceptive text
+  can at worst store a `totp` handler that fills the current TOTP code into that site's
+  checked field on every login until the recipe is revoked; the code never leaves the
+  site and the field checks still apply. The added text (at most 360 characters) is in
+  the request log for 90 days (ADR 0012); as with the header text of ADR 0029, it is
+  allowed while Pateat is for the owner's own use and decided again before the public
+  release (phase 3). The judge's prompt version changed with it, so judged pages are
+  judged again once.
 - **Entering handlers.** A handler that has not run is entered when all its elements
   are unique and usable on its path: a `totp` handler's field a shown writable input,
   and its button, like a `passkey` handler's, a shown one, enabled or not, since many

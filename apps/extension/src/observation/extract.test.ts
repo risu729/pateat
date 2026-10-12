@@ -1285,6 +1285,77 @@ describe("extractSignedInObservation", () => {
     expect(observe()).not.toHaveProperty("headerText");
   });
 
+  it("sends up to three texts near the code field, hidden as the rest of the page (ADR 0027)", () => {
+    // The sentence that names the code's source sits outside the code form.
+    page(
+      `<header><a id="logout" href="/logout">Log out</a></header>
+      <main><div><h1>Two-factor authentication</h1>
+        <div><span>Enter the 6-digit code from your authenticator app.</span></div>
+        <form><div><input id="otp" autocomplete="one-time-code" inputmode="numeric"
+            maxlength="6" aria-label="Code"></div>
+          <button id="verify" type="submit">Verify</button></form>
+        <a href="/help">Lost access to your app?</a></div></main>`,
+    );
+    expect(signedIn().nearCode).toEqual([
+      "Enter the [number]-digit code from your authenticator app.",
+    ]);
+    // Live regions, error messages, labels, links, buttons and headings are left out, and
+    // so is text more than three parents above the field.
+    page(
+      `<div><p>Far away</p><div><div><div>
+        <p role="alert">Wrong code 123456</p><p aria-live="polite">Sent again</p>
+        <p id="otp-error">Code 654321 is wrong</p>
+        <label for="otp">Code</label><h2>Verify</h2><a href="/sms">Use SMS instead</a>
+        <span>Open your authenticator app</span>
+        <div><input id="otp" autocomplete="one-time-code" aria-errormessage="otp-error">
+          <small>Codes change every 30 seconds</small></div>
+        <span role="button" tabindex="0">Resend</span>
+        <button id="verify" type="submit">Verify</button>
+        <p>Trouble? Contact support</p><p>Fourth text</p>
+      </div></div></div></div>`,
+    );
+    // The nearest come first, then page order; they are sent in page order.
+    expect(signedIn().nearCode).toEqual([
+      "Open your authenticator app",
+      "Codes change every [number] seconds",
+      "Trouble? Contact support",
+    ]);
+    // Only kept texts count: one repeating the label, a timer and one typed character in a
+    // box of its own leave room for the sentence a parent further up holds, and editable
+    // text is never read. Text in the third parent counts and in the fourth does not.
+    page(
+      `<div><p>Fourth parent</p><div><p>Enter the code from your authenticator app, taro@example.com</p>
+        <div><span>Verification code</span><div>
+          <input id="otp" autocomplete="one-time-code" aria-label="Verification code">
+          <div>A</div><div>B</div><div role="textbox" contenteditable>my words</div></div>
+          <span>0:30</span><span>Didn't receive it?</span><span>Didn't receive it?</span>
+        </div><button id="verify" type="submit">Verify</button></div></div>`,
+    );
+    expect(signedIn().nearCode).toEqual([
+      "Enter the code from your authenticator app, [email]",
+      "Didn't receive it?",
+    ]);
+    // A field marked invalid gets none, as its description does.
+    page(
+      `<div><span>Open your authenticator app</span>
+        <input id="otp" autocomplete="one-time-code" aria-invalid="true"></div>
+      <button id="verify" type="submit">Verify</button>`,
+    );
+    expect(signedIn()).not.toHaveProperty("nearCode");
+    // A page without a code field sends none, and a login page never does.
+    page(
+      `<div><span>Search the help center</span><input id="q" type="text" aria-label="Search">
+        <button id="logout" type="button">Sign out</button></div>`,
+    );
+    expect(signedIn()).not.toHaveProperty("nearCode");
+    page(
+      `<form><div><span>Open your authenticator app</span>
+        <input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+        <button id="verify">Verify</button></form>`,
+    );
+    expect(observe()).not.toHaveProperty("nearCode");
+  });
+
   it("never locates by an id or name that carries an email address or a long number", () => {
     page(
       `<a id="acct-0123456789" href="/a">Account</a>

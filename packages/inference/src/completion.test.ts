@@ -391,6 +391,22 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
     expect(hasTotp(outcome)).toBe(true);
   });
 
+  it("sends the text near the code field with the page, as it is", async () => {
+    const observation = {
+      ...signedIn,
+      path: "/auth/mfa",
+      title: "Two-factor authentication",
+      headings: [],
+      nearCode: ["Enter the code from your authenticator app"],
+      candidates: [field(), submit()],
+    };
+    const { judge, sent } = judgeReturning(answer());
+    expect(await judge({ ...request, observation })).toMatchObject({
+      value: { decision: "challenge", totp: kept },
+    });
+    expect(sent).toEqual([{ task: "judge-sign-in", loginPaths: ["/login"], observation }]);
+  });
+
   it("drops a field limited to five characters", async () => {
     expect(hasTotp(await judged([field({ maxLength: 5 }), submit()], answer()))).toBe(false);
   });

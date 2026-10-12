@@ -50,7 +50,8 @@ on 2026-10-12 (20:50 UTC):
 | A sign-in entry button ([ADR 0031](adr/0031-sign-in-entry-pages.md)) | pixiv | Done |
 | A stored passkey | npm, pixiv | Done |
 | The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; recheck that no Bitwarden "Save passkey" window follows (below) and the choice after a logout |
-| A TOTP code split into one-digit inputs | Resend | Recheck after `cdfa420`; needs a paid judge call and the owner's code entry |
+| A TOTP code from an authenticator app, the source said outside the code form | Resend | Recheck once the judge sees the text near the code field (ADR 0027, owner's option A, 2026-10-12 22:04 UTC); needs a paid judge call and the owner's code entry |
+| A TOTP code split into one-digit inputs | None found yet | Find a site: Resend has one input (real-Chrome check, 2026-10-12) |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
 | A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
 | A CAPTCHA the person solves, then the signed-in page | Q-move | Investigating why the signed-in page is not judged |
@@ -237,10 +238,13 @@ own accounts, so they stay in the project's files rather than in this repository
     and a silent stop when another tab's login held the site; recheck both after the
     fix that waits for the usernames and names the hold.
   - The `totp` handler ([ADR 0027](adr/0027-per-account-login-routes.md) delivery 4) on
-    a code split into one-digit inputs, on Resend's code page (owner decision,
-    2026-10-12 19:21 UTC): a judged code page adds the handler with the first input, and
-    the same login types one digit per input and clicks once. It needs a paid judge call
-    and the owner's own code entry or approval.
+    Resend's code page: one input (`autocomplete="one-time-code"`, numeric, six
+    characters), with the sentence naming the authenticator app outside the form, which
+    the judge now reads as text near the code field (owner's option A, 2026-10-12 22:04
+    UTC). A judged code page adds the handler, and the same login fills the code and
+    clicks once. It needs a paid judge call and the owner's own code entry or approval.
+    A code split into one-digit inputs (owner decision, 2026-10-12 19:21 UTC) still
+    needs a real site; Resend was first recorded as one, wrongly.
 - Polish the UI, in phase 1 so that phase 2's feedback is on the improved UI (owner,
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
@@ -1796,7 +1800,8 @@ Remaining M4 AI work:
   it. A binding that names a custom field for the code is deferred and ends `challenge`.
   Its real-Chrome checks are listed with the installed-Chrome checks of phase 1 (Resend)
   and phase 2 (npmjs.com). The one-digit inputs are typed one digit per input (owner
-  decision, 2026-10-12 19:21 UTC, after Resend's code page stopped the login); six probe
+  decision, 2026-10-12 19:21 UTC, after Resend's code page stopped the login; Resend was
+  then thought to split its code, but it has one input); six probe
   E2E specs (one Verify click, a page that submits on its last digit, Verify disabled
   until the code is in or only while it is partial, an input the page changes after the
   first digit and seven inputs for a six-digit code, both stopping without a click)
