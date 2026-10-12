@@ -1241,12 +1241,12 @@ not recur; no refusal occurred, so no category was observed.
 
 On 2026-10-12 the owner chose short, language-neutral instructions
 ([ADR 0014](adr/0014-claude-generation-provider.md)). The generation instructions went
-from 3,106 to 1,298 characters and the judge's from 1,535 to 693, with each field's
+from 3,106 to 1,298 characters and the judge's from 1,671 to 838, with each field's
 meaning moved into the response format's descriptions (690 and 461 characters added
 there). Rendered locally through `createClaudeGenerationModel` with a fake `fetch` for
 the synthetic corpus case `ja-basic`, whose observation also stands in for the judged
 page, the whole Claude request went from 6,217 to 5,099 characters (generation) and from
-3,626 to 3,245 (judge), most of the rest being the page itself. Local tests check that
+3,762 to 3,390 (judge), most of the rest being the page itself. Local tests check that
 the instructions and response formats hold only ASCII text. No paid run has measured
 the change yet; a corpus run needs the owner's approval.
 
