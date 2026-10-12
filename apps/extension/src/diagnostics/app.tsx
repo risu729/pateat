@@ -6,6 +6,7 @@ import {
   generationLabel,
   installLabel,
   plural,
+  problemCounts,
   serverLabel,
   syncSignIn,
 } from "./labels";
@@ -283,7 +284,7 @@ function Logs({
         <Row term="Entries" id="diagnostics-logs">
           {logs ? `${logs.entries} (${Math.ceil(logs.bytes / 1024)} KB)` : "unreadable"}
         </Row>
-        {logs && <Row term="Errors in the last 24 h">{logs.recentErrors}</Row>}
+        {logs && <Row term="Problems in the last 24 h">{problemCounts(logs)}</Row>}
         <Row term="Debug logging">
           {logs?.debugUntil === undefined ? "off" : `on until ${time(logs.debugUntil)}`}
         </Row>

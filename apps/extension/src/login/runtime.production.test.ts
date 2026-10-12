@@ -913,7 +913,8 @@ describe("production login document admission", () => {
     });
     it("keeps one attempt per tab and lets only a new page end a frame's attempt", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
-      const h = harness();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { report });
       const top = "https://login.example/home";
       expect(await h.hello(framed(top))).toEqual({ ok: true });
       await vi.waitFor(() => expect(executes()).toHaveLength(1));
@@ -926,6 +927,15 @@ describe("production login document admission", () => {
         ok: false,
         reason: "tab-busy",
       });
+      // The log tells a refused frame from the tab's page.
+      expect(
+        report.mock.calls.flatMap(([value]) =>
+          value.type === "refused" ? [[value.reason, value.frame]] : [],
+        ),
+      ).toEqual([
+        ["tab-busy", undefined],
+        ["tab-busy", true],
+      ]);
       expect(fake.state.messages.filter((entry) => entry.type === "login.cancel")).toEqual([]);
       // While the frame is still there, a new top document is its own page announcing.
       fake.state.gone = new Set(["page-document"]);
@@ -3092,6 +3102,15 @@ describe("production login document admission", () => {
             ...(verdict === "unclear" ? { reason: "timeout" } : {}),
           },
         ]);
+        // The log's last word on the login: it ended, or its result settled as unknown.
+        expect(report.mock.calls.at(-1)![0]).toMatchObject({
+          type: "attempt",
+          ...expected,
+          ...(verdict === "unclear" ? { settled: true } : {}),
+        });
+        expect(
+          report.mock.calls.filter(([value]) => value.type === "attempt" && value.settled),
+        ).toHaveLength(verdict === "unclear" ? 1 : 0);
       },
       10_000,
     );
@@ -3879,11 +3898,15 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       async function settledLogin(
         judge: LoginGeneration["judge"] = async () => ({ verdict: "unclear" }),
         extracted = page("/elsewhere"),
+        report?: (report: LoginReport) => void,
       ) {
         vi.useFakeTimers();
         onClick({ login: { path: "/elsewhere", present: [], extracted } });
         const service = generation(judge);
-        const h = harness({}, { passkeys: withPasskey, generation: service });
+        const h = harness(
+          {},
+          { passkeys: withPasskey, generation: service, ...(report ? { report } : {}) },
+        );
         h.recipes.recipe.mockResolvedValue(plain);
         expect(await h.hello()).toEqual({ ok: true });
         await until(settled("reconciling", "unknown-submit"), 10_000);
@@ -3909,6 +3932,23 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         await open(h, "/billing");
         expect(service.judge).toHaveBeenCalledTimes(2);
         expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]);
+      });
+
+      it("reports the settled result once while later pages change nothing", async () => {
+        const report = vi.fn<(report: LoginReport) => void>();
+        const { h } = await settledLogin(undefined, undefined, report);
+        await open(h, "/settings");
+        await open(h, "/billing");
+        const attempts = report.mock.calls.flatMap(([value]) =>
+          value.type === "attempt" ? [value] : [],
+        );
+        expect(attempts.filter((value) => value.settled)).toHaveLength(1);
+        expect(attempts[0]).not.toHaveProperty("repeat");
+        // Each new page resumes the attempt; the log repeats it at most quietly.
+        expect(attempts.slice(-2)).toMatchObject([
+          { state: "reconciling", outcome: "unknown-submit", repeat: true },
+          { state: "reconciling", outcome: "unknown-submit", repeat: true },
+        ]);
       });
 
       it("no longer holds policy writes once the result settled, also after a restart", async () => {

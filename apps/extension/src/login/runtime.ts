@@ -527,12 +527,18 @@ export type LoginReport =
       /** For a `policy-changed` outcome: its cause, and a refused plan's reason. */
       cause?: PolicyChangeCause;
       reason?: string;
+      /** The result of the current effect step just settled as unknown (`unknown-submit`). */
+      settled?: true;
+      /** A new document of the tab resumed the attempt without changing its state or outcome. */
+      repeat?: true;
     }
   | {
       type: "refused";
       tabId: number;
       origin: string;
       reason: string;
+      /** The refused document is a frame, not the tab's page. */
+      frame?: true;
       /**
        * For `no-route` on a recipe with several password variants: why its first variant
        * did not fit, such as `binding-not-found` (ADR 0027).
@@ -632,6 +638,7 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
+    flags: { settled?: true; repeat?: true } = {},
   ) => {
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
     const handler =
@@ -653,6 +660,7 @@ export function createLoginRuntime(
       ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
+      ...flags,
     });
   };
   let origin = DEFAULT_PROBE_ORIGIN;
@@ -1064,7 +1072,9 @@ export function createLoginRuntime(
       run.metadata,
       undelivered ? { type: "POLICY_CHANGED", undelivered } : event,
     );
-    if (run.metadata.state !== previous.state)
+    // Settling as unknown keeps the state, but it is how a login ends without a result.
+    const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
+    if (run.metadata.state !== previous.state || settled)
       // The log still names the step that was withdrawn.
       reportAttempt(
         undelivered
@@ -1076,6 +1086,7 @@ export function createLoginRuntime(
           : run.metadata,
         run.recipe,
         policy,
+        settled ? { settled } : {},
       );
     if (
       import.meta.env.MODE === "probe" &&
@@ -3081,6 +3092,7 @@ export function createLoginRuntime(
         origin: document.origin,
         reason,
         ...(detail ? { detail } : {}),
+        ...(document.frameId === 0 ? {} : { frame: true as const }),
       });
       live.state = "denied";
       live.reason = reason;
@@ -3372,7 +3384,15 @@ export function createLoginRuntime(
     )
       run.inPlace = before.inPlace;
     attempts.set(document.tabId, run);
-    reportAttempt(metadata, recipe, resumedPolicy);
+    // Each new document of the tab resumes the attempt; only a change is news.
+    reportAttempt(
+      metadata,
+      recipe,
+      resumedPolicy,
+      previous && metadata.state === previous.state && metadata.outcome === previous.outcome
+        ? { repeat: true }
+        : {},
+    );
     clearChoice(document.tabId);
     // A hold's tooltip no longer applies once the tab logs in.
     void quietly(() => browser.action.setTitle({ tabId: document.tabId, title: "Pateat" }));

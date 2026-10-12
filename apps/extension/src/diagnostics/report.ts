@@ -5,6 +5,7 @@ import {
   generationLabel,
   installLabel,
   plural,
+  problemCounts,
   serverLabel,
   syncSignIn,
 } from "./labels";
@@ -92,7 +93,7 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
     lines.push(`Storage: storage.local ${Math.ceil(status.storage.localBytes / 1024)} KB`);
   if (status.logs)
     lines.push(
-      `Logs: ${plural(status.logs.entries, "entry", "entries")} (${Math.ceil(status.logs.bytes / 1024)} KB), ${plural(status.logs.recentErrors, "error")} in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${utcMinute(status.logs.debugUntil)}`}`,
+      `Logs: ${plural(status.logs.entries, "entry", "entries")} (${Math.ceil(status.logs.bytes / 1024)} KB), ${problemCounts(status.logs)} in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${utcMinute(status.logs.debugUntil)}`}`,
     );
   const { recent } = status;
   if (recent?.updated)
