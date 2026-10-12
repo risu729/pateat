@@ -698,6 +698,48 @@ test("fills the second identifier set when the account maps only that one (ADR 0
   }
 });
 
+for (const [name, query] of [
+  ["in place", ""],
+  ["after a pushState URL change", "?push=1"],
+] as const)
+  test(`continues an identifier-first form whose password form shows ${name} (ADR 0013)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin);
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/identifier-first${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+        expect(
+          await page.evaluate(() => ({
+            identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+            submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+            identityMatched: sessionStorage.getItem("identityMatched"),
+            passwordMatched: sessionStorage.getItem("passwordMatched"),
+          })),
+        ).toEqual({
+          identityClicks: 1,
+          submitClicks: 1,
+          identityMatched: "true",
+          passwordMatched: "true",
+        });
+        await expect
+          .poll(async () =>
+            JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+          )
+          .toContain('"authenticated"');
+        const status = JSON.stringify(
+          await send(options, { version: 1, type: "login.probe.status" }),
+        );
+        expect(status).toContain('"recipeId":"demo-identifier-first"');
+        expect(status).not.toContain("Pateat-synthetic-only!");
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
 test("signs in with the start page's passkey button for a discoverable passkey (ADR 0027)", async () => {
   const fixture = await startLoginFixture();
   try {

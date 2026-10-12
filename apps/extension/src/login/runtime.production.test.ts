@@ -6704,3 +6704,245 @@ describe("the start page's passkey route (ADR 0027)", () => {
     });
   });
 });
+
+describe("an advance whose next step is on the same path (ADR 0013)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2]) listener(tabId);
+  });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin";
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    // An identifier-first form: the email form shows, the password form is hidden.
+    fake.state.present = new Set(["email", "next", "password", "login"]);
+    fake.state.unusable = new Set(["password", "login"]);
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.switchReply = { ok: true };
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+  });
+
+  const identifierFirst = (steps?: unknown[]) =>
+    parseLoginRecipe({
+      ...recipe,
+      slots: ["username", "password"],
+      steps: steps ?? [
+        { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
+        { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [{ slot: "password", target: target("password") }],
+        },
+        { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+      ],
+      rejection: target("rejected"),
+      maxSubmissions: 2,
+    });
+  const status = () =>
+    fake.state.storage["pateat.login-attempts.v3"] as Record<string, unknown>[] | undefined;
+  /** The steps the document was asked to run, as `kind:element`. */
+  const executed = () =>
+    fake.state.messages
+      .filter((entry) => entry.type === "login.execute")
+      .map((entry) => {
+        const { step } = (
+          entry as unknown as {
+            operation: {
+              step: {
+                kind: string;
+                target?: { value: string };
+                fields?: { target: { value: string } }[];
+              };
+            };
+          }
+        ).operation;
+        return `${step.kind}:${step.target?.value ?? step.fields?.map((field) => field.target.value).join(",")}`;
+      });
+  async function until(check: () => boolean, maxMs = 30_000) {
+    for (let spent = 0; !check(); spent += 100) {
+      if (spent > maxMs) throw new Error("Condition not reached in fake time");
+      // eslint-disable-next-line no-await-in-loop
+      await vi.advanceTimersByTimeAsync(100);
+    }
+  }
+  const settled = (state: string, outcome?: string) => () =>
+    status()?.[0]?.["state"] === state &&
+    (outcome === undefined || status()?.[0]?.["outcome"] === outcome);
+  /** Next hides the email form and shows the password form; Log in signs in. */
+  const swapForms = (also?: () => void) => {
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: { kind: string; target?: { value: string } } })
+        .step;
+      if (step.kind !== "click") return;
+      if (step.target?.value === "next") {
+        fake.state.unusable = new Set(["email", "next"]);
+        also?.();
+      }
+      if (step.target?.value === "login") fake.state.present?.add("authenticated");
+    };
+  };
+  const start = (withRecipe = identifierFirst()) => {
+    const h = harness(
+      {
+        bindings: [
+          {
+            ...savedBinding,
+            slots: [
+              { slot: "username", field: "username" },
+              { slot: "password", field: "password" },
+            ],
+          },
+        ],
+      },
+      { username: true },
+    );
+    h.recipes.recipe.mockResolvedValue(withRecipe);
+    h.recipes.starts.mockResolvedValue(startsOf([withRecipe.steps[0]!]));
+    return h;
+  };
+  const allSteps = ["fill:email", "click:next", "fill:password", "click:login"];
+
+  it("continues in the same document once the password form shows", async () => {
+    swapForms();
+    const h = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+    // The password field is checked as its fill waits for it, before and after Next.
+    const checks = fake.state.messages.filter(
+      (entry) =>
+        entry.type === "login.observe" &&
+        JSON.stringify(entry).includes('"value":"password"') &&
+        JSON.stringify(entry).includes('"writable"'),
+    );
+    expect(checks.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("continues after a same-document URL change that keeps the path", async () => {
+    let announced: Promise<unknown> | undefined;
+    const h = start();
+    swapForms(() => {
+      // `history.pushState` to the same path with another query; the document announces
+      // again and is told it already carries the attempt.
+      fake.state.pageUrl = "https://login.example/signin?step=password";
+      announced = h.hello();
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(await announced).toEqual({ ok: false, reason: "duplicate-document" });
+    expect(executed()).toEqual(allSteps);
+  });
+
+  it("continues in a new document the form was posted to on the same path", async () => {
+    const h = start();
+    swapForms(() => fake.state.gone.add("synthetic-document"));
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    await until(() => status()?.[0]?.["state"] === "reconciling");
+    // The new document shows only the password form.
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.unusable = new Set();
+    expect(await h.hello({ documentId: "posted" }, false)).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+  });
+
+  it("waits for a password form that shows late and continues within the limit", async () => {
+    swapForms(() => {
+      // The email form goes, but the password form shows only after nine seconds.
+      fake.state.unusable = new Set(["email", "next", "password", "login"]);
+      setTimeout(() => (fake.state.unusable = new Set(["email", "next"])), 9_000);
+    });
+    const h = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+    expect(status()![0]).toMatchObject({ state: "awaiting-result", stepIndex: 1 });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+  });
+
+  it("ends as unknown after ten seconds without the password form, never clicking Next again", async () => {
+    // The email form is still shown and writable; the password form never shows.
+    const h = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(status()![0]).toMatchObject({ state: "awaiting-result", stepIndex: 1 });
+    expect(status()![0]!["outcome"]).toBeUndefined();
+    await until(settled("reconciling", "unknown-submit"), 5_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+    expect(status()![0]).toMatchObject({ stepIndex: 1, submissions: 1 });
+  });
+
+  it("never continues when the password form already showed before Next", async () => {
+    // Both forms show from the start; that page needs a one-step recipe.
+    fake.state.unusable = new Set();
+    const h = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"), 15_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+
+  it("never continues to a step that clicks the advance's own button again", async () => {
+    fake.state.unusable = new Set();
+    const h = start(
+      identifierFirst([
+        { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
+        { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+        { kind: "click", path: "/signin", target: target("next"), purpose: "submit" },
+      ]),
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"), 15_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual(["fill:email", "click:next"]);
+  });
+
+  it("never continues on the same path after a click that submits", async () => {
+    swapForms();
+    const h = start(
+      identifierFirst([
+        { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
+        { kind: "click", path: "/signin", target: target("next"), purpose: "submit" },
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [{ slot: "password", target: target("password") }],
+        },
+        { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+      ]),
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"), 15_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+
+  it("settles a rejection shown after Next before looking for the password form", async () => {
+    swapForms(() => fake.state.present?.add("rejected"));
+    const h = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("blocked", "credential-rejected"));
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+});

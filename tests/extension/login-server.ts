@@ -207,6 +207,30 @@ export async function startLoginFixture(
         }`,
         ),
       );
+    } else if (path === "/identifier-first") {
+      // An identifier-first form (ADR 0013): Next hides the account form and, a moment
+      // later, shows the password form in the same document on the same path. `?push`
+      // also changes the URL with `history.pushState`, keeping the path; only that known
+      // flag goes on, never the query as written.
+      const push = fixtureUrl.searchParams.has("push");
+      response.end(
+        html(
+          '<h1>Synthetic identifier-first sign-in</h1><form id="account-form"><label>Account<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form><form id="password-form" hidden><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>',
+          `document.getElementById('next').addEventListener('click', () => {
+          sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
+          sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === '00001234'));
+          document.getElementById('account-form').hidden = true;
+          ${push ? "history.pushState({}, '', '/identifier-first?push=1&step=password');" : ""}
+          setTimeout(() => { document.getElementById('password-form').hidden = false; }, 300);
+          updateFixtureStatus();
+        });
+        document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          location.href = '/authenticated';
+        });`,
+        ),
+      );
     } else if (path === "/variants") {
       // Two identifier sets for one sign-in (ADR 0027): a contract number, or a branch and
       // account number, each with the password. The demo account maps only the second.

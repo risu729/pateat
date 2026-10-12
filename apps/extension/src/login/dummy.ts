@@ -33,6 +33,7 @@ const PROBE_PATHS = [
   "/variants",
   "/passkey",
   "/totp",
+  "/identifier-first",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -93,10 +94,34 @@ function totpRecipe(origin: string, path: string): LoginRecipe {
     maxSubmissions: 1,
   });
 }
+/**
+ * An identifier-first form (ADR 0013): Next hides the account form and shows the password
+ * form in the same document and on the same path, so only the password form's elements
+ * confirm the advance.
+ */
+function identifierFirstRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    version: 1,
+    id: "demo-identifier-first",
+    revision: 1,
+    origin,
+    slots: ["account", "password"],
+    steps: [
+      { kind: "fill", path, fields: [{ slot: "account", target: target("account") }] },
+      { kind: "click", path, target: target("next"), purpose: "advance" },
+      { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
+      { kind: "click", path, target: target("login"), purpose: "submit" },
+    ],
+    completion: { path: "/authenticated", target: target("authenticated") },
+    rejection: target("rejected"),
+    maxSubmissions: 2,
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
   if (path === "/variants") return variantsRecipe(origin, path);
   if (path === "/totp") return totpRecipe(origin, path);
+  if (path === "/identifier-first") return identifierFirstRecipe(origin, path);
   const multi = path === "/identity";
   const inputAdvance = path === "/input-advance";
   const inputSubmit = path === "/input-submit" || path === "/change-submit";

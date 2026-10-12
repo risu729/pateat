@@ -543,7 +543,21 @@ variant's reason as the logged refusal's detail. A running or resumed login chec
 its recorded variant and never reads the facts again
 ([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). After each
 effect step the executor checks the completion, the rejection and the plan's next step,
-then the recipe's handlers on the page's path. A handler that has not run is entered
+then the recipe's handlers on the page's path. A click or an `advance` fill continues
+when its next step's elements are unique on that step's path, if that path is another
+one. An `advance` whose next route step is on its own path, as an identifier-first form
+that swaps in its password form in place, continues only once that step's elements are
+ready as the step waits for them (each fill field a shown writable input, a click's
+button shown and enabled), were not ready just before the advance ran, and include none
+of the advance's own elements
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). This holds in the same
+document, after a `history.pushState` that keeps the path, and in a new document the
+form posts back to that path. So a page that still shows only the
+account form, or showed the password form from the start, is never clicked again; it
+settles as any advance its next step never confirmed, after 10 seconds. The check before
+the advance is kept in the worker's memory only, so after a worker restart such an
+advance settles that way too. A click that submits never continues on its own path, and
+handler steps keep their own rules. A handler that has not run is entered
 once per login when all its elements are unique and usable: its code field a shown
 writable input, its button shown, enabled or not, since many code pages enable Verify
 only once the code is typed (the click step waits for it to be enabled). Its steps
