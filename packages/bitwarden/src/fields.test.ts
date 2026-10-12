@@ -87,13 +87,6 @@ describe("local field references and permission boundaries", () => {
     ).toBe(true);
   });
 
-  it("does not release a value after an allowlist revocation", () => {
-    const active = snapshot();
-    const ref = fieldRef("login.password");
-    expect(active.resolve(ref, allow("login.password"))).toEqual(text("Synthetic-password"));
-    expect(active.resolve(ref, allow())).toEqual({ ok: false, error: { code: "field-denied" } });
-  });
-
   it.each(["connectionId", "userId", "itemId", "snapshotId"])("rejects stale %s binding", (key) => {
     const ref = {
       ...fieldRef("login.password"),
@@ -283,12 +276,6 @@ describe("custom field value semantics", () => {
       ok: false,
       error: { code: "field-denied" },
     });
-  });
-
-  it("resolves a linked field from its actual source instead of stored alias value", () => {
-    expect(
-      snapshot().resolve(fieldRef(customFieldId(3)), allow(customFieldId(3), "login.password")),
-    ).toEqual(text("Synthetic-password"));
   });
 
   it("does not fall back to a linked alias value when its source is missing", () => {

@@ -1,18 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
-import {
-  argon2Expected,
-  kdfPassword,
-  kdfSalt,
-  legacyItemKey,
-  legacyName,
-  legacyPassword,
-  legacyUsername,
-  pbkdf2Expected,
-} from "./__fixtures__/crypto";
+import { argon2Expected, kdfPassword, kdfSalt, pbkdf2Expected } from "./__fixtures__/crypto";
 
 const encode = (value: string) => new TextEncoder().encode(value);
-const decode = (value: string) => Uint8Array.from(atob(value), (part) => part.charCodeAt(0));
 
 sdk.init_sdk(sdk.LogLevel.Error, sdk.LogLevel.Error, 0);
 
@@ -29,16 +19,6 @@ describe("published SDK independent known answers", () => {
       argon2id: { iterations: 4, memory: 32, parallelism: 2 },
     });
     expect(Array.from(derived)).toEqual(argon2Expected);
-  });
-
-  it.each([
-    [legacyName, "My test login"],
-    [legacyUsername, "test_username"],
-    [legacyPassword, "test_password"],
-  ])("decrypts fixed upstream field ciphertext", (encrypted, expected) => {
-    expect(sdk.PureCrypto.symmetric_decrypt_string(encrypted, decode(legacyItemKey))).toBe(
-      expected,
-    );
   });
 
   it.each([

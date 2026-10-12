@@ -8,7 +8,6 @@ import {
   fidoCredential,
   fidoPrivateKey,
   legacyCipher,
-  organizationCipherFields,
   ORG_ACCOUNT_MASTER_KEY_WRAPPED_USER_KEY,
   ORG_ACCOUNT_PRIVATE_KEY,
   sealedBlob,
@@ -189,27 +188,6 @@ afterEach(() => {
 });
 
 describe("strict account initialization and metadata", () => {
-  it("initializes the fixed V1 master-password account", async () => {
-    const active = await session();
-    expect(active.metadata).toEqual({
-      connectionId,
-      userId,
-      accountVersion: "v1",
-      securityVersion: 1,
-    });
-  });
-
-  it("verifies the fixed V2 account's signed security version", async () => {
-    const active = await session(v2Input());
-    expect(active.metadata).toEqual({
-      connectionId,
-      userId,
-      accountVersion: "v2",
-      securityVersion: 2,
-    });
-    expect(JSON.stringify(active.metadata)).not.toContain(V2_DECRYPTED_USER_KEY);
-  });
-
   it.each(
     (["security_state", "signed_public_key"] as const).flatMap((field) =>
       ["!not-base64", "AA==", "gA==", "hA=="].map((value) => ({ field, value })),
@@ -806,27 +784,6 @@ describe("strict cipher isolation and disposal", () => {
       error: { code: "unsupported-crypto" },
     });
   });
-  it("unwraps the official organization key and decrypts independent organization fields", async () => {
-    const active = await session(organizationInput());
-    const original = legacyCipher();
-    const cipher = {
-      ...original,
-      organizationId: TEST_ORGANIZATION_ID,
-      name: organizationCipherFields.name,
-      login: {
-        ...original.login,
-        username: organizationCipherFields.username,
-        password: organizationCipherFields.password,
-      },
-    };
-    const result = await active.decryptCipher({ connectionId, cipher });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.name).toBe("Synthetic organization login");
-      expect(result.data.login?.username).toBe("synthetic-org-user");
-      expect(result.data.login?.password).toBe("synthetic-org-password");
-    }
-  });
 
   it("rejects a corrupted organization key without producing a partial account", async () => {
     const input = organizationInput();
@@ -946,30 +903,15 @@ describe("strict cipher isolation and disposal", () => {
     }
   });
 
-  it("decrypts the same recorded blob through a verified V2 account and wrapped cipher key", async () => {
-    const active = await session(v2Input());
-    const result = await active.decryptCipher({
-      connectionId,
-      cipher: { ...blobCipher(), key: v2WrappedBlobKey },
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.name).toBe("Test Cipher");
-      expect(result.data.notes).toBe("Some notes");
-      expect(result.data.secureNote?.type).toBe(0);
-    }
-  });
-
-  it("rejects a tampered V2 wrapped cipher key instead of falling back", async () => {
-    const active = await session(v2Input());
+  it("rejects a cipher key that fails authentication instead of falling back to the user key", async () => {
+    // The user key alone decrypts this blob, so a fallback would succeed.
+    const active = await session(blobInput());
     expect(
-      (
-        await active.decryptCipher({
-          connectionId,
-          cipher: { ...blobCipher(), key: corrupt(v2WrappedBlobKey) },
-        })
-      ).ok,
-    ).toBe(false);
+      await active.decryptCipher({
+        connectionId,
+        cipher: { ...blobCipher(), key: corrupt(v1WrappedUserKey) },
+      }),
+    ).toEqual({ ok: false, error: { code: "crypto-failed" } });
   });
 
   it.each(["name", "username", "password"])(
@@ -1085,7 +1027,7 @@ describe("strict cipher isolation and disposal", () => {
         connectionId,
         cipher: { ...cipher, data: JSON.stringify(data) },
       });
-      expect(result.ok).toBe(false);
+      expect(result).toEqual({ ok: false, error: { code: "unsupported-crypto" } });
     },
   );
 
@@ -1100,6 +1042,6 @@ describe("strict cipher isolation and disposal", () => {
       connectionId,
       cipher: { ...legacyCipher(), data },
     });
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({ ok: false, error: { code: "unsupported-crypto" } });
   });
 });

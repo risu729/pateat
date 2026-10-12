@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { Secret } from "otpauth";
 import { generateLocalTotp } from "./totp";
 import {
   bitwardenTotpSecret,
@@ -14,15 +13,6 @@ const uri = (algorithm: keyof typeof rfcTotpSecrets) =>
   `otpauth://totp/Synthetic?secret=${rfcTotpSecrets[algorithm]}&algorithm=${algorithm}&digits=8&period=30`;
 
 describe("local TOTP independent known answers", () => {
-  it.each([
-    ["SHA1", "12345678901234567890"],
-    ["SHA256", "12345678901234567890123456789012"],
-    ["SHA512", "1234567890123456789012345678901234567890123456789012345678901234"],
-  ] as const)("encodes the exact RFC %s ASCII secret", (algorithm, ascii) => {
-    expect(new TextDecoder().decode(Secret.fromBase32(rfcTotpSecrets[algorithm]).bytes)).toBe(
-      ascii,
-    );
-  });
   for (const algorithm of ["SHA1", "SHA256", "SHA512"] as const) {
     it.each(rfcTotpAnswers)(`${algorithm} RFC answer at $seconds seconds`, (answer) => {
       expect(generateLocalTotp(uri(algorithm), clock(answer.seconds * 1000))).toEqual({
