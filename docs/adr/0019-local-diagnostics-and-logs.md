@@ -1,9 +1,10 @@
 # ADR 0019: Local diagnostics page and logs
 
 Status: accepted by the owner on 2026-10-11 and amended the same day (see
-[Amendment: server information](#amendment-server-information)). The diagnostics page,
-the logs, the Bitwarden server information, recent log lines and the Pateat service's
-record for the device are implemented.
+[Amendment: server information](#amendment-server-information)) and on 2026-10-12 (see
+[Amendment: logins that did not finish](#amendment-logins-that-did-not-finish)). The
+diagnostics page, the logs, the Bitwarden server information, recent log lines and the
+Pateat service's record for the device are implemented.
 
 Date: 2026-10-11
 
@@ -144,3 +145,27 @@ implementation.
   labels, amounts or other devices, and never exchanges a Claude token. The page
   compares the counts with the device's copy and reports a difference as information,
   since the next sync catches up. A credential the service already rejected is not sent.
+
+## Amendment: logins that did not finish
+
+On 2026-10-12 the owner found the page showing "Errors in the last 24 h: 0" while
+logins on the day's sites were failing: a judged page answered `unclear` twice and
+earlier logins had stopped as `blocked`. Only `error` entries were counted, and a
+stopped login is a `warn` entry, while a login whose result settles as unknown was a
+`debug` entry. The owner also saw one held tab log a `tab-busy` refusal for each of
+about 15 ad frames on its page. The simplest change that makes the summary match what
+happened:
+
+- A login whose result settles as unknown (`unknown-submit`) is logged once, at that
+  moment, as a `warn` `login.attempt` entry marked `settled`. A `blocked` login was
+  already `warn`. Other events keep their levels.
+- Each new page of the tab resumes the attempt and reports it again. A resumed attempt
+  whose state and outcome did not change is `debug`, so one stopped login is one
+  warning however many pages follow. The count is per stop, not per login: a settled
+  login whose later page shows a challenge stops again and warns again.
+- The page's row becomes "Problems in the last 24 h" with both counts, such as
+  `0 errors, 3 warnings`; the bug report's `Logs:` line and the `logs` check carry the
+  same counts. The check is `warn` when there is an error and `info` for warnings only,
+  since a login can stop for reasons outside Pateat, such as a site's own challenge.
+- A `tab-busy` refusal of a frame, not the tab's page, is `debug`, and the entry marks
+  `frame`. A refusal of the tab's page stays `info`.

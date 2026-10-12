@@ -107,6 +107,7 @@ export const LOG_EVENTS = {
       outcome: "code",
       cause: "code",
       reason: "code",
+      settled: "flag",
     },
   },
   "login.handler": {
@@ -122,7 +123,7 @@ export const LOG_EVENTS = {
   },
   "login.refused": {
     level: "info",
-    fields: { origin: "origin", reason: "code", detail: "code" },
+    fields: { origin: "origin", reason: "code", detail: "code", frame: "flag" },
   },
   "recipe.generate": {
     level: "info",
@@ -255,6 +256,8 @@ export type LogSummary = {
   bytes: number;
   /** `error` entries in the last 24 hours. */
   recentErrors: number;
+  /** `warn` entries in the last 24 hours, such as a login that did not finish. */
+  recentWarnings: number;
   debugUntil?: number;
 };
 
@@ -620,6 +623,7 @@ export function createLogger(deps: LoggerDependencies) {
           0,
         ),
         recentErrors: all.filter((entry) => entry.level === "error" && entry.time >= since).length,
+        recentWarnings: all.filter((entry) => entry.level === "warn" && entry.time >= since).length,
         ...(until > now() ? { debugUntil: until } : {}),
       };
     },

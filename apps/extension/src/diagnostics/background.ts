@@ -215,8 +215,20 @@ export function createDiagnosticsLog(options: {
       if (report.type === "refused")
         void logger.log(
           "login.refused",
-          { origin: report.origin, reason: report.reason, detail: report.detail },
-          { source, level: QUIET_REFUSALS.has(report.reason) ? "debug" : "info" },
+          {
+            origin: report.origin,
+            reason: report.reason,
+            detail: report.detail,
+            frame: report.frame,
+          },
+          {
+            source,
+            // A held tab refuses every frame on its page, such as each ad frame.
+            level:
+              QUIET_REFUSALS.has(report.reason) || (report.frame && report.reason === "tab-busy")
+                ? "debug"
+                : "info",
+          },
         );
       else if (report.type === "generation")
         void logger.log(
@@ -278,11 +290,15 @@ export function createDiagnosticsLog(options: {
             outcome: report.outcome,
             cause: report.cause,
             reason: report.reason,
+            settled: report.settled,
           },
           {
             source,
-            level:
-              report.state === "blocked"
+            // A login that stopped, or whose result settled as unknown, did not finish. A resumed
+            // attempt that changed nothing repeats what was already logged.
+            level: report.repeat
+              ? "debug"
+              : report.state === "blocked" || report.settled
                 ? "warn"
                 : report.state === "authenticated" || report.state === "retryable"
                   ? "info"

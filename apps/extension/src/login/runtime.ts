@@ -542,12 +542,18 @@ export type LoginReport =
       /** For a `policy-changed` outcome: its cause, and a refused plan's reason. */
       cause?: PolicyChangeCause;
       reason?: string;
+      /** The result of the current effect step just settled as unknown (`unknown-submit`). */
+      settled?: true;
+      /** A new document of the tab resumed the attempt without changing its state or outcome. */
+      repeat?: true;
     }
   | {
       type: "refused";
       tabId: number;
       origin: string;
       reason: string;
+      /** The refused document is a frame, not the tab's page. */
+      frame?: true;
       /**
        * For `no-route` on a recipe with several password variants: why its first variant
        * did not fit, such as `binding-not-found` (ADR 0027).
@@ -647,6 +653,7 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
+    flags: { settled?: true; repeat?: true } = {},
   ) => {
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
     const handler =
@@ -668,6 +675,7 @@ export function createLoginRuntime(
       ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
+      ...flags,
     });
   };
   let origin = DEFAULT_PROBE_ORIGIN;
@@ -1079,7 +1087,9 @@ export function createLoginRuntime(
       run.metadata,
       undelivered ? { type: "POLICY_CHANGED", undelivered } : event,
     );
-    if (run.metadata.state !== previous.state)
+    // Settling as unknown keeps the state, but it is how a login ends without a result.
+    const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
+    if (run.metadata.state !== previous.state || settled)
       // The log still names the step that was withdrawn.
       reportAttempt(
         undelivered
@@ -1091,6 +1101,7 @@ export function createLoginRuntime(
           : run.metadata,
         run.recipe,
         policy,
+        settled ? { settled } : {},
       );
     if (
       import.meta.env.MODE === "probe" &&
@@ -1797,6 +1808,7 @@ export function createLoginRuntime(
     run: Execution,
     targets: LoginTarget[],
     require?: ("writable" | "clickable" | "shown" | "present")[],
+    links?: boolean[],
   ) {
     // Exclusion/default/policy checks precede even metadata observation.
     if (!(await allowed(run))) return undefined;
@@ -1805,6 +1817,7 @@ export function createLoginRuntime(
       path: run.live.path,
       targets,
       ...(require ? { require } : {}),
+      ...(links ? { links } : {}),
     });
     if (!current(run)) return undefined;
     const parsed = v.safeParse(observationSchema, response);
@@ -1862,12 +1875,14 @@ export function createLoginRuntime(
     const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
     const checks = [...proof, ...(rejection ? [rejection] : [])];
     const targets = [...checks, ...nextTargets];
+    // The completion marker may be a link located by its text (ADR 0018).
     const observed = await observe(
       run,
       targets,
       inPlace
         ? [...checks.map(() => "present" as const), ...nextTargets.map(() => inPlace.require)]
         : undefined,
+      completion ? [true] : undefined,
     );
     if (!observed) return undefined;
     // Without a completion target nothing proves a sign-in, so the attempt can settle
@@ -2119,11 +2134,12 @@ export function createLoginRuntime(
   ): Promise<boolean> {
     const { completion, rejection } = run.recipe;
     const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
-    const observed = await observe(run, [
-      click.target,
-      ...proof,
-      ...(rejection ? [rejection] : []),
-    ]);
+    const observed = await observe(
+      run,
+      [click.target, ...proof, ...(rejection ? [rejection] : [])],
+      undefined,
+      completion ? [false, true] : undefined,
+    );
     if (!observed || !current(run)) return false;
     if (observed.path !== click.path) return true;
     if (observed.targets[0] === "unique") return false;
@@ -2178,7 +2194,12 @@ export function createLoginRuntime(
     const paths = routeSignInPaths(recipe, metadata.route);
     const marker = recipe.completion ? [recipe.completion.target] : [];
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
-    const remaining = await observe(run, [...fills, ...marker]);
+    const remaining = await observe(
+      run,
+      [...fills, ...marker],
+      undefined,
+      marker.length > 0 ? [...fills.map(() => false), true] : undefined,
+    );
     if (!remaining) return false;
     if (
       (paths.includes(remaining.path) &&
@@ -3111,6 +3132,7 @@ export function createLoginRuntime(
         origin: document.origin,
         reason,
         ...(detail ? { detail } : {}),
+        ...(document.frameId === 0 ? {} : { frame: true as const }),
       });
       live.state = "denied";
       live.reason = reason;
@@ -3406,7 +3428,15 @@ export function createLoginRuntime(
     )
       run.inPlace = before.inPlace;
     attempts.set(document.tabId, run);
-    reportAttempt(metadata, recipe, resumedPolicy);
+    // Each new document of the tab resumes the attempt; only a change is news.
+    reportAttempt(
+      metadata,
+      recipe,
+      resumedPolicy,
+      previous && metadata.state === previous.state && metadata.outcome === previous.outcome
+        ? { repeat: true }
+        : {},
+    );
     clearChoice(document.tabId);
     // A hold's tooltip no longer applies once the tab logs in.
     void quietly(() => browser.action.setTitle({ tabId: document.tabId, title: "Pateat" }));

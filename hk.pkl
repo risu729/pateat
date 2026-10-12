@@ -62,4 +62,7 @@ steps = (
   ["docs-links"] {
     check = "mise run check:docs"
   }
+  ["sdk-source"] {
+    check = "mise run check:sdk-source"
+  }
 }

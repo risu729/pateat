@@ -192,6 +192,7 @@ export const diagnosticsStatusSchema = v.strictObject({
       entries: count,
       bytes: count,
       recentErrors: count,
+      recentWarnings: count,
       debugUntil: v.optional(count),
     }),
   ),

@@ -64,6 +64,10 @@ depends = [
 [tasks."check:docs"]
 run = "node scripts/check-docs.mjs"
 
+[tasks."check:sdk-source"]
+description = "Fail when the SDK source records differ from the locked SDK."
+run = "node scripts/check-sdk-source.mjs"
+
 [tasks."test:tools"]
 run = "node --test .github/scripts/*.test.mjs"
 

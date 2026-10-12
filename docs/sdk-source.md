@@ -6,17 +6,23 @@ its GPLv3 option; the commercial package is not selected.
 
 ## Pinned upstream source
 
-The published package is `@bitwarden/sdk-internal@0.2.0-main.1099`.
+The published package is `@bitwarden/sdk-internal@0.2.0-main.1100`.
 Both its npm `gitHead` and packaged `VERSION` identify
-`af7a4b34c0819a9d241260f65b30272bb40dc451`.
+`3b2c8fc365c1e450cdcee23c9283353305f6128e`.
 The package contains generated JavaScript, WASM and declarations; it is not the
 preferred Rust source for modifying the SDK.
 
-- [Matching SDK source tree](https://github.com/bitwarden/sdk-internal/tree/af7a4b34c0819a9d241260f65b30272bb40dc451)
-- [Matching source archive](https://github.com/bitwarden/sdk-internal/archive/af7a4b34c0819a9d241260f65b30272bb40dc451.tar.gz)
-- [License selection](https://github.com/bitwarden/sdk-internal/blob/af7a4b34c0819a9d241260f65b30272bb40dc451/LICENSE)
+This page, `apps/extension/public/THIRD-PARTY-NOTICES.md` and
+`apps/extension/public/legal.html` record that version and revision.
+`mise run check:sdk-source`, part of `mise run check`, fails when they differ from
+the version in `bun.lock` or the installed package's `VERSION`, so an SDK update
+must update all three. Recheck the upstream build steps below for the new revision.
+
+- [Matching SDK source tree](https://github.com/bitwarden/sdk-internal/tree/3b2c8fc365c1e450cdcee23c9283353305f6128e)
+- [Matching source archive](https://github.com/bitwarden/sdk-internal/archive/3b2c8fc365c1e450cdcee23c9283353305f6128e.tar.gz)
+- [License selection](https://github.com/bitwarden/sdk-internal/blob/3b2c8fc365c1e450cdcee23c9283353305f6128e/LICENSE)
   and
-  [GPL text](https://github.com/bitwarden/sdk-internal/blob/af7a4b34c0819a9d241260f65b30272bb40dc451/LICENSE_GPL.txt)
+  [GPL text](https://github.com/bitwarden/sdk-internal/blob/3b2c8fc365c1e450cdcee23c9283353305f6128e/LICENSE_GPL.txt)
 
 Pateat integrates the unmodified OSS package through its own local cryptographic
 boundary as of 2026-10-10. No Bitwarden endorsement or trademark grant is implied.
@@ -32,11 +38,11 @@ load the emitted extension directory; no private signing key is required to run 
 modified unpacked copy.
 
 To rebuild the SDK itself, start from the exact source commit above and follow its
-[WASM README](https://github.com/bitwarden/sdk-internal/blob/af7a4b34c0819a9d241260f65b30272bb40dc451/crates/bitwarden-wasm-internal/README.md)
+[WASM README](https://github.com/bitwarden/sdk-internal/blob/3b2c8fc365c1e450cdcee23c9283353305f6128e/crates/bitwarden-wasm-internal/README.md)
 and
-[build script](https://github.com/bitwarden/sdk-internal/blob/af7a4b34c0819a9d241260f65b30272bb40dc451/crates/bitwarden-wasm-internal/build.sh).
+[build script](https://github.com/bitwarden/sdk-internal/blob/3b2c8fc365c1e450cdcee23c9283353305f6128e/crates/bitwarden-wasm-internal/build.sh).
 The pinned
-[workflow](https://github.com/bitwarden/sdk-internal/blob/af7a4b34c0819a9d241260f65b30272bb40dc451/.github/workflows/build-wasm-internal.yml)
+[workflow](https://github.com/bitwarden/sdk-internal/blob/3b2c8fc365c1e450cdcee23c9283353305f6128e/.github/workflows/build-wasm-internal.yml)
 uses Node 22, Rust 1.98.0 with `rust-src` and the `wasm32-unknown-unknown` target, and
 Binaryen's `wasm-opt` and `wasm2js`. Run `npm ci` in
 `crates/bitwarden-wasm-internal/npm`, then the crate's `build.sh -r` without the

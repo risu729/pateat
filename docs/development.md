@@ -42,11 +42,11 @@ that directory `mise run :build` also works. Each project has a `test` task (the
 extension's `test` runs its `test:<area>` tasks) and each except `packages/contracts`
 has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. mise
 reads the Bun workspace graph, so `mise run --affected '//...:test'` tests the workspace
-packages with changes since `HEAD~1` (including uncommitted and untracked files) and
-the packages that depend on them. A change outside a workspace package, such as
-`docs/`, `scripts/`, `tests/*` or the root `mise.toml`, selects every package, and the
-`tests/*` suites are not workspace packages, so `--affected` never selects them.
-Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`,
+packages with changes since `HEAD~1` (including uncommitted and untracked files) and the
+packages that depend on them. A change outside a workspace package, such as `docs/`,
+`scripts/`, `tests/*` or the root `mise.toml`, selects every package, and the `tests/*`
+suites are not workspace packages, so `--affected` never selects them. Repository-wide
+tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`, `check:sdk-source`,
 `test:tools`, `browser:install`, the probe servers, `render:icons` and
 `generate:oidc-key`) stay in the root. Run them by their plain names from the root, or
 as `//:check:runtime` from inside a project.
@@ -134,6 +134,7 @@ Focused tasks are available for diagnosis:
 | `mise run //apps/extension:test:dom` | Extract observations and resolve element locators on synthetic pages in Chromium |
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
+| `mise run check:sdk-source` | Fail when [the SDK source records](sdk-source.md#pinned-upstream-source) name a different SDK version or source revision from `bun.lock` and the installed package |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's
 system dependencies. Server type checking and the artifact checks depend on the server

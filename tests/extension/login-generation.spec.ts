@@ -83,7 +83,13 @@ function syntheticClaude() {
             fields: [{ slot: "password", candidate: byTarget("password") }],
             action: { candidate: login(), purpose: "submit" },
           }
-        : { decision: "signed-in", marker: byTarget("sign-out") };
+        : {
+            decision: "signed-in",
+            // The `link` marker variant's account link has no id, so only its text names it.
+            marker: prompt.observation.candidates.some(({ target }) => target.value === "sign-out")
+              ? byTarget("sign-out")
+              : byTarget("My page", "text"),
+          };
     return {
       id: "msg_synthetic",
       type: "message",
@@ -98,8 +104,13 @@ function syntheticClaude() {
   return { prompts, answer };
 }
 
-for (const button of ["button", "anchor", "script-link"] as const)
-  test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button})`, async () => {
+for (const [button, marker] of [
+  ["button", "button"],
+  ["anchor", "button"],
+  ["script-link", "button"],
+  ["button", "link"],
+] as const)
+  test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button}, ${marker} marker)`, async () => {
     const fixture = await startLoginFixture(0, { password: "test_password" });
     const claude = syntheticClaude();
     const service = await startSyncService({ claude: claude.answer });
@@ -159,7 +170,7 @@ for (const button of ["button", "anchor", "script-link"] as const)
 
           const runId = fixture.createRun();
           const page = await browser.context.newPage();
-          await page.goto(`${site}/sign-in?runId=${runId}&button=${button}`);
+          await page.goto(`${site}/sign-in?runId=${runId}&button=${button}&marker=${marker}`);
           await expect(page.locator("#signed-in")).toBeVisible();
           expect(fixture.evidence(runId)).toEqual({
             posts: 1,
@@ -185,7 +196,13 @@ for (const button of ["button", "anchor", "script-link"] as const)
           expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
             {
               revision: 2,
-              completion: { path: "/account", target: { by: "id", value: "sign-out" } },
+              completion: {
+                path: "/account",
+                target:
+                  marker === "link"
+                    ? { by: "text", value: "My page" }
+                    : { by: "id", value: "sign-out" },
+              },
             },
           ]);
 
@@ -194,9 +211,15 @@ for (const button of ["button", "anchor", "script-link"] as const)
           await page.close();
           const again = fixture.createRun();
           const next = await browser.context.newPage();
-          await next.goto(`${site}/sign-in?runId=${again}&button=${button}`);
+          await next.goto(`${site}/sign-in?runId=${again}&button=${button}&marker=${marker}`);
           await expect(next.locator("#signed-in")).toBeVisible();
           expect(fixture.evidence(again)).toMatchObject({ posts: 1, allMatched: true });
+          // The learned marker alone proves the sign-in, even a link named by its text.
+          await expect
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+            .toMatchObject({
+              attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 1 }],
+            });
           expect(claude.prompts).toHaveLength(2);
           // Only the routed site and the loopback service were contacted by the browser.
           expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
