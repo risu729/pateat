@@ -4,16 +4,26 @@ import { isButton, isScriptButton, renderedText, shown } from "./text";
 /** Roles that make an element a list entry (ADR 0028). */
 const entryRoles = new Set(["button", "link", "option", "menuitem", "radio"]);
 /** Page chrome: an account menu there is a signed-in page's, not a list of accounts. */
-const chromeSelector = "header, nav, [role='banner' i], [role='navigation' i]";
+export const chromeSelector = "header, nav, [role='banner' i], [role='navigation' i]";
 const entryTextLimit = 300;
 /** At most this many email-bearing texts are examined; a list holds a handful. */
 const textNodeLimit = 200;
 
 function disabled(element: HTMLElement): boolean {
+  // `:disabled` also covers a button inside a disabled `<fieldset>`.
   return (
-    (isButton(element) && element.disabled) ||
-    element.closest("[aria-disabled='true' i], [inert]") !== null
+    element.matches(":disabled") || element.closest("[aria-disabled='true' i], [inert]") !== null
   );
+}
+
+function entryRole(element: Element): boolean {
+  const role = element.getAttribute("role")?.trim().toLowerCase();
+  return role !== undefined && entryRoles.has(role);
+}
+
+/** A link, button or entry role: a control whose own click is what clicking inside it does. */
+function control(element: HTMLElement): boolean {
+  return element instanceof HTMLAnchorElement || isButton(element) || entryRole(element);
 }
 
 function pointer(element: HTMLElement): boolean {
@@ -37,13 +47,26 @@ export function entryLike(element: Element): element is HTMLElement {
     if (!element.hasAttribute("href") || isScriptButton(element)) return true;
     return element.origin === element.ownerDocument.location.origin;
   }
-  const role = element.getAttribute("role")?.trim().toLowerCase();
-  if (role && entryRoles.has(role)) return true;
+  if (entryRole(element)) return true;
   if (element.hasAttribute("tabindex") && element.tabIndex >= 0) return true;
   return pointer(element);
 }
 
 const isEntry = (element: Element): boolean => entryLike(element);
+
+/**
+ * The innermost {@link entryLike} element around `element`, or `null`. A rejected link,
+ * button or entry role on the way stops the search: a click on the element around it
+ * would land on that control, such as a link to another origin or a disabled button.
+ */
+function entryAround(element: HTMLElement | null): HTMLElement | null {
+  for (let current = element; current; current = current.parentElement) {
+    // Not the type guard: it would narrow `current` to `never` after it.
+    if (isEntry(current)) return current;
+    if (control(current)) return null;
+  }
+  return null;
+}
 
 export interface AccountEntry {
   readonly element: HTMLElement;
@@ -54,7 +77,8 @@ export interface AccountEntry {
 /**
  * The entries of `root` that show an email address: for every shown text holding an
  * `@`, the innermost {@link entryLike} element around it. Entries inside page chrome
- * (`<header>`, `<nav>` and their roles) are left out.
+ * (`<header>`, `<nav>` and their roles) are left out, and an entry holding another entry
+ * counts as the inner one (ADR 0028).
  */
 export function accountEntries(root: Document | Element): AccountEntry[] {
   const document = root instanceof Document ? root : root.ownerDocument;
@@ -70,15 +94,17 @@ export function accountEntries(root: Document | Element): AccountEntry[] {
   for (let index = 0; index < textNodeLimit; index += 1) {
     const node = walker.nextNode();
     if (!node) break;
-    let element: HTMLElement | null = node.parentElement;
-    // Not the type guard: it would narrow `element` to `never` inside the loop.
-    while (element && !isEntry(element)) element = element.parentElement;
+    const element = entryAround(node.parentElement);
     if (!element || found.has(element) || element.closest(chromeSelector)) continue;
     const text = renderedText(element, entryTextLimit, { everyElement: true }) ?? "";
     const accounts = shownAccounts(text).filter((account) => account.includes("@"));
     if (accounts.length) found.set(element, { element, accounts });
   }
-  return [...found.values()];
+  const entries = [...found.values()];
+  return entries.filter(
+    (entry) =>
+      !entries.some((inner) => inner !== entry && entry.element.contains(inner.element)),
+  );
 }
 
 /** Splits an address at its last `@`, lowercased; `undefined` when it has none. */

@@ -42,7 +42,7 @@ export type ObservationResult =
 
 const maxCandidates = 48;
 /** Where account menus usually sit: the page's header and navigation. */
-const landmarks = "header, nav, [role='banner'], [role='navigation']";
+const landmarks = "header, nav, [role='banner' i], [role='navigation' i]";
 /**
  * How far above a login form a button outside every form still counts as the form's,
  * such as a passkey button beside the password form (SBI Securities: form, list item,
@@ -93,7 +93,11 @@ const locators = [
  * more digits, ASCII or fullwidth, become `[number]`.
  */
 const redactions: readonly (readonly [RegExp, string])[] = [
-  [/[A-Za-z0-9._%+\-*●•＊]+[@＠][A-Za-z0-9.\-*●•＊]+/gu, "[email]"],
+  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`.
+  [
+    /[A-Za-z0-9._%+\-*●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠][A-Za-z0-9.\-*●•＊Ａ-Ｚａ-ｚ０-９．－]+/gu,
+    "[email]",
+  ],
   [/[*●•＊]{3,}/gu, "[masked]"],
   [/[0-9０-９]{4,}/gu, "[number]"],
 ];
@@ -767,6 +771,7 @@ function observe(
 }
 
 const maxAccounts = 8;
+const atSign = /[@＠]/u;
 const maxListControls = 8;
 /** Elements examined for list controls; a list page is small. */
 const listScanLimit = 4000;
@@ -791,10 +796,11 @@ export function extractAccountListObservation(
   if (fieldShown || !document.body) return { ok: false, reason: "no-candidates" };
   const entries = accountEntries(document);
   if (entries.length === 0) return { ok: false, reason: "no-candidates" };
+  // A text in which an address survived redaction is left out, never sent.
   const accounts = entries
     .slice(0, maxAccounts)
     .map((entry) => observedText(renderedText(entry.element, rawLimit, { everyElement: true })))
-    .filter((text) => text !== undefined);
+    .filter((text): text is string => text !== undefined && !atSign.test(text));
   let complete = entries.length <= maxAccounts && accounts.length === entries.length;
   for (const host of document.querySelectorAll("*"))
     if (host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields)) complete = false;
@@ -803,18 +809,27 @@ export function extractAccountListObservation(
   // survive redaction and name one control only.
   const inEntry = (element: Element) =>
     entries.some((entry) => entry.element.contains(element) || element.contains(entry.element));
-  const listControls = [...document.body.querySelectorAll("*")]
+  const scanned = [...document.body.querySelectorAll("*")];
+  if (scanned.length > listScanLimit) complete = false;
+  const listControls = scanned
     .slice(0, listScanLimit)
     .filter(
       (element): element is HTMLElement =>
         entryLike(element) && !element.closest(landmarks) && !inEntry(element),
     );
-  const innermost = listControls.filter(
-    (element) => !listControls.some((other) => other !== element && element.contains(other)),
-  );
+  // A control holding another one is not innermost; marking ancestors keeps this linear.
+  const outer = new Set<Element>();
+  for (const element of listControls) {
+    let parent = element.parentElement;
+    while (parent && !outer.has(parent)) {
+      outer.add(parent);
+      parent = parent.parentElement;
+    }
+  }
+  const innermost = listControls.filter((element) => !outer.has(element));
   const texts = innermost.map((element) => {
     const raw = collapseText(renderedText(element, rawLimit) ?? "");
-    return raw && observedText(raw) === raw ? raw : undefined;
+    return raw && observedText(raw) === raw && !atSign.test(raw) ? raw : undefined;
   });
   const chosen: Chosen[] = innermost.flatMap((element, at) => {
     const text = texts[at];
@@ -823,6 +838,7 @@ export function extractAccountListObservation(
     if (!v.is(loginTargetSchema, target)) return [];
     return [{ form: null, draft: { element, role: "button", label: text }, target }];
   });
+  if (chosen.length > maxListControls) complete = false;
   return observe(document, chosen.slice(0, maxListControls), complete, accounts);
 }
 

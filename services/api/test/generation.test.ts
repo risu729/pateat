@@ -737,6 +737,19 @@ describe("recipe generation", () => {
     ).toEqual([]);
   });
 
+  it("refuses a page that lists accounts without a model call or an attempt", async () => {
+    const device = await owner();
+    expect(await generate(device, { ...emailPage, accounts: ["[email]"] })).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-request",
+    });
+    expect(sent).toEqual([]);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
   it("maps refused and failed token exchanges without a model call or an attempt", async () => {
     const device = await owner();
     tokenStatus = 401;

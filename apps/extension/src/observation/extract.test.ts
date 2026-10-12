@@ -1284,4 +1284,28 @@ describe("extractAccountListObservation", () => {
     if (!result.ok) throw new Error(result.reason);
     expect(summary(result.observation).map((candidate) => candidate.label)).toEqual(["Continue"]);
   });
+
+  it("never sends a fullwidth address", () => {
+    page(
+      `<button>ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ</button><button>ｔａｒｏ@example.com</button>
+      <button>Not ｈａｎａ＠ｅｘａｍｐｌｅ．ｃｏｍ?</button>`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["[email]", "[email]", "Not [email]?"]);
+    expect(JSON.stringify(result.observation)).not.toMatch(/[@＠]|ｅｘａｍｐｌｅ|example/u);
+  });
+
+  it("is incomplete when list controls are left out", () => {
+    page(
+      `<button>a@example.com</button>${Array.from(
+        { length: 9 },
+        (_, index) => `<button>Option ${index}</button>`,
+      ).join("")}`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.candidates).toHaveLength(8);
+    expect(result.observation.complete).toBe(false);
+  });
 });

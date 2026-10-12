@@ -58,8 +58,24 @@ describe("accountEntries", () => {
       <div role="button" aria-disabled="true">c@example.com</div>
       <a href="https://other.example/">d@example.com</a>
       <button style="display: none">e@example.com</button>
+      <fieldset disabled><button>f@example.com</button></fieldset>
     `);
     expect(entries).toEqual([]);
+  });
+
+  it("does not climb past a rejected link or button", () => {
+    const entries = list(`
+      <div role="button"><a href="https://idp.example/">a@example.com</a></div>
+      <li tabindex="0"><button disabled>b@example.com</button></li>
+    `);
+    expect(entries).toEqual([]);
+  });
+
+  it("counts nested entries as the inner one", () => {
+    const entries = list(`
+      <div role="button" id="row">a@example.com <button id="inner">a@example.com</button></div>
+    `);
+    expect(entries.map((entry) => entry.element.id)).toEqual(["inner"]);
   });
 });
 
