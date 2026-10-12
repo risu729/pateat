@@ -328,10 +328,16 @@ type Execution = {
   inPlace?: { operationId: string; before: TargetState[] };
   /**
    * Since when the page after the final `advance` step `operationId` has shown a sign-in
-   * input on `path`, so the recipe may be continued there (ADR 0018); `refused` once this
-   * document's request was spent or its answer could not be used. Kept in memory only.
+   * input on `path`, so the recipe may be continued there (ADR 0018). Kept in memory only.
    */
-  qualified?: { operationId: string; path: string; since: number; refused?: true };
+  qualified?: { operationId: string; path: string; since: number };
+  /**
+   * The final `advance` step whose continuation this document will not send or take over
+   * again: its request was spent or its answer could not be used (ADR 0018). Kept apart
+   * from `qualified`, so a path change or a page that stops qualifying for a moment does
+   * not clear it. Kept in memory only.
+   */
+  continuationRefused?: string;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -1453,6 +1459,8 @@ export function createLoginRuntime(
     );
     // Settling as unknown keeps the state, but it is how a login ends without a result.
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
+    // An ended login no longer waits for a continuation it asked for (ADR 0018).
+    if (terminal(run.metadata) || run.metadata.settled) continuations.delete(run.metadata.id);
     if (run.metadata.state !== previous.state || settled)
       // The log still names the step that was withdrawn.
       reportAttempt(
@@ -3030,9 +3038,9 @@ export function createLoginRuntime(
    * password input, or, while none of the recipe's fill fields is writable on the page, a
    * username or email input. A complete description of it is sent once per effect step,
    * offering only the slots the recipe does not fill yet: the request is recorded in the
-   * attempt first, and given back only after a temporary refusal before any model call, for
-   * a later document to send. A later document of the login waits for an answer still on
-   * its way. Returns `moved` once the attempt moved on or this document is no longer
+   * attempt first, and given back for a later document to send when the generation claim
+   * was freed or the request was not sent (`retry`). A later document of the login waits
+   * for an answer still on its way. Returns `moved` once the attempt moved on or this document is no longer
    * current, `qualified` for a qualifying page that was not continued (yet), which is never
    * judged, and `none` for any other page.
    */
@@ -3073,7 +3081,11 @@ export function createLoginRuntime(
     if (run.qualified?.operationId !== operationId || run.qualified.path !== observed.path)
       run.qualified = { operationId, path: observed.path, since: now };
     const state = run.qualified;
-    if (state.refused) return "qualified";
+    const refuse = () => {
+      run.continuationRefused = operationId;
+      return "qualified" as const;
+    };
+    if (run.continuationRefused === operationId) return "qualified";
     // Spent for this step. A revision that continues the recipe and reached the cache, as
     // after a restart during the request, is taken over; so is an answer an earlier
     // document of the login still waits for, or that arrived after it was left. While that
@@ -3091,10 +3103,7 @@ export function createLoginRuntime(
       };
       const cached = await fromCache();
       if (cached === "moved") return "moved";
-      if (cached === "refused") {
-        state.refused = true;
-        return "qualified";
-      }
+      if (cached === "refused") return refuse();
       const earlier = continuations.get(metadata.id);
       if (earlier?.operationId !== operationId) return "qualified";
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -3117,8 +3126,7 @@ export function createLoginRuntime(
         // No answer in time; only the cache can still bring it.
         return (await fromCache()) === "moved" ? "moved" : "qualified";
       }
-      state.refused = true;
-      return "qualified";
+      return refuse();
     }
     if (now - state.since < CONTINUATION_STABLE_MS) return "qualified";
     // The fields the recipe already filled on this path may show again, read-only.
@@ -3163,28 +3171,36 @@ export function createLoginRuntime(
         ({ connection, item }) =>
           connection.id === metadata.account.connectionId && item.id === metadata.account.itemId,
       )
-    ) {
-      state.refused = true;
-      return "qualified";
-    }
+    )
+      // A connection that did not answer or an item whose URI rules were not evaluated may
+      // still hold it: a later round asks again.
+      return scope.complete ? refuse() : "qualified";
     const pageOrigin = run.live.document.origin;
     // A slot the recipe already fills is not offered again, so the model cannot map it to a
     // field the page still shows (the service refuses such a page too).
     const slots = scope.slots.filter((slot) => !filled.has(slot.id));
+    // Likewise a custom field the recipe's generated slot map already names (ADR 0027).
+    const named = await Promise.resolve(generation.slotFields(recipe.id)).catch(() => undefined);
+    const offers = scope.offers.filter(
+      (offer) =>
+        !named?.some(
+          ({ field }) =>
+            typeof field !== "string" &&
+            field.custom === offer.reference.custom &&
+            field.position === offer.reference.position &&
+            field.count === offer.reference.count,
+        ),
+    );
     const shape = await usernameShape(pageOrigin, scope);
-    const custom = await customSlots(pageOrigin, scope);
+    const custom = await customSlots(pageOrigin, { ...scope, offers });
     if (!current(run)) return "moved";
-    if (!slots.length && !custom.length) {
-      state.refused = true;
-      return "qualified";
-    }
+    if (!slots.length && !custom.length) return refuse();
     // Recorded before the request, so a restart never sends this step's page again.
     await change(run, { type: "CONTINUING", operationId });
+    // Left during the write, the record may hold `CONTINUING` with nothing sent: fail-closed,
+    // the step's page then settles `unknown` unless the cache brings the continuation.
     if (!current(run)) return "moved";
-    if (run.metadata.continuation?.operationId !== operationId) {
-      state.refused = true;
-      return "qualified";
-    }
+    if (run.metadata.continuation?.operationId !== operationId) return refuse();
     const asked = generation
       .generate({
         version: 1,
@@ -3221,7 +3237,7 @@ export function createLoginRuntime(
       return "moved";
     }
     if (continuations.get(metadata.id) === request) continuations.delete(metadata.id);
-    state.refused = true;
+    run.continuationRefused = operationId;
     if (answer.outcome !== "recipe") {
       reportGeneration();
       // A request that did not reach the model, or was not sent, gives the request back
@@ -5054,6 +5070,8 @@ export function createLoginRuntime(
   browser.tabs.onRemoved.addListener((tabId) => {
     for (const key of hellos.keys()) if (key.startsWith(`${tabId}:`)) hellos.delete(key);
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
+    const closed = attempts.get(tabId);
+    if (closed) continuations.delete(closed.metadata.id);
     attempts.delete(tabId);
     effects.delete(tabId);
     signInUrls.delete(tabId);

@@ -9667,6 +9667,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       recipe?: LoginRecipe;
       settings?: Partial<LocalSettings>;
       report?: LoginReport[];
+      custom?: CustomField[];
     } = {},
   ) {
     const reports = options.report;
@@ -9674,7 +9675,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       allowedOrigins: [],
       uris,
       username: true,
-      custom: [],
+      custom: options.custom ?? [],
       generation: service,
       ...(reports ? { report: (value: LoginReport) => reports.push(value) } : {}),
     });
@@ -9938,7 +9939,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
 
   it.each([
     ["an abstention", { outcome: "abstained", reason: "ambiguous" }],
-    ["a page sent in the last day", { outcome: "skipped", reason: "sent" }],
+    ["a page sent within the retry window", { outcome: "skipped", reason: "sent" }],
   ] as const)("settles as unknown after %s, with no judge call", async (_label, answer) => {
     inPlace();
     const service = generation(async () => answer);
@@ -9983,6 +9984,49 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     await until(settled("authenticated"));
     expect(service.generate).toHaveBeenCalledTimes(2);
     expect(executed()).toEqual(allSteps);
+  });
+
+  it("never sends a given-back request again from the same document after a path change", async () => {
+    inPlace();
+    const service = generation(async () => ({
+      outcome: "unavailable",
+      reason: "busy",
+      retry: true,
+    }));
+    const h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => service.generate.mock.calls.length === 1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(status()![0]!["continuation"]).toBeUndefined();
+    // `history.pushState` to another path: the page still shows the password form.
+    fake.state.tabUrls[1] = "https://login.example/signin/password";
+    fake.state.observedPath = "/signin/password";
+    fake.state.extracted = { login: passwordPage("/signin/password") };
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+
+  it("offers no custom field that the recipe's generated slot map already names", async () => {
+    inPlace();
+    const service = generation();
+    service.slotFields.mockResolvedValue([{ slot: "branch", field: { custom: "Branch" } }]);
+    const h = start(service, {
+      custom: [
+        { name: "Branch", kind: "text" },
+        { name: "PIN", kind: "hidden" },
+      ],
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => service.generate.mock.calls.length === 1);
+    expect(service.slotFields).toHaveBeenCalledWith(emailFirst.id);
+    expect(
+      service.generate.mock.calls[0]![0].slots.map((slot) => [slot.id, slot.fieldName]),
+    ).toEqual([
+      ["password", undefined],
+      ["custom-2", "PIN"],
+    ]);
   });
 
   it("never sends the page again after a worker restart during the request", async () => {
@@ -10090,6 +10134,36 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(executed()).toEqual(allSteps);
     } finally {
       fake.browser.tabs.get = get;
+    }
+  });
+
+  it("asks again while the vault match could not evaluate the login's own item", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service);
+    let incomplete = 0;
+    uris.mockImplementation(async () => {
+      // Once the password form shows, the item's URIs cannot be evaluated for a moment.
+      if (!fake.state.present?.has("password") || incomplete >= 3)
+        return { ok: true as const, data: uriMatch() };
+      incomplete += 1;
+      return {
+        ok: true as const,
+        data: uriMatch({
+          candidates: [{ itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] }],
+          unavailableItemIds: [itemId],
+        }),
+      };
+    });
+    try {
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(incomplete).toBe(3);
+      expect(service.generate).toHaveBeenCalledTimes(1);
+      expect(executed()).toEqual(allSteps);
+    } finally {
+      uris.mockImplementation(async () => ({ ok: true as const, data: uriMatch() }));
     }
   });
 

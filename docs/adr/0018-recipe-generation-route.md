@@ -204,21 +204,24 @@ Implementation choices for the page after a recipe's final `advance` step, made 
 - **One request per step.** The page is described by `extractLoginObservation` and sent
   only when the description is complete, on the login's origin and on the path that
   qualified. The login's own vault item must still match the page, as for a first page;
-  a vault or tab that cannot answer for a moment is asked again on the next round. The
-  request offers only the slots the recipe does not fill yet, and both the extension and
-  the service refuse a page whose steps fill one of the recipe's slots again, before
-  anything is stored. A read-only or disabled field that the recipe already fills on
-  that path, such as an identifier the page shows again, is left out instead of making
-  the description incomplete. The request is recorded in the attempt before it is sent,
-  so a worker restart cannot send that step's page again. The request is given back
-  for a later document of the tab by the generation claim's own rule
-  ([ADR 0016](0016-recipe-generation-trigger.md)): when its claim is freed because the
-  request did not reach the model, or it was not sent because no service is paired,
-  storage could not be written or the same request is still `sending`. The same
-  document does not send it again. A qualifying
-  page whose request is spent or whose answer cannot be used settles `unknown` without a
-  judge call: it still asks for credentials, so the judge could not learn anything from
-  it.
+  a vault or tab that cannot answer for a moment, or a match that could not evaluate
+  every item, is asked again on the next round. The request offers only the slots the
+  recipe does not fill yet, and no custom field the recipe's generated slot map already
+  names (ADR 0027), and both the extension and the service refuse a page whose steps
+  fill one of the recipe's slots again, before anything is stored. A read-only or
+  disabled field that the recipe already fills on that path, such as an identifier the
+  page shows again, is left out instead of making the description incomplete. The
+  request is recorded in the attempt before it is sent, so a worker restart cannot send
+  that step's page again. The request is given back for a later document of the tab by
+  the generation claim's own rule ([ADR 0016](0016-recipe-generation-trigger.md)): when
+  its claim is freed because the request did not reach the model, or it was not sent
+  because no service is paired, storage could not be written or the same request is
+  still `sending`. The same document does not send it again, even after a path change or
+  a moment in which the page stopped qualifying. A document left while the request was
+  being recorded may leave it recorded with nothing sent; that fails closed, as a spent
+  request. A qualifying page whose request is spent or whose answer cannot be used
+  settles `unknown` without a judge call: it still asks for credentials, so the judge
+  could not learn anything from it.
 - **Recipes-only refresh.** A returned revision is pulled with recipes only, as after a
   judgement, so a settings change from the service does not stop the login that asked
   for it.
@@ -238,11 +241,11 @@ Implementation choices for the page after a recipe's final `advance` step, made 
 - **New documents and restarts.** A form that posts back during the request makes a new
   document; the login there keeps the revision it ran and takes the continuation over
   once it reaches the recipe cache, or once the answer the earlier document asked for
-  arrives: the extension keeps that request in memory and the new document waits for it
-  for up to 100 seconds, past the step's 10 seconds. An answer that gives the request back
-  lets the new document send it. A login resumed after a worker restart
-  does not send the page again and settles `unknown` on it unless the cache already
-  holds the continuation.
+  arrives: the extension keeps that request in memory until the login ends, and the new
+  document waits for it for up to 100 seconds, past the step's 10 seconds. An answer
+  that gives the request back lets the new document send it. A login resumed after a
+  worker restart does not send the page again and settles `unknown` on it unless the
+  cache already holds the continuation.
 - **Limitations.** A page that shows the password and a one-time-code input in separate
   forms may put `totp` into the recipe's steps rather than a handler; in one form it is
   not continued. A continuation on another origin is not supported: the login ends
@@ -253,15 +256,19 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   field, a later login continues after Next only when the password input was missing,
   hidden or disabled before Next
   ([ADR 0013](0013-service-held-recipes-and-settings.md)'s same-path rule); one that was
-  already usable leaves the login `unknown` after Next.
+  already usable leaves the login `unknown` after Next. A code input typed `password`
+  without `autocomplete="one-time-code"` counts as a password input, so such a code
+  page is sent to be continued rather than judged.
 
 ## Consequences
 
 The service and Anthropic see, once per new recipe, the page shown right after the
 first sign-in. That page can carry the owner's name or balances in its title and
 headings, within the extractor's label redaction (`[email]`, `[masked]`, and
-`[number]` for every number on that page since 2026-10-12).
-A new site costs about two Claude calls, roughly $0.015. A post-login page the extractor
+`[number]` for every number on that page since 2026-10-12). The page after an `advance`
+step, like any judged page, may show the identifier just entered and is sent as
+observed; redacting the account's own username from the description is planned. A new
+site costs about two Claude calls, roughly $0.015. A post-login page the extractor
 cannot describe completely is not sent, and that attempt ends `unknown`; the next run
 tries again.
 

@@ -915,11 +915,12 @@ export function refillsLoginSlot(
 /**
  * Whether `next` continues `previous` on the page after its final `advance` step (ADR
  * 0018): a newer revision of the same recipe whose steps are `previous`'s steps followed by
- * at least one more, none of which fills a slot `previous`'s steps already fill. `previous` has no completion and no alternatives and ends in an
- * advance; `next` has no alternatives. The `passkey` route and the rejection are unchanged,
- * the handlers extend the old ones in order, the account switch is unchanged or newly
- * added, and a completion may be new. A running login at its final advance takes over only
- * such a revision, so the steps it ran keep their meaning.
+ * at least one more, none of which fills a slot `previous`'s steps already fill.
+ * `previous` has no completion and no alternatives and ends in an advance; `next` has no
+ * alternatives. The `passkey` route and the rejection are unchanged, the handlers extend
+ * the old ones in order, the account switch is unchanged or newly added, and a completion
+ * may be new. A running login at its final advance takes over only such a revision, so
+ * the steps it ran keep their meaning.
  */
 export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
   const last = previous.steps.at(-1);

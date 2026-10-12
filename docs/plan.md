@@ -1451,8 +1451,8 @@ Remaining M4 AI work:
   page whose Next opens the password page as a new document, each signing in after one
   Next and one Log in, sending the identifier page, the password page with its base and
   the signed-in page, never an input value (a page is sent as observed, so one that
-  shows the identifier just entered sends it as page text), ending at revision 3 with a
-  completion, and a
+  shows the identifier just entered sends it as page text; redacting the account's own
+  username is planned), ending at revision 3 with a completion, and a
   second visit running all four steps with no model call; and an identifier form shown
   again where it posted, which is never continued. None of this has run in installed
   Chrome, with a paid generation call or on a real site; that check is listed with the

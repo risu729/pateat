@@ -657,9 +657,11 @@ loaded and shows, for a second on one path, a password input other than the reci
 fields while the recipe fills no password, or a username or email input while the recipe
 fills no username and none of its fill fields is writable on the page, outside any form
 with a `new-password` or `one-time-code` input, is not judged: it is sent once per step
-to continue the recipe, offering only the slots the recipe does not fill yet
-(`CONTINUING`, recorded before the request and given back by `UNCONTINUED` only when
-the generation claim is freed or the request was not sent, as for the first page). The attempt takes the returned revision over (`CONTINUED`)
+to continue the recipe, offering only the slots the recipe does not fill yet and no
+custom field its generated slot map already names (`CONTINUING`, recorded before the
+request and given back by `UNCONTINUED` only when the generation claim is freed or the
+request was not sent, as for the first page; the document that sent it never sends it
+again). The attempt takes the returned revision over (`CONTINUED`)
 when it keeps every step of the recorded one, only appends steps that fill none of its
 slots again, and a dry run of its route still resolves to its account; its step and
 submission budget grows by the appended steps and effects. The advance that the
