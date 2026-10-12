@@ -4,6 +4,7 @@ import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
+import { showsIdentifierOnly } from "../page/identifier-field";
 import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
 import {
@@ -266,8 +267,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const accounts = bare ? listed() : undefined;
         const offerEntry = bare && entryWanted && !entryOffered;
         if (offerEntry) entryOffered = true;
+        // Otherwise a page asking for an account identifier alone is offered as a sign-in
+        // page (ADR 0016); a list by email or an entry goes first, so a newsletter field
+        // does not hide them, and the texts of a list by names only are dropped for it.
+        const identifierOnly =
+          bare && !offerEntry && !(accounts && !accounts.names && !accounts.missed)
+            ? showsIdentifierOnly(document)
+            : false;
         watch(starts);
-        if (accounts || offerEntry)
+        if (identifierOnly) void announce(false, true).catch(() => undefined);
+        else if (accounts || offerEntry)
           void announce(false, false, accounts, offerEntry).catch(() => undefined);
       }, LOGIN_STEP_WAIT_MS);
     if ((!starts.length && !generate) || cancelled) {
