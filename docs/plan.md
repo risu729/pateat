@@ -260,7 +260,7 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   one to use waits for the owner. A read-only probe run there on 2026-10-12 found the
   browser-tool guards in the computer's own `sand-host` process, Chrome 154 from
   Google's package with memory saver at its most aggressive, and the `a8350f5` build
-  loaded.
+  loaded. The owner wants the computer's own code read later (2026-10-12), not now.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
