@@ -125,6 +125,10 @@ Chrome, on a production build of main.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
+- If field or button mapping gets worse on real pages, consider observing more of the
+  text around a control, which the extractor leaves out today
+  ([AI evaluation harness progress](#ai-evaluation-harness-progress)); not before
+  (owner, 2026-10-12 05:57 UTC).
 
 ### Phase 3: public release
 
@@ -1582,7 +1586,8 @@ added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
-locators, labels, placeholders, `autocomplete` and declared input constraints, plus the
+locators, labels, placeholders, descriptions, `autocomplete` and declared input
+constraints, plus the
 title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
 strings, and refuses a path that may carry a session ID or another token: a segment,
 percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET part such as
@@ -1625,6 +1630,18 @@ context links to the 48-candidate limit or to shared text. Hidden, collapsed,
 from `aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
 table cell, `<dt>` or sibling, at most three levels up, never across another control or
 its label), then `title`; image `alt` names buttons, including `<input type="image">`.
+A text, email, tel, number or password field also gets a `description`: the rendered
+text of the elements its `aria-describedby` names, such as `半角数字3桁` under a branch
+number field, left out when it equals the label. It reaches the generation, finite-choice
+and completion roles as untrusted page text, like labels. The owner chose on 2026-10-12
+to add only this now and to consider the rest only if field or button mapping gets worse
+on real pages. Not observed today: text after a field that no `aria-describedby` names
+(a hint printed under an input), a second label source once one is found (the text next
+to a field when a `<label>` exists), text around a button (a line above a passkey
+button, the heading of its section) and a button's `aria-describedby`, the `pattern`
+attribute, and whether a button is disabled. Whatever the model saw, the executor still
+checks a field's `maxlength` and `minlength` before it fills and the browser's validation,
+`pattern` included, before it clicks.
 Text is redacted as [architecture](architecture.md#declarative-recipes-and-ai)
 describes. Each target is the first of `id`, `name` and `data-testid` that matches
 exactly one element, as the executor resolves it; a button without one gets a text

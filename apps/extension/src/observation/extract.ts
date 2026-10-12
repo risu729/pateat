@@ -211,8 +211,11 @@ function locate(
   return v.is(loginTargetSchema, target) ? target : undefined;
 }
 
-function referencedText(element: Element): string | undefined {
-  const ids = element.getAttribute("aria-labelledby")?.split(/\s+/u).filter(Boolean) ?? [];
+function referencedText(
+  element: Element,
+  attribute: "aria-labelledby" | "aria-describedby" = "aria-labelledby",
+): string | undefined {
+  const ids = element.getAttribute(attribute)?.split(/\s+/u).filter(Boolean) ?? [];
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
     const text = referenced && visibleText(referenced);
@@ -331,6 +334,8 @@ function describe(element: Element): Found | undefined {
     if (fillRole) {
       const label = fieldLabel(element);
       const placeholder = observedText(element.placeholder);
+      const described = referencedText(element, "aria-describedby");
+      const description = described === label ? undefined : described;
       const hint = autocomplete(element);
       return {
         kind: "candidate",
@@ -340,6 +345,7 @@ function describe(element: Element): Found | undefined {
           role: fillRole,
           ...(label ? { label } : {}),
           ...(placeholder ? { placeholder } : {}),
+          ...(description ? { description } : {}),
           ...(hint ? { autocomplete: hint } : {}),
           ...constraints(element, fillRole),
         },
@@ -512,8 +518,8 @@ function loginFormsOf(
 
 /**
  * Builds the value-free observation of a top-level page that recipe generation
- * receives. It reads element types, locators, labels, placeholders and declared input
- * constraints, plus the title and visible headings; never input values, hidden inputs,
+ * receives. It reads element types, locators, labels, placeholders, `aria-describedby`
+ * descriptions and declared input constraints, plus the title and visible headings; never input values, hidden inputs,
  * query strings, scripts or markup. Label text comes from label elements, ARIA, or the
  * rendered text next to a field, with private-looking parts redacted.
  *
@@ -683,7 +689,11 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
   const texts = [
     title ?? "",
     ...headings,
-    ...candidates.flatMap((candidate) => [candidate.label ?? "", candidate.placeholder ?? ""]),
+    ...candidates.flatMap((candidate) => [
+      candidate.label ?? "",
+      candidate.placeholder ?? "",
+      candidate.description ?? "",
+    ]),
   ];
   const parsed = v.safeParse(loginObservationSchema, {
     version: 1,

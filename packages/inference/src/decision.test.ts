@@ -82,6 +82,15 @@ describe("finite-choice decision role", () => {
       maxLength: 3,
       inputMode: "numeric",
     });
+    const described = {
+      ...bank.observation,
+      candidates: bank.observation.candidates.map((candidate) =>
+        candidate.id === "field-b" ? { ...candidate, description: "半角数字3桁" } : candidate,
+      ),
+    };
+    expect(
+      buildFieldQuestions(described, bank.slots)["slot:custom-1"]!.criteria["c:field-b"],
+    ).toMatchObject({ description: "半角数字3桁" });
     const model = oracleDecider();
     const outcome = await decider(model)({ observation: bank.observation, slots: bank.slots });
     // It cannot name the custom-field slots, so it fails closed (ADR 0027).
